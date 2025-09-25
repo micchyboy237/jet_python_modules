@@ -2,7 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from haystack_integrations.tools.mcp import MCPToolset, SSEServerInfo
+
+from jet.logger import logger
+import os
+import shutil
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
 
 # This example demonstrates using MCPToolset with SSE transport
 # and filtering tools by name
@@ -16,18 +30,18 @@ def main():
     full_toolset = None
     filtered_toolset = None
     try:
-        print("Creating toolset with all available tools:")
+        logger.gray("Creating toolset with all available tools:")
         # Create a toolset with all available tools
         full_toolset = MCPToolset(
             server_info=SSEServerInfo(url="http://localhost:8000/sse"),
         )
 
         # Print all discovered tools
-        print(f"Discovered {len(full_toolset)} tools:")
+        logger.info(f"Discovered {len(full_toolset)} tools:")
         for tool in full_toolset:
-            print(f"  - {tool.name}: {tool.description}")
+            logger.info(f"  - {tool.name}: {tool.description}")
 
-        print("\nCreating toolset with filtered tools:")
+        logger.gray("\nCreating toolset with filtered tools:")
         # Create a toolset with only specific tools
         # In this example, we're only including the 'add' tool
         filtered_toolset = MCPToolset(
@@ -36,20 +50,21 @@ def main():
         )
 
         # Print filtered tools
-        print(f"Filtered toolset has {len(filtered_toolset)} tools:")
+        logger.info(f"Filtered toolset has {len(filtered_toolset)} tools:")
         for tool in filtered_toolset:
-            print(f"  - {tool.name}: {tool.description}")
+            logger.info(f"  - {tool.name}: {tool.description}")
 
         # Use the filtered toolset
         if len(filtered_toolset) > 0:
             add_tool = filtered_toolset.tools[0]  # The only tool should be 'add'
             result = add_tool.invoke(a=10, b=5)
-            print(f"\nInvoking {add_tool.name}: 10 + 5 = {result.content[0].text}")
+            result_dict = json.loads(result)
+            logger.success(f"\nInvoking {add_tool.name}: 10 + 5 = {result_dict["content"][0]["text"]}")
         else:
-            print("No tools available in the filtered toolset")
+            logger.warning("No tools available in the filtered toolset")
 
     except Exception as e:
-        print(f"Error in filtered toolset example: {e}")
+        logger.error(f"Error in filtered toolset example: {e}")
     finally:
         if full_toolset:
             full_toolset.close()

@@ -2,7 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from haystack_integrations.tools.mcp import MCPToolset, SSEServerInfo
+
+from jet.logger import logger
+import os
+import shutil
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
 
 # This example demonstrates using MCPToolset with SSE transport
 # Run this client after running the server mcp_server.py with sse transport
@@ -35,33 +49,36 @@ def main():
         )
 
         # Print discovered tools
-        print(f"Discovered {len(sse_toolset)} tools:")
+        logger.info(f"Discovered {len(sse_toolset)} tools:")
         for tool in sse_toolset:
-            print(f"  - {tool.name}: {tool.description}")
+            logger.info(f"  - {tool.name}: {tool.description}")
 
         # Get tools by name from the toolset
         add_tool = find_tool(sse_toolset, "add")
         if not add_tool:
-            print("Add tool not found!")
+            logger.warning("Add tool not found!")
             return
 
         subtract_tool = find_tool(sse_toolset, "subtract")
         if not subtract_tool:
-            print("Subtract tool not found!")
+            logger.warning("Subtract tool not found!")
             return
 
         # Use the tools
         result = add_tool.invoke(a=7, b=3)
-        print(f"7 + 3 = {result.content[0].text}")
+        result_dict = json.loads(result)
+        logger.success(f"7 + 3 = {result_dict["content"][0]["text"]}")
 
         result = subtract_tool.invoke(a=5, b=3)
-        print(f"5 - 3 = {result.content[0].text}")
+        result_dict = json.loads(result)
+        logger.success(f"5 - 3 = {result_dict["content"][0]["text"]}")
 
         result = add_tool.invoke(a=10, b=20)
-        print(f"10 + 20 = {result.content[0].text}")
+        result_dict = json.loads(result)
+        logger.success(f"10 + 20 = {result_dict["content"][0]["text"]}")
 
     except Exception as e:
-        print(f"Error in SSE toolset example: {e}")
+        logger.error(f"Error in SSE toolset example: {e}")
 
     finally:
         if sse_toolset:

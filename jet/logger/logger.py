@@ -123,13 +123,13 @@ class CustomLogger:
     def set_config(
         self,
         *,
+        name: Optional[str] = None,
         filename: Optional[str] = None,
         filemode: str = "a",
         format: str = "%(message)s",
         datefmt: Optional[str] = None,
         style: Literal["%", "{", "$"] = "%",
-        level: Optional[Literal["DEBUG", "INFO",
-                                "WARNING", "ERROR", "CRITICAL"]] = None,
+        level: Optional[Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]] = None,
         stream: Optional[Any] = None,
         handlers: Optional[Iterable[logging.Handler]] = None,
         force: bool = False,
@@ -140,6 +140,7 @@ class CustomLogger:
         Configure the logger with settings similar to logging.basicConfig.
 
         Args:
+            name: If specified, changes the logger's name and reinitializes it.
             filename: If specified, log messages to this file.
             filemode: Mode to open the file ('a' for append, 'w' for overwrite). Default is 'a'.
             format: Format string for log messages. Default is '%(message)s'.
@@ -152,6 +153,10 @@ class CustomLogger:
             encoding: Encoding for the file handler, if filename is specified.
             errors: Error handling scheme for the file handler, if filename is specified.
         """
+        if name is not None and name != self.name:
+            self.name = name
+            self.logger = self._initialize_logger(name)
+
         if force:
             self.logger.handlers.clear()
 
@@ -206,18 +211,18 @@ class CustomLogger:
                 handler.setLevel(self.console_level)
 
         print(
-            f"DEBUG: Configured logger with filename={filename}, level={level}, format={format}")
+            f"DEBUG: Configured logger with name={self.name}, filename={filename}, level={level}, format={format}")
 
     def basicConfig(
         self,
         *,
+        name: Optional[str] = None,
         filename: Optional[str] = None,
         filemode: str = "a",
         format: str = "%(message)s",
         datefmt: Optional[str] = None,
         style: Literal["%", "{", "$"] = "%",
-        level: Optional[Union[int, Literal["DEBUG", "INFO",
-                                  "WARNING", "ERROR", "CRITICAL"]]] = None,
+        level: Optional[Union[int, Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]]] = None,
         stream: Optional[Any] = None,
         handlers: Optional[Iterable[logging.Handler]] = None,
         force: bool = False,
@@ -233,6 +238,7 @@ class CustomLogger:
             log_dir = os.path.dirname(os.path.abspath(filename))
             os.makedirs(log_dir, exist_ok=True)
         self.set_config(
+            name=name,
             filename=filename,
             filemode=filemode,
             format=format,

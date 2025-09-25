@@ -2,7 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from haystack_integrations.tools.mcp import MCPToolset, StdioServerInfo
+
+from jet.logger import logger
+import os
+import shutil
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
 
 # This example shows how to use MCPToolset with stdio transport
 # MCPToolset automatically discovers all available tools from the MCP server
@@ -37,24 +51,26 @@ def main():
         stdio_toolset = MCPToolset(server_info=server_info)
 
         # Print discovered tools
-        print(f"Discovered {len(stdio_toolset)} tools:")
+        logger.info(f"Discovered {len(stdio_toolset)} tools:")
         for tool in stdio_toolset:
-            print(f"  - {tool.name}: {tool.description}")
+            logger.info(f"  - {tool.name}: {tool.description}")
 
         # Find tools by name using the helper function
         time_tool = find_tool(stdio_toolset, "get_current_time")
         if not time_tool:
-            print("Time tool not found!")
+            logger.warning("Time tool not found!")
             return
 
         # Use the get_current_time tool
         result = time_tool.invoke(timezone="America/New_York")
-        print(f"Current time in New York: {result.content[0].text}")
+        result_dict = json.loads(result)
+        logger.success(f"Current time in New York: {result_dict["content"][0]["text"]}")
 
         result = time_tool.invoke(timezone="America/Los_Angeles")
-        print(f"Current time in Los Angeles: {result.content[0].text}")
+        result_dict = json.loads(result)
+        logger.success(f"Current time in Los Angeles: {result_dict["content"][0]["text"]}")
     except Exception as e:
-        print(f"Error in stdio toolset example: {e}")
+        logger.error(f"Error in stdio toolset example: {e}")
     finally:
         if stdio_toolset:
             stdio_toolset.close()
