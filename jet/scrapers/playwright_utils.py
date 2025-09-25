@@ -207,6 +207,45 @@ async def scrape_urls(
                 except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
                     logger.debug(f"Failed to close browser: {str(e)}")
 
+def scrape_url_sync(
+    url: str,
+    timeout: Optional[float] = 5000,
+    max_retries: int = 2,
+    with_screenshot: bool = True,
+    headless: bool = True,
+    wait_for_js: bool = False,
+    use_cache: bool = True
+) -> ScrapeResult:
+    """
+    Synchronously scrape a single URL and return a ScrapeResult.
+    
+    Args:
+        url: The URL to scrape
+        timeout: Timeout for page loading in milliseconds
+        max_retries: Number of retry attempts for failed requests
+        with_screenshot: Whether to capture a screenshot
+        headless: Whether to run browser in headless mode
+        wait_for_js: Whether to wait for JavaScript to load
+        use_cache: Whether to use Redis cache
+    
+    Returns:
+        ScrapeResult containing the URL, status, HTML content, and optional screenshot
+    """
+    results = scrape_urls_sync(
+        urls=[url],
+        num_parallel=1,
+        limit=1,
+        show_progress=False,
+        timeout=timeout,
+        max_retries=max_retries,
+        with_screenshot=with_screenshot,
+        headless=headless,
+        wait_for_js=wait_for_js,
+        use_cache=use_cache
+    )
+    # Return the last result (either "completed" or "failed") for the single URL
+    return next((result for result in results if result["status"] != "started"), results[-1])
+
 def scrape_urls_sync(
     urls: List[str],
     num_parallel: int = 10,

@@ -13,6 +13,8 @@
 
 from ollama import Client
 
+from jet.logger import logger
+
 client = Client(host='http://localhost:11435')
 
 messages = [
@@ -23,4 +25,4 @@ messages = [
 ]
 
 for part in client.chat(model='deepseek-coder-v2:16b-lite-instruct-q3_K_M', messages=messages, stream=True):
-  print(part['message']['content'], end='', flush=True)
+  logger.teal(part['message']['content'], flush=True)

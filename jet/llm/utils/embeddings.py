@@ -504,11 +504,13 @@ def generate_ollama_batch_embeddings(
     else:
         max_tokens = int(max_tokens or model_max_tokens)
 
-    logger.debug(f"generate_ollama_batch_embeddings - text:\n{format_json(texts)}")
-    logger.debug(f"generate_ollama_batch_embeddings - model: {model}")
-    logger.debug(f"generate_ollama_batch_embeddings - max_tokens: {max_tokens}")
 
     token_counts: list[int] = token_counter(texts, model, prevent_total=True)
+
+    logger.debug(f"generate_ollama_batch_embeddings - text:\n{format_json(texts)}")
+    logger.debug(f"generate_ollama_batch_embeddings - model: {model}")
+    logger.debug(f"generate_ollama_batch_embeddings - texts tokens: {sum(token_counts)}")
+    logger.debug(f"generate_ollama_batch_embeddings - max_tokens: {max_tokens}")
 
     # Identify texts that exceed the max token limit
     exceeded_texts = [

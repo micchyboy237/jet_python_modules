@@ -96,8 +96,7 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                         data = json.load(f)
                     except json.JSONDecodeError as e:
                         if verbose:
-                            logger.error(
-                                f"Invalid JSON format in {input_file}: {e}")
+                            logger.error(f"Invalid JSON format in {input_file}: {e}")
                         return None
             else:  # .jsonl
                 data = []
@@ -109,8 +108,7 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                                 data.append(json.loads(line))
                             except json.JSONDecodeError as e:
                                 if verbose:
-                                    logger.error(
-                                        f"Invalid JSONL line in {input_file}: {e}")
+                                    logger.error(f"Invalid JSONL line in {input_file}: {e}")
                                 return None
 
             if verbose:
@@ -119,26 +117,47 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                 logger.log(prefix, input_file, colors=["INFO", "BRIGHT_INFO"])
             return data
 
-        # HTML
-        elif ext == ".html":
+        # HTML or Text
+        elif ext in {".html", ".txt"}:
             with open(input_file, "r", encoding="utf-8") as f:
-                html_content = f.read()
-            formatted_html = format_html(html_content)
+                content = f.read()
+            if ext == ".html":
+                content = format_html(content)
+                if verbose:
+                    logger.newline()
+                    logger.log("Loaded and formatted HTML from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+            else:
+                if verbose:
+                    logger.newline()
+                    logger.log("Loaded text from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+            return content
+
+        # Binary files (e.g., PNG, JPEG)
+        elif ext in {".png", ".jpg", ".jpeg"}:
+            with open(input_file, "rb") as f:
+                content = f.read()
             if verbose:
                 logger.newline()
-                logger.log("Loaded and formatted HTML from:", input_file,
-                           colors=["INFO", "BRIGHT_INFO"])
-            return formatted_html
+                logger.log(f"Loaded binary data from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+            return content
 
         # Other files
         else:
             with open(input_file, "r", encoding="utf-8") as f:
-                data = f.read()
+                content = f.read()
             if verbose:
                 logger.newline()
-                logger.log("Loaded data from:", input_file,
-                           colors=["INFO", "BRIGHT_INFO"])
-            return data
+                logger.log("Loaded data from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+            return content
+
+    except UnicodeDecodeError:
+        # Fallback for binary files not explicitly handled
+        with open(input_file, "rb") as f:
+            content = f.read()
+        if verbose:
+            logger.newline()
+            logger.log(f"Loaded binary data from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+        return content
     except Exception as e:
         if verbose:
             logger.newline()
@@ -147,7 +166,7 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
 
 
 def save_file(
-    data: Union[str, List, Dict, BaseModel],
+    data: Union[str, bytes, List, Dict, BaseModel],
     output_file: Union[str, Path],
     verbose: bool = True,
     append: bool = False
@@ -190,26 +209,42 @@ def save_file(
                 logger.log(f"{'Appended' if append else 'Saved'} {upper_ext} data{count} to:",
                            output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
-        # HTML
-        elif ext == ".html":
-            data = format_html(data)
+        # HTML or Text
+        elif ext in {".html", ".txt"}:
+            if not isinstance(data, str):
+                data = str(data)
+            if ext == ".html":
+                data = format_html(data)
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(data)
             if verbose:
                 logger.newline()
-                logger.log("Saved HTML to:", output_file,
+                logger.log(f"Saved {'HTML' if ext == '.html' else 'text'} to:", output_file,
                            colors=["SUCCESS", "BRIGHT_SUCCESS"])
+
+        # Binary files (e.g., PNG, JPEG)
+        elif ext in {".png", ".jpg", ".jpeg"}:
+            if not isinstance(data, bytes):
+                raise ValueError(f"Expected bytes for {ext} file, got {type(data)}")
+            with open(output_file, "wb") as f:
+                f.write(data)
+            if verbose:
+                logger.newline()
+                logger.log(f"Saved binary data to:", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
         # Other files
         else:
-            if not isinstance(data, str):
-                data = str(data)
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(data)
+            if isinstance(data, bytes):
+                with open(output_file, "wb") as f:
+                    f.write(data)
+            else:
+                if not isinstance(data, str):
+                    data = str(data)
+                with open(output_file, "w", encoding="utf-8") as f:
+                    f.write(data)
             if verbose:
                 logger.newline()
-                logger.log("Saved data to:", output_file,
-                           colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                logger.log("Saved data to:", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
         return output_file
 

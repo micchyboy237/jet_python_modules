@@ -17,23 +17,53 @@ def remove_markdown_comments(markdown_text: str) -> str:
     return cleaned.strip()
 
 
+def preserve_code_blocks(html: str) -> str:
+    """Extract and preserve code blocks before normalization, then reintegrate them."""
+    soup = BeautifulSoup(html, 'html.parser')
+    code_blocks = []
+
+    # Find all <pre> tags containing <code> blocks
+    for idx, pre in enumerate(soup.find_all('pre')):
+        code = pre.find('code')
+        if code:
+            # Extract raw text, preserving inline elements as continuous text
+            code_content = ''
+            for content in code.contents:
+                if isinstance(content, str):
+                    code_content += content
+                elif content.name == 'span':
+                    # Inline elements like <span> should not introduce newlines
+                    code_content += content.get_text(strip=False)
+                else:
+                    # Handle other tags (e.g., <br>) if needed
+                    code_content += content.get_text(strip=False)
+            placeholder = f"__CODE_BLOCK_{idx}__"
+            code_blocks.append((placeholder, code_content))
+            pre.replace_with(placeholder)
+
+    # Normalize other parts of the HTML
+    normalized = normalize_whitespace(str(soup))
+
+    # Reinsert preserved code blocks
+    for placeholder, content in code_blocks:
+        normalized = normalized.replace(placeholder, f"<pre><code>{content}</code></pre>")
+
+    return normalized
+
+
 def normalize_whitespace(html: str) -> str:
-    """Normalize HTML whitespace for consistent test output."""
-    return re.sub(r'\s+', ' ', html.strip())
+    """Normalize HTML whitespace for consistent test output, excluding code blocks."""
+    return re.sub(r'(?<!<pre>)(?<!<code>)\s+(?!<\/?pre>)(?!<\/?code>)', ' ', html.strip())
 
 
-def remove_display_none_elements(html_string):
-    # Parse the HTML content using BeautifulSoup
+def remove_display_none_elements(html_string: str) -> str:
+    """Remove elements with display:none style."""
     soup = BeautifulSoup(html_string, 'html.parser')
-
-    # Find all elements with the style attribute that contains 'display: none'
     for element in soup.find_all(style=True):
         elm: bs4.element.Tag = element
         if elm.attrs and "style" in elm.attrs and 'display:none' in elm['style'].replace(' ', ''):
-            elm.decompose()  # Remove the element from the tree
-
-    # Return the modified HTML as a string
-    return normalize_whitespace(str(soup))
+            elm.decompose()
+    return str(soup)
 
 
 def clean_html_noise(html_string: str) -> str:
@@ -42,13 +72,9 @@ def clean_html_noise(html_string: str) -> str:
     clean_html = doc.summary()
 
     soup = BeautifulSoup(clean_html, 'html.parser')
-
-    # Extract content from readability wrapper
     target = soup.find('body', id='readabilityBody')
     if target:
-        # Create a new soup with just the body contents
-        soup = BeautifulSoup(''.join(str(child)
-                             for child in target.children), 'html.parser')
+        soup = BeautifulSoup(''.join(str(child) for child in target.children), 'html.parser')
 
     noisy_selectors = ['script', 'style', '[class*="ad"]', '[class*="banner"]']
     for selector in noisy_selectors:
@@ -63,23 +89,27 @@ def clean_html_noise(html_string: str) -> str:
         for element in soup.find_all(string=re.compile(pattern, re.IGNORECASE)):
             element.replace_with('')
 
-    return normalize_whitespace(str(soup))
+    return str(soup)
 
 
-# def convert_html_to_markdown(html_string: str, ignore_links: bool = True) -> str:
-#     """Convert HTML to Markdown with enhanced noise removal."""
-#     filtered_html = remove_display_none_elements(html_string)
-#     # filtered_html = clean_html_noise(filtered_html)
+def base_convert_html_to_markdown(html_string: str, ignore_links: bool = True) -> str:
+    """Convert HTML to Markdown with enhanced noise removal and preserved code blocks."""
+    filtered_html = preserve_code_blocks(html_string)
+    filtered_html = remove_display_none_elements(filtered_html)
+    # filtered_html = clean_html_noise(filtered_html)
 
-#     converter = html2text.HTML2Text()
-#     converter.ignore_links = ignore_links
-#     converter.ignore_images = True
-#     converter.ignore_emphasis = True
-#     converter.mark_code = True
-#     converter.body_width = 0
+    converter = html2text.HTML2Text()
+    converter.ignore_links = ignore_links
+    converter.ignore_images = True
+    converter.ignore_emphasis = True
+    converter.mark_code = True
+    converter.body_width = 0
+    converter.protect_pre = True
+    converter.pad_tables = False
+    converter.single_line_break = False
 
-#     markdown_string = converter.handle(filtered_html)
-#     return markdown_string.strip()
+    markdown_string = converter.handle(filtered_html)
+    return markdown_string.strip()
 
 
 def is_html(text: str) -> bool:
@@ -96,7 +126,7 @@ def html_to_markdown(
     container_selector: str = 'body',
     remove_selectors: list[str] = [],
     replace_selectors: list[dict] = [],
-    ignore_links: bool = True
+    ignore_links: bool = False
 ) -> str:
     """Convert HTML to Markdown with customizable noise removal."""
 
@@ -127,7 +157,7 @@ def html_to_markdown(
                     new_element.extend(element.contents)
                 element.replace_with(new_element)
 
-    markdown = convert_html_to_markdown(
+    markdown = base_convert_html_to_markdown(
         str(container), ignore_links=ignore_links)
     markdown = clean_text(markdown)
 
@@ -330,7 +360,7 @@ def scrape_markdown(html_str: str) -> dict:
     cleaned_html_str = cleaned_html_element.get()
 
     # Convert the cleaned HTML to markdown
-    markdown_text = convert_html_to_markdown(cleaned_html_str)
+    markdown_text = base_convert_html_to_markdown(cleaned_html_str)
     markdown_text = clean_text(markdown_text)
 
     # Combine all heading contents into one string for comparison
