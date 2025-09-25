@@ -16,20 +16,8 @@ def find_files(
     modified_after: Optional[float] = None,
 ) -> List[str]:
     """
-    Find files in a directory matching specified criteria, including an optional modified time filter.
-
-    Args:
-        base_dir (str): The root directory to search.
-        include (List[str]): Patterns or paths to include.
-        exclude (List[str]): Patterns or paths to exclude.
-        include_content_patterns (List[str]): Content patterns to include.
-        exclude_content_patterns (List[str]): Content patterns to exclude.
-        case_sensitive (bool): Whether content matching is case-sensitive.
-        extensions (List[str]): File extensions to include (e.g., ['.py', '.ipynb']).
-        modified_after (Optional[float]): Only include files modified after this timestamp (seconds since epoch).
-
-    Returns:
-        List[str]: List of file paths matching the criteria.
+    Optimized file finder with include/exclude filters, optional content matching,
+    and support for double-wildcard absolute patterns.
     """
 
     normalized_extensions = {ext.lstrip(".").lstrip("*").lower() for ext in extensions}
@@ -64,15 +52,29 @@ def find_files(
     # Collect candidates
     for pattern in adjusted_include:
         try:
+            candidates = []
             if os.path.isabs(pattern):
+                # Handle absolute file/directory explicitly
                 abs_path = Path(pattern)
                 if abs_path.is_file():
                     candidates = [abs_path]
                 elif abs_path.is_dir():
                     candidates = abs_path.rglob("*")
                 else:
-                    continue
+                    # Handle absolute wildcard patterns (e.g., /foo/**/*.py)
+                    if "**" in pattern or "*" in pattern or "?" in pattern:
+                        root = Path("/")
+                        try:
+                            candidates = root.glob(pattern.lstrip("/"))
+                        except NotImplementedError:
+                            # fallback: manual walk + fnmatch
+                            candidates = [
+                                p for p in root.rglob("*") if fnmatch.fnmatch(str(p), pattern)
+                            ]
+                    else:
+                        continue
             else:
+                # Relative pattern from base_path
                 candidates = base_path.rglob(pattern)
 
             for file_path in candidates:
@@ -105,13 +107,19 @@ def find_files(
     for pattern in adjusted_exclude:
         try:
             if os.path.isabs(pattern):
-                p = Path(pattern)
-                if p.is_file():
-                    excluded.add(os.path.normpath(str(p)))
-                elif p.is_dir():
-                    for f in p.rglob("*"):
+                if "**" in pattern or "*" in pattern or "?" in pattern:
+                    root = Path("/")
+                    for f in root.glob(pattern.lstrip("/")):
                         if f.is_file():
                             excluded.add(os.path.normpath(str(f)))
+                else:
+                    p = Path(pattern)
+                    if p.is_file():
+                        excluded.add(os.path.normpath(str(p)))
+                    elif p.is_dir():
+                        for f in p.rglob("*"):
+                            if f.is_file():
+                                excluded.add(os.path.normpath(str(f)))
             else:
                 for f in matched_files:
                     rel = os.path.relpath(f, base_path)
