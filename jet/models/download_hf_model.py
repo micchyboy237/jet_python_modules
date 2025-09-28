@@ -198,7 +198,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
 
 if __name__ == "__main__":
-    repo_id = "intfloat/simlm-msmarco-reranker"
+    repo_id = "intfloat/e5-base-v2"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")
