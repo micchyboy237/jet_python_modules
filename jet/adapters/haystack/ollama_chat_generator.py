@@ -493,7 +493,7 @@ class OllamaChatGenerator:
 
         self._chat_logger.log_interaction(
             messages=ollama_messages,
-            response=response["replies"][0].__dict__,
+            response=response["replies"][0]._content,
             model=self.model,
             url=self.url,
             stream=is_stream,
@@ -501,6 +501,7 @@ class OllamaChatGenerator:
             keep_alive=self.keep_alive,
             options=generation_kwargs,
             tools=ollama_tools,
+            response_meta=response["replies"][0]._meta
         )
 
         return response
