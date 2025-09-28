@@ -1,12 +1,13 @@
-from pathlib import Path
 import shutil
-from typing import Union, Optional, Type
 import os
 import glob
 import time
+import sys
+import threading
+
+from typing import Union, Optional
 from huggingface_hub import snapshot_download
 from huggingface_hub.utils import HfHubHTTPError
-import sys
 from datetime import datetime
 
 from jet.logger import logger
@@ -19,6 +20,16 @@ from jet.models.onnx_model_checker import has_onnx_model_in_repo
 
 class ProgressBar:
     """Custom progress bar implementation mimicking tqdm behavior."""
+
+    _lock = threading.RLock()  # class-level lock
+
+    @classmethod
+    def get_lock(cls):
+        return cls._lock
+
+    @classmethod
+    def set_lock(cls, lock):
+        cls._lock = lock
 
     def __init__(self, total: Optional[int] = None, unit: str = "B", unit_scale: bool = True, desc: str = ""):
         self.total = total
@@ -168,7 +179,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
 
 if __name__ == "__main__":
-    repo_id = "google/embeddinggemma-300m"
+    repo_id = "intfloat/e5-base-v2"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")
