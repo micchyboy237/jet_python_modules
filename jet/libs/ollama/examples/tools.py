@@ -55,7 +55,7 @@ available_functions = {
 }
 
 response: ChatResponse = client.chat(
-    'mistral:7b-instruct-v0.3-q3_K_M',
+    'llama3.2',
     messages=messages,
     tools=[add_two_numbers, subtract_two_numbers_tool],
 )
@@ -80,7 +80,7 @@ if response.message.tool_calls:
         output), 'tool_name': tool.function.name})
 
     # Get final response from model with function outputs
-    final_response = client.chat('mistral:7b-instruct-v0.3-q3_K_M', messages=messages)
+    final_response = client.chat('llama3.2', messages=messages)
     print('Final response:', final_response.message.content)
 
 else:
