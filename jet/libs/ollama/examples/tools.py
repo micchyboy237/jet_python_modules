@@ -54,8 +54,9 @@ available_functions = {
     'subtract_two_numbers': subtract_two_numbers,
 }
 
+model = "qwen3:4b-q4_K_M"
 response: ChatResponse = client.chat(
-    'llama3.2',
+    model,
     messages=messages,
     tools=[add_two_numbers, subtract_two_numbers_tool],
 )
@@ -80,7 +81,7 @@ if response.message.tool_calls:
         output), 'tool_name': tool.function.name})
 
     # Get final response from model with function outputs
-    final_response = client.chat('llama3.2', messages=messages)
+    final_response = client.chat(model, messages=messages)
     print('Final response:', final_response.message.content)
 
 else:

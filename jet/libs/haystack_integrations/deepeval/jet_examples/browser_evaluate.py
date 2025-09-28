@@ -52,7 +52,7 @@ def example():
 
     messages = [ChatMessage.from_user("""
     1. Navigate to https://www.nbcnews.com
-    2. Evaluate the page
+    2. Evaluate the body element
     """)]
     agent = create_agent("MCP_Agent", tool_names=tool_names)
     result = agent.run(messages=messages)
