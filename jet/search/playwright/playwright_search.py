@@ -79,7 +79,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         """Perform a search using Playwright asynchronously."""
         logger.debug(f"Starting search for query: {query}")
         results = []
-        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        search_url = f"http://jethros-macbook-air.local:3000/search?q={query.replace(' ', '+')}"
         logger.debug(f"Generated search URL: {search_url}")
 
         async def matches_criteria(url: str, content: str) -> bool:
@@ -92,15 +92,9 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 if exclude_domains and any(re.match(pattern, domain) for pattern in exclude_domains):
                     logger.debug(f"URL {url} excluded: matches exclude_domains {exclude_domains}")
                     return False
-                if topic != "general" and content:
-                    # Relaxed topic matching: check for topic-related keywords
-                    topic_keywords = {
-                        "news": ["news", "article", "report", "update"],
-                        "finance": ["finance", "stock", "market", "economy"],
-                    }.get(topic.lower(), [])
-                    if not any(keyword in content.lower() for keyword in topic_keywords):
-                        logger.debug(f"URL {url} excluded: no topic keywords {topic_keywords} found in content")
-                        return False
+                if topic != "general" and topic.lower() not in content.lower():
+                    logger.debug(f"URL {url} excluded: topic {topic} not found in content")
+                    return False
                 return True
             except Exception as e:
                 logger.error(f"Error in matches_criteria for URL {url}: {str(e)}")
@@ -156,30 +150,13 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             try:
                 logger.debug(f"Navigating to search URL: {search_url}")
                 await page.goto(search_url, timeout=10000)
-                content = await page.content()
-                # Check for CAPTCHA or unusual traffic page
-                if "unusual traffic" in content.lower() or "recaptcha" in content.lower():
-                    logger.error("Detected potential CAPTCHA or rate-limiting page")
-                    return {
-                        "query": query,
-                        "results": [],
-                        "images": [],
-                        "response_time": asyncio.get_event_loop().time() - start_time,
-                        "error": "Detected CAPTCHA or rate-limiting page. Try again later or use a search API."
-                    }
-                
-                # Target specific search result links (Google's main result container)
-                links = await page.query_selector_all('div.g a[href]')
+                links = await page.query_selector_all('a')
                 logger.debug(f"Found {len(links)} links on search page")
                 hrefs = [
                     urljoin(search_url, await link.get_attribute('href') or '')
                     for link in links if await link.get_attribute('href')
                 ]
-                hrefs = [
-                    href for href in hrefs 
-                    if not href.startswith(('https://www.google.', 'https://accounts.google.', 'https://support.google.com'))
-                ]
-                logger.debug(f"Raw hrefs: {hrefs}")
+                hrefs = [href for href in hrefs if not href.startswith(('https://www.google.', 'https://accounts.google.'))]
                 logger.debug(f"Filtered to {len(hrefs)} valid hrefs")
                 
                 tasks = []
@@ -212,13 +189,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                         logger.debug(f"Skipping invalid result: {result}")
             except Exception as e:
                 logger.error(f"Error during search processing: {str(e)}")
-                return {
-                    "query": query,
-                    "results": [],
-                    "images": [],
-                    "response_time": asyncio.get_event_loop().time() - start_time,
-                    "error": str(e)
-                }
+                return {"error": str(e)}
             finally:
                 await page.close()
                 await browser.close()
@@ -315,7 +286,7 @@ class PlaywrightSearch(BaseTool):
                 start_date=start_date,
                 end_date=end_date,
             )
-            if not raw_results.get("results", []) and not raw_results.get("error"):
+            if not raw_results.get("results", []):
                 search_params = {
                     "time_range": time_range,
                     "include_domains": include_domains,
@@ -374,7 +345,7 @@ class PlaywrightSearch(BaseTool):
                 start_date=start_date,
                 end_date=end_date,
             )
-            if not raw_results.get("results", []) and not raw_results.get("error"):
+            if not raw_results.get("results", []):
                 search_params = {
                     "time_range": time_range,
                     "include_domains": include_domains,
