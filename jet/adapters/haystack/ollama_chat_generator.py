@@ -324,84 +324,100 @@ class OllamaChatGenerator:
         callback: Optional[Callable[[StreamingChunk], None]],
     ) -> Dict[str, List[ChatMessage]]:
         """
-        Merge an Ollama streaming response into a single ChatMessage, preserving
-        tool calls.  Works even when arguments arrive piecemeal as str fragments
-        or as full JSON dicts.
-        """
+        Process streaming responses from the Ollama chat model and build a ChatMessage.
 
+        This method iterates over streaming chunks from the Ollama model, constructs StreamingChunk objects,
+        handles tool calls, and aggregates the content into a final ChatMessage. It supports verbose logging
+        and callbacks for real-time streaming output. The method is designed to be robust against JSON parsing
+        errors and async worker failures, ensuring graceful error handling.
+
+        Args:
+            response_iter (Iterator[ChatResponse]): Iterator yielding ChatResponse objects from the Ollama model.
+            callback (Optional[Callable[[StreamingChunk], None]]): Optional callback to process each StreamingChunk
+                in real time, useful for streaming output to a client or UI.
+
+        Returns:
+            Dict[str, List[ChatMessage]]: A dictionary containing a single key "replies" with a list of one
+                ChatMessage, which includes the aggregated text, tool calls, reasoning, and metadata.
+
+        Raises:
+            Exception: If an error occurs while processing the streaming response, it is logged with a stack trace
+                and re-raised to allow upstream handling.
+        """
+        # Initialize component metadata and data structures for processing chunks
         component_info = ComponentInfo.from_component(self)
         chunks: List[StreamingChunk] = []
+        arg_by_id: Dict[str, str] = {}  # Maps tool call IDs to their arguments
+        name_by_id: Dict[str, str] = {}  # Maps tool call IDs to their tool names
+        id_order: List[str] = []  # Tracks the order of tool call IDs
+        tool_call_index: int = 0  # Increments for each tool call to track sequence
 
-        # Accumulators
-        arg_by_id: Dict[str, str] = {}
-        name_by_id: Dict[str, str] = {}
-        id_order: List[str] = []
-        tool_call_index: int = 0
+        # Process streaming chunks with error handling for async issues
+        try:
+            for index, raw in enumerate(response_iter):
+                if self.verbose and raw.done:
+                    # Log raw chunk for debugging
+                    logger.debug(f"\n\nRaw chunk response: {raw.model_dump()}")
+                # Increment tool call index if the chunk contains tool calls
+                if raw.message.tool_calls:
+                    tool_call_index += 1
+                # Build a StreamingChunk from the raw response
+                chunk = _build_chunk(
+                    chunk_response=raw,
+                    component_info=component_info,
+                    index=index,
+                    tool_call_index=tool_call_index
+                )
+                chunks.append(chunk)
+                # Log chunk content in teal if verbose mode is enabled
+                if self.verbose:
+                    logger.teal(chunk.content, flush=True)
+                # Mark the chunk as the start if it's the first chunk or contains tool calls
+                start = index == 0 or bool(chunk.tool_calls)
+                chunk.start = start
+                # Process tool calls in the chunk
+                if chunk.tool_calls:
+                    for tool_call in chunk.tool_calls:
+                        tool_call_id = tool_call.id or tool_call.tool_name or ""
+                        args = tool_call.arguments or ""
+                        # Store new tool call IDs and their names/arguments
+                        if tool_call_id not in id_order:
+                            id_order.append(tool_call_id)
+                            name_by_id[tool_call_id] = tool_call.tool_name or ""
+                        arg_by_id[tool_call_id] = args
+                # Invoke callback for real-time streaming if provided
+                if callback:
+                    callback(chunk)
+        except Exception as e:
+            # Log any async or processing errors with full stack trace
+            logger.error(f"Error processing streaming response: {e}", exc_info=True)
+            raise
 
-        # Stream
-        for index, raw in enumerate(response_iter):
-            if raw.message.tool_calls:
-                tool_call_index += 1
-            chunk = _build_chunk(
-                chunk_response=raw, component_info=component_info, index=index, tool_call_index=tool_call_index
-            )
-            chunks.append(chunk)
-            if self.verbose:
-                logger.teal(chunk.content, flush=True)
-
-            start = index == 0 or bool(chunk.tool_calls)
-            chunk.start = start
-
-            if chunk.tool_calls:
-                for tool_call in chunk.tool_calls:
-                    # the Ollama server doesn't guarantee an id field in every tool_calls entry.
-                    # OpenAI-compatible endpoint (/v1/chat/completions) - recent releases do add an auto-generated id
-                    # when the model produces multiple tool calls, so that clients can map results back.
-                    # Native Ollama endpoint (/api/chat) and older builds
-                    # - the JSON often contains only function.name + arguments;
-                    # many users have reported that id is missing even with several calls,
-                    # making client-side resolution harder:
-                    # https://github.com/ollama/ollama/issues/6708
-                    # https://github.com/ollama/ollama/issues/7510
-                    # - If id is provided → we can distinguish multiple calls to the same tool.
-
-                    # - If id is missing → fallback to function.name works only when there's one call.
-                    # - That's why the deduplication logic is cautious and assumes one logical
-                    #   call per name when id is absent.
-                    tool_call_id = tool_call.id or tool_call.tool_name or ""
-                    args = tool_call.arguments or ""
-
-                    # Remember first-seen order and tool name
-                    if tool_call_id not in id_order:
-                        id_order.append(tool_call_id)
-                        name_by_id[tool_call_id] = tool_call.tool_name or ""
-                    # Update the argument accumulator for this tool_call_id.
-                    arg_by_id[tool_call_id] = args
-
-            if callback:
-                callback(chunk)
-
-        # Compose final reply
+        # Aggregate text and reasoning from all chunks
         text = ""
         reasoning = ""
         for c in chunks:
             text += c.content
             reasoning += c.meta.get("reasoning", None) or ""
 
-        tool_calls = []
+        # Build tool calls from collected IDs and arguments
+        tool_calls: List[ToolCall] = []
         for tool_call_id in id_order:
-            arguments: str = arg_by_id.get(tool_call_id, "")
-            tool_calls.append(ToolCall(tool_name=name_by_id[tool_call_id], arguments=json.loads(arguments)))
+            arguments = arg_by_id.get(tool_call_id, "")
+            try:
+                # Parse arguments as JSON, default to empty dict if empty or invalid
+                parsed_args = json.loads(arguments) if arguments else {}
+            except json.JSONDecodeError:
+                parsed_args = {}
+            tool_calls.append(ToolCall(tool_name=name_by_id[tool_call_id], arguments=parsed_args))
 
-        # We can't use _convert_streaming_chunks_to_chat_message because
-        # we need to map tool_call name and args by order.
+        # Create the final ChatMessage with aggregated data
         reply = ChatMessage.from_assistant(
             text=text or None,
             tool_calls=tool_calls or None,
             reasoning=reasoning or None,
             meta=_convert_ollama_meta_to_openai_format(chunks[-1].meta) if chunks else {},
         )
-
         return {"replies": [reply]}
 
     @component.output_types(replies=List[ChatMessage])
