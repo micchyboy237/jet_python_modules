@@ -477,7 +477,7 @@ class OllamaChatGenerator:
 
         self._chat_logger.log_interaction(
             messages=ollama_messages,
-            response=response["replies"][0],
+            response=response["replies"][0].__dict__,
             model=self.model,
             url=self.url,
             stream=is_stream,
