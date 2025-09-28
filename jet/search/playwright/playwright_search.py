@@ -3,11 +3,13 @@ from langchain_core.callbacks import AsyncCallbackManagerForToolRun, CallbackMan
 from langchain_core.tools import BaseTool, ToolException
 from pydantic import BaseModel, ConfigDict, Field
 from playwright.async_api import async_playwright
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 import asyncio
 from bs4 import BeautifulSoup
 import markdownify
 import re
+
+from jet.logger import logger
 
 class PlaywrightSearchInput(BaseModel):
     """Input for PlaywrightSearch"""
@@ -51,7 +53,6 @@ class PlaywrightSearchInput(BaseModel):
 
 class PlaywrightSearchAPIWrapper(BaseModel):
     """Wrapper for Playwright-based search engine."""
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -76,106 +77,154 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         end_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Perform a search using Playwright asynchronously."""
+        logger.debug(f"Starting search for query: {query}")
         results = []
         search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        logger.debug(f"Generated search URL: {search_url}")
 
         async def matches_criteria(url: str, content: str) -> bool:
-            domain = urlparse(url).netloc
-            if include_domains and not any(re.match(pattern, domain) for pattern in include_domains):
+            try:
+                domain = urlparse(url).netloc
+                logger.debug(f"Checking criteria for URL: {url}, domain: {domain}")
+                if include_domains and not any(re.match(pattern, domain) for pattern in include_domains):
+                    logger.debug(f"URL {url} excluded: does not match include_domains {include_domains}")
+                    return False
+                if exclude_domains and any(re.match(pattern, domain) for pattern in exclude_domains):
+                    logger.debug(f"URL {url} excluded: matches exclude_domains {exclude_domains}")
+                    return False
+                if topic != "general" and content:
+                    # Relaxed topic matching: check for topic-related keywords
+                    topic_keywords = {
+                        "news": ["news", "article", "report", "update"],
+                        "finance": ["finance", "stock", "market", "economy"],
+                    }.get(topic.lower(), [])
+                    if not any(keyword in content.lower() for keyword in topic_keywords):
+                        logger.debug(f"URL {url} excluded: no topic keywords {topic_keywords} found in content")
+                        return False
+                return True
+            except Exception as e:
+                logger.error(f"Error in matches_criteria for URL {url}: {str(e)}")
                 return False
-            if exclude_domains and any(re.match(pattern, domain) for pattern in exclude_domains):
-                return False
-            if topic != "general" and topic.lower() not in content.lower():
-                return False
-            return True
 
-        async def extract_content(url: str) -> Dict[str, Any]:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                page = await browser.new_page()
-                try:
-                    await page.goto(url, timeout=10000)
-                    content = await page.content()
-                    soup = BeautifulSoup(content, 'html.parser')
-                    
-                    # Remove scripts and styles
-                    for element in soup(['script', 'style']):
-                        element.decompose()
-                    
-                    # Extract favicon
-                    favicon = None
-                    if include_favicon:
-                        favicon_link = soup.find('link', rel=['icon', 'shortcut icon'])
-                        if favicon_link and favicon_link.get('href'):
-                            favicon = urljoin(url, favicon_link['href'])
-
-                    # Extract images
-                    images = []
-                    if include_images:
-                        img_tags = soup.find_all('img')
-                        images = [urljoin(url, img.get('src')) for img in img_tags if img.get('src')]
-
-                    # Extract content based on depth
-                    raw_content = None
-                    if include_raw_content:
-                        raw_content = soup.get_text(strip=True) if search_depth == "basic" else str(soup)
-                        if include_raw_content == "markdown":
-                            raw_content = markdownify.markdownify(raw_content)
-
-                    # Extract title
-                    title = soup.title.string if soup.title else url
-
-                    # Extract snippet
-                    snippet = soup.get_text(strip=True)[:200]
-
-                    return {
-                        "title": title,
-                        "url": url,
-                        "content": snippet,
-                        "score": 0.9,  # Mock relevance score
-                        "raw_content": raw_content,
-                        "images": images,
-                        "favicon": favicon
-                    }
-                except Exception as e:
-                    return {"url": url, "error": str(e)}
-                finally:
-                    await browser.close()
+        async def extract_content(url: str, browser) -> Dict[str, Any]:
+            logger.debug(f"Extracting content from URL: {url}")
+            page = await browser.new_page()
+            try:
+                await page.goto(url, timeout=10000)
+                content = await page.content()
+                soup = BeautifulSoup(content, 'html.parser')
+                for element in soup(['script', 'style']):
+                    element.decompose()
+                favicon = None
+                if include_favicon:
+                    favicon_link = soup.find('link', rel=['icon', 'shortcut icon'])
+                    if favicon_link and favicon_link.get('href'):
+                        favicon = urljoin(url, favicon_link['href'])
+                        logger.debug(f"Favicon found for {url}: {favicon}")
+                images = []
+                if include_images:
+                    img_tags = soup.find_all('img')
+                    images = [urljoin(url, img.get('src')) for img in img_tags if img.get('src')]
+                    logger.debug(f"Found {len(images)} images for {url}")
+                raw_content = None
+                if include_raw_content:
+                    raw_content = soup.get_text(strip=True) if search_depth == "basic" else str(soup)
+                    if include_raw_content == "markdown":
+                        raw_content = markdownify.markdownify(raw_content)
+                    logger.debug(f"Extracted raw content length: {len(raw_content)} for {url}")
+                title = soup.title.string if soup.title else url
+                snippet = soup.get_text(strip=True)[:200]
+                return {
+                    "title": title,
+                    "url": url,
+                    "content": snippet,
+                    "score": 0.9,
+                    "raw_content": raw_content,
+                    "images": images,
+                    "favicon": favicon
+                }
+            except Exception as e:
+                logger.error(f"Error extracting content from {url}: {str(e)}")
+                return {"url": url, "error": str(e)}
+            finally:
+                await page.close()
 
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             page = await browser.new_page()
             start_time = asyncio.get_event_loop().time()
             try:
+                logger.debug(f"Navigating to search URL: {search_url}")
                 await page.goto(search_url, timeout=10000)
-                links = await page.query_selector_all('a')
+                content = await page.content()
+                # Check for CAPTCHA or unusual traffic page
+                if "unusual traffic" in content.lower() or "recaptcha" in content.lower():
+                    logger.error("Detected potential CAPTCHA or rate-limiting page")
+                    return {
+                        "query": query,
+                        "results": [],
+                        "images": [],
+                        "response_time": asyncio.get_event_loop().time() - start_time,
+                        "error": "Detected CAPTCHA or rate-limiting page. Try again later or use a search API."
+                    }
+                
+                # Target specific search result links (Google's main result container)
+                links = await page.query_selector_all('div.g a[href]')
+                logger.debug(f"Found {len(links)} links on search page")
                 hrefs = [
                     urljoin(search_url, await link.get_attribute('href') or '')
                     for link in links if await link.get_attribute('href')
                 ]
-                # Filter out Google-specific URLs
-                hrefs = [href for href in hrefs if not href.startswith(('https://www.google.', 'https://accounts.google.'))]
+                hrefs = [
+                    href for href in hrefs 
+                    if not href.startswith(('https://www.google.', 'https://accounts.google.', 'https://support.google.com'))
+                ]
+                logger.debug(f"Raw hrefs: {hrefs}")
+                logger.debug(f"Filtered to {len(hrefs)} valid hrefs")
                 
                 tasks = []
                 for href in hrefs[:max_results or 5]:
-                    async with browser.new_page() as new_page:
+                    try:
+                        logger.debug(f"Processing URL: {href}")
+                        content_page = await browser.new_page()
                         try:
-                            await new_page.goto(href, timeout=10000)
-                            content = await new_page.content()
+                            await content_page.goto(href, timeout=10000)
+                            content = await content_page.content()
                             if await matches_criteria(href, content):
-                                tasks.append(extract_content(href))
-                        except:
+                                tasks.append(extract_content(href, browser))
+                            else:
+                                logger.debug(f"URL {href} did not match criteria")
+                        except Exception as e:
+                            logger.error(f"Error navigating to {href}: {str(e)}")
                             continue
+                        finally:
+                            await content_page.close()
+                    except Exception as e:
+                        logger.error(f"Error creating page for {href}: {str(e)}")
+                        continue
                 
+                logger.debug(f"Executing {len(tasks)} extraction tasks")
                 extracted_results = await asyncio.gather(*tasks, return_exceptions=True)
                 for result in extracted_results:
                     if isinstance(result, dict) and "error" not in result:
                         results.append(result)
-                
+                    else:
+                        logger.debug(f"Skipping invalid result: {result}")
+            except Exception as e:
+                logger.error(f"Error during search processing: {str(e)}")
+                return {
+                    "query": query,
+                    "results": [],
+                    "images": [],
+                    "response_time": asyncio.get_event_loop().time() - start_time,
+                    "error": str(e)
+                }
             finally:
+                await page.close()
                 await browser.close()
 
         response_time = asyncio.get_event_loop().time() - start_time
+        logger.debug(f"Search completed in {response_time:.2f} seconds with {len(results)} results")
         return {
             "query": query,
             "results": results[:max_results or 5],
@@ -203,6 +252,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         end_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Synchronous wrapper for async search."""
+        logger.debug(f"Running synchronous search for query: {query}")
         return asyncio.run(self.raw_results_async(
             query, max_results, search_depth, include_domains, exclude_domains,
             include_answer, include_raw_content, include_images, include_image_descriptions,
@@ -246,6 +296,7 @@ class PlaywrightSearch(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         try:
+            logger.debug(f"Executing _run with query: {query}")
             raw_results = self.api_wrapper.raw_results(
                 query=query,
                 include_domains=self.include_domains if self.include_domains else include_domains,
@@ -264,7 +315,7 @@ class PlaywrightSearch(BaseTool):
                 start_date=start_date,
                 end_date=end_date,
             )
-            if not raw_results.get("results", []):
+            if not raw_results.get("results", []) and not raw_results.get("error"):
                 search_params = {
                     "time_range": time_range,
                     "include_domains": include_domains,
@@ -278,11 +329,14 @@ class PlaywrightSearch(BaseTool):
                     f"Suggestions: {', '.join(suggestions)}. "
                     f"Try modifying your search parameters with one of these approaches."
                 )
+                logger.debug(f"No results found, raising ToolException: {error_message}")
                 raise ToolException(error_message)
+            logger.debug(f"Returning results: {len(raw_results.get('results', []))} items")
             return raw_results
         except ToolException:
             raise
         except Exception as e:
+            logger.error(f"Error in _run: {str(e)}")
             return {"error": str(e)}
 
     async def _arun(
@@ -301,6 +355,7 @@ class PlaywrightSearch(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         try:
+            logger.debug(f"Executing _arun with query: {query}")
             raw_results = await self.api_wrapper.raw_results_async(
                 query=query,
                 include_domains=self.include_domains if self.include_domains else include_domains,
@@ -319,7 +374,7 @@ class PlaywrightSearch(BaseTool):
                 start_date=start_date,
                 end_date=end_date,
             )
-            if not raw_results.get("results", []):
+            if not raw_results.get("results", []) and not raw_results.get("error"):
                 search_params = {
                     "time_range": time_range,
                     "include_domains": include_domains,
@@ -333,11 +388,14 @@ class PlaywrightSearch(BaseTool):
                     f"Suggestions: {', '.join(suggestions)}. "
                     f"Try modifying your search parameters with one of these approaches."
                 )
+                logger.debug(f"No results found, raising ToolException: {error_message}")
                 raise ToolException(error_message)
+            logger.debug(f"Returning results: {len(raw_results.get('results', []))} items")
             return raw_results
         except ToolException:
             raise
         except Exception as e:
+            logger.error(f"Error in _arun: {str(e)}")
             return {"error": str(e)}
 
 def _generate_suggestions(params: Dict[str, Any]) -> List[str]:
