@@ -18,11 +18,11 @@ class PlaywrightExtractInput(BaseModel):
         Use "advanced" for comprehensive content including tables and embedded elements.""",
     )
     include_images: Optional[bool] = Field(
-        default=False,
+        default=True,
         description="""Determines whether to extract and include images from the source URLs.""",
     )
     include_favicon: Optional[bool] = Field(
-        default=False,
+        default=True,
         description="""Whether to include the favicon URL for each result.""",
     )
     format: Optional[str] = Field(
@@ -128,8 +128,8 @@ class PlaywrightExtract(BaseTool):
     args_schema: Type[BaseModel] = PlaywrightExtractInput
     handle_tool_error: bool = True
     extract_depth: Optional[Literal["basic", "advanced"]] = None
-    include_images: Optional[bool] = None
-    include_favicon: Optional[bool] = None
+    include_images: bool = True
+    include_favicon: bool = True
     format: Optional[str] = None
     apiwrapper: PlaywrightExtractAPIWrapper = Field(default_factory=PlaywrightExtractAPIWrapper)
 
@@ -137,8 +137,8 @@ class PlaywrightExtract(BaseTool):
         self,
         urls: List[str],
         extract_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_images: Optional[bool] = None,
-        include_favicon: Optional[bool] = None,
+        include_images: bool = True,
+        include_favicon: bool = True,
         format: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
@@ -174,8 +174,8 @@ class PlaywrightExtract(BaseTool):
         self,
         urls: List[str],
         extract_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_images: Optional[bool] = None,
-        include_favicon: Optional[bool] = None,
+        include_images: bool = True,
+        include_favicon: bool = True,
         format: Optional[str] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:

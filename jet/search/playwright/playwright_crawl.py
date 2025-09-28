@@ -73,7 +73,7 @@ class PlaywrightCrawlInput(BaseModel):
         description="""Allow the crawler to follow external links.""",
     )
     include_images: Optional[bool] = Field(
-        default=False,
+        default=True,
         description="""Whether to include images in the crawl results.""",
     )
     categories: Optional[
@@ -99,7 +99,7 @@ class PlaywrightCrawlInput(BaseModel):
         description="""Advanced extraction retrieves more data, including tables and embedded content.""",
     )
     include_favicon: Optional[bool] = Field(
-        default=False,
+        default=True,
         description="""Whether to include the favicon URL for each result.""",
     )
     format: Optional[str] = Field(
@@ -275,13 +275,13 @@ class PlaywrightCrawl(BaseTool):
     exclude_paths: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None
     allow_external: Optional[bool] = None
-    include_images: Optional[bool] = None
+    include_images: bool = True
     categories: Optional[List[Literal[
         "Careers", "Blogs", "Documentation", "About", "Pricing",
         "Community", "Developers", "Contact", "Media"
     ]]] = None
     extract_depth: Optional[Literal["basic", "advanced"]] = None
-    include_favicon: Optional[bool] = None
+    include_favicon: bool = True
     format: Optional[str] = None
     api_wrapper: PlaywrightCrawlAPIWrapper = Field(default_factory=PlaywrightCrawlAPIWrapper)
 
@@ -297,13 +297,13 @@ class PlaywrightCrawl(BaseTool):
         exclude_paths: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
         allow_external: Optional[bool] = None,
-        include_images: Optional[bool] = None,
+        include_images: bool = True,
         categories: Optional[List[Literal[
             "Careers", "Blogs", "Documentation", "About", "Pricing",
             "Community", "Developers", "Contact", "Media"
         ]]] = None,
         extract_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_favicon: Optional[bool] = None,
+        include_favicon: bool = True,
         format: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
@@ -360,13 +360,13 @@ class PlaywrightCrawl(BaseTool):
         exclude_paths: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
         allow_external: Optional[bool] = None,
-        include_images: Optional[bool] = None,
+        include_images: bool = True,
         categories: Optional[List[Literal[
             "Careers", "Blogs", "Documentation", "About", "Pricing",
             "Community", "Developers", "Contact", "Media"
         ]]] = None,
         extract_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_favicon: Optional[bool] = None,
+        include_favicon: bool = True,
         format: Optional[str] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:

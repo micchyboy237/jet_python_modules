@@ -9,6 +9,7 @@ import numpy as np
 from jet.search.playwright.playwright_extract import PlaywrightExtract
 from jet.search.searxng import search_searxng
 from jet.llm.utils.embeddings import get_ollama_embedding_function
+
 try:
     from nltk.tokenize import sent_tokenize
     NLTK_AVAILABLE = True
@@ -21,10 +22,10 @@ class PlaywrightSearchInput(BaseModel):
     include_domains: Optional[List[str]] = Field(default=[])
     exclude_domains: Optional[List[str]] = Field(default=[])
     search_depth: Optional[Literal["basic", "advanced"]] = Field(default="basic")
-    include_images: Optional[bool] = Field(default=False)
+    include_images: Optional[bool] = Field(default=True)
     time_range: Optional[Literal["day", "week", "month", "year"]] = Field(default=None)
     topic: Optional[Literal["general", "news", "finance"]] = Field(default="general")
-    include_favicon: Optional[bool] = Field(default=False)
+    include_favicon: Optional[bool] = Field(default=True)
     start_date: Optional[str] = Field(default=None)
     end_date: Optional[str] = Field(default=None)
     max_content_length: Optional[int] = Field(
@@ -40,6 +41,7 @@ class PlaywrightSearchResult(TypedDict):
     url: str
     title: str
     content: str
+    raw_score: float
     score: float
     raw_content: Optional[str]
     images: List[str]
@@ -61,13 +63,12 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             url=self.ollama_url,
             return_format="numpy"
         )
-        self._query_embedding_cache = {}  # Cache for query embeddings
+        self._query_embedding_cache = {}
 
     def _score_chunks(self, chunks: List[str], query: str) -> List[float]:
         """Score multiple text chunks based on semantic similarity to the query using Ollama embeddings."""
         if not chunks or not query:
             return [0.0] * len(chunks)
-        
         try:
             # Cache query embedding to avoid redundant computation
             if query not in self._query_embedding_cache:
@@ -106,11 +107,9 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         """Extract the most relevant content from raw_content up to max_length, with [...] separators."""
         if not raw_content:
             return ""
-        
         chunks = self._split_into_sentences(raw_content)
         if not chunks:
             return ""
-        
         max_chunk_tokens = 100
         max_chunk_chars = max_chunk_tokens * 4
         chunks = [chunk for chunk in chunks if len(chunk) <= max_chunk_chars]
@@ -121,7 +120,6 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         scores = self._score_chunks(chunks, query)
         scored_chunks = list(zip(chunks, scores))
         scored_chunks.sort(key=lambda x: x[1], reverse=True)
-        
         content = ""
         separator = " [...] "
         selected_chunks = 0
@@ -138,13 +136,11 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 if remaining > 10:
                     content += chunk[:remaining].rsplit(' ', 1)[0] + "..."
                 break
-        
         content = content.strip()
         if not content:
             content = chunks[0][:max_length] + "..." if len(chunks[0]) > max_length else chunks[0]
         if content.endswith(separator):
             content = content[:-len(separator)]
-        
         return content
 
     async def raw_results_async(
@@ -219,7 +215,9 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             format=extract_format
         )
         results = []
-        for search_result, extract_result in zip(search_results, extract_results["results"]):
+        search_texts = [result["content"] for result in search_results]
+        embed_scores = self._score_chunks(search_texts, query)
+        for search_result, extract_result, embed_score in zip(search_results, extract_results["results"], embed_scores):
             if "error" in extract_result:
                 continue
             content = self._extract_relevant_content(
@@ -231,11 +229,13 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 "url": search_result["url"],
                 "title": search_result["title"],
                 "content": content,
-                "score": search_result["score"],
+                "raw_score": search_result["score"],
+                "score": embed_score,
                 "raw_content": extract_result["raw_content"] if include_raw_content else None,
                 "images": extract_result["images"] if include_images else [],
                 "favicon": extract_result["favicon"] if include_favicon else None
             })
+        results.sort(key=lambda x: x["score"], reverse=True)
         images = []
         if include_images and include_image_descriptions:
             for result in results:
@@ -253,7 +253,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             "results": results[:self.max_results],
             "response_time": asyncio.get_event_loop().time() - start_time
         }
-        
+
     def raw_results(
         self,
         query: str,
@@ -293,10 +293,10 @@ class PlaywrightSearch(BaseTool):
     include_domains: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None
     search_depth: Optional[Literal["basic", "advanced"]] = None
-    include_images: Optional[bool] = None
+    include_images: bool = True
     time_range: Optional[Literal["day", "week", "month", "year"]] = None
     topic: Optional[Literal["general", "news", "finance"]] = None
-    include_favicon: Optional[bool] = None
+    include_favicon: bool = True
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     max_results: Optional[int] = None
@@ -313,10 +313,10 @@ class PlaywrightSearch(BaseTool):
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
         search_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_images: Optional[bool] = None,
+        include_images: bool = True,
         time_range: Optional[Literal["day", "week", "month", "year"]] = None,
         topic: Optional[Literal["general", "news", "finance"]] = None,
-        include_favicon: Optional[bool] = None,
+        include_favicon: bool = True,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
@@ -366,10 +366,10 @@ class PlaywrightSearch(BaseTool):
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
         search_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_images: Optional[bool] = None,
+        include_images: bool = True,
         time_range: Optional[Literal["day", "week", "month", "year"]] = None,
         topic: Optional[Literal["general", "news", "finance"]] = None,
-        include_favicon: Optional[bool] = None,
+        include_favicon: bool = True,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
