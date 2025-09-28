@@ -1,4 +1,4 @@
-from .playwright_map import PlaywrightMap, PlaywrightMapInput
-from .playwright_crawl import PlaywrightCrawl, PlaywrightCrawlInput
-from .playwright_extract import PlaywrightExtract, PlaywrightExtractInput
-from .playwright_search import PlaywrightSearch, PlaywrightSearchInput
+from .playwright_map import PlaywrightMap, PlaywrightMapInput, PlaywrightMapAPIWrapper
+from .playwright_crawl import PlaywrightCrawl, PlaywrightCrawlInput, PlaywrightCrawlAPIWrapper
+from .playwright_extract import PlaywrightExtract, PlaywrightExtractInput, PlaywrightExtractAPIWrapper
+from .playwright_search import PlaywrightSearch, PlaywrightSearchInput, PlaywrightSearchAPIWrapper
