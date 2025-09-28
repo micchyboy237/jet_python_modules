@@ -31,8 +31,7 @@ pipeline = Pipeline()
 evaluator = DeepEvalEvaluator(
     metric=DeepEvalMetric.FAITHFULNESS,
     metric_params={
-        "model": OllamaModel(model_name="qwen3:4b-q4_K_M"),  # Use Ollama model as the judge LLM
-        "temperature": 0.0,  # Optional: Set low temperature for consistent scoring
+        "model": OllamaModel(model="qwen3:4b-q4_K_M", temperature=0.0),  # Use Ollama model as the judge LLM
     },
 )
 pipeline.add_component("evaluator", evaluator)
