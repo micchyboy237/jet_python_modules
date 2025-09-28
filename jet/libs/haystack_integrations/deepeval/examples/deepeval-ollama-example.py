@@ -1,8 +1,8 @@
 from haystack import Pipeline
 
 from haystack_integrations.components.evaluators.deepeval import DeepEvalEvaluator, DeepEvalMetric
-from deepeval.models import OllamaModel
 
+from jet.adapters.haystack.deepeval.ollama_model import OllamaModel
 from jet.logger import logger
 import os
 import shutil

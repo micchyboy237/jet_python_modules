@@ -80,7 +80,7 @@ task_node = ConversationalTaskNode(
 dag = DeepAcyclicGraph(root_nodes=[task_node])
 
 from deepeval.metrics import ConversationalDAGMetric
-from deepeval.models import OllamaModel
+from jet.adapters.haystack.deepeval.ollama_model import OllamaModel
 
 model = OllamaModel(
     model="deepseek-r1:1.5b-qwen-distill-q4_K_M",
