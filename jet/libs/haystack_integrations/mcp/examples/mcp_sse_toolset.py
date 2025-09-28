@@ -45,7 +45,8 @@ def main():
         # Create the toolset - this automatically discovers all available tools
         # from the MCP server and creates Tool instances for each one
         sse_toolset = MCPToolset(
-            server_info=SSEServerInfo(url="http://localhost:8000/sse"),
+            # server_info=SSEServerInfo(url="http://localhost:8000/sse"),
+            server_info=SSEServerInfo(url="http://localhost:8931/sse"),
         )
 
         # Print discovered tools
