@@ -1,25 +1,20 @@
 import time
-import logging
 import zlib
 import pickle
 import os
-import json
 import threading
 import requests
 import sentence_transformers
 import numpy as np
-from typing import Any, Optional, Callable, Sequence, Union, List, TypedDict, Literal
+from typing import Optional, Callable, Union, List, TypedDict, Literal
 from pathlib import Path
 from tqdm import tqdm
-from functools import lru_cache
 from sentence_transformers import SentenceTransformer
-from chromadb import Documents, EmbeddingFunction, Embeddings
 from chromadb.utils import embedding_functions
 from jet.data.utils import hash_text
-from jet._token.token_utils import get_model_max_tokens, split_texts, token_counter
+from jet._token.token_utils import get_model_max_tokens, token_counter
 from jet.transformers.formatters import format_json
 from jet.logger import logger
-from jet.logger.timer import time_it
 from jet.llm.models import DEFAULT_SF_EMBED_MODEL, OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.llm.ollama.config import (
     large_embed_model,
@@ -212,7 +207,7 @@ class OllamaEmbeddingFunction:
         self.return_format = return_format
 
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
-        logger.info(f"Generating Ollama embeddings...")
+        logger.info("Generating Ollama embeddings...")
         logger.debug(f"Model: {self.model_name}")
         logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
         logger.debug(
@@ -266,11 +261,11 @@ class SFEmbeddingFunction:
         tokenized = self.tokenize(documents)
         return [len(tokens) for tokens in tokenized]
 
-    @time_it(function_name="generate_sf_batch_embeddings")
+    # @time_it(function_name="generate_sf_batch_embeddings")
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
         base_input = input
 
-        logger.info(f"Generating SF embeddings...")
+        logger.info("Generating SF embeddings...")
         logger.debug(f"Model: {self.model_name}")
         logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
         logger.debug(f"Batch size: {self.batch_size}")
@@ -305,9 +300,9 @@ class SFRerankingFunction:
         tokenized = self.tokenize(documents)
         return [len(tokens) for tokens in tokenized]
 
-    @time_it(function_name="generate_sf_batch_embeddings")
+    # @time_it(function_name="generate_sf_batch_embeddings")
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
-        logger.info(f"Generating SF embeddings...")
+        logger.info("Generating SF embeddings...")
         logger.debug(f"Model: {self.model_name}")
         logger.debug(f"Texts: {len(input)}")
         logger.debug(f"Batch size: {self.batch_size}")
@@ -483,7 +478,7 @@ def generate_embeddings(
     return embeddings[0] if isinstance(text, str) else embeddings
 
 
-@time_it
+# @time_it
 def generate_ollama_batch_embeddings(
     texts: list[str],
     model: OLLAMA_MODEL_NAMES,

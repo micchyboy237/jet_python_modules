@@ -97,13 +97,12 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         """Split text into sentences, using NLTK if available, else regex."""
         if NLTK_AVAILABLE:
             return sent_tokenize(text)
-        # Fallback regex for sentence splitting
         sentence_endings = r'(?<=[.!?])\s+'
         sentences = re.split(sentence_endings, text)
         return [s.strip() for s in sentences if s.strip()]
 
-    def _extract_relevant_content(self, raw_content: str, query: str, max_length: int) -> str:
-        """Extract the most relevant content from raw_content up to max_length, with [...] separators."""
+    def _extract_relevant_content(self, raw_content: str, query: str, max_length: int, chunk_scores: List[float]) -> str:
+        """Extract the most relevant content from raw_content up to max_length, with [...] separators, using pre-computed scores."""
         if not raw_content:
             return ""
         
@@ -117,9 +116,8 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         if not chunks:
             return raw_content[:max_length] + "..." if len(raw_content) > max_length else raw_content
         
-        # Score all chunks in a single batch
-        scores = self._score_chunks(chunks, query)
-        scored_chunks = list(zip(chunks, scores))
+        # Use pre-computed scores
+        scored_chunks = list(zip(chunks, chunk_scores))
         scored_chunks.sort(key=lambda x: x[1], reverse=True)
         
         content = ""
@@ -218,14 +216,39 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             include_favicon=include_favicon,
             format=extract_format
         )
+        
+        # Collect all chunks from all results for batch scoring
+        all_chunks = []
+        chunk_indices = []  # Track which chunks belong to which result
+        max_chunk_tokens = 100
+        max_chunk_chars = max_chunk_tokens * 4
+        for i, extract_result in enumerate(extract_results["results"]):
+            if "error" in extract_result or not extract_result.get("raw_content"):
+                continue
+            chunks = self._split_into_sentences(extract_result["raw_content"])
+            chunks = [chunk for chunk in chunks if len(chunk) <= max_chunk_chars]
+            if chunks:
+                chunk_indices.append((i, len(all_chunks), len(all_chunks) + len(chunks)))
+                all_chunks.extend(chunks)
+        
+        # Score all chunks in a single batch
+        chunk_scores = self._score_chunks(all_chunks, query) if all_chunks else []
+        
         results = []
-        for search_result, extract_result in zip(search_results, extract_results["results"]):
+        for i, (search_result, extract_result) in enumerate(zip(search_results, extract_results["results"])):
             if "error" in extract_result:
                 continue
+            # Get the scores for this result's chunks
+            result_chunk_scores = []
+            for idx, (result_idx, start, end) in enumerate(chunk_indices):
+                if result_idx == i:
+                    result_chunk_scores = chunk_scores[start:end]
+                    break
             content = self._extract_relevant_content(
                 extract_result["raw_content"],
                 query,
-                self.max_content_length
+                self.max_content_length,
+                result_chunk_scores
             ) if extract_result.get("raw_content") else search_result["content"]
             results.append({
                 "url": search_result["url"],
@@ -236,6 +259,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 "images": extract_result["images"] if include_images else [],
                 "favicon": extract_result["favicon"] if include_favicon else None
             })
+        
         images = []
         if include_images and include_image_descriptions:
             for result in results:
@@ -245,6 +269,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             answer_depth = "advanced" if include_answer == "advanced" else "basic"
             answer_content = " ".join([r["content"] for r in results[:3]])
             answer = answer_content[:200] + "..." if len(answer_content) > 200 else answer_content
+        
         return {
             "query": query,
             "follow_up_questions": None,
@@ -253,7 +278,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             "results": results[:self.max_results],
             "response_time": asyncio.get_event_loop().time() - start_time
         }
-        
+ 
     def raw_results(
         self,
         query: str,
