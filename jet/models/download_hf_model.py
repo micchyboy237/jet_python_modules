@@ -31,8 +31,10 @@ class ProgressBar:
     def set_lock(cls, lock):
         cls._lock = lock
 
-    def __init__(self, total: Optional[int] = None, unit: str = "B", unit_scale: bool = True, desc: str = ""):
-        self.total = total
+    def __init__(self, iterable=None, total: Optional[int] = None, desc: str = "",
+                 unit: str = "it", unit_scale: bool = False, **kwargs):
+        self.iterable = iterable
+        self.total = total or (len(iterable) if iterable is not None else None)
         self.unit = unit
         self.unit_scale = unit_scale
         self.desc = desc
@@ -40,6 +42,23 @@ class ProgressBar:
         self.start_time = datetime.now()
         self._last_update = 0
         self._width = 50  # Width of the progress bar
+        self._iterator = iter(iterable) if iterable is not None else None
+
+    def __iter__(self):
+        """Make ProgressBar iterable."""
+        return self
+
+    def __next__(self):
+        """Iterate over the underlying iterable and update progress."""
+        if self._iterator is None:
+            raise StopIteration
+        try:
+            item = next(self._iterator)
+            self.update(1)
+            return item
+        except StopIteration:
+            self.close()
+            raise
 
     def update(self, n: int) -> None:
         """Update progress bar by n units."""
@@ -179,7 +198,7 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
 
 if __name__ == "__main__":
-    repo_id = "intfloat/e5-base-v2"
+    repo_id = "intfloat/simlm-msmarco-reranker"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")
