@@ -220,6 +220,7 @@ class OllamaChatGenerator:
         think: Union[bool, Literal["low", "medium", "high"]] = False,
         log_dir: Optional[str] = None,
         agent_name: Optional[str] = None,
+        verbose: bool = True,
     ):
         """
         :param model:
@@ -278,6 +279,7 @@ class OllamaChatGenerator:
         if agent_name:
             log_dir += f"/{format_sub_dir(agent_name)}"
         self._chat_logger = ChatLogger(log_dir, method="chat")
+        self.verbose = verbose
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -344,7 +346,8 @@ class OllamaChatGenerator:
                 chunk_response=raw, component_info=component_info, index=index, tool_call_index=tool_call_index
             )
             chunks.append(chunk)
-            logger.teal(chunk.content, flush=True)
+            if self.verbose:
+                logger.teal(chunk.content, flush=True)
 
             start = index == 0 or bool(chunk.tool_calls)
             chunk.start = start
@@ -446,13 +449,14 @@ class OllamaChatGenerator:
 
         ollama_messages = [_convert_chatmessage_to_ollama_format(m) for m in messages]
 
-        logger.gray("Ollama Generator Settings:")
-        logger.info(format_json({
-            "messages": ollama_messages,
-            "generation_kwargs": generation_kwargs,
-            "stream": is_stream,
-            "tools": ollama_tools,
-        }))
+        if self.verbose:
+            logger.gray("Ollama Generator Settings:")
+            logger.info(format_json({
+                "messages": ollama_messages,
+                "generation_kwargs": generation_kwargs,
+                "stream": is_stream,
+                "tools": ollama_tools,
+            }))
 
         response = self._client.chat(
             model=self.model,
