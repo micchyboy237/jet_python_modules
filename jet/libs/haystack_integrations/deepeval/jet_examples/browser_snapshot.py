@@ -52,7 +52,7 @@ def example():
 
     messages = [ChatMessage.from_user("""
     1. Navigate to https://www.nbcnews.com and capture an accessibility snapshot of the page.
-    2. Summarize the page content.
+    2. Analyze the snapshot then summarize the information.
     """)]
     agent = create_agent("MCP_Agent", tool_names=tool_names)
     result = agent.run(messages=messages)
