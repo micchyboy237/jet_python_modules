@@ -117,7 +117,7 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
             "safesearch": kwargs.get("safesearch", 2),
             "language": kwargs.get("language", "en"),
             "categories": ",".join(kwargs.get("categories", ["general"])),
-            "engines": ",".join(kwargs.get("engines", ["google", "brave", "duckduckgo", "bing", "yahoo"])),
+            "engines": ",".join(kwargs.get("engines", ["google", "brave", "duckduckgo", "yahoo"])),
         }
 
         # Handling min_date (optional)
@@ -144,7 +144,7 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
             if cached_result and cached_result.get("results", []):
                 cached_count = len(cached_result["results"])
                 if count is None or cached_count >= count:
-                    logger.log(f"search_searxng: Cache hit for",
+                    logger.log(f"search_searxng: Cache hit for ",
                                cache_key, colors=["SUCCESS", "BRIGHT_SUCCESS"])
                 else:
                     logger.warning(

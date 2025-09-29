@@ -273,6 +273,16 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             "finance": ["business"]
         }
         categories = topic_map.get(topic, ["general"])
+        logger.debug(f"[search_searxng] args:\n{format_json({
+            "query_url": self.searxng_url,
+            "query": query,
+            "count": self.max_results if search_depth == "basic" else self.max_results * 2,
+            "include_sites": include_domains,
+            "exclude_sites": exclude_domains,
+            "min_date": min_date,
+            "categories": categories,
+            "years_ago": years_ago
+        })}")
         search_results = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: search_searxng(
@@ -286,6 +296,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 years_ago=years_ago
             )
         )
+        logger.success(f"[search_searxng] results ({len(search_results)}):\n{format_json(search_results)}")
         if not search_results:
             return {
                 "query": query,
