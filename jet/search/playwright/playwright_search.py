@@ -139,7 +139,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
     """Wrapper for Playwright-based search engine."""
     searxng_url: str = Field(default="http://jethros-macbook-air.local:3000")
     max_results: Optional[int] = Field(default=5)
-    include_image_descriptions: Optional[bool] = Field(default=True)
+    include_image_descriptions: Optional[bool] = Field(default=False)
     max_content_length: Optional[int] = Field(default=500)
     ollama_embed_model: str = Field(default="nomic-embed-text")
     ollama_url: str = Field(default="http://localhost:11434")
@@ -390,7 +390,7 @@ class PlaywrightSearch(BaseTool):
     max_results: Optional[int] = None
     include_answer: Optional[Union[bool, Literal["basic", "advanced"]]] = None
     include_raw_content: Optional[Union[bool, Literal["markdown", "text"]]] = None
-    include_image_descriptions: bool = True
+    include_image_descriptions: bool = False
     auto_parameters: Optional[bool] = None
     country: Optional[str] = None
     api_wrapper: PlaywrightSearchAPIWrapper = Field(default_factory=PlaywrightSearchAPIWrapper)
