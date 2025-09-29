@@ -14,6 +14,7 @@ from jet.code.markdown_utils._markdown_analyzer import analyze_markdown
 from jet.code.markdown_utils._markdown_parser import base_parse_markdown, derive_by_header_hierarchy
 from jet.scrapers.playwright_utils import scrape_urls_sync
 from jet.scrapers.utils import extract_favicon_ico_link
+from jet.transformers.formatters import format_html
 
 class PlaywrightExtractInput(BaseModel):
     """Input for PlaywrightExtract"""
@@ -272,6 +273,7 @@ class PlaywrightExtract(BaseTool):
                         "analysis": doc_analysis,
                         "text_links": text_links_with_text,
                         "image_links": image_links_with_text,
+                        "html": format_html(html),
                         "markdown": doc_markdown,
                         "md_tokens": doc_markdown_tokens,
                         "screenshot": screenshot,

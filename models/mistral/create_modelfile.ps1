@@ -1,27 +1,3 @@
-Set-Content -Path "C:\Users\druiv\Desktop\Jet_Files\Jet_Windows_Workspace\ollama_models\mistral-tool\Modelfile" -Value @"
-FROM mistral:7b-instruct-v0.3-q3_K_M
-TEMPLATE """{{- if .Messages }}
-{{- range `$index, `$_ := .Messages }}
-{{- if eq .Role "user" }}
-{{- if and (eq (len (slice `$.Messages `$index)) 1) `$.Tools }}[AVAILABLE_TOOLS] {{ `$.Tools }}[/AVAILABLE_TOOLS]
-{{- end }}[INST] {{ if and `$.System (eq (len (slice `$.Messages `$index)) 1) }}{{ `$.System }}
-
-{{ end }}{{ .Content }}[/INST]
-{{- else if eq .Role "assistant" }}
-{{- if .Content }}{{ .Content }}
-{{- else if .ToolCalls }}[
-{{- range .ToolCalls }}{{ if `$index }}, {{ end }}
-{"name": "{{ .Function.Name }}", "parameters": {{ .Function.Arguments }}}
-{{- end }}]
-{{- end }}</s>
-{{- else if eq .Role "tool" }}
-{"content": {{ .Content }}}
-{{- end }}
-{{- end }}
-{{- else }}[INST] {{ if .System }}{{ .System }}
-
-{{ end }}{{ .Prompt }}[/INST]
-{{- end }}{{ .Response }}
-{{- if .Response }}</s>
-{{- end }}"""
+Set-Content -Path "C:\Users\druiv\Desktop\Jet_Files\Jet_Windows_Workspace\ollama_models\deepseek-coder-v2-lite-instruct\Modelfile" -Value @"
+FROM deepseek-coder-v2:16b-lite-instruct-q3_K_M
 "@
