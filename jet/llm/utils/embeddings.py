@@ -442,8 +442,9 @@ def generate_multiple(
         pbar = tqdm(range(0, len(query), batch_size),
                     desc="Generating embeddings")
         for i in pbar:
-            pbar.set_description(
-                f"Generating embeddings batch {i // batch_size + 1}")
+            if pbar.total and pbar.total > 1:
+                pbar.set_description(
+                    f"Generating embeddings batch {i // batch_size + 1}")
             batch_result = func(query[i: i + batch_size])
             embeddings.extend(batch_result)
     else:
@@ -527,8 +528,9 @@ def generate_ollama_batch_embeddings(
     embeddings = []
     pbar = tqdm(range(0, len(texts), batch_size), desc="Generating embeddings")
     for i in pbar:
-        pbar.set_description(
-            f"Generating embeddings batch {i // batch_size + 1}")
+        if pbar.total and pbar.total > 1:
+            pbar.set_description(
+                f"Generating embeddings batch {i // batch_size + 1}")
         batch_texts = texts[i:i + batch_size]
 
         for attempt in range(max_retries):

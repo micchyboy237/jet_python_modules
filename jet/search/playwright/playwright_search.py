@@ -249,7 +249,6 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         auto_parameters: Optional[bool],
         country: Optional[str],
     ) -> Dict[str, Any]:
-        """Search the web using Playwright and SearXNG asynchronously."""
         start_time = asyncio.get_event_loop().time()
         time_range_map = {"day": 0, "week": 0, "month": 0, "year": 1}
         years_ago = time_range_map.get(time_range, 1) if time_range else 1
@@ -289,7 +288,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             return {
                 "query": query,
                 "results": [],
-                "images": [],
+                "images": [] if include_images else None,
                 "response_time": asyncio.get_event_loop().time() - start_time
             }
         urls = [result["url"] for result in search_results]
@@ -313,21 +312,25 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 query,
                 self.max_content_length
             ) if extract_result.get("raw_content") else search_result["content"]
-            results.append({
+            result_item = {
                 "url": search_result["url"],
                 "title": search_result["title"],
                 "content": content,
                 "raw_score": search_result["score"],
                 "score": embed_score,
                 "raw_content": extract_result["raw_content"] if include_raw_content else None,
-                "images": extract_result["images"] if include_images else [],
-                "favicon": extract_result["favicon"] if include_favicon else None
-            })
+            }
+            if include_images:
+                result_item["images"] = extract_result["images"]
+            if include_favicon:
+                result_item["favicon"] = extract_result["favicon"]
+            results.append(result_item)
         results.sort(key=lambda x: x["score"], reverse=True)
         images = []
         if include_images and include_image_descriptions:
             for result in results:
-                images.extend(result["images"])
+                if "images" in result:
+                    images.extend(result["images"])
         answer = None
         if include_answer:
             answer_depth = "advanced" if include_answer == "advanced" else "basic"
@@ -337,7 +340,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             "query": query,
             "follow_up_questions": None,
             "answer": answer,
-            "images": images,
+            "images": images if include_images else None,
             "results": results[:self.max_results],
             "response_time": asyncio.get_event_loop().time() - start_time
         }
@@ -360,7 +363,6 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         auto_parameters: Optional[bool],
         country: Optional[str],
     ) -> Dict[str, Any]:
-        """Synchronous wrapper for async search."""
         return asyncio.run(self.raw_results_async(
             query, include_domains, exclude_domains, search_depth, include_images,
             time_range, topic, include_favicon, start_date, end_date,
@@ -381,7 +383,7 @@ class PlaywrightSearch(BaseTool):
     include_domains: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None
     search_depth: Optional[Literal["basic", "advanced"]] = None
-    include_images: bool = True
+    include_images: bool = False
     time_range: Optional[Literal["day", "week", "month", "year"]] = None
     topic: Optional[Literal["general", "news", "finance"]] = None
     include_favicon: bool = True
@@ -401,7 +403,7 @@ class PlaywrightSearch(BaseTool):
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
         search_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_images: bool = True,
+        include_images: bool = False,
         time_range: Optional[Literal["day", "week", "month", "year"]] = None,
         topic: Optional[Literal["general", "news", "finance"]] = None,
         include_favicon: bool = True,
@@ -454,7 +456,7 @@ class PlaywrightSearch(BaseTool):
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
         search_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_images: bool = True,
+        include_images: bool = False,
         time_range: Optional[Literal["day", "week", "month", "year"]] = None,
         topic: Optional[Literal["general", "news", "finance"]] = None,
         include_favicon: bool = True,
