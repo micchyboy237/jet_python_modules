@@ -6,10 +6,11 @@ from datetime import datetime
 import asyncio
 import re
 import numpy as np
-from jet.search.playwright.playwright_extract import PlaywrightExtract
+from jet.scrapers.playwright_utils import scrape_urls
 from jet.search.searxng import search_searxng
 from jet.llm.utils.embeddings import get_ollama_embedding_function
-
+from jet.logger import logger
+from bs4 import BeautifulSoup
 try:
     from nltk.tokenize import sent_tokenize
     NLTK_AVAILABLE = True
@@ -152,18 +153,24 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             return_format="numpy"
         )
         self._query_embedding_cache = {}
+        logger.debug("Initialized PlaywrightSearchAPIWrapper with model %s and URL %s", 
+                    self.ollama_embed_model, self.ollama_url)
 
     def _score_chunks(self, chunks: List[str], query: str) -> List[float]:
         """Score multiple text chunks based on semantic similarity to the query using Ollama embeddings."""
+        logger.debug("Scoring %d chunks for query: %s", len(chunks), query)
         if not chunks or not query:
+            logger.warning("Empty chunks or query provided, returning zero scores")
             return [0.0] * len(chunks)
         try:
             # Cache query embedding to avoid redundant computation
             if query not in self._query_embedding_cache:
+                logger.debug("Generating embedding for query: %s", query)
                 self._query_embedding_cache[query] = self._embed_func(query)
             query_embedding = self._query_embedding_cache[query]
             
             # Generate embeddings for all chunks in a single batch
+            logger.debug("Generating embeddings for %d chunks", len(chunks))
             chunk_embeddings = self._embed_func(chunks)
             
             # Calculate cosine similarity for all chunks
@@ -177,31 +184,41 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 else:
                     similarity = dot_product / (norm_query * norm_chunk)
                     scores.append(max(0.0, min(1.0, similarity)))
+            logger.debug("Computed %d similarity scores", len(scores))
             return scores
         except Exception as e:
-            print(f"Error scoring chunks: {e}")
+            logger.error("Error scoring chunks: %s", str(e))
             return [0.0] * len(chunks)
 
     def _split_into_sentences(self, text: str) -> List[str]:
         """Split text into sentences, using NLTK if available, else regex."""
+        logger.debug("Splitting text into sentences, NLTK available: %s", NLTK_AVAILABLE)
         if NLTK_AVAILABLE:
-            return sent_tokenize(text)
+            sentences = sent_tokenize(text)
+            logger.debug("Split text into %d sentences using NLTK", len(sentences))
+            return sentences
         # Fallback regex for sentence splitting
         sentence_endings = r'(?<=[.!?])\s+'
         sentences = re.split(sentence_endings, text)
-        return [s.strip() for s in sentences if s.strip()]
+        sentences = [s.strip() for s in sentences if s.strip()]
+        logger.debug("Split text into %d sentences using regex", len(sentences))
+        return sentences
 
     def _extract_relevant_content(self, raw_content: str, query: str, max_length: int) -> str:
         """Extract the most relevant content from raw_content up to max_length, with [...] separators."""
+        logger.debug("Extracting relevant content for query: %s, max_length: %d", query, max_length)
         if not raw_content:
+            logger.warning("No raw content provided, returning empty string")
             return ""
         chunks = self._split_into_sentences(raw_content)
         if not chunks:
+            logger.warning("No chunks after splitting, returning empty string")
             return ""
         max_chunk_tokens = 200
         max_chunk_chars = max_chunk_tokens * 4
         chunks = [chunk for chunk in chunks if len(chunk) <= max_chunk_chars]
         if not chunks:
+            logger.debug("No valid chunks after filtering, truncating raw content")
             return raw_content[:max_length] + "..." if len(raw_content) > max_length else raw_content
         
         # Score all chunks in a single batch
@@ -226,9 +243,11 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 break
         content = content.strip()
         if not content:
+            logger.debug("No content selected, using first chunk")
             content = chunks[0][:max_length] + "..." if len(chunks[0]) > max_length else chunks[0]
         if content.endswith(separator):
             content = content[:-len(separator)]
+        logger.debug("Extracted content length: %d characters", len(content))
         return content
 
     async def raw_results_async(
@@ -250,6 +269,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         country: Optional[str],
     ) -> Dict[str, Any]:
         """Search the web using Playwright and SearXNG asynchronously."""
+        logger.info("Starting async search for query: %s, search_depth: %s", query, search_depth)
         start_time = asyncio.get_event_loop().time()
         time_range_map = {"day": 0, "week": 0, "month": 0, "year": 1}
         years_ago = time_range_map.get(time_range, 1) if time_range else 1
@@ -257,14 +277,18 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         if start_date:
             try:
                 min_date = datetime.strptime(start_date, "%Y-%m-%d")
+                logger.debug("Set min_date to %s", start_date)
             except ValueError:
+                logger.error("Invalid start_date format: %s", start_date)
                 raise ToolException("Invalid start_date format. Use YYYY-MM-DD.")
         if end_date and min_date:
             try:
                 end_date_dt = datetime.strptime(end_date, "%Y-%m-%d")
                 if end_date_dt < min_date:
+                    logger.error("end_date %s is before start_date %s", end_date, start_date)
                     raise ToolException("end_date cannot be before start_date.")
             except ValueError:
+                logger.error("Invalid end_date format: %s", end_date)
                 raise ToolException("Invalid end_date format. Use YYYY-MM-DD.")
         topic_map = {
             "general": ["general"],
@@ -272,6 +296,8 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             "finance": ["business"]
         }
         categories = topic_map.get(topic, ["general"])
+        logger.debug("Searching with categories: %s, include_domains: %s, exclude_domains: %s", 
+                    categories, include_domains, exclude_domains)
         search_results = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: search_searxng(
@@ -285,7 +311,9 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 years_ago=years_ago
             )
         )
+        logger.info("Retrieved %d search results from SearXNG", len(search_results))
         if not search_results:
+            logger.warning("No search results found for query: %s", query)
             return {
                 "query": query,
                 "results": [],
@@ -293,36 +321,72 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 "response_time": asyncio.get_event_loop().time() - start_time
             }
         urls = [result["url"] for result in search_results]
-        extractor = PlaywrightExtract()
-        extract_format = "markdown" if include_raw_content in (True, "markdown") else "text"
-        extract_results = await extractor._arun(
+        logger.debug("Scraping %d URLs", len(urls))
+        num_parallel = 5 if search_depth == "basic" else 10
+        wait_for_js = search_depth == "advanced"
+        scrape_results = []
+        async for result in scrape_urls(
             urls=urls,
-            extract_depth=search_depth,
-            include_images=include_images,
-            include_favicon=include_favicon,
-            format=extract_format
-        )
+            num_parallel=num_parallel,
+            limit=self.max_results,
+            show_progress=False,
+            timeout=10000,
+            max_retries=1,
+            with_screenshot=include_images,
+            headless=True,
+            wait_for_js=wait_for_js,
+            use_cache=True
+        ):
+            logger.debug(f"Scraped URL status: {result["status"]}")
+            if result["status"] != "started":
+                scrape_results.append(result)
+        logger.info("Scraped %d URLs", len(scrape_results))
         results = []
         search_texts = [result["content"] for result in search_results]
         embed_scores = self._score_chunks(search_texts, query)
-        for search_result, extract_result, embed_score in zip(search_results, extract_results["results"], embed_scores):
-            if "error" in extract_result:
+        for search_result, scrape_result, embed_score in zip(search_results, scrape_results, embed_scores):
+            if scrape_result["status"] != "completed" or not scrape_result["html"]:
+                logger.warning("Skipping result due to incomplete scrape: %s", search_result["url"])
                 continue
+            # Parse HTML to extract title, content, images, and favicon
+            logger.debug("Parsing HTML for URL: %s", search_result["url"])
+            soup = BeautifulSoup(scrape_result["html"], "html.parser")
+            title = soup.title.string.strip() if soup.title else search_result["title"]
+            content_elements = soup.find_all(["p", "div", "article"])
+            raw_content = " ".join([elem.get_text(strip=True) for elem in content_elements])
             content = self._extract_relevant_content(
-                extract_result["raw_content"],
+                raw_content,
                 query,
                 self.max_content_length
-            ) if extract_result.get("raw_content") else search_result["content"]
+            ) if raw_content else search_result["content"]
+            images = []
+            if include_images:
+                img_tags = soup.find_all("img")
+                images = [img.get("src") for img in img_tags if img.get("src")]
+                logger.debug("Extracted %d images from %s", len(images), search_result["url"])
+            favicon = None
+            if include_favicon:
+                favicon_tag = soup.find("link", rel=lambda x: x and "icon" in x.lower())
+                favicon = favicon_tag.get("href") if favicon_tag else None
+                logger.debug("Favicon %s for %s", "found" if favicon else "not found", search_result["url"])
+            # Format raw content based on include_raw_content parameter
+            formatted_raw_content = None
+            if include_raw_content:
+                if include_raw_content == "markdown":
+                    formatted_raw_content = f"# {title}\n\n{content}"
+                else:
+                    formatted_raw_content = raw_content
             results.append({
                 "url": search_result["url"],
-                "title": search_result["title"],
+                "title": title,
                 "content": content,
                 "raw_score": search_result["score"],
                 "score": embed_score,
-                "raw_content": extract_result["raw_content"] if include_raw_content else None,
-                "images": extract_result["images"] if include_images else [],
-                "favicon": extract_result["favicon"] if include_favicon else None
+                "raw_content": formatted_raw_content,
+                "images": images,
+                "favicon": favicon
             })
+        logger.info("Processed %d valid results", len(results))
         results.sort(key=lambda x: x["score"], reverse=True)
         images = []
         if include_images and include_image_descriptions:
@@ -333,13 +397,16 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             answer_depth = "advanced" if include_answer == "advanced" else "basic"
             answer_content = " ".join([r["content"] for r in results[:3]])
             answer = answer_content[:200] + "..." if len(answer_content) > 200 else answer_content
+            logger.debug("Generated answer of length %d for query: %s", len(answer or ""), query)
+        response_time = asyncio.get_event_loop().time() - start_time
+        logger.info("Search completed in %.2f seconds, returning %d results", response_time, len(results))
         return {
             "query": query,
             "follow_up_questions": None,
             "answer": answer,
             "images": images,
             "results": results[:self.max_results],
-            "response_time": asyncio.get_event_loop().time() - start_time
+            "response_time": response_time
         }
 
     def raw_results(
@@ -361,12 +428,15 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         country: Optional[str],
     ) -> Dict[str, Any]:
         """Synchronous wrapper for async search."""
-        return asyncio.run(self.raw_results_async(
+        logger.info("Starting sync search for query: %s, search_depth: %s", query, search_depth)
+        result = asyncio.run(self.raw_results_async(
             query, include_domains, exclude_domains, search_depth, include_images,
             time_range, topic, include_favicon, start_date, end_date,
             include_answer, include_raw_content, include_image_descriptions,
             auto_parameters, country
         ))
+        logger.info("Sync search completed for query: %s", query)
+        return result
 
 class PlaywrightSearch(BaseTool):
     """Tool that searches the web using Playwright and SearXNG."""
@@ -409,6 +479,7 @@ class PlaywrightSearch(BaseTool):
         end_date: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
+        logger.info("Executing synchronous search tool for query: %s", query)
         try:
             raw_results = self.api_wrapper.raw_results(
                 query=query,
@@ -428,6 +499,7 @@ class PlaywrightSearch(BaseTool):
                 country=self.country,
             )
             if not raw_results.get("results", []):
+                logger.warning("No results found for query: %s", query)
                 search_params = {
                     "time_range": time_range,
                     "include_domains": include_domains,
@@ -441,11 +513,16 @@ class PlaywrightSearch(BaseTool):
                     f"Suggestions: {', '.join(suggestions)}. "
                     f"Try modifying your search parameters with one of these approaches."
                 )
+                logger.error(error_message)
                 raise ToolException(error_message)
+            logger.info("Synchronous search tool completed for query: %s, %d results returned", 
+                       query, len(raw_results.get("results", [])))
             return raw_results
         except ToolException:
+            logger.error("ToolException occurred during synchronous search: %s", query)
             raise
         except Exception as e:
+            logger.error("Unexpected error during synchronous search: %s", str(e))
             return {"error": str(e)}
 
     async def _arun(
@@ -462,6 +539,7 @@ class PlaywrightSearch(BaseTool):
         end_date: Optional[str] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
+        logger.info("Executing asynchronous search tool for query: %s", query)
         try:
             raw_results = await self.api_wrapper.raw_results_async(
                 query=query,
@@ -481,6 +559,7 @@ class PlaywrightSearch(BaseTool):
                 country=self.country,
             )
             if not raw_results.get("results", []):
+                logger.warning("No results found for async query: %s", query)
                 search_params = {
                     "time_range": time_range,
                     "include_domains": include_domains,
@@ -494,15 +573,21 @@ class PlaywrightSearch(BaseTool):
                     f"Suggestions: {', '.join(suggestions)}. "
                     f"Try modifying your search parameters with one of these approaches."
                 )
+                logger.error(error_message)
                 raise ToolException(error_message)
+            logger.info("Asynchronous search tool completed for query: %s, %d results returned", 
+                       query, len(raw_results.get("results", [])))
             return raw_results
         except ToolException:
+            logger.error("ToolException occurred during asynchronous search: %s", query)
             raise
         except Exception as e:
+            logger.error("Unexpected error during asynchronous search: %s", str(e))
             return {"error": str(e)}
 
     def _generate_suggestions(self, params: Dict[str, Any]) -> List[str]:
         """Generate helpful suggestions based on the failed search parameters."""
+        logger.debug("Generating suggestions for failed search with params: %s", params)
         suggestions = []
         search_depth = params.get("search_depth")
         exclude_domains = params.get("exclude_domains")
@@ -519,4 +604,5 @@ class PlaywrightSearch(BaseTool):
             suggestions.append("Try a more detailed search using 'advanced' search_depth")
         if topic != "general":
             suggestions.append("Try a general search using 'general' topic")
+        logger.debug("Generated %d suggestions", len(suggestions))
         return suggestions
