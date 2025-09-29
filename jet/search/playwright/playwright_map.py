@@ -9,66 +9,93 @@ import re
 
 class PlaywrightMapInput(BaseModel):
     """Input for PlaywrightMap"""
-    url: str = Field(description="The root URL to begin the mapping.")
+    url: str = Field(
+        description="The root URL to begin the mapping."
+    )
     max_depth: Optional[int] = Field(
         default=1,
-        description="""Max depth of the mapping. Defines how far from the base URL the crawler can explore.
-        Increase this parameter when:
-        1. To map large websites and get a comprehensive overview of its structure.
-        2. To map a website that has a lot of links to other pages.
-        Set this parameter to 1 when:
-        1. To stay local to the base_url
-        2. To map a single page
-        max_depth must be greater than 0
-        """,
+        description="""Max depth of the mapping. Defines how many link hops from the root URL the crawler can explore.
+        Uses Breadth-First Search (BFS) where depth refers to link hops from the root URL.
+        A page directly linked from the root is at BFS depth 1, regardless of URL structure.
+        Increase this when:
+        1. Mapping large websites to get a comprehensive overview of their structure.
+        2. Exploring websites with many interconnected pages.
+        Set to 1 when:
+        1. Mapping a single page or staying local to the base URL.
+        2. Needing quick results with minimal exploration.
+        Must be greater than 0.
+        Default is 1.
+        """
     )
     max_breadth: Optional[int] = Field(
         default=20,
-        description="""Max number of links to follow per level of the tree (i.e., per page).
-        Increase this parameter when:
-        1. You want many links from each page to be mapped.
-        max_breadth must be greater than 0
-        """,
+        description="""Max number of links to follow per page (per level of the mapping tree).
+        Increase this when:
+        1. You want to map many links from each page for broad site coverage.
+        Must be greater than 0.
+        Default is 20.
+        """
     )
     limit: Optional[int] = Field(
         default=50,
         description="""Total number of links the mapper will process before stopping.
-        limit must be greater than 0
-        """,
+        Use to control the scope of the mapping and prevent excessive resource usage.
+        Must be greater than 0.
+        Default is 50.
+        """
     )
     instructions: Optional[str] = Field(
         default=None,
-        description="""Natural language instructions for the mapper.
-        ex. "Javascript SDK documentation"
-        """,
+        description="""Natural language instructions to guide the mapper's focus.
+        Use when the user specifies a specific goal or content type.
+        Example: For 'Find all JavaScript SDK documentation from Tavily', set to 'JavaScript SDK documentation'.
+        Helps the mapper prioritize relevant pages when combined with categories or path filters.
+        Default is None (no specific instructions).
+        """
     )
     select_paths: Optional[List[str]] = Field(
         default=None,
         description="""Regex patterns to select only URLs with specific path patterns.
-        ex. ["/api/v1.*"] 
-        """,
+        Use when the user explicitly requests a specific path from a website.
+        Examples:
+        - 'Map only the /api/v1 path' → ['/api/v1.*']
+        - 'Map only the /documentation path' → ['/documentation/.*']
+        Default is None (no path restriction).
+        """
     )
     select_domains: Optional[List[str]] = Field(
         default=None,
         description="""Regex patterns to select only URLs from specific domains or subdomains.
-        ex. ["^docs\\.tavily\\.com$"]
-        """,
+        Use when the user explicitly requests a specific domain or subdomain.
+        Example: 'Map only the docs.tavily.com subdomain' → ['^docs\\.tavily\\.com$']
+        Default is None (no domain restriction).
+        """
     )
     exclude_paths: Optional[List[str]] = Field(
         default=None,
-        description="""Regex patterns to exclude URLs from the map with specific path patterns.
-        ex. ["/documentation/.*"]
-        """,
+        description="""Regex patterns to exclude URLs with specific path patterns.
+        Use when the user explicitly requests to avoid specific paths.
+        Examples:
+        - 'Map example.com but exclude the /api/v1 path' → ['/api/v1.*']
+        - 'Map example.com but exclude the /documentation path' → ['/documentation/.*']
+        Default is None (no path exclusion).
+        """
     )
     exclude_domains: Optional[List[str]] = Field(
         default=None,
         description="""Regex patterns to exclude URLs from specific domains or subdomains.
-        ex. ["^docs\\.tavily\\.com$"]
-        """,
+        Use when the user explicitly requests to avoid specific domains or subdomains.
+        Example: 'Map tavily.com but exclude the docs.tavily.com subdomain' → ['^docs\\.tavily\\.com$']
+        Default is None (no domain exclusion).
+        """
     )
     allow_external: Optional[bool] = Field(
         default=False,
-        description="""Allow the crawler to follow external links.""",
+        description="""Determines whether the mapper can follow links to external domains.
+        Set to True when the user explicitly allows external links (e.g., 'Map all related sites').
+        Set to False to restrict mapping to the root URL's domain.
+        Default is False (no external links).
+        """
     )
     categories: Optional[
         List[
@@ -86,7 +113,22 @@ class PlaywrightMapInput(BaseModel):
         ]
     ] = Field(
         default=None,
-        description="""Direct the crawler to crawl specific categories of a website.""",
+        description="""Directs the mapper to focus on specific website categories.
+        Set to the category that best matches the user's request. Use the following guide:
+        - Careers: Job listings, open positions, career information.
+        - Blogs: Blog posts, news articles, editorial content.
+        - Documentation: Technical docs, user guides, API references.
+        - About: Company background, mission statements, team info.
+        - Pricing: Product or service pricing, plans, cost comparisons.
+        - Community: Forums, discussion boards, user groups.
+        - Developers: Developer portals, SDKs, API documentation.
+        - Contact: Contact info, support forms, customer service.
+        - Media: Press releases, media kits, newsrooms, multimedia.
+        Examples:
+        - 'Map apple.com for career opportunities' → ['Careers']
+        - 'Map tavily.com for API documentation' → ['Documentation']
+        Default is None (no category restriction).
+        """
     )
 
 class PlaywrightMapAPIWrapper(BaseModel):

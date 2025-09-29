@@ -11,70 +11,100 @@ import markdownify
 
 class PlaywrightCrawlInput(BaseModel):
     """Input for PlaywrightCrawl"""
-    url: str = Field(description="The root URL to begin the crawl.")
+    url: str = Field(
+        description="The root URL to begin the crawl."
+    )
     max_depth: Optional[int] = Field(
         default=1,
-        description="""Max depth of the crawl. Defines how far from the base URL the crawler can explore.
-        Increase this parameter when:
-        1. To crawl large websites and get a comprehensive overview of its structure.
-        2. To crawl a website that has a lot of links to other pages.
-        Set this parameter to 1 when:
-        1. To stay local to the base_url
-        2. To crawl a single page
-        max_depth must be greater than 0
-        """,
+        description="""Max depth of the crawl. Defines how many link hops from the root URL the crawler can explore.
+        Use higher values (e.g., 2 or more) when:
+        1. Crawling large websites to get a comprehensive overview of their structure.
+        2. Exploring websites with many interconnected pages.
+        Set to 1 when:
+        1. Crawling a single page or staying local to the base URL.
+        2. Needing quick results with minimal exploration.
+        Must be greater than 0.
+        Default is 1.
+        """
     )
     max_breadth: Optional[int] = Field(
         default=20,
-        description="""Max number of links to follow per level of the tree (i.e., per page).
-        Increase this parameter when:
-        1. You want many links from each page to be crawled.
-        max_breadth must be greater than 0
-        """,
+        description="""Max number of links to follow per page (per level of the crawl tree).
+        Uses Breadth-First Search (BFS) where depth refers to link hops from the root URL.
+        A page directly linked from the root is at BFS depth 1, regardless of URL structure.
+        Increase this when:
+        1. You want to explore many links from each page (e.g., for broad site coverage).
+        Must be greater than 0.
+        Default is 20.
+        """
     )
     limit: Optional[int] = Field(
         default=50,
         description="""Total number of links the crawler will process before stopping.
-        limit must be greater than 0
-        """,
+        Use to control the scope of the crawl and prevent excessive resource usage.
+        Must be greater than 0.
+        Default is 50.
+        """
     )
     instructions: Optional[str] = Field(
         default=None,
-        description="""Natural language instructions for the crawler.
-        ex. "Javascript SDK documentation"
-        """,
+        description="""Natural language instructions to guide the crawler's focus.
+        Use when the user specifies a specific goal or content type.
+        Example: For 'Find all JavaScript SDK documentation from Tavily', set to 'JavaScript SDK documentation'.
+        Helps the crawler prioritize relevant pages when combined with categories or path filters.
+        Default is None (no specific instructions).
+        """
     )
     select_paths: Optional[List[str]] = Field(
         default=None,
         description="""Regex patterns to select only URLs with specific path patterns.
-        ex. ["/api/v1.*"] 
-        """,
+        Use when the user explicitly requests a specific path from a website.
+        Examples:
+        - 'Crawl only the /api/v1 path' → ['/api/v1.*']
+        - 'Crawl only the /documentation path' → ['/documentation/.*']
+        Default is None (no path restriction).
+        """
     )
     select_domains: Optional[List[str]] = Field(
         default=None,
         description="""Regex patterns to select only URLs from specific domains or subdomains.
-        ex. ["^docs\\.tavily\\.com$"]
-        """,
+        Use when the user explicitly requests a specific domain or subdomain.
+        Example: 'Crawl only the docs.tavily.com subdomain' → ['^docs\\.tavily\\.com$']
+        Default is None (no domain restriction).
+        """
     )
     exclude_paths: Optional[List[str]] = Field(
         default=None,
-        description="""Regex patterns to exclude URLs from the crawl with specific path patterns.
-        ex. ["/documentation/.*"]
-        """,
+        description="""Regex patterns to exclude URLs with specific path patterns.
+        Use when the user explicitly requests to avoid specific paths.
+        Examples:
+        - 'Crawl example.com but exclude the /api/v1 path' → ['/api/v1.*']
+        - 'Crawl example.com but exclude the /documentation path' → ['/documentation/.*']
+        Default is None (no path exclusion).
+        """
     )
     exclude_domains: Optional[List[str]] = Field(
         default=None,
         description="""Regex patterns to exclude URLs from specific domains or subdomains.
-        ex. ["^docs\\.tavily\\.com$"]
-        """,
+        Use when the user explicitly requests to avoid specific domains or subdomains.
+        Example: 'Crawl tavily.com but exclude the docs.tavily.com subdomain' → ['^docs\\.tavily\\.com$']
+        Default is None (no domain exclusion).
+        """
     )
     allow_external: Optional[bool] = Field(
         default=False,
-        description="""Allow the crawler to follow external links.""",
+        description="""Determines whether the crawler can follow links to external domains.
+        Set to True when the user explicitly allows external links (e.g., 'Crawl all related sites').
+        Set to False to restrict crawling to the root URL's domain.
+        Default is False (no external links).
+        """
     )
     include_images: Optional[bool] = Field(
         default=True,
-        description="""Whether to include images in the crawl results.""",
+        description="""Determines whether to include image URLs in the crawl results.
+        Set to True when images are relevant to the user's request (e.g., 'Crawl a site for product images').
+        Default is True to leverage Playwright's ability to extract visual content.
+        """
     )
     categories: Optional[
         List[
@@ -92,19 +122,50 @@ class PlaywrightCrawlInput(BaseModel):
         ]
     ] = Field(
         default=None,
-        description="""Direct the crawler to crawl specific categories of a website.""",
+        description="""Directs the crawler to focus on specific website categories.
+        Set to the category that best matches the user's request. Use the following guide:
+        - Careers: Job listings, open positions, career information.
+        - Blogs: Blog posts, news articles, editorial content.
+        - Documentation: Technical docs, user guides, API references.
+        - About: Company background, mission statements, team info.
+        - Pricing: Product or service pricing, plans, cost comparisons.
+        - Community: Forums, discussion boards, user groups.
+        - Developers: Developer portals, SDKs, API documentation.
+        - Contact: Contact info, support forms, customer service.
+        - Media: Press releases, media kits, newsrooms, multimedia.
+        Examples:
+        - 'Crawl apple.com for career opportunities' → ['Careers']
+        - 'Crawl tavily.com for API documentation' → ['Documentation']
+        Default is None (no category restriction).
+        """
     )
     extract_depth: Optional[Literal["basic", "advanced"]] = Field(
         default="basic",
-        description="""Advanced extraction retrieves more data, including tables and embedded content.""",
+        description="""Controls the thoroughness of web content extraction.
+        Use 'basic' for faster extraction of main text content, suitable for simple pages.
+        Use 'advanced' for comprehensive extraction, including tables, embedded elements, and complex structures.
+        Always use 'advanced' for LinkedIn, YouTube, or other dynamic websites for optimal results.
+        'advanced' may increase response time but improves content coverage.
+        Default is 'basic'.
+        """
     )
     include_favicon: Optional[bool] = Field(
         default=True,
-        description="""Whether to include the favicon URL for each result.""",
+        description="""Determines whether to include favicon URLs for each crawled page.
+        When enabled, each result includes the website's favicon URL, useful for:
+        - Building rich UI interfaces with visual website indicators
+        - Providing visual cues about the source's credibility or brand
+        - Creating bookmark-like displays with recognizable site icons
+        Default is True to enhance result presentation.
+        """
     )
-    format: Optional[str] = Field(
+    format: Optional[Literal["markdown", "text"]] = Field(
         default="markdown",
-        description="""The format of the extracted web page content (markdown or text).""",
+        description="""The format of the extracted web page content.
+        'markdown' returns content in markdown format, suitable for structured rendering.
+        'text' returns plain text, which may increase latency due to additional processing.
+        Default is 'markdown'.
+        """
     )
 
 class PlaywrightCrawlAPIWrapper(BaseModel):

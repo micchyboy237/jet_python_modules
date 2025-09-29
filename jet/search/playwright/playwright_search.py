@@ -19,15 +19,103 @@ except ImportError:
 class PlaywrightSearchInput(BaseModel):
     """Input for PlaywrightSearch"""
     query: str = Field(description="Search query to look up")
-    include_domains: Optional[List[str]] = Field(default=[])
-    exclude_domains: Optional[List[str]] = Field(default=[])
-    search_depth: Optional[Literal["basic", "advanced"]] = Field(default="basic")
-    include_images: Optional[bool] = Field(default=True)
-    time_range: Optional[Literal["day", "week", "month", "year"]] = Field(default=None)
-    topic: Optional[Literal["general", "news", "finance"]] = Field(default="general")
-    include_favicon: Optional[bool] = Field(default=True)
-    start_date: Optional[str] = Field(default=None)
-    end_date: Optional[str] = Field(default=None)
+    include_domains: Optional[List[str]] = Field(
+        default=[],
+        description="""A list of domains to restrict search results to.
+        Use this when:
+        1. The user explicitly requests information from specific websites (e.g., 'Find climate data from nasa.gov')
+        2. The user mentions an organization or company without specifying the domain (e.g., 'Find information about iPhones from Apple')
+        In both cases, determine the appropriate domains (e.g., ['nasa.gov'] or ['apple.com']) and set this parameter.
+        Results will ONLY come from the specified domains - no other sources will be included.
+        Default is an empty list (no domain restriction).
+        """
+    )
+    exclude_domains: Optional[List[str]] = Field(
+        default=[],
+        description="""A list of domains to exclude from search results.
+        Use this when:
+        1. The user explicitly requests to avoid certain websites (e.g., 'Find information about climate change but not from twitter.com')
+        2. The user mentions not wanting results from specific organizations without naming the domain (e.g., 'Find phone reviews but nothing from Apple')
+        In both cases, determine the appropriate domains to exclude (e.g., ['twitter.com'] or ['apple.com']) and set this parameter.
+        Results will filter out all content from the specified domains.
+        Default is an empty list (no domain exclusion).
+        """
+    )
+    search_depth: Optional[Literal["basic", "advanced"]] = Field(
+        default="basic",
+        description="""Controls search thoroughness and result comprehensiveness.
+        Use 'basic' for simple queries requiring quick, straightforward answers.
+        Use 'advanced' for complex queries, specialized topics, rare information, or when in-depth analysis is needed.
+        Default is 'basic'.
+        """
+    )
+    include_images: Optional[bool] = Field(
+        default=True,
+        description="""Determines if the search returns relevant images along with text results.
+        Set to True when the user explicitly requests visuals or when images would significantly enhance understanding (e.g., 'Show me what black holes look like,' 'Find pictures of Renaissance art').
+        Default is True for PlaywrightSearch to leverage visual content extraction.
+        """
+    )
+    time_range: Optional[Literal["day", "week", "month", "year"]] = Field(
+        default=None,
+        description="""Limits results to content published within a specific timeframe.
+        ONLY set this when the user explicitly mentions a time period (e.g., 'latest AI news,' 'articles from last week').
+        For less popular or niche topics, use broader time ranges ('month' or 'year') to ensure sufficient relevant results.
+        Options: 'day' (24h), 'week' (7d), 'month' (30d), 'year' (365d).
+        Default is None (no time restriction).
+        """
+    )
+    topic: Optional[Literal["general", "news", "finance"]] = Field(
+        default="general",
+        description="""Specifies search category for optimized results.
+        Use 'general' (default) for most queries, INCLUDING those with terms like 'latest,' 'newest,' or 'recent' when referring to general information.
+        Use 'finance' for markets, investments, economic data, or financial news.
+        Use 'news' ONLY for politics, sports, or major current events covered by mainstream media - NOT simply because a query asks for 'new' information.
+        """
+    )
+    include_favicon: Optional[bool] = Field(
+        default=True,
+        description="""Determines whether to include favicon URLs for each search result.
+        When enabled, each search result will include the website's favicon URL, useful for:
+        - Building rich UI interfaces with visual website indicators
+        - Providing visual cues about the source's credibility or brand
+        - Creating bookmark-like displays with recognizable site icons
+        Default is True to enhance result presentation.
+        """
+    )
+    start_date: Optional[str] = Field(
+        default=None,
+        description="""Filters search results to include only content published on or after this date.
+        Use this when you need to:
+        - Find recent developments or updates on a topic
+        - Exclude outdated information from search results
+        - Focus on content within a specific timeframe
+        - Combine with end_date to create a custom date range
+        Format must be YYYY-MM-DD (e.g., '2024-01-15' for January 15, 2024).
+        Examples:
+        - '2024-01-01' - Results from January 1, 2024 onwards
+        - '2023-12-25' - Results from December 25, 2023 onwards
+        When combined with end_date, creates a precise date range filter.
+        Default is None (no start date restriction).
+        """
+    )
+    end_date: Optional[str] = Field(
+        default=None,
+        description="""Filters search results to include only content published on or before this date.
+        Use this when you need to:
+        - Exclude content published after a certain date
+        - Study historical information or past events
+        - Research how topics were covered during specific time periods
+        - Combine with start_date to create a custom date range
+        Format must be YYYY-MM-DD (e.g., '2024-03-31' for March 31, 2024).
+        Examples:
+        - '2024-03-31' - Results up to and including March 31, 2024
+        - '2023-12-31' - Results up to and including December 31, 2023
+        When combined with start_date, creates a precise date range filter.
+        For example: start_date='2024-01-01', end_date='2024-03-31' returns results from Q1 2024 only.
+        Default is None (no end date restriction).
+        """
+    )
     max_content_length: Optional[int] = Field(
         default=500,
         description="Maximum length of the content field in characters. Default is 500."

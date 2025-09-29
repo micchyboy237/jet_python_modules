@@ -10,24 +10,43 @@ import markdownify
 
 class PlaywrightExtractInput(BaseModel):
     """Input for PlaywrightExtract"""
-    urls: List[str] = Field(description="List of URLs to extract")
+    urls: List[str] = Field(
+        description="List of URLs to extract content from."
+    )
     extract_depth: Optional[Literal["basic", "advanced"]] = Field(
         default="basic",
         description="""Controls the thoroughness of web content extraction.
-        Use "basic" for faster extraction of main text content.
-        Use "advanced" for comprehensive content including tables and embedded elements.""",
+        Use 'basic' for faster extraction of main text content, suitable for simple pages or quick results.
+        Use 'advanced' for comprehensive content extraction, including tables, embedded elements, and complex page structures.
+        Always use 'advanced' for LinkedIn, YouTube, or other dynamic websites for optimal results.
+        'advanced' may increase response time but improves content coverage.
+        Default is 'basic'.
+        """
     )
     include_images: Optional[bool] = Field(
         default=True,
-        description="""Determines whether to extract and include images from the source URLs.""",
+        description="""Determines whether to extract and include image URLs from the source webpages.
+        Set to True when visualizations are needed for better context or understanding (e.g., 'Extract images from a webpage about Renaissance art').
+        Default is True to leverage Playwright's ability to extract visual content.
+        """
     )
     include_favicon: Optional[bool] = Field(
         default=True,
-        description="""Whether to include the favicon URL for each result.""",
+        description="""Determines whether to include favicon URLs for each webpage.
+        When enabled, each result includes the website's favicon URL, useful for:
+        - Building rich UI interfaces with visual website indicators
+        - Providing visual cues about the source's credibility or brand
+        - Creating bookmark-like displays with recognizable site icons
+        Default is True to enhance result presentation.
+        """
     )
-    format: Optional[str] = Field(
+    format: Optional[Literal["markdown", "text"]] = Field(
         default="markdown",
-        description="""The format of the extracted web page content (markdown or text).""",
+        description="""The format of the extracted web page content.
+        'markdown' returns content in markdown format, suitable for structured rendering.
+        'text' returns plain text, which may increase latency due to additional processing.
+        Default is 'markdown'.
+        """
     )
 
 class PlaywrightExtractAPIWrapper(BaseModel):
