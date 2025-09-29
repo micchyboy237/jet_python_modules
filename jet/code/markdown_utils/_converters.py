@@ -29,8 +29,8 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
     html_content = format_html(html_content)
 
-    # Add header placeholder after closing list elements (ul, ol, table)
-    html_content = add_list_table_header_placeholders(html_content)
+    # # Add header placeholder after closing list elements (ul, ol, table)
+    # html_content = add_list_table_header_placeholders(html_content)
 
     converter = html2text.HTML2Text()
     converter.ignore_links = ignore_links

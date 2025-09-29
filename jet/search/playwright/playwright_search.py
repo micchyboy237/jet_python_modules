@@ -6,9 +6,11 @@ from datetime import datetime
 import asyncio
 import re
 import numpy as np
+from jet.logger import logger
 from jet.search.playwright.playwright_extract import PlaywrightExtract
 from jet.search.searxng import search_searxng
 from jet.llm.utils.embeddings import get_ollama_embedding_function
+from jet.transformers.formatters import format_json
 
 try:
     from nltk.tokenize import sent_tokenize
@@ -292,6 +294,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 "response_time": asyncio.get_event_loop().time() - start_time
             }
         urls = [result["url"] for result in search_results]
+        logger.debug(f"Search Result URLs ({len(urls)}):\n{format_json(urls)}")
         extractor = PlaywrightExtract()
         extract_format = "markdown" if include_raw_content in (True, "markdown") else "text"
         extract_results = await extractor._arun(

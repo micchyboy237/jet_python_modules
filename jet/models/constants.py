@@ -60,6 +60,7 @@ AVAILABLE_LLM_MODELS: Dict[LLMModelKey, LLMModelValue] = {
 }
 
 AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
+    "all-minilm:33m": "sentence-transformers/all-MiniLM-L12-v2",
     "bge-large": "BAAI/bge-large-en-v1.5",
     "pythia-70m": "EleutherAI/pythia-70m",
     "qwen3-embedding-0.6b": "Qwen/Qwen3-Embedding-0.6B",
@@ -128,6 +129,7 @@ ALL_MODEL_KEYS: List[ModelKey] = list(ALL_MODELS.keys())
 ALL_MODEL_VALUES: List[ModelValue] = list(ALL_MODELS.values())
 
 MODEL_CONTEXTS: Dict[ModelType, int] = {
+    "all-minilm:33m": 512,
     "bge-large": 512,
     "pythia-70m": 2048,
     "qwen3-embedding-0.6b": 32768,
@@ -203,6 +205,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
+    "all-minilm:33m": 384,
     "bge-large": 1024,
     "pythia-70m": 512,
     "qwen3-embedding-0.6b": 1024,

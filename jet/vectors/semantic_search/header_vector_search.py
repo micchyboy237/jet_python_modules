@@ -1,4 +1,5 @@
 import uuid
+from jet.llm.models import OLLAMA_EMBED_MODELS
 from jet.models.model_types import ModelType
 from jet.models.tokenizer.base import count_tokens, get_tokenizer_fn
 from jet.models.utils import get_context_size
@@ -8,14 +9,15 @@ from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from jet.logger import logger
-from jet.models.embeddings.base import generate_embeddings
+# from jet.models.embeddings.base import generate_embeddings
+from jet.llm.utils.embeddings import generate_embeddings
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.model_types import EmbedModelType
 from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, MarkdownToken, HeaderSearchMetadata, HeaderSearchResult
 import logging
 from jet.utils.text_constants import TEXT_CONTRACTIONS_EN
 
-DEFAULT_EMBED_MODEL: EmbedModelType = 'all-MiniLM-L12-v2'
+DEFAULT_EMBED_MODEL: OLLAMA_EMBED_MODELS = "all-minilm:33m"
 MAX_CONTENT_SIZE = 1000
 
 
@@ -197,7 +199,7 @@ def merge_results(
         merged_content = current_chunk["content"]
         start_idx = current_chunk["metadata"]["start_idx"]
         end_idx = current_chunk["metadata"]["end_idx"]
-        total_score = current_chunk["score"]
+        max_score = current_chunk["score"]  # Track max score instead of total
         header_content_sim = current_chunk["metadata"]["header_content_similarity"]
         headers_sim = current_chunk["metadata"]["headers_similarity"]
         content_sims = [current_chunk["metadata"]["content_similarity"]]
@@ -221,18 +223,17 @@ def merge_results(
                 preprocessed_content += " " + \
                     next_preprocessed_content[overlap:] if overlap > 0 else next_preprocessed_content
                 end_idx = new_end
-                total_score += next_chunk["score"]
+                max_score = max(max_score, next_chunk["score"])  # Update max score
                 content_sims.append(
                     next_chunk["metadata"]["content_similarity"])
                 chunk_count += 1
                 tokens = tokenizer(merged_content)
             else:
-                avg_score = total_score / chunk_count
                 avg_content_sim = sum(content_sims) / chunk_count
                 merged_results.append({
-                    "id": result_id,  # Use the preserved ID
+                    "id": result_id,
                     "rank": current_chunk["rank"],
-                    "score": avg_score,
+                    "score": max_score,  # Use max score
                     "header": current_chunk["header"],
                     "parent_header": current_chunk["parent_header"],
                     "content": merged_content,
@@ -258,7 +259,7 @@ def merge_results(
                 merged_content = current_chunk["content"]
                 start_idx = current_chunk["metadata"]["start_idx"]
                 end_idx = current_chunk["metadata"]["end_idx"]
-                total_score = max(total_score, next_chunk["score"])
+                max_score = current_chunk["score"]  # Reset to new chunk's score
                 header_content_sim = current_chunk["metadata"]["header_content_similarity"]
                 headers_sim = current_chunk["metadata"]["headers_similarity"]
                 content_sims = [current_chunk["metadata"]
@@ -268,14 +269,12 @@ def merge_results(
                 preprocessed_header = current_chunk["metadata"]["preprocessed_header"]
                 preprocessed_headers_context = current_chunk["metadata"]["preprocessed_headers_context"]
                 preprocessed_content = current_chunk["metadata"]["preprocessed_content"]
-                # Update to the next chunk's ID
                 result_id = current_chunk["id"]
-        avg_score = total_score / chunk_count
         avg_content_sim = sum(content_sims) / chunk_count
         merged_results.append({
-            "id": result_id,  # Use the preserved ID
+            "id": result_id,
             "rank": current_chunk["rank"],
-            "score": total_score,
+            "score": max_score,  # Use max score
             "header": current_chunk["header"],
             "parent_header": current_chunk["parent_header"],
             "content": merged_content,
@@ -307,7 +306,7 @@ def search_headers(
     header_docs: List[HeaderDoc],
     query: str,
     top_k: Optional[int] = None,
-    embed_model: EmbedModelType = DEFAULT_EMBED_MODEL,
+    embed_model: OLLAMA_EMBED_MODELS = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     buffer: int = 0,

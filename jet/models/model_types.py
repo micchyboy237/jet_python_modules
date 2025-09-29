@@ -164,6 +164,7 @@ LLMModelValue = Literal[
 
 # Embed model key types
 EmbedModelKey = Literal[
+    "all-minilm:33m",
     "bge-large",
     "pythia-70m",
     "qwen3-embedding-0.6b",

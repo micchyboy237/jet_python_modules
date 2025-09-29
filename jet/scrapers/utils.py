@@ -1034,7 +1034,7 @@ class BaseNode:
     def __init__(
         self,
         tag: str,
-        # text: Optional[str],
+        text: Optional[str],
         depth: int,
         id: str,
         raw_depth: Optional[int],  # Added to store unadjusted DOM depth
@@ -1043,7 +1043,7 @@ class BaseNode:
         html: Optional[str] = None
     ):
         self.tag = tag
-        # self.text = text
+        self.text = text
         self.depth = depth
         self.raw_depth = raw_depth  # Store unadjusted depth
         self.id = id
@@ -1089,7 +1089,7 @@ class TreeNode(BaseNode):
     ):
         super().__init__(
             tag=tag,
-            # text=text,
+            text=text,
             depth=depth,
             id=id,
             class_names=class_names,

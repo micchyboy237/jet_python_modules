@@ -13,6 +13,7 @@ DEFAULT_SF_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
 # Get the list of ollama models
 OLLAMA_MODEL_NAMES = Literal[
+    "all-minilm:33m",
     "deepseek-coder-v2:16b-lite-instruct-q3_K_M",
     "deepseek-r1:1.5b-qwen-distill-q4_K_M",
     "deepseek-r1:7b-qwen-distill-q4_K_M",
@@ -66,6 +67,7 @@ OLLAMA_EMBED_MODELS = Literal[
 
 # Map models to context window sizes
 OLLAMA_MODEL_CONTEXTS = {
+    "all-minilm:33m": 512,
     "deepseek-coder-v2:16b-lite-instruct-q3_K_M": 163840,
     "deepseek-r1:1.5b-qwen-distill-q4_K_M": 131072,
     "deepseek-r1:7b-qwen-distill-q4_K_M": 131072,
@@ -89,6 +91,7 @@ OLLAMA_MODEL_CONTEXTS = {
 
 # Map models to embedding sizes
 OLLAMA_MODEL_EMBEDDING_TOKENS = {
+    "all-minilm:33m": 384,
     "deepseek-coder-v2:16b-lite-instruct-q3_K_M": 2048,
     "deepseek-r1:1.5b-qwen-distill-q4_K_M": 1536,
     "deepseek-r1:7b-qwen-distill-q4_K_M": 3584,
@@ -112,6 +115,7 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
 
 
 OLLAMA_HF_MODELS = {
+    "all-minilm:33m": "sentence-transformers/all-MiniLM-L12-v2",
     "deepseek-coder-v2:16b-lite-instruct-q3_K_M": "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
     "deepseek-r1:1.5b-qwen-distill-q4_K_M": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
     "deepseek-r1:7b-qwen-distill-q4_K_M": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
