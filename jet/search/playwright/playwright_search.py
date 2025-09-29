@@ -391,7 +391,7 @@ class PlaywrightSearch(BaseTool):
     end_date: Optional[str] = None
     max_results: Optional[int] = None
     include_answer: Optional[Union[bool, Literal["basic", "advanced"]]] = None
-    include_raw_content: Optional[Union[bool, Literal["markdown", "text"]]] = None
+    include_raw_content: Optional[Union[bool, Literal["markdown", "text"]]] = "markdown"
     include_image_descriptions: bool = False
     auto_parameters: Optional[bool] = None
     country: Optional[str] = None
