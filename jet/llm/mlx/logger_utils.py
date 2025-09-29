@@ -126,6 +126,10 @@ class ChatLogger:
 
         # Calculate and set tokens
         prompt_tokens = token_counter(messages, model)
+        if tools:
+            tools_tokens = token_counter(format_json(tools), model)
+            prompt_tokens += tools_tokens
+            log_data["tokens"]["tools"] = tools_tokens
         response_tokens = token_counter(log_data["response"], model)
         log_data["tokens"]["prompt"] = prompt_tokens
         log_data["tokens"]["response"] = response_tokens
