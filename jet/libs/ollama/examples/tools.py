@@ -54,7 +54,7 @@ available_functions = {
     'subtract_two_numbers': subtract_two_numbers,
 }
 
-model = "qwen3:4b-q4_K_M"
+model = "mistral:7b-instruct-v0.3-q4_K_M"
 response: ChatResponse = client.chat(
     model,
     messages=messages,
