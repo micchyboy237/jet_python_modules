@@ -1,5 +1,6 @@
 import json
 from typing import Any, Union
+from collections.abc import Mapping
 from jet.utils.class_utils import get_class_name
 
 
@@ -111,6 +112,32 @@ def remove_null_keys(data: Union[dict, list]) -> Union[dict, list]:
     elif isinstance(data, list):
         return [remove_null_keys(item) for item in data]
     return data
+
+
+def truncate_strings(obj, max_len=100, suffix=""):
+    """
+    Recursively traverse dicts, lists, tuples, sets and truncate string values to max_len.
+    If truncated, append `suffix` to the string.
+    """
+    if isinstance(obj, str):
+        if len(obj) > max_len:
+            return obj[:max_len] + suffix
+        return obj
+    
+    elif isinstance(obj, Mapping):  # dict-like
+        return {k: truncate_strings(v, max_len, suffix) for k, v in obj.items()}
+    
+    elif isinstance(obj, list):
+        return [truncate_strings(v, max_len, suffix) for v in obj]
+    
+    elif isinstance(obj, tuple):
+        return tuple(truncate_strings(v, max_len, suffix) for v in obj)
+    
+    elif isinstance(obj, set):
+        return {truncate_strings(v, max_len, suffix) for v in obj}
+    
+    else:
+        return obj
 
 
 def max_getattr(obj, attr_name, default=None):
