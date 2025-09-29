@@ -386,7 +386,7 @@ class PlaywrightSearch(BaseTool):
     include_images: bool = False
     time_range: Optional[Literal["day", "week", "month", "year"]] = None
     topic: Optional[Literal["general", "news", "finance"]] = None
-    include_favicon: bool = True
+    include_favicon: bool = False
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     max_results: Optional[int] = None
@@ -406,7 +406,7 @@ class PlaywrightSearch(BaseTool):
         include_images: bool = False,
         time_range: Optional[Literal["day", "week", "month", "year"]] = None,
         topic: Optional[Literal["general", "news", "finance"]] = None,
-        include_favicon: bool = True,
+        include_favicon: bool = False,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
@@ -459,7 +459,7 @@ class PlaywrightSearch(BaseTool):
         include_images: bool = False,
         time_range: Optional[Literal["day", "week", "month", "year"]] = None,
         topic: Optional[Literal["general", "news", "finance"]] = None,
-        include_favicon: bool = True,
+        include_favicon: bool = False,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
