@@ -1,35 +1,28 @@
-import html
-from dataclasses import dataclass
-from datetime import datetime
-from jet.code.html_utils import format_html
-from jet.code.markdown_utils._markdown_parser import parse_markdown
-from jet.data.header_docs import HeaderDocs
-from jet.scrapers.config import TEXT_ELEMENTS
-from jet.utils.url_utils import clean_url
-from jet.wordnet.sentence import split_sentences
-from lxml.etree import Comment
-from typing import Callable, Literal, Optional, List, Dict, Set, TypedDict, Union
-from bs4 import BeautifulSoup
+import requests
+import validators
 import uuid
-from jet.search.formatters import decode_text_with_unidecode
-from jet.wordnet.words import count_words
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from pathlib import Path
-from typing import AsyncGenerator, List, Optional, Tuple, TypedDict
-from collections import defaultdict
 import os
-from typing import Generator, List, Optional
-from urllib.parse import urljoin, urlparse
-from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
-from pyquery import PyQuery as pq
-from jet.logger.config import colorize_log
-from jet.logger import logger
 import json
 import re
-import string
-from jet.utils.text import fix_and_unidecode
 import parsel
-import unidecode
+
+from datetime import datetime
+from lxml.etree import Comment
+from typing import Literal, Optional, List, Dict, Set, TypedDict, Union
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from pathlib import Path
+from typing import AsyncGenerator, Tuple
+from urllib.parse import urljoin, urlparse
+from pyquery import PyQuery as pq
+
+from jet.code.html_utils import format_html
+from jet.scrapers.config import TEXT_ELEMENTS
+from jet.search.formatters import decode_text_with_unidecode
+from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
+from jet.logger.config import colorize_log
+from jet.logger import logger
+from jet.utils.text import fix_and_unidecode
 
 
 # def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
@@ -733,6 +726,56 @@ def extract_title_and_metadata(source: str, timeout_ms: int = 1000) -> TitleMeta
         "title": title,
         "metadata": metadata
     }
+
+
+def extract_favicon_ico_link(source: str) -> Optional[str]:
+    """
+    Extracts the favicon.ico link from a given URL or HTML string.
+    
+    Args:
+        source: The URL of the website or HTML string to extract the favicon from.
+        
+    Returns:
+        The absolute URL of the favicon.ico if found, None otherwise.
+    """
+    try:
+        # Check if source is a valid URL
+        if validators.url(source):
+            # Send HTTP request with a timeout
+            response = requests.get(source, timeout=5)
+            response.raise_for_status()
+            html_content = response.text
+            base_url = source
+        else:
+            # Treat source as HTML string
+            html_content = source
+            # Use a default base URL for relative paths in HTML string
+            base_url = "https://example.com"
+
+        # Parse HTML content
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Look for favicon in <link> tags
+        favicon_link = soup.find('link', rel=lambda x: x and 'icon' in x.lower())
+        
+        if favicon_link and favicon_link.get('href'):
+            # Convert relative URL to absolute
+            return urljoin(base_url, favicon_link['href'])
+        
+        # Fallback: try default /favicon.ico path (only for valid URLs)
+        if validators.url(source):
+            parsed_url = urlparse(source)
+            default_favicon = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
+            
+            # Verify if default favicon exists
+            favicon_response = requests.head(default_favicon, timeout=5)
+            if favicon_response.status_code == 200:
+                return default_favicon
+            
+        return None
+        
+    except (requests.RequestException, ValueError):
+        return None
 
 
 def extract_internal_links(source: str, base_url: str, timeout_ms: int = 1000) -> List[str]:
@@ -1796,7 +1839,7 @@ def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResu
         if not results:
             raise NoResultsFoundError(f"No results found for query: '{query}'")
         return results
-    except NoResultsFoundError as e:
+    except NoResultsFoundError:
         if use_cache:
             logger.warning(
                 f"No results found for query: '{query}'. Recursively retrying with use_cache=False.")

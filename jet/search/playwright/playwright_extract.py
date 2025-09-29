@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, Type
+from typing import Any, Dict, Iterator, List, Literal, Optional, Type
 from langchain_core.callbacks import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
 from langchain_core.tools import BaseTool, ToolException
 from pydantic import BaseModel, ConfigDict, Field
@@ -7,6 +7,13 @@ from urllib.parse import urljoin
 import asyncio
 from bs4 import BeautifulSoup
 import markdownify
+
+from jet.code.markdown_types.markdown_parsed_types import HeaderDoc
+from jet.code.markdown_utils._converters import convert_html_to_markdown
+from jet.code.markdown_utils._markdown_analyzer import analyze_markdown
+from jet.code.markdown_utils._markdown_parser import base_parse_markdown, derive_by_header_hierarchy
+from jet.scrapers.playwright_utils import scrape_urls_sync
+from jet.scrapers.utils import extract_favicon_ico_link
 
 class PlaywrightExtractInput(BaseModel):
     """Input for PlaywrightExtract"""
@@ -62,7 +69,7 @@ class PlaywrightExtractAPIWrapper(BaseModel):
         include_images: Optional[bool],
         include_favicon: Optional[bool],
         extract_depth: Optional[Literal["basic", "advanced"]],
-        format: Optional[str],
+        format: Optional[Literal["markdown", "text"]],
     ) -> Dict[str, Any]:
         """Extract content from URLs using Playwright asynchronously."""
         results = []
@@ -128,7 +135,7 @@ class PlaywrightExtractAPIWrapper(BaseModel):
         include_images: Optional[bool],
         include_favicon: Optional[bool],
         extract_depth: Optional[Literal["basic", "advanced"]],
-        format: Optional[str],
+        format: Optional[Literal["markdown", "text"]],
     ) -> Dict[str, Any]:
         """Synchronous wrapper for async extraction."""
         return asyncio.run(self.raw_results_async(
@@ -144,7 +151,7 @@ class PlaywrightExtract(BaseTool):
     extract_depth: Optional[Literal["basic", "advanced"]] = None
     include_images: bool = True
     include_favicon: bool = True
-    format: Optional[str] = None
+    format: Optional[Literal["markdown", "text"]] = None
     apiwrapper: PlaywrightExtractAPIWrapper = Field(default_factory=PlaywrightExtractAPIWrapper)
 
     def _run(
@@ -153,7 +160,7 @@ class PlaywrightExtract(BaseTool):
         extract_depth: Optional[Literal["basic", "advanced"]] = None,
         include_images: bool = True,
         include_favicon: bool = True,
-        format: Optional[str] = None,
+        format: Optional[Literal["markdown", "text"]] = None,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         try:
@@ -190,7 +197,7 @@ class PlaywrightExtract(BaseTool):
         extract_depth: Optional[Literal["basic", "advanced"]] = None,
         include_images: bool = True,
         include_favicon: bool = True,
-        format: Optional[str] = None,
+        format: Optional[Literal["markdown", "text"]] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         try:
@@ -221,6 +228,51 @@ class PlaywrightExtract(BaseTool):
             raise
         except Exception as e:
             return {"error": str(e)}
+
+    def _stream(
+        self,
+        urls: List[str],
+        extract_depth: Optional[Literal["basic", "advanced"]] = None,
+        include_images: bool = True,
+        include_favicon: bool = True,
+        format: Optional[Literal["markdown", "text"]] = None,
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+        use_cache: bool = True,
+    ) -> Iterator[Dict[str, Any]]:
+        for url_result in scrape_urls_sync(urls, show_progress=True, use_cache=use_cache, wait_for_js=True):
+            url = url_result["url"]
+            status = url_result["status"]
+            html = url_result["html"]
+            screenshot = url_result["screenshot"]
+
+            if status == "completed" and html:
+                doc_markdown = convert_html_to_markdown(html, ignore_links=False)
+                doc_analysis = analyze_markdown(doc_markdown)
+                doc_markdown_tokens = base_parse_markdown(doc_markdown)
+
+                image_links_with_text = [
+                    {"text": image_link["alt_text"], "url": image_link["url"]}
+                    for image_link in doc_analysis["image_links"]
+                ]
+                images = [image_link["url"] for image_link in doc_analysis["image_links"]]
+
+                original_docs: List[HeaderDoc] = derive_by_header_hierarchy(doc_markdown, ignore_links=True)
+                for doc in original_docs:
+                    doc["source"] = url
+
+                result = {
+                    "url": url,
+                    "raw_content": doc_markdown,
+                    "images": images,
+                    "screenshot": screenshot,
+                }
+                
+                favicon = None
+                if self.include_favicon:
+                    favicon = extract_favicon_ico_link(html)
+                    result["favicon"] = favicon
+
+                yield result
 
 def _generate_suggestions(params: Dict[str, Any]) -> List[str]:
     """Generate helpful suggestions based on the failed search parameters."""

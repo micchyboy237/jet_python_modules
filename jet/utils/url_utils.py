@@ -1,11 +1,9 @@
 from jet.logger import logger
 from tqdm import tqdm
-from jet.llm.utils.bm25_plus import bm25_plus
 from unidecode import unidecode
 from typing import Dict, List, Tuple
-from urllib.parse import urlparse, urlunparse
-from typing import List, Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlunparse
+from typing import Optional
 import requests
 import xml.etree.ElementTree as ET
 import re
