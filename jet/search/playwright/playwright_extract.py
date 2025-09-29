@@ -54,32 +54,27 @@ class PlaywrightExtractAPIWrapper(BaseModel):
                 browser = await p.chromium.launch()
                 page = await browser.new_page()
                 try:
-                    await page.goto(url, timeout=10000)
+                    await page.goto(url, timeout=30000)  # Increased timeout to 30 seconds
                     content = await page.content()
+                    if not content:
+                        return {"url": url, "error": "Empty page content"}
                     soup = BeautifulSoup(content, 'html.parser')
-                    
-                    # Remove scripts and styles
                     for element in soup(['script', 'style']):
                         element.decompose()
-                    
-                    # Extract favicon
                     favicon = None
                     if include_favicon:
                         favicon_link = soup.find('link', rel=['icon', 'shortcut icon'])
                         if favicon_link and favicon_link.get('href'):
                             favicon = urljoin(url, favicon_link['href'])
-
-                    # Extract images
                     images = []
                     if include_images:
                         img_tags = soup.find_all('img')
                         images = [urljoin(url, img.get('src')) for img in img_tags if img.get('src')]
-
-                    # Extract content based on depth
                     raw_content = soup.get_text(strip=True) if extract_depth == "basic" else str(soup)
+                    if not raw_content:
+                        return {"url": url, "error": "No content extracted after parsing"}
                     if format == "markdown":
                         raw_content = markdownify.markdownify(raw_content)
-
                     return {
                         "url": url,
                         "raw_content": raw_content,
@@ -87,7 +82,7 @@ class PlaywrightExtractAPIWrapper(BaseModel):
                         "favicon": favicon
                     }
                 except Exception as e:
-                    return {"url": url, "error": str(e)}
+                    return {"url": url, "error": f"Failed to extract content: {str(e)}"}
                 finally:
                     await browser.close()
 
@@ -189,7 +184,7 @@ class PlaywrightExtract(BaseTool):
             )
             results = raw_results.get("results", [])
             failed_results = raw_results.get("failed_results", [])
-            if not results or len(failed_results) == len(urls):
+            if not results and len(failed_results) == len(urls):
                 search_params = {
                     "extract_depth": extract_depth,
                     "include_images": include_images,
@@ -197,8 +192,9 @@ class PlaywrightExtract(BaseTool):
                 suggestions = _generate_suggestions(search_params)
                 error_message = (
                     f"No extracted results found for '{urls}'. "
+                    f"Failed results: {failed_results}. "
                     f"Suggestions: {', '.join(suggestions)}. "
-                    f"Try modifying your extract parameters with one of these approaches."
+                    f"Try modifying your extract parameters or checking network connectivity."
                 )
                 raise ToolException(error_message)
             return raw_results

@@ -110,7 +110,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         chunks = self._split_into_sentences(raw_content)
         if not chunks:
             return ""
-        max_chunk_tokens = 100
+        max_chunk_tokens = 200
         max_chunk_chars = max_chunk_tokens * 4
         chunks = [chunk for chunk in chunks if len(chunk) <= max_chunk_chars]
         if not chunks:
