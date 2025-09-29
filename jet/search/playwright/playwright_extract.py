@@ -250,6 +250,10 @@ class PlaywrightExtract(BaseTool):
                 doc_analysis = analyze_markdown(doc_markdown)
                 doc_markdown_tokens = base_parse_markdown(doc_markdown)
 
+                text_links_with_text = [
+                    {"text": text_link["text"], "url": text_link["url"]}
+                    for text_link in doc_analysis["text_links"]
+                ]
                 image_links_with_text = [
                     {"text": image_link["alt_text"], "url": image_link["url"]}
                     for image_link in doc_analysis["image_links"]
@@ -264,7 +268,14 @@ class PlaywrightExtract(BaseTool):
                     "url": url,
                     "raw_content": doc_markdown,
                     "images": images,
-                    "screenshot": screenshot,
+                    "meta": {
+                        "analysis": doc_analysis,
+                        "text_links": text_links_with_text,
+                        "image_links": image_links_with_text,
+                        "markdown": doc_markdown,
+                        "md_tokens": doc_markdown_tokens,
+                        "screenshot": screenshot,
+                    }
                 }
                 
                 favicon = None
