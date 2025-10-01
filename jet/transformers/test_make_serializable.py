@@ -1,9 +1,8 @@
 import pytest
-import json
 import abc
 from dataclasses import dataclass
 from enum import Enum
-from typing import TypeVar, Callable
+from typing import TypeVar
 import numpy as np
 from pydantic import BaseModel
 from jet.transformers.object import make_serializable
@@ -171,7 +170,7 @@ def test_serializable_bytes(sample_bytes):
     result = make_serializable(input_data)
     
     # Then: The result should match the expected JSON-decoded dictionary
-    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+    assert result == expected, f"Expected {expected}, but got {result}"
 
 def test_serializable_bytes_invalid(invalid_bytes):
     # Given: An invalid bytes object that cannot be decoded to UTF-8
@@ -221,7 +220,7 @@ def test_serializable_class():
     result = make_serializable(input_data)
     
     # Then: The result should match the expected dictionary
-    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+    assert result == expected, f"Expected {expected}, but got {result}"
 
 def test_serializable_dict():
     # Given: A dictionary with simple key-value pairs
@@ -232,7 +231,7 @@ def test_serializable_dict():
     result = make_serializable(input_data)
     
     # Then: The result should match the expected dictionary
-    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+    assert result == expected, f"Expected {expected}, but got {result}"
 
 def test_serializable_dict_with_bytes(sample_bytes):
     # Given: A dictionary with a JSON-encoded bytes value
@@ -243,7 +242,7 @@ def test_serializable_dict_with_bytes(sample_bytes):
     result = make_serializable(input_data)
     
     # Then: The result should match the expected dictionary
-    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+    assert result == expected, f"Expected {expected}, but got {result}"
 
 def test_serializable_dict_with_nested_bytes(sample_bytes):
     # Given: A dictionary with a nested JSON-encoded bytes value
@@ -254,7 +253,7 @@ def test_serializable_dict_with_nested_bytes(sample_bytes):
     result = make_serializable(input_data)
     
     # Then: The result should match the expected dictionary
-    assert json.dumps(result) == json.dumps(expected), f"Expected {expected}, but got {result}"
+    assert result == expected, f"Expected {expected}, but got {result}"
 
 def test_serializable_list():
     # Given: A list of integers
