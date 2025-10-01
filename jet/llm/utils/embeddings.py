@@ -160,7 +160,7 @@ def get_embedding_function(
             f"(key: {cache_key if use_cache else 'N/A'}, file: {CACHE_PATH}): {text_summary}. Computing embeddings..."
         )
         input_texts = [input_text] if single_input else input_text
-        computed_embeddings = embed_func(input_texts, show_progress=show_progress)
+        computed_embeddings = embed_func(input_texts)
         if return_format == "numpy":
             computed_embeddings = np.array(computed_embeddings)
         if use_cache:
