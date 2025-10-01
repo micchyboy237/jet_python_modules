@@ -1,6 +1,6 @@
 from typing import Any, Dict
 import inspect
-from typing import Any, Iterable, Type
+from typing import Iterable, Type
 
 from jet.logger import logger
 
@@ -127,6 +127,59 @@ def get_non_empty_attributes(obj: Any) -> Dict[str, Any]:
                 print(f"Skipping attribute {attr} due to error: {e}")
             except Exception as e:
                 print(f"Unexpected error for attribute {attr}: {e}")
+    return attributes
+
+
+def get_non_empty_primitive_attributes(obj: Any) -> Dict[str, Any]:
+    """
+    Returns non-callable, non-empty primitive attributes (int, float, str, bool, etc.) that are not private (_attr).
+
+    :param obj: The object to inspect.
+    :return: Dictionary of non-empty primitive attributes.
+    """
+    attributes = {}
+    for attr in dir(obj):
+        if not attr.startswith('_'):  # Exclude private and dunder attributes
+            try:
+                value = getattr(obj, attr, None)
+                if (
+                    value is not None
+                    and value not in ['', [], {}, ()]
+                    and not callable(value)
+                    and isinstance(value, (int, float, str, bool))
+                ):
+                    attributes[attr] = value
+            except AttributeError as e:
+                logger.debug(f"Skipping attribute {attr} due to error: {e}")
+            except Exception as e:
+                logger.debug(f"Unexpected error for attribute {attr}: {e}")
+    return attributes
+
+
+def get_non_empty_object_attributes(obj: Any) -> Dict[str, Any]:
+    """
+    Returns non-callable, non-empty object attributes (instances of user-defined classes, lists, dicts, etc.)
+    that are not private (_attr).
+
+    :param obj: The object to inspect.
+    :return: Dictionary of non-empty object attributes.
+    """
+    attributes = {}
+    for attr in dir(obj):
+        if not attr.startswith('_'):  # Exclude private and dunder attributes
+            try:
+                value = getattr(obj, attr, None)
+                if (
+                    value is not None
+                    and value not in ['', [], {}, ()]
+                    and not callable(value)
+                    and not isinstance(value, (int, float, str, bool))
+                ):
+                    attributes[attr] = value
+            except AttributeError as e:
+                logger.debug(f"Skipping attribute {attr} due to error: {e}")
+            except Exception as e:
+                logger.debug(f"Unexpected error for attribute {attr}: {e}")
     return attributes
 
 
@@ -294,7 +347,7 @@ if __name__ == "__main__":
         for dog in dog_list:
             # Should pass (dog is an instance of Dog)
             validate_iterable_class(dog, Dog)
-            print(f"Assertion passed: dog is an instance of Dog.")
+            print("Assertion passed: dog is an instance of Dog.")
     except TypeError as e:
         assert get_class_name(e) == "TypeError"
 
@@ -312,7 +365,7 @@ if __name__ == "__main__":
         # Assert class name of individual objects inside the iterable (Dog)
         for dog in dog_list:
             assert get_iterable_class_name(dog) == "Dog"
-            print(f"Assertion passed: Class name of dog is 'Dog'.")
+            print("Assertion passed: Class name of dog is 'Dog'.")
     except TypeError as e:
         assert get_class_name(e) == "TypeError"
 
@@ -327,6 +380,8 @@ __all__ = [
     "get_iterable_class_name",
     "get_builtin_attributes",
     "get_non_empty_attributes",
+    "get_non_empty_primitive_attributes",
+    "get_non_empty_object_attributes",
     "get_internal_attributes",
     "get_callable_attributes",
     "get_non_callable_attributes",
