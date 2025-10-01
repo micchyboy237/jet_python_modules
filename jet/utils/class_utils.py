@@ -115,18 +115,28 @@ def get_builtin_attributes(obj: Any) -> list[str]:
 
 
 def get_non_empty_attributes(obj: Any) -> Dict[str, Any]:
-    """Returns non-callable attributes that are not empty or private (_attr)."""
+    """Returns non-callable attributes that are not empty or private (_attr) for objects or dictionaries."""
     attributes = {}
-    for attr in dir(obj):
-        if not attr.startswith('_'):  # Exclude private and dunder attributes
-            try:
-                value = getattr(obj, attr, None)  # Safely get attribute
+    
+    if isinstance(obj, dict):
+        # Handle dictionary case
+        for key, value in obj.items():
+            if not str(key).startswith('_'):  # Exclude private keys
                 if value is not None and value not in ['', [], {}, ()] and not callable(value):
-                    attributes[attr] = value
-            except AttributeError as e:
-                print(f"Skipping attribute {attr} due to error: {e}")
-            except Exception as e:
-                print(f"Unexpected error for attribute {attr}: {e}")
+                    attributes[str(key)] = value
+    else:
+        # Handle object case
+        for attr in dir(obj):
+            if not attr.startswith('_'):  # Exclude private and dunder attributes
+                try:
+                    value = getattr(obj, attr, None)  # Safely get attribute
+                    if value is not None and value not in ['', [], {}, ()] and not callable(value):
+                        attributes[attr] = value
+                except AttributeError as e:
+                    print(f"Skipping attribute {attr} due to error: {e}")
+                except Exception as e:
+                    print(f"Unexpected error for attribute {attr}: {e}")
+    
     return attributes
 
 
@@ -161,25 +171,40 @@ def get_non_empty_object_attributes(obj: Any) -> Dict[str, Any]:
     Returns non-callable, non-empty object attributes (instances of user-defined classes, lists, dicts, etc.)
     that are not private (_attr).
 
-    :param obj: The object to inspect.
+    :param obj: The object or dictionary to inspect.
     :return: Dictionary of non-empty object attributes.
     """
     attributes = {}
-    for attr in dir(obj):
-        if not attr.startswith('_'):  # Exclude private and dunder attributes
-            try:
-                value = getattr(obj, attr, None)
+    
+    if isinstance(obj, dict):
+        # Handle dictionary case
+        for key, value in obj.items():
+            if not str(key).startswith('_'):  # Exclude private keys
                 if (
                     value is not None
                     and value not in ['', [], {}, ()]
                     and not callable(value)
                     and not isinstance(value, (int, float, str, bool))
                 ):
-                    attributes[attr] = value
-            except AttributeError as e:
-                logger.debug(f"Skipping attribute {attr} due to error: {e}")
-            except Exception as e:
-                logger.debug(f"Unexpected error for attribute {attr}: {e}")
+                    attributes[str(key)] = value
+    else:
+        # Handle object case
+        for attr in dir(obj):
+            if not attr.startswith('_'):  # Exclude private and dunder attributes
+                try:
+                    value = getattr(obj, attr, None)
+                    if (
+                        value is not None
+                        and value not in ['', [], {}, ()]
+                        and not callable(value)
+                        and not isinstance(value, (int, float, str, bool))
+                    ):
+                        attributes[attr] = value
+                except AttributeError as e:
+                    logger.debug(f"Skipping attribute {attr} due to error: {e}")
+                except Exception as e:
+                    logger.debug(f"Unexpected error for attribute {attr}: {e}")
+    
     return attributes
 
 
