@@ -6,7 +6,7 @@ import threading
 import requests
 import sentence_transformers
 import numpy as np
-from typing import Optional, Callable, Union, List, TypedDict, Literal
+from typing import Iterator, Optional, Callable, Union, List, TypedDict, Literal
 from pathlib import Path
 from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
@@ -106,10 +106,12 @@ def get_embedding_function(
     return_format: Literal["list", "numpy"] = "numpy",
     url: str = base_url,
     use_cache: bool = False,
+    show_progress: bool = False,
 ) -> Callable[[str | list[str], bool], list[float] | list[list[float]] | np.ndarray]:
     """Retrieve embeddings with in-memory and file-based caching."""
     embed_func = initialize_embed_function(
-        model_name, batch_size, return_format=return_format, url=url)
+        model_name, batch_size, return_format=return_format, url=url, show_progress=show_progress
+    )
 
     def generate_cache_key(input_text: str | list[str]) -> str:
         """Generate a cache key based on model name, batch size, and input text."""
@@ -119,8 +121,8 @@ def get_embedding_function(
             text_hash = hash_text("".join(sorted(input_text)))
         return f"embed:{model_name}:{batch_size}:{text_hash}"
 
-    def embedding_function(input_text: str | list[str], use_cache: bool = use_cache) -> list[float] | list[list[float]] | np.ndarray:
-        """Compute embeddings with optional caching."""
+    def embedding_function(input_text: str | list[str], use_cache: bool = use_cache, show_progress: bool = show_progress) -> list[float] | list[list[float]] | np.ndarray:
+        """Compute embeddings with optional caching and progress display."""
         single_input = isinstance(input_text, str)
         text_count = 1 if single_input else len(input_text)
         text_summary = (
@@ -158,7 +160,7 @@ def get_embedding_function(
             f"(key: {cache_key if use_cache else 'N/A'}, file: {CACHE_PATH}): {text_summary}. Computing embeddings..."
         )
         input_texts = [input_text] if single_input else input_text
-        computed_embeddings = embed_func(input_texts)
+        computed_embeddings = embed_func(input_texts, show_progress=show_progress)
         if return_format == "numpy":
             computed_embeddings = np.array(computed_embeddings)
         if use_cache:
@@ -185,21 +187,23 @@ class OllamaEmbeddingFunction:
         url: str = base_url,
         key: str = "",
         return_format: Literal["list", "numpy"] = "numpy",
+        show_progress: bool = False,
     ) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.key = key
         self.url = url
         self.return_format = return_format
+        self.show_progress = show_progress
 
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
         logger.info("Generating Ollama embeddings...")
         logger.debug(f"Model: {self.model_name}")
         logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
-        logger.debug(
-            f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
+        logger.debug(f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
         logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
         logger.debug(f"Batch size: {self.batch_size}")
+        logger.debug(f"Show progress: {self.show_progress}")
         logger.info(
             f"Total batches: {len(input) // self.batch_size + bool(len(input) % self.batch_size) if isinstance(input, list) else 1}"
         )
@@ -211,11 +215,36 @@ class OllamaEmbeddingFunction:
                 batch_size=self.batch_size,
                 url=self.url,
                 key=self.key,
-                return_format=self.return_format
+                return_format=self.return_format,
+                show_progress=self.show_progress,
             )
 
         batch_embeddings = generate_multiple(
-            input, func, self.batch_size, return_format=self.return_format)
+            input,
+            func,
+            self.batch_size,
+            return_format=self.return_format,
+            show_progress=self.show_progress,
+        )
+
+        if isinstance(input, str):
+            return batch_embeddings[0]
+        return batch_embeddings
+
+
+        def func(query: str | list[str]):
+            return generate_embeddings(
+                text=query,
+                model=self.model_name,
+                batch_size=self.batch_size,
+                url=self.url,
+                key=self.key,
+                return_format=self.return_format,
+                show_progress=self.show_progress,
+            )
+
+        batch_embeddings = generate_multiple(
+            input, func, self.batch_size, return_format=self.return_format, show_progress=self.show_progress)
 
         if isinstance(input, str):
             return batch_embeddings[0]
@@ -228,11 +257,13 @@ class SFEmbeddingFunction:
         model_name: str = DEFAULT_SF_EMBED_MODEL,
         batch_size: int = 32,
         return_format: Literal["list", "numpy"] = "numpy",
+        show_progress: bool = False,
     ) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
         self.return_format = return_format
         self.model = SentenceTransformer(model_name)
+        self.show_progress = show_progress
 
     def __getattr__(self, name):
         """Delegate attribute/method calls to self.model if not found in SFEmbeddingFunction."""
@@ -247,7 +278,6 @@ class SFEmbeddingFunction:
         tokenized = self.tokenize(documents)
         return [len(tokens) for tokens in tokenized]
 
-    # @time_it(function_name="generate_sf_batch_embeddings")
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
         base_input = input
 
@@ -256,9 +286,10 @@ class SFEmbeddingFunction:
         logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
         logger.debug(f"Batch size: {self.batch_size}")
         logger.debug(f"Return format: {self.return_format}")
+        logger.debug(f"Show progress: {show_progress}")
 
         all_embeddings = self.model.encode(
-            base_input, convert_to_tensor=True, show_progress_bar=False
+            base_input, convert_to_tensor=True, show_progress_bar=self.show_progress
         )
 
         # Convert to requested format
@@ -336,7 +367,8 @@ def initialize_embed_function(
     batch_size: int,
     return_format: Literal["list", "numpy"] = "numpy",
     url: str = base_url,
-) -> Callable[[str | list[str]], list[float] | list[list[float]] | np.ndarray]:
+    show_progress: bool = False,
+) -> Callable[[str | list[str], bool], list[float] | list[list[float]] | np.ndarray]:
     """Initialize and cache embedding functions globally."""
     global global_embed_model_func, global_embed_model_name, global_embed_batch_size
 
@@ -349,12 +381,14 @@ def initialize_embed_function(
                 batch_size=batch_size,
                 return_format=return_format,
                 url=url,
+                show_progress=show_progress,
             )
         else:
             embed_func = SFEmbeddingFunction(
                 model_name=model_name,
                 batch_size=batch_size,
                 return_format=return_format,
+                show_progress=show_progress,
             )
 
         global_embed_model_func = embed_func
@@ -422,11 +456,12 @@ def generate_multiple(
     func: Callable[[str | list[str]], list],  # Replace with the correct type
     batch_size: int = 32,
     return_format: Literal["list", "numpy"] = "numpy",
+    show_progress: bool = False,
 ) -> list[list[float]] | np.ndarray:
     if isinstance(query, list):
         embeddings = []
         pbar = tqdm(range(0, len(query), batch_size),
-                    desc="Generating embeddings")
+                    desc="Generating embeddings", disable=not show_progress)
         for i in pbar:
             if pbar.total and pbar.total > 1:
                 pbar.set_description(
@@ -448,6 +483,7 @@ def generate_embeddings(
     batch_size: int = 32,
     return_format: Literal["list", "numpy"] = "numpy",
     use_cache: bool = False,
+    show_progress: bool = False,
     **kwargs
 ) -> GenerateEmbeddingsReturnType:
     url = kwargs.get("url", base_url)
@@ -460,7 +496,8 @@ def generate_embeddings(
             model_name=model,
             batch_size=batch_size,
             return_format=return_format,
-            url=url
+            url=url,
+            show_progress=show_progress,
         )
         embeddings = embed_func(text)
     else:
@@ -470,10 +507,101 @@ def generate_embeddings(
             batch_size=batch_size,
             url=url,
             key=key,
-            return_format=return_format
+            return_format=return_format,
+            show_progress=show_progress,
         )
 
     return embeddings[0] if isinstance(text, str) else embeddings
+
+
+def generate_embeddings_stream(
+    texts: Union[str, list[str]],
+    model: str,
+    batch_size: int = 32,
+    return_format: Literal["list", "numpy"] = "numpy",
+    use_cache: bool = False,
+    max_tokens: Optional[int | float] = None,
+    max_retries: int = 3,
+    show_progress: bool = False,
+    **kwargs
+) -> Iterator[list[list[float]] | np.ndarray]:
+    """
+    Stream embeddings batch by batch (generator).
+    Yields one batch of embeddings at a time instead of collecting all.
+    """
+    url = kwargs.get("url", base_url)
+    key = kwargs.get("key", "")
+
+    texts = [texts] if isinstance(texts, str) else texts
+    model_max_tokens: int = get_model_max_tokens(model)
+
+    # Handle relative max_tokens
+    if isinstance(max_tokens, float) and max_tokens < 1:
+        max_tokens = int(model_max_tokens * max_tokens)
+    else:
+        max_tokens = int(max_tokens or model_max_tokens)
+
+    token_counts: list[int] = token_counter(texts, model, prevent_total=True)
+
+    # Warn & truncate long texts
+    exceeded_texts = [
+        (text, count) for text, count in zip(texts, token_counts) if count > model_max_tokens
+    ]
+    if exceeded_texts:
+        logger.warning(
+            "Some texts exceed the model's max token limit:\n" +
+            "\n".join(
+                f"- {count} tokens: {text[:50].replace('\n', ' ')}..."
+                for text, count in exceeded_texts
+            )
+        )
+        texts = truncate_texts(texts, model, max_tokens)
+
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+
+    total_batches = (len(texts) + batch_size - 1) // batch_size
+    batch_iter = range(0, len(texts), batch_size)
+
+    # Wrap iterator with tqdm if progress tracking is enabled
+    iterator = tqdm(batch_iter, total=total_batches, disable=not show_progress, desc="Embedding batches")
+
+    # Process in batches
+    for i in iterator:
+        batch_texts = texts[i:i + batch_size]
+
+        for attempt in range(max_retries):
+            try:
+                r = requests.post(
+                    f"{url}/api/embed",
+                    headers=headers,
+                    json={"model": model, "input": batch_texts},
+                    timeout=300,
+                )
+                r.raise_for_status()
+                data = r.json()
+
+                if "embeddings" in data:
+                    batch_embeddings = data["embeddings"]
+                    if return_format == "numpy":
+                        batch_embeddings = np.array(batch_embeddings)
+                    yield batch_embeddings
+                    break
+                else:
+                    logger.error("No embeddings found in response.")
+                    raise ValueError("Invalid response: missing embeddings")
+
+            except requests.RequestException as e:
+                logger.error(
+                    f"Attempt {attempt + 1} failed with error: {e}, "
+                    f"Response text: {r.text if 'r' in locals() else 'No response'}"
+                )
+                logger.error(f"Model: {model}")
+                logger.error(f"Batch size: {len(batch_texts)}")
+                if attempt == max_retries - 1:
+                    raise e
+                time.sleep(2 ** attempt)
 
 
 # @time_it
@@ -486,17 +614,14 @@ def generate_ollama_batch_embeddings(
     max_tokens: Optional[int | float] = None,
     max_retries: int = 3,
     return_format: Literal["list", "numpy"] = "numpy",
+    show_progress: bool = False,  # Add show_progress parameter
 ) -> list[list[float]] | np.ndarray:
-    # if not max_tokens:
-    #     max_tokens = 0.5
-
     model_max_tokens: int = get_model_max_tokens(model)
 
     if isinstance(max_tokens, float) and max_tokens < 1:
         max_tokens = int(model_max_tokens * max_tokens)
     else:
         max_tokens = int(max_tokens or model_max_tokens)
-
 
     token_counts: list[int] = token_counter(texts, model, prevent_total=True)
 
@@ -514,7 +639,7 @@ def generate_ollama_batch_embeddings(
         logger.warning(
             "Some texts exceed the model's max token limit:\n" +
             "\n".join(
-                f"- {count} tokens: {text[:50].replace("\n", " ")}..." for text, count in exceeded_texts)
+                f"- {count} tokens: {text[:50].replace('\n', ' ')}..." for text, count in exceeded_texts)
         )
         texts = truncate_texts(texts, model, max_tokens)
 
@@ -523,11 +648,11 @@ def generate_ollama_batch_embeddings(
         headers["Authorization"] = f"Bearer {key}"
 
     embeddings = []
-    pbar = tqdm(range(0, len(texts), batch_size), desc="Generating embeddings")
-    for i in pbar:
-        if pbar.total and pbar.total > 1:
-            pbar.set_description(
-                f"Generating embeddings batch {i // batch_size + 1}")
+    batch_iter = range(0, len(texts), batch_size)
+    iterator = tqdm(batch_iter, desc="Generating embeddings", disable=not show_progress)  # Respect show_progress
+    for i in iterator:
+        if show_progress and iterator.total and iterator.total > 1:
+            iterator.set_description(f"Generating embeddings batch {i // batch_size + 1}")
         batch_texts = texts[i:i + batch_size]
 
         for attempt in range(max_retries):
