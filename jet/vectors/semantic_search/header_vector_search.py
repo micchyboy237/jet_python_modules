@@ -119,7 +119,6 @@ def collect_header_chunks(
                 if len(num_tokens) > context_size:
                     chunk = chunk[:context_size]
                     preprocessed_chunk = preprocess_text(chunk)
-                    num_tokens = tokenizer(chunk)
                     logger.info(
                         f"Truncated content chunk to context_size tokens for doc_index {doc_index}, start_idx {start_idx}")
                 contents_with_indices.append(

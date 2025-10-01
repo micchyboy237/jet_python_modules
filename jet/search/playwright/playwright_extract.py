@@ -8,6 +8,7 @@ import asyncio
 from bs4 import BeautifulSoup
 import markdownify
 
+from jet._token.token_utils import token_counter
 from jet.code.markdown_types.markdown_parsed_types import HeaderDoc
 from jet.code.markdown_utils._converters import convert_html_to_markdown
 from jet.code.markdown_utils._markdown_analyzer import analyze_markdown
@@ -250,6 +251,7 @@ class PlaywrightExtract(BaseTool):
                 doc_markdown = convert_html_to_markdown(html, ignore_links=False)
                 doc_analysis = analyze_markdown(doc_markdown)
                 doc_markdown_tokens = base_parse_markdown(doc_markdown)
+                token_count = token_counter(doc_markdown)
 
                 text_links_with_text = [
                     {"text": text_link["text"], "url": text_link["url"]}
@@ -270,6 +272,7 @@ class PlaywrightExtract(BaseTool):
                     "raw_content": doc_markdown,
                     "images": images,
                     "meta": {
+                        "tokens": token_count,
                         "analysis": doc_analysis,
                         "text_links": text_links_with_text,
                         "image_links": image_links_with_text,
