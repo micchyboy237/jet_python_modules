@@ -55,7 +55,7 @@ class EmbeddingSearch:
 # Sample usage
 if __name__ == "__main__":
     # Initialize the search class
-    searcher = EmbeddingSearch(model="llama3.2")
+    searcher = EmbeddingSearch(model="embeddinggemma")
     
     # Sample query and documents
     query = "Which planet is known as the Red Planet?"
