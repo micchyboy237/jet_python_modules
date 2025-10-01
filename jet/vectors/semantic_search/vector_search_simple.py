@@ -9,7 +9,7 @@ class VectorSearch:
     def __init__(self, model_name: str | OLLAMA_MODEL_NAMES = "all-minilm:33m", truncate_dim: Optional[int] = None):
         self.documents: List[str] = []
         self.vectors: np.ndarray = None
-        self.embedding_function = get_embedding_function(model_name=model_name, return_format="numpy")
+        self.embedding_function = get_embedding_function(model_name=model_name, return_format="numpy", use_cache=True)
 
     def add_documents(self, documents: List[str]) -> None:
         """Add documents and their vector representations."""

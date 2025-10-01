@@ -13,7 +13,6 @@ from sentence_transformers import SentenceTransformer
 from chromadb.utils import embedding_functions
 from jet.data.utils import hash_text
 from jet._token.token_utils import get_model_max_tokens, token_counter
-from jet.transformers.formatters import format_json
 from jet.logger import logger
 from jet.llm.models import DEFAULT_SF_EMBED_MODEL, OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
 from jet.llm.ollama.config import (
@@ -106,7 +105,8 @@ def get_embedding_function(
     batch_size: int = 64,
     return_format: Literal["list", "numpy"] = "numpy",
     url: str = base_url,
-) -> Callable[[str | list[str]], list[float] | list[list[float]] | np.ndarray]:
+    use_cache: bool = False,
+) -> Callable[[str | list[str], bool], list[float] | list[list[float]] | np.ndarray]:
     """Retrieve embeddings with in-memory and file-based caching."""
     embed_func = initialize_embed_function(
         model_name, batch_size, return_format=return_format, url=url)
@@ -119,8 +119,8 @@ def get_embedding_function(
             text_hash = hash_text("".join(sorted(input_text)))
         return f"embed:{model_name}:{batch_size}:{text_hash}"
 
-    def embedding_function(input_text: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
-        """Compute embeddings with caching."""
+    def embedding_function(input_text: str | list[str], use_cache: bool = use_cache) -> list[float] | list[list[float]] | np.ndarray:
+        """Compute embeddings with optional caching."""
         single_input = isinstance(input_text, str)
         text_count = 1 if single_input else len(input_text)
         text_summary = (
@@ -128,64 +128,50 @@ def get_embedding_function(
             if single_input
             else ", ".join(t[:30] for t in input_text[:3])[:100] + ("..." if len(input_text) > 3 else "")
         )
-
-        # Generate cache key
-        cache_key = generate_cache_key(input_text)
-
-        # Check in-memory cache
-        with _cache_lock:
-            if cache_key in _memory_cache:
-                cached_result = _memory_cache[cache_key]
-                # Convert cached result to requested format
-                result = cached_result
-                if return_format == "numpy":
-                    result = np.array(cached_result)
-                logger.debug(
-                    f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
-                    f"(key: {cache_key}): {text_summary}"
-                )
-                return result[0] if single_input else result
-
-        # Check file cache
-        with _cache_lock:
-            cache = load_cache()
-            if cache_key in cache:
-                _memory_cache[cache_key] = cache[cache_key]
-                # Convert cached result to requested format
-                result = cache[cache_key]
-                if return_format == "numpy":
-                    result = np.array(cache[cache_key])
-                logger.debug(
-                    f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
-                    f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
-                )
-                return result[0] if single_input else result
-
+        if use_cache:
+            cache_key = generate_cache_key(input_text)
+            with _cache_lock:
+                if cache_key in _memory_cache:
+                    cached_result = _memory_cache[cache_key]
+                    result = cached_result
+                    if return_format == "numpy":
+                        result = np.array(cached_result)
+                    logger.debug(
+                        f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                        f"(key: {cache_key}): {text_summary}"
+                    )
+                    return result[0] if single_input else result
+            with _cache_lock:
+                cache = load_cache()
+                if cache_key in cache:
+                    _memory_cache[cache_key] = cache[cache_key]
+                    result = cache[cache_key]
+                    if return_format == "numpy":
+                        result = np.array(cache[cache_key])
+                    logger.debug(
+                        f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                        f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
+                    )
+                    return result[0] if single_input else result
         logger.warning(
-            f"Cache miss for {'1 text' if single_input else f'{text_count} texts'} "
-            f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}. Computing embeddings..."
+            f"{'Cache miss' if use_cache else 'Cache disabled'} for {'1 text' if single_input else f'{text_count} texts'} "
+            f"(key: {cache_key if use_cache else 'N/A'}, file: {CACHE_PATH}): {text_summary}. Computing embeddings..."
         )
-
-        # Compute embeddings
         input_texts = [input_text] if single_input else input_text
         computed_embeddings = embed_func(input_texts)
-
-        # Convert embeddings to requested format
         if return_format == "numpy":
             computed_embeddings = np.array(computed_embeddings)
-
-        # Store in caches
-        with _cache_lock:
-            _memory_cache[cache_key] = computed_embeddings.tolist() if isinstance(
-                computed_embeddings, np.ndarray) else computed_embeddings
-            cache[cache_key] = computed_embeddings.tolist() if isinstance(
-                computed_embeddings, np.ndarray) else computed_embeddings
-            save_cache(cache)
-            logger.info(
-                f"Cached embeddings for {'1 text' if single_input else f'{text_count} texts'} "
-                f"(key: {cache_key}, model: {model_name}, batch_size: {batch_size}, file: {CACHE_PATH})."
-            )
-
+        if use_cache:
+            with _cache_lock:
+                _memory_cache[cache_key] = computed_embeddings.tolist() if isinstance(
+                    computed_embeddings, np.ndarray) else computed_embeddings
+                cache[cache_key] = computed_embeddings.tolist() if isinstance(
+                    computed_embeddings, np.ndarray) else computed_embeddings
+                save_cache(cache)
+                logger.info(
+                    f"Cached embeddings for {'1 text' if single_input else f'{text_count} texts'} "
+                    f"(key: {cache_key}, model: {model_name}, batch_size: {batch_size}, file: {CACHE_PATH})."
+                )
         return computed_embeddings[0] if single_input else computed_embeddings
 
     return embedding_function
@@ -514,7 +500,7 @@ def generate_ollama_batch_embeddings(
 
     token_counts: list[int] = token_counter(texts, model, prevent_total=True)
 
-    logger.debug(f"generate_ollama_batch_embeddings - text:\n{format_json(texts)}")
+    logger.debug(f"generate_ollama_batch_embeddings - texts: {len(texts)}")
     logger.debug(f"generate_ollama_batch_embeddings - model: {model}")
     logger.debug(f"generate_ollama_batch_embeddings - largest text tokens: {max(token_counts)}")
     logger.debug(f"generate_ollama_batch_embeddings - model max_tokens: {max_tokens}")
