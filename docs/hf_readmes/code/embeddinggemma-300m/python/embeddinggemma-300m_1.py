@@ -25,7 +25,6 @@ query_embeddings = model.encode_query(query)  # Shape: (768,)
 document_embeddings = model.encode_document(documents)  # Shape: (4, 768)
 
 # Compute cosine similarities between query and documents
-# Expected similarities: [0.3011, 0.6359, 0.4930, 0.4889]
 similarities = model.similarity(query_embeddings, document_embeddings)[0]
 
 # Rank documents by similarity score (highest to lowest) and create SearchResult list
@@ -38,10 +37,10 @@ results: list[SearchResult] = [
 
 # Print results for verification
 # Expected output:
-# Rank 1: Mars (score: 0.6359)
-# Rank 2: Jupiter (score: 0.4930)
-# Rank 3: Saturn (score: 0.4889)
-# Rank 4: Venus (score: 0.3011)
+# Rank 1: Mars (score: 0.7087134122848511)
+# Rank 2: Jupiter (score: 0.5932487845420837)
+# Rank 3: Saturn (score: 0.5909743905067444)
+# Rank 4: Venus (score: 0.49890926480293274)
 print(f"Query: \"{query}\"")
 for result in results:
     print(result)

@@ -1,5 +1,6 @@
-from typing import List, Optional, Tuple
 import numpy as np
+from typing import List, Optional, Tuple
+from sklearn.metrics.pairwise import cosine_similarity
 from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.llm.utils.embeddings import get_embedding_function
 
@@ -19,16 +20,14 @@ class VectorSearch:
         """Search for documents most similar to the query."""
         if not self.documents:
             return []
-        query_vector = self.embedding_function(query)
-        similarities = np.dot(self.vectors, query_vector) / (
-            np.linalg.norm(self.vectors, axis=1) *
-            np.linalg.norm(query_vector) + 1e-10
-        )
-        top_indices = np.argsort(similarities)[::-1][:top_k]
+        query_vector = self.embedding_function(query).reshape(1, -1)
+        similarities = cosine_similarity(query_vector, self.vectors).flatten()
+        top_indices = np.argsort(similarities)[-top_k:][::-1]
         return [(self.documents[i], similarities[i]) for i in top_indices]
 
 if __name__ == "__main__":
-    search_engine = VectorSearch()
+    model: OLLAMA_MODEL_NAMES = "embeddinggemma"
+    search_engine = VectorSearch(model)
     sample_docs = [
         "Fresh organic apples from local farms",
         "Handpicked strawberries sweet and juicy",
