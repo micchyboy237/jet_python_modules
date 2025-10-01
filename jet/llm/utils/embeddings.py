@@ -461,20 +461,31 @@ def generate_embeddings(
     model: str,
     batch_size: int = 32,
     return_format: Literal["list", "numpy"] = "numpy",
+    use_cache: bool = False,
     **kwargs
 ) -> GenerateEmbeddingsReturnType:
     url = kwargs.get("url", base_url)
     key = kwargs.get("key", "")
 
     text = [text] if isinstance(text, str) else text
-    embeddings = generate_ollama_batch_embeddings(
-        texts=text,
-        model=model,
-        batch_size=batch_size,
-        url=url,
-        key=key,
-        return_format=return_format
-    )
+    
+    if use_cache:
+        embed_func = get_embedding_function(
+            model_name=model,
+            batch_size=batch_size,
+            return_format=return_format,
+            url=url
+        )
+        embeddings = embed_func(text)
+    else:
+        embeddings = generate_ollama_batch_embeddings(
+            texts=text,
+            model=model,
+            batch_size=batch_size,
+            url=url,
+            key=key,
+            return_format=return_format
+        )
 
     return embeddings[0] if isinstance(text, str) else embeddings
 

@@ -9,10 +9,9 @@ from bs4 import BeautifulSoup
 import markdownify
 
 from jet._token.token_utils import token_counter
-from jet.code.markdown_types.markdown_parsed_types import HeaderDoc
 from jet.code.markdown_utils._converters import convert_html_to_markdown
 from jet.code.markdown_utils._markdown_analyzer import analyze_markdown
-from jet.code.markdown_utils._markdown_parser import base_parse_markdown, derive_by_header_hierarchy
+from jet.code.markdown_utils._markdown_parser import base_parse_markdown
 from jet.scrapers.playwright_utils import scrape_urls_sync
 from jet.scrapers.utils import extract_favicon_ico_link
 from jet.transformers.formatters import format_html
@@ -262,10 +261,6 @@ class PlaywrightExtract(BaseTool):
                     for image_link in doc_analysis["image_links"]
                 ]
                 images = [image_link["url"] for image_link in doc_analysis["image_links"]]
-
-                original_docs: List[HeaderDoc] = derive_by_header_hierarchy(doc_markdown, ignore_links=True)
-                for doc in original_docs:
-                    doc["source"] = url
 
                 result = {
                     "url": url,
