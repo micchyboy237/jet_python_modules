@@ -8,10 +8,10 @@ GenerateEmbeddingsReturnType = Union[List[List[float]], np.ndarray]
 class LlamacppEmbedding:
     """A client for generating embeddings via llama-server using OpenAI API."""
     
-    def __init__(self, base_url: str = "http://shawn-pc.local:8080/v1", model_path: str = "embeddinggemma-300M-Q8_0.gguf"):
+    def __init__(self, model: str = "embeddinggemma-300M-Q8_0.gguf", base_url: str = "http://shawn-pc.local:8080/v1"):
         """Initialize the client with server URL and model path."""
         self.client = OpenAI(base_url=base_url, api_key="no-key-required")
-        self.model_path = model_path
+        self.model = model
 
     def get_embedding(self, input_text: str, return_format: Literal["numpy", "list"] = "numpy") -> GenerateEmbeddingsReturnType:
         """Generate embedding for a single text input."""
@@ -31,7 +31,7 @@ class LlamacppEmbedding:
             batch = inputs[i:i + batch_size]
             try:
                 response = self.client.embeddings.create(
-                    model=self.model_path,
+                    model=self.model,
                     input=batch
                 )
                 batch_embeddings = [d.embedding for d in response.data]

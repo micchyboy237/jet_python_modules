@@ -4,8 +4,8 @@ from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
 
 def main():
     """Example usage of EmbeddingClient."""
-    model_path = "embeddinggemma-300M-Q8_0.gguf"
-    client = LlamacppEmbedding(model_path=model_path)
+    model = "embeddinggemma-300M-Q8_0.gguf"
+    client = LlamacppEmbedding(model=model)
     
     # Example inputs
     texts = ["This is a sample text to generate embeddings.", "Another text for embedding."]
