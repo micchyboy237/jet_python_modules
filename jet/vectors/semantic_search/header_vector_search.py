@@ -1,21 +1,17 @@
 import uuid
+from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
 from jet.llm.models import OLLAMA_EMBED_MODELS
 from jet.models.model_types import ModelType
-from jet.models.tokenizer.base import count_tokens, get_tokenizer_fn
+from jet.models.tokenizer.base import get_tokenizer_fn
 from jet.models.utils import get_context_size
 from jet.wordnet.text_chunker import chunk_texts
 import re
-from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
+from typing import List, Optional, Tuple, Iterator, Callable
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from jet.logger import logger
 # from jet.models.embeddings.base import generate_embeddings
-from jet.llm.utils.embeddings import generate_embeddings
-from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
-from jet.models.model_types import EmbedModelType
-from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, MarkdownToken, HeaderSearchMetadata, HeaderSearchResult
-import logging
-from jet.utils.text_constants import TEXT_CONTRACTIONS_EN
+# from jet.llm.utils.embeddings import generate_embeddings
+from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, HeaderSearchResult
 
 DEFAULT_EMBED_MODEL: OLLAMA_EMBED_MODELS = "all-minilm:33m"
 MAX_CONTENT_SIZE = 1000
@@ -305,7 +301,7 @@ def search_headers(
     header_docs: List[HeaderDoc],
     query: str,
     top_k: Optional[int] = None,
-    embed_model: OLLAMA_EMBED_MODELS = DEFAULT_EMBED_MODEL,
+    embed_model: str = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     buffer: int = 0,
@@ -345,9 +341,9 @@ def search_headers(
         f"  {len(chunked_texts)} chunks"
     )
 
-    all_vectors = generate_embeddings(
+    client = LlamacppEmbedding(model=embed_model)
+    all_vectors = client.get_embeddings(
         all_texts,
-        embed_model,
         return_format="numpy",
         batch_size=32,
         show_progress=True
