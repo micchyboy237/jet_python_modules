@@ -100,6 +100,7 @@ AVAILABLE_EMBED_MODELS: Dict[EmbedModelKey, EmbedModelValue] = {
     "jina-embeddings-v2-small": "jinaai/jina-embeddings-v2-small-en",
     "jina-embeddings-v2-base": "jinaai/jina-embeddings-v2-base-en",
     "embeddinggemma": "google/embeddinggemma-300m",
+    "nomic-embed-text-v2-moe": "nomic-ai/nomic-embed-text-v2-moe",
 }
 
 AVAILABLE_RERANK_MODELS: Dict[RerankModelKey, RerankModelValue] = {
@@ -184,7 +185,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "gemma-3-1b-it-qat-4bit": 32768,
     "gemma-3-4b-it-qat-4bit": 131072,
     "nomic-bert-2048": 2048,
-    "nomic-embed-text": 8192,
+    "nomic-embed-text": 2048,
     "roberta-base": 514,
     "roberta-large": 514,
     "all-MiniLM-L6-v2": 512,
@@ -202,6 +203,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "jina-embeddings-v2-small": 8192,
     "mistral-7b-instruct": 32768,
     "embeddinggemma": 2048,
+    "nomic-embed-text-v2-moe": 2048,
 }
 
 MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
@@ -278,4 +280,5 @@ MODEL_EMBEDDING_TOKENS: Dict[ModelType, int] = {
     "jina-embeddings-v2-small": 512,
     "mistral-7b-instruct": 4096,
     "embeddinggemma": 768,
+    "nomic-embed-text-v2-moe": 768,
 }

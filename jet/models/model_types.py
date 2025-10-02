@@ -204,6 +204,7 @@ EmbedModelKey = Literal[
     "jina-embeddings-v2-base",
     "jina-embeddings-v2-small",
     "embeddinggemma",
+    "nomic-embed-text-v2-moe",
 ]
 
 # Embed model value types
@@ -245,6 +246,7 @@ EmbedModelValue = Literal[
     "jinaai/jina-embeddings-v2-base-en",
     "jinaai/jina-embeddings-v2-small-en",
     "google/embeddinggemma-300m",
+    "nomic-ai/nomic-embed-text-v2-moe",
 ]
 
 RerankModelKey = Literal[
