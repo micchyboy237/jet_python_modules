@@ -4,13 +4,13 @@ from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
 
 def main():
     """Example usage of EmbeddingClient."""
-    model_path = r"C:\Users\druiv\.cache\llama.cpp\embed_models\embeddinggemma-300M-Q8_0.gguf"
+    model_path = "embeddinggemma-300M-Q8_0.gguf"
     client = LlamacppEmbedding(model_path=model_path)
     
     # Example inputs
     texts = ["This is a sample text to generate embeddings.", "Another text for embedding."]
-    embeddings_list = client.get_embeddings(texts, return_format="list")
-    embeddings_numpy = client.get_embeddings(texts, return_format="numpy")
+    embeddings_list = client.get_embeddings(texts, return_format="list", show_progress=True)
+    embeddings_numpy = client.get_embeddings(texts, return_format="numpy", show_progress=True)
     
     for text, emb_list, emb_np in zip(texts, embeddings_list, embeddings_numpy):
         print(f"Text: {text}")
