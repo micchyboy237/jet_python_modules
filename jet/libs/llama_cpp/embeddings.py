@@ -13,22 +13,17 @@ class LlamacppEmbedding:
         self.client = OpenAI(base_url=base_url, api_key="no-key-required")
         self.model = model
 
-    def get_embedding(self, input_text: str, return_format: Literal["numpy", "list"] = "numpy") -> GenerateEmbeddingsReturnType:
-        """Generate embedding for a single text input."""
-        if not input_text or not isinstance(input_text, str):
-            raise ValueError("input_text must be a non-empty string")
-        result = self.get_embeddings([input_text], return_format=return_format)
-        return result[0]
-
-    def get_embeddings(self, inputs: List[str], return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 32, show_progress: bool = False) -> List[GenerateEmbeddingsReturnType]:
-        """Generate embeddings for a list of text inputs in batches."""
-        if not inputs or not all(isinstance(i, str) and i for i in inputs):
-            raise ValueError("inputs must be a non-empty list of non-empty strings")
+    def get_embeddings(self, inputs: Union[str, List[str]], return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 32, show_progress: bool = False) -> GenerateEmbeddingsReturnType:
+        """Generate embeddings for a single text or list of text inputs in batches."""
+        # Normalize inputs to list
+        input_list = [inputs] if isinstance(inputs, str) else inputs
+        if not input_list or not all(isinstance(i, str) and i for i in input_list):
+            raise ValueError("inputs must be a non-empty string or list of non-empty strings")
         
         embeddings = []
-        progress_bar = tqdm(range(0, len(inputs), batch_size), desc="Processing batches", disable=not show_progress)
+        progress_bar = tqdm(range(0, len(input_list), batch_size), desc="Processing batches", disable=not show_progress)
         for i in progress_bar:
-            batch = inputs[i:i + batch_size]
+            batch = input_list[i:i + batch_size]
             try:
                 response = self.client.embeddings.create(
                     model=self.model,
@@ -42,10 +37,11 @@ class LlamacppEmbedding:
                 print(f"Error generating embeddings for batch {i // batch_size + 1}: {e}")
                 raise
         
-        return embeddings
+        # Return single embedding if input was a string, else return list
+        return embeddings[0] if isinstance(inputs, str) else embeddings
 
-    def get_embedding_function(self) -> Callable[[str], GenerateEmbeddingsReturnType]:
-        """Return a callable function that generates embeddings for a single text input."""
-        def embedding_function(input_text: str, return_format: Literal["numpy", "list"] = "numpy") -> GenerateEmbeddingsReturnType:
-            return self.get_embedding(input_text, return_format=return_format)
+    def get_embedding_function(self, return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 32, show_progress: bool = False) -> Callable[[Union[str, List[str]]], GenerateEmbeddingsReturnType]:
+        """Return a callable function that generates embeddings for a single text or list of texts."""
+        def embedding_function(inputs: Union[str, List[str]]) -> GenerateEmbeddingsReturnType:
+            return self.get_embeddings(inputs, return_format=return_format, batch_size=batch_size, show_progress=show_progress)
         return embedding_function

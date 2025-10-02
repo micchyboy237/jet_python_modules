@@ -1,15 +1,17 @@
 import numpy as np
 from typing import List, Optional, Tuple
 from sklearn.metrics.pairwise import cosine_similarity
+from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
 from jet.llm.models import OLLAMA_MODEL_NAMES
-from jet.llm.utils.embeddings import get_embedding_function
 
 class VectorSearch:
     """A vector search engine using sentence transformers."""
-    def __init__(self, model_name: str | OLLAMA_MODEL_NAMES = "all-minilm:33m", truncate_dim: Optional[int] = None):
+    def __init__(self, model: str | OLLAMA_MODEL_NAMES = "all-minilm:33m", truncate_dim: Optional[int] = None):
         self.documents: List[str] = []
         self.vectors: np.ndarray = None
-        self.embedding_function = get_embedding_function(model_name=model_name, return_format="numpy", use_cache=True, show_progress=True)
+
+        client = LlamacppEmbedding(model=model)
+        self.embedding_function = client.get_embedding_function(return_format="numpy", batch_size=32, show_progress=True)
 
     def add_documents(self, documents: List[str]) -> None:
         """Add documents and their vector representations."""
