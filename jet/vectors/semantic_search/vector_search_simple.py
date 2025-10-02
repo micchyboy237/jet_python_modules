@@ -6,12 +6,12 @@ from jet.llm.models import OLLAMA_MODEL_NAMES
 
 class VectorSearch:
     """A vector search engine using sentence transformers."""
-    def __init__(self, model: str | OLLAMA_MODEL_NAMES = "all-minilm:33m", truncate_dim: Optional[int] = None):
+    def __init__(self, model: str | OLLAMA_MODEL_NAMES = "all-minilm:33m", truncate_dim: Optional[int] = None, batch_size=32):
         self.documents: List[str] = []
         self.vectors: np.ndarray = None
 
         client = LlamacppEmbedding(model=model)
-        self.embedding_function = client.get_embedding_function(return_format="numpy", batch_size=32, show_progress=True)
+        self.embedding_function = client.get_embedding_function(return_format="numpy", batch_size=batch_size, show_progress=True)
 
     def add_documents(self, documents: List[str]) -> None:
         """Add documents and their vector representations."""
