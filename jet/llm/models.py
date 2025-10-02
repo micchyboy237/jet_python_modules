@@ -28,6 +28,7 @@ OLLAMA_MODEL_NAMES = Literal[
     "mistral:7b-instruct-v0.3-q4_K_M",
     "mxbai-embed-large",
     "nomic-embed-text",
+    "nomic-embed-text-v2-moe",
     "qwen2.5-coder:7b-instruct-q4_K_M",
     "qwen2.5vl:3b-q4_K_M",
     "qwen3",
@@ -62,6 +63,7 @@ OLLAMA_EMBED_MODELS = Literal[
     "all-minilm:22m",
     "embeddinggemma",
     "nomic-embed-text",
+    "nomic-embed-text-v2-moe",
 ]
 
 
@@ -82,6 +84,7 @@ OLLAMA_MODEL_CONTEXTS = {
     "mistral:7b-instruct-v0.3-q4_K_M": 32768,
     "mxbai-embed-large": 512,
     "nomic-embed-text": 2048,
+    "nomic-embed-text-v2-moe": 2048,
     "qwen2.5-coder:7b-instruct-q4_K_M": 32768,
     "qwen2.5vl:3b-q4_K_M": 128000,
     "qwen3": 40960,
@@ -106,6 +109,7 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "mistral:7b-instruct-v0.3-q4_K_M": 4096,
     "mxbai-embed-large": 1024,
     "nomic-embed-text": 768,
+    "nomic-embed-text-v2-moe": 768,
     "qwen2.5-coder:7b-instruct-q4_K_M": 3584,
     "qwen2.5vl:3b-q4_K_M": 2048,
     "qwen3": 4096,
@@ -129,6 +133,7 @@ OLLAMA_HF_MODELS = {
     "mistral:7b-instruct-v0.3-q3_K_M": "mistralai/Mistral-7B-Instruct-v0.3",
     "mistral:7b-instruct-v0.3-q4_K_M": "mistralai/Mistral-7B-Instruct-v0.3",
     "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
+    "nomic-embed-text-v2-moe": "nomic-ai/nomic-embed-text-v2-moe",
     "mxbai-embed-large": "mixedbread-ai/mxbai-embed-large-v1",
     "qwen2.5-coder:7b-instruct-q4_K_M": "Qwen/Qwen2.5-Coder-7B-Instruct",
     "qwen2.5vl:3b-q4_K_M": "Qwen/Qwen2.5-VL-3B-Instruct",
@@ -151,6 +156,7 @@ OLLAMA_HF_MODEL_NAMES = Literal[
     "mistralai/Mistral-7B-Instruct-v0.3",
     "mistralai/Mistral-7B-Instruct-v0.3",
     "nomic-ai/nomic-embed-text-v1.5",
+    "nomic-ai/nomic-embed-text-v2-moe",
     "mixedbread-ai/mxbai-embed-large-v1",
     "Qwen/Qwen2.5-Coder-7B-Instruct",
     "Qwen/Qwen2.5-VL-3B-Instruct",

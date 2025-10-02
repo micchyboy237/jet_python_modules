@@ -1,5 +1,7 @@
 LLAMACPP_MODELS = {
-    "embeddinggemma": "embeddinggemma-300M-Q8_0.gguf"
+    "embeddinggemma": "embeddinggemma-300M-Q8_0.gguf",
+    "nomic-embed-text": "nomic-embed-text-v1.5.Q4_K_M.gguf",
+    "nomic-embed-text-v2-moe": "nomic-embed-text-v2-moe.Q4_K_M.gguf",
 }
 
 LLAMACPP_MODELS_REVERSED = {
