@@ -52,7 +52,10 @@ def extract_keywords_for_rag(
 if __name__ == "__main__":
     docs: List[str] = [
         "Climate change is accelerating due to fossil fuels and deforestation.",
-        "Renewable energy sources like solar and wind are essential for sustainability."
+        "Renewable energy sources like solar and wind are essential for sustainability.",
+        "Global warming impacts include rising sea levels and extreme weather.",
+        "Carbon emissions from industries must be regulated internationally.",
+        "Biodiversity loss is a direct consequence of habitat destruction."
     ]
     query: str = "environmental impacts"  # Not directly used but can weight if extended
 

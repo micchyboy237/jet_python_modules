@@ -1,13 +1,14 @@
 from typing import List, Dict, Any, Tuple
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
+from umap import UMAP  # Import UMAP explicitly
 
 def extract_topics_for_rag(
     docs: List[str],
     query: str,
     top_k_topics: int = 3,
     nr_topics: str = "auto",
-    min_prob: float = 0.1  # New param for confidence filtering
+    min_prob: float = 0.1
 ) -> Tuple[List[Dict[str, Any]], List[str], List[Dict[str, Any]]]:
     """
     Extract topics and doc-topic mappings from documents using BERTopic for RAG augmentation.
@@ -22,14 +23,28 @@ def extract_topics_for_rag(
     Returns:
         Tuple of topic dicts, topic summaries, and doc-topic mappings.
     """
-        # Embeddings model (reusable)
+    if len(docs) < 2:
+        raise ValueError("At least 2 documents are required for topic modeling.")
+
+    # Embeddings model (reusable)
     embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
     
-    # Initialize and fit BERTopic with guided seeds from query
+    # Custom UMAP model for small datasets
+    n_components = min(2, len(docs) - 1)  # Ensure n_components < N
+    umap_model = UMAP(
+        n_neighbors=min(2, len(docs) - 1),  # Adjust for small datasets
+        n_components=n_components,
+        random_state=42,  # Reproducibility
+        metric="cosine",  # Suitable for text embeddings
+        low_memory=True  # Reduce memory usage for M1
+    )
+    
+    # Initialize and fit BERTopic with custom UMAP
     topic_model = BERTopic(
         embedding_model=embedding_model,
         nr_topics=nr_topics,
-        verbose=True
+        verbose=True,
+        umap_model=umap_model
     )
     topics, probs = topic_model.fit_transform(docs)
     

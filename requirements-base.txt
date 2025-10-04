@@ -18,6 +18,7 @@ pytest-asyncio
 pytest-benchmark
 pytest-mock
 pytest-watcher
+redis
 requests
 scikit-learn
 scipy
