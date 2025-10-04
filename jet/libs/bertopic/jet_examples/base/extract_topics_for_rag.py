@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Tuple
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 from umap import UMAP  # Import UMAP explicitly
+from hdbscan import HDBSCAN
 
 def extract_topics_for_rag(
     docs: List[str],
@@ -32,19 +33,24 @@ def extract_topics_for_rag(
     # Custom UMAP model for small datasets
     n_components = min(2, len(docs) - 1)  # Ensure n_components < N
     umap_model = UMAP(
-        n_neighbors=min(2, len(docs) - 1),  # Adjust for small datasets
+        n_neighbors=min(2, len(docs) - 1),
         n_components=n_components,
-        random_state=42,  # Reproducibility
-        metric="cosine",  # Suitable for text embeddings
-        low_memory=True  # Reduce memory usage for M1
+        random_state=42,
+        metric="cosine",
+        low_memory=True
     )
-    
-    # Initialize and fit BERTopic with custom UMAP
+    hdbscan_model = HDBSCAN(
+        min_cluster_size=2,
+        min_samples=1,
+        metric="euclidean",
+        cluster_selection_method="eom"
+    )
     topic_model = BERTopic(
         embedding_model=embedding_model,
         nr_topics=nr_topics,
         verbose=True,
-        umap_model=umap_model
+        umap_model=umap_model,
+        hdbscan_model=hdbscan_model
     )
     topics, probs = topic_model.fit_transform(docs)
     
