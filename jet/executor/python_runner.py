@@ -4,13 +4,11 @@ import os
 import re
 import json
 from pathlib import Path
-from typing import Literal, Union, Optional, List, Dict, Tuple
-from tqdm import tqdm
+from typing import Union, Optional, List, Dict, Tuple
 from fnmatch import fnmatch
 from datetime import datetime
 from jet.file.utils import save_file
 from jet.logger import CustomLogger
-from jet.transformers.formatters import format_json
 
 
 def sort_key(path: str) -> Tuple[int, str]:
@@ -88,7 +86,7 @@ def run_python_files_in_directory(
                 f"No status file found at {status_file}, defaulting to run all files")
             rerun_mode = "all"
         main_log_file = output_dir / "main.log"
-        logger = CustomLogger(str(main_log_file), name="", overwrite=True)
+        logger = CustomLogger(log_file=str(main_log_file), overwrite=True)
         logger.debug(f"Initialized logger with main_log_file: {main_log_file}")
     else:
         success_dir = None
