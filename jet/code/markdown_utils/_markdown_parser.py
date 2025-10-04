@@ -1,18 +1,14 @@
 import json
+from jet.code.markdown_utils._utils import preprocess_custom_code_blocks
 from jet.wordnet.sentence import is_list_sentence, is_ordered_list_marker
-import os
-import tempfile
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, TypedDict
-from jet.code.html_utils import valid_html
-from jet.code.markdown_utils._base import read_html_content
-from jet.code.markdown_utils._converters import convert_html_to_markdown
+from typing import List, Dict, Any, Optional, Union
 from jet.data.utils import generate_unique_id
 from jet.transformers.object import make_serializable
-from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
+from mrkdwn_analysis import MarkdownParser
 
-from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict, HeaderDoc
+from jet.code.markdown_types import MarkdownToken, HeaderDoc
 from jet.code.markdown_utils import read_md_content, preprocess_markdown
 
 from jet.logger import logger
@@ -22,6 +18,7 @@ from jet.logger import logger
 def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> List[MarkdownToken]:
     md_content = read_md_content(input, ignore_links=ignore_links)
     md_content = preprocess_markdown(md_content)
+    md_content = preprocess_custom_code_blocks(md_content)
     parser = MarkdownParser(md_content)
     md_tokens: List[MarkdownToken] = make_serializable(parser.parse())
 

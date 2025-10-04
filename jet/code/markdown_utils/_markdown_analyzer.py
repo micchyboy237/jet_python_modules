@@ -1,14 +1,10 @@
 import tempfile
 import os
-import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, TypedDict, cast
+from typing import List, Dict, Any, Union, cast
 
-import html2text
-from jet.code.html_utils import preprocess_html, valid_html
-from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
+from jet.code.markdown_types import MarkdownAnalysis, SummaryDict
 from jet.code.markdown_types.base_markdown_analysis_types import (
-    BaseMarkdownAnalysis,
     HeaderCounts,
     Header,
     CodeBlock,
@@ -26,11 +22,9 @@ from jet.code.markdown_types.base_markdown_analysis_types import (
     BaseMarkdownAnalysis,
 )
 from jet.code.markdown_utils import read_md_content, preprocess_markdown
-from jet.code.markdown_utils._preprocessors import clean_markdown_links
-from jet.decorators.timer import timeout
-from jet.transformers.object import convert_dict_keys_to_snake_case, make_serializable
-from jet.utils.text import fix_and_unidecode
-from mrkdwn_analysis import MarkdownAnalyzer, MarkdownParser
+from jet.code.markdown_utils._utils import preprocess_custom_code_blocks
+from jet.transformers.object import convert_dict_keys_to_snake_case
+from mrkdwn_analysis import MarkdownAnalyzer
 
 from jet.logger import logger
 
@@ -87,6 +81,7 @@ def validate_analysis(data: Dict[str, Any]) -> Analysis:
 def base_analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> BaseMarkdownAnalysis:
     md_content = read_md_content(input, ignore_links=ignore_links)
     md_content = preprocess_markdown(md_content)
+    md_content = preprocess_custom_code_blocks(md_content)
     temp_md_path = None
     values: BaseMarkdownAnalysis = BASE_DEFAULTS.copy()
     try:
@@ -204,6 +199,7 @@ def analyze_markdown(input: Union[str, Path], ignore_links: bool = False) -> Mar
     values: MarkdownAnalysis = DEFAULTS.copy()
     try:
         md_content = preprocess_markdown(md_content)
+        md_content = preprocess_custom_code_blocks(md_content)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".md", mode="w", encoding="utf-8") as tmpfile:
             tmpfile.write(md_content)
             temp_md_path = tmpfile.name
