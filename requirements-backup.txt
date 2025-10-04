@@ -1,117 +1,188 @@
-# Custom
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/starlette
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
-# -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
-# -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters
-
-# .venv/bin/python
-aim==3.26.1
-airportsdata==20241001
-annoy==1.17.3
-APScheduler==3.11.0
-bm25s==0.2.5
-camoufox==0.3.10
-chonkie==0.5.0
-colbert-ai==0.2.21
-deeplake==3.9.37
-docutils==0.21.2
-elasticsearch==8.16.0
-email_validator==2.2.0
+# /Users/jethroestrada/.pyenv/shims/python
+ag-ui-protocol==0.1.8
+-e git+ssh://git@github.com/micchyboy237/jet_python_modules.git@9ba17aada9464b07efdfba707bb44d3fab4aac47#egg=agbench&subdirectory=jet/libs/autogen/agbench
+application_properties==0.8.3
+arxiv==2.2.0
+asitop==0.0.24
+asyncio-atexit==1.0.1
+-e git+ssh://git@github.com/microsoft/autogen.git@f76f92dd8c22af51cc62cce738342bf4fb7e8970#egg=autogenstudio&subdirectory=python/packages/autogen-studio
+azure-ai-documentintelligence==1.0.2
+azure-ai-inference==1.0.0b9
+azure-search-documents==11.5.3
+-e git+ssh://git@github.com/MaartenGr/BERTopic.git@c6157fe84cda43046448a01ced5389f7f65ef497#egg=bertopic
+blake3==1.0.5
+boto3==1.40.17
+-e git+ssh://git@github.com/browser-use/browser-use.git@6a416a3077187d04cd35612a69a2daea1943977a#egg=browser_use
+bs4==0.0.2
+chainlit==2.7.1.1
+cmake==3.31.6
+-e git+https://github.com/topoteretes/cognee.git@300b774252a15e0725319576a853607473772715#egg=cognee
+cohere==5.17.0
+Columnar==1.4.1
+compressed-tensors==0.9.4
+coremltools==8.3.0
+Crawl4AI==0.7.1
+cssutils==2.11.1
+ddgs==9.5.4
+-e git+https://github.com/deepset-ai/haystack-core-integrations.git@9eab5b860f94be5cbe841329949503c50f04575e#egg=deepeval_haystack&subdirectory=integrations/deepeval
+depyf==0.18.0
+editdistance==0.8.1
+einops==0.8.1
 en_core_web_md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl#sha256=5e6329fe3fecedb1d1a02c3ea2172ee0fede6cea6e4aefb6a02d832dba78a310
 en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#sha256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
-eval_type_backport==0.2.2
-faiss-cpu==1.9.0.post1
-fake-useragent==1.5.1
-fastapi-sso==0.10.0
+faiss-cpu==1.11.0
+fastapi-cli==0.0.8
+fastapi-cloud-cli==0.1.5
+fastapi-users-db-sqlalchemy==7.0.0
 faster-whisper==1.1.1
-feedparser==6.0.11
-FlagEmbedding==1.3.4
-fqdn==1.5.1
-future==1.0.0
-geoip2==4.8.1
+fasttext-langdetect==1.0.5
+ffmpeg-python==0.2.0
+fiddle==0.3.0
+gdown==5.2.0
+gguf==0.17.0
 gliner-spacy==0.0.11
-graspologic==3.4.1
-grequests==0.7.0
+gradio==5.45.0
 gTTS==2.5.4
-guidance==0.1.16
-gunicorn==22.0.0
-gymnasium==1.0.0
-hdbscan==0.8.40
 hrequests==0.9.2
-html2text==2024.2.26
 httptools==0.6.4
 hydra-core==1.3.2
-isoduration==20.11.0
-jupyter==1.1.1
-langchain-chroma==0.2.2
-langchain-huggingface==0.1.2
--e git+ssh://git@github.com/langchain-ai/langchain-postgres.git@4c86319607d8181d7c2891961c680ed5a0f8d588#egg=langchain_postgres
-langchain-text-splitters==0.3.2
-language_tool_python==2.9.3
-lark==1.2.2
-llama_cpp_python==0.3.8
-llama-parse==0.6.1
--e git+ssh://git@github.com/EleutherAI/lm-evaluation-harness.git@fc5019ead53c45119c522c62e8eea2daa837c56e#egg=lm_eval
-logfire-api==3.14.0
-lxml_html_clean==0.4.1
-macmouse==0.7.4
-Markdown==3.7
-mem0ai==0.1.36
-mitmproxy==11.0.2
-mlx @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx
-mlx-lm @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm
-MouseInfo==0.1.3
-neo4j==5.27.0
-ollama==0.4.4
-opencv-python==4.10.0.84
+inflect==7.5.0
+ipykernel==6.30.1
+jiwer==3.1.0
+kaldi-python-io==1.2.2
+-e git+ssh://git@github.com/MaartenGr/KeyBERT.git@b9c4939d53454b74a97f901b95e3ca7b873eb2a0#egg=keybert
+langchain-chroma==0.2.6
+-e git+ssh://git@github.com/langchain-ai/langchain-experimental.git@5cdbf02e3771da35d1438bb7597be4575610684e#egg=langchain_experimental&subdirectory=libs/experimental
+langchain-monorepo @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain
+-e git+ssh://git@github.com/langchain-ai/langchain.git@f82de1a8d70268e901e9a23ba6ebee574a4428c2#egg=langchain_ollama&subdirectory=libs/partners/ollama
+langchain-postgres @ file:///Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-postgres
+langchain-redis==0.2.3
+-e git+ssh://git@github.com/superlinked/langchain-superlinked.git@d955f8e673e355c359113afa4c04fc682936aa04#egg=langchain_superlinked
+langchain-tavily==0.2.11
+langgraph-checkpoint-redis==0.1.1
+-e git+ssh://git@github.com/langchain-ai/langmem.git@41a6c3b39c94e47ebe8c20be6d4898a193c73e42#egg=langmem
+lhotse==1.30.3
+librosa==0.11.0
+lightning==2.4.0
+-e git+https://github.com/deepset-ai/haystack-core-integrations.git@9eab5b860f94be5cbe841329949503c50f04575e#egg=llama_cpp_haystack&subdirectory=integrations/llama_cpp
+-e git+ssh://git@github.com/run-llama/llama_index.git@98b6b7f704731682fa0477811e9383443e3e0a0b#egg=llama_index
+-e git+ssh://git@github.com/run-llama/llama_index.git@98b6b7f704731682fa0477811e9383443e3e0a0b#egg=llama_index_embeddings_huggingface&subdirectory=llama-index-integrations/embeddings/llama-index-embeddings-huggingface
+-e git+ssh://git@github.com/run-llama/llama_index.git@98b6b7f704731682fa0477811e9383443e3e0a0b#egg=llama_index_packs_code_hierarchy&subdirectory=llama-index-packs/llama-index-packs-code-hierarchy
+-e git+ssh://git@github.com/run-llama/llama_index.git@98b6b7f704731682fa0477811e9383443e3e0a0b#egg=llama_index_tools_duckduckgo&subdirectory=llama-index-integrations/tools/llama-index-tools-duckduckgo
+-e git+ssh://git@github.com/run-llama/llama_index.git@98b6b7f704731682fa0477811e9383443e3e0a0b#egg=llama_index_tools_playwright&subdirectory=llama-index-integrations/tools/llama-index-tools-playwright
+-e git+ssh://git@github.com/run-llama/llama_index.git@98b6b7f704731682fa0477811e9383443e3e0a0b#egg=llama_index_utils_workflow&subdirectory=llama-index-utils/llama-index-utils-workflow
+-e git+https://github.com/deepset-ai/haystack-core-integrations.git@9eab5b860f94be5cbe841329949503c50f04575e#egg=llama_stack_haystack&subdirectory=integrations/llama_stack
+llguidance==0.7.29
+lm-format-enforcer==0.10.11
+logfire==4.3.6
+lxml_html_clean==0.4.2
+m3u8==6.0.0
+mammoth==1.10.0
+markdown-pdf==1.5
+markitdown==0.1.3
+-e git+https://github.com/deepset-ai/haystack-core-integrations.git@9eab5b860f94be5cbe841329949503c50f04575e#egg=mcp_haystack&subdirectory=integrations/mcp
+mediapy==1.1.6
+-e git+ssh://git@github.com/mem0ai/mem0.git@77b4b6a2b94b950aeb203a0e3ddea662dec6b3c8#egg=mem0ai
+mistral_common==1.5.6
+mistralai==1.9.8
+mitmproxy==12.1.1
+mlflow==3.4.0
+-e git+ssh://git@github.com/Blaizzy/mlx-vlm.git@a0507e72af8285482bbe7d2dea75dea0c7682309#egg=mlx_vlm
+monotonic==1.6
+mrkdwn_analysis==0.1.6
+msgspec==0.19.0
+nemo-toolkit==2.4.0
+ninja==1.11.1.4
+noisereduce==3.0.3
+num2words==0.5.14
+-e git+https://github.com/deepset-ai/haystack-core-integrations.git@9eab5b860f94be5cbe841329949503c50f04575e#egg=ollama_haystack&subdirectory=integrations/ollama
+opencv-python-headless==4.11.0.86
 openpyxl==3.1.5
-outlines_core==0.1.20
-patchright
-pdfminer.six==20240706
+opentelemetry-instrumentation-fastapi==0.55b1
+optimum==1.25.3
+optuna==4.4.0
+outlines==0.1.11
+partial-json-parser==0.2.1.1.post5
+patchright==1.52.5
+pdfplumber==0.11.7
 peewee-migrate==1.13.0
+peft==0.17.0
 pip-autoremove==0.10.0
-pipdeptree==2.25.0
-plotly==6.0.1
+pipdeptree==2.26.1
+prometheus-fastapi-instrumentator==7.1.0
 psycopg2-binary==2.9.10
-pycountry==24.6.1
-pydub==0.25.1
+pyannote.metrics==3.2.1
+pydantic-ai==0.8.1
+pydantic-evals==0.8.1
 pygame==2.6.1
 PyGetWindow==0.0.9
+pyloudnorm==0.1.1
 PyMsgBox==1.0.9
 PyNaCl==1.5.0
 pynput==1.8.1
-pypdf==5.1.0
-pyppeteer
+pyppeteer==2.0.0
 PyQt6==6.8.1
 pyquery==2.0.1
 PyScreeze==1.0.1
+PySocks==1.7.1
+pyspellchecker==0.8.3
 PyStemmer==2.2.0.3
+pytesseract==0.3.13
+pytest-benchmark==5.1.0
+pytest-mock==3.14.1
 pytest-playwright==0.7.0
+python-json-logger==3.3.0
+python-pptx==1.0.2
 pytrec_eval==0.5
 pyttsx3==2.98
 pytweening==1.2.0
-pyvis==0.3.2
-rank-bm25==0.2.2
+rake-nltk==1.0.6
+readability-lxml==0.8.4.1
+resampy==0.4.3
 rq==2.3.2
 rumps==0.4.0
+sacremoses==0.1.1
 scrapy-selenium4==1.0.0
+-e git+ssh://git@github.com/microsoft/semantic-kernel.git@dd897c9a16e17c6957b4d0faa06fa4299ef1d44e#egg=semantic_kernel&subdirectory=python
+-e git+ssh://git@github.com/huggingface/smolagents.git@7069ea48d5d6e259ad25e0308b41715e9c92cfb1#egg=smolagents
+sounddevice==0.5.2
+sox==1.5.0
 spacy-curated-transformers==0.3.0
+spacy-lookups-data==1.0.5
 span_marker==1.7.0
+SpeechRecognition==3.14.3
 sqlite-utils==3.38
+-e git+https://github.com/stanfordnlp/stanza.git@af3d42b70ef2d82d96f410214f98dd17dd983f51#egg=stanza
 streamlit==1.41.1
+-e git+ssh://git@github.com/kyegomez/swarms.git@a64f57a66c3049495d072a751a1804480f1d732a#egg=swarms
+-e git+ssh://git@github.com/The-Swarm-Corporation/swarms-tools.git@1bd808d05bc4c3bf4f69d6f59e26b963844d7f60#egg=swarms_tools
+-e git+ssh://git@github.com/tavily-ai/tavily-python.git@32a933b845480e750ba057443bf4503b6d03cde3#egg=tavily_python
+temporalio==1.16.0
+textacy==0.13.0
+-e git+ssh://git@github.com/sloria/TextBlob.git@8112e41cc7461a40e05d079064e3029b9f5aeecd#egg=textblob
+texterrors==0.5.1
+textstat==0.7.5
 thefuzz==0.22.1
+thinc_apple_ops==1.0.0
 tinycss2==1.4.0
-torchaudio==2.5.1
-torchvision==0.20.1
+torchaudio==2.7.0
 trafilatura==2.0.0
-trustcall==0.0.39
-Unidecode==1.3.8
+umap==0.1.1
+Unidecode==1.4.0
+unstructured==0.18.14
 uri-template==1.3.0
+uv==0.8.13
 uvloop==0.21.0
+validators==0.35.0
+wandb==0.21.1
 watchdog==6.0.0
-watchfiles==1.0.0
+watchgod==0.8.2
 webcolors==24.11.1
+webdataset==1.0.2
 webdriver-manager==4.0.2
+whisper_normalizer==0.1.12
 wikipedia==1.4.0
+xgboost==3.0.2
+xlrd==2.0.2
+youtube-transcript-api==1.0.3
 yt-dlp==2025.3.31

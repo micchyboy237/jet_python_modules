@@ -1,0 +1,9 @@
+# Base
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/fastmcp
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/deepeval
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama.cpp
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/KeyBERT
+
+# Advanced
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/stanza
