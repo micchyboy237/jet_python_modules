@@ -194,3 +194,58 @@ def process_documents_for_chart(documents: List[Dict], output_dir: str = ".", mi
         json.dump(chart_config, f, indent=2)
 
     return chart_config
+
+
+if __name__ == "__main__":
+    OUTPUT_DIR = os.path.join(
+        os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    # Real-world example: Analyzing customer feedback from a tech support system
+    sample_documents = [
+        {
+            "id": 1,
+            "content": "The software crashes when I try to export large datasets to CSV."
+        },
+        {
+            "id": 2,
+            "content": "Export feature is slow and needs optimization for large files."
+        },
+        {
+            "id": 3,
+            "content": "Customer support was very responsive and resolved my login issue quickly."
+        },
+        {
+            "id": 4,
+            "content": "I experienced a bug where the dashboard doesn't load properly on Chrome."
+        },
+        {
+            "id": 5,
+            "content": "The login system keeps rejecting valid credentials; very frustrating."
+        }
+    ]
+
+    try:
+        # Process documents and generate chart configuration
+        chart_config = process_documents_for_chart(
+            documents=sample_documents,
+            output_dir=OUTPUT_DIR,
+            min_topic_size=2
+        )
+        print("Chart configuration generated successfully:")
+        print(json.dumps(chart_config, indent=2))
+
+        # Display topic assignments for verification
+        with open(f"{OUTPUT_DIR}/document_topic_mapping.json", "r") as f:
+            assignments = json.load(f)
+        print("\nDocument Topic Assignments:")
+        for assignment in assignments:
+            print(
+                f"Document ID: {assignment['id']}, Topic: {assignment['topic']}, Content: {assignment['content'][:50]}..."
+            )
+
+        # Display category counts
+        with open(f"{OUTPUT_DIR}/category_counts.csv", "r") as f:
+            print("\nCategory Counts:")
+            print(f.read())
+
+    except Exception as e:
+        logger.error(f"Error processing documents: {e}")

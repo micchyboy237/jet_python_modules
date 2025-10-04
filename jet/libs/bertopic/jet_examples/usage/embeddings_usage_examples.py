@@ -6,7 +6,8 @@ from sentence_transformers import SentenceTransformer
 # Example 1: Extracting embeddings for a single document
 def example_single_document_embedding():
     # Given: A pre-trained BERTopic model and a single document
-    topic_model = BERTopic(embedding_model=SentenceTransformer("all-MiniLM-L6-v2"))
+    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    topic_model = BERTopic(embedding_model=embedding_model)
     document = "The quick brown fox jumps over the lazy dog"
     
     # When: Extracting embeddings for the single document
@@ -19,7 +20,8 @@ def example_single_document_embedding():
 # Example 2: Extracting embeddings for multiple documents and computing similarity
 def example_multiple_documents_embedding():
     # Given: A pre-trained BERTopic model and multiple documents
-    topic_model = BERTopic(embedding_model=SentenceTransformer("all-MiniLM-L6-v2"))
+    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    topic_model = BERTopic(embedding_model=embedding_model)
     documents = [
         "A fast fox runs through the forest",
         "The dog sleeps peacefully under the tree"
@@ -39,8 +41,8 @@ def example_multiple_documents_embedding():
 # Example 3: Comparing BERTopic embeddings with SentenceTransformer embeddings
 def example_compare_embeddings():
     # Given: A pre-trained BERTopic model and a SentenceTransformer model
-    topic_model = BERTopic(embedding_model=SentenceTransformer("all-MiniLM-L6-v2"))
-    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    topic_model = BERTopic(embedding_model=embedding_model)
     document = ["The sun sets slowly behind the mountain"]
     
     # When: Extracting embeddings using both models
