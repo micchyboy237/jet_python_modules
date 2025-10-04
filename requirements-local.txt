@@ -7,3 +7,6 @@
 
 # Advanced
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/stanza
+
+# KeyBERT Peers
+flair
