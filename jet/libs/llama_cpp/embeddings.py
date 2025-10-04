@@ -11,7 +11,7 @@ GenerateEmbeddingsReturnType = Union[List[List[float]], np.ndarray]
 class LlamacppEmbedding:
     """A client for generating embeddings via llama-server using OpenAI API."""
     
-    def __init__(self, model: str = "embeddinggemma", base_url: str = "http://shawn-pc.local:8080/v1"):
+    def __init__(self, model: str = "embeddinggemma", base_url: str = "http://shawn-pc.local:8081/v1"):
         """Initialize the client with server URL and model path."""
         self.client = OpenAI(base_url=base_url, api_key="no-key-required")
         self.model = resolve_model_value(model)
