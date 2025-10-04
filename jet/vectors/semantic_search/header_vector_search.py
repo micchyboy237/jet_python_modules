@@ -307,28 +307,33 @@ def search_headers(
     buffer: int = 0,
     threshold: float = 0.0,
     tokenizer_model: Optional[ModelType] = None,
-    merge_chunks: bool = False
+    merge_chunks: bool = True  # Enable merging by default
 ) -> Iterator[HeaderSearchResult]:
     """
     Search headers using vector similarity on chunked contents + header metadata.
     Yields up to top_k results iteratively that meet the threshold, preserving original texts.
-    If top_k is None, yields all results that meet the threshold.
     """
-    def default_tokenizer(text): return len(
-        re.findall(r'\b\w+\b|[^\w\s]', text))
-    tokenizer = get_tokenizer_fn(
-        tokenizer_model) if tokenizer_model else default_tokenizer
+    def default_tokenizer(text): return len(re.findall(r'\b\w+\b|[^\w\s]', text))
+    tokenizer = get_tokenizer_fn(tokenizer_model) if tokenizer_model else default_tokenizer
+    
+    # Dynamically adjust chunk size based on content length
+    total_tokens = sum(len(tokenizer(doc['content'])) for doc in header_docs)
+    avg_doc_tokens = total_tokens / len(header_docs) if header_docs else chunk_size
+    dynamic_chunk_size = min(chunk_size, max(128, int(avg_doc_tokens / 2)))
+
     query_processed = preprocess_text(query)
     doc_indices, headers, headers_context, chunk_data = collect_header_chunks(
-        header_docs, chunk_size, chunk_overlap, tokenizer_model, buffer)
+        header_docs, dynamic_chunk_size, chunk_overlap, tokenizer_model, buffer
+    )
     if not chunk_data:
         logger.debug("No chunk data available, returning empty iterator")
         return
+
     unique_docs = list(dict.fromkeys(doc_indices))
     header_texts = [headers[doc_indices.index(idx)] for idx in unique_docs]
-    parent_texts = [
-        headers_context[doc_indices.index(idx)] for idx in unique_docs]
+    parent_texts = [headers_context[doc_indices.index(idx)] for idx in unique_docs]
     chunked_texts = [chunk for _, _, chunk, _, _, _, _, _, _ in chunk_data]
+
     logger.debug(
         f"Text counts: query=1, headers={len(header_texts)}, parents={len(parent_texts)}, chunks={len(chunked_texts)}"
     )
@@ -348,27 +353,39 @@ def search_headers(
         batch_size=32,
         show_progress=True
     )
+
     query_vector = all_vectors[0]
     num_headers = len(header_texts)
     num_parents = len(parent_texts)
     header_vectors = all_vectors[1:num_headers + 1]
     parent_vectors = all_vectors[num_headers + 1:num_headers + 1 + num_parents]
     content_vectors = all_vectors[num_headers + 1 + num_parents:]
+
     results: List[HeaderSearchResult] = []
     chunk_counts = {}
     for i, (doc_index, header, chunk, original_chunk, preprocessed_header, preprocessed_headers_context, start_idx, end_idx, num_tokens) in enumerate(chunk_data):
         unique_doc_idx = unique_docs.index(doc_index)
-        header_doc = next(
-            hd for hd in header_docs if hd['doc_index'] == doc_index)
+        header_doc = next(hd for hd in header_docs if hd['doc_index'] == doc_index)
         content_vector = content_vectors[i]
+
+        # Adjust weights for better relevance
+        content_weight = 0.5 if len(num_tokens) >= 100 else 0.3
+        headers_weight = 0.3 if header_doc['level'] <= 2 else 0.2
+        header_content_weight = 0.2
+        total = content_weight + headers_weight + header_content_weight
+        content_weight /= total
+        headers_weight /= total
+        header_content_weight /= total
+
         weighted_sim, header_content_sim, headers_sim, content_sim = compute_weighted_similarity(
-            query_vector, header_vectors[unique_doc_idx], parent_vectors[
-                unique_doc_idx], content_vector, len(num_tokens), header_doc['level']
+            query_vector, header_vectors[unique_doc_idx], parent_vectors[unique_doc_idx],
+            content_vector, len(num_tokens), header_doc['level']
         )
+
         if weighted_sim >= threshold:
             chunk_counts[doc_index] = chunk_counts.get(doc_index, -1) + 1
             result: HeaderSearchResult = {
-                "id": str(uuid.uuid4()),  # Generate unique ID for each result
+                "id": str(uuid.uuid4()),
                 "rank": 0,
                 "score": float(weighted_sim),
                 "header": header_doc['header'],
@@ -394,9 +411,11 @@ def search_headers(
                 },
             }
             results.append(result)
+
     results.sort(key=lambda x: x["score"], reverse=True)
     if merge_chunks:
-        results = merge_results(results, chunk_size, tokenizer)
+        results = merge_results(results, dynamic_chunk_size, tokenizer)
+    
     for i, result in enumerate(results if top_k is None else results[:top_k], 1):
         result["rank"] = i
         yield result

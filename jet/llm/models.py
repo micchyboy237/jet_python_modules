@@ -61,7 +61,6 @@ OLLAMA_EMBED_MODELS = Literal[
     "bge-large",
     "all-minilm:33m",
     "all-minilm:22m",
-    "embeddinggemma",
     "nomic-embed-text",
     "nomic-embed-text-v2-moe",
 ]

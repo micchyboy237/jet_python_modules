@@ -215,8 +215,8 @@ class CustomLogger:
 
     def basicConfig(
         self,
-        *,
         name: Optional[str] = None,
+        *,
         filename: Optional[str] = None,
         filemode: str = "a",
         format: str = "%(message)s",

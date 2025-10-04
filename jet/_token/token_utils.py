@@ -5,7 +5,7 @@ from jet.vectors.document_types import HeaderDocument, HeaderTextNode
 from jet.wordnet.words import get_words
 from llama_index.core.base.llms.types import ChatMessage
 from llama_index.core.node_parser.text.sentence import SentenceSplitter
-from llama_index.core.schema import BaseNode, Document, NodeRelationship, NodeWithScore, RelatedNodeInfo, TextNode
+from llama_index.core.schema import Document, NodeWithScore, TextNode
 import tiktoken
 from jet.llm.llm_types import Message
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -47,52 +47,92 @@ def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         return tokenizer
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Model \"{model_name}\" not found, falling back to tiktoken cl100k_base: {str(e)}")
         encoding = tiktoken.get_encoding("cl100k_base")
         return encoding
 
 
-def tokenize(model_name: str | OLLAMA_MODEL_NAMES, text: str | dict | list[str] | list[dict] | list[ChatMessage] | list[Message]) -> list[int] | list[list[int]]:
+def get_tokenizer_fn(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES, add_special_tokens: bool = False) -> Callable[[Union[str, list[str]], bool], Union[list[int], list[list[int]]]]:
+    """
+    Returns a tokenizer function for the specified model that tokenizes input text.
+
+    Args:
+        model_name (str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES): The name of the model to get the tokenizer for.
+        add_special_tokens (bool, optional): Whether to add special tokens during tokenization. Defaults to False.
+
+    Returns:
+        Callable: A function that tokenizes input text (str or list[str]) into tokens (list[int] or list[list[int]]).
+
+    Raises:
+        ValueError: If the model_name is invalid or tokenizer cannot be loaded.
+    """
+    tokenizer = get_tokenizer(model_name)
+
+    def tokenize_fn(text: Union[str, list[str]], add_special_tokens: bool = add_special_tokens) -> Union[list[int], list[list[int]]]:
+        if isinstance(text, list):
+            if isinstance(tokenizer, tiktoken.Encoding):
+                return tokenizer.encode_batch(text)
+            return tokenizer.batch_encode_plus(text, add_special_tokens=add_special_tokens, return_tensors=None)["input_ids"]
+        else:
+            if isinstance(tokenizer, tiktoken.Encoding):
+                return tokenizer.encode(text)
+            return tokenizer.encode(text, add_special_tokens=add_special_tokens)
+
+    return tokenize_fn
+
+
+def tokenize(
+    model_name: str | OLLAMA_MODEL_NAMES,
+    text: str | dict | list[str] | list[dict] | list[ChatMessage] | list[Message],
+    add_special_tokens: bool = False
+) -> list[int] | list[list[int]]:
     tokenizer = get_tokenizer(model_name)
 
     if isinstance(text, list):
-        # Convert all items to strings, handling dict, ChatMessage, and Message types
         texts = []
         for t in text:
             if isinstance(t, ChatMessage):
                 texts.append(str(t.content))
-            elif isinstance(t, dict):  # Handles Message (TypedDict) and other dicts
+            elif isinstance(t, dict):
                 texts.append(str(t.get('content', t)))
             else:
                 texts.append(str(t))
 
         if isinstance(tokenizer, tiktoken.Encoding):
-            tokenized = tokenizer.encode_batch(texts)
+            tokenized = tokenizer.encode_batch(texts, allowed_special="all" if add_special_tokens else set())
         else:
-            tokenized = tokenizer.batch_encode_plus(texts, return_tensors=None)
+            tokenized = tokenizer.batch_encode_plus(
+                texts,
+                return_tensors=None,
+                add_special_tokens=add_special_tokens
+            )
             tokenized = tokenized["input_ids"]
         return tokenized
     else:
-        # Convert single input to string, handling dict and ChatMessage cases
         if isinstance(text, ChatMessage):
             text_str = str(text.content)
-        elif isinstance(text, dict):  # Handles Message (TypedDict) and other dicts
+        elif isinstance(t, dict):
             text_str = str(text.get('content', text))
         else:
             text_str = str(text)
-        tokens = tokenizer.encode(text_str)
-        return tokens
+        if isinstance(tokenizer, tiktoken.Encoding):
+            tokenized = tokenizer.encode(text_str, allowed_special="all" if add_special_tokens else set())
+        else:
+            tokenized = tokenizer.encode(text_str, add_special_tokens=add_special_tokens)
+        return tokenized
 
 
 def token_counter(
     text: str | dict | list[str] | list[dict] | list[ChatMessage] | list[Message],
     model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
-    prevent_total: bool = False
+    prevent_total: bool = False,
+    add_special_tokens: bool = False
 ) -> int | list[int]:
     if not text:
         return 0
 
-    tokenized = tokenize(model, text)
+    tokenized = tokenize(model, text, add_special_tokens)
     if isinstance(text, (str, dict, ChatMessage)):
         return len(tokenized)
     else:
