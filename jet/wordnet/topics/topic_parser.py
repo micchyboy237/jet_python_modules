@@ -12,7 +12,7 @@ def configure_topic_model(
     n_neighbors: int = 3,
     min_dist: float = 0.1,
     min_cluster_size: int = 2,
-    min_samples: int = 1,
+    min_samples: int = 2,  # Increased from 1
     embedding_model: str = "all-MiniLM-L6-v2",
     random_state: Optional[int] = 42
 ) -> BERTopic:
@@ -20,15 +20,18 @@ def configure_topic_model(
     umap_model = UMAP(n_components=n_components, n_neighbors=n_neighbors,
                       min_dist=min_dist, random_state=random_state)
     hdbscan_model = HDBSCAN(
-        min_cluster_size=min_cluster_size, min_samples=min_samples)
-    vectorizer_model = CountVectorizer(
-        stop_words="english")  # Remove stopwords
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        prediction_data=True  # Enable prediction data for probabilities
+    )
+    vectorizer_model = CountVectorizer(stop_words="english")
     return BERTopic(
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
         embedding_model=embedding_model,
         min_topic_size=min_cluster_size,
-        vectorizer_model=vectorizer_model
+        vectorizer_model=vectorizer_model,
+        calculate_probabilities=True  # Explicitly enable probabilities
     )
 
 
