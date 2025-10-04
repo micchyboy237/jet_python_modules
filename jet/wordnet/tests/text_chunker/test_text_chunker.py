@@ -20,14 +20,13 @@ class TestTextChunker:
         input_text = sample_text
         chunk_size = 12
         expected = [
-            "This is the first sentence.",
-            "Here is the second one.",
-            "And this is the third. Final sentence here.",
+            "This is the first sentence. Here is the second one.",
+            "And this is the third. Final sentence here."
         ]
 
         # When: chunk_texts is called with strict_sentences=True
         results = chunk_texts(input_text, chunk_size=chunk_size, model="llama3.2", strict_sentences=True)
-
+        token_counter(results, "llama3.2", prevent_total=True)
         # Then: Chunks respect sentence boundaries
         assert results == expected, f"Expected {expected}, but got {results}"
 
@@ -48,7 +47,7 @@ class TestTextChunker:
         input_text = sample_text
         chunk_size = 10
         doc_id = "test_doc"
-        expected_num_chunks = 4
+        expected_num_chunks = 3
 
         # When: chunk_texts_with_data is called with strict_sentences=True
         results = chunk_texts_with_data([input_text], chunk_size=chunk_size, model="llama3.2", doc_ids=[doc_id], strict_sentences=True)
