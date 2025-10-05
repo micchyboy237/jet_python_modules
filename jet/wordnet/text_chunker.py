@@ -413,11 +413,12 @@ def chunk_texts_with_data(
 def chunk_texts_sliding_window(
     texts: Union[str, List[str]],
     chunk_size: int = 128,
-    chunk_overlap: int = 0,
+    chunk_overlap: int = 32,
     model: Optional[OLLAMA_MODEL_NAMES] = None,
     doc_ids: Optional[List[str]] = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
+    step_size: int = 96,
 ) -> List[ChunkResult]:
     """
     Chunk texts using a sliding window approach, returning detailed chunk results.
@@ -430,6 +431,7 @@ def chunk_texts_sliding_window(
         doc_ids: Optional list of document IDs.
         buffer: Buffer size to reserve in each chunk.
         min_chunk_size: Minimum number of tokens for a chunk to be valid.
+        step_size: Number of tokens to move the window at each step.
     
     Returns:
         List of ChunkResult dictionaries containing chunk metadata.
@@ -452,7 +454,7 @@ def chunk_texts_sliding_window(
         if not tokens:
             continue
         doc_id = doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4())
-        windows = sliding_window(tokens, chunk_size - buffer, step)
+        windows = sliding_window(tokens, chunk_size - buffer, step_size)
         
         for chunk_index, window in enumerate(windows):
             chunk_content = tokenizer.decode(window).strip() if model else " ".join(window).strip()
@@ -463,7 +465,7 @@ def chunk_texts_sliding_window(
                 
             overlap_start_idx = None
             overlap_end_idx = None
-            start_idx = chunk_index * step
+            start_idx = chunk_index * step_size
             end_idx = start_idx + len(chunk_content)
             
             if chunk_overlap > 0 and start_idx + chunk_size - buffer < len(tokens):
