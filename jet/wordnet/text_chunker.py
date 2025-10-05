@@ -460,13 +460,13 @@ def truncate_texts(
     return truncated_texts
 
 
-def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_overlap: int = 0, model: Optional[OLLAMA_MODEL_NAMES] = None) -> List[str]:
+def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, chunk_overlap: int = 0, model: Optional[OLLAMA_MODEL_NAMES] = None) -> List[str]:
     """Chunk texts by sentences with sentence overlap, using tokens if model is provided, preserving original separators.
 
     Args:
         texts: Single string or list of strings to chunk.
         chunk_size: Number of sentences (non-model) or tokens (model) per chunk.
-        sentence_overlap: Number of sentences to overlap.
+        chunk_overlap: Number of sentences to overlap.
         model: Optional LLM model name for token-based chunking.
     """
     if isinstance(texts, str):
@@ -512,7 +512,7 @@ def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_
                     current_separators = []
                     current_tokens = 0
                     # Handle overlap (in sentences, not tokens)
-                    overlap_start = max(0, i - sentence_overlap)
+                    overlap_start = max(0, i - chunk_overlap)
                     logger.debug(
                         f"Overlap start: {overlap_start}, current index: {i}")
                     current_chunk = sentences[overlap_start:i]
@@ -546,7 +546,7 @@ def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_
             if not sentences:
                 continue
             if len(sentences) > chunk_size:
-                for i in range(0, len(sentences) - chunk_size + 1, chunk_size - sentence_overlap):
+                for i in range(0, len(sentences) - chunk_size + 1, chunk_size - chunk_overlap):
                     start_idx = max(0, i)
                     end_idx = min(len(sentences), i + chunk_size)
                     # Reconstruct chunk with original separators
@@ -562,13 +562,13 @@ def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, sentence_
     return chunked_texts
 
 
-def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int = 5, sentence_overlap: int = 0, model: Optional[OLLAMA_MODEL_NAMES] = None) -> Tuple[List[str], List[int]]:
+def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int = 5, chunk_overlap: int = 0, model: Optional[OLLAMA_MODEL_NAMES] = None) -> Tuple[List[str], List[int]]:
     """Chunk texts by sentences with sentence overlap and track original document indices, using tokens if model is provided.
 
     Args:
         texts: Single string or list of strings to chunk.
         chunk_size: Number of sentences or tokens per chunk.
-        sentence_overlap: Number of sentences or tokens to overlap.
+        chunk_overlap: Number of sentences or tokens to overlap.
         model: Optional LLM model name for token-based chunking.
     """
     if isinstance(texts, str):
@@ -592,7 +592,7 @@ def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int =
                     current_chunk = []
                     current_tokens = 0
                     # Handle overlap
-                    overlap_start = max(0, i - sentence_overlap)
+                    overlap_start = max(0, i - chunk_overlap)
                     current_chunk = sentences[overlap_start:i]
                     current_tokens = sum(len(tokenize_fn(s))
                                          for s in current_chunk)
@@ -606,7 +606,7 @@ def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int =
             sentences = sentence_splitter.split(text.strip())
             sentences = [s.strip() for s in sentences if s.strip()]
             if len(sentences) > chunk_size:
-                for i in range(0, len(sentences) - chunk_size + 1, chunk_size - sentence_overlap):
+                for i in range(0, len(sentences) - chunk_size + 1, chunk_size - chunk_overlap):
                     start_idx = max(0, i)
                     end_idx = min(len(sentences), i + chunk_size)
                     chunked_texts.append(

@@ -10,6 +10,7 @@ from typing import TypedDict, List, Optional
 from playwright.sync_api import sync_playwright, Browser as SyncBrowser, Page as SyncPage
 from playwright.async_api import async_playwright, Browser as AsyncBrowser, Page as AsyncPage
 from jet.logger import logger
+from jet.utils.inspect_utils import get_entry_file_dir
 
 GENERATED_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/generated"
 os.makedirs(GENERATED_DIR, exist_ok=True)
@@ -53,10 +54,13 @@ def setup_sync_browser_session(*, headless: bool = True) -> SyncBrowser:
     """Sets up a synchronous Playwright browser session with anti-detection settings."""
     playwright = sync_playwright().start()
     config = random.choice(USER_AGENT_CONFIGS)
+    traces_dir = f"{get_entry_file_dir()}/playwright/traces"
+    os.makedirs(traces_dir, exist_ok=True)
     context = playwright.chromium.launch_persistent_context(
         user_data_dir=os.path.join(GENERATED_DIR, "browser_context"),
         headless=headless,
         executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+        traces_dir=traces_dir,
         user_agent=config["user_agent"],
         # viewport=random.choice([
         #     {"width": 1920, "height": 1080, "deviceScaleFactor": 1.0},
@@ -134,7 +138,7 @@ def fetch_page_content_sync(url: str, wait_for_css: Optional[List[str]], max_wai
     browser_page = setup_browser_page(headless=headless)
 
     if cached_result:
-        logger.log(f"scrape_url: Cache hit for", cache_key,
+        logger.log("scrape_url: Cache hit for", cache_key,
                    colors=["LOG", "BRIGHT_SUCCESS"])
         return cached_result
 
@@ -174,7 +178,7 @@ async def fetch_page_content_async(url: str, wait_for_css: Optional[List[str]], 
     browser_page = page or await asetup_browser_page(headless=headless)
     try:
         if cached_result:
-            logger.log(f"scrape_url: Cache hit for", cache_key,
+            logger.log("scrape_url: Cache hit for", cache_key,
                        colors=["LOG", "BRIGHT_SUCCESS"])
             return cached_result
         if wait_for_css:

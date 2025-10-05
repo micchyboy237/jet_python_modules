@@ -1,8 +1,7 @@
-from readability import Document as ReadabilityDocument
 import json
 import re
 import html2text
-from jet.transformers.formatters import format_html, minify_html
+from jet.transformers.formatters import format_html
 import parsel
 import math
 from bs4 import BeautifulSoup
@@ -68,6 +67,7 @@ def remove_display_none_elements(html_string: str) -> str:
 
 def clean_html_noise(html_string: str) -> str:
     """Clean HTML by removing noisy elements and boilerplate."""
+    from readability import Document as ReadabilityDocument
     doc = ReadabilityDocument(html_string)
     clean_html = doc.summary()
 

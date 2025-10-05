@@ -16,6 +16,7 @@ from typing import AsyncGenerator, Tuple
 from urllib.parse import urljoin, urlparse
 from pyquery import PyQuery as pq
 
+from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
 from jet.transformers.formatters import format_html
 from jet.scrapers.config import TEXT_ELEMENTS
 from jet.search.formatters import decode_text_with_unidecode
@@ -23,6 +24,7 @@ from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
 from jet.logger.config import colorize_log
 from jet.logger import logger
 from jet.utils.text import fix_and_unidecode
+from jet.utils.inspect_utils import get_entry_file_dir
 
 
 # def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
@@ -1414,7 +1416,13 @@ def extract_tree_with_text(
         html = source
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        traces_dir = f"{get_entry_file_dir()}/playwright/traces"
+        os.makedirs(traces_dir, exist_ok=True)
+        browser = p.chromium.launch(
+            headless=True,
+            executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+            traces_dir=traces_dir,
+        )
         page = browser.new_page()
 
         if url:
@@ -1705,7 +1713,13 @@ def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "
 
     # Use Playwright to render the page if URL is provided
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        traces_dir = f"{get_entry_file_dir()}/playwright/traces"
+        os.makedirs(traces_dir, exist_ok=True)
+        browser = p.chromium.launch(
+            headless=True, 
+            executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+            traces_dir=traces_dir,
+        )
         page = browser.new_page()
 
         if url:

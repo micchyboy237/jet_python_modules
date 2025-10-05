@@ -1,4 +1,5 @@
 import asyncio
+import os
 import platform
 import sys
 import base64
@@ -11,6 +12,7 @@ from jet.logger import logger
 from tqdm.asyncio import tqdm_asyncio
 
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
+from jet.utils.inspect_utils import get_entry_file_dir
 
 ScrapeStatus = Literal["started", "completed", "failed_no_html", "failed_error"]
 
@@ -142,7 +144,13 @@ async def scrape_urls(
         browser = None
         context = None
         try:
-            browser = await p.chromium.launch(headless=headless, executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
+            traces_dir = f"{get_entry_file_dir()}/playwright/traces"
+            os.makedirs(traces_dir, exist_ok=True)
+            browser = await p.chromium.launch(
+                headless=headless,
+                executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+                traces_dir=traces_dir,
+            )
             context = await browser.new_context(user_agent=ua.random)
             # Create tasks directly, handling progress bar if enabled
             if show_progress:

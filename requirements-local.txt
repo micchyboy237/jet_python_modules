@@ -15,6 +15,7 @@ tiktoken
 pyquery
 parsel
 html2text
+justext
 lxml
 Markdown
 mrkdwn-analysis

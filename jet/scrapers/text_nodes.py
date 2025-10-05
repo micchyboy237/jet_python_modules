@@ -1,10 +1,13 @@
 import os
 import re
 from typing import Optional, List
-from jet.scrapers.utils import BaseNode, exclude_elements
+from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
+from jet.scrapers.utils import BaseNode
 from pyquery import PyQuery as pq
 from lxml.etree import Comment
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
+
+from jet.utils.inspect_utils import get_entry_file_dir
 
 
 def extract_nodes(element, depth: int = 0, parent_id: Optional[str] = None) -> List[BaseNode]:
@@ -67,7 +70,13 @@ def extract_text_nodes(
         url = None
         html = source
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        traces_dir = f"{get_entry_file_dir()}/playwright/traces"
+        os.makedirs(traces_dir, exist_ok=True)
+        browser = p.chromium.launch(
+            headless=True,
+            executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+            traces_dir=traces_dir,
+        )
         page = browser.new_page()
         if url:
             page.goto(url, wait_until="networkidle")

@@ -1,22 +1,18 @@
-from urllib.parse import urljoin
 import uuid
 from jet.code.html_utils import is_html
 from jet.code.markdown_utils._markdown_parser import base_parse_markdown
 from jet.code.markdown_utils._preprocessors import extract_markdown_links
 from jet.llm.mlx.helpers.detect_repetition import clean_repeated_ngrams
-from jet.logger import logger
-from jet.code.markdown_types import MarkdownAnalysis
-from jet.code.markdown_utils import analyze_markdown, convert_html_to_markdown, parse_markdown
-from typing import Any, List, Optional, Set, Tuple
+from jet.code.markdown_utils import convert_html_to_markdown
+from typing import Any, List, Optional, Tuple
 import re
-from typing import Callable, Optional, List, Dict, Tuple, TypedDict, Union
-from urllib.parse import urljoin, urlparse
+from typing import Callable, Dict, TypedDict, Union
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
-from jet.scrapers.preprocessor import html_to_markdown, scrape_markdown
+from jet.scrapers.preprocessor import scrape_markdown
 from jet.scrapers.utils import clean_newlines, clean_text, clean_spaces
 from jet.vectors.document_types import HeaderDocument, HeaderDocumentDict, HeaderMetadata as HeaderMetadataDoc
-from .helpers.markdown_header_text_splitter import MarkdownHeaderTextSplitter
 
 
 class HeaderMetadata(TypedDict):
