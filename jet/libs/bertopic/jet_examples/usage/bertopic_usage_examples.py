@@ -1,7 +1,12 @@
+from typing import List, Dict, Any, Union
 from pathlib import Path
 from tqdm import tqdm
 from bertopic import BERTopic
 from sklearn.datasets import fetch_20newsgroups
+from sklearn.feature_extraction.text import CountVectorizer
+from nltk.corpus import stopwords
+import nltk
+import pandas as pd
 
 from jet.file.utils import save_file
 from jet.logger import logger
@@ -18,6 +23,9 @@ logger.info(f"Logs: {log_file}")
 
 OUTPUT_DIR = Path(OUTPUT_DIR)
 
+# Download NLTK stopwords
+nltk.download('stopwords', quiet=True)
+
 
 def load_sample_data():
     """Load sample dataset from 20 newsgroups for topic modeling."""
@@ -27,19 +35,60 @@ def load_sample_data():
     timestamps = [i % 10 for i in range(len(documents))]  # Synthetic timestamps
     return documents, timestamps
 
-def save_topic_info(topic_model: BERTopic, output_path: str) -> None:
-    """Save topic information to a JSON file."""
-    topic_info = topic_model.get_topic_info().to_dict(orient="records")
-    formatted_data = [
-        {
-            "topic_id": row["Topic"],
-            "count": row["Count"],
-            "name": row["Name"],
-            "top_words": [word[0] for word in topic_model.get_topic(row["Topic"])[:5]]
-        }
-        for row in topic_info if row["Topic"] != -1
-    ]
+def save_topic_info(
+    topic_model: BERTopic,
+    output_path: Path,
+    data: Union[pd.DataFrame, List[Dict[str, Any]]] = None,
+    top_n_words: int = 10,
+    is_hierarchical: bool = False
+) -> None:
+    """Save topic information to a JSON file with enhanced metadata."""
+    from jet.file.utils import save_file
+    if data is None:
+        data = topic_model.get_topic_info()
+    
+    if is_hierarchical:
+        formatted_data = []
+        for row in data.to_dict(orient="records"):
+            topic_data = {
+                "parent_id": row["Parent_ID"],
+                "parent_name": row["Parent_Name"],
+                "topics": [
+                    {
+                        "topic_id": topic_id,
+                        "top_words": [{"word": word[0], "weight": float(word[1])} for word in topic_model.get_topic(topic_id)[:top_n_words]],
+                        "representative_docs": topic_model.get_representative_docs(topic_id)[:3]
+                    }
+                    for topic_id in row["Topics"]
+                ],
+                "child_left_id": row["Child_Left_ID"],
+                "child_left_name": row["Child_Left_Name"],
+                "child_right_id": row["Child_Right_ID"],
+                "child_right_name": row["Child_Right_Name"],
+                "distance": float(row["Distance"])
+            }
+            formatted_data.append(topic_data)
+    else:
+        formatted_data = [
+            {
+                "topic_id": row["Topic"],
+                "count": row["Count"],
+                "name": row["Name"],
+                "top_words": [{"word": word[0], "weight": float(word[1])} for word in topic_model.get_topic(row["Topic"])[:top_n_words]],
+                "representative_docs": topic_model.get_representative_docs(row["Topic"])[:3]
+            }
+            for row in data.to_dict(orient="records") if row["Topic"] != -1
+        ]
+    
     save_file(formatted_data, output_path, verbose=True)
+
+def get_vectorizer(total_docs: int) -> CountVectorizer:
+    """Create a CountVectorizer with stopword removal and dynamic df thresholds."""
+    stop_words = list(set(stopwords.words('english')))
+    min_df = 2
+    max_df = min(0.95, max(0.5, (total_docs - 1) / total_docs))  # Ensure max_df is valid
+    logger.info(f"Configuring vectorizer with min_df={min_df}, max_df={max_df}")
+    return CountVectorizer(stop_words=stop_words, min_df=min_df, max_df=max_df)
 
 def example_base_topic_modeling():
     """Demonstrate basic topic modeling with BERTopic."""
@@ -143,28 +192,26 @@ def example_hierarchical_topics():
     """Demonstrate hierarchical topic modeling."""
     logger.info("Starting hierarchical topics example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic(verbose=True)
+    if not documents:
+        logger.error("No documents available for topic modeling")
+        return None
+    topic_model = BERTopic(vectorizer_model=get_vectorizer(len(documents)), min_topic_size=10, verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
-    # Compute hierarchical topics
     logger.info("Computing hierarchical topics...")
     with tqdm(total=len(documents), desc="Building hierarchy") as pbar:
         hier_topics = topic_model.hierarchical_topics(documents)
         pbar.update(len(documents))
     
-    # Save hierarchical topics and tree
     output_path = OUTPUT_DIR / "hierarchical_topics.json"
-    formatted_data = hier_topics.to_dict(orient="records")
-    for row in formatted_data:
-        row["top_words"] = [word[0] for word in topic_model.get_topic(row["Topic"])[:5]]
-    save_file(formatted_data, output_path, verbose=True)
+    save_topic_info(topic_model, output_path, data=hier_topics, is_hierarchical=True)
     
     output_tree_path = OUTPUT_DIR / "hierarchical_topic_tree.txt"
     tree = topic_model.get_topic_tree(hier_topics, tight_layout=False)
+    from jet.file.utils import save_file
     save_file(tree, output_tree_path, verbose=True)
     
-    # Log topic tree
     logger.info("Hierarchical topic tree:\n" + tree)
     
     return hier_topics
