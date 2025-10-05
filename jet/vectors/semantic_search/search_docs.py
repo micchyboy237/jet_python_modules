@@ -5,8 +5,6 @@ from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
 from jet.search.rag.base import preprocess_texts
 from jet._token.token_utils import token_counter
 
-
-
 class SearchResult(TypedDict):
     id: str
     rank: int
@@ -15,7 +13,7 @@ class SearchResult(TypedDict):
     tokens: int
     text: str
 
-def search(
+def search_docs(
     query: str,
     documents: List[str],
     model: str = "embeddinggemma",
