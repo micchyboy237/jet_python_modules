@@ -17,8 +17,8 @@ from ._words import (
     get_spacy_words,
     list_all_spacy_pos_tags,
 )
-from ._plural_detection_inflect import is_plural_inflect
-from ._plural_detection_textblob import is_plural_textblob
+# from ._plural_detection_inflect import is_plural_inflect
+# from ._plural_detection_textblob import is_plural_textblob
 
 __all__ = [
     "setup_nlp",
@@ -39,7 +39,6 @@ __all__ = [
     "get_spacy_words",
     "list_all_spacy_pos_tags",
 
-    "is_plural_inflect",
-
-    "is_plural_textblob",
+    # "is_plural_inflect",
+    # "is_plural_textblob",
 ]

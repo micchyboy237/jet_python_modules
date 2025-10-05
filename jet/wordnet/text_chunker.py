@@ -4,9 +4,8 @@ from nltk.tokenize import sent_tokenize
 from typing import TypedDict, Union, List, Tuple, Optional
 from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.logger import logger
-from jet.models.utils import get_context_size
-from jet.vectors.document_types import HeaderDocument, HeaderMetadata
-from jet._token.token_utils import get_tokenizer, get_tokenizer_fn
+# from jet.vectors.document_types import HeaderDocument, HeaderMetadata
+from jet._token.token_utils import get_model_max_tokens, get_tokenizer, get_tokenizer_fn
 from jet.wordnet.sentence import split_sentences, is_list_marker, is_list_sentence
 from jet.wordnet.words import get_words
 
@@ -398,7 +397,7 @@ def truncate_texts(
 ) -> List[str]:
     tokenizer = get_tokenizer(model)
     if not max_tokens:
-        max_tokens = get_context_size(model)
+        max_tokens = get_model_max_tokens(model)
     if isinstance(texts, str):
         texts = [texts]
     truncated_texts = []
@@ -619,115 +618,115 @@ def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int =
     return chunked_texts, doc_indices
 
 
-def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Optional[OLLAMA_MODEL_NAMES] = None) -> List[HeaderDocument]:
-    """Chunk HeaderDocument list into smaller segments based on token count or lines, ensuring complete sentences when model is provided.
+# def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Optional[OLLAMA_MODEL_NAMES] = None) -> List[HeaderDocument]:
+#     """Chunk HeaderDocument list into smaller segments based on token count or lines, ensuring complete sentences when model is provided.
 
-    Args:
-        docs: List of HeaderDocument objects to chunk.
-        max_tokens: Maximum number of tokens or lines per chunk.
-        model: Optional LLM model name for token-based chunking.
-    """
-    logger.debug("Starting chunk_headers with %d documents", len(docs))
-    chunked_docs: List[HeaderDocument] = []
+#     Args:
+#         docs: List of HeaderDocument objects to chunk.
+#         max_tokens: Maximum number of tokens or lines per chunk.
+#         model: Optional LLM model name for token-based chunking.
+#     """
+#     logger.debug("Starting chunk_headers with %d documents", len(docs))
+#     chunked_docs: List[HeaderDocument] = []
 
-    for doc in docs:
-        chunk_index = 0
-        metadata = HeaderMetadata(**doc.metadata)
-        parent_header = metadata.get("parent_header", "")
-        doc_index = metadata.get("doc_index", 0)
-        # Use original header from metadata
-        header = metadata.get("header", "")
+#     for doc in docs:
+#         chunk_index = 0
+#         metadata = HeaderMetadata(**doc.metadata)
+#         parent_header = metadata.get("parent_header", "")
+#         doc_index = metadata.get("doc_index", 0)
+#         # Use original header from metadata
+#         header = metadata.get("header", "")
 
-        if model:
-            # Token-based chunking with sentence boundaries
-            tokenize_fn = get_tokenizer_fn(model)
-            sentences = split_sentences(doc.text)
-            current_chunk = []
-            current_tokens = 0
-            for sentence in sentences:
-                sentence_tokens = len(tokenize_fn(sentence))
-                if current_tokens + sentence_tokens > max_tokens and current_chunk:
-                    chunk_text = " ".join(current_chunk)
-                    chunked_docs.append(HeaderDocument(
-                        id=f"{doc.id}_chunk_{chunk_index}",
-                        text=chunk_text,
-                        metadata={
-                            "source_url": metadata.get("source_url", None),
-                            "header": header,
-                            "parent_header": parent_header,
-                            "header_level": metadata.get("header_level", 0) + 1,
-                            "content": chunk_text,
-                            "doc_index": doc_index,
-                            "chunk_index": chunk_index,
-                            "texts": current_chunk,
-                            "tokens": current_tokens
-                        }
-                    ))
-                    logger.debug("Created chunk %d for doc %s: header=%s",
-                                 chunk_index, doc.id, header)
-                    chunk_index += 1
-                    current_chunk = [sentence]
-                    current_tokens = sentence_tokens
-                else:
-                    current_chunk.append(sentence)
-                    current_tokens += sentence_tokens
-        else:
-            # Line-based chunking with get_words
-            text_lines = metadata.get("texts", doc.text.splitlines())
-            current_chunk = []
-            current_tokens = 0
-            for line in text_lines:
-                line_tokens = len(get_words(line))
-                if current_tokens + line_tokens > max_tokens and current_chunk:
-                    chunk_text = "\n".join(current_chunk)
-                    chunked_docs.append(HeaderDocument(
-                        id=f"{doc.id}_chunk_{chunk_index}",
-                        metadata={
-                            "source_url": metadata.get("source_url", None),
-                            "header": header,
-                            "parent_header": parent_header,
-                            "header_level": metadata.get("header_level", 0) + 1,
-                            "content": chunk_text,
-                            "doc_index": doc_index,
-                            "chunk_index": chunk_index,
-                            "texts": current_chunk,
-                            "tokens": current_tokens
-                        }
-                    ))
-                    logger.debug("Created chunk %d for doc %s: header=%s",
-                                 chunk_index, doc.id, header)
-                    chunk_index += 1
-                    current_chunk = [line]
-                    current_tokens = line_tokens
-                else:
-                    current_chunk.append(line)
-                    current_tokens += line_tokens
+#         if model:
+#             # Token-based chunking with sentence boundaries
+#             tokenize_fn = get_tokenizer_fn(model)
+#             sentences = split_sentences(doc.text)
+#             current_chunk = []
+#             current_tokens = 0
+#             for sentence in sentences:
+#                 sentence_tokens = len(tokenize_fn(sentence))
+#                 if current_tokens + sentence_tokens > max_tokens and current_chunk:
+#                     chunk_text = " ".join(current_chunk)
+#                     chunked_docs.append(HeaderDocument(
+#                         id=f"{doc.id}_chunk_{chunk_index}",
+#                         text=chunk_text,
+#                         metadata={
+#                             "source_url": metadata.get("source_url", None),
+#                             "header": header,
+#                             "parent_header": parent_header,
+#                             "header_level": metadata.get("header_level", 0) + 1,
+#                             "content": chunk_text,
+#                             "doc_index": doc_index,
+#                             "chunk_index": chunk_index,
+#                             "texts": current_chunk,
+#                             "tokens": current_tokens
+#                         }
+#                     ))
+#                     logger.debug("Created chunk %d for doc %s: header=%s",
+#                                  chunk_index, doc.id, header)
+#                     chunk_index += 1
+#                     current_chunk = [sentence]
+#                     current_tokens = sentence_tokens
+#                 else:
+#                     current_chunk.append(sentence)
+#                     current_tokens += sentence_tokens
+#         else:
+#             # Line-based chunking with get_words
+#             text_lines = metadata.get("texts", doc.text.splitlines())
+#             current_chunk = []
+#             current_tokens = 0
+#             for line in text_lines:
+#                 line_tokens = len(get_words(line))
+#                 if current_tokens + line_tokens > max_tokens and current_chunk:
+#                     chunk_text = "\n".join(current_chunk)
+#                     chunked_docs.append(HeaderDocument(
+#                         id=f"{doc.id}_chunk_{chunk_index}",
+#                         metadata={
+#                             "source_url": metadata.get("source_url", None),
+#                             "header": header,
+#                             "parent_header": parent_header,
+#                             "header_level": metadata.get("header_level", 0) + 1,
+#                             "content": chunk_text,
+#                             "doc_index": doc_index,
+#                             "chunk_index": chunk_index,
+#                             "texts": current_chunk,
+#                             "tokens": current_tokens
+#                         }
+#                     ))
+#                     logger.debug("Created chunk %d for doc %s: header=%s",
+#                                  chunk_index, doc.id, header)
+#                     chunk_index += 1
+#                     current_chunk = [line]
+#                     current_tokens = line_tokens
+#                 else:
+#                     current_chunk.append(line)
+#                     current_tokens += line_tokens
 
-        if current_chunk:
-            chunk_text = " ".join(
-                current_chunk) if model else "\n".join(current_chunk)
-            chunked_docs.append(HeaderDocument(
-                id=f"{doc.id}_chunk_{chunk_index}",
-                text=chunk_text,
-                metadata={
-                    "source_url": metadata.get("source_url", None),
-                    "header": header,
-                    "parent_header": parent_header,
-                    "header_level": metadata.get("header_level", 0) + 1,
-                    "content": chunk_text,
-                    "doc_index": doc_index,
-                    "chunk_index": chunk_index,
-                    "texts": current_chunk,
-                    "tokens": current_tokens
-                }
-            ))
-            logger.debug("Created final chunk %d for doc %s: header=%s",
-                         chunk_index, doc.id, header)
-            chunk_index += 1
+#         if current_chunk:
+#             chunk_text = " ".join(
+#                 current_chunk) if model else "\n".join(current_chunk)
+#             chunked_docs.append(HeaderDocument(
+#                 id=f"{doc.id}_chunk_{chunk_index}",
+#                 text=chunk_text,
+#                 metadata={
+#                     "source_url": metadata.get("source_url", None),
+#                     "header": header,
+#                     "parent_header": parent_header,
+#                     "header_level": metadata.get("header_level", 0) + 1,
+#                     "content": chunk_text,
+#                     "doc_index": doc_index,
+#                     "chunk_index": chunk_index,
+#                     "texts": current_chunk,
+#                     "tokens": current_tokens
+#                 }
+#             ))
+#             logger.debug("Created final chunk %d for doc %s: header=%s",
+#                          chunk_index, doc.id, header)
+#             chunk_index += 1
 
-    logger.info("Generated %d chunks from %d documents",
-                len(chunked_docs), len(docs))
-    return chunked_docs
+#     logger.info("Generated %d chunks from %d documents",
+#                 len(chunked_docs), len(docs))
+#     return chunked_docs
 
 
 def split_sentences_with_separator_tuples(text: str, num_sentence: int = 1) -> List[Tuple[str, str]]:

@@ -1,11 +1,11 @@
 from typing import Callable, Literal, Optional, TypedDict, Union
 from jet.logger import logger
-from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
-from jet.vectors.document_types import HeaderDocument, HeaderTextNode
-from jet.wordnet.words import get_words
-from llama_index.core.base.llms.types import ChatMessage
-from llama_index.core.node_parser.text.sentence import SentenceSplitter
-from llama_index.core.schema import Document, NodeWithScore, TextNode
+# from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
+# from jet.vectors.document_types import HeaderDocument, HeaderTextNode
+# from jet.wordnet.words import get_words
+# from llama_index.core.base.llms.types import ChatMessage
+# from llama_index.core.node_parser.text.sentence import SentenceSplitter
+# from llama_index.core.schema import Document, NodeWithScore, TextNode
 import tiktoken
 from jet.llm.llm_types import Message
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
@@ -84,7 +84,7 @@ def get_tokenizer_fn(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAME
 
 def tokenize(
     model_name: str | OLLAMA_MODEL_NAMES,
-    text: str | dict | list[str] | list[dict] | list[ChatMessage] | list[Message],
+    text: str | dict | list[str] | list[dict] | list[Message],
     add_special_tokens: bool = False
 ) -> list[int] | list[list[int]]:
     tokenizer = get_tokenizer(model_name)
@@ -92,9 +92,7 @@ def tokenize(
     if isinstance(text, list):
         texts = []
         for t in text:
-            if isinstance(t, ChatMessage):
-                texts.append(str(t.content))
-            elif isinstance(t, dict):
+            if isinstance(t, dict):
                 texts.append(str(t.get('content', t)))
             else:
                 texts.append(str(t))
@@ -110,9 +108,7 @@ def tokenize(
             tokenized = tokenized["input_ids"]
         return tokenized
     else:
-        if isinstance(text, ChatMessage):
-            text_str = str(text.content)
-        elif isinstance(t, dict):
+        if isinstance(t, dict):
             text_str = str(text.get('content', text))
         else:
             text_str = str(text)
@@ -124,7 +120,7 @@ def tokenize(
 
 
 def token_counter(
-    text: str | dict | list[str] | list[dict] | list[ChatMessage] | list[Message],
+    text: str | dict | list[str] | list[dict] | list[Message],
     model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
     prevent_total: bool = False,
     add_special_tokens: bool = False
@@ -133,7 +129,7 @@ def token_counter(
         return 0
 
     tokenized = tokenize(model, text, add_special_tokens)
-    if isinstance(text, (str, dict, ChatMessage)):
+    if isinstance(text, (str, dict)):
         return len(tokenized)
     else:
         token_counts = [len(item) for item in tokenized]
@@ -183,10 +179,10 @@ def get_model_max_tokens(
 
 
 def filter_texts(
-    text: str | list[str] | list[ChatMessage] | list[Message],
+    text: str | list[str] | list[Message],
     model: str | OLLAMA_MODEL_NAMES = "mistral",
     max_tokens: Optional[int | float] = None,
-) -> str | list[str] | list[dict] | list[ChatMessage]:
+) -> str | list[str] | list[dict]:
     if not max_tokens:
         max_tokens = 0.5
 
@@ -238,7 +234,7 @@ def filter_texts(
 
 
 def group_texts(
-    text: str | list[str] | list[ChatMessage] | list[Message],
+    text: str | list[str] | list[Message],
     model: str | OLLAMA_MODEL_NAMES = "mistral",
     max_tokens: Optional[int | float] = None,
 ) -> list[list[str]]:
@@ -287,66 +283,66 @@ def group_texts(
         raise TypeError("Unsupported input type for group_texts")
 
 
-def group_nodes(
-    nodes: list[TextNode] | list[NodeWithScore],
-    model: str | OLLAMA_MODEL_NAMES = "mistral",
-    # New argument to enforce minimum token count per group
-    min_tokens: Optional[int | float] = None,
-    max_tokens: Optional[int | float] = None,
-) -> list[list[TextNode] | list[NodeWithScore]]:
-    if not max_tokens:
-        max_tokens = 0.5
-    if not min_tokens:
-        min_tokens = 0.5
+# def group_nodes(
+#     nodes: list[TextNode] | list[NodeWithScore],
+#     model: str | OLLAMA_MODEL_NAMES = "mistral",
+#     # New argument to enforce minimum token count per group
+#     min_tokens: Optional[int | float] = None,
+#     max_tokens: Optional[int | float] = None,
+# ) -> list[list[TextNode] | list[NodeWithScore]]:
+#     if not max_tokens:
+#         max_tokens = 0.5
+#     if not min_tokens:
+#         min_tokens = 0.5
 
-    if isinstance(max_tokens, float) and max_tokens < 1:
-        max_tokens = int(get_model_max_tokens(model) * max_tokens)
-    else:
-        max_tokens = max_tokens or get_model_max_tokens(model)
+#     if isinstance(max_tokens, float) and max_tokens < 1:
+#         max_tokens = int(get_model_max_tokens(model) * max_tokens)
+#     else:
+#         max_tokens = max_tokens or get_model_max_tokens(model)
 
-    if isinstance(min_tokens, float):
-        min_tokens = int(max_tokens * min_tokens)
+#     if isinstance(min_tokens, float):
+#         min_tokens = int(max_tokens * min_tokens)
 
-    grouped_nodes = []
-    current_group = []
-    current_token_count = 0
+#     grouped_nodes = []
+#     current_group = []
+#     current_token_count = 0
 
-    text_token_counts = token_counter(
-        [n.text for n in nodes], model, prevent_total=True)
+#     text_token_counts = token_counter(
+#         [n.text for n in nodes], model, prevent_total=True)
 
-    for node, token_count in zip(nodes, text_token_counts):
-        # If adding this node exceeds the max token count, start a new group
-        if current_token_count + token_count > max_tokens:
-            # Add the current group, ensuring it's not too small
-            if current_token_count >= min_tokens:
-                grouped_nodes.append(current_group)
-            else:
-                # If it's too small, merge with the next group
-                if grouped_nodes:
-                    grouped_nodes[-1].extend(current_group)
-                else:
-                    grouped_nodes.append(current_group)
+#     for node, token_count in zip(nodes, text_token_counts):
+#         # If adding this node exceeds the max token count, start a new group
+#         if current_token_count + token_count > max_tokens:
+#             # Add the current group, ensuring it's not too small
+#             if current_token_count >= min_tokens:
+#                 grouped_nodes.append(current_group)
+#             else:
+#                 # If it's too small, merge with the next group
+#                 if grouped_nodes:
+#                     grouped_nodes[-1].extend(current_group)
+#                 else:
+#                     grouped_nodes.append(current_group)
 
-            current_group = []
-            current_token_count = 0
+#             current_group = []
+#             current_token_count = 0
 
-        current_group.append(node)
-        current_token_count += token_count
+#         current_group.append(node)
+#         current_token_count += token_count
 
-    # Add the last group, ensuring it meets the min_tokens requirement
-    if current_group:
-        if current_token_count >= min_tokens:
-            grouped_nodes.append(current_group)
-        else:
-            if grouped_nodes:
-                grouped_nodes[-1].extend(current_group)
-            else:
-                grouped_nodes.append(current_group)
+#     # Add the last group, ensuring it meets the min_tokens requirement
+#     if current_group:
+#         if current_token_count >= min_tokens:
+#             grouped_nodes.append(current_group)
+#         else:
+#             if grouped_nodes:
+#                 grouped_nodes[-1].extend(current_group)
+#             else:
+#                 grouped_nodes.append(current_group)
 
-    return grouped_nodes
+#     return grouped_nodes
 
 
-def calculate_num_predict_ctx(prompt: str | list[str] | list[ChatMessage] | list[Message], model: str = "llama3.1", *, system: str = "", max_prediction_ratio: float = 0.75):
+def calculate_num_predict_ctx(prompt: str | list[str] | list[Message], model: str = "llama3.1", *, system: str = "", max_prediction_ratio: float = 0.75):
     user_tokens: int = token_counter(prompt, model)
     system_tokens: int = token_counter(system, model)
     prompt_tokens = user_tokens + system_tokens
@@ -488,222 +484,222 @@ def get_subtext_indices(text: str, subtext: str) -> tuple[int, int] | None:
     return start, end
 
 
-def split_docs(
-    docs: Document | list[Document],
-    model: Optional[str | OLLAMA_MODEL_NAMES] = None,
-    chunk_size: int = 128,
-    chunk_overlap: int = 0,
-    *,
-    tokenizer: Optional[Callable[[Union[str, list[str]]],
-                                 Union[list[str], list[list[str]]]]] = None,
-    tokens: Optional[list[int] | list[list[int]]] = None,
-    buffer: int = 0
-) -> list[TextNode]:
-    if not isinstance(docs, list):
-        docs = [docs]
-    if tokens and not isinstance(tokens[0], list):
-        tokens = [tokens]
+# def split_docs(
+#     docs: Document | list[Document],
+#     model: Optional[str | OLLAMA_MODEL_NAMES] = None,
+#     chunk_size: int = 128,
+#     chunk_overlap: int = 0,
+#     *,
+#     tokenizer: Optional[Callable[[Union[str, list[str]]],
+#                                  Union[list[str], list[list[str]]]]] = None,
+#     tokens: Optional[list[int] | list[list[int]]] = None,
+#     buffer: int = 0
+# ) -> list[TextNode]:
+#     if not isinstance(docs, list):
+#         docs = [docs]
+#     if tokens and not isinstance(tokens[0], list):
+#         tokens = [tokens]
 
-    if tokens is not None:
-        if len(tokens) != len(docs):
-            raise ValueError(
-                f"Length of provided tokens ({len(tokens)}) does not match number of documents ({len(docs)})"
-            )
-        tokens_matrix = tokens
-        token_counts = [len(t) for t in tokens_matrix]
-    else:
-        if tokenizer:
-            tokenizer_fn = tokenizer
-        elif model:
-            def _tokenizer(input):
-                return tokenize(model, input)
-            tokenizer_fn = _tokenizer
-        else:
-            tokenizer_fn = get_words
+#     if tokens is not None:
+#         if len(tokens) != len(docs):
+#             raise ValueError(
+#                 f"Length of provided tokens ({len(tokens)}) does not match number of documents ({len(docs)})"
+#             )
+#         tokens_matrix = tokens
+#         token_counts = [len(t) for t in tokens_matrix]
+#     else:
+#         if tokenizer:
+#             tokenizer_fn = tokenizer
+#         elif model:
+#             def _tokenizer(input):
+#                 return tokenize(model, input)
+#             tokenizer_fn = _tokenizer
+#         else:
+#             tokenizer_fn = get_words
 
-        doc_texts = [doc.text for doc in docs]
-        tokens_matrix: list[list] = tokenizer_fn(doc_texts)
-        token_counts: list[int] = [len(t) for t in tokens_matrix]
+#         doc_texts = [doc.text for doc in docs]
+#         tokens_matrix: list[list] = tokenizer_fn(doc_texts)
+#         token_counts: list[int] = [len(t) for t in tokens_matrix]
 
-    if not chunk_size:
-        if model:
-            chunk_size = OLLAMA_MODEL_CONTEXTS[model]
-        else:
-            average_tokens = sum(token_counts) / \
-                len(token_counts) if token_counts else 0
-            chunk_size = average_tokens
+#     if not chunk_size:
+#         if model:
+#             chunk_size = OLLAMA_MODEL_CONTEXTS[model]
+#         else:
+#             average_tokens = sum(token_counts) / \
+#                 len(token_counts) if token_counts else 0
+#             chunk_size = average_tokens
 
-    if chunk_size <= chunk_overlap:
-        raise ValueError(
-            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})"
-        )
+#     if chunk_size <= chunk_overlap:
+#         raise ValueError(
+#             f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})"
+#         )
 
-    effective_max_tokens = max(chunk_size - buffer, 1)
-    if effective_max_tokens <= chunk_overlap:
-        raise ValueError(
-            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk_overlap ({chunk_overlap})"
-        )
+#     effective_max_tokens = max(chunk_size - buffer, 1)
+#     if effective_max_tokens <= chunk_overlap:
+#         raise ValueError(
+#             f"Effective max tokens ({effective_max_tokens}) must be greater than chunk_overlap ({chunk_overlap})"
+#         )
 
-    nodes: list[TextNode] = []
+#     nodes: list[TextNode] = []
 
-    for doc, token_count in zip(docs, token_counts):
-        node = TextNode(
-            text=doc.text,
-            metadata={
-                **doc.metadata,
-                "start_idx": 0,
-                "end_idx": len(doc.text),
-                "chunk_index": None,
-            })
+#     for doc, token_count in zip(docs, token_counts):
+#         node = TextNode(
+#             text=doc.text,
+#             metadata={
+#                 **doc.metadata,
+#                 "start_idx": 0,
+#                 "end_idx": len(doc.text),
+#                 "chunk_index": None,
+#             })
 
-        if token_count > effective_max_tokens:
-            splitter = SentenceSplitter(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            splitted_texts = splitter.split_text(doc.text)
+#         if token_count > effective_max_tokens:
+#             splitter = SentenceSplitter(
+#                 chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+#             splitted_texts = splitter.split_text(doc.text)
 
-            prev_sibling: Optional[TextNode] = None
-            last_pos = 0  # Track last position to handle overlapping or repeated subtexts
-            # Start chunk_idx at 0 for sub-chunks
-            for chunk_idx, subtext in enumerate(splitted_texts, start=0):
-                # Find the next occurrence of subtext after last_pos
-                start_idx = doc.text.find(subtext, last_pos)
-                if start_idx == -1:
-                    # If subtext not found, use last_pos as fallback
-                    start_idx = last_pos
-                end_idx = start_idx + len(subtext)
-                last_pos = start_idx  # Update last_pos for next iteration
+#             prev_sibling: Optional[TextNode] = None
+#             last_pos = 0  # Track last position to handle overlapping or repeated subtexts
+#             # Start chunk_idx at 0 for sub-chunks
+#             for chunk_idx, subtext in enumerate(splitted_texts, start=0):
+#                 # Find the next occurrence of subtext after last_pos
+#                 start_idx = doc.text.find(subtext, last_pos)
+#                 if start_idx == -1:
+#                     # If subtext not found, use last_pos as fallback
+#                     start_idx = last_pos
+#                 end_idx = start_idx + len(subtext)
+#                 last_pos = start_idx  # Update last_pos for next iteration
 
-                sub_node = TextNode(
-                    text=subtext,
-                    metadata={
-                        **doc.metadata,
-                        "start_idx": start_idx,
-                        "end_idx": end_idx,
-                        "chunk_index": chunk_idx,
-                    })
-                nodes.append(sub_node)
-                add_parent_child_relationship(
-                    parent_node=node,
-                    child_node=sub_node,
-                )
+#                 sub_node = TextNode(
+#                     text=subtext,
+#                     metadata={
+#                         **doc.metadata,
+#                         "start_idx": start_idx,
+#                         "end_idx": end_idx,
+#                         "chunk_index": chunk_idx,
+#                     })
+#                 nodes.append(sub_node)
+#                 add_parent_child_relationship(
+#                     parent_node=node,
+#                     child_node=sub_node,
+#                 )
 
-                if prev_sibling:
-                    add_sibling_relationship(prev_sibling, sub_node)
+#                 if prev_sibling:
+#                     add_sibling_relationship(prev_sibling, sub_node)
 
-                prev_sibling = sub_node
-        else:
-            nodes.append(node)
+#                 prev_sibling = sub_node
+#         else:
+#             nodes.append(node)
 
-    return nodes
+#     return nodes
 
 
-def split_headers(
-    docs: HeaderDocument | list[HeaderDocument],
-    model: Optional[str | OLLAMA_MODEL_NAMES] = None,
-    chunk_size: int = 128,
-    chunk_overlap: int = 0,
-    *,
-    tokenizer: Optional[Callable[[Union[str, list[str]]],
-                                 Union[list[str], list[list[str]]]]] = None,
-    tokens: Optional[list[int] | list[list[int]]] = None,
-    buffer: int = 0
-) -> list[HeaderTextNode]:
-    if not isinstance(docs, list):
-        docs = [docs]
-    if tokens and not isinstance(tokens[0], list):
-        tokens = [tokens]
+# def split_headers(
+#     docs: HeaderDocument | list[HeaderDocument],
+#     model: Optional[str | OLLAMA_MODEL_NAMES] = None,
+#     chunk_size: int = 128,
+#     chunk_overlap: int = 0,
+#     *,
+#     tokenizer: Optional[Callable[[Union[str, list[str]]],
+#                                  Union[list[str], list[list[str]]]]] = None,
+#     tokens: Optional[list[int] | list[list[int]]] = None,
+#     buffer: int = 0
+# ) -> list[HeaderTextNode]:
+#     if not isinstance(docs, list):
+#         docs = [docs]
+#     if tokens and not isinstance(tokens[0], list):
+#         tokens = [tokens]
 
-    if tokens is not None:
-        if len(tokens) != len(docs):
-            raise ValueError(
-                f"Length of provided tokens ({len(tokens)}) does not match number of documents ({len(docs)})"
-            )
-        tokens_matrix = tokens
-        token_counts = [len(t) for t in tokens_matrix]
-    else:
-        if tokenizer:
-            tokenizer_fn = tokenizer
-        elif model:
-            def _tokenizer(input):
-                return tokenize(model, input)
-            tokenizer_fn = _tokenizer
-        else:
-            tokenizer_fn = get_words
+#     if tokens is not None:
+#         if len(tokens) != len(docs):
+#             raise ValueError(
+#                 f"Length of provided tokens ({len(tokens)}) does not match number of documents ({len(docs)})"
+#             )
+#         tokens_matrix = tokens
+#         token_counts = [len(t) for t in tokens_matrix]
+#     else:
+#         if tokenizer:
+#             tokenizer_fn = tokenizer
+#         elif model:
+#             def _tokenizer(input):
+#                 return tokenize(model, input)
+#             tokenizer_fn = _tokenizer
+#         else:
+#             tokenizer_fn = get_words
 
-        doc_texts = [doc.text for doc in docs]
-        tokens_matrix: list[list] = tokenizer_fn(doc_texts)
-        token_counts: list[int] = [len(t) for t in tokens_matrix]
+#         doc_texts = [doc.text for doc in docs]
+#         tokens_matrix: list[list] = tokenizer_fn(doc_texts)
+#         token_counts: list[int] = [len(t) for t in tokens_matrix]
 
-    if not chunk_size:
-        if model:
-            chunk_size = OLLAMA_MODEL_CONTEXTS[model]
-        else:
-            average_tokens = sum(token_counts) / \
-                len(token_counts) if token_counts else 0
-            chunk_size = average_tokens
+#     if not chunk_size:
+#         if model:
+#             chunk_size = OLLAMA_MODEL_CONTEXTS[model]
+#         else:
+#             average_tokens = sum(token_counts) / \
+#                 len(token_counts) if token_counts else 0
+#             chunk_size = average_tokens
 
-    if chunk_size <= chunk_overlap:
-        raise ValueError(
-            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})"
-        )
+#     if chunk_size <= chunk_overlap:
+#         raise ValueError(
+#             f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})"
+#         )
 
-    effective_max_tokens = max(chunk_size - buffer, 1)
-    if effective_max_tokens <= chunk_overlap:
-        raise ValueError(
-            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk_overlap ({chunk_overlap})"
-        )
+#     effective_max_tokens = max(chunk_size - buffer, 1)
+#     if effective_max_tokens <= chunk_overlap:
+#         raise ValueError(
+#             f"Effective max tokens ({effective_max_tokens}) must be greater than chunk_overlap ({chunk_overlap})"
+#         )
 
-    nodes: list[HeaderTextNode] = []
+#     nodes: list[HeaderTextNode] = []
 
-    for doc, token_count in zip(docs, token_counts):
-        node = HeaderTextNode(
-            text=doc.text,
-            metadata={
-                **doc.metadata,
-                "start_idx": 0,
-                "end_idx": len(doc.text),
-                "chunk_index": None,
-            })
+#     for doc, token_count in zip(docs, token_counts):
+#         node = HeaderTextNode(
+#             text=doc.text,
+#             metadata={
+#                 **doc.metadata,
+#                 "start_idx": 0,
+#                 "end_idx": len(doc.text),
+#                 "chunk_index": None,
+#             })
 
-        if token_count > effective_max_tokens:
-            splitter = SentenceSplitter(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            splitted_texts = splitter.split_text(doc.text)
+#         if token_count > effective_max_tokens:
+#             splitter = SentenceSplitter(
+#                 chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+#             splitted_texts = splitter.split_text(doc.text)
 
-            prev_sibling: Optional[HeaderTextNode] = None
-            last_pos = 0  # Track last position to handle overlapping or repeated subtexts
-            # Start chunk_idx at 0 for sub-chunks
-            for chunk_idx, subtext in enumerate(splitted_texts, start=0):
-                # Find the next occurrence of subtext after last_pos
-                start_idx = doc.text.find(subtext, last_pos)
-                if start_idx == -1:
-                    # If subtext not found, use last_pos as fallback
-                    start_idx = last_pos
-                end_idx = start_idx + len(subtext)
-                last_pos = start_idx  # Update last_pos for next iteration
+#             prev_sibling: Optional[HeaderTextNode] = None
+#             last_pos = 0  # Track last position to handle overlapping or repeated subtexts
+#             # Start chunk_idx at 0 for sub-chunks
+#             for chunk_idx, subtext in enumerate(splitted_texts, start=0):
+#                 # Find the next occurrence of subtext after last_pos
+#                 start_idx = doc.text.find(subtext, last_pos)
+#                 if start_idx == -1:
+#                     # If subtext not found, use last_pos as fallback
+#                     start_idx = last_pos
+#                 end_idx = start_idx + len(subtext)
+#                 last_pos = start_idx  # Update last_pos for next iteration
 
-                sub_node = HeaderTextNode(
-                    text=subtext,
-                    metadata={
-                        **doc.metadata,
-                        "start_idx": start_idx,
-                        "end_idx": end_idx,
-                        "chunk_index": chunk_idx,
-                    })
-                nodes.append(sub_node)
-                add_parent_child_relationship(
-                    parent_node=node,
-                    child_node=sub_node,
-                )
+#                 sub_node = HeaderTextNode(
+#                     text=subtext,
+#                     metadata={
+#                         **doc.metadata,
+#                         "start_idx": start_idx,
+#                         "end_idx": end_idx,
+#                         "chunk_index": chunk_idx,
+#                     })
+#                 nodes.append(sub_node)
+#                 add_parent_child_relationship(
+#                     parent_node=node,
+#                     child_node=sub_node,
+#                 )
 
-                if prev_sibling:
-                    add_sibling_relationship(prev_sibling, sub_node)
+#                 if prev_sibling:
+#                     add_sibling_relationship(prev_sibling, sub_node)
 
-                prev_sibling = sub_node
-        else:
-            nodes.append(node)
+#                 prev_sibling = sub_node
+#         else:
+#             nodes.append(node)
 
-    return nodes
+#     return nodes
 
 
 def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["llm", "embed"] = "llm") -> OLLAMA_LLM_MODELS:

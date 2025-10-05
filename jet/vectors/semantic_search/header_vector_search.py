@@ -1,9 +1,7 @@
 import uuid
+from jet._token.token_utils import get_model_max_tokens, get_tokenizer_fn
 from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
-from jet.llm.models import OLLAMA_EMBED_MODELS
-from jet.models.model_types import ModelType
-from jet.models.tokenizer.base import get_tokenizer_fn
-from jet.models.utils import get_context_size
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.wordnet.text_chunker import chunk_texts
 import re
 from typing import List, Optional, Tuple, Iterator, Callable
@@ -61,7 +59,7 @@ def collect_header_chunks(
     header_docs: List[HeaderDoc],
     chunk_size: int = 500,
     chunk_overlap: int = 100,
-    tokenizer_model: Optional[ModelType] = None,
+    tokenizer_model: Optional[OLLAMA_MODEL_NAMES] = None,
     buffer: int = 0,
 ) -> Tuple[List[int], List[str], List[str], List[Tuple[int, str, str, str, str, str, int, int, int]]]:
     """
@@ -79,7 +77,7 @@ def collect_header_chunks(
     tokenizer = get_tokenizer_fn(
         tokenizer_model) if tokenizer_model else default_tokenizer
 
-    context_size = get_context_size(
+    context_size = get_model_max_tokens(
         tokenizer_model) if tokenizer_model else 512
     doc_indices, headers, headers_context = [], [], []
     contents_with_indices = []
@@ -306,7 +304,7 @@ def search_headers(
     chunk_overlap: int = 100,
     buffer: int = 0,
     threshold: float = 0.0,
-    tokenizer_model: Optional[ModelType] = None,
+    tokenizer_model: Optional[OLLAMA_MODEL_NAMES] = None,
     merge_chunks: bool = True  # Enable merging by default
 ) -> Iterator[HeaderSearchResult]:
     """

@@ -3,6 +3,7 @@ cmake
 cython
 datasets
 evaluate
+huggingface-hub
 matplotlib
 meson-python
 ninja
