@@ -16,7 +16,7 @@ class LlamacppEmbedding:
         self.client = OpenAI(base_url=base_url, api_key="no-key-required")
         self.model = resolve_model_value(model)
 
-    def get_embeddings(self, inputs: Union[str, List[str]], return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 32, show_progress: bool = False) -> GenerateEmbeddingsReturnType:
+    def get_embeddings(self, inputs: Union[str, List[str]], return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 16, show_progress: bool = False) -> GenerateEmbeddingsReturnType:
         """Generate embeddings for a single text or list of text inputs in batches."""
         # Normalize inputs to list
         input_list = [inputs] if isinstance(inputs, str) else inputs
@@ -43,7 +43,7 @@ class LlamacppEmbedding:
         # Return single embedding if input was a string, else return list
         return embeddings[0] if isinstance(inputs, str) else embeddings
 
-    def get_embedding_function(self, return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 32, show_progress: bool = False) -> Callable[[Union[str, List[str]]], GenerateEmbeddingsReturnType]:
+    def get_embedding_function(self, return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 16, show_progress: bool = False) -> Callable[[Union[str, List[str]]], GenerateEmbeddingsReturnType]:
         """Return a callable function that generates embeddings for a single text or list of texts."""
         def embedding_function(inputs: Union[str, List[str]]) -> GenerateEmbeddingsReturnType:
             return self.get_embeddings(inputs, return_format=return_format, batch_size=batch_size, show_progress=show_progress)
@@ -53,7 +53,7 @@ class LlamacppEmbedding:
         self,
         inputs: Union[str, List[str]],
         return_format: Literal["numpy", "list"] = "numpy",
-        batch_size: int = 32,
+        batch_size: int = 16,
         max_retries: int = 3,
         show_progress: bool = False
     ) -> Iterator[GenerateEmbeddingsReturnType]:
