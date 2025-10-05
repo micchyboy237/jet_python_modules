@@ -5,6 +5,14 @@ try:
     from plotly.graph_objects import Figure
 except ImportError:
     Figure = None
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def example_load_save_model():
     """Demonstrate saving and loading a BERTopic model."""
@@ -56,10 +64,11 @@ def example_no_plotly():
     
     logging.info("Attempting to visualize topics...")
     try:
-        out = model.visualize_topics()
-        logging.info("Visualization output received")
+        fig = model.visualize_topics()
+        fig.write_image(f"{OUTPUT_DIR}/fig.png")
+        logging.info(f"Visualization image saved at: {OUTPUT_DIR}/fig.png")
         if Figure:
-            assert isinstance(out, Figure)
+            assert isinstance(fig, Figure)
             logging.info("Visualization is a Plotly Figure")
         else:
             logging.info("Plotly not available, visualization skipped")

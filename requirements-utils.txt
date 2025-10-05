@@ -1,1 +1,2 @@
 GitPython
+kaleido # For BERTopic image saving

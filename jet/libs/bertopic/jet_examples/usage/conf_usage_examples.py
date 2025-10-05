@@ -26,7 +26,7 @@ def example_base_topic_model():
     logging.info("Starting base topic model example...")
     documents, _ = load_sample_data()
     embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-    model = BERTopic(embedding_model=embedding_model, calculate_probabilities=True)
+    model = BERTopic(verbose=True, embedding_model=embedding_model, calculate_probabilities=True)
     model.umap_model.random_state = 42
     model.hdbscan_model.min_cluster_size = 3
     logging.info("Fitting base topic model...")
@@ -40,6 +40,7 @@ def example_zeroshot_topic_model():
     embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
     zeroshot_topic_list = ["religion", "cars", "electronics"]
     model = BERTopic(
+        verbose=True,
         embedding_model=embedding_model,
         calculate_probabilities=True,
         zeroshot_topic_list=zeroshot_topic_list,
@@ -64,6 +65,7 @@ def example_custom_topic_model():
         prediction_data=True,
     )
     model = BERTopic(
+        verbose=True,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
         embedding_model=embedding_model,
@@ -90,6 +92,7 @@ def example_representation_topic_model():
         "MMR": [KeyBERTInspired(top_n_words=30), MaximalMarginalRelevance()],
     }
     model = BERTopic(
+        verbose=True,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
         embedding_model=embedding_model,
@@ -113,6 +116,7 @@ def example_reduced_topic_model():
         prediction_data=True,
     )
     model = BERTopic(
+        verbose=True,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
         embedding_model=embedding_model,
@@ -137,6 +141,7 @@ def example_merged_topic_model():
         prediction_data=True,
     )
     model = BERTopic(
+        verbose=True,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
         embedding_model=embedding_model,
@@ -159,6 +164,7 @@ def example_kmeans_pca_topic_model():
     hdbscan_model = KMeans(n_clusters=15, random_state=42)
     dim_model = PCA(n_components=5)
     model = BERTopic(
+        verbose=True,
         hdbscan_model=hdbscan_model,
         umap_model=dim_model,
         embedding_model=embedding_model,
@@ -175,6 +181,7 @@ def example_supervised_topic_model():
     empty_dimensionality_model = BaseDimensionalityReduction()
     clf = LogisticRegression()
     model = BERTopic(
+        verbose=True,
         embedding_model=embedding_model,
         umap_model=empty_dimensionality_model,
         hdbscan_model=clf,
@@ -192,6 +199,7 @@ def example_online_topic_model():
     cluster_model = MiniBatchKMeans(n_clusters=50, random_state=0)
     vectorizer_model = OnlineCountVectorizer(stop_words="english", decay=0.01)
     model = BERTopic(
+        verbose=True,
         umap_model=umap_model,
         hdbscan_model=cluster_model,
         vectorizer_model=vectorizer_model,
@@ -215,6 +223,7 @@ def example_cuml_base_topic_model():
     documents, _ = load_sample_data()
     embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
     model = BERTopic(
+        verbose=True,
         embedding_model=embedding_model,
         calculate_probabilities=True,
         umap_model=cuml_umap(n_components=5, n_neighbors=5, random_state=42),
