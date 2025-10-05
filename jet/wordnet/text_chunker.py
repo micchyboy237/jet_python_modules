@@ -7,6 +7,7 @@ from jet.logger import logger
 # from jet.vectors.document_types import HeaderDocument, HeaderMetadata
 from jet._token.token_utils import get_last_n_tokens_and_decode, get_model_max_tokens, get_tokenizer, get_tokenizer_fn
 from jet.wordnet.sentence import split_sentences, is_list_marker, is_list_sentence
+from jet.wordnet.utils import sliding_window
 from jet.wordnet.words import get_words
 
 
@@ -407,6 +408,99 @@ def chunk_texts_with_data(
                     "overlap_end_idx": None
                 })
     return chunks
+
+
+def chunk_texts_sliding_window(
+    texts: Union[str, List[str]],
+    chunk_size: int = 128,
+    chunk_overlap: int = 0,
+    model: Optional[OLLAMA_MODEL_NAMES] = None,
+    doc_ids: Optional[List[str]] = None,
+    buffer: int = 0,
+    min_chunk_size: int = 32,
+) -> List[ChunkResult]:
+    """
+    Chunk texts using a sliding window approach, returning detailed chunk results.
+    
+    Args:
+        texts: Single string or list of strings to chunk.
+        chunk_size: Number of tokens per chunk.
+        chunk_overlap: Number of tokens to overlap between chunks.
+        model: Optional LLM model name for token-based chunking.
+        doc_ids: Optional list of document IDs.
+        buffer: Buffer size to reserve in each chunk.
+        min_chunk_size: Minimum number of tokens for a chunk to be valid.
+    
+    Returns:
+        List of ChunkResult dictionaries containing chunk metadata.
+    """
+    if min_chunk_size > chunk_size:
+        min_chunk_size = chunk_size
+    if isinstance(texts, str):
+        texts = [texts]
+        doc_indices = [0] * len(texts)
+    else:
+        doc_indices = list(range(len(texts)))
+    
+    chunks: List[ChunkResult] = []
+    size_fn = get_tokenizer_fn(model) if model else get_words
+    tokenizer = get_tokenizer(model) if model else None
+    step = max(1, chunk_size - chunk_overlap - buffer)
+    
+    for i, (doc_index, text) in enumerate(zip(doc_indices, texts)):
+        tokens = size_fn(text)
+        if not tokens:
+            continue
+        doc_id = doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4())
+        windows = sliding_window(tokens, chunk_size - buffer, step)
+        
+        for chunk_index, window in enumerate(windows):
+            chunk_content = tokenizer.decode(window).strip() if model else " ".join(window).strip()
+            chunk_size_tokens = len(size_fn(chunk_content))
+            
+            if chunk_size_tokens < min_chunk_size:
+                continue
+                
+            overlap_start_idx = None
+            overlap_end_idx = None
+            start_idx = chunk_index * step
+            end_idx = start_idx + len(chunk_content)
+            
+            if chunk_overlap > 0 and start_idx + chunk_size - buffer < len(tokens):
+                overlap_tokens = tokens[start_idx + chunk_size - chunk_overlap - buffer:start_idx + chunk_size - buffer]
+                if overlap_tokens:
+                    overlap_start_idx = start_idx + chunk_size - chunk_overlap - buffer
+                    overlap_end_idx = start_idx + chunk_size - buffer
+            
+            chunks.append({
+                "id": str(uuid.uuid4()),
+                "doc_id": doc_id,
+                "doc_index": doc_index,
+                "chunk_index": chunk_index,
+                "num_tokens": chunk_size_tokens,
+                "content": chunk_content,
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "line_idx": 0,
+                "overlap_start_idx": overlap_start_idx,
+                "overlap_end_idx": overlap_end_idx
+            })
+    
+    # Merge small last chunk with previous if necessary
+    if len(chunks) > 1 and chunks[-1]["num_tokens"] < min_chunk_size:
+        last_chunk = chunks.pop()
+        prev_chunk = chunks[-1]
+        prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(
+            prev_chunk["content"], tokenizer, last_chunk["num_tokens"]
+        )
+        is_covered_by_prev_chunk = last_chunk["content"] == prev_chunk_last_n_tokens_string
+        if not is_covered_by_prev_chunk:
+            prev_chunk["content"] += " " + last_chunk["content"]
+            prev_chunk["num_tokens"] = len(size_fn(prev_chunk["content"]))
+            prev_chunk["end_idx"] = last_chunk["end_idx"]
+    
+    return chunks
+
 
 def truncate_texts(
     texts: str | List[str],
