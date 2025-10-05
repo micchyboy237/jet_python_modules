@@ -11,6 +11,8 @@ from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 from bertopic.dimensionality import BaseDimensionalityReduction
 from sklearn.linear_model import LogisticRegression
 
+from jet.file.utils import save_file
+
 def load_sample_data():
     """Load sample dataset from 20 newsgroups."""
     logging.info("Loading 20 newsgroups dataset...")
@@ -29,7 +31,6 @@ def example_base_topic_model():
     model.hdbscan_model.min_cluster_size = 3
     logging.info("Fitting base topic model...")
     model.fit(documents)
-    logging.info(f"Number of topics: {len(set(model.topics_))}")
     return model
 
 def example_zeroshot_topic_model():
@@ -48,7 +49,6 @@ def example_zeroshot_topic_model():
     model.hdbscan_model.min_cluster_size = 2
     logging.info("Fitting zeroshot topic model...")
     model.fit(documents)
-    logging.info(f"Number of topics: {len(set(model.topics_))}")
     return model
 
 def example_custom_topic_model():
@@ -71,7 +71,6 @@ def example_custom_topic_model():
     )
     logging.info("Fitting custom topic model...")
     model.fit(documents)
-    logging.info(f"Number of topics: {len(set(model.topics_))}")
     return model
 
 def example_representation_topic_model():
@@ -99,7 +98,6 @@ def example_representation_topic_model():
     )
     logging.info("Fitting representation topic model...")
     model.fit(documents)
-    logging.info(f"Number of topics: {len(set(model.topics_))}")
     return model
 
 def example_reduced_topic_model():
@@ -124,7 +122,6 @@ def example_reduced_topic_model():
     model.fit(documents)
     logging.info("Reducing topics...")
     model.reduce_topics(documents, nr_topics="auto")
-    logging.info(f"Number of topics after reduction: {len(set(model.topics_))}")
     return model
 
 def example_merged_topic_model():
@@ -152,7 +149,6 @@ def example_merged_topic_model():
     model.merge_topics(documents, topics_to_merge)
     topics_to_merge = [[5, 6, 7]]
     model.merge_topics(documents, topics_to_merge)
-    logging.info(f"Number of topics after merging: {len(set(model.topics_))}")
     return model
 
 def example_kmeans_pca_topic_model():
@@ -169,7 +165,6 @@ def example_kmeans_pca_topic_model():
     )
     logging.info("Fitting KMeans PCA topic model...")
     model.fit(documents)
-    logging.info(f"Number of topics: {len(set(model.topics_))}")
     return model
 
 def example_supervised_topic_model():
@@ -186,7 +181,6 @@ def example_supervised_topic_model():
     )
     logging.info("Fitting supervised topic model...")
     model.fit(documents, y=targets)
-    logging.info(f"Number of topics: {len(set(model.topics_))}")
     return model
 
 def example_online_topic_model():
@@ -207,7 +201,6 @@ def example_online_topic_model():
     embeddings = embedding_model.encode(documents)
     for index in range(0, len(documents), 50):
         model.partial_fit(documents[index : index + 50], embeddings[index : index + 50])
-    logging.info(f"Number of topics: {len(set(model.topics_))}")
     return model
 
 def example_cuml_base_topic_model():
@@ -229,19 +222,92 @@ def example_cuml_base_topic_model():
     )
     logging.info("Fitting cuML base topic model...")
     model.fit(documents)
-    logging.info(f"Number of topics: {len(set(model.topics_))}")
     return model
 
+def extract_topic_data(model, documents, topics=None, probs=None, top_n_words=10):
+    """
+    Convert BERTopic model outputs into a JSON-serializable summary.
+    """
+    topic_info = model.get_topic_info()
+    topics_data = {}
+
+    for topic_id in topic_info.Topic:
+        if topic_id == -1:
+            continue  # skip outliers
+        words = model.get_topic(topic_id)
+        topics_data[topic_id] = {
+            "name": topic_info.loc[topic_info.Topic == topic_id, "Name"].values[0],
+            "count": int(topic_info.loc[topic_info.Topic == topic_id, "Count"].values[0]),
+            "words": [{"word": w, "weight": float(wt)} for w, wt in words[:top_n_words]],
+        }
+
+    # attach document-topic assignments and probabilities
+    doc_data = []
+    if topics is not None and probs is not None:
+        for doc, topic, prob in zip(documents, topics, probs):
+            doc_data.append({
+                "text": doc[:300],  # trim for readability
+                "topic": int(topic),
+                "probabilities": [float(p) for p in prob] if prob is not None else None,
+            })
+
+    return {
+        "summary": topics_data,
+        "documents": doc_data,
+    }
+
 if __name__ == "__main__":
+    import os
+    import shutil
+
+    OUTPUT_DIR = os.path.join(
+        os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+    )
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     logging.basicConfig(level=logging.INFO)
-    example_base_topic_model()
-    example_zeroshot_topic_model()
-    example_custom_topic_model()
-    example_representation_topic_model()
-    example_reduced_topic_model()
-    example_merged_topic_model()
-    example_kmeans_pca_topic_model()
-    example_supervised_topic_model()
-    example_online_topic_model()
-    example_cuml_base_topic_model()
-    logging.info("Configuration usage examples completed successfully.")
+
+    # --- Common function to process & save models ---
+    def process_and_save_model(model_fn, name):
+        """Run an example, extract readable topic data, and save both model + JSON."""
+        logging.info(f"=== Running {name} ===")
+        documents, _ = load_sample_data()
+
+        # Fit and get topic probabilities
+        model = model_fn()
+        topics, probs = model.fit_transform(documents)
+
+        # Extract readable topic info
+        topic_data = extract_topic_data(model, documents, topics, probs)
+
+        # Paths
+        model_dir = os.path.join(OUTPUT_DIR, name)
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, f"{name}.bertopic")
+        json_path = os.path.join(model_dir, f"{name}_results.json")
+
+        # Save both model + summary JSON
+        model.save(model_path)
+        save_file(topic_data, json_path)
+
+        logging.info(f"Saved model to {model_path}")
+        logging.info(f"Saved readable topic summary to {json_path}")
+        logging.info(f"=== Completed {name} ===\n")
+
+    # --- Run all examples ---
+    process_and_save_model(example_base_topic_model, "base_topic")
+    process_and_save_model(example_zeroshot_topic_model, "zeroshot_topic")
+    process_and_save_model(example_custom_topic_model, "custom_topic")
+    process_and_save_model(example_representation_topic_model, "representation_topic")
+    process_and_save_model(example_reduced_topic_model, "reduced_topic")
+    process_and_save_model(example_merged_topic_model, "merged_topic")
+    process_and_save_model(example_kmeans_pca_topic_model, "kmeans_pca_topic")
+    process_and_save_model(example_supervised_topic_model, "supervised_topic")
+    process_and_save_model(example_online_topic_model, "online_topic")
+
+    cuml_model = example_cuml_base_topic_model()
+    if cuml_model is not None:
+        process_and_save_model(example_cuml_base_topic_model, "cuml_base_topic")
+
+    logging.info("✅ All BERTopic configuration examples completed successfully.")
