@@ -343,7 +343,19 @@ def get_content_from_url(url):
     }
 
 
-def sliding_window(text: str | list[Any], window_size: int, step_size: int = 1) -> Generator[list[str], None, None]:
+def sliding_window(text: str | List[Any], window_size: int, step_size: int = 1) -> List[List[str]]:
+    """
+    Return a list of sequences using the sliding window approach.
+
+    :param text: A string or list of tokens (words or characters) from the text corpus.
+    :param window_size: The size of the window (number of tokens in each sequence).
+    :param step_size: The number of tokens to move the window at each step.
+    :return: A list of lists, where each inner list is a sequence of tokens.
+    """
+    return list(sliding_window_stream(text, window_size, step_size))
+
+
+def sliding_window_stream(text: str | list[Any], window_size: int, step_size: int = 1) -> Generator[list[str], None, None]:
     """
     Generate sequences using the sliding window approach.
 
