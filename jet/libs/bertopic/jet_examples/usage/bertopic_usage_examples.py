@@ -1,3 +1,4 @@
+from pathlib import Path
 from tqdm import tqdm
 from bertopic import BERTopic
 from sklearn.datasets import fetch_20newsgroups
@@ -14,6 +15,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 log_file = os.path.join(OUTPUT_DIR, "main.log")
 logger.basicConfig(filename=log_file)
 logger.info(f"Logs: {log_file}")
+
+OUTPUT_DIR = Path(OUTPUT_DIR)
 
 
 def load_sample_data():
