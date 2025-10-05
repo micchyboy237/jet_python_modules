@@ -413,12 +413,11 @@ def chunk_texts_with_data(
 def chunk_texts_sliding_window(
     texts: Union[str, List[str]],
     chunk_size: int = 128,
-    chunk_overlap: int = 32,
+    step_size: int = 96,
     model: Optional[OLLAMA_MODEL_NAMES] = None,
     doc_ids: Optional[List[str]] = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
-    step_size: int = 96,
 ) -> List[ChunkResult]:
     """
     Chunk texts using a sliding window approach, returning detailed chunk results.
@@ -426,16 +425,20 @@ def chunk_texts_sliding_window(
     Args:
         texts: Single string or list of strings to chunk.
         chunk_size: Number of tokens per chunk.
-        chunk_overlap: Number of tokens to overlap between chunks.
+        step_size: Number of tokens to move the window at each step.
         model: Optional LLM model name for token-based chunking.
         doc_ids: Optional list of document IDs.
         buffer: Buffer size to reserve in each chunk.
         min_chunk_size: Minimum number of tokens for a chunk to be valid.
-        step_size: Number of tokens to move the window at each step.
     
     Returns:
         List of ChunkResult dictionaries containing chunk metadata.
+    
+    Raises:
+        ValueError: If step_size <= 0 or step_size >= chunk_size.
     """
+    if step_size <= 0 or step_size >= chunk_size:
+        raise ValueError("step_size must be greater than 0 and less than chunk_size")
     if min_chunk_size > chunk_size:
         min_chunk_size = chunk_size
     if isinstance(texts, str):
@@ -447,7 +450,7 @@ def chunk_texts_sliding_window(
     chunks: List[ChunkResult] = []
     size_fn = get_tokenizer_fn(model) if model else get_words
     tokenizer = get_tokenizer(model) if model else None
-    step = max(1, chunk_size - chunk_overlap - buffer)
+    step = step_size
     
     for i, (doc_index, text) in enumerate(zip(doc_indices, texts)):
         tokens = size_fn(text)
@@ -463,16 +466,8 @@ def chunk_texts_sliding_window(
             if chunk_size_tokens < min_chunk_size:
                 continue
                 
-            overlap_start_idx = None
-            overlap_end_idx = None
             start_idx = chunk_index * step_size
             end_idx = start_idx + len(chunk_content)
-            
-            if chunk_overlap > 0 and start_idx + chunk_size - buffer < len(tokens):
-                overlap_tokens = tokens[start_idx + chunk_size - chunk_overlap - buffer:start_idx + chunk_size - buffer]
-                if overlap_tokens:
-                    overlap_start_idx = start_idx + chunk_size - chunk_overlap - buffer
-                    overlap_end_idx = start_idx + chunk_size - buffer
             
             chunks.append({
                 "id": str(uuid.uuid4()),
@@ -484,8 +479,8 @@ def chunk_texts_sliding_window(
                 "start_idx": start_idx,
                 "end_idx": end_idx,
                 "line_idx": 0,
-                "overlap_start_idx": overlap_start_idx,
-                "overlap_end_idx": overlap_end_idx
+                "overlap_start_idx": None,
+                "overlap_end_idx": None
             })
     
     # Merge small last chunk with previous if necessary
