@@ -230,6 +230,8 @@ def chunk_texts_with_data(
     strict_sentences: bool = False,
     min_chunk_size: int = 32,  # New parameter for minimum chunk size
 ) -> List[ChunkResult]:
+    if min_chunk_size > chunk_size:
+        min_chunk_size = chunk_size
     if isinstance(texts, str):
         texts = [texts]
         doc_indices = [0] * len(texts)
