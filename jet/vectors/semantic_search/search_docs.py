@@ -18,11 +18,13 @@ def search_docs(
     documents: List[str],
     model: str = "embeddinggemma",
     top_k: int = None,
-    ids: Optional[List[str]] = None
+    ids: Optional[List[str]] = None,
+    threshold: float = 0.0
 ) -> List[SearchResult]:
     """Search for documents most similar to the query.
     If top_k is None, return all results sorted by similarity.
     If ids is None, generate UUIDs for each document.
+    If threshold is provided, only return results with similarity score above threshold.
     """
     if not documents:
         return []
@@ -35,7 +37,9 @@ def search_docs(
     similarities = np.dot(doc_vectors, query_vector) / (
         np.linalg.norm(doc_vectors, axis=1) * np.linalg.norm(query_vector) + 1e-10
     )
-    sorted_indices = np.argsort(similarities)[::-1]
+    # Filter indices based on threshold
+    valid_indices = np.where(similarities > threshold)[0]
+    sorted_indices = valid_indices[np.argsort(similarities[valid_indices])[::-1]]
     if top_k is not None:
         sorted_indices = sorted_indices[:top_k]
     # Generate UUIDs if ids not provided, else use provided ids
