@@ -5,7 +5,7 @@ from typing import TypedDict, Union, List, Tuple, Optional
 from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.logger import logger
 # from jet.vectors.document_types import HeaderDocument, HeaderMetadata
-from jet._token.token_utils import get_model_max_tokens, get_tokenizer, get_tokenizer_fn
+from jet._token.token_utils import get_last_n_tokens_and_decode, get_model_max_tokens, get_tokenizer, get_tokenizer_fn
 from jet.wordnet.sentence import split_sentences, is_list_marker, is_list_sentence
 from jet.wordnet.words import get_words
 
@@ -227,7 +227,8 @@ def chunk_texts_with_data(
     model: Optional[OLLAMA_MODEL_NAMES] = None,
     doc_ids: Optional[List[str]] = None,
     buffer: int = 0,
-    strict_sentences: bool = False
+    strict_sentences: bool = False,
+    min_chunk_size: int = 32,  # New parameter for minimum chunk size
 ) -> List[ChunkResult]:
     if isinstance(texts, str):
         texts = [texts]
@@ -243,7 +244,6 @@ def chunk_texts_with_data(
         size_fn = get_tokenizer_fn(model) if model else get_words
         tokenizer = get_tokenizer(model) if model else None
         if not strict_sentences and model:
-            # Token-based chunking without sentence boundaries
             tokens = size_fn(text)
             if not tokens:
                 continue
@@ -255,6 +255,9 @@ def chunk_texts_with_data(
                 if chunk_tokens:
                     chunk_content = tokenizer.decode(chunk_tokens).strip()
                     chunk_size_tokens = len(size_fn(chunk_content))
+                    # Skip chunks smaller than min_chunk_size if not the last chunk
+                    if chunk_size_tokens < min_chunk_size and j + chunk_size - buffer < len(tokens):
+                        continue
                     overlap_start_idx = None
                     overlap_end_idx = None
                     if chunk_overlap > 0 and j + chunk_size - buffer < len(tokens):
@@ -277,6 +280,16 @@ def chunk_texts_with_data(
                         "overlap_end_idx": overlap_end_idx
                     })
                     chunk_index += 1
+            # Merge last chunk if too small
+            if len(chunks) > 1 and chunks[-1]["num_tokens"] < min_chunk_size:
+                last_chunk = chunks.pop()
+                prev_chunk = chunks[-1]
+                prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(prev_chunk["content"], tokenizer, last_chunk["num_tokens"])
+                is_covered_by_prev_chunk = last_chunk["content"] == prev_chunk_last_n_tokens_string
+                if not is_covered_by_prev_chunk:
+                    prev_chunk["content"] += " " + last_chunk["content"]
+                    prev_chunk["num_tokens"] = len(size_fn(prev_chunk["content"]))
+                    prev_chunk["end_idx"] = last_chunk["end_idx"]
             continue
         processed_sentences = []
         for sentence in sentences:
@@ -299,16 +312,14 @@ def chunk_texts_with_data(
                 processed_sentences[idx + 1], end_idx) if idx + 1 < len(processed_sentences) else len(text)]
             separator = normalize_separator(separator)
             if is_list_marker(current_sentence) and idx + 1 < len(processed_sentences):
-                combined = current_sentence + " " + \
-                    processed_sentences[idx + 1]
+                combined = current_sentence + " " + processed_sentences[idx + 1]
                 if is_list_sentence(combined):
                     combined_start = text.find(combined, current_pos)
                     if combined_start != -1:
                         combined_end = combined_start + len(combined)
                         combined_separator = text[combined_end:text.find(
                             processed_sentences[idx + 2], combined_end) if idx + 2 < len(processed_sentences) else len(text)]
-                        combined_separator = normalize_separator(
-                            combined_separator)
+                        combined_separator = normalize_separator(combined_separator)
                         sentence_pairs.append(
                             (combined, combined_separator, combined_start, combined_end, line_idx))
                         current_pos = combined_end + len(combined_separator)
@@ -325,8 +336,7 @@ def chunk_texts_with_data(
         chunk_index = 0
         chunk_start_idx = 0
         chunk_line_idx = 0
-        doc_id = doc_ids[i] if doc_ids and i < len(
-            doc_ids) else str(uuid.uuid4())
+        doc_id = doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4())
         for sentence, separator, start_idx, end_idx, line_idx in sentence_pairs:
             sentence_size = len(size_fn(sentence))
             if sentence_size > effective_chunk_size:
@@ -336,20 +346,21 @@ def chunk_texts_with_data(
             if current_size + sentence_size > effective_chunk_size and current_chunk:
                 chunk_content = build_chunk(current_chunk, current_separators)
                 final_size = len(size_fn(chunk_content))
-                chunks.append({
-                    "id": str(uuid.uuid4()),
-                    "doc_id": doc_id,
-                    "doc_index": doc_index,
-                    "chunk_index": chunk_index,
-                    "num_tokens": final_size,
-                    "content": chunk_content,
-                    "start_idx": chunk_start_idx,
-                    "end_idx": chunk_start_idx + len(chunk_content),
-                    "line_idx": chunk_line_idx,
-                    "overlap_start_idx": None,
-                    "overlap_end_idx": None
-                })
-                chunk_index += 1
+                if final_size >= min_chunk_size or len(chunks) == 0:
+                    chunks.append({
+                        "id": str(uuid.uuid4()),
+                        "doc_id": doc_id,
+                        "doc_index": doc_index,
+                        "chunk_index": chunk_index,
+                        "num_tokens": final_size,
+                        "content": chunk_content,
+                        "start_idx": chunk_start_idx,
+                        "end_idx": chunk_start_idx + len(chunk_content),
+                        "line_idx": chunk_line_idx,
+                        "overlap_start_idx": None,
+                        "overlap_end_idx": None
+                    })
+                    chunk_index += 1
                 overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
                     current_chunk, current_separators, chunk_overlap, size_fn
                 )
@@ -373,21 +384,27 @@ def chunk_texts_with_data(
         if current_chunk:
             chunk_content = build_chunk(current_chunk, current_separators)
             final_size = len(size_fn(chunk_content))
-            chunks.append({
-                "id": str(uuid.uuid4()),
-                "doc_id": doc_id,
-                "doc_index": doc_index,
-                "chunk_index": chunk_index,
-                "num_tokens": final_size,
-                "content": chunk_content,
-                "start_idx": chunk_start_idx,
-                "end_idx": chunk_start_idx + len(chunk_content),
-                "line_idx": chunk_line_idx,
-                "overlap_start_idx": None,
-                "overlap_end_idx": None
-            })
+            # Merge with previous chunk if too small and not the only chunk
+            if final_size < min_chunk_size and len(chunks) > 0:
+                prev_chunk = chunks[-1]
+                prev_chunk["content"] += " " + chunk_content
+                prev_chunk["num_tokens"] = len(size_fn(prev_chunk["content"]))
+                prev_chunk["end_idx"] = chunk_start_idx + len(chunk_content)
+            else:
+                chunks.append({
+                    "id": str(uuid.uuid4()),
+                    "doc_id": doc_id,
+                    "doc_index": doc_index,
+                    "chunk_index": chunk_index,
+                    "num_tokens": final_size,
+                    "content": chunk_content,
+                    "start_idx": chunk_start_idx,
+                    "end_idx": chunk_start_idx + len(chunk_content),
+                    "line_idx": chunk_line_idx,
+                    "overlap_start_idx": None,
+                    "overlap_end_idx": None
+                })
     return chunks
-
 
 def truncate_texts(
     texts: str | List[str],

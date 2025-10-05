@@ -727,6 +727,30 @@ def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["l
     )
 
 
+def get_last_n_tokens_and_decode(text: str, tokenizer: AutoTokenizer, n: int = 10) -> str:
+    """
+    Encodes text into tokens, extracts the last n tokens, and decodes them back to text.
+    
+    Args:
+        text: Input text to tokenize.
+        tokenizer: Pre-trained tokenizer from transformers.
+        n: Number of tokens to extract from the end (default: 10).
+    
+    Returns:
+        Decoded string of the last n tokens.
+    """
+    # Encode the text into token IDs
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    
+    # Get the last n tokens (or all tokens if len < n)
+    last_n_tokens = token_ids[-n:] if len(token_ids) >= n else token_ids
+    
+    # Decode the last n tokens back to text
+    decoded_text = tokenizer.decode(last_n_tokens, skip_special_tokens=True)
+    
+    return decoded_text
+
+
 if __name__ == "__main__":
     from jet.file.utils import load_file
     from jet.search.formatters import clean_string
