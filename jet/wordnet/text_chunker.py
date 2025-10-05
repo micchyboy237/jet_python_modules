@@ -129,8 +129,11 @@ def chunk_texts(
     chunk_overlap: int = 0,
     model: Optional[OLLAMA_MODEL_NAMES] = None,
     buffer: int = 0,
-    strict_sentences: bool = False
+    strict_sentences: bool = False,
+    min_chunk_size: int = 32,  # New parameter for minimum chunk size
 ) -> List[str]:
+    if min_chunk_size > chunk_size:
+        min_chunk_size = chunk_size
     if isinstance(texts, str):
         texts = [texts]
     chunked_texts = []
@@ -181,7 +184,19 @@ def chunk_texts(
                 chunk_tokens = tokens[i:i + chunk_size - buffer]
                 if chunk_tokens:
                     chunk = tokenizer.decode(chunk_tokens).strip() if model else " ".join(chunk_tokens).strip()
+                    chunk_size_tokens = len(size_fn(chunk))
+                    # Skip chunks smaller than min_chunk_size if not the last chunk
+                    if chunk_size_tokens < min_chunk_size and i + chunk_size - buffer < len(tokens):
+                        continue
                     chunked_texts.append(chunk)
+            # Merge last chunk if too small
+            if len(chunked_texts) > 1 and len(size_fn(chunked_texts[-1])) < min_chunk_size:
+                last_chunk = chunked_texts.pop()
+                prev_chunk = chunked_texts[-1]
+                prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(prev_chunk, tokenizer, len(size_fn(last_chunk)))
+                is_covered_by_prev_chunk = last_chunk == prev_chunk_last_n_tokens_string
+                if not is_covered_by_prev_chunk:
+                    chunked_texts[-1] = prev_chunk + " " + last_chunk
             continue
         current_chunk = []
         current_separators = []
@@ -194,7 +209,10 @@ def chunk_texts(
                 for sub_sentence in sub_sentences:
                     sub_size = len(size_fn(sub_sentence))
                     if current_size + sub_size > effective_chunk_size and current_chunk:
-                        chunked_texts.append(build_chunk(current_chunk, current_separators))
+                        chunk_content = build_chunk(current_chunk, current_separators)
+                        final_size = len(size_fn(chunk_content))
+                        if final_size >= min_chunk_size or not chunked_texts:
+                            chunked_texts.append(chunk_content)
                         overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
                             current_chunk, current_separators, chunk_overlap, size_fn
                         )
@@ -206,7 +224,10 @@ def chunk_texts(
                     current_size += sub_size
             else:
                 if current_size + sentence_size > effective_chunk_size and current_chunk:
-                    chunked_texts.append(build_chunk(current_chunk, current_separators))
+                    chunk_content = build_chunk(current_chunk, current_separators)
+                    final_size = len(size_fn(chunk_content))
+                    if final_size >= min_chunk_size or not chunked_texts:
+                        chunked_texts.append(chunk_content)
                     overlap_sentences, overlap_separators, overlap_size = get_overlap_sentences(
                         current_chunk, current_separators, chunk_overlap, size_fn
                     )
@@ -217,7 +238,17 @@ def chunk_texts(
                 current_separators.append(separator)
                 current_size += sentence_size
         if current_chunk:
-            chunked_texts.append(build_chunk(current_chunk, current_separators))
+            chunk_content = build_chunk(current_chunk, current_separators)
+            final_size = len(size_fn(chunk_content))
+            # Merge with previous chunk if too small and not the only chunk
+            if final_size < min_chunk_size and len(chunked_texts) > 0:
+                prev_chunk = chunked_texts[-1]
+                prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(prev_chunk, tokenizer, final_size)
+                is_covered_by_prev_chunk = chunk_content == prev_chunk_last_n_tokens_string
+                if not is_covered_by_prev_chunk:
+                    chunked_texts[-1] = prev_chunk + " " + chunk_content
+            else:
+                chunked_texts.append(chunk_content)
     return chunked_texts
 
 
