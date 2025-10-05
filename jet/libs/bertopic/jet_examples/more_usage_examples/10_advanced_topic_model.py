@@ -31,11 +31,11 @@ import numpy as np
 def create_advanced_topic_model(
     embedding_model: SentenceTransformer,
     umap_model: umap.UMAP,
+    documents: List[str],
     clustering_model: Optional[hdbscan.HDBSCAN] = None,  # Or KMeans
     vectorizer_model: Optional[CountVectorizer] = None,
     ctfidf_model: Optional[ClassTfidfTransformer] = None,
-    representation_model: Optional[KeyBERTInspired] = None,
-    documents: List[str]
+    representation_model: Optional[KeyBERTInspired] = None
 ) -> BERTopic:
     """
     Creates and fits an advanced BERTopic model with optional refinements.
@@ -106,13 +106,13 @@ def demonstrate_full_pipeline(documents: List[str]) -> BERTopic:
     topic_model = create_advanced_topic_model(
         embedding_model=embedding_model,
         umap_model=umap_model,
+        documents=documents,
         clustering_model=hdbscan_model,
         vectorizer_model=vectorizer_model,
-        ctfidf_model=ctfidf_model,
-        documents=documents
+        ctfidf_model=ctfidf_model
     )
     
-    print(f"   Advanced model created and fitted")
+    print("   Advanced model created and fitted")
     return topic_model
 
 
@@ -143,31 +143,31 @@ def demonstrate_with_keybert(documents: List[str]) -> BERTopic:
         topic_model = create_advanced_topic_model(
             embedding_model=embedding_model,
             umap_model=umap_model,
+            documents=documents,
             clustering_model=hdbscan_model,
             vectorizer_model=vectorizer_model,
             ctfidf_model=ctfidf_model,
-            representation_model=keybert_model,
-            documents=documents
+            representation_model=keybert_model
         )
         
-        print(f"   Advanced model with KeyBERT created and fitted")
+        print("   Advanced model with KeyBERT created and fitted")
         return topic_model
         
     except Exception as e:
         print(f"   KeyBERT not available: {e}")
-        print(f"   Creating model without KeyBERT...")
+        print("   Creating model without KeyBERT...")
         
         # Create without KeyBERT
         topic_model = create_advanced_topic_model(
             embedding_model=embedding_model,
             umap_model=umap_model,
+            documents=documents,
             clustering_model=hdbscan_model,
             vectorizer_model=vectorizer_model,
-            ctfidf_model=ctfidf_model,
-            documents=documents
+            ctfidf_model=ctfidf_model
         )
         
-        print(f"   Advanced model without KeyBERT created and fitted")
+        print("   Advanced model without KeyBERT created and fitted")
         return topic_model
 
 
@@ -196,13 +196,13 @@ def demonstrate_kmeans_advanced(documents: List[str]) -> BERTopic:
     topic_model = create_advanced_topic_model(
         embedding_model=embedding_model,
         umap_model=umap_model,
+        documents=documents,
         clustering_model=kmeans_model,
         vectorizer_model=vectorizer_model,
-        ctfidf_model=ctfidf_model,
-        documents=documents
+        ctfidf_model=ctfidf_model
     )
     
-    print(f"   Advanced model with K-Means created and fitted")
+    print("   Advanced model with K-Means created and fitted")
     return topic_model
 
 
@@ -214,20 +214,28 @@ def analyze_advanced_results(topic_model: BERTopic, documents: List[str]) -> Non
         topic_model: Fitted advanced BERTopic model.
         documents: Original documents.
     """
-    print(f"\n4. Analyzing advanced results...")
+    print("\n4. Analyzing advanced results...")
     
     # Get topic information
     topic_info = topic_model.get_topic_info()
-    print(f"   Topic information:")
+    print("   Topic information:")
     print(topic_info)
     
     # Get topic assignments
-    topics, probs = topic_model.transform(documents)
+    try:
+        topics, probs = topic_model.transform(documents)
+    except AttributeError as e:
+        if "No prediction data was generated" in str(e):
+            print(f"   Warning: {e}")
+            print("   Using fit_transform instead of transform...")
+            topics, probs = topic_model.fit_transform(documents)
+        else:
+            raise e
     print(f"\n   Topic assignments: {topics}")
     print(f"   Topic probabilities shape: {probs.shape}")
     
     # Show topic keywords
-    print(f"\n   Topic keywords:")
+    print("\n   Topic keywords:")
     for topic_id in topic_info['Topic'].values:
         if topic_id == -1:
             continue
@@ -247,7 +255,7 @@ def compare_advanced_configurations(documents: List[str]) -> None:
     Args:
         documents: List of documents to test.
     """
-    print(f"\n5. Comparing advanced configurations...")
+    print("\n5. Comparing advanced configurations...")
     
     # Basic advanced (no KeyBERT)
     try:
@@ -260,10 +268,10 @@ def compare_advanced_configurations(documents: List[str]) -> None:
         topic_model = create_advanced_topic_model(
             embedding_model=embedding_model,
             umap_model=umap_model,
+            documents=documents,
             clustering_model=hdbscan_model,
             vectorizer_model=vectorizer_model,
-            ctfidf_model=ctfidf_model,
-            documents=documents
+            ctfidf_model=ctfidf_model
         )
         
         topics, probs = topic_model.transform(documents)
@@ -337,12 +345,12 @@ def main():
     compare_advanced_configurations(sample_docs)
     
     # Show advanced features
-    print(f"\n6. Advanced BERTopic features:")
-    print(f"   - Custom vectorizer for better text processing")
-    print(f"   - c-TF-IDF for improved topic keywords")
-    print(f"   - KeyBERT for semantic keyword extraction")
-    print(f"   - Multiple clustering algorithms")
-    print(f"   - Topic visualization and analysis")
+    print("\n6. Advanced BERTopic features:")
+    print("   - Custom vectorizer for better text processing")
+    print("   - c-TF-IDF for improved topic keywords")
+    print("   - KeyBERT for semantic keyword extraction")
+    print("   - Multiple clustering algorithms")
+    print("   - Topic visualization and analysis")
     
     print("\n=== Example completed successfully! ===")
 

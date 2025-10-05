@@ -44,7 +44,7 @@ def run_python_files_in_directory(
         output_dir (Optional[Union[str, Path]]): Directory to save the JSON file and success/failed directories.
         rerun_mode (Literal["all", "failed", "unrun", "failed_and_unrun"]): Mode to determine which files to run.
             "all": Run all files.
-            "failed": Run only files that previously failed.
+            "failed": Run only files that previously failed, or all files if none failed.
             "unrun": Run only files that have not been run before.
             "failed_and_unrun": Run files that previously failed or have not been run.
     """
@@ -73,18 +73,16 @@ def run_python_files_in_directory(
         status_file = output_dir / "files_status.json"
         status_data: List[Dict[str, str]] = []
         if status_file.exists():
-            with status_file.open('r') as f:
-                logger.debug(f"Loading existing status file: {status_file}")
-                status_data = json.load(f)
-            logger.debug(f"Loaded status_data: {status_data}")
-            if not status_data:
-                logger.debug(
-                    f"Status file {status_file} is empty, defaulting to run all files")
-                rerun_mode = "all"
+            try:
+                with status_file.open('r') as f:
+                    logger.debug(f"Loading existing status file: {status_file}")
+                    status_data = json.load(f)
+                logger.debug(f"Loaded status_data: {status_data}")
+            except json.JSONDecodeError:
+                logger.warning(f"Status file {status_file} is corrupted, initializing empty status data")
+                status_data = []
         else:
-            logger.debug(
-                f"No status file found at {status_file}, defaulting to run all files")
-            rerun_mode = "all"
+            logger.debug(f"No status file found at {status_file}, initializing empty status data")
         main_log_file = output_dir / "main.log"
         logger = CustomLogger(log_file=str(main_log_file), overwrite=True)
         logger.debug(f"Initialized logger with main_log_file: {main_log_file}")
@@ -121,16 +119,20 @@ def run_python_files_in_directory(
     logger.debug(f"Existing files from status: {existing_files}")
     if rerun_mode == "failed":
         failed_files = {
-            entry["file"] for entry in status_data if entry["status"].startswith("Failed")}
+            entry["file"] for entry in status_data if entry["status"].startswith("Failed")
+        }
         logger.debug(f"Failed files from status: {failed_files}")
-        files = [f for f in files if str(
-            f.relative_to(target_dir)) in failed_files]
+        if not failed_files:
+            logger.info("No failed files found, running all files")
+        else:
+            files = [f for f in files if str(f.relative_to(target_dir)) in failed_files]
     elif rerun_mode == "unrun":
         files = [f for f in files if str(
             f.relative_to(target_dir)) not in existing_files]
     elif rerun_mode == "failed_and_unrun":
         failed_files = {
-            entry["file"] for entry in status_data if entry["status"].startswith("Failed")}
+            entry["file"] for entry in status_data if entry["status"].startswith("Failed")
+        }
         logger.debug(f"Failed files for failed_and_unrun: {failed_files}")
         files = [f for f in files if str(f.relative_to(target_dir)) not in existing_files or
                  str(f.relative_to(target_dir)) in failed_files]
@@ -171,8 +173,7 @@ def run_python_files_in_directory(
             relative_dir = file_path.parent.relative_to(target_dir)
             target_log_dir = log_dir / relative_dir
             target_log_dir.mkdir(parents=True, exist_ok=True)
-            log_file = target_log_dir / \
-                f"{os.path.splitext(file_path.name)[0]}.log"
+            log_file = target_log_dir / f"{os.path.splitext(file_path.name)[0]}.log"
             logger = CustomLogger(str(log_file), overwrite=True)
             logger.orange(f"Logs: {log_file}")
             with log_file.open('w') as f:

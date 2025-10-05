@@ -40,8 +40,7 @@ def create_hdbscan_model(min_cluster_size: int = 15, min_samples: int = 5, rando
         min_cluster_size=min_cluster_size,
         metric='euclidean',
         cluster_selection_method='eom',
-        min_samples=min_samples,
-        random_state=random_state
+        min_samples=min_samples
     )
 
 
@@ -80,14 +79,14 @@ def analyze_clustering_results(cluster_labels: np.ndarray, documents: list) -> N
     n_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
     n_outliers = np.sum(cluster_labels == -1)
     
-    print(f"\nClustering Analysis:")
+    print("\nClustering Analysis:")
     print(f"  Total documents: {len(documents)}")
     print(f"  Number of clusters: {n_clusters}")
     print(f"  Number of outliers: {n_outliers}")
     print(f"  Outlier percentage: {n_outliers/len(documents)*100:.1f}%")
     
     # Show documents per cluster
-    print(f"\nDocuments per cluster:")
+    print("\nDocuments per cluster:")
     for label in sorted(unique_labels):
         if label == -1:
             print(f"  Outliers: {np.sum(cluster_labels == label)} documents")
@@ -181,10 +180,10 @@ def main():
     compare_hdbscan_configurations(reduced_embeddings)
     
     # Show parameter effects
-    print(f"\n6. HDBSCAN parameter effects:")
-    print(f"   min_cluster_size: Higher values create fewer, larger clusters")
-    print(f"   min_samples: Higher values are more conservative about outliers")
-    print(f"   metric: 'euclidean' works well with UMAP-reduced embeddings")
+    print("\n6. HDBSCAN parameter effects:")
+    print("   min_cluster_size: Higher values create fewer, larger clusters")
+    print("   min_samples: Higher values are more conservative about outliers")
+    print("   metric: 'euclidean' works well with UMAP-reduced embeddings")
     
     print("\n=== Example completed successfully! ===")
 

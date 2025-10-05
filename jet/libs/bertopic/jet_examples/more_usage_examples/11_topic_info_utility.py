@@ -16,7 +16,7 @@ Usage:
     python 11_topic_info_utility.py
 """
 
-from typing import List, Optional
+from typing import List
 from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 import umap
@@ -93,10 +93,18 @@ def analyze_topic_documents(topic_model: BERTopic, documents: List[str]) -> dict
     Returns:
         Dictionary mapping topic IDs to their documents.
     """
-    print(f"\nTopic Document Analysis:")
+    print("\nTopic Document Analysis:")
     
     # Get topic assignments
-    topics, probs = topic_model.transform(documents)
+    try:
+        topics, probs = topic_model.transform(documents)
+    except AttributeError as e:
+        if "No prediction data was generated" in str(e):
+            print(f"   Warning: {e}")
+            print("   Using fit_transform instead of transform...")
+            topics, probs = topic_model.fit_transform(documents)
+        else:
+            raise e
     
     # Group documents by topic
     topic_documents = {}
@@ -128,10 +136,18 @@ def calculate_topic_statistics(topic_model: BERTopic, documents: List[str]) -> d
     Returns:
         Dictionary of topic statistics.
     """
-    print(f"\nTopic Statistics:")
+    print("\nTopic Statistics:")
     
     # Get topic assignments
-    topics, probs = topic_model.transform(documents)
+    try:
+        topics, probs = topic_model.transform(documents)
+    except AttributeError as e:
+        if "No prediction data was generated" in str(e):
+            print(f"   Warning: {e}")
+            print("   Using fit_transform instead of transform...")
+            topics, probs = topic_model.fit_transform(documents)
+        else:
+            raise e
     
     # Calculate statistics
     unique_topics = set(topics)
@@ -154,7 +170,7 @@ def calculate_topic_statistics(topic_model: BERTopic, documents: List[str]) -> d
     print(f"  Outlier percentage: {n_outliers/n_documents*100:.1f}%")
     print(f"  Average topic probability: {avg_prob:.4f}")
     
-    print(f"\n  Topic size distribution:")
+    print("\n  Topic size distribution:")
     for topic_id in sorted(topic_sizes.keys()):
         size = topic_sizes[topic_id]
         percentage = size / n_documents * 100
@@ -234,7 +250,15 @@ def export_topic_analysis(topic_model: BERTopic, documents: List[str], filename:
     print(f"\nExporting topic analysis to {filename}...")
     
     # Get topic assignments
-    topics, probs = topic_model.transform(documents)
+    try:
+        topics, probs = topic_model.transform(documents)
+    except AttributeError as e:
+        if "No prediction data was generated" in str(e):
+            print(f"   Warning: {e}")
+            print("   Using fit_transform instead of transform...")
+            topics, probs = topic_model.fit_transform(documents)
+        else:
+            raise e
     
     # Create analysis DataFrame
     analysis_data = []
@@ -319,12 +343,12 @@ def main():
     export_topic_analysis(topic_model, sample_docs)
     
     # Show utility benefits
-    print(f"\n8. Topic information utility benefits:")
-    print(f"   - Quick topic inspection and analysis")
-    print(f"   - Topic keyword and document analysis")
-    print(f"   - Topic statistics and insights")
-    print(f"   - Similar topic discovery")
-    print(f"   - Export capabilities for further analysis")
+    print("\n8. Topic information utility benefits:")
+    print("   - Quick topic inspection and analysis")
+    print("   - Topic keyword and document analysis")
+    print("   - Topic statistics and insights")
+    print("   - Similar topic discovery")
+    print("   - Export capabilities for further analysis")
     
     print("\n=== Example completed successfully! ===")
 
