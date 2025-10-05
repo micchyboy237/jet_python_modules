@@ -1,7 +1,7 @@
 # Base
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/fastmcp
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/deepeval
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama.cpp
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama-cpp-python
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/KeyBERT
 
@@ -16,6 +16,8 @@ html2text
 lxml
 Markdown
 mrkdwn-analysis
+model2vec
+fastembed
 
 # KeyBERT Peers
 # flair
