@@ -4,25 +4,19 @@ from jet.wordnet.n_grams import count_ngrams
 from jet.wordnet.pos_tagger_light import POSTagger
 from jet.scrapers.utils import clean_newlines, clean_punctuations, clean_spaces
 from jet.search.formatters import clean_string
-from jet.wordnet.lemmatizer import lemmatize_text
 import nltk
 from nltk.corpus import stopwords
-from typing import List, Optional, Tuple, Union, TypedDict, Literal
+from typing import List, Optional, Tuple, Union, TypedDict
 import os
-import re
 import sklearn
 import spacy
-import numpy as np
 import uuid
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.wordnet.words import get_words
 from keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
-from jet.code.markdown_utils import parse_markdown
-from jet.file.utils import load_file, save_file
-from jet.models.model_types import EmbedModelType, LLMModelType
-from jet.vectors.document_types import HeaderDocument
-from jet.models.embeddings.base import generate_embeddings, load_embed_model
+from jet.models.model_types import EmbedModelType
+from jet.models.embeddings.base import generate_embeddings
 from jet.logger import logger
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"

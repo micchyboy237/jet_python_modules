@@ -10,6 +10,8 @@ from jet.cache.redis.utils import RedisCache
 from jet.logger import logger
 from tqdm.asyncio import tqdm_asyncio
 
+from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
+
 ScrapeStatus = Literal["started", "completed", "failed_no_html", "failed_error"]
 
 class ScrapeResult(TypedDict):
@@ -140,7 +142,7 @@ async def scrape_urls(
         browser = None
         context = None
         try:
-            browser = await p.chromium.launch(headless=headless)
+            browser = await p.chromium.launch(headless=headless, executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
             context = await browser.new_context(user_agent=ua.random)
             # Create tasks directly, handling progress bar if enabled
             if show_progress:

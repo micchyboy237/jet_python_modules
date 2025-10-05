@@ -108,7 +108,7 @@ def tokenize(
             tokenized = tokenized["input_ids"]
         return tokenized
     else:
-        if isinstance(t, dict):
+        if isinstance(text, dict):
             text_str = str(text.get('content', text))
         else:
             text_str = str(text)
