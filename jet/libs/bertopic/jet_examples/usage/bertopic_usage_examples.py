@@ -1,11 +1,20 @@
-import logging
 from tqdm import tqdm
 from bertopic import BERTopic
 from sklearn.datasets import fetch_20newsgroups
 
-# Configure logging for detailed output
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+from jet.file.utils import save_file
+from jet.logger import logger
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
+
 
 def load_sample_data():
     """Load sample dataset from 20 newsgroups for topic modeling."""
@@ -15,25 +24,39 @@ def load_sample_data():
     timestamps = [i % 10 for i in range(len(documents))]  # Synthetic timestamps
     return documents, timestamps
 
+def save_topic_info(topic_model: BERTopic, output_path: str) -> None:
+    """Save topic information to a JSON file."""
+    topic_info = topic_model.get_topic_info().to_dict(orient="records")
+    formatted_data = [
+        {
+            "topic_id": row["Topic"],
+            "count": row["Count"],
+            "name": row["Name"],
+            "top_words": [word[0] for word in topic_model.get_topic(row["Topic"])[:5]]
+        }
+        for row in topic_info if row["Topic"] != -1
+    ]
+    save_file(formatted_data, output_path, verbose=True)
+
 def example_base_topic_modeling():
     """Demonstrate basic topic modeling with BERTopic."""
     logger.info("Starting basic topic modeling example...")
     documents, _ = load_sample_data()
-    
-    # Initialize BERTopic model with default settings
-    topic_model = BERTopic()
-    
-    # Fit model with progress tracking
+    topic_model = BERTopic(verbose=True)
     logger.info("Fitting topic model...")
     with tqdm(total=len(documents), desc="Processing documents") as pbar:
         topics, _ = topic_model.fit_transform(documents)
         pbar.update(len(documents))
     
+    # Save topic information
+    output_path = OUTPUT_DIR / "base_topic_modeling.json"
+    save_topic_info(topic_model, output_path)
+    
     # Log topic information
     topic_info = topic_model.get_topic_info()
     logger.info(f"Found {len(topic_info)} topics")
     for topic in topic_info['Topic']:
-        if topic != -1:  # Skip outliers
+        if topic != -1:
             words = topic_model.get_topic(topic)[:5]
             logger.info(f"Topic {topic}: {', '.join([word[0] for word in words])}")
     
@@ -50,9 +73,7 @@ def example_topic_prediction():
     """Demonstrate predicting topics for new documents."""
     logger.info("Starting topic prediction example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic()
-    
-    # Fit model
+    topic_model = BERTopic(verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -66,6 +87,19 @@ def example_topic_prediction():
         topics, probs = topic_model.transform(new_docs)
         pbar.update(len(new_docs))
     
+    # Save prediction results
+    output_path = OUTPUT_DIR / "topic_predictions.jsonl"
+    predictions = [
+        {
+            "document": doc,
+            "topic_id": topic,
+            "probability": float(prob),
+            "top_words": [word[0] for word in topic_model.get_topic(topic)[:5]]
+        }
+        for doc, topic, prob in zip(new_docs, topics, probs)
+    ]
+    save_file(predictions, output_path, verbose=True, append=False)
+    
     # Log predictions
     for i, (topic, prob) in enumerate(zip(topics, probs)):
         words = topic_model.get_topic(topic)[:5]
@@ -78,9 +112,7 @@ def example_topics_over_time():
     """Demonstrate analyzing topics over time."""
     logger.info("Starting topics over time example...")
     documents, timestamps = load_sample_data()
-    topic_model = BERTopic()
-    
-    # Fit model
+    topic_model = BERTopic(verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -89,6 +121,13 @@ def example_topics_over_time():
     with tqdm(total=len(timestamps), desc="Analyzing topics over time") as pbar:
         topics_over_time = topic_model.topics_over_time(documents, timestamps)
         pbar.update(len(timestamps))
+    
+    # Save topics over time
+    output_path = OUTPUT_DIR / "topics_over_time.json"
+    formatted_data = topics_over_time.to_dict(orient="records")
+    for row in formatted_data:
+        row["top_words"] = [word[0] for word in topic_model.get_topic(row["Topic"])[:5]]
+    save_file(formatted_data, output_path, verbose=True)
     
     # Log results
     logger.info("Topics over time analysis complete")
@@ -101,9 +140,7 @@ def example_hierarchical_topics():
     """Demonstrate hierarchical topic modeling."""
     logger.info("Starting hierarchical topics example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic()
-    
-    # Fit model
+    topic_model = BERTopic(verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -113,8 +150,18 @@ def example_hierarchical_topics():
         hier_topics = topic_model.hierarchical_topics(documents)
         pbar.update(len(documents))
     
-    # Generate and log topic tree
+    # Save hierarchical topics and tree
+    output_path = OUTPUT_DIR / "hierarchical_topics.json"
+    formatted_data = hier_topics.to_dict(orient="records")
+    for row in formatted_data:
+        row["top_words"] = [word[0] for word in topic_model.get_topic(row["Topic"])[:5]]
+    save_file(formatted_data, output_path, verbose=True)
+    
+    output_tree_path = OUTPUT_DIR / "hierarchical_topic_tree.txt"
     tree = topic_model.get_topic_tree(hier_topics, tight_layout=False)
+    save_file(tree, output_tree_path, verbose=True)
+    
+    # Log topic tree
     logger.info("Hierarchical topic tree:\n" + tree)
     
     return hier_topics
@@ -123,9 +170,7 @@ def example_topic_search():
     """Demonstrate searching for topics similar to a query."""
     logger.info("Starting topic search example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic()
-    
-    # Fit model
+    topic_model = BERTopic(verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -133,6 +178,19 @@ def example_topic_search():
     query = "artificial intelligence"
     logger.info(f"Searching for topics similar to: {query}")
     similar_topics, similarity = topic_model.find_topics(query, top_n=2)
+    
+    # Save search results
+    output_path = OUTPUT_DIR / "topic_search.json"
+    search_results = [
+        {
+            "query": query,
+            "topic_id": topic,
+            "similarity": float(sim),
+            "top_words": [word[0] for word in topic_model.get_topic(topic)[:5]]
+        }
+        for topic, sim in zip(similar_topics, similarity)
+    ]
+    save_file(search_results, output_path, verbose=True)
     
     # Log results
     for topic, sim in zip(similar_topics, similarity):
@@ -146,9 +204,7 @@ def example_topic_reduction_and_update():
     """Demonstrate reducing topics and updating topic representations."""
     logger.info("Starting topic reduction and update example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic()
-    
-    # Fit model
+    topic_model = BERTopic(verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -160,10 +216,20 @@ def example_topic_reduction_and_update():
         topic_model.reduce_topics(documents, nr_topics=nr_topics)
         pbar.update(len(documents))
     
+    # Save reduced topics
+    output_path = OUTPUT_DIR / "reduced_topics.json"
+    save_topic_info(topic_model, output_path)
+    
     # Update topic representations
     logger.info("Updating topic representations with bigrams...")
     original_vectorizer = topic_model.vectorizer_model
     topic_model.update_topics(documents, n_gram_range=(2, 2))
+    
+    # Save bigram topics
+    output_bigrams_path = OUTPUT_DIR / "bigram_topics.json"
+    save_topic_info(topic_model, output_bigrams_path)
+    
+    # Restore original vectorizer
     logger.info("Restoring original vectorizer...")
     topic_model.update_topics(documents, vectorizer_model=original_vectorizer)
     
@@ -176,9 +242,7 @@ def example_topic_merging():
     """Demonstrate merging topics."""
     logger.info("Starting topic merging example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic()
-    
-    # Fit model
+    topic_model = BERTopic(verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -189,12 +253,18 @@ def example_topic_merging():
         topic_model.merge_topics(documents, topics_to_merge)
         pbar.update(len(documents))
     
+    # Save merged topics
+    output_path = OUTPUT_DIR / "merged_topics.json"
+    save_topic_info(topic_model, output_path)
+    
     # Log results
     logger.info(f"Topics after merging: {len(topic_model.get_topic_info())}")
     
     return topic_model
 
 if __name__ == "__main__":
+
+
     logger.info("Running BERTopic usage examples...")
     example_base_topic_modeling()
     example_topic_prediction()
