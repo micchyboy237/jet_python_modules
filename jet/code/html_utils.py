@@ -1,13 +1,9 @@
 import re
-import justext
-from typing import List, Optional
 from bs4 import BeautifulSoup
-from lxml import etree, html
+from lxml import etree
 
 from jet.logger import logger
 from jet.utils.text import fix_and_unidecode
-from jet.transformers.formatters import format_html
-import justext.paragraph
 
 
 def is_html(text: str) -> bool:
@@ -285,7 +281,9 @@ def preprocess_html(html: str) -> str:
     return html
 
 
-def clean_html(html: str, max_link_density: float = 0.2, max_link_ratio: float = 0.3, language: str = "English") -> List[justext.paragraph.Paragraph]:
+def clean_html(html: str, max_link_density: float = 0.2, max_link_ratio: float = 0.3, language: str = "English"): # -> List[justext.paragraph.Paragraph]:
+    import justext
+    import justext.paragraph
     paragraphs = justext.justext(
         html,
         justext.get_stoplist(language),

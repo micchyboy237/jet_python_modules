@@ -10,7 +10,6 @@ from typing import Iterator, Optional, Callable, Union, List, TypedDict, Literal
 from pathlib import Path
 from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
-from chromadb.utils import embedding_functions
 from jet.data.utils import hash_text
 from jet._token.token_utils import get_model_max_tokens, token_counter
 from jet.logger import logger
@@ -21,7 +20,6 @@ from jet.llm.ollama.config import (
 
 )
 from jet.wordnet.text_chunker import truncate_texts
-default_ef = embedding_functions.DefaultEmbeddingFunction()
 
 
 class MemoryEmbedding(TypedDict):

@@ -16,7 +16,7 @@ from typing import AsyncGenerator, Tuple
 from urllib.parse import urljoin, urlparse
 from pyquery import PyQuery as pq
 
-from jet.code.html_utils import format_html
+from jet.transformers.formatters import format_html
 from jet.scrapers.config import TEXT_ELEMENTS
 from jet.search.formatters import decode_text_with_unidecode
 from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult

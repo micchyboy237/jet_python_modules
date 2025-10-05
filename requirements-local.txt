@@ -7,7 +7,15 @@
 
 # Advanced
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/stanza
+fake_useragent
+validators
 tiktoken
+pyquery
+parsel
+html2text
+lxml
+Markdown
+mrkdwn-analysis
 
 # KeyBERT Peers
 # flair

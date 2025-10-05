@@ -1,0 +1,2 @@
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
