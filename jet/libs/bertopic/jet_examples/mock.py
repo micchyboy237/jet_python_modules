@@ -25,11 +25,6 @@ class TargetInfo(TypedDict):
 
 def fetch_newsgroups_samples(*, subset: Literal["train", "test", "all"] = "train", **kwargs) -> List[NewsGroupDocument]:
     """Load sample dataset from 20 newsgroups for topic modeling, with global cache."""
-    global _sample_data_cache
-    if _sample_data_cache is not None:
-        logger.info(f"Reusing sample data cache ({len(_sample_data_cache)})")
-        return _sample_data_cache
-
     logger.info("Loading 20 newsgroups dataset...")
     fetch_args = {
         "subset": subset,
@@ -93,6 +88,12 @@ def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] =
     Returns:
         A list of dictionaries containing the text, target label, and category name for each document.
     """
+    # Load cache
+    global _sample_data_cache
+    if _sample_data_cache is not None:
+        logger.info(f"Reusing sample data cache ({len(_sample_data_cache)})")
+        return _sample_data_cache
+
     # Fetch the dataset
     samples = fetch_newsgroups_samples(subset=subset)
     save_file(samples, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/samples.json")

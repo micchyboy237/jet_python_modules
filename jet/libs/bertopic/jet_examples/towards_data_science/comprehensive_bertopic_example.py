@@ -23,6 +23,8 @@ import os
 import warnings
 from typing import List, Tuple
 
+from jet.logger import logger
+
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
 
@@ -57,95 +59,41 @@ from save_topic_model import (
     compare_models
 )
 
+from datetime import datetime, timedelta
+import numpy as np
+
+_sample_data_cache = None
 
 def create_sample_dataset() -> Tuple[List[str], List[str]]:
     """
     Create a comprehensive sample dataset covering multiple topics and time periods.
-    
+    Uses cached data if available and generates reproducible timestamps based on document count.
     Returns:
         tuple: (documents, timestamps)
     """
-    # docs = [
-    #     # Technology & AI (2020-2024)
-    #     "Machine learning and artificial intelligence are revolutionizing technology.",
-    #     "Deep learning neural networks require large datasets and computational power.",
-    #     "Natural language processing is advancing rapidly with transformer models.",
-    #     "Computer vision applications are expanding in healthcare and autonomous vehicles.",
-    #     "Robotics and automation are transforming manufacturing and service industries.",
-    #     "Internet of Things devices are becoming more prevalent in smart cities.",
-    #     "Edge computing is bringing AI closer to devices for real-time processing.",
-    #     "Explainable AI is gaining importance in critical applications and decision-making.",
-    #     "Federated learning allows training without sharing raw data for privacy.",
-    #     "Quantum computing could break current encryption methods and solve complex problems.",
+    global _sample_data_cache
+    if _sample_data_cache is not None:
+        logger.info(f"Reusing sample data cache ({len(_sample_data_cache)} documents)")
+        docs = _sample_data_cache["documents"]
+        timestamps = _sample_data_cache["timestamps"]
+    else:
+        docs = load_sample_data()
+        # Set random seed for reproducibility
+        np.random.seed(42)
+        # Generate timestamps spanning 5 years, proportional to document count
+        start_date = datetime(2020, 1, 1)
+        end_date = datetime(2025, 12, 31)
+        total_days = (end_date - start_date).days
+        timestamps = []
         
-    #     # Data Science & Analytics (2020-2024)
-    #     "Data science involves statistics, programming, and domain expertise.",
-    #     "Big data analytics helps organizations make data-driven decisions.",
-    #     "Machine learning models are being deployed in production systems worldwide.",
-    #     "Data privacy regulations are becoming more stringent across industries.",
-    #     "Real-time analytics enables instant insights from streaming data sources.",
-    #     "Data visualization tools help communicate insights to stakeholders effectively.",
-    #     "Cloud computing platforms provide scalable infrastructure for data processing.",
-    #     "Data engineering pipelines ensure reliable data flow and quality assurance.",
+        for _ in range(len(docs)):
+            days_offset = np.random.randint(0, total_days)
+            timestamp = (start_date + timedelta(days=days_offset)).strftime("%Y-%m-%d")
+            timestamps.append(timestamp)
         
-    #     # Health & Medicine (2020-2024)
-    #     "COVID-19 pandemic has changed global health and economy significantly.",
-    #     "Vaccines and medical research are crucial for public health protection.",
-    #     "Telemedicine has become more popular during the pandemic period.",
-    #     "Digital health technologies are transforming patient care delivery.",
-    #     "Medical imaging AI is improving diagnostic accuracy and speed.",
-    #     "Personalized medicine uses genetic data to tailor treatments.",
-    #     "Mental health awareness has increased during challenging times.",
-    #     "Healthcare data security is critical for patient privacy protection.",
-        
-    #     # Climate & Environment (2020-2024)
-    #     "Climate change is affecting weather patterns worldwide with extreme events.",
-    #     "Renewable energy sources like solar and wind are growing rapidly.",
-    #     "Carbon footprint reduction is a priority for many organizations.",
-    #     "Sustainable technology solutions are being developed globally.",
-    #     "Environmental monitoring uses IoT sensors and satellite data.",
-    #     "Green energy investments are increasing across all sectors.",
-    #     "Climate adaptation strategies are being implemented in vulnerable regions.",
-    #     "Circular economy principles are gaining traction in business models.",
-        
-    #     # Economics & Finance (2020-2024)
-    #     "Stock market volatility affects investor confidence and economic stability.",
-    #     "Economic policies influence inflation and employment rates significantly.",
-    #     "Cryptocurrency and blockchain technology are emerging financial trends.",
-    #     "Digital banking services are transforming traditional financial institutions.",
-    #     "Fintech innovations are disrupting payment and lending systems.",
-    #     "Central bank digital currencies are being explored by governments.",
-    #     "Sustainable finance is integrating environmental factors into investment decisions.",
-    #     "Economic inequality remains a challenge in many developed countries.",
-        
-    #     # Additional recent topics (2023-2024)
-    #     "Large language models like GPT are changing how we interact with computers.",
-    #     "Generative AI is creating new content across text, images, and video.",
-    #     "AI ethics and responsible development are becoming more important.",
-    #     "Cybersecurity threats are evolving with advancing technology capabilities.",
-    #     "Remote work has become a permanent feature of many organizations.",
-    #     "Digital transformation is accelerating across all industry sectors.",
-    #     "Supply chain resilience is critical for global economic stability.",
-    #     "Skills development and lifelong learning are essential for career success."
-    # ]
-    docs = load_sample_data()
-    
-    # Create timestamps spanning 2020-2024
-    timestamps = [
-        "2020-01-15", "2020-03-20", "2020-06-10", "2020-09-05", "2020-12-01",
-        "2021-02-14", "2021-05-08", "2021-08-12", "2021-11-30", "2021-12-15",
-        "2022-01-20", "2022-04-15", "2022-07-22", "2022-10-18", "2022-12-05",
-        "2023-01-10", "2023-03-25", "2023-06-15", "2023-09-08", "2023-12-01",
-        "2024-02-14", "2024-05-20", "2024-08-10", "2024-10-15", "2024-12-01",
-        "2020-02-10", "2020-05-15", "2020-08-20", "2020-11-10", "2021-01-25",
-        "2021-04-12", "2021-07-18", "2021-10-05", "2022-02-28", "2022-06-08",
-        "2022-09-14", "2023-02-20", "2023-05-30", "2023-08-25", "2023-11-12",
-        "2024-01-18", "2024-04-22", "2024-07-15", "2024-09-28", "2024-11-20",
-        "2020-04-05", "2020-07-12", "2020-10-18", "2021-03-08", "2021-06-25",
-        "2021-09-15", "2022-01-05", "2022-05-20", "2022-08-30", "2023-01-15",
-        "2023-04-10", "2023-07-20", "2023-10-05", "2024-03-12", "2024-06-18"
-    ]
-    
+        timestamps.sort()  # Sort timestamps chronologically
+        _sample_data_cache = {"documents": docs, "timestamps": timestamps}
+
     return docs, timestamps
 
 
@@ -346,7 +294,7 @@ def demonstrate_topic_reduction():
     # Reduce topics
     target_topics = 5
     model_reduced, new_topics, new_probs = reduce_topic_count(
-        model, docs, topics, probs, nr_topics=target_topics
+        model, docs, nr_topics=target_topics
     )
     
     print(f"\nAfter reduction to {target_topics} topics:")
