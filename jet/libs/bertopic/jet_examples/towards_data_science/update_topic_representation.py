@@ -9,7 +9,6 @@ import shutil
 
 from jet.logger import logger
 from jet.transformers.formatters import format_json
-from jet.utils.text import format_file_path
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
@@ -171,7 +170,6 @@ if __name__ == "__main__":
     #     "Internet of Things devices are becoming more prevalent."
     # ]
     docs = load_sample_data()
-    save_file(docs, f"{OUTPUT_DIR}/docs.json")
     
     print("=== Initial Topic Model ===")
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
@@ -213,7 +211,7 @@ if __name__ == "__main__":
                 "description": description,
                 "count": len(topic_words),
                 "topics": topic_words,
-            }, format_file_path(f"{OUTPUT_DIR}/ngram/top_topics_{topic_id}_n_{n_gram_range}.json"))
+            }, f"{OUTPUT_DIR}/ngram/top_topics_{topic_id}_n_{n_gram_range}.json")
     
     print("\n=== Using Custom Vectorizer ===")
     
@@ -256,10 +254,9 @@ if __name__ == "__main__":
     )
     for key, value in comparison.items():
         if value:  # Check if not empty
-            print(f"{key}: {value}")
             logger.log(
                 key,
-                ":",
+                ": ",
                 format_json(value) if isinstance(value, (dict, list)) else value,
                 colors=["DEBUG", "GRAY", "SUCCESS"]
             )

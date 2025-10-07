@@ -1,4 +1,7 @@
+import os
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from jet.wordnet.text_chunker import chunk_texts_fast
+from jet.file.utils import save_file
 from jet.logger import logger
 
 EMBED_MODEL = "embeddinggemma"
@@ -27,4 +30,7 @@ def load_sample_data(limit: int = 100, **kwargs):
         model=EMBED_MODEL,
     )
     _sample_data_cache = documents
+    
+    save_file(documents, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/docs.json")
+
     return documents
