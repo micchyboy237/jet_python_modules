@@ -185,7 +185,7 @@ MODEL_CONTEXTS: Dict[ModelType, int] = {
     "gemma-3-1b-it-qat-4bit": 32768,
     "gemma-3-4b-it-qat-4bit": 131072,
     "nomic-bert-2048": 2048,
-    "nomic-embed-text": 2048,
+    "nomic-embed-text": 8192,
     "roberta-base": 514,
     "roberta-large": 514,
     "all-MiniLM-L6-v2": 512,

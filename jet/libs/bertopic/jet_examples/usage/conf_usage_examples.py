@@ -7,7 +7,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Any
 from sklearn.datasets import fetch_20newsgroups
 from umap import UMAP
 from hdbscan import HDBSCAN
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.decomposition import PCA
 from sentence_transformers import SentenceTransformer

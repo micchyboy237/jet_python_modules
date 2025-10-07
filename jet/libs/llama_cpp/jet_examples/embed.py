@@ -1,6 +1,6 @@
 
 
-from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 
 def main():
     """Example usage of EmbeddingClient."""

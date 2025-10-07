@@ -1,4 +1,4 @@
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 import pandas as pd
 from typing import Tuple, Any
 from datetime import datetime

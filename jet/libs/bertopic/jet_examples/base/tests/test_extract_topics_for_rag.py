@@ -1,7 +1,7 @@
 import pytest
 from typing import List, Tuple
 
-from jet.libs.bertopic.jet_examples.base.extract_topics_for_rag import extract_topics_for_rag
+from jet.adapters.bertopic.jet_examples.base.extract_topics_for_rag import extract_topics_for_rag
 
 # Fixture to avoid repeated setup
 @pytest.fixture

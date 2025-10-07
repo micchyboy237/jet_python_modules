@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from typing import List
 from jet.wordnet.topics.topic_parser import configure_topic_model, create_topic_df
 

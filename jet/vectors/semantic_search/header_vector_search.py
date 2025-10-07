@@ -1,6 +1,6 @@
 import uuid
 from jet._token.token_utils import get_model_max_tokens, get_tokenizer_fn
-from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
 from jet.wordnet.text_chunker import chunk_texts
 import re

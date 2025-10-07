@@ -1,4 +1,4 @@
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from typing import Optional, List, Tuple
 

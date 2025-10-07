@@ -41,6 +41,9 @@ def suppress_logging():
     # Suppress Pyppeteer debug logs
     logging.getLogger('pyppeteer').setLevel(logging.WARNING)
     logging.getLogger('websockets').setLevel(logging.WARNING)
+    
+    # Set Numba's logging level to WARNING or higher to suppress debug/info logs
+    logging.getLogger('numba').setLevel(logging.WARNING)
 
 
 suppress_logging()

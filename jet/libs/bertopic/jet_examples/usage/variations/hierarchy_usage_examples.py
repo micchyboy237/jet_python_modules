@@ -1,7 +1,7 @@
 import logging
 from scipy.cluster import hierarchy as sch
 from sklearn.datasets import fetch_20newsgroups
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 
 def load_sample_data():
     """Load sample dataset from 20 newsgroups."""

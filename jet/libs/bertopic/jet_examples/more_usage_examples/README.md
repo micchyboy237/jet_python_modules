@@ -143,7 +143,7 @@ python 12_comprehensive_example.py
 ### Quick Start
 
 ```python
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 
 # Basic usage
 topic_model = BERTopic()

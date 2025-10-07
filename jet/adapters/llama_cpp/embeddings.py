@@ -1,12 +1,21 @@
 import time
 import numpy as np
 from openai import OpenAI
-from typing import Iterator, List, Union, Literal, Callable
+from typing import Iterator, List, Union, Literal, Callable, Optional
 from tqdm import tqdm
 
-from jet.libs.llama_cpp.models import resolve_model_value
+from jet.adapters.llama_cpp.models import resolve_model_value
+from jet.models.utils import get_context_size
+from jet.logger import logger
 
 GenerateEmbeddingsReturnType = Union[List[List[float]], np.ndarray]
+
+class InputTooLargeError(ValueError):
+    """Custom exception for inputs exceeding the maximum allowed length."""
+    def __init__(self, long_input_indexes: List[int], max_input_length: int):
+        self.long_input_indexes = long_input_indexes
+        self.max_input_length = max_input_length
+        super().__init__(f"Inputs at indexes {long_input_indexes} are too long (> {max_input_length} tokens). Please reduce input size or increase server physical batch size.")
 
 class LlamacppEmbedding:
     """A client for generating embeddings via llama-server using OpenAI API."""
@@ -20,17 +29,40 @@ class LlamacppEmbedding:
         """Make the instance callable to generate embeddings, equivalent to get_embeddings."""
         return self.get_embeddings(inputs, return_format=return_format, batch_size=batch_size, show_progress=show_progress)
 
-    def get_embeddings(self, inputs: Union[str, List[str]], return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 16, show_progress: bool = False) -> GenerateEmbeddingsReturnType:
+    def get_embeddings(self, inputs: Union[str, List[str]], return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 16, show_progress: bool = False, max_input_length: Optional[int] = None) -> GenerateEmbeddingsReturnType:
         """Generate embeddings for a single text or list of text inputs in batches."""
         # Normalize inputs to list
         input_list = [inputs] if isinstance(inputs, str) else inputs
-        if not input_list or not all(isinstance(i, str) and i for i in input_list):
-            raise ValueError("inputs must be a non-empty string or list of non-empty strings")
+        
+        # Filter out invalid inputs (non-strings or empty strings)
+        valid_inputs = [i for i in input_list if isinstance(i, str) and i.strip()]
+        invalid_inputs = [i for i in input_list if not (isinstance(i, str) and i.strip())]
+        
+        # Log invalid inputs for debugging
+        if invalid_inputs:
+            logger.warning(f"Warning: Skipped {len(invalid_inputs)} invalid inputs: {invalid_inputs}")
+        
+        # Check if there are any valid inputs after filtering
+        if not valid_inputs:
+            raise ValueError("No valid inputs provided: inputs must be a non-empty string or list of non-empty strings")
+        
+        # Determine max input length
+        max_length = max_input_length if max_input_length is not None else get_context_size(self.model)
+        if max_length <= 0:
+            logger.warning(f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512")
+            max_length = 512
+        
+        # Check for inputs exceeding max length
+        long_inputs = [(i, idx) for idx, i in enumerate(valid_inputs) if len(i) > max_length]
+        if long_inputs:
+            long_input_indexes = [idx for _, idx in long_inputs]
+            logger.error(f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}")
+            raise InputTooLargeError(long_input_indexes, max_length)
         
         embeddings = []
-        progress_bar = tqdm(range(0, len(input_list), batch_size), desc="Processing batches", disable=not show_progress)
+        progress_bar = tqdm(range(0, len(valid_inputs), batch_size), desc="Processing batches", disable=not show_progress)
         for i in progress_bar:
-            batch = input_list[i:i + batch_size]
+            batch = valid_inputs[i:i + batch_size]
             try:
                 response = self.client.embeddings.create(
                     model=self.model,
@@ -41,7 +73,7 @@ class LlamacppEmbedding:
                     batch_embeddings = [np.array(emb) for emb in batch_embeddings]
                 embeddings.extend(batch_embeddings)
             except Exception as e:
-                print(f"Error generating embeddings for batch {i // batch_size + 1}: {e}")
+                logger.error(f"Error generating embeddings for batch {i // batch_size + 1}: {e}")
                 raise
         
         # Return single embedding if input was a string, else return list
@@ -100,6 +132,6 @@ class LlamacppEmbedding:
                     break
                 except Exception as e:
                     if attempt == max_retries - 1:
-                        print(f"Error generating embeddings for batch {i // batch_size + 1} after {max_retries} attempts: {e}")
+                        logger.error(f"Error generating embeddings for batch {i // batch_size + 1} after {max_retries} attempts: {e}")
                         raise
                     time.sleep(2 ** attempt)

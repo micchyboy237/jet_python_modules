@@ -1,0 +1,54 @@
+from typing import List, Tuple, Union
+from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+
+# BERTopic
+from bertopic import BERTopic as BaseBERTopic
+from bertopic.representation import BaseRepresentation
+from jet.adapters.bertopic.embeddings import BERTopicLlamacppEmbedder
+
+DEFAULT_EMBEDDING_MODEL = "embeddinggemma"
+
+class BERTopic(BaseBERTopic):
+    def __init__(
+        self,
+        language: str = "english",
+        top_n_words: int = 10,
+        n_gram_range: Tuple[int, int] = (1, 1),
+        min_topic_size: int = 10,
+        nr_topics: Union[int, str] = None,
+        low_memory: bool = False,
+        calculate_probabilities: bool = False,
+        seed_topic_list: List[List[str]] = None,
+        zeroshot_topic_list: List[str] = None,
+        zeroshot_min_similarity: float = 0.7,
+        embedding_model=None,
+        umap_model=None,
+        hdbscan_model=None,
+        vectorizer_model: CountVectorizer = None,
+        ctfidf_model: TfidfTransformer = None,
+        representation_model: BaseRepresentation = None,
+        verbose: bool = True,
+    ):
+        if not embedding_model:
+            embedder = BERTopicLlamacppEmbedder(DEFAULT_EMBEDDING_MODEL)
+            embedding_model = embedder
+
+        super().__init__(
+            language=language,
+            top_n_words=top_n_words,
+            n_gram_range=n_gram_range,
+            min_topic_size=min_topic_size,
+            nr_topics=nr_topics,
+            low_memory=low_memory,
+            calculate_probabilities=calculate_probabilities,
+            seed_topic_list=seed_topic_list,
+            zeroshot_topic_list=zeroshot_topic_list,
+            zeroshot_min_similarity=zeroshot_min_similarity,
+            embedding_model=embedding_model,
+            umap_model=umap_model,
+            hdbscan_model=hdbscan_model,
+            vectorizer_model=vectorizer_model,
+            ctfidf_model=ctfidf_model,
+            representation_model=representation_model,
+            verbose=verbose,
+        )

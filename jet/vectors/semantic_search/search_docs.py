@@ -1,7 +1,7 @@
 import uuid
 import numpy as np
 from typing import List, Optional, TypedDict
-from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.search.rag.base import preprocess_texts
 from jet._token.token_utils import token_counter
 

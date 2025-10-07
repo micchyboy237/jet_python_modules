@@ -1,7 +1,7 @@
 import copy
 import pytest
 import numpy as np
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sklearn.metrics.pairwise import cosine_similarity
 
 

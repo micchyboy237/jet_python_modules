@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Union
 from pathlib import Path
 from tqdm import tqdm
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import CountVectorizer
 from nltk.corpus import stopwords

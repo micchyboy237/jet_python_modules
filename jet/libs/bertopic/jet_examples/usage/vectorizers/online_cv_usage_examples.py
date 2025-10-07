@@ -1,6 +1,6 @@
 import logging
 from sklearn.datasets import fetch_20newsgroups
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from bertopic.vectorizers import OnlineCountVectorizer
 
 def load_sample_data():

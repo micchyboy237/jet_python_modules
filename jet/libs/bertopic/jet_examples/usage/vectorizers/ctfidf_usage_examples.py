@@ -4,7 +4,7 @@ from packaging import version
 from sklearn import __version__ as sklearn_version
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.datasets import fetch_20newsgroups
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from bertopic.vectorizers import ClassTfidfTransformer
 
 def load_sample_data():

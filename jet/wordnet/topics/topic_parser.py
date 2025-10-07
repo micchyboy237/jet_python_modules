@@ -1,4 +1,4 @@
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from umap import UMAP
 from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer
@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from typing import List, Optional, TypedDict
 
-from jet.libs.bertopic.embeddings import BERTopicLlamacppEmbedder
+from jet.adapters.bertopic.embeddings import BERTopicLlamacppEmbedder
 
 
 def configure_topic_model(

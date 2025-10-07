@@ -1,4 +1,4 @@
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from umap import UMAP
 from hdbscan import HDBSCAN
 from sklearn.cluster import KMeans

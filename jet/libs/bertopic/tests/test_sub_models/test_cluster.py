@@ -5,7 +5,7 @@ from sklearn.datasets import make_blobs
 from sklearn.cluster import KMeans
 from hdbscan import HDBSCAN
 
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 
 
 @pytest.mark.parametrize("cluster_model", ["hdbscan", "kmeans"])

@@ -1,7 +1,7 @@
 import numpy as np
 from typing import List, Optional, Tuple
 from sklearn.metrics.pairwise import cosine_similarity
-from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.llm.models import OLLAMA_MODEL_NAMES
 
 class VectorSearch:

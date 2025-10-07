@@ -17,7 +17,7 @@ Usage:
 """
 
 from typing import List
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 import umap
 import hdbscan

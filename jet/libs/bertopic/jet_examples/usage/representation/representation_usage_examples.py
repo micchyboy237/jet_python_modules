@@ -2,15 +2,40 @@ import logging
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from tqdm import tqdm
 
+from jet.wordnet.text_chunker import chunk_texts_fast
+from jet.file.utils import save_file
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(
+        os.path.basename(__file__))[0]
+)
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+EMBED_MODEL = "embeddinggemma"
+
+_sample_data_cache = None
+
 def load_sample_data():
-    """Load sample dataset from 20 newsgroups for topic modeling."""
+    """Load sample dataset from 20 newsgroups for topic modeling, with global cache."""
+    global _sample_data_cache
+    if _sample_data_cache is not None:
+        return _sample_data_cache
     from sklearn.datasets import fetch_20newsgroups
     logging.info("Loading 20 newsgroups dataset...")
     newsgroups = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quotes'))
-    documents = newsgroups.data[:1000]
+    documents = newsgroups.data[:100]
+    documents = chunk_texts_fast(
+        documents,
+        chunk_size=128,
+        chunk_overlap=32,
+        model=EMBED_MODEL,
+    )
+    _sample_data_cache = documents
     return documents
 
 def example_get_topic():
@@ -236,16 +261,28 @@ def example_find_topics():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    example_get_topic()
-    example_get_topics()
-    example_get_topic_freq()
-    example_get_representative_docs()
-    example_get_topic_info()
-    example_generate_topic_labels()
-    example_set_labels()
-    example_update_topics()
-    example_extract_topics()
-    example_extract_topics_custom_cv()
-    example_topic_reduction()
-    example_find_topics()
+    results = example_get_topic()
+    save_file(results, f"{OUTPUT_DIR}/01_get_topic_results.json")
+    results = example_get_topics()
+    save_file(results, f"{OUTPUT_DIR}/02_get_topics_results.json")
+    results = example_get_topic_freq()
+    save_file(results, f"{OUTPUT_DIR}/03_get_topic_freq_results.json")
+    results = example_get_representative_docs()
+    save_file(results, f"{OUTPUT_DIR}/04_get_representative_docs_results.json")
+    results = example_get_topic_info()
+    save_file(results, f"{OUTPUT_DIR}/05_get_topic_info_results.json")
+    results = example_generate_topic_labels()
+    save_file(results, f"{OUTPUT_DIR}/06_generate_topic_labels_results.json")
+    results = example_set_labels()
+    save_file(results, f"{OUTPUT_DIR}/07_set_labels_results.json")
+    results = example_update_topics()
+    save_file(results, f"{OUTPUT_DIR}/08_update_topics_results.json")
+    results = example_extract_topics()
+    save_file(results, f"{OUTPUT_DIR}/09_extract_topics_results.json")
+    results = example_extract_topics_custom_cv()
+    save_file(results, f"{OUTPUT_DIR}/10_extract_topics_custom_cv_results.json")
+    results = example_topic_reduction()
+    save_file(results, f"{OUTPUT_DIR}/11_topic_reduction_results.json")
+    results = example_find_topics()
+    save_file(results, f"{OUTPUT_DIR}/12_find_topics_results.json")
     logging.info("All representation usage examples completed successfully.")

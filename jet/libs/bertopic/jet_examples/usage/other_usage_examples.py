@@ -1,5 +1,5 @@
 import logging
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from bertopic.dimensionality import BaseDimensionalityReduction
 try:
     from plotly.graph_objects import Figure

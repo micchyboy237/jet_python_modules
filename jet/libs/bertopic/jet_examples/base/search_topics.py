@@ -1,5 +1,5 @@
 from typing import List, TypedDict
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from jet.file.utils import load_file, save_file
 from jet.logger import logger
 import os

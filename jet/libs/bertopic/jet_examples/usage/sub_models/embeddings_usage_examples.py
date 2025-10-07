@@ -1,6 +1,6 @@
 import logging
 from sklearn.metrics.pairwise import cosine_similarity
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 
 def example_extract_embeddings():

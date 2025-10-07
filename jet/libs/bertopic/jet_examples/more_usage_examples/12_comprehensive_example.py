@@ -21,7 +21,7 @@ from typing import List, Optional
 import umap
 import hdbscan
 from sklearn.feature_extraction.text import CountVectorizer
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from bertopic.vectorizers import ClassTfidfTransformer
 from bertopic.representation import KeyBERTInspired
 from sentence_transformers import SentenceTransformer

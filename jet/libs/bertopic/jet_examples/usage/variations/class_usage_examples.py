@@ -1,6 +1,6 @@
 import logging
 from sklearn.datasets import fetch_20newsgroups
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 
 def load_sample_data():
     """Load sample dataset from 20 newsgroups with class labels."""

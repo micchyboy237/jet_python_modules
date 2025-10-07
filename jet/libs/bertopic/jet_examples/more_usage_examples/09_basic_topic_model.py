@@ -19,7 +19,7 @@ from typing import List, Tuple, Optional
 import umap
 import hdbscan
 from sklearn.cluster import KMeans
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
@@ -73,7 +73,7 @@ def demonstrate_basic_usage(documents: List[str]) -> None:
     # Create model with defaults
     topic_model, topics, probs = create_basic_topic_model(documents=documents)
     
-    print(f"   Model created and fitted")
+    print("   Model created and fitted")
     print(f"   Number of topics: {len(set(topics)) - (1 if -1 in topics else 0)}")
     print(f"   Number of outliers: {np.sum(np.array(topics) == -1)}")
     
@@ -110,7 +110,7 @@ def demonstrate_custom_components(documents: List[str]) -> None:
         documents=documents
     )
     
-    print(f"   Model created with custom components")
+    print("   Model created with custom components")
     print(f"   Number of topics: {len(set(topics)) - (1 if -1 in topics else 0)}")
     
     return topic_model, topics, probs
@@ -140,7 +140,7 @@ def demonstrate_kmeans_alternative(documents: List[str]) -> None:
         documents=documents
     )
     
-    print(f"   Model created with K-Means")
+    print("   Model created with K-Means")
     print(f"   Number of topics: {len(set(topics))}")
     
     return topic_model, topics, probs
@@ -155,16 +155,16 @@ def analyze_topic_results(topic_model: BERTopic, topics: List[int], documents: L
         topics: Topic assignments.
         documents: Original documents.
     """
-    print(f"\n4. Analyzing topic results...")
+    print("\n4. Analyzing topic results...")
     
     # Get topic information
     topic_info = topic_model.get_topic_info()
-    print(f"   Topic information:")
+    print("   Topic information:")
     print(topic_info)
     
     # Show topics and their documents
     unique_topics = sorted(set(topics))
-    print(f"\n   Documents per topic:")
+    print("\n   Documents per topic:")
     for topic_id in unique_topics:
         if topic_id == -1:
             print(f"   Outliers: {np.sum(np.array(topics) == topic_id)} documents")
@@ -175,7 +175,7 @@ def analyze_topic_results(topic_model: BERTopic, topics: List[int], documents: L
                 print(f"     - {doc}")
     
     # Show topic keywords
-    print(f"\n   Topic keywords:")
+    print("\n   Topic keywords:")
     for topic_id in unique_topics:
         if topic_id == -1:
             continue
@@ -195,7 +195,7 @@ def compare_model_configurations(documents: List[str]) -> None:
     Args:
         documents: List of documents to test.
     """
-    print(f"\n5. Comparing BERTopic configurations...")
+    print("\n5. Comparing BERTopic configurations...")
     
     configurations = [
         {"name": "Default", "components": {}},
@@ -258,11 +258,11 @@ def main():
     compare_model_configurations(sample_docs)
     
     # Show next steps
-    print(f"\n6. Next steps for advanced usage:")
-    print(f"   - Add custom vectorizer for better text processing")
-    print(f"   - Use c-TF-IDF for improved topic keywords")
-    print(f"   - Integrate KeyBERT for semantic keyword extraction")
-    print(f"   - Visualize topics with topic_model.visualize_topics()")
+    print("\n6. Next steps for advanced usage:")
+    print("   - Add custom vectorizer for better text processing")
+    print("   - Use c-TF-IDF for improved topic keywords")
+    print("   - Integrate KeyBERT for semantic keyword extraction")
+    print("   - Visualize topics with topic_model.visualize_topics()")
     
     print("\n=== Example completed successfully! ===")
 

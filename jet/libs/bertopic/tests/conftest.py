@@ -2,7 +2,7 @@ import copy
 import pytest
 from umap import UMAP
 from hdbscan import HDBSCAN
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sklearn.datasets import fetch_20newsgroups
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans, MiniBatchKMeans

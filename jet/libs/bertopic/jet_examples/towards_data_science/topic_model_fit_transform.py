@@ -1,4 +1,4 @@
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 import numpy as np
 from typing import Optional, Tuple, List

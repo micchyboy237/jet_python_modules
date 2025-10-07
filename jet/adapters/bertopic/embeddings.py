@@ -1,6 +1,6 @@
 from typing import List
 import numpy as np
-from jet.libs.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from bertopic.backend import BaseEmbedder
 
 class BERTopicLlamacppEmbedder(BaseEmbedder):

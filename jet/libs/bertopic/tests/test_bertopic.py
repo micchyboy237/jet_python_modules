@@ -1,6 +1,6 @@
 import copy
 import pytest
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 import importlib.util
 
 

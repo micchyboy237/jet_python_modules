@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.datasets import make_blobs
 from sklearn.cluster import KMeans
 from hdbscan import HDBSCAN
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 
 def example_cluster_embeddings():
     """Demonstrate clustering embeddings with different clustering models."""

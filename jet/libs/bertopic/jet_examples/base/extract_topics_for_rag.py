@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Tuple
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 from umap import UMAP  # Import UMAP explicitly
 from hdbscan import HDBSCAN

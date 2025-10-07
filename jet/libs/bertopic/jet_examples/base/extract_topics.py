@@ -1,5 +1,5 @@
 from typing import List
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from jet.file.utils import load_file, save_file
 from jet.wordnet.topics.topic_parser import configure_topic_model, extract_topics, TopicInfo
 import numpy as np

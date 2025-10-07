@@ -1,6 +1,6 @@
 from typing import List, Dict, Tuple, TypedDict
 from collections import Counter
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from bertopic.representation import KeyBERTInspired
 import umap
 import pandas as pd
