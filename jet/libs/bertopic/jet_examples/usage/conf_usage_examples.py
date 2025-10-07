@@ -10,7 +10,6 @@ from hdbscan import HDBSCAN
 from jet.adapters.bertopic import BERTopic
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.decomposition import PCA
-from sentence_transformers import SentenceTransformer
 from bertopic.vectorizers import OnlineCountVectorizer
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 from bertopic.dimensionality import BaseDimensionalityReduction
@@ -32,7 +31,8 @@ def example_base_topic_model() -> BERTopic:
     """Demonstrate basic topic modeling with BERTopic."""
     logging.info("Starting base topic model example...")
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     model = BERTopic(verbose=True, embedding_model=embedding_model, calculate_probabilities=True)
     model.umap_model.random_state = 42
     model.hdbscan_model.min_cluster_size = 3
@@ -45,7 +45,8 @@ def example_zeroshot_topic_model() -> BERTopic:
     """Demonstrate zeroshot topic modeling with BERTopic."""
     logging.info("Starting zeroshot topic model example...")
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     zeroshot_topic_list = ["religion", "cars", "electronics"]
     model = BERTopic(
         verbose=True,
@@ -65,7 +66,8 @@ def example_custom_topic_model() -> BERTopic:
     """Demonstrate custom topic modeling with BERTopic."""
     logging.info("Starting custom topic model example...")
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
     hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
     model = BERTopic(
@@ -84,7 +86,8 @@ def example_representation_topic_model() -> BERTopic:
     """Demonstrate topic modeling with custom representation models."""
     logging.info("Starting representation topic model example...")
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
     hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
     representation_model = {
@@ -108,7 +111,8 @@ def example_reduced_topic_model() -> BERTopic:
     """Demonstrate reduced topic modeling with BERTopic."""
     logging.info("Starting reduced topic model example...")
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
     hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
     model = BERTopic(
@@ -129,7 +133,8 @@ def example_merged_topic_model() -> BERTopic:
     """Demonstrate merged topic modeling with BERTopic."""
     logging.info("Starting merged topic model example...")
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
     hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
     model = BERTopic(
@@ -153,7 +158,8 @@ def example_kmeans_pca_topic_model() -> BERTopic:
     """Demonstrate topic modeling with KMeans and PCA."""
     logging.info("Starting KMeans PCA topic model example...")
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     hdbscan_model = KMeans(n_clusters=15, random_state=42)
     dim_model = PCA(n_components=5)
     model = BERTopic(verbose=True, hdbscan_model=hdbscan_model, umap_model=dim_model, embedding_model=embedding_model)
@@ -166,7 +172,8 @@ def example_supervised_topic_model() -> BERTopic:
     """Demonstrate supervised topic modeling with BERTopic."""
     logging.info("Starting supervised topic model example...")
     documents, targets = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     empty_dimensionality_model = BaseDimensionalityReduction()
     clf = LogisticRegression()
     model = BERTopic(verbose=True, embedding_model=embedding_model, umap_model=empty_dimensionality_model, hdbscan_model=clf)
@@ -179,7 +186,8 @@ def example_online_topic_model() -> BERTopic:
     """Demonstrate online topic modeling with BERTopic."""
     logging.info("Starting online topic model example...")
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     umap_model = PCA(n_components=5)
     cluster_model = MiniBatchKMeans(n_clusters=50, random_state=0)
     vectorizer_model = OnlineCountVectorizer(stop_words="english", decay=0.01)
@@ -201,7 +209,8 @@ def example_cuml_base_topic_model() -> Optional[BERTopic]:
         logging.warning("cuML not available, skipping example...")
         return None
     documents, _ = load_sample_data()
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    # embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    embedding_model = None
     model = BERTopic(
         verbose=True,
         embedding_model=embedding_model,
