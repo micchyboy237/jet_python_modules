@@ -110,7 +110,7 @@ def remove_substring(text: str, start: int, end: int) -> str:
     return text[:start] + text[end:]
 
 
-def format_sub_dir(text: str) -> str:
+def format_file_path(text: str) -> str:
     # Replace newlines with underscores first
     result = text.replace('\n', '_')
     # Replace non-alphanumeric characters (except spaces) with underscore and convert to lowercase
@@ -121,6 +121,9 @@ def format_sub_dir(text: str) -> str:
     result = re.sub(r'_+', '_', result)
     # Remove leading and trailing underscores
     return result.strip('_')
+
+def format_sub_dir(text: str) -> str:
+    return format_file_path(text)
 
 
 def format_sub_source_dir(source: str) -> str:

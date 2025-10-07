@@ -3,6 +3,17 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from typing import Optional, List, Tuple
 
 from jet.libs.bertopic.jet_examples.mock import load_sample_data
+from jet.file.utils import save_file
+import os
+import shutil
+
+from jet.logger import logger
+from jet.transformers.formatters import format_json
+from jet.utils.text import format_file_path
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 
 def update_topic_representation(
@@ -160,6 +171,7 @@ if __name__ == "__main__":
     #     "Internet of Things devices are becoming more prevalent."
     # ]
     docs = load_sample_data()
+    save_file(docs, f"{OUTPUT_DIR}/docs.json")
     
     print("=== Initial Topic Model ===")
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
@@ -172,6 +184,7 @@ if __name__ == "__main__":
     print("Original topic representations:")
     for topic_id in range(min(3, len(original_topics))):
         print(f"Topic {topic_id}: {original_topics[topic_id][:5]}")
+    save_file(original_topics, f"{OUTPUT_DIR}/original_topics.json")
     
     print("\n=== Updating with Different N-gram Ranges ===")
     
@@ -195,6 +208,12 @@ if __name__ == "__main__":
         for topic_id in range(min(2, len(model_updated.get_topic_info()))):
             topic_words = model_updated.get_topic(topic_id)
             print(f"  Topic {topic_id}: {topic_words[:5]}")
+            save_file({
+                "n_gram_range": n_gram_range,
+                "description": description,
+                "count": len(topic_words),
+                "topics": topic_words,
+            }, format_file_path(f"{OUTPUT_DIR}/ngram/top_topics_{topic_id}_n_{n_gram_range}.json"))
     
     print("\n=== Using Custom Vectorizer ===")
     
@@ -215,16 +234,40 @@ if __name__ == "__main__":
     for topic_id in range(min(3, len(model_tfidf.get_topic_info()))):
         topic_words = model_tfidf.get_topic(topic_id)
         print(f"Topic {topic_id}: {topic_words[:5]}")
+        save_file(topic_words, f"{OUTPUT_DIR}/tfidf/top_topics_{topic_id}.json")
+        save_file({
+            "count": len(topic_words),
+            "topics": topic_words,
+        }, f"{OUTPUT_DIR}/tfidf/top_topics_{topic_id}.json")
     
     print("\n=== Topic Keywords Analysis ===")
     for topic_id in range(min(3, len(model.get_topic_info()))):
         keywords = get_topic_keywords(model, topic_id, top_n=5)
         print(f"Topic {topic_id} keywords: {keywords}")
+        save_file({
+            "topic_id": topic_id,
+            "count": len(keywords),
+            "keywords": keywords
+        }, f"{OUTPUT_DIR}/tfidf/topic_keywords_analysis_{topic_id}.json")
     
     print("\n=== Comparison of Representations ===")
     comparison = compare_topic_representations(
         model, docs, topics, original_topics
     )
-    print(f"Number of topics: {comparison['n_topics']}")
-    if "changed_topics" in comparison:
-        print(f"Changed topics: {comparison['changed_topics']}")
+    for key, value in comparison.items():
+        if value:  # Check if not empty
+            print(f"{key}: {value}")
+            logger.log(
+                key,
+                ":",
+                format_json(value) if isinstance(value, (dict, list)) else value,
+                colors=["DEBUG", "GRAY", "SUCCESS"]
+            )
+            save_file(
+                {
+                    "count": len(value) if hasattr(value, '__len__') else 1,
+                    key: value,
+                },
+                f"{OUTPUT_DIR}/tfidf/comparison_{key}.json"
+            )
+    save_file(comparison, f"{OUTPUT_DIR}/tfidf/all_comparison_of_representations.json")
