@@ -12,10 +12,12 @@ from hdbscan import HDBSCAN
 import plotly.graph_objects as go
 
 from jet.adapters.bertopic import BERTopic
+from jet.transformers.formatters import format_json
 from jet.file.utils import save_file
 from jet.logger import logger
 import os
 import shutil
+
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
@@ -765,7 +767,7 @@ def example_save() -> None:
     model = example_init_bertopic()
     model.fit(documents=SAMPLE_DOCS)
     model.save(
-        path="bertopic_model.pkl",
+        path=f"{OUTPUT_DIR}/cache/bertopic_model.pkl",
         serialization="pickle",
         save_embedding_model=True,
         save_ctfidf=True
@@ -776,8 +778,8 @@ def example_load() -> BERTopic:
     """Demonstrates the load class method with all arguments."""
     model = example_init_bertopic()
     model.fit(documents=SAMPLE_DOCS)
-    model.save(path="bertopic_model.pkl", serialization="pickle")
-    loaded_model = BERTopic.load(path="bertopic_model.pkl", embedding_model="paraphrase-multilingual-MiniLM-L12-v2")
+    model.save(path=f"{OUTPUT_DIR}/cache/bertopic_model.pkl", serialization="pickle")
+    loaded_model = BERTopic.load(path=f"{OUTPUT_DIR}/cache/bertopic_model.pkl", embedding_model="paraphrase-multilingual-MiniLM-L12-v2")
     logger.success(f"Loaded model topics: {loaded_model.topics_}")
     return loaded_model
 
@@ -1116,417 +1118,417 @@ def example_topicmapper_add_new_topics() -> None:
 if __name__ == "__main__":
     logger.info("\nRunning example_init_bertopic()...")
     results = example_init_bertopic()
-    save_file(results, f"{OUTPUT_DIR}/init_bertopic.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/init_bertopic.json")
 
     logger.info("\nRunning example_n_gram_range()...")
     results = example_n_gram_range()
-    save_file(results, f"{OUTPUT_DIR}/n_gram_range.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/n_gram_range.json")
 
     logger.info("\nRunning example_calculate_probabilities()...")
     results = example_calculate_probabilities()
-    save_file(results, f"{OUTPUT_DIR}/calculate_probabilities.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/calculate_probabilities.json")
 
     logger.info("\nRunning example_verbose()...")
     results = example_verbose()
-    save_file(results, f"{OUTPUT_DIR}/verbose.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/verbose.json")
 
     logger.info("\nRunning example_seed_topic_list()...")
     results = example_seed_topic_list()
-    save_file(results, f"{OUTPUT_DIR}/seed_topic_list.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/seed_topic_list.json")
 
     logger.info("\nRunning example_zeroshot_topic_list()...")
     results = example_zeroshot_topic_list()
-    save_file(results, f"{OUTPUT_DIR}/zeroshot_topic_list.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/zeroshot_topic_list.json")
 
     logger.info("\nRunning example_zeroshot_min_similarity()...")
     results = example_zeroshot_min_similarity()
-    save_file(results, f"{OUTPUT_DIR}/zeroshot_min_similarity.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/zeroshot_min_similarity.json")
 
     logger.info("\nRunning example_language()...")
     results = example_language()
-    save_file(results, f"{OUTPUT_DIR}/language.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/language.json")
 
     logger.info("\nRunning example_embedding_model()...")
     results = example_embedding_model()
-    save_file(results, f"{OUTPUT_DIR}/embedding_model.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/embedding_model.json")
 
     logger.info("\nRunning example_vectorizer_model()...")
     results = example_vectorizer_model()
-    save_file(results, f"{OUTPUT_DIR}/vectorizer_model.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/vectorizer_model.json")
 
     logger.info("\nRunning example_ctfidf_model()...")
     results = example_ctfidf_model()
-    save_file(results, f"{OUTPUT_DIR}/ctfidf_model.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/ctfidf_model.json")
 
     logger.info("\nRunning example_tfidfvectorizer()...")
     results = example_tfidfvectorizer()
-    save_file(results, f"{OUTPUT_DIR}/tfidfvectorizer.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/tfidfvectorizer.json")
 
     logger.info("\nRunning example_representation_model()...")
     results = example_representation_model()
-    save_file(results, f"{OUTPUT_DIR}/representation_model.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/representation_model.json")
 
     logger.info("\nRunning example_umap_model()...")
     results = example_umap_model()
-    save_file(results, f"{OUTPUT_DIR}/umap_model.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/umap_model.json")
 
     logger.info("\nRunning example_hdbscan_model()...")
     results = example_hdbscan_model()
-    save_file(results, f"{OUTPUT_DIR}/hdbscan_model.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/hdbscan_model.json")
 
     logger.info("\nRunning example_top_n_words()...")
     results = example_top_n_words()
-    save_file(results, f"{OUTPUT_DIR}/top_n_words.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/top_n_words.json")
 
     logger.info("\nRunning example_min_topic_size()...")
     results = example_min_topic_size()
-    save_file(results, f"{OUTPUT_DIR}/min_topic_size.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/min_topic_size.json")
 
     logger.info("\nRunning example_nr_topics()...")
     results = example_nr_topics()
-    save_file(results, f"{OUTPUT_DIR}/nr_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/nr_topics.json")
 
     logger.info("\nRunning example_low_memory()...")
     results = example_low_memory()
-    save_file(results, f"{OUTPUT_DIR}/low_memory.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/low_memory.json")
 
     logger.info("\nRunning example_topics_()...")
     results = example_topics_()
-    save_file(results, f"{OUTPUT_DIR}/topics_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topics_.json")
 
     logger.info("\nRunning example_probabilities_()...")
     results = example_probabilities_()
-    save_file(results, f"{OUTPUT_DIR}/probabilities_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/probabilities_.json")
 
     logger.info("\nRunning example_topic_sizes_()...")
     results = example_topic_sizes_()
-    save_file(results, f"{OUTPUT_DIR}/topic_sizes_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topic_sizes_.json")
 
     logger.info("\nRunning example_topic_mapper_()...")
     results = example_topic_mapper_()
-    save_file(results, f"{OUTPUT_DIR}/topic_mapper_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topic_mapper_.json")
 
     logger.info("\nRunning example_topic_representations_()...")
     results = example_topic_representations_()
-    save_file(results, f"{OUTPUT_DIR}/topic_representations_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topic_representations_.json")
 
     logger.info("\nRunning example_topic_embeddings_()...")
     results = example_topic_embeddings_()
-    save_file(results, f"{OUTPUT_DIR}/topic_embeddings_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topic_embeddings_.json")
 
     logger.info("\nRunning example__topic_id_to_zeroshot_topic_idx()...")
     results = example__topic_id_to_zeroshot_topic_idx()
-    save_file(results, f"{OUTPUT_DIR}/_topic_id_to_zeroshot_topic_idx.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_topic_id_to_zeroshot_topic_idx.json")
 
     logger.info("\nRunning example_custom_labels_()...")
     results = example_custom_labels_()
-    save_file(results, f"{OUTPUT_DIR}/custom_labels_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/custom_labels_.json")
 
     logger.info("\nRunning example_c_tf_idf_()...")
     results = example_c_tf_idf_()
-    save_file(results, f"{OUTPUT_DIR}/c_tf_idf_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/c_tf_idf_.json")
 
     logger.info("\nRunning example_representative_images_()...")
     results = example_representative_images_()
-    save_file(results, f"{OUTPUT_DIR}/representative_images_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/representative_images_.json")
 
     logger.info("\nRunning example_representative_docs_()...")
     results = example_representative_docs_()
-    save_file(results, f"{OUTPUT_DIR}/representative_docs_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/representative_docs_.json")
 
     logger.info("\nRunning example_topic_aspects_()...")
     results = example_topic_aspects_()
-    save_file(results, f"{OUTPUT_DIR}/topic_aspects_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topic_aspects_.json")
 
     logger.info("\nRunning example__merged_topics()...")
     results = example__merged_topics()
-    save_file(results, f"{OUTPUT_DIR}/_merged_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_merged_topics.json")
 
     logger.info("\nRunning example__outliers()...")
     results = example__outliers()
-    save_file(results, f"{OUTPUT_DIR}/_outliers.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_outliers.json")
 
     logger.info("\nRunning example_topic_labels_()...")
     results = example_topic_labels_()
-    save_file(results, f"{OUTPUT_DIR}/topic_labels_.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topic_labels_.json")
 
     logger.info("\nRunning example_fit()...")
     results = example_fit()
-    save_file(results, f"{OUTPUT_DIR}/fit.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/fit.json")
 
     logger.info("\nRunning example_fit_transform()...")
     results = example_fit_transform()
-    save_file(results, f"{OUTPUT_DIR}/fit_transform.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/fit_transform.json")
 
     logger.info("\nRunning example_transform()...")
     results = example_transform()
-    save_file(results, f"{OUTPUT_DIR}/transform.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/transform.json")
 
     logger.info("\nRunning example_partial_fit()...")
     results = example_partial_fit()
-    save_file(results, f"{OUTPUT_DIR}/partial_fit.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/partial_fit.json")
 
     logger.info("\nRunning example_topics_over_time()...")
     results = example_topics_over_time()
-    save_file(results, f"{OUTPUT_DIR}/topics_over_time.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topics_over_time.json")
 
     logger.info("\nRunning example_topics_per_class()...")
     results = example_topics_per_class()
-    save_file(results, f"{OUTPUT_DIR}/topics_per_class.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topics_per_class.json")
 
     logger.info("\nRunning example_hierarchical_topics()...")
     results = example_hierarchical_topics()
-    save_file(results, f"{OUTPUT_DIR}/hierarchical_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/hierarchical_topics.json")
 
     logger.info("\nRunning example_approximate_distribution()...")
     results = example_approximate_distribution()
-    save_file(results, f"{OUTPUT_DIR}/approximate_distribution.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/approximate_distribution.json")
 
     logger.info("\nRunning example_find_topics()...")
     results = example_find_topics()
-    save_file(results, f"{OUTPUT_DIR}/find_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/find_topics.json")
 
     logger.info("\nRunning example_update_topics()...")
     results = example_update_topics()
-    save_file(results, f"{OUTPUT_DIR}/update_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/update_topics.json")
 
     logger.info("\nRunning example_get_topics()...")
     results = example_get_topics()
-    save_file(results, f"{OUTPUT_DIR}/get_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/get_topics.json")
 
     logger.info("\nRunning example_get_topic()...")
     results = example_get_topic()
-    save_file(results, f"{OUTPUT_DIR}/get_topic.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/get_topic.json")
 
     logger.info("\nRunning example_get_topic_info()...")
     results = example_get_topic_info()
-    save_file(results, f"{OUTPUT_DIR}/get_topic_info.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/get_topic_info.json")
 
     logger.info("\nRunning example_get_topic_freq()...")
     results = example_get_topic_freq()
-    save_file(results, f"{OUTPUT_DIR}/get_topic_freq.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/get_topic_freq.json")
 
     logger.info("\nRunning example_get_document_info()...")
     results = example_get_document_info()
-    save_file(results, f"{OUTPUT_DIR}/get_document_info.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/get_document_info.json")
 
     logger.info("\nRunning example_get_representative_docs()...")
     results = example_get_representative_docs()
-    save_file(results, f"{OUTPUT_DIR}/get_representative_docs.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/get_representative_docs.json")
 
     logger.info("\nRunning example_get_topic_tree()...")
     results = example_get_topic_tree()
-    save_file(results, f"{OUTPUT_DIR}/get_topic_tree.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/get_topic_tree.json")
 
     logger.info("\nRunning example_set_topic_labels()...")
     results = example_set_topic_labels()
-    save_file(results, f"{OUTPUT_DIR}/set_topic_labels.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/set_topic_labels.json")
 
     logger.info("\nRunning example_generate_topic_labels()...")
     results = example_generate_topic_labels()
-    save_file(results, f"{OUTPUT_DIR}/generate_topic_labels.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/generate_topic_labels.json")
 
     logger.info("\nRunning example_merge_topics()...")
     results = example_merge_topics()
-    save_file(results, f"{OUTPUT_DIR}/merge_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/merge_topics.json")
 
     logger.info("\nRunning example_delete_topics()...")
     results = example_delete_topics()
-    save_file(results, f"{OUTPUT_DIR}/delete_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/delete_topics.json")
 
     logger.info("\nRunning example_reduce_topics()...")
     results = example_reduce_topics()
-    save_file(results, f"{OUTPUT_DIR}/reduce_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/reduce_topics.json")
 
     logger.info("\nRunning example_reduce_outliers()...")
     results = example_reduce_outliers()
-    save_file(results, f"{OUTPUT_DIR}/reduce_outliers.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/reduce_outliers.json")
 
     logger.info("\nRunning example_visualize_topics()...")
     results = example_visualize_topics()
-    save_file(results, f"{OUTPUT_DIR}/visualize_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_topics.json")
 
     logger.info("\nRunning example_visualize_documents()...")
     results = example_visualize_documents()
-    save_file(results, f"{OUTPUT_DIR}/visualize_documents.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_documents.json")
 
     logger.info("\nRunning example_visualize_document_datamap()...")
     results = example_visualize_document_datamap()
-    save_file(results, f"{OUTPUT_DIR}/visualize_document_datamap.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_document_datamap.json")
 
     logger.info("\nRunning example_visualize_hierarchical_documents()...")
     results = example_visualize_hierarchical_documents()
-    save_file(results, f"{OUTPUT_DIR}/visualize_hierarchical_documents.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_hierarchical_documents.json")
 
     logger.info("\nRunning example_visualize_term_rank()...")
     results = example_visualize_term_rank()
-    save_file(results, f"{OUTPUT_DIR}/visualize_term_rank.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_term_rank.json")
 
     logger.info("\nRunning example_visualize_topics_over_time()...")
     results = example_visualize_topics_over_time()
-    save_file(results, f"{OUTPUT_DIR}/visualize_topics_over_time.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_topics_over_time.json")
 
     logger.info("\nRunning example_visualize_topics_per_class()...")
     results = example_visualize_topics_per_class()
-    save_file(results, f"{OUTPUT_DIR}/visualize_topics_per_class.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_topics_per_class.json")
 
     logger.info("\nRunning example_visualize_distribution()...")
     results = example_visualize_distribution()
-    save_file(results, f"{OUTPUT_DIR}/visualize_distribution.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_distribution.json")
 
     logger.info("\nRunning example_visualize_approximate_distribution()...")
     results = example_visualize_approximate_distribution()
-    save_file(results, f"{OUTPUT_DIR}/visualize_approximate_distribution.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_approximate_distribution.json")
 
     logger.info("\nRunning example_visualize_hierarchy()...")
     results = example_visualize_hierarchy()
-    save_file(results, f"{OUTPUT_DIR}/visualize_hierarchy.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_hierarchy.json")
 
     logger.info("\nRunning example_visualize_heatmap()...")
     results = example_visualize_heatmap()
-    save_file(results, f"{OUTPUT_DIR}/visualize_heatmap.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_heatmap.json")
 
     logger.info("\nRunning example_visualize_barchart()...")
     results = example_visualize_barchart()
-    save_file(results, f"{OUTPUT_DIR}/visualize_barchart.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/visualize_barchart.json")
 
     logger.info("\nRunning example_save()...")
     results = example_save()
-    save_file(results, f"{OUTPUT_DIR}/save.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/save.json")
 
     logger.info("\nRunning example_load()...")
     results = example_load()
-    save_file(results, f"{OUTPUT_DIR}/load.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/load.json")
 
     logger.info("\nRunning example_merge_models()...")
     results = example_merge_models()
-    save_file(results, f"{OUTPUT_DIR}/merge_models.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/merge_models.json")
 
     logger.info("\nRunning example_push_to_hf_hub()...")
     results = example_push_to_hf_hub()
-    save_file(results, f"{OUTPUT_DIR}/push_to_hf_hub.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/push_to_hf_hub.json")
 
     logger.info("\nRunning example_get_params()...")
     results = example_get_params()
-    save_file(results, f"{OUTPUT_DIR}/get_params.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/get_params.json")
 
     logger.info("\nRunning example__extract_embeddings()...")
     results = example__extract_embeddings()
-    save_file(results, f"{OUTPUT_DIR}/_extract_embeddings.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_extract_embeddings.json")
 
     logger.info("\nRunning example__images_to_text()...")
     results = example__images_to_text()
-    save_file(results, f"{OUTPUT_DIR}/_images_to_text.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_images_to_text.json")
 
     logger.info("\nRunning example__map_predictions()...")
     results = example__map_predictions()
-    save_file(results, f"{OUTPUT_DIR}/_map_predictions.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_map_predictions.json")
 
     logger.info("\nRunning example__reduce_dimensionality()...")
     results = example__reduce_dimensionality()
-    save_file(results, f"{OUTPUT_DIR}/_reduce_dimensionality.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_reduce_dimensionality.json")
 
     logger.info("\nRunning example__cluster_embeddings()...")
     results = example__cluster_embeddings()
-    save_file(results, f"{OUTPUT_DIR}/_cluster_embeddings.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_cluster_embeddings.json")
 
     logger.info("\nRunning example__zeroshot_topic_modeling()...")
     results = example__zeroshot_topic_modeling()
-    save_file(results, f"{OUTPUT_DIR}/_zeroshot_topic_modeling.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_zeroshot_topic_modeling.json")
 
     logger.info("\nRunning example__is_zeroshot()...")
     results = example__is_zeroshot()
-    save_file(results, f"{OUTPUT_DIR}/_is_zeroshot.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_is_zeroshot.json")
 
     logger.info("\nRunning example__combine_zeroshot_topics()...")
     results = example__combine_zeroshot_topics()
-    save_file(results, f"{OUTPUT_DIR}/_combine_zeroshot_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_combine_zeroshot_topics.json")
 
     logger.info("\nRunning example__guided_topic_modeling()...")
     results = example__guided_topic_modeling()
-    save_file(results, f"{OUTPUT_DIR}/_guided_topic_modeling.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_guided_topic_modeling.json")
 
     logger.info("\nRunning example__extract_topics()...")
     results = example__extract_topics()
-    save_file(results, f"{OUTPUT_DIR}/_extract_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_extract_topics.json")
 
     logger.info("\nRunning example__save_representative_docs()...")
     results = example__save_representative_docs()
-    save_file(results, f"{OUTPUT_DIR}/_save_representative_docs.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_save_representative_docs.json")
 
     logger.info("\nRunning example__extract_representative_docs()...")
     results = example__extract_representative_docs()
-    save_file(results, f"{OUTPUT_DIR}/_extract_representative_docs.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_extract_representative_docs.json")
 
     logger.info("\nRunning example__create_topic_vectors()...")
     results = example__create_topic_vectors()
-    save_file(results, f"{OUTPUT_DIR}/_create_topic_vectors.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_create_topic_vectors.json")
 
     logger.info("\nRunning example__c_tf_idf()...")
     results = example__c_tf_idf()
-    save_file(results, f"{OUTPUT_DIR}/_c_tf_idf.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_c_tf_idf.json")
 
     logger.info("\nRunning example__update_topic_size()...")
     results = example__update_topic_size()
-    save_file(results, f"{OUTPUT_DIR}/_update_topic_size.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_update_topic_size.json")
 
     logger.info("\nRunning example__extract_words_per_topic()...")
     results = example__extract_words_per_topic()
-    save_file(results, f"{OUTPUT_DIR}/_extract_words_per_topic.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_extract_words_per_topic.json")
 
     logger.info("\nRunning example__reduce_topics()...")
     results = example__reduce_topics()
-    save_file(results, f"{OUTPUT_DIR}/_reduce_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_reduce_topics.json")
 
     logger.info("\nRunning example__reduce_to_n_topics()...")
     results = example__reduce_to_n_topics()
-    save_file(results, f"{OUTPUT_DIR}/_reduce_to_n_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_reduce_to_n_topics.json")
 
     logger.info("\nRunning example__auto_reduce_topics()...")
     results = example__auto_reduce_topics()
-    save_file(results, f"{OUTPUT_DIR}/_auto_reduce_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_auto_reduce_topics.json")
 
     logger.info("\nRunning example__sort_mappings_by_frequency()...")
     results = example__sort_mappings_by_frequency()
-    save_file(results, f"{OUTPUT_DIR}/_sort_mappings_by_frequency.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_sort_mappings_by_frequency.json")
 
     logger.info("\nRunning example__map_probabilities()...")
     results = example__map_probabilities()
-    save_file(results, f"{OUTPUT_DIR}/_map_probabilities.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_map_probabilities.json")
 
     logger.info("\nRunning example__preprocess_text()...")
     results = example__preprocess_text()
-    save_file(results, f"{OUTPUT_DIR}/_preprocess_text.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_preprocess_text.json")
 
     logger.info("\nRunning example__top_n_idx_sparse()...")
     results = example__top_n_idx_sparse()
-    save_file(results, f"{OUTPUT_DIR}/_top_n_idx_sparse.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_top_n_idx_sparse.json")
 
     logger.info("\nRunning example__top_n_values_sparse()...")
     results = example__top_n_values_sparse()
-    save_file(results, f"{OUTPUT_DIR}/_top_n_values_sparse.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_top_n_values_sparse.json")
 
     logger.info("\nRunning example__get_param_names()...")
     results = example__get_param_names()
-    save_file(results, f"{OUTPUT_DIR}/_get_param_names.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_get_param_names.json")
 
     logger.info("\nRunning example__str__()...")
     results = example__str__()
-    save_file(results, f"{OUTPUT_DIR}/_str__.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/_str__.json")
 
     logger.info("\nRunning example_topicmapper_init()...")
     results = example_topicmapper_init()
-    save_file(results, f"{OUTPUT_DIR}/topicmapper_init.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topicmapper_init.json")
 
     logger.info("\nRunning example_topicmapper_get_mappings()...")
     results = example_topicmapper_get_mappings()
-    save_file(results, f"{OUTPUT_DIR}/topicmapper_get_mappings.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topicmapper_get_mappings.json")
 
     logger.info("\nRunning example_topicmapper_add_mappings()...")
     results = example_topicmapper_add_mappings()
-    save_file(results, f"{OUTPUT_DIR}/topicmapper_add_mappings.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topicmapper_add_mappings.json")
 
     logger.info("\nRunning example_topicmapper_add_new_topics()...")
     results = example_topicmapper_add_new_topics()
-    save_file(results, f"{OUTPUT_DIR}/topicmapper_add_new_topics.json")
+    save_file(format_json(results), f"{OUTPUT_DIR}/results/topicmapper_add_new_topics.json")
 
