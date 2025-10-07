@@ -3,6 +3,17 @@ import pandas as pd
 from typing import Tuple, Any
 from datetime import datetime
 
+from jet.libs.bertopic.jet_examples.mock import load_sample_data
+from jet.file.utils import save_file
+from jet.logger import logger
+import os
+import shutil
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
 
 def topics_over_time_analysis(
     topic_model: BERTopic,
@@ -32,7 +43,7 @@ def topics_over_time_analysis(
     
     # Compute topics over time
     topics_time = topic_model.topics_over_time(
-        docs, topics, timestamps, nr_bins=nr_bins
+        docs=docs, topics=topics, timestamps=timestamps, nr_bins=nr_bins
     )
     
     # Create visualization
@@ -104,65 +115,84 @@ def get_topic_evolution(
 
 if __name__ == "__main__":
     from topic_model_fit_transform import topic_model_fit_transform
+    from datetime import datetime, timedelta
+    import numpy as np
     
     # Sample documents with timestamps
-    docs = [
-        "Machine learning and artificial intelligence are revolutionizing technology.",
-        "Data science involves statistics, programming, and domain expertise.",
-        "COVID-19 pandemic has changed global health and economy.",
-        "Vaccines and medical research are crucial for public health.",
-        "Quantum computing could break current encryption methods.",
-        "Cryptocurrency and blockchain technology are emerging trends.",
-        "Climate change is affecting weather patterns worldwide.",
-        "Renewable energy sources like solar and wind are growing.",
-        "Stock market volatility affects investor confidence.",
-        "Economic policies influence inflation and employment rates.",
-        "Deep learning neural networks require large datasets.",
-        "Natural language processing is advancing rapidly.",
-        "Computer vision applications are expanding in healthcare.",
-        "Robotics and automation are transforming manufacturing.",
-        "Internet of Things devices are becoming more prevalent.",
-        "Machine learning models are being deployed in production systems.",
-        "Data privacy regulations are becoming more stringent.",
-        "Edge computing is bringing AI closer to devices.",
-        "Explainable AI is gaining importance in critical applications.",
-        "Federated learning allows training without sharing raw data."
-    ]
+    # docs = [
+    #     "Machine learning and artificial intelligence are revolutionizing technology.",
+    #     "Data science involves statistics, programming, and domain expertise.",
+    #     "COVID-19 pandemic has changed global health and economy.",
+    #     "Vaccines and medical research are crucial for public health.",
+    #     "Quantum computing could break current encryption methods.",
+    #     "Cryptocurrency and blockchain technology are emerging trends.",
+    #     "Climate change is affecting weather patterns worldwide.",
+    #     "Renewable energy sources like solar and wind are growing.",
+    #     "Stock market volatility affects investor confidence.",
+    #     "Economic policies influence inflation and employment rates.",
+    #     "Deep learning neural networks require large datasets.",
+    #     "Natural language processing is advancing rapidly.",
+    #     "Computer vision applications are expanding in healthcare.",
+    #     "Robotics and automation are transforming manufacturing.",
+    #     "Internet of Things devices are becoming more prevalent.",
+    #     "Machine learning models are being deployed in production systems.",
+    #     "Data privacy regulations are becoming more stringent.",
+    #     "Edge computing is bringing AI closer to devices.",
+    #     "Explainable AI is gaining importance in critical applications.",
+    #     "Federated learning allows training without sharing raw data."
+    # ]
     
     # Create timestamps spanning multiple years
-    timestamps = [
-        "2020-01-15", "2020-03-20", "2020-06-10", "2020-09-05",
-        "2021-02-14", "2021-05-08", "2021-08-12", "2021-11-30",
-        "2022-01-20", "2022-04-15", "2022-07-22", "2022-10-18",
-        "2023-01-10", "2023-03-25", "2023-06-15", "2023-09-08",
-        "2023-12-01", "2024-02-14", "2024-05-20", "2024-08-10"
-    ]
+    # timestamps = [
+    #     "2020-01-15", "2020-03-20", "2020-06-10", "2020-09-05",
+    #     "2021-02-14", "2021-05-08", "2021-08-12", "2021-11-30",
+    #     "2022-01-20", "2022-04-15", "2022-07-22", "2022-10-18",
+    #     "2023-01-10", "2023-03-25", "2023-06-15", "2023-09-08",
+    #     "2023-12-01", "2024-02-14", "2024-05-20", "2024-08-10"
+    # ]
+
+    docs = load_sample_data()
+    # Set random seed for reproducibility
+    np.random.seed(42)
+    # Generate timestamps spanning 5 years, proportional to document count
+    start_date = datetime(2020, 1, 1)
+    end_date = datetime(2025, 12, 31)
+    total_days = (end_date - start_date).days
+    timestamps = []
     
-    print("Fitting BERTopic model...")
+    for _ in range(len(docs)):
+        days_offset = np.random.randint(0, total_days)
+        timestamp = (start_date + timedelta(days=days_offset)).strftime("%Y-%m-%d")
+        timestamps.append(timestamp)
+    
+    timestamps.sort()  # Sort timestamps chronologically
+    
+    logger.info("Fitting BERTopic model...")
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
     
-    print("Analyzing topics over time...")
+    logger.info("\nAnalyzing topics over time...")
     topics_time, fig = topics_over_time_analysis(
         model, docs, topics, timestamps, 
         datetime_format="%Y-%m-%d"
     )
     
-    print("Topics over time data:")
-    print(topics_time.head(10))
+    logger.debug("Topics over time data:")
+    logger.success(topics_time.head(10))
     
-    print("\nAnalyzing topic trends...")
+    logger.info("\nAnalyzing topic trends...")
     trends = analyze_topic_trends(topics_time, top_n=3)
-    print("Top 3 topic trends:")
-    print(trends)
+    logger.debug(f"Top 3 topic trends ({len(trends)})")
+    logger.success(trends[:3])
+    save_file(trends, f"{OUTPUT_DIR}/trends.json")
     
-    # Analyze evolution of first topic
+    logger.info("\nAnalyzing evolution of first topic...")
     if len(topics_time) > 0:
         first_topic = topics_time['Topic'].iloc[0]
         evolution = get_topic_evolution(topics_time, first_topic)
-        print(f"\nEvolution of topic {first_topic}:")
+        logger.debug(f"\nEvolution of topic {first_topic}:")
         for key, value in evolution.items():
-            print(f"  {key}: {value}")
+            logger.success(f"  {key}: {value}")
     
     # Show the visualization
-    print("\nShowing topics over time visualization...")
-    fig.show()
+    logger.debug("\nSave topics over time visualization")
+    save_file(fig.to_image(), f"{OUTPUT_DIR}/visualization.png")
