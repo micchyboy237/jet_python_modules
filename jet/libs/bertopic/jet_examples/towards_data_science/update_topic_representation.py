@@ -211,7 +211,7 @@ if __name__ == "__main__":
                 "description": description,
                 "count": len(topic_words),
                 "topics": topic_words,
-            }, f"{OUTPUT_DIR}/ngram/top_topics_{topic_id}_n_{n_gram_range}.json")
+            }, f"{OUTPUT_DIR}/ngram/top_topics_{topic_id}_n_{n_gram_range[0]}_{n_gram_range[1]}.json")
     
     print("\n=== Using Custom Vectorizer ===")
     
