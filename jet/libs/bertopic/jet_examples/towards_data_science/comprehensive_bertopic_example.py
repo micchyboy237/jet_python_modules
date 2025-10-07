@@ -27,6 +27,7 @@ from typing import List, Tuple
 warnings.filterwarnings('ignore')
 
 # Import all our custom modules
+from jet.libs.bertopic.jet_examples.mock import load_sample_data
 from topic_model_fit_transform import (
     topic_model_fit_transform, 
     precompute_embeddings, 
@@ -64,69 +65,70 @@ def create_sample_dataset() -> Tuple[List[str], List[str]]:
     Returns:
         tuple: (documents, timestamps)
     """
-    docs = [
-        # Technology & AI (2020-2024)
-        "Machine learning and artificial intelligence are revolutionizing technology.",
-        "Deep learning neural networks require large datasets and computational power.",
-        "Natural language processing is advancing rapidly with transformer models.",
-        "Computer vision applications are expanding in healthcare and autonomous vehicles.",
-        "Robotics and automation are transforming manufacturing and service industries.",
-        "Internet of Things devices are becoming more prevalent in smart cities.",
-        "Edge computing is bringing AI closer to devices for real-time processing.",
-        "Explainable AI is gaining importance in critical applications and decision-making.",
-        "Federated learning allows training without sharing raw data for privacy.",
-        "Quantum computing could break current encryption methods and solve complex problems.",
+    # docs = [
+    #     # Technology & AI (2020-2024)
+    #     "Machine learning and artificial intelligence are revolutionizing technology.",
+    #     "Deep learning neural networks require large datasets and computational power.",
+    #     "Natural language processing is advancing rapidly with transformer models.",
+    #     "Computer vision applications are expanding in healthcare and autonomous vehicles.",
+    #     "Robotics and automation are transforming manufacturing and service industries.",
+    #     "Internet of Things devices are becoming more prevalent in smart cities.",
+    #     "Edge computing is bringing AI closer to devices for real-time processing.",
+    #     "Explainable AI is gaining importance in critical applications and decision-making.",
+    #     "Federated learning allows training without sharing raw data for privacy.",
+    #     "Quantum computing could break current encryption methods and solve complex problems.",
         
-        # Data Science & Analytics (2020-2024)
-        "Data science involves statistics, programming, and domain expertise.",
-        "Big data analytics helps organizations make data-driven decisions.",
-        "Machine learning models are being deployed in production systems worldwide.",
-        "Data privacy regulations are becoming more stringent across industries.",
-        "Real-time analytics enables instant insights from streaming data sources.",
-        "Data visualization tools help communicate insights to stakeholders effectively.",
-        "Cloud computing platforms provide scalable infrastructure for data processing.",
-        "Data engineering pipelines ensure reliable data flow and quality assurance.",
+    #     # Data Science & Analytics (2020-2024)
+    #     "Data science involves statistics, programming, and domain expertise.",
+    #     "Big data analytics helps organizations make data-driven decisions.",
+    #     "Machine learning models are being deployed in production systems worldwide.",
+    #     "Data privacy regulations are becoming more stringent across industries.",
+    #     "Real-time analytics enables instant insights from streaming data sources.",
+    #     "Data visualization tools help communicate insights to stakeholders effectively.",
+    #     "Cloud computing platforms provide scalable infrastructure for data processing.",
+    #     "Data engineering pipelines ensure reliable data flow and quality assurance.",
         
-        # Health & Medicine (2020-2024)
-        "COVID-19 pandemic has changed global health and economy significantly.",
-        "Vaccines and medical research are crucial for public health protection.",
-        "Telemedicine has become more popular during the pandemic period.",
-        "Digital health technologies are transforming patient care delivery.",
-        "Medical imaging AI is improving diagnostic accuracy and speed.",
-        "Personalized medicine uses genetic data to tailor treatments.",
-        "Mental health awareness has increased during challenging times.",
-        "Healthcare data security is critical for patient privacy protection.",
+    #     # Health & Medicine (2020-2024)
+    #     "COVID-19 pandemic has changed global health and economy significantly.",
+    #     "Vaccines and medical research are crucial for public health protection.",
+    #     "Telemedicine has become more popular during the pandemic period.",
+    #     "Digital health technologies are transforming patient care delivery.",
+    #     "Medical imaging AI is improving diagnostic accuracy and speed.",
+    #     "Personalized medicine uses genetic data to tailor treatments.",
+    #     "Mental health awareness has increased during challenging times.",
+    #     "Healthcare data security is critical for patient privacy protection.",
         
-        # Climate & Environment (2020-2024)
-        "Climate change is affecting weather patterns worldwide with extreme events.",
-        "Renewable energy sources like solar and wind are growing rapidly.",
-        "Carbon footprint reduction is a priority for many organizations.",
-        "Sustainable technology solutions are being developed globally.",
-        "Environmental monitoring uses IoT sensors and satellite data.",
-        "Green energy investments are increasing across all sectors.",
-        "Climate adaptation strategies are being implemented in vulnerable regions.",
-        "Circular economy principles are gaining traction in business models.",
+    #     # Climate & Environment (2020-2024)
+    #     "Climate change is affecting weather patterns worldwide with extreme events.",
+    #     "Renewable energy sources like solar and wind are growing rapidly.",
+    #     "Carbon footprint reduction is a priority for many organizations.",
+    #     "Sustainable technology solutions are being developed globally.",
+    #     "Environmental monitoring uses IoT sensors and satellite data.",
+    #     "Green energy investments are increasing across all sectors.",
+    #     "Climate adaptation strategies are being implemented in vulnerable regions.",
+    #     "Circular economy principles are gaining traction in business models.",
         
-        # Economics & Finance (2020-2024)
-        "Stock market volatility affects investor confidence and economic stability.",
-        "Economic policies influence inflation and employment rates significantly.",
-        "Cryptocurrency and blockchain technology are emerging financial trends.",
-        "Digital banking services are transforming traditional financial institutions.",
-        "Fintech innovations are disrupting payment and lending systems.",
-        "Central bank digital currencies are being explored by governments.",
-        "Sustainable finance is integrating environmental factors into investment decisions.",
-        "Economic inequality remains a challenge in many developed countries.",
+    #     # Economics & Finance (2020-2024)
+    #     "Stock market volatility affects investor confidence and economic stability.",
+    #     "Economic policies influence inflation and employment rates significantly.",
+    #     "Cryptocurrency and blockchain technology are emerging financial trends.",
+    #     "Digital banking services are transforming traditional financial institutions.",
+    #     "Fintech innovations are disrupting payment and lending systems.",
+    #     "Central bank digital currencies are being explored by governments.",
+    #     "Sustainable finance is integrating environmental factors into investment decisions.",
+    #     "Economic inequality remains a challenge in many developed countries.",
         
-        # Additional recent topics (2023-2024)
-        "Large language models like GPT are changing how we interact with computers.",
-        "Generative AI is creating new content across text, images, and video.",
-        "AI ethics and responsible development are becoming more important.",
-        "Cybersecurity threats are evolving with advancing technology capabilities.",
-        "Remote work has become a permanent feature of many organizations.",
-        "Digital transformation is accelerating across all industry sectors.",
-        "Supply chain resilience is critical for global economic stability.",
-        "Skills development and lifelong learning are essential for career success."
-    ]
+    #     # Additional recent topics (2023-2024)
+    #     "Large language models like GPT are changing how we interact with computers.",
+    #     "Generative AI is creating new content across text, images, and video.",
+    #     "AI ethics and responsible development are becoming more important.",
+    #     "Cybersecurity threats are evolving with advancing technology capabilities.",
+    #     "Remote work has become a permanent feature of many organizations.",
+    #     "Digital transformation is accelerating across all industry sectors.",
+    #     "Supply chain resilience is critical for global economic stability.",
+    #     "Skills development and lifelong learning are essential for career success."
+    # ]
+    docs = load_sample_data()
     
     # Create timestamps spanning 2020-2024
     timestamps = [
