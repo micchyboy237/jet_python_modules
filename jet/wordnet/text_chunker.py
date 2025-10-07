@@ -635,12 +635,43 @@ def chunk_texts_with_data_fast(
             total_len = len(tokens)
             chunk_index = 0  # Initialize chunk_index for this document
             for j in range(0, total_len, step):
-                chunk_tokens = tokens[j:j + effective_chunk_size]
+                # Binary search to find the largest slice <= chunk_size
+                left, right = j, min(j + effective_chunk_size, total_len)
+                chunk_tokens = []
+                chunk_content = ""
+                chunk_size_tokens = 0
+                best_size = 0
+                while left <= right:
+                    mid = (left + right) // 2
+                    temp_tokens = tokens[j:mid]
+                    if temp_tokens:
+                        temp_content = tokenizer.decode(temp_tokens).strip()
+                        temp_size = len(size_fn(temp_content))
+                        if temp_size <= chunk_size:
+                            # Keep track of the best valid slice
+                            if temp_size > best_size:
+                                chunk_tokens = temp_tokens
+                                chunk_content = temp_content
+                                chunk_size_tokens = temp_size
+                                best_size = temp_size
+                            left = mid + 1  # Try a larger slice
+                        else:
+                            right = mid - 1  # Try a smaller slice
+                    else:
+                        break
                 if not chunk_tokens:
                     continue
-                chunk_content = tokenizer.decode(chunk_tokens).strip()
-                num_tokens = len(size_fn(chunk_content))
-                if num_tokens < min_chunk_size and j + effective_chunk_size < total_len:
+                # Handle last chunk: include remaining tokens if needed
+                is_last_chunk = j + effective_chunk_size >= total_len
+                if is_last_chunk and not chunk_tokens:
+                    chunk_tokens = tokens[j:right]
+                    if chunk_tokens:
+                        chunk_content = tokenizer.decode(chunk_tokens).strip()
+                        chunk_size_tokens = len(size_fn(chunk_content))
+                if not chunk_tokens:
+                    continue
+                # Skip min_chunk_size check for last chunk or when chunk_size <= min_chunk_size
+                if chunk_size_tokens < min_chunk_size and not is_last_chunk and chunk_size > min_chunk_size:
                     continue
                 # Calculate overlap indices
                 overlap_start_idx = None
@@ -656,8 +687,8 @@ def chunk_texts_with_data_fast(
                     "id": str(uuid.uuid4()),
                     "doc_id": doc_id,
                     "doc_index": doc_index,
-                    "chunk_index": chunk_index,  # Use chunk_index instead of len(chunks)
-                    "num_tokens": num_tokens,
+                    "chunk_index": chunk_index,
+                    "num_tokens": chunk_size_tokens,
                     "content": chunk_content,
                     "start_idx": j,
                     "end_idx": j + len(chunk_content),
@@ -667,14 +698,16 @@ def chunk_texts_with_data_fast(
                 })
                 chunk_index += 1
             # Merge last too-small chunk
-            if len(chunks) > 1 and chunks[-1]["num_tokens"] < min_chunk_size:
+            if len(chunks) > 1 and chunks[-1]["num_tokens"] < min_chunk_size and chunk_size > min_chunk_size:
                 last = chunks.pop()
                 prev = chunks[-1]
-                prev["content"] += " " + last["content"]
-                prev["num_tokens"] = len(size_fn(prev["content"]))
-                prev["end_idx"] = last["end_idx"]
+                prev_last_n_tokens_string = get_last_n_tokens_and_decode(prev["content"], tokenizer, last["num_tokens"])
+                is_covered_by_prev_chunk = last["content"] == prev_last_n_tokens_string
+                if not is_covered_by_prev_chunk:
+                    prev["content"] += " " + last["content"]
+                    prev["num_tokens"] = len(size_fn(prev["content"]))
+                    prev["end_idx"] = last["end_idx"]
             continue
-
         # Sentence-based path
         sent_sizes = [len(size_fn(s)) for s in sentences]
         current_chunk, current_size = [], 0
