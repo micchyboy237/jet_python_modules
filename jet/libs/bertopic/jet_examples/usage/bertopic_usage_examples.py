@@ -13,6 +13,8 @@ from jet.logger import logger
 import os
 import shutil
 
+from jet.wordnet.text_chunker import chunk_texts_fast
+
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -23,6 +25,8 @@ logger.info(f"Logs: {log_file}")
 
 OUTPUT_DIR = Path(OUTPUT_DIR)
 
+EMBED_MODEL = "embeddinggemma"
+
 # Download NLTK stopwords
 nltk.download('stopwords', quiet=True)
 
@@ -32,6 +36,12 @@ def load_sample_data():
     logger.info("Loading 20 newsgroups dataset...")
     newsgroups = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quotes'))
     documents = newsgroups.data[:1000]  # Limit to 1000 documents for example
+    documents = chunk_texts_fast(
+        documents,
+        chunk_size=128,
+        chunk_overlap=32,
+        model=EMBED_MODEL,
+    )
     timestamps = [i % 10 for i in range(len(documents))]  # Synthetic timestamps
     return documents, timestamps
 
