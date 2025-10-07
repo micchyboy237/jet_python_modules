@@ -16,6 +16,10 @@ class LlamacppEmbedding:
         self.client = OpenAI(base_url=base_url, api_key="no-key-required")
         self.model = resolve_model_value(model)
 
+    def __call__(self, inputs: Union[str, List[str]], return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 16, show_progress: bool = False) -> GenerateEmbeddingsReturnType:
+        """Make the instance callable to generate embeddings, equivalent to get_embeddings."""
+        return self.get_embeddings(inputs, return_format=return_format, batch_size=batch_size, show_progress=show_progress)
+
     def get_embeddings(self, inputs: Union[str, List[str]], return_format: Literal["numpy", "list"] = "numpy", batch_size: int = 16, show_progress: bool = False) -> GenerateEmbeddingsReturnType:
         """Generate embeddings for a single text or list of text inputs in batches."""
         # Normalize inputs to list

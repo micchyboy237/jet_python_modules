@@ -6,6 +6,8 @@ import pandas as pd
 import numpy as np
 from typing import List, Optional, TypedDict
 
+from jet.libs.bertopic.embeddings import BERTopicLlamacppEmbedder
+
 
 def configure_topic_model(
     n_components: int = 2,
@@ -13,7 +15,7 @@ def configure_topic_model(
     min_dist: float = 0.1,
     min_cluster_size: int = 2,
     min_samples: int = 2,  # Increased from 1
-    embedding_model: str = "all-MiniLM-L6-v2",
+    embedding_model: str = "embeddinggemma",
     random_state: Optional[int] = 42
 ) -> BERTopic:
     """Configure a BERTopic model with UMAP and HDBSCAN."""
@@ -25,10 +27,11 @@ def configure_topic_model(
         prediction_data=True  # Enable prediction data for probabilities
     )
     vectorizer_model = CountVectorizer(stop_words="english")
+    embedder = BERTopicLlamacppEmbedder(embedding_model)
     return BERTopic(
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
-        embedding_model=embedding_model,
+        embedding_model=embedder,
         min_topic_size=min_cluster_size,
         vectorizer_model=vectorizer_model,
         calculate_probabilities=True  # Explicitly enable probabilities

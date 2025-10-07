@@ -11,6 +11,11 @@ from sklearn.cluster import KMeans
 from keybert import KeyBERT
 
 
+class Document(TypedDict):
+    id: int
+    content: str
+
+
 class DocumentTopicAssignment(TypedDict):
     id: int
     label: int
@@ -18,14 +23,14 @@ class DocumentTopicAssignment(TypedDict):
     content: str
 
 
-def categorize_documents_with_bertopic(documents: List[Dict], min_topic_size: int = 2) -> List[DocumentTopicAssignment]:
+def categorize_documents_with_bertopic(documents: List[Document], min_topic_size: int = 2) -> List[DocumentTopicAssignment]:
     texts = [doc["content"] for doc in documents]
 
     if len(texts) < 3:
         logger.warning(
             "Dataset too small (<3 documents); assigning keyword-based topics")
         kw_model = KeyBERT()
-        assignments = []
+        assignments: List[DocumentTopicAssignment] = []
         for i, doc in enumerate(documents):
             keywords = kw_model.extract_keywords(doc["content"], top_n=1)
             topic = keywords[0][0] if keywords else f"Topic_{i+1}"
@@ -70,7 +75,7 @@ def categorize_documents_with_bertopic(documents: List[Dict], min_topic_size: in
                        for _, row in topic_info.iterrows()}
         topic_names[-1] = "Outlier"
 
-        topic_assignments = [
+        topic_assignments: List[DocumentTopicAssignment] = [
             {
                 "id": doc["id"],
                 "label": label,
@@ -103,7 +108,7 @@ def categorize_documents_with_bertopic(documents: List[Dict], min_topic_size: in
         logger.error(f"BERTopic failed: {e}")
         logger.warning("Falling back to keyword-based topic assignments")
         kw_model = KeyBERT()
-        assignments = []
+        assignments: List[DocumentTopicAssignment] = []
         for i, doc in enumerate(documents):
             keywords = kw_model.extract_keywords(doc["content"], top_n=1)
             topic = keywords[0][0] if keywords else f"Topic_{i+1}"
@@ -117,7 +122,7 @@ def categorize_documents_with_bertopic(documents: List[Dict], min_topic_size: in
         return assignments
 
 
-def aggregate_by_category(documents: List[Dict], min_topic_size: int = 2) -> Tuple[Dict[str, int], List[DocumentTopicAssignment]]:
+def aggregate_by_category(documents: List[Document], min_topic_size: int = 2) -> Tuple[Dict[str, int], List[DocumentTopicAssignment]]:
     assignments = categorize_documents_with_bertopic(documents, min_topic_size)
     counts = Counter([entry["topic"] for entry in assignments])
     return dict(counts), assignments
@@ -166,7 +171,7 @@ def generate_chartjs_config(category_counts: Dict[str, int]) -> Dict:
     }
 
 
-def process_documents_for_chart(documents: List[Dict], output_dir: str = ".", min_topic_size: int = 2) -> Dict:
+def process_documents_for_chart(documents: List[Document], output_dir: str = ".", min_topic_size: int = 2) -> Dict:
     if not documents:
         raise ValueError("Documents list cannot be empty")
 
@@ -200,7 +205,7 @@ if __name__ == "__main__":
     OUTPUT_DIR = os.path.join(
         os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
     # Real-world example: Analyzing customer feedback from a tech support system
-    sample_documents = [
+    sample_documents: List[Document] = [
         {
             "id": 1,
             "content": "The software crashes when I try to export large datasets to CSV."
