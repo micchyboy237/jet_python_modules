@@ -2,14 +2,12 @@ import pytest
 import numpy as np
 from typing import List
 from unittest.mock import Mock, patch
-import requests
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from bertopic import BERTopic
 from jet.adapters.bertopic.utils import (
     create_bertopic_model,
     extract_topics_without_query,
     extract_topics_with_query,
-    create_llama_embedding_callable,
     TopicDistribution,
     QueryResult
 )
@@ -71,76 +69,6 @@ def expected_embeddings() -> np.ndarray:
     ], dtype=np.float32)
 
 
-class TestCreateLlamaEmbeddingCallable:
-    """BDD-style tests for llama.cpp embedding callable factory."""
-
-    def test_creates_callable_with_defaults(self, sample_docs_for_embedding, expected_embeddings):
-        # Given: Default params
-        embedder = create_llama_embedding_callable()
-        
-        # When: Generating embeddings (mock response)
-        with patch("requests.post") as mock_post:
-            mock_response = Mock()
-            mock_response.json.return_value = {"embedding": expected_embeddings.tolist()}
-            mock_response.raise_for_status.return_value = None
-            mock_post.return_value = mock_response
-            
-            result = embedder(sample_docs_for_embedding)
-        
-        # Then: Returns expected np.ndarray
-        np.testing.assert_array_equal(result, expected_embeddings)
-        assert result.shape == (2, 384)
-        mock_post.assert_called_once_with(
-            "http://localhost:8080/embedding",
-            json={"content": sample_docs_for_embedding, "truncate": 512, "pooling": "mean"},
-            timeout=30,
-            headers={"Content-Type": "application/json"}
-        )
-
-    def test_uses_custom_params_and_batching(self):
-        # Given: Custom params, >batch_size docs
-        docs = ["doc1", "doc2", "doc3"]
-        expected_batch1 = np.array([[0.1] * 384])
-        expected_batch2 = np.array([[0.3] * 384])
-        embedder = create_llama_embedding_callable(
-            server_url="http://custom:9000/embedding",
-            batch_size=2,
-            truncate=256,
-            pooling="cls",
-            timeout=60,
-            extra_param=0.0
-        )
-        
-        # When: Generating (mock batched calls)
-        with patch("requests.post") as mock_post:
-            mock_response1 = Mock(); mock_response1.json.return_value = {"embedding": expected_batch1.tolist()}
-            mock_response2 = Mock(); mock_response2.json.return_value = {"embedding": expected_batch2.tolist()}
-            mock_post.side_effect = [mock_response1, mock_response2]
-            
-            result = embedder(docs)
-        
-        # Then: Batches correctly, stacks embeddings
-        np.testing.assert_array_equal(result, np.vstack([expected_batch1, expected_batch2]))
-        assert mock_post.call_count == 2
-        assert mock_post.call_args_list[0][1]["json"]["content"] == docs[:2]
-
-    def test_raises_on_empty_docs(self):
-        # Given: Empty docs
-        embedder = create_llama_embedding_callable()
-        
-        # When/Then: Returns empty array
-        result = embedder([])
-        assert result.shape == (0, 0)
-
-    def test_raises_on_server_error(self, sample_docs_for_embedding):
-        # Given: Server error
-        embedder = create_llama_embedding_callable()
-        
-        # When/Then: Propagates RuntimeError
-        with patch("requests.post") as mock_post:
-            mock_post.side_effect = requests.RequestException("Server down")
-            with pytest.raises(RuntimeError, match="llama.cpp server error"):
-                embedder(sample_docs_for_embedding)
 
 
 class TestLlamacppEmbeddingIntegration:

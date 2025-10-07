@@ -2,6 +2,8 @@ from jet.adapters.bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from typing import Optional, List, Tuple
 
+from jet.libs.bertopic.jet_examples.mock import load_sample_data
+
 
 def update_topic_representation(
     topic_model: BERTopic,
@@ -140,23 +142,24 @@ if __name__ == "__main__":
     from topic_model_fit_transform import topic_model_fit_transform
     
     # Sample documents
-    docs = [
-        "Machine learning and artificial intelligence are revolutionizing technology.",
-        "Data science involves statistics, programming, and domain expertise.",
-        "COVID-19 pandemic has changed global health and economy.",
-        "Vaccines and medical research are crucial for public health.",
-        "Quantum computing could break current encryption methods.",
-        "Cryptocurrency and blockchain technology are emerging trends.",
-        "Climate change is affecting weather patterns worldwide.",
-        "Renewable energy sources like solar and wind are growing.",
-        "Stock market volatility affects investor confidence.",
-        "Economic policies influence inflation and employment rates.",
-        "Deep learning neural networks require large datasets.",
-        "Natural language processing is advancing rapidly.",
-        "Computer vision applications are expanding in healthcare.",
-        "Robotics and automation are transforming manufacturing.",
-        "Internet of Things devices are becoming more prevalent."
-    ]
+    # docs = [
+    #     "Machine learning and artificial intelligence are revolutionizing technology.",
+    #     "Data science involves statistics, programming, and domain expertise.",
+    #     "COVID-19 pandemic has changed global health and economy.",
+    #     "Vaccines and medical research are crucial for public health.",
+    #     "Quantum computing could break current encryption methods.",
+    #     "Cryptocurrency and blockchain technology are emerging trends.",
+    #     "Climate change is affecting weather patterns worldwide.",
+    #     "Renewable energy sources like solar and wind are growing.",
+    #     "Stock market volatility affects investor confidence.",
+    #     "Economic policies influence inflation and employment rates.",
+    #     "Deep learning neural networks require large datasets.",
+    #     "Natural language processing is advancing rapidly.",
+    #     "Computer vision applications are expanding in healthcare.",
+    #     "Robotics and automation are transforming manufacturing.",
+    #     "Internet of Things devices are becoming more prevalent."
+    # ]
+    docs = load_sample_data()
     
     print("=== Initial Topic Model ===")
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)

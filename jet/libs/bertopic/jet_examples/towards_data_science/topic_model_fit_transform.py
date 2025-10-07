@@ -1,9 +1,7 @@
-from jet.adapters.bertopic import BERTopic
-from sentence_transformers import SentenceTransformer
 import numpy as np
 from typing import Optional, Tuple, List
-
-from jet.models.utils import resolve_model_value
+from jet.adapters.bertopic import BERTopic
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 
 
 def topic_model_fit_transform(
@@ -13,7 +11,6 @@ def topic_model_fit_transform(
     nr_topics: int | str = "auto",
     calculate_probabilities: bool = False,
     precomputed_embeddings: Optional[np.ndarray] = None,
-    random_state: int = 42
 ) -> Tuple[BERTopic, List[int], Optional[np.ndarray]]:
     """
     Fit a BERTopic model to the documents and return topics + probabilities.
@@ -25,7 +22,6 @@ def topic_model_fit_transform(
         nr_topics: Number of topics to extract ("auto" for automatic)
         calculate_probabilities: Whether to calculate topic probabilities
         precomputed_embeddings: Pre-computed embeddings (optional)
-        random_state: Random state for reproducibility
         
     Returns:
         tuple: (topic_model, topics, probabilities)
@@ -36,7 +32,6 @@ def topic_model_fit_transform(
         language=language,
         nr_topics=nr_topics,
         calculate_probabilities=calculate_probabilities,
-        random_state=random_state
     )
     
     # Fit and transform the model
@@ -62,9 +57,8 @@ def precompute_embeddings(
     Returns:
         numpy array of embeddings
     """
-    embedding_model_id = resolve_model_value(embedding_model)
-    model = SentenceTransformer(embedding_model_id)
-    embeddings = model.encode(docs)
+    embedder = LlamacppEmbedding(model=embedding_model)
+    embeddings = embedder(docs)
     return embeddings
 
 

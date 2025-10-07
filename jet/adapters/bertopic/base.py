@@ -29,7 +29,7 @@ class BERTopic(BaseBERTopic):
         representation_model: BaseRepresentation = None,
         verbose: bool = True,
     ):
-        if not embedding_model:
+        if not embedding_model or isinstance(embedding_model, str):
             embedder = BERTopicLlamacppEmbedder(DEFAULT_EMBEDDING_MODEL)
             embedding_model = embedder
 
