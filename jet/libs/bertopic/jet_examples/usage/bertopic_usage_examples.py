@@ -104,7 +104,7 @@ def example_base_topic_modeling():
     """Demonstrate basic topic modeling with BERTopic."""
     logger.info("Starting basic topic modeling example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic(verbose=True)
+    topic_model = BERTopic(vectorizer_model=get_vectorizer(len(documents)), verbose=True)
     logger.info("Fitting topic model...")
     with tqdm(total=len(documents), desc="Processing documents") as pbar:
         topics, _ = topic_model.fit_transform(documents)
@@ -135,7 +135,7 @@ def example_topic_prediction():
     """Demonstrate predicting topics for new documents."""
     logger.info("Starting topic prediction example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic(verbose=True)
+    topic_model = BERTopic(vectorizer_model=get_vectorizer(len(documents)), verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -174,7 +174,7 @@ def example_topics_over_time():
     """Demonstrate analyzing topics over time."""
     logger.info("Starting topics over time example...")
     documents, timestamps = load_sample_data()
-    topic_model = BERTopic(verbose=True)
+    topic_model = BERTopic(vectorizer_model=get_vectorizer(len(documents)), verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -230,7 +230,7 @@ def example_topic_search():
     """Demonstrate searching for topics similar to a query."""
     logger.info("Starting topic search example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic(verbose=True)
+    topic_model = BERTopic(vectorizer_model=get_vectorizer(len(documents)), verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -264,7 +264,7 @@ def example_topic_reduction_and_update():
     """Demonstrate reducing topics and updating topic representations."""
     logger.info("Starting topic reduction and update example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic(verbose=True)
+    topic_model = BERTopic(vectorizer_model=get_vectorizer(len(documents)), verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     
@@ -302,7 +302,7 @@ def example_topic_merging():
     """Demonstrate merging topics."""
     logger.info("Starting topic merging example...")
     documents, _ = load_sample_data()
-    topic_model = BERTopic(verbose=True)
+    topic_model = BERTopic(vectorizer_model=get_vectorizer(len(documents)), verbose=True)
     logger.info("Fitting topic model...")
     topic_model.fit(documents)
     

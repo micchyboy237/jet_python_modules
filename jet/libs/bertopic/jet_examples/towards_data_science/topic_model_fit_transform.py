@@ -3,10 +3,12 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from typing import Optional, Tuple, List
 
+from jet.models.utils import resolve_model_value
+
 
 def topic_model_fit_transform(
     docs: list[str],
-    embedding_model: str = "all-MiniLM-L6-v2",
+    embedding_model: str = "embeddinggemma",
     language: str = "english",
     nr_topics: int | str = "auto",
     calculate_probabilities: bool = False,
@@ -48,7 +50,7 @@ def topic_model_fit_transform(
 
 def precompute_embeddings(
     docs: list[str],
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "embeddinggemma"
 ) -> np.ndarray:
     """
     Pre-compute embeddings for documents to speed up multiple model runs.
@@ -60,7 +62,8 @@ def precompute_embeddings(
     Returns:
         numpy array of embeddings
     """
-    model = SentenceTransformer(embedding_model)
+    embedding_model_id = resolve_model_value(embedding_model)
+    model = SentenceTransformer(embedding_model_id)
     embeddings = model.encode(docs)
     return embeddings
 

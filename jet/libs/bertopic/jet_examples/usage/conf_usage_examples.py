@@ -15,6 +15,7 @@ from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 from bertopic.dimensionality import BaseDimensionalityReduction
 from sklearn.linear_model import LogisticRegression
 
+from jet.adapters.bertopic.utils import get_vectorizer
 from jet.file.utils import save_file
 
 OUTPUT_DIR = os.path.join(
@@ -40,7 +41,12 @@ def example_base_topic_model() -> BERTopic:
     logging.info("Starting base topic model example...")
     documents, _ = load_sample_data()
     embedding_model = EMBED_MODEL
-    model = BERTopic(verbose=True, embedding_model=embedding_model, calculate_probabilities=True)
+    model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
+        verbose=True,
+        embedding_model=embedding_model,
+        calculate_probabilities=True
+    )
     model.umap_model.random_state = 42
     model.hdbscan_model.min_cluster_size = 3
     logging.info("Fitting base topic model...")
@@ -55,6 +61,7 @@ def example_zeroshot_topic_model() -> BERTopic:
     embedding_model = EMBED_MODEL
     zeroshot_topic_list = ["religion", "cars", "electronics"]
     model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
         embedding_model=embedding_model,
         calculate_probabilities=True,
@@ -76,6 +83,7 @@ def example_custom_topic_model() -> BERTopic:
     umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
     hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
     model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
@@ -99,6 +107,7 @@ def example_representation_topic_model() -> BERTopic:
         "MMR": [KeyBERTInspired(top_n_words=30), MaximalMarginalRelevance()],
     }
     model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
@@ -119,6 +128,7 @@ def example_reduced_topic_model() -> BERTopic:
     umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
     hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
     model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
@@ -140,6 +150,7 @@ def example_merged_topic_model() -> BERTopic:
     umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
     hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
     model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
         umap_model=umap_model,
         hdbscan_model=hdbscan_model,
@@ -163,7 +174,13 @@ def example_kmeans_pca_topic_model() -> BERTopic:
     embedding_model = EMBED_MODEL
     hdbscan_model = KMeans(n_clusters=15, random_state=42)
     dim_model = PCA(n_components=5)
-    model = BERTopic(verbose=True, hdbscan_model=hdbscan_model, umap_model=dim_model, embedding_model=embedding_model)
+    model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
+        verbose=True,
+        hdbscan_model=hdbscan_model,
+        umap_model=dim_model,
+        embedding_model=embedding_model,
+    )
     logging.info("Fitting KMeans PCA topic model...")
     model.fit(documents)
     return model
@@ -176,7 +193,13 @@ def example_supervised_topic_model() -> BERTopic:
     embedding_model = EMBED_MODEL
     empty_dimensionality_model = BaseDimensionalityReduction()
     clf = LogisticRegression()
-    model = BERTopic(verbose=True, embedding_model=embedding_model, umap_model=empty_dimensionality_model, hdbscan_model=clf)
+    model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
+        verbose=True,
+        embedding_model=embedding_model,
+        umap_model=empty_dimensionality_model,
+        hdbscan_model=clf
+    )
     logging.info("Fitting supervised topic model...")
     model.fit(documents, y=targets)
     return model
@@ -190,7 +213,13 @@ def example_online_topic_model() -> BERTopic:
     umap_model = PCA(n_components=5)
     cluster_model = MiniBatchKMeans(n_clusters=50, random_state=0)
     vectorizer_model = OnlineCountVectorizer(stop_words="english", decay=0.01)
-    model = BERTopic(verbose=True, umap_model=umap_model, hdbscan_model=cluster_model, vectorizer_model=vectorizer_model, embedding_model=embedding_model)
+    model = BERTopic(
+        verbose=True,
+        umap_model=umap_model,
+        hdbscan_model=cluster_model,
+        vectorizer_model=vectorizer_model,
+        embedding_model=embedding_model,
+    )
     logging.info("Fitting online topic model with partial fit...")
     embeddings = embedding_model.encode(documents)
     for index in range(0, len(documents), 50):
@@ -210,6 +239,7 @@ def example_cuml_base_topic_model() -> Optional[BERTopic]:
     documents, _ = load_sample_data()
     embedding_model = EMBED_MODEL
     model = BERTopic(
+        vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
         embedding_model=embedding_model,
         calculate_probabilities=True,
