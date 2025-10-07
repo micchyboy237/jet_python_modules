@@ -633,6 +633,7 @@ def chunk_texts_with_data_fast(
             if not tokens:
                 continue
             total_len = len(tokens)
+            chunk_index = 0  # Initialize chunk_index for this document
             for j in range(0, total_len, step):
                 chunk_tokens = tokens[j:j + effective_chunk_size]
                 if not chunk_tokens:
@@ -641,19 +642,30 @@ def chunk_texts_with_data_fast(
                 num_tokens = len(size_fn(chunk_content))
                 if num_tokens < min_chunk_size and j + effective_chunk_size < total_len:
                     continue
+                # Calculate overlap indices
+                overlap_start_idx = None
+                overlap_end_idx = None
+                if chunk_overlap > 0 and j + len(chunk_tokens) < total_len:
+                    overlap_start = j + len(chunk_tokens) - min(chunk_overlap, len(chunk_tokens))
+                    overlap_end = min(j + len(chunk_tokens), total_len)
+                    overlap_tokens = tokens[overlap_start:overlap_end]
+                    if overlap_tokens:
+                        overlap_start_idx = overlap_start
+                        overlap_end_idx = overlap_end
                 chunks.append({
                     "id": str(uuid.uuid4()),
                     "doc_id": doc_id,
                     "doc_index": doc_index,
-                    "chunk_index": len(chunks),
+                    "chunk_index": chunk_index,  # Use chunk_index instead of len(chunks)
                     "num_tokens": num_tokens,
                     "content": chunk_content,
                     "start_idx": j,
                     "end_idx": j + len(chunk_content),
                     "line_idx": 0,
-                    "overlap_start_idx": None,
-                    "overlap_end_idx": None
+                    "overlap_start_idx": overlap_start_idx,
+                    "overlap_end_idx": overlap_end_idx
                 })
+                chunk_index += 1
             # Merge last too-small chunk
             if len(chunks) > 1 and chunks[-1]["num_tokens"] < min_chunk_size:
                 last = chunks.pop()
