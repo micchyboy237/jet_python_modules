@@ -160,7 +160,6 @@ def demonstrate_basic_workflow():
     model, topics, probs = topic_model_fit_transform(
         docs, 
         calculate_probabilities=True,
-        random_state=42
     )
     
     # Get statistics

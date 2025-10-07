@@ -111,7 +111,6 @@ if __name__ == "__main__":
     model, topics, probs = topic_model_fit_transform(
         docs, 
         calculate_probabilities=True,
-        random_state=42
     )
     
     print("Topic Information:")
