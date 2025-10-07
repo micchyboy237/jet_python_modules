@@ -50,8 +50,6 @@ def fetch_newsgroups_samples(*, subset: Literal["train", "test", "all"] = "train
         }
         samples.append(doc)
 
-    save_file(samples, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/samples.json")
-
     return samples
 
 def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, subset: Literal["train", "test", "all"] = "train", **kwargs) -> List[TargetInfo]:
@@ -96,15 +94,16 @@ def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] =
         A list of dictionaries containing the text, target label, and category name for each document.
     """
     # Fetch the dataset
-    dataset = fetch_newsgroups_samples(subset=subset)
+    samples = fetch_newsgroups_samples(subset=subset)
+    save_file(samples, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/samples.json")
 
     # Save the categories for reference
-    categories = get_unique_categories(dataset)
+    categories = get_unique_categories(samples)
 
     save_file(categories, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/categories.json")
     
     # Prepare the result list
-    documents: List[str] = [d["text"] for d in dataset]
+    documents: List[str] = [d["text"] for d in samples]
     documents = documents[:limit]
     save_file(documents, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/documents.json")
 
