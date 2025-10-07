@@ -1531,4 +1531,3 @@ if __name__ == "__main__":
     logger.info("\nRunning example_topicmapper_add_new_topics()...")
     results = example_topicmapper_add_new_topics()
     save_file(format_json(results), f"{OUTPUT_DIR}/results/topicmapper_add_new_topics.json")
-
