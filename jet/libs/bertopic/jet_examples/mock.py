@@ -1,5 +1,5 @@
 import os
-from typing import TypedDict, List
+from typing import Optional, TypedDict, List
 from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
@@ -21,6 +21,7 @@ class NewsGroupDocument(TypedDict):
 class TargetInfo(TypedDict):
     label: int
     category: str
+    count: int
 
 def fetch_newsgroups_samples(*, subset: Literal["train", "test", "all"] = "train", **kwargs) -> List[NewsGroupDocument]:
     """Load sample dataset from 20 newsgroups for topic modeling, with global cache."""
@@ -53,24 +54,35 @@ def fetch_newsgroups_samples(*, subset: Literal["train", "test", "all"] = "train
 
     return samples
 
-def get_unique_categories(*, subset: Literal["train", "test", "all"] = "train", **kwargs) -> List[TargetInfo]:
+def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, subset: Literal["train", "test", "all"] = "train", **kwargs) -> List[TargetInfo]:
     """
-    Fetch unique categories and their corresponding labels from the 20 newsgroups dataset.
+    Fetch unique categories, their corresponding labels, and their counts from the 20 newsgroups dataset or provided samples.
     
     Args:
+        samples: Optional list of NewsGroupDocument to extract categories from. If None, fetches from dataset.
         subset: The subset of the dataset to fetch ("train", "test", or "all"). Defaults to "train".
     
     Returns:
-        A list of dictionaries containing unique label and category pairs.
+        A list of dictionaries containing unique label, category, and count of occurrences.
     """
-    newsgroups = fetch_20newsgroups(subset=subset, remove=("headers", "footers", "quotes"), **kwargs)
-    unique_categories: List[TargetInfo] = [
-        {"label": i, "category": newsgroups.target_names[i]}
-        for i in sorted(set(newsgroups.target))
-    ]
-
-    save_file(unique_categories, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/categories.json")
-
+    if samples is not None:
+        # Count occurrences of each (target, category) pair
+        from collections import Counter
+        category_counts = Counter((doc["target"], doc["category"]) for doc in samples)
+        unique_pairs = sorted(category_counts.keys(), key=lambda x: x[0])
+        unique_categories: List[TargetInfo] = [
+            {"label": target, "category": category, "count": category_counts[(target, category)]}
+            for target, category in unique_pairs
+        ]
+    else:
+        newsgroups = fetch_20newsgroups(subset=subset, remove=("headers", "footers", "quotes"), **kwargs)
+        # Count occurrences of each target
+        from collections import Counter
+        target_counts = Counter(newsgroups.target)
+        unique_categories: List[TargetInfo] = [
+            {"label": i, "category": newsgroups.target_names[i], "count": target_counts[i]}
+            for i in sorted(set(newsgroups.target))
+        ]
     return unique_categories
 
 def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] = "train") -> List[str]:
@@ -85,6 +97,11 @@ def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] =
     """
     # Fetch the dataset
     dataset = fetch_newsgroups_samples(subset=subset)
+
+    # Save the categories for reference
+    categories = get_unique_categories(dataset)
+
+    save_file(categories, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/categories.json")
     
     # Prepare the result list
     documents: List[NewsGroupDocument] = [d["text"] for d in dataset]
@@ -96,7 +113,7 @@ def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] =
         model=EMBED_MODEL,
     )
     _sample_data_cache = documents
-
+    
     save_file(documents, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/docs.json")
 
     return documents
