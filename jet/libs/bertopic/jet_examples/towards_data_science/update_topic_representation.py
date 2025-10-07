@@ -3,12 +3,12 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from typing import Optional, List, Tuple
 
 from jet.libs.bertopic.jet_examples.mock import load_sample_data
+from jet.transformers.formatters import format_json
 from jet.file.utils import save_file
+from jet.logger import logger
 import os
 import shutil
 
-from jet.logger import logger
-from jet.transformers.formatters import format_json
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])

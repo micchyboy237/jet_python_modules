@@ -2,6 +2,14 @@ import numpy as np
 from typing import Tuple, List, Optional
 from jet.adapters.bertopic import BERTopic
 from jet.libs.bertopic.jet_examples.mock import load_sample_data
+from jet.file.utils import save_file
+import os
+import shutil
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 def reduce_topic_count(
     topic_model: BERTopic,
@@ -47,19 +55,42 @@ if __name__ == "__main__":
     # First fit a model with many topics
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
     print("Original topics:")
-    print(model.get_topic_info())
+    # Create a list of typed dict for original_topics using topics and probs info
+    original_topics = [
+        {
+            "doc_index": i,
+            "topic_id": topic,
+            "probability": probs[i] if probs is not None else None,
+            "text": docs[i]
+        }
+        for i, topic in enumerate(topics)
+    ]
+    save_file(original_topics, f"{OUTPUT_DIR}/original_topics.json")
     
     # Reduce to fewer topics
     target_topics = 5
     model_reduced, new_topics, new_probs = reduce_topic_count(
         model, docs, nr_topics=target_topics
     )
-    print("\nReduced topics:")
-    print(model_reduced.get_topic_info())
-    
     # Show topic assignments and new probabilities
-    print("\nTopic assignments and probabilities:")
+    print("\nTopic assignments and probabilities (showing up to 5):")
     for i, (doc, topic, prob) in enumerate(
         zip(docs, new_topics, new_probs if new_probs is not None else [None] * len(docs))
     ):
+        if i >= 5:
+            break
         print(f"Doc {i} | Prob: {prob}\nTopic: {topic}\n    {doc}\n")
+
+    print("\nReduced topics:")
+    reduced_topics = [
+        {
+            "doc_index": i,
+            "topic_id": topic,
+            "probability": new_probs[i] if new_probs is not None else None,
+            "text": docs[i]
+        }
+        for i, topic in enumerate(new_topics)
+    ]
+    print(model_reduced.get_topic_info())
+    save_file(reduced_topics, f"{OUTPUT_DIR}/reduced_topics.json")
+    
