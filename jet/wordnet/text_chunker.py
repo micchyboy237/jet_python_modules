@@ -186,36 +186,60 @@ def chunk_texts(
 
         if not strict_sentences and model:
             # Token-based chunking without sentence boundaries
-            tokens = size_fn(text)
-            if not tokens:
-                continue
-            step = max(1, chunk_size - chunk_overlap - buffer)
-
-            token_iter = tqdm(
-                range(0, len(tokens), step),
-                desc="Token-based chunking",
-                unit="chunk",
-                leave=False
-            ) if show_progress else range(0, len(tokens), step)
-
-            for i in token_iter:
-                chunk_tokens = tokens[i:i + chunk_size - buffer]
-                if chunk_tokens:
-                    chunk = tokenizer.decode(chunk_tokens).strip() if model else " ".join(chunk_tokens).strip()
-                    chunk_size_tokens = len(size_fn(chunk))
-                    # Skip chunks smaller than min_chunk_size if not the last chunk
-                    if chunk_size_tokens < min_chunk_size and i + chunk_size - buffer < len(tokens):
+            if not strict_sentences and model:
+                tokens = size_fn(text)
+                if not tokens:
+                    continue
+                step = max(1, chunk_size - chunk_overlap - buffer)
+                for i in range(0, len(tokens), step):
+                    # Binary search to find the largest slice <= chunk_size
+                    left, right = i, min(i + effective_chunk_size, len(tokens))
+                    chunk_tokens = []
+                    chunk_content = ""
+                    chunk_size_tokens = 0
+                    best_size = 0
+                    while left <= right:
+                        mid = (left + right) // 2
+                        temp_tokens = tokens[i:mid]
+                        if temp_tokens:
+                            temp_content = tokenizer.decode(temp_tokens).strip()
+                            temp_size = len(size_fn(temp_content))
+                            if temp_size <= chunk_size:
+                                # Keep track of the best valid slice
+                                if temp_size > best_size:
+                                    chunk_tokens = temp_tokens
+                                    chunk_content = temp_content
+                                    chunk_size_tokens = temp_size
+                                    best_size = temp_size
+                                left = mid + 1  # Try a larger slice
+                            else:
+                                right = mid - 1  # Try a smaller slice
+                        else:
+                            break
+                    if not chunk_tokens:
                         continue
-                    chunked_texts.append(chunk)
-            # Merge last chunk if too small
-            if len(chunked_texts) > 1 and len(size_fn(chunked_texts[-1])) < min_chunk_size:
-                last_chunk = chunked_texts.pop()
-                prev_chunk = chunked_texts[-1]
-                prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(prev_chunk, tokenizer, len(size_fn(last_chunk)))
-                is_covered_by_prev_chunk = last_chunk == prev_chunk_last_n_tokens_string
-                if not is_covered_by_prev_chunk:
-                    chunked_texts[-1] = prev_chunk + " " + last_chunk
-            continue
+                    # Handle last chunk: include remaining tokens if needed
+                    is_last_chunk = i + effective_chunk_size >= len(tokens)
+                    if is_last_chunk and not chunk_tokens:
+                        chunk_tokens = tokens[i:right]
+                        if chunk_tokens:
+                            chunk_content = tokenizer.decode(chunk_tokens).strip()
+                            chunk_size_tokens = len(size_fn(chunk_content))
+                    if not chunk_tokens:
+                        continue
+                    # Skip chunks smaller than min_chunk_size if not the last chunk
+                    if chunk_size_tokens < min_chunk_size and not is_last_chunk and chunk_size > min_chunk_size:
+                        continue
+                    chunked_texts.append(chunk_content)
+                # Merge last chunk if too small
+                if len(chunked_texts) > 1 and len(size_fn(chunked_texts[-1])) < min_chunk_size and chunk_size > min_chunk_size:
+                    last_chunk = chunked_texts.pop()
+                    prev_chunk = chunked_texts[-1]
+                    prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(prev_chunk, tokenizer, len(size_fn(last_chunk)))
+                    is_covered_by_prev_chunk = last_chunk == prev_chunk_last_n_tokens_string
+                    if not is_covered_by_prev_chunk:
+                        chunked_texts[-1] = prev_chunk + " " + last_chunk
+                continue
 
         current_chunk = []
         current_separators = []
@@ -309,20 +333,54 @@ def chunk_texts_fast(
             total_len = len(tokens)
             if not tokens:
                 continue
-
             for i in range(0, total_len, step):
-                chunk_tokens = tokens[i:i + effective_chunk_size]
+                # Binary search to find the largest slice <= chunk_size
+                left, right = i, min(i + effective_chunk_size, total_len)
+                chunk_tokens = []
+                chunk_content = ""
+                chunk_size_tokens = 0
+                best_size = 0
+                while left <= right:
+                    mid = (left + right) // 2
+                    temp_tokens = tokens[i:mid]
+                    if temp_tokens:
+                        temp_content = tokenizer.decode(temp_tokens).strip()
+                        temp_size = len(size_fn(temp_content))
+                        if temp_size <= chunk_size:
+                            # Keep track of the best valid slice
+                            if temp_size > best_size:
+                                chunk_tokens = temp_tokens
+                                chunk_content = temp_content
+                                chunk_size_tokens = temp_size
+                                best_size = temp_size
+                            left = mid + 1  # Try a larger slice
+                        else:
+                            right = mid - 1  # Try a smaller slice
+                    else:
+                        break
                 if not chunk_tokens:
                     continue
-                chunk = tokenizer.decode(chunk_tokens).strip()
-                if len(size_fn(chunk)) < min_chunk_size and i + effective_chunk_size < total_len:
+                # Handle last chunk: include remaining tokens if needed
+                is_last_chunk = i + effective_chunk_size >= total_len
+                if is_last_chunk and not chunk_tokens:
+                    chunk_tokens = tokens[i:right]
+                    if chunk_tokens:
+                        chunk_content = tokenizer.decode(chunk_tokens).strip()
+                        chunk_size_tokens = len(size_fn(chunk_content))
+                if not chunk_tokens:
                     continue
-                chunked_texts.append(chunk)
-
+                # Skip chunks smaller than min_chunk_size if not the last chunk
+                if chunk_size_tokens < min_chunk_size and not is_last_chunk and chunk_size > min_chunk_size:
+                    continue
+                chunked_texts.append(chunk_content)
             # Merge last small chunk
-            if len(chunked_texts) > 1 and len(size_fn(chunked_texts[-1])) < min_chunk_size:
-                chunked_texts[-2] = chunked_texts[-2] + " " + chunked_texts[-1]
-                chunked_texts.pop()
+            if len(chunked_texts) > 1 and len(size_fn(chunked_texts[-1])) < min_chunk_size and chunk_size > min_chunk_size:
+                last_chunk = chunked_texts.pop()
+                prev_chunk = chunked_texts[-1]
+                prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(prev_chunk, tokenizer, len(size_fn(last_chunk)))
+                is_covered_by_prev_chunk = last_chunk == prev_chunk_last_n_tokens_string
+                if not is_covered_by_prev_chunk:
+                    chunked_texts[-1] = prev_chunk + " " + last_chunk
             continue
 
         # Sentence-based chunking (faster with precomputed sizes)
