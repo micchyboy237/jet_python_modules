@@ -104,16 +104,18 @@ def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] =
     save_file(categories, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/categories.json")
     
     # Prepare the result list
-    documents: List[NewsGroupDocument] = [d["text"] for d in dataset]
+    documents: List[str] = [d["text"] for d in dataset]
     documents = documents[:limit]
-    documents = chunk_texts_fast(
+    save_file(documents, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/documents.json")
+
+    chunks = chunk_texts_fast(
         documents,
         chunk_size=64,
         chunk_overlap=32,
         model=EMBED_MODEL,
     )
-    _sample_data_cache = documents
+    _sample_data_cache = chunks
     
-    save_file(documents, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/docs.json")
+    save_file(chunks, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/chunks.json")
 
-    return documents
+    return chunks
