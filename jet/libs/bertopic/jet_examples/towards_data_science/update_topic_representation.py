@@ -39,7 +39,7 @@ def update_topic_representation(
             max_df=max_df
         )
     
-    topic_model.update_topics(docs, topics, vectorizer=vectorizer)
+    topic_model.update_topics(docs, topics, vectorizer_model=vectorizer)
     return topic_model
 
 

@@ -45,5 +45,8 @@ def suppress_logging():
     # Set Numba's logging level to WARNING or higher to suppress debug/info logs
     logging.getLogger('numba').setLevel(logging.WARNING)
 
+    # Suppress HTTP request/response logs from openai
+    logging.getLogger("openai").setLevel(logging.WARNING)
+
 
 suppress_logging()
