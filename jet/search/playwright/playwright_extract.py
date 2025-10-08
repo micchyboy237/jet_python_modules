@@ -79,7 +79,7 @@ class PlaywrightExtractAPIWrapper(BaseModel):
 
         async def extract_content(url: str) -> Dict[str, Any]:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
+                browser = await p.chromium.launch(executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless=True)
                 page = await browser.new_page()
                 try:
                     await page.goto(url, timeout=30000)  # Increased timeout to 30 seconds
