@@ -1834,7 +1834,6 @@ def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResu
         "google",
         "brave",
         "duckduckgo",
-        "bing",
         "yahoo",
     ]
 
