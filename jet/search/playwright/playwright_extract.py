@@ -12,6 +12,7 @@ from jet._token.token_utils import token_counter
 from jet.code.markdown_utils._converters import convert_html_to_markdown
 from jet.code.markdown_utils._markdown_analyzer import analyze_markdown
 from jet.code.markdown_utils._markdown_parser import base_parse_markdown
+from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
 from jet.scrapers.playwright_utils import scrape_urls_sync
 from jet.scrapers.utils import extract_favicon_ico_link
 from jet.transformers.formatters import format_html
@@ -78,7 +79,7 @@ class PlaywrightExtractAPIWrapper(BaseModel):
 
         async def extract_content(url: str) -> Dict[str, Any]:
             async with async_playwright() as p:
-                browser = await p.chromium.launch()
+                browser = await p.chromium.launch(executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
                 page = await browser.new_page()
                 try:
                     await page.goto(url, timeout=30000)  # Increased timeout to 30 seconds

@@ -7,6 +7,8 @@ from urllib.parse import urljoin, urlparse
 import asyncio
 import re
 
+from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
+
 class PlaywrightMapInput(BaseModel):
     """Input for PlaywrightMap"""
     url: str = Field(
@@ -179,7 +181,7 @@ class PlaywrightMapAPIWrapper(BaseModel):
             # Check categories (basic keyword matching)
             if categories:
                 async with async_playwright() as p:
-                    browser = await p.chromium.launch()
+                    browser = await p.chromium.launch(executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
                     page = await browser.new_page()
                     try:
                         await page.goto(url, timeout=10000)
@@ -198,7 +200,7 @@ class PlaywrightMapAPIWrapper(BaseModel):
             visited.add(url)
 
             async with async_playwright() as p:
-                browser = await p.chromium.launch()
+                browser = await p.chromium.launch(executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
                 page = await browser.new_page()
                 try:
                     await page.goto(url, timeout=10000)

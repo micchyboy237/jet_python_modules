@@ -9,6 +9,8 @@ import re
 from bs4 import BeautifulSoup
 import markdownify
 
+from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
+
 class PlaywrightCrawlInput(BaseModel):
     """Input for PlaywrightCrawl"""
     url: str = Field(
@@ -261,7 +263,7 @@ class PlaywrightCrawlAPIWrapper(BaseModel):
             visited.add(url)
 
             async with async_playwright() as p:
-                browser = await p.chromium.launch()
+                browser = await p.chromium.launch(executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
                 page = await browser.new_page()
                 try:
                     await page.goto(url, timeout=10000)

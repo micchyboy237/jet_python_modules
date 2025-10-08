@@ -1,19 +1,16 @@
-import asyncio
 from urllib.parse import urlparse, urljoin
 from starlette.responses import JSONResponse
 from starlette.requests import Request
 from typing import AsyncIterator, List, Dict, Optional
 from contextlib import asynccontextmanager
 from mcp.server.fastmcp.server import FastMCP, Context
-from mcp.types import ContentBlock
-from mcp.server.session import ServerSession
 from pydantic import BaseModel, Field
 from typing import Literal
 from fake_useragent import UserAgent
 from playwright.async_api import async_playwright
 
 
-PLAYWRIGHT_CHROMIUM_EXECUTABLE = "/Users/jethroestrada/Library/Caches/ms-playwright/chromium-1181/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
+PLAYWRIGHT_CHROMIUM_EXECUTABLE = "/Users/jethroestrada/Library/Caches/ms-playwright/chromium-1194/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
 
 
 class FileInput(BaseModel):

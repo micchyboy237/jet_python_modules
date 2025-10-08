@@ -17,7 +17,7 @@ def search_docs(
     query: str,
     documents: List[str],
     model: str = "embeddinggemma",
-    top_k: int = None,
+    top_k: Optional[int] = None,
     ids: Optional[List[str]] = None,
     threshold: float = 0.0
 ) -> List[SearchResult]:
