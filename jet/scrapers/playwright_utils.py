@@ -1,9 +1,8 @@
 import asyncio
 import os
-import platform
 import sys
 import base64
-from typing import AsyncIterator, List, Literal, Optional, TypedDict
+from typing import AsyncIterator, Iterator, List, Literal, Optional, TypedDict
 from playwright.async_api import async_playwright, BrowserContext
 from fake_useragent import UserAgent
 from jet.cache.redis.types import RedisConfigParams
@@ -216,44 +215,6 @@ async def scrape_urls(
                 except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
                     logger.debug(f"Failed to close browser: {str(e)}")
 
-def scrape_url_sync(
-    url: str,
-    timeout: Optional[float] = 5000,
-    max_retries: int = 1,
-    with_screenshot: bool = True,
-    headless: bool = True,
-    wait_for_js: bool = False,
-    use_cache: bool = True
-) -> ScrapeResult:
-    """
-    Synchronously scrape a single URL and return a ScrapeResult.
-    
-    Args:
-        url: The URL to scrape
-        timeout: Timeout for page loading in milliseconds
-        max_retries: Number of retry attempts for failed requests
-        with_screenshot: Whether to capture a screenshot
-        headless: Whether to run browser in headless mode
-        wait_for_js: Whether to wait for JavaScript to load
-        use_cache: Whether to use Redis cache
-    
-    Returns:
-        ScrapeResult containing the URL, status, HTML content, and optional screenshot
-    """
-    results = scrape_urls_sync(
-        urls=[url],
-        num_parallel=1,
-        limit=1,
-        show_progress=False,
-        timeout=timeout,
-        max_retries=max_retries,
-        with_screenshot=with_screenshot,
-        headless=headless,
-        wait_for_js=wait_for_js,
-        use_cache=use_cache
-    )
-    # Return the last result (either "completed" or "failed") for the single URL
-    return next((result for result in results if result["status"] != "started"), results[-1])
 
 def scrape_urls_sync(
     urls: List[str],
@@ -266,25 +227,51 @@ def scrape_urls_sync(
     headless: bool = True,
     wait_for_js: bool = False,
     use_cache: bool = True
-) -> List[ScrapeResult]:
-    async def run_scraper():
-        return await consume_generator(
-            scrape_urls(urls, num_parallel, limit, show_progress, timeout, max_retries, with_screenshot, headless, wait_for_js, use_cache)
-        )
+) -> Iterator[ScrapeResult]:
+    """
+    Synchronously scrape a list of URLs using Playwright, yielding ScrapeResult for each URL.
+    
+    Args:
+        urls: List of URLs to scrape.
+        num_parallel: Number of parallel browser tasks.
+        limit: Maximum number of successful scrapes to return (None for no limit).
+        show_progress: Whether to show a progress bar.
+        timeout: Timeout for page navigation in milliseconds.
+        max_retries: Number of retries for failed attempts.
+        with_screenshot: Whether to capture screenshots.
+        headless: Whether to run browser in headless mode.
+        wait_for_js: Whether to wait for JS rendering.
+        use_cache: Whether to use Redis caching.
+    
+    Yields:
+        ScrapeResult: Dictionary containing URL, status, HTML content, and optional screenshot.
+    """
+    async def run_scrape() -> List[ScrapeResult]:
+        results = []
+        async for result in scrape_urls(
+            urls=urls,
+            num_parallel=num_parallel,
+            limit=limit,
+            show_progress=show_progress,
+            timeout=timeout,
+            max_retries=max_retries,
+            with_screenshot=with_screenshot,
+            headless=headless,
+            wait_for_js=wait_for_js,
+            use_cache=use_cache
+        ):
+            results.append(result)
+        return results
 
-    if platform.system() == "Emscripten":
-        return asyncio.ensure_future(run_scraper()).result()
-    else:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(run_scraper())
-        finally:
-            if not loop.is_running():
-                loop.close()
-
-async def consume_generator(gen: AsyncIterator[ScrapeResult]) -> List[ScrapeResult]:
-    return [item async for item in gen]
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        logger.warning("Cannot run synchronous scraping in an already running event loop.")
+        raise RuntimeError("Synchronous scraping requires a non-running event loop.")
+    
+    try:
+        results = loop.run_until_complete(run_scrape())
+        for result in results:
+            yield result
+    except Exception as e:
+        logger.error(f"Error in synchronous URL scraping: {str(e)}")
+        raise
