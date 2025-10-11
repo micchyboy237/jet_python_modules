@@ -14,7 +14,6 @@ from jet.search.formatters import clean_string
 from nltk.corpus import stopwords
 from typing import List, Optional, Tuple, Union, TypedDict
 
-from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.wordnet.words import get_words
 from jet.adapters.keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
@@ -121,8 +120,8 @@ def preprocess_texts(texts: str | list[str]) -> list[str]:
 
 def setup_keybert(model_name: EmbedModelType = DEFAULT_EMBED_MODEL) -> KeyBERT:
     logger.info(f"Initializing KeyBERT with model: {model_name}")
-    embed_model = SentenceTransformerRegistry.load_model(model_name)
-    return KeyBERT(model=embed_model)
+    # embed_model = SentenceTransformerRegistry.load_model(model_name)
+    return KeyBERT(model=model_name)
 
 
 def extract_query_candidates(query: Union[str, List[str]], ngram_range: Tuple[int, int] = (1, 2)) -> List[str]:
