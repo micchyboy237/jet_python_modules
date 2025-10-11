@@ -3,7 +3,7 @@ import pandas as pd
 from typing import Tuple, Any
 from datetime import datetime
 
-from jet.libs.bertopic.jet_examples.mock import load_sample_data
+from jet.libs.bertopic.examples.mock import load_sample_data
 from jet.file.utils import save_file
 from jet.logger import logger
 import os

@@ -29,7 +29,7 @@ from jet.logger import logger
 warnings.filterwarnings('ignore')
 
 # Import all our custom modules
-from jet.libs.bertopic.jet_examples.mock import load_sample_data
+from jet.libs.bertopic.examples.mock import load_sample_data
 from topic_model_fit_transform import (
     topic_model_fit_transform, 
     precompute_embeddings, 

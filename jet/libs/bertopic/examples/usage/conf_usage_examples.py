@@ -1,4 +1,4 @@
-# jet/libs/bertopic/jet_examples/usage/conf_usage_examples.py
+# jet/libs/bertopic/examples/usage/conf_usage_examples.py
 import logging
 import os
 import shutil

@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Tuple, List, Optional
 from jet.adapters.bertopic import BERTopic
-from jet.libs.bertopic.jet_examples.mock import load_sample_data
+from jet.libs.bertopic.examples.mock import load_sample_data
 from jet.file.utils import save_file
 import os
 import shutil

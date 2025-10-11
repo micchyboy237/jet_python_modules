@@ -1,7 +1,7 @@
 import pytest
 from typing import List
 
-from jet.adapters.bertopic.jet_examples.base.extract_keywords_for_rag import extract_keywords_for_rag
+from jet.adapters.bertopic.examples.base.extract_keywords_for_rag import extract_keywords_for_rag
 
 @pytest.fixture
 def keyword_extraction_setup() -> tuple[List[str], str]:
