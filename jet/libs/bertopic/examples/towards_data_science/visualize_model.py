@@ -1,6 +1,8 @@
 from jet.adapters.bertopic import BERTopic
 from typing import Dict, Any
 
+from jet.logger import logger
+
 
 def visualize_model(
     topic_model: BERTopic, 
@@ -26,8 +28,8 @@ def visualize_model(
     """
     import os
     
-    if save_plots and not os.path.exists(plot_path):
-        os.makedirs(plot_path)
+    if save_plots:
+        os.makedirs(plot_path, exist_ok=True)
     
     plots = {}
     
@@ -36,60 +38,75 @@ def visualize_model(
         fig1 = topic_model.visualize_topics()
         plots["intertopic"] = fig1
         if save_plots:
-            fig1.write_html(f"{plot_path}/intertopic_distance.html")
-            fig1.write_image(f"{plot_path}/intertopic_distance.png")
+            os.makedirs(f"{plot_path}/intertopic", exist_ok=True)
+            fig1.write_html(f"{plot_path}/intertopic/distance.html")
+            fig1.write_image(f"{plot_path}/intertopic/distance.png")
+            logger.success(f"Saved intertopic html at {plot_path}/intertopic/distance.html")
+            logger.success(f"Saved intertopic image at {plot_path}/intertopic/distance.png")
         print("✓ Intertopic distance map created")
     except Exception as e:
         print(f"✗ Failed to create intertopic distance map: {e}")
         plots["intertopic"] = None
-    
+
     # 2. Bar chart (top words per topic)
     try:
         fig2 = topic_model.visualize_barchart()
         plots["barchart"] = fig2
         if save_plots:
-            fig2.write_html(f"{plot_path}/topic_barchart.html")
-            fig2.write_image(f"{plot_path}/topic_barchart.png")
+            os.makedirs(f"{plot_path}/barchart", exist_ok=True)
+            fig2.write_html(f"{plot_path}/barchart/barchart.html")
+            fig2.write_image(f"{plot_path}/barchart/barchart.png")
+            logger.success(f"Saved barchart html at {plot_path}/barchart/barchart.html")
+            logger.success(f"Saved barchart image at {plot_path}/barchart/barchart.png")
         print("✓ Topic bar chart created")
     except Exception as e:
         print(f"✗ Failed to create bar chart: {e}")
         plots["barchart"] = None
-    
+
     # 3. Heatmap of topic similarities
     try:
         fig3 = topic_model.visualize_heatmap()
         plots["heatmap"] = fig3
         if save_plots:
-            fig3.write_html(f"{plot_path}/topic_heatmap.html")
-            fig3.write_image(f"{plot_path}/topic_heatmap.png")
+            os.makedirs(f"{plot_path}/heatmap", exist_ok=True)
+            fig3.write_html(f"{plot_path}/heatmap/heatmap.html")
+            fig3.write_image(f"{plot_path}/heatmap/heatmap.png")
+            logger.success(f"Saved heatmap html at {plot_path}/heatmap/heatmap.html")
+            logger.success(f"Saved heatmap image at {plot_path}/heatmap/heatmap.png")
         print("✓ Topic heatmap created")
     except Exception as e:
         print(f"✗ Failed to create heatmap: {e}")
         plots["heatmap"] = None
-    
+
     # 4. Document topic distribution (if probabilities and doc index provided)
     if probs is not None and doc_index is not None:
         try:
             fig4 = topic_model.visualize_distribution(probs[doc_index])
             plots["doc_distribution"] = fig4
             if save_plots:
-                fig4.write_html(f"{plot_path}/doc_{doc_index}_distribution.html")
-                fig4.write_image(f"{plot_path}/doc_{doc_index}_distribution.png")
+                os.makedirs(f"{plot_path}/doc_distribution_{doc_index}", exist_ok=True)
+                fig4.write_html(f"{plot_path}/doc_distribution_{doc_index}/distribution.html")
+                fig4.write_image(f"{plot_path}/doc_distribution_{doc_index}/distribution.png")
+                logger.success(f"Saved doc_distribution html at {plot_path}/doc_distribution_{doc_index}/distribution.html")
+                logger.success(f"Saved doc_distribution image at {plot_path}/doc_distribution_{doc_index}/distribution.png")
             print(f"✓ Document {doc_index} topic distribution created")
         except Exception as e:
             print(f"✗ Failed to create document distribution: {e}")
             plots["doc_distribution"] = None
     else:
         plots["doc_distribution"] = None
-    
+
     # 5. Topics over time (if time series data provided)
     if topics_over_time is not None:
         try:
             fig5 = topic_model.visualize_topics_over_time(topics_over_time)
             plots["topics_over_time"] = fig5
             if save_plots:
-                fig5.write_html(f"{plot_path}/topics_over_time.html")
-                fig5.write_image(f"{plot_path}/topics_over_time.png")
+                os.makedirs(f"{plot_path}/topics_over_time", exist_ok=True)
+                fig5.write_html(f"{plot_path}/topics_over_time/topics_over_time.html")
+                fig5.write_image(f"{plot_path}/topics_over_time/topics_over_time.png")
+                logger.success(f"Saved topics_over_time html at {plot_path}/topics_over_time/topics_over_time.html")
+                logger.success(f"Saved topics_over_time image at {plot_path}/topics_over_time/topics_over_time.png")
             print("✓ Topics over time visualization created")
         except Exception as e:
             print(f"✗ Failed to create topics over time: {e}")

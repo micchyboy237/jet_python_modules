@@ -11,6 +11,9 @@ def topic_model_fit_transform(
     nr_topics: int | str = "auto",
     calculate_probabilities: bool = False,
     precomputed_embeddings: Optional[np.ndarray] = None,
+    top_n_words: int = 10,
+    n_gram_range: Tuple[int, int] = (1, 3),
+    min_topic_size: int = 2,
 ) -> Tuple[BERTopic, List[int], Optional[np.ndarray]]:
     """
     Fit a BERTopic model to the documents and return topics + probabilities.
@@ -22,6 +25,9 @@ def topic_model_fit_transform(
         nr_topics: Number of topics to extract ("auto" for automatic)
         calculate_probabilities: Whether to calculate topic probabilities
         precomputed_embeddings: Pre-computed embeddings (optional)
+        top_n_words: Number of words per topic
+        n_gram_range: N-gram range for the vectorizer
+        min_topic_size: Minimum number of documents per topic
         
     Returns:
         tuple: (topic_model, topics, probabilities)
@@ -32,6 +38,9 @@ def topic_model_fit_transform(
         language=language,
         nr_topics=nr_topics,
         calculate_probabilities=calculate_probabilities,
+        top_n_words=top_n_words,
+        n_gram_range=n_gram_range,
+        min_topic_size=min_topic_size,
     )
     
     # Fit and transform the model

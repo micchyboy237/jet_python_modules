@@ -49,7 +49,7 @@ from update_topic_representation import (
 )
 from reduce_topic_count import reduce_topic_count
 from find_similar_topics import find_similar_topics
-from visualize_model import visualize_model, show_visualization
+from visualize_model import visualize_model
 from topics_over_time_analysis import (
     topics_over_time_analysis,
     analyze_topic_trends,
@@ -110,7 +110,7 @@ def create_sample_dataset() -> List[str]:
 def demonstrate_basic_workflow():
     """Demonstrate the basic BERTopic workflow."""
     logger = CustomLogger("basic_workflow")
-    output_dir = f"{OUTPUT_DIR}/basic_workflow"
+    output_dir = f"{OUTPUT_DIR}/01_basic_workflow"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -151,7 +151,7 @@ def demonstrate_basic_workflow():
 def demonstrate_custom_components():
     """Demonstrate custom UMAP and HDBSCAN configurations."""
     logger = CustomLogger("custom_components")
-    output_dir = f"{OUTPUT_DIR}/custom_components"
+    output_dir = f"{OUTPUT_DIR}/02_custom_components"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -284,7 +284,7 @@ def demonstrate_custom_components():
 def demonstrate_topic_representation():
     """Demonstrate topic representation updates."""
     logger = CustomLogger("topic_representation")
-    output_dir = f"{OUTPUT_DIR}/topic_representation"
+    output_dir = f"{OUTPUT_DIR}/03_topic_representation"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -367,7 +367,7 @@ def demonstrate_topic_representation():
 def demonstrate_topic_reduction():
     """Demonstrate topic reduction techniques."""
     logger = CustomLogger("topic_reduction")
-    output_dir = f"{OUTPUT_DIR}/topic_reduction"
+    output_dir = f"{OUTPUT_DIR}/04_topic_reduction"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -435,7 +435,7 @@ def demonstrate_topic_reduction():
 def demonstrate_similar_topics():
     """Demonstrate finding similar topics."""
     logger = CustomLogger("similar_topics")
-    output_dir = f"{OUTPUT_DIR}/similar_topics"
+    output_dir = f"{OUTPUT_DIR}/05_similar_topics"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -509,7 +509,7 @@ def demonstrate_similar_topics():
 def demonstrate_visualizations():
     """Demonstrate BERTopic visualizations."""
     logger = CustomLogger("visualizations")
-    output_dir = f"{OUTPUT_DIR}/visualizations"
+    output_dir = f"{OUTPUT_DIR}/06_visualizations"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -520,27 +520,53 @@ def demonstrate_visualizations():
     logger.orange("6. VISUALIZATIONS")
     logger.gray("=" * 60)
     
-    docs, timestamps = create_sample_dataset()
+    docs = create_sample_dataset()
     
     # Train model
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
+
+    save_file(topics, f"{output_dir}/topics.json")
+    save_file(probs, f"{output_dir}/probs.json")
+    save_file(model.get_topic_info().to_dict(orient="records"), f"{output_dir}/topic_info.json")
+
+    # def generate_timestamps(documents):
+    #     from datetime import datetime, timedelta
+    #     import numpy as np
+
+    #     # Set random seed for reproducibility
+    #     np.random.seed(42)
+    #     # Generate timestamps spanning 5 years, proportional to document count
+    #     start_date = datetime(2020, 1, 1)
+    #     end_date = datetime(2025, 12, 31)
+    #     total_days = (end_date - start_date).days
+    #     timestamps = []
+        
+    #     for _ in range(len(documents)):
+    #         days_offset = np.random.randint(0, total_days)
+    #         timestamp = (start_date + timedelta(days=days_offset)).strftime("%Y-%m-%d")
+    #         timestamps.append(timestamp)
+        
+    #     timestamps.sort()  # Sort timestamps chronologically
+    #     return timestamps
+
+    # timestamps = generate_timestamps(docs)
     
     # Get topics over time
-    topics_time, _ = topics_over_time_analysis(
-        model, docs, topics, timestamps, 
-        datetime_format="%Y-%m-%d"
-    )
+    # topics_time, _ = topics_over_time_analysis(
+    #     model, docs, topics, timestamps, 
+    #     datetime_format="%Y-%m-%d"
+    # )
     
     logger.debug("Creating visualizations...")
     
     # Create all visualizations
     plots = visualize_model(
         model,
-        topics_over_time=topics_time,
+        # topics_over_time=topics_time,
         probs=probs,
         doc_index=0,
         save_plots=True,
-        plot_path="bertopic_plots"
+        plot_path=f"{output_dir}/plots"
     )
     
     logger.debug("Available visualizations:")
@@ -550,18 +576,18 @@ def demonstrate_visualizations():
         else:
             logger.debug(f"  ✗ {plot_name} (failed)")
     
-    # Show specific visualizations
-    logger.debug("\nShowing intertopic distance map...")
-    show_visualization(plots, "intertopic")
+    # # Show specific visualizations
+    # logger.debug("\nShowing intertopic distance map...")
+    # show_visualization(plots, "intertopic")
     
-    logger.debug("Showing topic bar chart...")
-    show_visualization(plots, "barchart")
+    # logger.debug("Showing topic bar chart...")
+    # show_visualization(plots, "barchart")
 
 
 def demonstrate_topics_over_time():
     """Demonstrate topics over time analysis."""
     logger = CustomLogger("topics_over_time")
-    output_dir = f"{OUTPUT_DIR}/topics_over_time"
+    output_dir = f"{OUTPUT_DIR}/07_topics_over_time"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -608,7 +634,7 @@ def demonstrate_topics_over_time():
 def demonstrate_model_serialization():
     """Demonstrate model saving and loading."""
     logger = CustomLogger("model_serialization")
-    output_dir = f"{OUTPUT_DIR}/model_serialization"
+    output_dir = f"{OUTPUT_DIR}/08_model_serialization"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -677,7 +703,7 @@ def demonstrate_model_serialization():
 def demonstrate_advanced_workflows():
     """Demonstrate advanced BERTopic workflows."""
     logger = CustomLogger("advanced_workflows")
-    output_dir = f"{OUTPUT_DIR}/advanced_workflows"
+    output_dir = f"{OUTPUT_DIR}/09_advanced_workflows"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -760,23 +786,23 @@ def main():
     logger.gray("=" * 60)
     
     try:
-        # # 1. Basic workflow
-        # demonstrate_basic_workflow()
+        # 1. Basic workflow
+        demonstrate_basic_workflow()
         
-        # # 2. Custom components
-        # demonstrate_custom_components()
+        # 2. Custom components
+        demonstrate_custom_components()
         
-        # # 3. Topic representation
-        # demonstrate_topic_representation()
+        # 3. Topic representation
+        demonstrate_topic_representation()
         
         # 4. Topic reduction
         demonstrate_topic_reduction()
         
-        # # 5. Similar topics
-        # demonstrate_similar_topics()
+        # 5. Similar topics
+        demonstrate_similar_topics()
         
-        # # 6. Visualizations
-        # demonstrate_visualizations()
+        # 6. Visualizations
+        demonstrate_visualizations()
         
         # # 7. Topics over time
         # demonstrate_topics_over_time()
