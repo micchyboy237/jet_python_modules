@@ -265,6 +265,7 @@ class BERTopicEnhancer:
 
 if __name__ == "__main__":
     import logging
+    import contextlib
     logging.basicConfig(level=logging.DEBUG)  # Temporary debug logging
     logger = logging.getLogger(__name__)
 
@@ -304,7 +305,13 @@ if __name__ == "__main__":
     topic_distr, topic_token_distr = enhancer.approximate_document_distribution(docs, window=4, calculate_tokens=True)
 
     # Visualize results
-    enhancer.topic_model.visualize_distribution(topic_distr[0])
+    logger.debug(f"Topic distribution for first document: {topic_distr[0]}")
+    logger.debug(f"Max probability in topic_distr[0]: {np.max(topic_distr[0])}")
+    if np.max(topic_distr[0]) > 0.001:  # Check if probabilities are sufficient
+        enhancer.topic_model.visualize_distribution(topic_distr[0], min_probability=0.001)
+    else:
+        logger.warning("Skipping visualization: All probabilities in topic_distr[0] are below 0.001")
+
     enhancer.create_wordcloud(topic=1)
 
     # Example comparing two models
