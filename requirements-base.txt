@@ -30,4 +30,5 @@ tokenizers
 torch
 tqdm
 transformers
+umap-learn
 unidecode

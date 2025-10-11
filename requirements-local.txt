@@ -21,6 +21,7 @@ Markdown
 mrkdwn-analysis
 model2vec
 fastembed
+wordcloud
 
 # KeyBERT Peers
 # flair
