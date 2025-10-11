@@ -1,5 +1,5 @@
 import pytest
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 from keybert.backend import SentenceTransformerBackend
 import sentence_transformers
 

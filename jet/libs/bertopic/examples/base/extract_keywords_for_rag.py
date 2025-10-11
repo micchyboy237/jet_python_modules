@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Tuple
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
 
 def extract_keywords_for_rag(

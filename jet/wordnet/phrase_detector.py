@@ -4,7 +4,7 @@ from jet.models.model_registry.transformers.sentence_transformer_registry import
 from jet.models.model_types import EmbedModelType
 from jet.wordnet.sentence import split_by_punctuations, split_sentences
 from jet.wordnet.words import get_words
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 from nltk.corpus import stopwords
 from tqdm import tqdm
 import pickle

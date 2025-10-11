@@ -1,7 +1,3 @@
-from jet.file.utils import load_file
-from jet.logger.config import colorize_log
-from jet._token.token_utils import split_headers
-from jet.vectors.document_types import HeaderDocument
 from tqdm import tqdm
 import string
 import nltk
@@ -10,7 +6,7 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.feature_extraction.text import TfidfVectorizer
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 
 nltk.download('punkt')
 nltk.download('stopwords')

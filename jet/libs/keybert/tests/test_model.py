@@ -1,5 +1,5 @@
 import pytest
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import CountVectorizer
 

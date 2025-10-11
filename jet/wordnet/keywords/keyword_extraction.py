@@ -4,13 +4,12 @@ import spacy
 import uuid
 from tqdm import tqdm
 from jet.data.header_utils._prepare_for_rag import preprocess_text as preprocess_text_for_rag
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
-from jet.models.model_types import EmbedModelType, LLMModelType
-from jet.vectors.document_types import HeaderDocument
-from jet.models.embeddings.base import generate_embeddings, load_embed_model
-from jet.wordnet.keywords.helpers import SimilarityResult, _count_tokens, preprocess_texts, setup_keybert
+from jet.models.model_types import EmbedModelType
+from jet.models.embeddings.base import generate_embeddings
+from jet.wordnet.keywords.helpers import SimilarityResult, _count_tokens, setup_keybert
 from jet.logger import logger
 import numpy as np
 

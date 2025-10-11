@@ -8,7 +8,7 @@ import os
 import json
 from jet.logger import logger
 from sklearn.cluster import KMeans
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 
 
 class Document(TypedDict):

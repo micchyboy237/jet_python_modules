@@ -1,7 +1,7 @@
 import pytest
-from typing import List, Tuple, Union
+from typing import List
 import spacy
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 from jet.wordnet.keywords.helpers import setup_keybert, extract_query_candidates, extract_keywords_with_embeddings, KeywordResult
 
 

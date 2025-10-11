@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple, Union, TypedDict
 
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.wordnet.words import get_words
-from keybert import KeyBERT
+from jet.adapters.keybert import KeyBERT
 from sklearn.feature_extraction.text import CountVectorizer
 from jet.models.model_types import EmbedModelType
 from jet.models.embeddings.base import generate_embeddings
