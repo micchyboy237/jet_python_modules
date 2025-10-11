@@ -20,10 +20,13 @@ Date: 2024
 """
 
 import os
+import shutil
 import warnings
-from typing import List, Tuple
+from typing import List, TypedDict
 
-from jet.logger import logger
+from jet.file.utils import save_file
+from jet.logger import CustomLogger
+from jet.utils.text import format_file_path
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
@@ -59,87 +62,115 @@ from save_topic_model import (
     compare_models
 )
 
-from datetime import datetime, timedelta
-import numpy as np
+
+class TopicCategory(TypedDict):
+    label: int
+    category: str
+
+class TopicEntry(TypedDict):
+    rank: int
+    doc_index: int
+    score: float
+    text: str  # Original chunk text
+    category: TopicCategory
+
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+
+CHUNK_SIZE = 128
+CHUNK_OVERLAP = 32
+
+OUTPUT_DIR = f"{OUTPUT_DIR}/chunked_{CHUNK_SIZE}_{CHUNK_OVERLAP}"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+log_file = os.path.join(OUTPUT_DIR, "main.log")
+
+logger = CustomLogger(__name__)
+logger.basicConfig(filename=log_file)
+logger.info(f"Logs: {log_file}")
 
 _sample_data_cache = None
 
-def create_sample_dataset() -> Tuple[List[str], List[str]]:
+def create_sample_dataset() -> List[str]:
     """
-    Create a comprehensive sample dataset covering multiple topics and time periods.
-    Uses cached data if available and generates reproducible timestamps based on document count.
+    Create a comprehensive sample dataset covering multiple topics.
+    Uses cached data if available.
     Returns:
-        tuple: (documents, timestamps)
+        documents (list): The sample documents.
     """
     global _sample_data_cache
     if _sample_data_cache is not None:
         logger.info(f"Reusing sample data cache ({len(_sample_data_cache)} documents)")
         docs = _sample_data_cache["documents"]
-        timestamps = _sample_data_cache["timestamps"]
     else:
         docs = load_sample_data()
-        # Set random seed for reproducibility
-        np.random.seed(42)
-        # Generate timestamps spanning 5 years, proportional to document count
-        start_date = datetime(2020, 1, 1)
-        end_date = datetime(2025, 12, 31)
-        total_days = (end_date - start_date).days
-        timestamps = []
-        
-        for _ in range(len(docs)):
-            days_offset = np.random.randint(0, total_days)
-            timestamp = (start_date + timedelta(days=days_offset)).strftime("%Y-%m-%d")
-            timestamps.append(timestamp)
-        
-        timestamps.sort()  # Sort timestamps chronologically
-        _sample_data_cache = {"documents": docs, "timestamps": timestamps}
-
-    return docs, timestamps
+        _sample_data_cache = {"documents": docs}
+    return docs
 
 
 def demonstrate_basic_workflow():
     """Demonstrate the basic BERTopic workflow."""
-    print("=" * 60)
-    print("1. BASIC BERTOPIC WORKFLOW")
-    print("=" * 60)
+    logger = CustomLogger("basic_workflow")
+    output_dir = f"{OUTPUT_DIR}/basic_workflow"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
+
+    logger.gray("=" * 60)
+    logger.orange("1. BASIC BERTOPIC WORKFLOW")
+    logger.gray("=" * 60)
     
-    docs, timestamps = create_sample_dataset()
+    docs = create_sample_dataset()
     
     # Basic model training
-    print("Training basic BERTopic model...")
+    logger.info("Training basic BERTopic model...")
     model, topics, probs = topic_model_fit_transform(
         docs, 
         calculate_probabilities=True,
     )
+    save_file(topics, f"{output_dir}/topics.json")
+    save_file(probs, f"{output_dir}/probs.json")
     
     # Get statistics
     stats = get_topic_statistics(model, topics)
-    print(f"Number of topics: {stats['n_topics']}")
-    print(f"Number of documents: {stats['n_documents']}")
-    print(f"Outlier percentage: {stats['outlier_percentage']:.1f}%")
-    print(f"Average documents per topic: {stats['avg_docs_per_topic']:.1f}")
+    topic_info = stats.pop("topic_info")
+    logger.success(f"Number of topics: {stats['n_topics']}")
+    logger.success(f"Number of documents: {stats['n_documents']}")
+    logger.success(f"Outlier percentage: {stats['outlier_percentage']:.1f}%")
+    logger.success(f"Average documents per topic: {stats['avg_docs_per_topic']:.1f}")
+    save_file(stats, f"{output_dir}/stats.json")
     
     # Show topic information
-    print("\nTopic Information:")
-    print(model.get_topic_info())
+    logger.debug("\nTopic Information:")
+    logger.success(topic_info)
+    save_file(topic_info.to_dict(orient="records"), f"{output_dir}/topic_info.json")
     
-    return model, topics, probs, docs, timestamps
 
 
 def demonstrate_custom_components():
     """Demonstrate custom UMAP and HDBSCAN configurations."""
-    print("\n" + "=" * 60)
-    print("2. CUSTOM COMPONENTS CONFIGURATION")
-    print("=" * 60)
+    logger = CustomLogger("custom_components")
+    output_dir = f"{OUTPUT_DIR}/custom_components"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
     
-    docs, _ = create_sample_dataset()
+    logger.gray("\n" + "=" * 60)
+    logger.orange("2. CUSTOM COMPONENTS CONFIGURATION")
+    logger.gray("=" * 60)
+    
+    docs = create_sample_dataset()
     
     # Get presets
     umap_presets = get_umap_presets()
     hdbscan_presets = get_hdbscan_presets()
     
-    print("Available UMAP presets:", list(umap_presets.keys()))
-    print("Available HDBSCAN presets:", list(hdbscan_presets.keys()))
+    logger.info("Available UMAP presets:", list(umap_presets.keys()))
+    logger.info("Available HDBSCAN presets:", list(hdbscan_presets.keys()))
     
     # Test different configurations
     configs = [
@@ -161,8 +192,9 @@ def demonstrate_custom_components():
     ]
     
     results = {}
+    all_topic_entries = {}  # Store topic entries per config
     for config in configs:
-        print(f"\nTesting {config['name']} configuration...")
+        logger.debug(f"\nTesting {config['name']} configuration...")
         try:
             model, topics, probs = build_topic_model_with_custom_components(
                 docs,
@@ -170,10 +202,10 @@ def demonstrate_custom_components():
                 hdbscan_params=config["hdbscan_params"],
                 calculate_probabilities=True
             )
-            
+
             n_topics = len(model.get_topic_info())
             outlier_pct = (topics.count(-1) / len(topics)) * 100
-            
+
             results[config['name']] = {
                 "model": model,
                 "topics": topics,
@@ -181,11 +213,43 @@ def demonstrate_custom_components():
                 "n_topics": n_topics,
                 "outlier_percentage": outlier_pct
             }
-            
-            print(f"  Topics: {n_topics}, Outliers: {outlier_pct:.1f}%")
+
+            logger.success(f"  Topics: {n_topics}, Outliers: {outlier_pct:.1f}%")
+
+            topic_info = model.get_topic_info()
+            config_topic_entries = []
+            for rank, topic_row in enumerate(topic_info.itertuples(), start=1):
+                # Safely access columns by index for a DataFrame row tuple
+                # topic_info columns are ['Topic', 'Name', 'Count', ...]
+                topic_id = int(getattr(topic_row, 'Topic', -1))
+                category_name = str(getattr(topic_row, 'Name', f"Topic {topic_id}"))
+                score = float(getattr(topic_row, 'Count', 0))
+                doc_indices = [i for i, t in enumerate(topics) if t == topic_id]
+                doc_index = doc_indices[0] if doc_indices else -1
+                text = docs[doc_index] if doc_index >= 0 else ""
+                category: TopicCategory = {
+                    "label": topic_id,
+                    "category": category_name
+                }
+                topic_entry: TopicEntry = {
+                    "rank": rank,
+                    "doc_index": doc_index,
+                    "score": score,
+                    "text": text,
+                    "category": category
+                }
+                config_topic_entries.append(topic_entry)
+                save_file(
+                    {
+                        **config,
+                        "topic": topic_entry,
+                    },
+                    f"{output_dir}/{format_file_path(config['name'])}/config_topics_{topic_id}.json"
+                )
+            all_topic_entries[config["name"]] = config_topic_entries
             
         except Exception as e:
-            print(f"  Error: {e}")
+            logger.error(f"  Error: {e}")
             results[config['name']] = {"error": str(e)}
     
     # Choose best configuration
@@ -201,20 +265,37 @@ def demonstrate_custom_components():
                 best_config = name
     
     if best_config:
-        print(f"\nBest configuration: {best_config}")
+        logger.success(f"\nBest configuration: {best_config}")
+        # Save the best config and all its topics in a separate file
+        best_config_topics = all_topic_entries.get(best_config, [])
+        save_file(
+            {
+                "config": configs[[cfg["name"] for cfg in configs].index(best_config)],
+                "topics": best_config_topics,
+            },
+            f"{output_dir}/best_config_and_topics.json"
+        )
         return results[best_config]["model"], results[best_config]["topics"], results[best_config]["probs"]
     else:
-        print("No successful configurations found")
+        logger.warning("No successful configurations found")
         return None, None, None
 
 
 def demonstrate_topic_representation():
     """Demonstrate topic representation updates."""
-    print("\n" + "=" * 60)
-    print("3. TOPIC REPRESENTATION UPDATES")
-    print("=" * 60)
+    logger = CustomLogger("topic_representation")
+    output_dir = f"{OUTPUT_DIR}/topic_representation"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
     
-    docs, _ = create_sample_dataset()
+    logger.gray("\n" + "=" * 60)
+    logger.orange("3. TOPIC REPRESENTATION UPDATES")
+    logger.gray("=" * 60)
+    
+    docs = create_sample_dataset()
     
     # Train initial model
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
@@ -223,10 +304,11 @@ def demonstrate_topic_representation():
     original_topics = {}
     for topic_id in range(len(model.get_topic_info())):
         original_topics[topic_id] = model.get_topic(topic_id)
+    save_file(original_topics, f"{output_dir}/original_topics.json")
     
-    print("Original topic representations (first 3 topics):")
+    logger.info("Original topic representations (first 3 topics):")
     for topic_id in range(min(3, len(original_topics))):
-        print(f"Topic {topic_id}: {original_topics[topic_id][:5]}")
+        logger.success(f"Topic {topic_id}: {original_topics[topic_id][:5] if original_topics[topic_id] else "None"}")
     
     # Test different n-gram ranges
     n_gram_configs = [
@@ -237,7 +319,7 @@ def demonstrate_topic_representation():
     ]
     
     for n_gram_range, description in n_gram_configs:
-        print(f"\n{description}:")
+        logger.debug(f"\n{description}:")
         model_updated = update_topic_representation(
             model, docs, topics,
             n_gram_range=n_gram_range,
@@ -246,10 +328,18 @@ def demonstrate_topic_representation():
         
         for topic_id in range(min(2, len(model_updated.get_topic_info()))):
             topic_words = model_updated.get_topic(topic_id)
-            print(f"  Topic {topic_id}: {topic_words[:5]}")
+            if not topic_words:
+                topic_words = []
+            logger.success(f"  Topic {topic_id}: {topic_words[:5]}")
+            save_file({
+                "n_gram_range": n_gram_range,
+                "description": description,
+                "count": len(topic_words),
+                "topics": topic_words,
+            }, f"{output_dir}/ngram/top_topics_{topic_id}_n_{n_gram_range[0]}_{n_gram_range[1]}.json")
     
     # Test custom vectorizer
-    print("\nUsing TF-IDF vectorizer:")
+    logger.info("\nUsing TF-IDF vectorizer:")
     custom_vectorizer = create_custom_vectorizer(
         vectorizer_type="tfidf",
         n_gram_range=(1, 2),
@@ -264,16 +354,31 @@ def demonstrate_topic_representation():
     
     for topic_id in range(min(3, len(model_tfidf.get_topic_info()))):
         topic_words = model_tfidf.get_topic(topic_id)
-        print(f"Topic {topic_id}: {topic_words[:5]}")
+        if not topic_words:
+            topic_words = []
+        logger.success(f"Topic {topic_id}: {topic_words[:5]}")
+        save_file(topic_words, f"{output_dir}/tfidf/top_topics_{topic_id}.json")
+        save_file({
+            "count": len(topic_words),
+            "topics": topic_words,
+        }, f"{output_dir}/tfidf/top_topics_{topic_id}.json")
 
 
 def demonstrate_topic_reduction():
     """Demonstrate topic reduction techniques."""
-    print("\n" + "=" * 60)
-    print("4. TOPIC REDUCTION")
-    print("=" * 60)
+    logger = CustomLogger("topic_reduction")
+    output_dir = f"{OUTPUT_DIR}/topic_reduction"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
     
-    docs, _ = create_sample_dataset()
+    logger.gray("\n" + "=" * 60)
+    logger.orange("4. TOPIC REDUCTION")
+    logger.gray("=" * 60)
+    
+    docs = create_sample_dataset()
     
     # Train model with many topics
     model, topics, probs = topic_model_fit_transform(
@@ -282,14 +387,14 @@ def demonstrate_topic_reduction():
         nr_topics="auto"  # Let it find many topics
     )
     
-    print(f"Original number of topics: {len(model.get_topic_info())}")
-    print("Original topic distribution:")
+    logger.debug(f"Original number of topics: {len(model.get_topic_info())}")
+    logger.debug("Original topic distribution:")
     topic_counts = {}
     for topic in topics:
         topic_counts[topic] = topic_counts.get(topic, 0) + 1
     
     for topic_id, count in sorted(topic_counts.items()):
-        print(f"  Topic {topic_id}: {count} documents")
+        logger.debug(f"  Topic {topic_id}: {count} documents")
     
     # Reduce topics
     target_topics = 5
@@ -297,54 +402,111 @@ def demonstrate_topic_reduction():
         model, docs, nr_topics=target_topics
     )
     
-    print(f"\nAfter reduction to {target_topics} topics:")
-    print(f"New number of topics: {len(model_reduced.get_topic_info())}")
+    logger.debug(f"\nAfter reduction to {target_topics} topics:")
+    logger.debug(f"New number of topics: {len(model_reduced.get_topic_info())}")
     
-    print("New topic distribution:")
+    logger.debug("New topic distribution:")
     new_topic_counts = {}
     for topic in new_topics:
         new_topic_counts[topic] = new_topic_counts.get(topic, 0) + 1
     
     for topic_id, count in sorted(new_topic_counts.items()):
-        print(f"  Topic {topic_id}: {count} documents")
+        logger.debug(f"  Topic {topic_id}: {count} documents")
     
     # Show topic details
-    print("\nReduced topic details:")
+    logger.debug("\nReduced topic details:")
     for topic_id in range(min(3, len(model_reduced.get_topic_info()))):
         topic_words = model_reduced.get_topic(topic_id)
-        print(f"Topic {topic_id}: {topic_words[:5]}")
+        logger.debug(f"Topic {topic_id}: {topic_words[:5]}")
 
 
 def demonstrate_similar_topics():
     """Demonstrate finding similar topics."""
-    print("\n" + "=" * 60)
-    print("5. SIMILAR TOPIC FINDING")
-    print("=" * 60)
+    logger = CustomLogger("similar_topics")
+    output_dir = f"{OUTPUT_DIR}/similar_topics"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
+
+    logger.gray("\n" + "=" * 60)
+    logger.orange("5. SIMILAR TOPIC FINDING")
+    logger.gray("=" * 60)
     
-    docs, _ = create_sample_dataset()
+    docs = create_sample_dataset()
     
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
     
     # Test different search terms
-    search_terms = ["data", "health", "technology", "climate", "economy", "AI"]
-    
+    search_terms = ["isekai", "anime", "2025"]
+    top_n = 10
+
+    class SearchResult(TypedDict):
+        rank: int
+        score: float
+        doc_index: int
+        category: TopicCategory
+        text: str
+
+    all_search_results: dict[str, list[SearchResult]] = {}
+
     for term in search_terms:
-        print(f"\nSearching for topics similar to '{term}':")
+        logger.debug(f"\nSearching for topics similar to '{term}':")
+        search_results: list[SearchResult] = []
         try:
-            similar_topics, sim_scores = find_similar_topics(model, term, top_n=3)
-            
-            for topic_id, score in zip(similar_topics, sim_scores):
+            similar_topics, sim_scores = find_similar_topics(model, term, top_n=top_n)
+            for rank, (topic_id, score) in enumerate(zip(similar_topics, sim_scores)):
+                topic_info = model.get_topic_info()
+                # Get the first doc_index (if any) for this topic
+                # Find a document index with this topic
+                doc_indices = [i for i, t in enumerate(topics) if t == topic_id]
+                doc_index = doc_indices[0] if doc_indices else -1
+                # Get topic label/category if available in topic_info
+                topic_row = topic_info[topic_info["Topic"] == topic_id]
+                category: TopicCategory = {
+                    "label": int(topic_id),
+                    "category": str(topic_row.iloc[0]["Name"]) if not topic_row.empty and "Name" in topic_row else f"Topic {topic_id}"
+                }
+                # Get the original document text
+                doc_text = docs[doc_index] if doc_index >= 0 else ""
+                # Log success and also append the result
                 topic_words = model.get_topic(topic_id)
-                print(f"  Topic {topic_id} (similarity: {score:.3f}): {topic_words[:5]}")
+                logger.success(f"  Topic {topic_id} (similarity: {score:.3f}): {topic_words[:5]}")
+                search_results.append({
+                    "rank": rank,
+                    "score": float(score),
+                    "doc_index": int(doc_index),
+                    "category": category,
+                    "text": doc_text  # Added text field to SearchResult
+                })
         except Exception as e:
-            print(f"  Error finding similar topics: {e}")
+            logger.error(f"  Error finding similar topics: {e}")
+        all_search_results[term] = search_results
+
+    save_file(search_terms, f"{output_dir}/terms.json")
+    for term, results in all_search_results.items():
+        term_num = f"{search_terms.index(term) + 1:02d}"
+        save_file({
+            "term": term,
+            "count": len(results),
+            "results": results
+        }, f"{output_dir}/search_results/{term_num}_{format_file_path(term)}.json")
 
 
 def demonstrate_visualizations():
     """Demonstrate BERTopic visualizations."""
-    print("\n" + "=" * 60)
-    print("6. VISUALIZATIONS")
-    print("=" * 60)
+    logger = CustomLogger("visualizations")
+    output_dir = f"{OUTPUT_DIR}/visualizations"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
+    
+    logger.gray("\n" + "=" * 60)
+    logger.orange("6. VISUALIZATIONS")
+    logger.gray("=" * 60)
     
     docs, timestamps = create_sample_dataset()
     
@@ -357,7 +519,7 @@ def demonstrate_visualizations():
         datetime_format="%Y-%m-%d"
     )
     
-    print("Creating visualizations...")
+    logger.debug("Creating visualizations...")
     
     # Create all visualizations
     plots = visualize_model(
@@ -369,26 +531,34 @@ def demonstrate_visualizations():
         plot_path="bertopic_plots"
     )
     
-    print("Available visualizations:")
+    logger.debug("Available visualizations:")
     for plot_name, plot in plots.items():
         if plot is not None:
-            print(f"  ✓ {plot_name}")
+            logger.debug(f"  ✓ {plot_name}")
         else:
-            print(f"  ✗ {plot_name} (failed)")
+            logger.debug(f"  ✗ {plot_name} (failed)")
     
     # Show specific visualizations
-    print("\nShowing intertopic distance map...")
+    logger.debug("\nShowing intertopic distance map...")
     show_visualization(plots, "intertopic")
     
-    print("Showing topic bar chart...")
+    logger.debug("Showing topic bar chart...")
     show_visualization(plots, "barchart")
 
 
 def demonstrate_topics_over_time():
     """Demonstrate topics over time analysis."""
-    print("\n" + "=" * 60)
-    print("7. TOPICS OVER TIME ANALYSIS")
-    print("=" * 60)
+    logger = CustomLogger("topics_over_time")
+    output_dir = f"{OUTPUT_DIR}/topics_over_time"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
+    
+    logger.gray("\n" + "=" * 60)
+    logger.orange("7. TOPICS OVER TIME ANALYSIS")
+    logger.gray("=" * 60)
     
     docs, timestamps = create_sample_dataset()
     
@@ -400,50 +570,58 @@ def demonstrate_topics_over_time():
         datetime_format="%Y-%m-%d"
     )
     
-    print("Topics over time data (first 10 rows):")
-    print(topics_time.head(10))
+    logger.debug("Topics over time data (first 10 rows):")
+    logger.debug(topics_time.head(10))
     
     # Analyze trends
-    print("\nAnalyzing topic trends...")
+    logger.debug("\nAnalyzing topic trends...")
     trends = analyze_topic_trends(topics_time, top_n=5)
-    print("Top 5 topic trends:")
-    print(trends)
+    logger.debug("Top 5 topic trends:")
+    logger.debug(trends)
     
     # Analyze evolution of specific topics
     if len(topics_time) > 0:
         unique_topics = topics_time['Topic'].unique()
         for topic_id in unique_topics[:3]:  # Analyze first 3 topics
             evolution = get_topic_evolution(topics_time, topic_id)
-            print(f"\nEvolution of topic {topic_id}:")
+            logger.debug(f"\nEvolution of topic {topic_id}:")
             for key, value in evolution.items():
-                print(f"  {key}: {value}")
+                logger.debug(f"  {key}: {value}")
     
     # Show visualization
-    print("\nShowing topics over time visualization...")
+    logger.debug("\nShowing topics over time visualization...")
     fig.show()
 
 
 def demonstrate_model_serialization():
     """Demonstrate model saving and loading."""
-    print("\n" + "=" * 60)
-    print("8. MODEL SERIALIZATION")
-    print("=" * 60)
+    logger = CustomLogger("model_serialization")
+    output_dir = f"{OUTPUT_DIR}/model_serialization"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
     
-    docs, _ = create_sample_dataset()
+    logger.gray("\n" + "=" * 60)
+    logger.orange("8. MODEL SERIALIZATION")
+    logger.gray("=" * 60)
+    
+    docs = create_sample_dataset()
     
     # Train model
     model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
     
     # Get model information
     info = get_model_info(model)
-    print("Model information:")
+    logger.debug("Model information:")
     for key, value in info.items():
         if key != "topic_info":
-            print(f"  {key}: {value}")
+            logger.debug(f"  {key}: {value}")
     
     # Save model
     save_path = "saved_bertopic_model"
-    print(f"\nSaving model to {save_path}...")
+    logger.debug(f"\nSaving model to {save_path}...")
     
     saved_info = save_topic_model(
         model,
@@ -452,51 +630,58 @@ def demonstrate_model_serialization():
         save_metadata=True
     )
     
-    print("Saved model information:")
+    logger.debug("Saved model information:")
     for key, value in saved_info.items():
-        print(f"  {key}: {value}")
+        logger.debug(f"  {key}: {value}")
     
     # Load model
-    print(f"\nLoading model from {save_path}...")
+    logger.debug(f"\nLoading model from {save_path}...")
     loaded_model, metadata = load_topic_model(save_path, load_metadata=True)
     
-    print("Loaded model metadata:")
+    logger.debug("Loaded model metadata:")
     if metadata:
-        print(f"  Saved at: {metadata.get('saved_at', 'unknown')}")
-        print(f"  Number of topics: {metadata['model_info']['n_topics']}")
-        print(f"  Embedding model: {metadata['model_info']['embedding_model']}")
+        logger.debug(f"  Saved at: {metadata.get('saved_at', 'unknown')}")
+        logger.debug(f"  Number of topics: {metadata['model_info']['n_topics']}")
+        logger.debug(f"  Embedding model: {metadata['model_info']['embedding_model']}")
     
     # Compare models
-    print("\nComparing original and loaded models...")
+    logger.debug("\nComparing original and loaded models...")
     comparison = compare_models(model, loaded_model)
-    print(f"  Number of topics difference: {comparison['n_topics_diff']}")
-    print(f"  Embedding models same: {comparison['embedding_models_same']}")
-    print(f"  Languages same: {comparison['languages_same']}")
+    logger.debug(f"  Number of topics difference: {comparison['n_topics_diff']}")
+    logger.debug(f"  Embedding models same: {comparison['embedding_models_same']}")
+    logger.debug(f"  Languages same: {comparison['languages_same']}")
     
     # Test loaded model
-    print("\nTesting loaded model...")
-    print("Topic information from loaded model:")
-    print(loaded_model.get_topic_info())
+    logger.debug("\nTesting loaded model...")
+    logger.debug("Topic information from loaded model:")
+    logger.debug(loaded_model.get_topic_info())
     
     # Clean up
-    import shutil
     if os.path.exists(save_path):
         shutil.rmtree(save_path)
-        print(f"\nCleaned up saved model directory: {save_path}")
+        logger.debug(f"\nCleaned up saved model directory: {save_path}")
 
 
 def demonstrate_advanced_workflows():
     """Demonstrate advanced BERTopic workflows."""
-    print("\n" + "=" * 60)
-    print("9. ADVANCED WORKFLOWS")
-    print("=" * 60)
+    logger = CustomLogger("advanced_workflows")
+    output_dir = f"{OUTPUT_DIR}/advanced_workflows"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
+    
+    logger.gray("\n" + "=" * 60)
+    logger.orange("9. ADVANCED WORKFLOWS")
+    logger.gray("=" * 60)
     
     docs, timestamps = create_sample_dataset()
     
     # Pre-compute embeddings for efficiency
-    print("Pre-computing embeddings...")
+    logger.debug("Pre-computing embeddings...")
     embeddings = precompute_embeddings(docs)
-    print(f"Embeddings shape: {embeddings.shape}")
+    logger.debug(f"Embeddings shape: {embeddings.shape}")
     
     # Use pre-computed embeddings
     model, topics, probs = topic_model_fit_transform(
@@ -505,31 +690,31 @@ def demonstrate_advanced_workflows():
         calculate_probabilities=True
     )
     
-    print("Model trained with pre-computed embeddings")
-    print(f"Number of topics: {len(model.get_topic_info())}")
+    logger.debug("Model trained with pre-computed embeddings")
+    logger.debug(f"Number of topics: {len(model.get_topic_info())}")
     
     # Demonstrate hierarchical topic modeling
-    print("\nDemonstrating hierarchical topic modeling...")
+    logger.debug("\nDemonstrating hierarchical topic modeling...")
     
     # Create a hierarchical structure by reducing topics step by step
     original_topics = len(model.get_topic_info())
-    print(f"Original topics: {original_topics}")
+    logger.debug(f"Original topics: {original_topics}")
     
     # Reduce to fewer topics
     model_hierarchical, topics_hierarchical, probs_hierarchical = reduce_topic_count(
         model, docs, topics, probs, nr_topics=3
     )
     
-    print(f"Hierarchical topics: {len(model_hierarchical.get_topic_info())}")
+    logger.debug(f"Hierarchical topics: {len(model_hierarchical.get_topic_info())}")
     
     # Show hierarchical topic structure
-    print("Hierarchical topic structure:")
+    logger.debug("Hierarchical topic structure:")
     for topic_id in range(len(model_hierarchical.get_topic_info())):
         topic_words = model_hierarchical.get_topic(topic_id)
-        print(f"  Level 1 - Topic {topic_id}: {topic_words[:5]}")
+        logger.debug(f"  Level 1 - Topic {topic_id}: {topic_words[:5]}")
     
     # Demonstrate topic evolution analysis
-    print("\nAnalyzing topic evolution...")
+    logger.debug("\nAnalyzing topic evolution...")
     topics_time, _ = topics_over_time_analysis(
         model, docs, topics, timestamps,
         datetime_format="%Y-%m-%d"
@@ -542,7 +727,7 @@ def demonstrate_advanced_workflows():
         if "error" not in evolution:
             topic_evolutions[topic_id] = evolution
     
-    print(f"Analyzed evolution for {len(topic_evolutions)} topics")
+    logger.debug(f"Analyzed evolution for {len(topic_evolutions)} topics")
     
     # Show most dynamic topics
     dynamic_topics = sorted(
@@ -551,53 +736,53 @@ def demonstrate_advanced_workflows():
         reverse=True
     )[:3]
     
-    print("Most dynamic topics:")
+    logger.debug("Most dynamic topics:")
     for topic_id, evolution in dynamic_topics:
-        print(f"  Topic {topic_id}: {evolution['total_periods']} periods, trend: {evolution['trend']}")
+        logger.debug(f"  Topic {topic_id}: {evolution['total_periods']} periods, trend: {evolution['trend']}")
 
 
 def main():
     """Run the comprehensive BERTopic demonstration."""
-    print("COMPREHENSIVE BERTOPIC EXAMPLE")
-    print("A Practical Guide to BERTopic Implementation")
-    print("=" * 60)
+    logger.debug("COMPREHENSIVE BERTOPIC EXAMPLE")
+    logger.debug("A Practical Guide to BERTopic Implementation")
+    logger.gray("=" * 60)
     
     try:
-        # 1. Basic workflow
-        model, topics, probs, docs, timestamps = demonstrate_basic_workflow()
+        # # 1. Basic workflow
+        # demonstrate_basic_workflow()
         
         # 2. Custom components
         demonstrate_custom_components()
         
-        # 3. Topic representation
-        demonstrate_topic_representation()
+        # # 3. Topic representation
+        # demonstrate_topic_representation()
         
-        # 4. Topic reduction
-        demonstrate_topic_reduction()
+        # # 4. Topic reduction
+        # demonstrate_topic_reduction()
         
-        # 5. Similar topics
-        demonstrate_similar_topics()
+        # # 5. Similar topics
+        # demonstrate_similar_topics()
         
-        # 6. Visualizations
-        demonstrate_visualizations()
+        # # 6. Visualizations
+        # demonstrate_visualizations()
         
-        # 7. Topics over time
-        demonstrate_topics_over_time()
+        # # 7. Topics over time
+        # demonstrate_topics_over_time()
         
-        # 8. Model serialization
-        demonstrate_model_serialization()
+        # # 8. Model serialization
+        # demonstrate_model_serialization()
         
-        # 9. Advanced workflows
-        demonstrate_advanced_workflows()
+        # # 9. Advanced workflows
+        # demonstrate_advanced_workflows()
         
-        print("\n" + "=" * 60)
-        print("COMPREHENSIVE DEMONSTRATION COMPLETED")
-        print("=" * 60)
-        print("All BERTopic workflows have been demonstrated successfully!")
-        print("Check the 'bertopic_plots' directory for saved visualizations.")
+        logger.gray("\n" + "=" * 60)
+        logger.teal("COMPREHENSIVE DEMONSTRATION COMPLETED")
+        logger.gray("=" * 60)
+        logger.info("All BERTopic workflows have been demonstrated successfully!")
+        logger.info("Check the 'bertopic_plots' directory for saved visualizations.")
         
     except Exception as e:
-        print(f"\nError during demonstration: {e}")
+        logger.error(f"\nError during demonstration: {e}")
         import traceback
         traceback.print_exc()
 

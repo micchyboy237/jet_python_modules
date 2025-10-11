@@ -19,6 +19,11 @@ from jet.wordnet.text_chunker import chunk_texts
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+
+CHUNK_SIZE = 128
+CHUNK_OVERLAP = 32
+
+OUTPUT_DIR = f"{OUTPUT_DIR}/chunked_{CHUNK_SIZE}_{CHUNK_OVERLAP}"
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 log_file = os.path.join(OUTPUT_DIR, "main.log")
@@ -48,8 +53,8 @@ def load_sample_data():
 
     documents = chunk_texts(
         documents,
-        chunk_size=64,
-        chunk_overlap=32,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
         model=embed_model,
     )
 
@@ -248,7 +253,7 @@ def example_topic_search():
     topic_model.fit(documents)
     
     # Search for similar topics
-    query = "artificial intelligence"
+    query = "The Water Magician and Apocalypse Bringer"
     logger.info(f"Searching for topics similar to: {query}")
     similar_topics, similarity = topic_model.find_topics(query, top_n=2)
     
@@ -340,10 +345,10 @@ if __name__ == "__main__":
 
     logger.info("Running BERTopic usage examples...")
     example_hierarchical_topics()
-    example_topic_reduction_and_update()
     example_base_topic_modeling()
-    example_topic_prediction()
-    example_topics_over_time()
     example_topic_search()
     example_topic_merging()
+    example_topics_over_time()
+    example_topic_prediction()
+    example_topic_reduction_and_update()
     logger.info("All examples completed successfully.")

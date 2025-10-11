@@ -3,9 +3,12 @@ from typing import Optional, TypedDict, List
 from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
+from jet.code.markdown_types.markdown_parsed_types import HeaderDoc
+from jet.code.markdown_utils._preprocessors import clean_markdown_links
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+from jet.utils.url_utils import clean_links
 from jet.wordnet.text_chunker import chunk_texts
-from jet.file.utils import save_file
+from jet.file.utils import load_file, save_file
 from jet.logger import logger
 
 EMBED_MODEL = "embeddinggemma"
@@ -78,7 +81,34 @@ def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, 
         ]
     return unique_categories
 
-def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] = "train") -> List[str]:
+def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32) -> List[str]:
+    """Load sample dataset from local for topic modeling."""
+    output_dir = f"{get_entry_file_dir()}/generated"
+    output_dir = f"{output_dir}/chunked_{chunk_size}_{chunk_overlap}"
+
+    headers_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/all_headers.json"
+    
+    logger.info("Loading sample dataset...")
+    headers_dict = load_file(headers_file)
+    # headers: List[HeaderDoc] = [h for h_list in headers_dict.values() for h in h_list]
+    headers: List[HeaderDoc] = headers_dict["https://gamerant.com/new-isekai-anime-2025"]
+    documents = [f"{doc["header"]}\n\n{doc['content']}" for doc in headers]
+
+    # Clean all links
+    documents = [clean_markdown_links(doc) for doc in documents]
+    documents = [clean_links(doc) for doc in documents]
+
+    documents = chunk_texts(
+        documents,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        model=model,
+    )
+
+    save_file(documents, f"{output_dir}/documents.json")
+    return documents
+
+def load_news_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32) -> List[str]:
     """
     Fetch information from the 20newsgroups newsgroups and return as a list of typed dictionaries.
     
@@ -93,6 +123,9 @@ def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] =
     if _sample_data_cache is not None:
         logger.info(f"Reusing sample data cache ({len(_sample_data_cache)})")
         return _sample_data_cache
+
+    limit: int = 100
+    subset: Literal["train", "test", "all"] = "train"
 
     # Fetch the dataset
     samples = fetch_newsgroups_samples(subset=subset)
@@ -110,9 +143,9 @@ def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] =
 
     chunks = chunk_texts(
         documents,
-        chunk_size=64,
-        chunk_overlap=32,
-        model=EMBED_MODEL,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        model=model,
     )
     _sample_data_cache = chunks
     

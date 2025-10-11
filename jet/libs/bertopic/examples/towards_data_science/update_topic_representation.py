@@ -241,7 +241,7 @@ if __name__ == "__main__":
                 "topics": topic_words,
             }, f"{OUTPUT_DIR}/ngram/top_topics_{topic_id}_n_{n_gram_range[0]}_{n_gram_range[1]}.json")
     
-    print("\n=== Using Custom Vectorizer ===")
+    print("\n=== Using TF-IDF Vectorizer ===")
     
     # Create custom TF-IDF vectorizer
     custom_vectorizer = create_custom_vectorizer(

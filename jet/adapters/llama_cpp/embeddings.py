@@ -96,6 +96,17 @@ class LlamacppEmbedding:
             max_length = 512
         
         token_counts: List[int] = token_counter(valid_inputs, self.model, prevent_total=True)
+        max_token_count = max(token_counts) if token_counts else 0
+
+        # Log detailed input statistics
+        logger.info(
+            f"Embedding stats -> model: {self.model}, "
+            f"embedding_size: {embedding_size}, "
+            f"context_size: {context_size}, "
+            f"max_length: {max_length}, "
+            f"max_token_count: {max_token_count}"
+        )
+
         long_inputs = [(count, idx) for idx, count in enumerate(token_counts) if count > max_length]
         
         if long_inputs:
@@ -111,7 +122,7 @@ class LlamacppEmbedding:
                 context_size=context_size
             )
             batch_size = dynamic_batch_size
-            logger.debug(f"Dynamic batch sizing enabled. Using batch_size: {batch_size} (static: {batch_size}, dynamic: {dynamic_batch_size})")
+            logger.debug(f"Dynamic batch sizing enabled. Using batch_size: {batch_size}")
         else:
             logger.debug(f"Using static batch_size: {batch_size}")
         
@@ -177,6 +188,7 @@ class LlamacppEmbedding:
         return_format: Literal["numpy", "list"] = "numpy",
         batch_size: int = 32,
         show_progress: bool = True,
+        max_input_length: Optional[int] = None,
         use_cache: Optional[bool] = None,
         use_dynamic_batch_sizing: Optional[bool] = None
     ) -> Iterator[GenerateEmbeddingsReturnType]:
@@ -192,7 +204,30 @@ class LlamacppEmbedding:
         
         embedding_size = get_embedding_size(self.model)
         context_size = get_context_size(self.model)
+        max_length = max_input_length if max_input_length is not None else context_size
+        
+        if max_length <= 0:
+            logger.warning(f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512")
+            max_length = 512
+
         token_counts: List[int] = token_counter(valid_inputs, self.model, prevent_total=True)
+        max_token_count = max(token_counts) if token_counts else 0
+
+        # Log detailed input statistics
+        logger.info(
+            f"Embedding stats -> model: {self.model}, "
+            f"embedding_size: {embedding_size}, "
+            f"context_size: {context_size}, "
+            f"max_length: {max_length}, "
+            f"max_token_count: {max_token_count}"
+        )
+
+        long_inputs = [(count, idx) for idx, count in enumerate(token_counts) if count > max_length]
+        
+        if long_inputs:
+            long_input_indexes = [idx for _, idx in long_inputs]
+            logger.error(f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}")
+            raise InputTooLargeError(long_input_indexes, max_length)
         
         # Apply dynamic batch sizing if enabled
         if use_dynamic_batch_sizing:

@@ -4,7 +4,7 @@ from jet.adapters.bertopic import BERTopic
 def find_similar_topics(
     topic_model: BERTopic,
     term: str,
-    top_n: int = 3
+    top_n: int = 10
 ) -> tuple[list[int], list[float]]:
     """
     Given a keyword or term, find the top_n most semantically similar topics and their similarity scores.

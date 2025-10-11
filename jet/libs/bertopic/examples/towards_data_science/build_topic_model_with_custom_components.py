@@ -8,7 +8,7 @@ import numpy as np
 
 def build_topic_model_with_custom_components(
     docs: list[str],
-    embedding_model: str = "all-MiniLM-L6-v2",
+    embedding_model: str = "embeddinggemma",
     umap_params: dict = None,
     hdbscan_params: dict = None,
     calculate_probabilities: bool = False,
@@ -152,7 +152,7 @@ def get_hdbscan_presets() -> Dict[str, Dict[str, Any]]:
 def compare_model_configurations(
     docs: list[str],
     configs: List[Dict[str, Any]],
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "embeddinggemma"
 ) -> Dict[str, Any]:
     """
     Compare different model configurations and return results.
