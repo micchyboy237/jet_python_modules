@@ -1,14 +1,12 @@
-import os
 from typing import Optional, TypedDict, List
 from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
 from jet.code.markdown_types.markdown_parsed_types import HeaderDoc
 from jet.code.markdown_utils._preprocessors import clean_markdown_links
-from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from jet.utils.url_utils import clean_links
 from jet.wordnet.text_chunker import chunk_texts
-from jet.file.utils import load_file, save_file
+from jet.file.utils import load_file
 from jet.logger import logger
 
 EMBED_MODEL = "embeddinggemma"
@@ -83,9 +81,6 @@ def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, 
 
 def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32) -> List[str]:
     """Load sample dataset from local for topic modeling."""
-    output_dir = f"{get_entry_file_dir()}/generated"
-    output_dir = f"{output_dir}/chunked_{chunk_size}_{chunk_overlap}"
-
     headers_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/all_headers.json"
     
     logger.info("Loading sample dataset...")
@@ -105,7 +100,6 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
         model=model,
     )
 
-    save_file(documents, f"{output_dir}/documents.json")
     return documents
 
 def load_news_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32) -> List[str]:
@@ -129,17 +123,14 @@ def load_news_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk
 
     # Fetch the dataset
     samples = fetch_newsgroups_samples(subset=subset)
-    save_file(samples, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/samples.json")
 
     # Save the categories for reference
-    categories = get_unique_categories(samples)
+    # categories = get_unique_categories(samples)
 
-    save_file(categories, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/categories.json")
     
     # Prepare the result list
     documents: List[str] = [d["text"] for d in samples]
     documents = documents[:limit]
-    save_file(documents, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/documents.json")
 
     chunks = chunk_texts(
         documents,
@@ -148,7 +139,5 @@ def load_news_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk
         model=model,
     )
     _sample_data_cache = chunks
-    
-    save_file(chunks, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/chunks.json")
 
     return chunks
