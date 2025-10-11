@@ -397,6 +397,23 @@ def test_serializable_callable_class_instance():
     # Then: The result should match the expected dictionary with attributes, not callable types
     assert result == expected, f"Expected {expected}, but got {result}"
 
+def test_serializable_circular_reference():
+    # Given: A class with a circular reference
+    class CircularClass:
+        def __init__(self):
+            self.name = "Test"
+            self.self_ref = None
+    
+    obj = CircularClass()
+    obj.self_ref = obj
+    
+    # When: Serializing the object with circular reference
+    expected = {"name": "Test", "self_ref": "<CircularClass object>"}
+    result = make_serializable(obj)
+    
+    # Then: The result should handle the circular reference appropriately
+    assert result == expected, f"Expected {expected}, but got {result}"
+
 @pytest.fixture(autouse=True)
 def cleanup():
     yield

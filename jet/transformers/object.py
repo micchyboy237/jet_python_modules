@@ -20,74 +20,89 @@ def convert_dict_keys_to_snake_case(d: Dict[str, Any]) -> Dict[str, Any]:
         for k, v in d.items()
     }
 
-def make_serializable(obj):
+def make_serializable(obj, seen=None):
     """
     Recursively converts an object's attributes to be serializable.
     Args:
         obj: The input object to process.
+        seen: Set of object IDs to track processed objects and prevent circular references.
     Returns:
         A serializable representation of the object.
     """
-    if isinstance(obj, Enum):
-        return obj.value  # Convert Enum to its value
-    elif isinstance(obj, bytes):
-        try:
-            decoded_str = obj.decode('utf-8')
-        except UnicodeDecodeError:
-            decoded_str = base64.b64encode(obj).decode('utf-8')
-        return make_serializable(decoded_str)
-    elif isinstance(obj, (int, float, bool, type(None))):
-        return obj
-    elif isinstance(obj, str):
-        try:
-            parsed_obj = json.loads(obj)
-            if isinstance(parsed_obj, (dict, list)):  # Only parse JSON objects or arrays
-                return parsed_obj
-            return obj  # Keep as string if it's a valid number or boolean
-        except json.JSONDecodeError:
-            return obj
-    elif isinstance(obj, set):
-        return make_serializable(list(obj))
-    elif isinstance(obj, tuple):
-        return [make_serializable(item) for item in obj]
-    elif isinstance(obj, list):
-        return [make_serializable(item) for item in obj]
-    elif isinstance(obj, dict):
-        serialized_dict = {}
-        for key, value in obj.items():
-            serialized_key = str(key) if not isinstance(
-                key, str) else key  # Ensure keys are strings
-            serialized_dict[serialized_key] = make_serializable(
-                value)  # Properly process values
-        return serialized_dict
-    elif isinstance(obj, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
-        return str(type(obj))
-    elif isinstance(obj, BaseModel):
-        try:
-            return make_serializable(obj.model_dump())
-        except (AttributeError, TypeError):
-            return make_serializable(vars(obj))
-    elif is_dataclass(obj):
-        try:
-            return make_serializable(asdict(obj))
-        except Exception:
-            return make_serializable(vars(obj))
-    elif isinstance(obj, (np.integer, np.floating)):
-        return obj.item()  # Convert numpy types to native Python types
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()  # Convert numpy arrays to lists
-    elif hasattr(obj, "__dict__"):  # Check this only after primitive and known types
-        try:
-            # Try custom __dict__ method if defined
-            if callable(getattr(obj, "__dict__", None)):
-                dict_data = obj.__dict__()
-            else:
-                dict_data = get_non_empty_attributes(obj)
-            return make_serializable(dict_data)
-        except Exception:
-            return str(obj)
-    else:
-        return str(obj)  # Fallback for unsupported types
+    if seen is None:
+        seen = set()
+
+    def _serialize_inner(inner_obj, seen):
+        # Handle basic types first to avoid incorrect circular reference detection
+        if isinstance(inner_obj, Enum):
+            return inner_obj.value
+        elif isinstance(inner_obj, bytes):
+            try:
+                decoded_str = inner_obj.decode('utf-8')
+            except UnicodeDecodeError:
+                decoded_str = base64.b64encode(inner_obj).decode('utf-8')
+            return _serialize_inner(decoded_str, seen.copy())
+        elif isinstance(inner_obj, (int, float, bool, type(None))):
+            return inner_obj
+        elif isinstance(inner_obj, str):
+            try:
+                parsed_obj = json.loads(inner_obj)
+                if isinstance(parsed_obj, (dict, list)):
+                    return _serialize_inner(parsed_obj, seen.copy())
+                return inner_obj
+            except json.JSONDecodeError:
+                return inner_obj
+        elif isinstance(inner_obj, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
+            return str(type(inner_obj))
+        elif isinstance(inner_obj, (np.integer, np.floating)):
+            return inner_obj.item()
+        elif isinstance(inner_obj, np.ndarray):
+            return inner_obj.tolist()
+        elif isinstance(inner_obj, BaseModel):
+            try:
+                return _serialize_inner(inner_obj.model_dump(), seen.copy())
+            except (AttributeError, TypeError):
+                return _serialize_inner(vars(inner_obj), seen.copy())
+        elif is_dataclass(inner_obj):
+            try:
+                return _serialize_inner(asdict(inner_obj), seen.copy())
+            except Exception:
+                return _serialize_inner(vars(inner_obj), seen.copy())
+        
+        # Check for circular reference after handling basic types
+        if id(inner_obj) in seen:
+            return f"<{inner_obj.__class__.__name__} object>"
+
+        # Create a new seen set for this recursive branch
+        new_seen = seen.copy()
+        new_seen.add(id(inner_obj))
+
+        if isinstance(inner_obj, set):
+            return [_serialize_inner(item, new_seen) for item in inner_obj]
+        elif isinstance(inner_obj, tuple):
+            return [_serialize_inner(item, new_seen) for item in inner_obj]
+        elif isinstance(inner_obj, list):
+            return [_serialize_inner(item, new_seen) for item in inner_obj]
+        elif isinstance(inner_obj, dict):
+            serialized_dict = {}
+            for key, value in inner_obj.items():
+                serialized_key = str(key) if not isinstance(key, str) else key
+                serialized_dict[serialized_key] = _serialize_inner(value, new_seen)
+            return serialized_dict
+        elif hasattr(inner_obj, "__dict__"):
+            try:
+                if callable(getattr(inner_obj, "__dict__", None)):
+                    dict_data = inner_obj.__dict__()
+                else:
+                    dict_data = get_non_empty_attributes(inner_obj)
+                return _serialize_inner(dict_data, new_seen)
+            except Exception:
+                return str(inner_obj)
+        else:
+            return str(inner_obj)
+
+    result = _serialize_inner(obj, seen)
+    return result
 
 
 # Example usage

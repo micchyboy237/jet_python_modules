@@ -20,6 +20,7 @@ from jet.llm.ollama.config import (
 
 )
 from jet.wordnet.text_chunker import truncate_texts
+from jet.models.embeddings.cache import get_cached_embeddings, cache_embeddings, generate_cache_key
 
 
 class MemoryEmbedding(TypedDict):
@@ -28,7 +29,7 @@ class MemoryEmbedding(TypedDict):
 
 
 # GenerateEmbeddingsReturnType = Union[MemoryEmbedding, List[MemoryEmbedding]]
-GenerateEmbeddingsReturnType = list[float] | list[list[float]] | np.ndarray
+GenerateEmbeddingsReturnType = Union[List[float], List[List[float]], np.ndarray]
 
 GenerateMultipleReturnType = Callable[[
     Union[str, List[str]]], List[MemoryEmbedding]]
@@ -476,7 +477,7 @@ def generate_multiple(
 
 
 def generate_embeddings(
-    text: Union[str, list[str]],
+    text: Union[str, List[str]],
     model: str,
     batch_size: int = 32,
     return_format: Literal["list", "numpy"] = "numpy",
@@ -484,112 +485,103 @@ def generate_embeddings(
     show_progress: bool = False,
     **kwargs
 ) -> GenerateEmbeddingsReturnType:
-    url = kwargs.get("url", base_url)
-    key = kwargs.get("key", "")
-
     text = [text] if isinstance(text, str) else text
+    if use_cache:
+        cache_key = generate_cache_key(text, model, batch_size)
+        cached_result = get_cached_embeddings(cache_key, return_format)
+        if cached_result is not None:
+            logger.warning(f"Cache hit for {len(text)} texts (key: {cache_key}, file: {CACHE_PATH})")
+            return cached_result[0] if isinstance(text, str) else cached_result
+        logger.warning(f"Cache miss for {len(text)} texts (key: {cache_key}, file: {CACHE_PATH}). Computing embeddings...")
+    
+    embeddings = generate_ollama_batch_embeddings(
+        texts=text,
+        model=model,
+        batch_size=batch_size,
+        url=kwargs.get("url", base_url),
+        key=kwargs.get("key", ""),
+        max_tokens=kwargs.get("max_tokens"),
+        max_retries=kwargs.get("max_retries", 3),
+        return_format=return_format,
+        show_progress=show_progress,
+    )
     
     if use_cache:
-        embed_func = get_embedding_function(
-            model_name=model,
-            batch_size=batch_size,
-            return_format=return_format,
-            url=url,
-            show_progress=show_progress,
-        )
-        embeddings = embed_func(text)
-    else:
-        embeddings = generate_ollama_batch_embeddings(
-            texts=text,
-            model=model,
-            batch_size=batch_size,
-            url=url,
-            key=key,
-            return_format=return_format,
-            show_progress=show_progress,
-        )
-
+        cache_embeddings(cache_key, embeddings)
+    
     return embeddings[0] if isinstance(text, str) else embeddings
 
 
 def generate_embeddings_stream(
-    texts: Union[str, list[str]],
+    texts: Union[str, List[str]],
     model: str,
     batch_size: int = 32,
     return_format: Literal["list", "numpy"] = "numpy",
     use_cache: bool = False,
-    max_tokens: Optional[int | float] = None,
+    max_tokens: Optional[Union[int, float]] = None,
     max_retries: int = 3,
     show_progress: bool = False,
     **kwargs
-) -> Iterator[list[list[float]] | np.ndarray]:
-    """
-    Stream embeddings batch by batch (generator).
-    Yields one batch of embeddings at a time instead of collecting all.
-    """
-    url = kwargs.get("url", base_url)
-    key = kwargs.get("key", "")
-
+) -> Iterator[GenerateEmbeddingsReturnType]:
     texts = [texts] if isinstance(texts, str) else texts
     model_max_tokens: int = get_model_max_tokens(model)
-
-    # Handle relative max_tokens
     if isinstance(max_tokens, float) and max_tokens < 1:
         max_tokens = int(model_max_tokens * max_tokens)
     else:
         max_tokens = int(max_tokens or model_max_tokens)
-
-    token_counts: list[int] = token_counter(texts, model, prevent_total=True)
-
-    # Warn & truncate long texts
-    exceeded_texts = [
-        (text, count) for text, count in zip(texts, token_counts) if count > model_max_tokens
-    ]
+    token_counts: List[int] = token_counter(texts, model, prevent_total=True)
+    exceeded_texts = [(text, count) for text, count in zip(texts, token_counts) if count > model_max_tokens]
     if exceeded_texts:
         logger.warning(
             "Some texts exceed the model's max token limit:\n" +
-            "\n".join(
-                f"- {count} tokens: {text[:50].replace('\n', ' ')}..."
-                for text, count in exceeded_texts
-            )
+            "\n".join(f"- {count} tokens: {text[:50].replace('\n', ' ')}..." for text, count in exceeded_texts)
         )
         texts = truncate_texts(texts, model, max_tokens)
+    
+    if use_cache:
+        cache_key = generate_cache_key(texts, model, batch_size)
+        cached_result = get_cached_embeddings(cache_key, return_format)
+        if cached_result is not None:
+            logger.warning(f"Cache hit for {len(texts)} texts (key: {cache_key}, file: {CACHE_PATH})")
+            if isinstance(cached_result, np.ndarray):
+                cached_result = cached_result.tolist()
+            for i in range(0, len(cached_result), batch_size):
+                batch = cached_result[i:i + batch_size]
+                if return_format == "numpy":
+                    batch = np.array(batch, dtype=np.float32)
+                yield batch
+            return
 
     headers = {"Content-Type": "application/json"}
-    if key:
+    if key := kwargs.get("key", ""):
         headers["Authorization"] = f"Bearer {key}"
-
     total_batches = (len(texts) + batch_size - 1) // batch_size
     batch_iter = range(0, len(texts), batch_size)
-
-    # Wrap iterator with tqdm if progress tracking is enabled
     iterator = tqdm(batch_iter, total=total_batches, disable=not show_progress, desc="Embedding batches")
-
-    # Process in batches
+    
     for i in iterator:
         batch_texts = texts[i:i + batch_size]
-
         for attempt in range(max_retries):
             try:
                 r = requests.post(
-                    f"{url}/api/embed",
+                    f"{kwargs.get('url', base_url)}/api/embed",
                     headers=headers,
                     json={"model": model, "input": batch_texts},
                     timeout=300,
                 )
                 r.raise_for_status()
                 data = r.json()
-
                 if "embeddings" in data:
                     batch_embeddings = data["embeddings"]
                     if return_format == "numpy":
-                        batch_embeddings = np.array(batch_embeddings)
+                        batch_embeddings = np.array(batch_embeddings, dtype=np.float32)
+                    if use_cache:
+                        cache_embeddings(generate_cache_key(batch_texts, model, batch_size), batch_embeddings)
                     yield batch_embeddings
                     break
                 else:
                     logger.error("No embeddings found in response.")
                     raise ValueError("Invalid response: missing embeddings")
-
             except requests.RequestException as e:
                 logger.error(
                     f"Attempt {attempt + 1} failed with error: {e}, "
