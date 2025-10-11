@@ -27,18 +27,19 @@ logger.info(f"Logs: {log_file}")
 
 OUTPUT_DIR = Path(OUTPUT_DIR)
 
-EMBED_MODEL = "embeddinggemma"
-
 # Download NLTK stopwords
 nltk.download('stopwords', quiet=True)
 
 
 def load_sample_data():
     """Load sample dataset from local for topic modeling."""
-    logger.info("Loading sample dataset...")
+    embed_model = "embeddinggemma"
     headers_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/all_headers.json"
+    
+    logger.info("Loading sample dataset...")
     headers_dict = load_file(headers_file)
-    headers: List[HeaderDoc] = [h for h_list in headers_dict.values() for h in h_list]
+    # headers: List[HeaderDoc] = [h for h_list in headers_dict.values() for h in h_list]
+    headers: List[HeaderDoc] = headers_dict["https://gamerant.com/new-isekai-anime-2025"]
     documents = [f"{doc["header"]}\n\n{doc['content']}" for doc in headers]
 
     # Clean all links
@@ -49,8 +50,9 @@ def load_sample_data():
         documents,
         chunk_size=64,
         chunk_overlap=32,
-        model=EMBED_MODEL,
+        model=embed_model,
     )
+
     timestamps = [i % 10 for i in range(len(documents))]  # Synthetic timestamps
     save_file(documents, f"{OUTPUT_DIR}/documents.json")
     save_file(timestamps, f"{OUTPUT_DIR}/timestamps.json")
