@@ -14,7 +14,7 @@ class KeyBERTLlamacppEmbedder(BaseEmbedder):
             base_url: Base URL for the llama-server API.
         """
         super().__init__(
-            embedding_model=LlamacppEmbedding(model=embedding_model, base_url=base_url, use_cache=True),
+            embedding_model=LlamacppEmbedding(model=embedding_model, base_url=base_url, use_cache=True, use_dynamic_batch_sizing=True),
             word_embedding_model=None
         )
     
@@ -40,7 +40,7 @@ class KeyBERTLlamacppEmbedder(BaseEmbedder):
         embeddings = self.embedding_model.get_embeddings(
             inputs=input_docs,
             return_format="numpy",
-            show_progress=verbose
+            show_progress=verbose,
         )
         # Ensure embeddings is a NumPy array
         if isinstance(embeddings, list):
