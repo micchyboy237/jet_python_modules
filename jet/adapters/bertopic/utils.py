@@ -3,7 +3,6 @@ import nltk
 import numpy as np
 from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import CountVectorizer
-from jet.adapters.bertopic import BERTopic
 from jet.logger import logger
 
 # Download NLTK stopwords
@@ -44,6 +43,8 @@ def extract_topics_without_query(
     Example:
         topics, probs = extract_topics_without_query(["doc1 text", "doc2 text"])
     """
+    from jet.adapters.bertopic import BERTopic
+
     if not docs:
         raise ValueError("Documents list cannot be empty.")
     
@@ -90,6 +91,8 @@ def extract_topics_with_query(
             ["doc1 text", "doc2 text"], query="environment"
         )
     """
+    from jet.adapters.bertopic import BERTopic
+
     if not docs:
         raise ValueError("Documents list cannot be empty.")
     if not query.strip():
@@ -112,10 +115,21 @@ def extract_topics_with_query(
     
     return topics, query_result
 
-def get_vectorizer(total_docs: int) -> CountVectorizer:
-    """Create a CountVectorizer with stopword removal and dynamic df thresholds."""
+def get_vectorizer(total_docs: Optional[int] = None) -> CountVectorizer:
+    """Create a CountVectorizer with stopword removal and dynamic df thresholds.
+
+    Args:
+        total_docs (Optional[int]): Total number of documents. If None,
+            a default max_df of 0.85 is used. Defaults to None.
+
+    Returns:
+        CountVectorizer: Configured vectorizer with dynamic min_df and max_df.
+    """
     stop_words = list(set(stopwords.words('english')))
     min_df = 2
-    max_df = min(0.95, max(0.5, (total_docs - 1) / total_docs))  # Ensure max_df is valid
+    if total_docs is None:
+        max_df = 0.85  # Default value based on common practice
+    else:
+        max_df = min(0.95, max(0.5, (total_docs - 1) / total_docs))  # Ensure max_df is valid
     logger.info(f"Configuring vectorizer with min_df={min_df}, max_df={max_df}")
     return CountVectorizer(stop_words=stop_words, min_df=min_df, max_df=max_df)

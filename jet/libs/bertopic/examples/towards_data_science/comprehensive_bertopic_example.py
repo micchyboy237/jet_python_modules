@@ -66,13 +66,12 @@ from save_topic_model import (
 class TopicCategory(TypedDict):
     label: int
     category: str
+    representation: List[str]
+    count: int
 
-class TopicEntry(TypedDict):
-    rank: int
+class TopicEntry(TopicCategory):
     doc_index: int
-    score: float
     text: str  # Original chunk text
-    category: TopicCategory
 
 
 OUTPUT_DIR = os.path.join(
@@ -217,34 +216,35 @@ def demonstrate_custom_components():
             logger.success(f"  Topics: {n_topics}, Outliers: {outlier_pct:.1f}%")
 
             topic_info = model.get_topic_info()
+            save_file(topic_info.to_dict(orient="records"), f"{output_dir}/{format_file_path(config['name'])}/topic_info.json")
+
             config_topic_entries = []
             for rank, topic_row in enumerate(topic_info.itertuples(), start=1):
                 # Safely access columns by index for a DataFrame row tuple
                 # topic_info columns are ['Topic', 'Name', 'Count', ...]
                 topic_id = int(getattr(topic_row, 'Topic', -1))
                 category_name = str(getattr(topic_row, 'Name', f"Topic {topic_id}"))
-                score = float(getattr(topic_row, 'Count', 0))
+                representation = getattr(topic_row, 'Representation', [])
+                count = float(getattr(topic_row, 'Count', 0))
                 doc_indices = [i for i, t in enumerate(topics) if t == topic_id]
                 doc_index = doc_indices[0] if doc_indices else -1
                 text = docs[doc_index] if doc_index >= 0 else ""
-                category: TopicCategory = {
-                    "label": topic_id,
-                    "category": category_name
-                }
                 topic_entry: TopicEntry = {
-                    "rank": rank,
                     "doc_index": doc_index,
-                    "score": score,
+                    "label": topic_id,
+                    "count": count,
+                    "category": category_name,
+                    "representation": representation,
                     "text": text,
-                    "category": category
                 }
                 config_topic_entries.append(topic_entry)
+                topic_id_suffix = topic_id if topic_id != -1 else "outliers"
                 save_file(
                     {
                         **config,
                         "topic": topic_entry,
                     },
-                    f"{output_dir}/{format_file_path(config['name'])}/config_topics_{topic_id}.json"
+                    f"{output_dir}/{format_file_path(config['name'])}/config_topics_{topic_id_suffix}.json"
                 )
             all_topic_entries[config["name"]] = config_topic_entries
             
@@ -387,14 +387,19 @@ def demonstrate_topic_reduction():
         nr_topics="auto"  # Let it find many topics
     )
     
-    logger.debug(f"Original number of topics: {len(model.get_topic_info())}")
-    logger.debug("Original topic distribution:")
+    logger.info(f"Original number of topics: {len(model.get_topic_info())}")
+    logger.info("Original topic distribution:")
     topic_counts = {}
     for topic in topics:
         topic_counts[topic] = topic_counts.get(topic, 0) + 1
     
     for topic_id, count in sorted(topic_counts.items()):
         logger.debug(f"  Topic {topic_id}: {count} documents")
+
+    save_file(topic_counts, f"{output_dir}/orig/topic_counts.json")
+    save_file(topics, f"{output_dir}/orig/topics.json")
+    save_file(probs, f"{output_dir}/orig/probs.json")
+    save_file(model.get_topic_info().to_dict(orient="records"), f"{output_dir}/orig/topic_info.json")
     
     # Reduce topics
     target_topics = 5
@@ -402,10 +407,10 @@ def demonstrate_topic_reduction():
         model, docs, nr_topics=target_topics
     )
     
-    logger.debug(f"\nAfter reduction to {target_topics} topics:")
-    logger.debug(f"New number of topics: {len(model_reduced.get_topic_info())}")
+    logger.info(f"\nAfter reduction to {target_topics} topics:")
+    logger.info(f"New number of topics: {len(model_reduced.get_topic_info())}")
     
-    logger.debug("New topic distribution:")
+    logger.info("New topic distribution:")
     new_topic_counts = {}
     for topic in new_topics:
         new_topic_counts[topic] = new_topic_counts.get(topic, 0) + 1
@@ -414,10 +419,17 @@ def demonstrate_topic_reduction():
         logger.debug(f"  Topic {topic_id}: {count} documents")
     
     # Show topic details
-    logger.debug("\nReduced topic details:")
+    logger.info("\nReduced topic details:")
     for topic_id in range(min(3, len(model_reduced.get_topic_info()))):
         topic_words = model_reduced.get_topic(topic_id)
+        if not topic_words:
+            topic_words = []
         logger.debug(f"Topic {topic_id}: {topic_words[:5]}")
+
+    save_file(topic_counts, f"{output_dir}/reduced/topic_counts.json")
+    save_file(new_topics, f"{output_dir}/reduced/topics.json")
+    save_file(new_probs, f"{output_dir}/reduced/probs.json")
+    save_file(model_reduced.get_topic_info().to_dict(orient="records"), f"{output_dir}/reduced/topic_info.json")
 
 
 def demonstrate_similar_topics():
@@ -751,14 +763,14 @@ def main():
         # # 1. Basic workflow
         # demonstrate_basic_workflow()
         
-        # 2. Custom components
-        demonstrate_custom_components()
+        # # 2. Custom components
+        # demonstrate_custom_components()
         
         # # 3. Topic representation
         # demonstrate_topic_representation()
         
-        # # 4. Topic reduction
-        # demonstrate_topic_reduction()
+        # 4. Topic reduction
+        demonstrate_topic_reduction()
         
         # # 5. Similar topics
         # demonstrate_similar_topics()

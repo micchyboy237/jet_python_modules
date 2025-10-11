@@ -15,7 +15,6 @@ from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 from bertopic.dimensionality import BaseDimensionalityReduction
 from sklearn.linear_model import LogisticRegression
 
-from jet.adapters.bertopic.utils import get_vectorizer
 from jet.file.utils import save_file
 
 OUTPUT_DIR = os.path.join(
@@ -42,7 +41,6 @@ def example_base_topic_model() -> BERTopic:
     documents, _ = load_sample_data()
     embedding_model = EMBED_MODEL
     model = BERTopic(
-        vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
         embedding_model=embedding_model,
         calculate_probabilities=True
