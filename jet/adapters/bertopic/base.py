@@ -30,7 +30,7 @@ class BERTopic(BaseBERTopic):
         verbose: bool = True,
     ):
         if not embedding_model or isinstance(embedding_model, str):
-            embedder = BERTopicLlamacppEmbedder(DEFAULT_EMBEDDING_MODEL)
+            embedder = BERTopicLlamacppEmbedder(embedding_model or DEFAULT_EMBEDDING_MODEL)
             embedding_model = embedder
 
         super().__init__(
