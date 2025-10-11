@@ -110,7 +110,7 @@ def create_sample_dataset() -> List[str]:
 def demonstrate_basic_workflow():
     """Demonstrate the basic BERTopic workflow."""
     logger = CustomLogger("basic_workflow")
-    output_dir = f"{OUTPUT_DIR}/01_basic_workflow"
+    output_dir = f"{OUTPUT_DIR}/basic_workflow"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -147,11 +147,87 @@ def demonstrate_basic_workflow():
     save_file(topic_info.to_dict(orient="records"), f"{output_dir}/topic_info.json")
     
 
+def demonstrate_hierarchical_topics():
+    """Demonstrate hierarchical topic modeling with BERTopic."""
+    logger = CustomLogger("hierarchical_topics")
+    output_dir = f"{OUTPUT_DIR}/hierarchical_topics"
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = f"{output_dir}/main.log"
+    logger.basicConfig(filename=log_file)
+    logger.orange(f"Log: {log_file}")
+
+    logger.gray("\n" + "=" * 60)
+    logger.orange("10. HIERARCHICAL TOPIC MODELING")
+    logger.gray("=" * 60)
+
+    docs = create_sample_dataset()
+
+    # Train initial model
+    logger.info("Training BERTopic model for hierarchical analysis...")
+    model, topics, probs = topic_model_fit_transform(
+        docs,
+        calculate_probabilities=True,
+    )
+    save_file(topics, f"{output_dir}/topics.json")
+    save_file(probs, f"{output_dir}/probs.json")
+    save_file(model.get_topic_info().to_dict(orient="records"), f"{output_dir}/topic_info.json")
+
+    # Generate hierarchical topics
+    logger.info("Generating hierarchical topic structure...")
+    try:
+        hierarchical_topics = model.hierarchical_topics(docs=docs)
+        logger.success(f"Hierarchical topics generated with {len(hierarchical_topics)} parent topics")
+
+        # Log and save hierarchical structure
+        logger.debug("Hierarchical topic structure (first 5 entries):")
+        for _, row in hierarchical_topics.head(5).iterrows():
+            logger.debug(
+                f"Parent {row['Parent_ID']}: {row['Parent_Name']} "
+                f"(Topics: {row['Topics']}, Distance: {row['Distance']:.3f})"
+            )
+        save_file(
+            hierarchical_topics.to_dict(orient="records"),
+            f"{output_dir}/hierarchical_topics.json"
+        )
+
+        # Summarize hierarchy
+        hierarchy_summary = {
+            "total_parent_topics": len(hierarchical_topics),
+            "max_depth": hierarchical_topics["Distance"].max() if not hierarchical_topics.empty else 0,
+            "avg_child_topics": hierarchical_topics["Topics"].apply(len).mean() if not hierarchical_topics.empty else 0,
+        }
+        logger.info("Hierarchy summary:")
+        for key, value in hierarchy_summary.items():
+            logger.debug(f" {key}: {value:.2f}" if isinstance(value, float) else f" {key}: {value}")
+        save_file(hierarchy_summary, f"{output_dir}/hierarchy_summary.json")
+
+        tree = model.get_topic_tree(hierarchical_topics, tight_layout=False)
+        save_file(tree, f"{output_dir}/hierarchy_tree.txt")
+
+    except Exception as e:
+        logger.error(f"Error generating hierarchical topics: {e}")
+        return
+
+    # Example of accessing a specific parent topic
+    if not hierarchical_topics.empty:
+        example_parent = hierarchical_topics.iloc[0]
+        logger.debug(f"\nExample parent topic analysis (Parent {example_parent['Parent_ID']}):")
+        logger.debug(f" Name: {example_parent['Parent_Name']}")
+        logger.debug(f" Child Topics: {example_parent['Topics']}")
+        logger.debug(f" Distance: {example_parent['Distance']:.3f}")
+
+        # Save example parent topic details
+        save_file(
+            example_parent.to_dict(),
+            f"{output_dir}/example_parent_topic.json"
+        )
+
 
 def demonstrate_custom_components():
     """Demonstrate custom UMAP and HDBSCAN configurations."""
     logger = CustomLogger("custom_components")
-    output_dir = f"{OUTPUT_DIR}/02_custom_components"
+    output_dir = f"{OUTPUT_DIR}/custom_components"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -284,7 +360,7 @@ def demonstrate_custom_components():
 def demonstrate_topic_representation():
     """Demonstrate topic representation updates."""
     logger = CustomLogger("topic_representation")
-    output_dir = f"{OUTPUT_DIR}/03_topic_representation"
+    output_dir = f"{OUTPUT_DIR}/topic_representation"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -367,7 +443,7 @@ def demonstrate_topic_representation():
 def demonstrate_topic_reduction():
     """Demonstrate topic reduction techniques."""
     logger = CustomLogger("topic_reduction")
-    output_dir = f"{OUTPUT_DIR}/04_topic_reduction"
+    output_dir = f"{OUTPUT_DIR}/topic_reduction"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -435,7 +511,7 @@ def demonstrate_topic_reduction():
 def demonstrate_similar_topics():
     """Demonstrate finding similar topics."""
     logger = CustomLogger("similar_topics")
-    output_dir = f"{OUTPUT_DIR}/05_similar_topics"
+    output_dir = f"{OUTPUT_DIR}/similar_topics"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -509,7 +585,7 @@ def demonstrate_similar_topics():
 def demonstrate_visualizations():
     """Demonstrate BERTopic visualizations."""
     logger = CustomLogger("visualizations")
-    output_dir = f"{OUTPUT_DIR}/06_visualizations"
+    output_dir = f"{OUTPUT_DIR}/visualizations"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -587,7 +663,7 @@ def demonstrate_visualizations():
 def demonstrate_topics_over_time():
     """Demonstrate topics over time analysis."""
     logger = CustomLogger("topics_over_time")
-    output_dir = f"{OUTPUT_DIR}/07_topics_over_time"
+    output_dir = f"{OUTPUT_DIR}/topics_over_time"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -634,7 +710,7 @@ def demonstrate_topics_over_time():
 def demonstrate_model_serialization():
     """Demonstrate model saving and loading."""
     logger = CustomLogger("model_serialization")
-    output_dir = f"{OUTPUT_DIR}/08_model_serialization"
+    output_dir = f"{OUTPUT_DIR}/model_serialization"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -703,7 +779,7 @@ def demonstrate_model_serialization():
 def demonstrate_advanced_workflows():
     """Demonstrate advanced BERTopic workflows."""
     logger = CustomLogger("advanced_workflows")
-    output_dir = f"{OUTPUT_DIR}/09_advanced_workflows"
+    output_dir = f"{OUTPUT_DIR}/advanced_workflows"
     shutil.rmtree(output_dir, ignore_errors=True)
     os.makedirs(output_dir, exist_ok=True)
     log_file = f"{output_dir}/main.log"
@@ -788,6 +864,9 @@ def main():
     try:
         # 1. Basic workflow
         demonstrate_basic_workflow()
+
+        # 2. Hierarchical Topics
+        demonstrate_hierarchical_topics()
         
         # 2. Custom components
         demonstrate_custom_components()
