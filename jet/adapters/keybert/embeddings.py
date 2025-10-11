@@ -14,7 +14,7 @@ class KeyBERTLlamacppEmbedder(BaseEmbedder):
             base_url: Base URL for the llama-server API.
         """
         super().__init__(
-            embedding_model=LlamacppEmbedding(model=embedding_model, base_url=base_url),
+            embedding_model=LlamacppEmbedding(model=embedding_model, base_url=base_url, use_cache=True),
             word_embedding_model=None
         )
     
