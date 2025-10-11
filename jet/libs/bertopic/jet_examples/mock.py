@@ -4,7 +4,7 @@ from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
-from jet.wordnet.text_chunker import chunk_texts_fast
+from jet.wordnet.text_chunker import chunk_texts
 from jet.file.utils import save_file
 from jet.logger import logger
 
@@ -108,7 +108,7 @@ def load_sample_data(limit: int = 100, subset: Literal["train", "test", "all"] =
     documents = documents[:limit]
     save_file(documents, f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/documents.json")
 
-    chunks = chunk_texts_fast(
+    chunks = chunk_texts(
         documents,
         chunk_size=64,
         chunk_overlap=32,

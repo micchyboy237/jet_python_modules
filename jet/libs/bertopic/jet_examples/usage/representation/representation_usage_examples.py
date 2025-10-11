@@ -5,7 +5,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from jet.adapters.bertopic import BERTopic
 from tqdm import tqdm
 
-from jet.wordnet.text_chunker import chunk_texts_fast
+from jet.wordnet.text_chunker import chunk_texts
 from jet.file.utils import save_file
 import os
 import shutil
@@ -29,7 +29,7 @@ def load_sample_data():
     logging.info("Loading 20 newsgroups dataset...")
     newsgroups = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quotes'))
     documents = newsgroups.data[:100]
-    documents = chunk_texts_fast(
+    documents = chunk_texts(
         documents,
         chunk_size=128,
         chunk_overlap=32,

@@ -4,6 +4,7 @@ from openai import OpenAI
 from typing import Iterator, List, Union, Literal, Callable, Optional
 from tqdm import tqdm
 
+from jet._token.token_utils import token_counter
 from jet.adapters.llama_cpp.models import resolve_model_value
 from jet.models.utils import get_context_size
 from jet.logger import logger
@@ -53,7 +54,8 @@ class LlamacppEmbedding:
             max_length = 512
         
         # Check for inputs exceeding max length
-        long_inputs = [(i, idx) for idx, i in enumerate(valid_inputs) if len(i) > max_length]
+        token_counts: List[int] = token_counter(valid_inputs, self.model, prevent_total=True)
+        long_inputs = [(count, idx) for idx, count in enumerate(token_counts) if count > max_length]
         if long_inputs:
             long_input_indexes = [idx for _, idx in long_inputs]
             logger.error(f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}")

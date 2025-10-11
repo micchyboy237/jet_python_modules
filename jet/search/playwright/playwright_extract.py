@@ -240,8 +240,9 @@ class PlaywrightExtract(BaseTool):
         format: Optional[Literal["markdown", "text"]] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
         use_cache: bool = True,
+        url_limit: Optional[int] = None
     ) -> Iterator[Dict[str, Any]]:
-        for url_result in scrape_urls_sync(urls, show_progress=True, use_cache=use_cache, wait_for_js=True):
+        for url_result in scrape_urls_sync(urls, show_progress=True, use_cache=use_cache, wait_for_js=True, limit=url_limit):
             url = url_result["url"]
             status = url_result["status"]
             html = url_result["html"]

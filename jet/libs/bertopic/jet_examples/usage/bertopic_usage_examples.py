@@ -13,7 +13,7 @@ from jet.logger import logger
 import os
 import shutil
 
-from jet.wordnet.text_chunker import chunk_texts_fast
+from jet.wordnet.text_chunker import chunk_texts
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
@@ -36,7 +36,7 @@ def load_sample_data():
     logger.info("Loading 20 newsgroups dataset...")
     newsgroups = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quotes'))
     documents = newsgroups.data[:1000]  # Limit to 1000 documents for example
-    documents = chunk_texts_fast(
+    documents = chunk_texts(
         documents,
         chunk_size=128,
         chunk_overlap=32,

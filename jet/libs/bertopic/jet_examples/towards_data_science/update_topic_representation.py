@@ -2,12 +2,15 @@ from jet.adapters.bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from typing import Optional, List, Tuple
 
-from jet.libs.bertopic.jet_examples.mock import load_sample_data
+from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
 from jet.transformers.formatters import format_json
-from jet.file.utils import save_file
+from jet.file.utils import load_file, save_file
 from jet.logger import logger
 import os
 import shutil
+
+from jet.utils.url_utils import clean_links
+from jet.wordnet.text_chunker import chunk_texts, chunk_texts_with_data
 
 
 OUTPUT_DIR = os.path.join(
@@ -150,6 +153,8 @@ def get_topic_keywords(
 
 if __name__ == "__main__":
     from topic_model_fit_transform import topic_model_fit_transform
+
+    model = "embeddinggemma"
     
     # Sample documents
     # docs = [
@@ -169,10 +174,33 @@ if __name__ == "__main__":
     #     "Robotics and automation are transforming manufacturing.",
     #     "Internet of Things devices are becoming more prevalent."
     # ]
-    docs = load_sample_data()
+
+    # docs = load_sample_data()
+    md_content = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/markdown_no_links.md")
+    md_content = clean_links(md_content)
+    save_file(md_content, f"{OUTPUT_DIR}/md_content.md")
+
+    headers = derive_by_header_hierarchy(md_content, ignore_links=True)
+    save_file({
+        "count": len(headers),
+        "documents": headers,
+    }, f"{OUTPUT_DIR}/headers.json")
+    docs = [f"{h["header"]}\n{h["content"]}" for h in headers]
+    chunks = chunk_texts(docs, chunk_size=150, chunk_overlap=40)
+    chunks_data = chunk_texts_with_data(docs, chunk_size=150, chunk_overlap=40, model=model)
+    save_file({
+        "count": len(chunks_data),
+        "tokens": {
+            "min": min(chunk["num_tokens"] for chunk in chunks_data),
+            "ave": sum(chunk["num_tokens"] for chunk in chunks_data) / len(chunks_data) if chunks_data else 0,
+            "max": max(chunk["num_tokens"] for chunk in chunks_data),
+            "total": sum(chunk["num_tokens"] for chunk in chunks_data),
+        },
+        "chunks": chunks_data,
+    }, f"{OUTPUT_DIR}/chunks.json")
     
     print("=== Initial Topic Model ===")
-    model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
+    model, topics, probs = topic_model_fit_transform(chunks, calculate_probabilities=True)
     
     # Store original topics for comparison
     original_topics = {}
@@ -197,7 +225,7 @@ if __name__ == "__main__":
     for n_gram_range, description in n_gram_configs:
         print(f"\n{description}:")
         model_updated = update_topic_representation(
-            model, docs, topics,
+            model, chunks, topics,
             n_gram_range=n_gram_range,
             stop_words="english"
         )
@@ -224,7 +252,7 @@ if __name__ == "__main__":
     )
     
     model_tfidf = update_topic_representation(
-        model, docs, topics,
+        model, chunks, topics,
         vectorizer=custom_vectorizer
     )
     
@@ -250,7 +278,7 @@ if __name__ == "__main__":
     
     print("\n=== Comparison of Representations ===")
     comparison = compare_topic_representations(
-        model, docs, topics, original_topics
+        model, chunks, topics, original_topics
     )
     for key, value in comparison.items():
         if value:  # Check if not empty

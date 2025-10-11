@@ -86,6 +86,30 @@ def transliterate_text(text: str) -> str:
     return unidecode(text)
 
 
+def clean_links(text: str) -> str:
+    """Clean URLs in text by removing query params and hash values, keeping host and path.
+    
+    Args:
+        text: Input string that may contain URLs.
+        
+    Returns:
+        String with URLs cleaned to include only host and path, without trailing ?, #, or /.
+    """
+    def clean_single_url(url: str) -> str:
+        try:
+            parsed = urlparse(url)
+            # Reconstruct URL with scheme, netloc, and path
+            cleaned = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/?#")
+            return cleaned if cleaned else url
+        except ValueError:
+            return url
+
+    # Split text into words, clean URLs, and rejoin
+    words = text.split()
+    cleaned_words = [clean_single_url(word) if "://" in word else word for word in words]
+    return " ".join(cleaned_words)
+
+    
 def clean_url(url: str) -> str:
     """Clean a URL by ensuring a scheme, removing trailing slashes, normalizing format, and removing empty fragments."""
     if not url:
