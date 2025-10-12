@@ -6,7 +6,7 @@ import pickle
 import re
 import pandas as pd
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 from jet.logger import logger
 from jet.transformers.formatters import format_html
 from jet.transformers.object import make_serializable
@@ -23,7 +23,7 @@ def load_json(file_path):
     try:
         with open(file_path, "r") as f:
             return json.load(f)
-    except Exception as e:
+    except Exception:
         return {}
 
 
@@ -75,7 +75,7 @@ def save_json(results, file_path="generated/results.json"):
                    colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
     except Exception as e:
-        logger.log(f"Error saving results:", str(e), colors=["GRAY", "RED"])
+        logger.log("Error saving results:", str(e), colors=["GRAY", "RED"])
         raise e
 
 
@@ -112,7 +112,7 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                                 return None
 
             if verbose:
-                prefix = f"Loaded JSON{'L' if input_file.endswith('.jsonl') else ''} data {len(data) if isinstance(data, list) else ''} from:"
+                prefix = f"Loaded JSON{'L' if input_file.endswith('.jsonl') else ''} data {len(data) if isinstance(data, list) else ''} from: "
                 logger.newline()
                 logger.log(prefix, input_file, colors=["INFO", "BRIGHT_INFO"])
             return data
@@ -125,11 +125,11 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                 content = format_html(content)
                 if verbose:
                     logger.newline()
-                    logger.log("Loaded and formatted HTML from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+                    logger.log("Loaded and formatted HTML from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
             else:
                 if verbose:
                     logger.newline()
-                    logger.log("Loaded text from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+                    logger.log("Loaded text from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
             return content
 
         # Binary files (e.g., PNG, JPEG)
@@ -138,7 +138,7 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                 content = f.read()
             if verbose:
                 logger.newline()
-                logger.log(f"Loaded binary data from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+                logger.log("Loaded binary data from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
             return content
 
         # Other files
@@ -147,7 +147,7 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                 content = f.read()
             if verbose:
                 logger.newline()
-                logger.log("Loaded data from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+                logger.log("Loaded data from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
             return content
 
     except UnicodeDecodeError:
@@ -156,7 +156,7 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
             content = f.read()
         if verbose:
             logger.newline()
-            logger.log(f"Loaded binary data from:", input_file, colors=["INFO", "BRIGHT_INFO"])
+            logger.log("Loaded binary data from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
         return content
     except Exception as e:
         if verbose:
@@ -206,7 +206,7 @@ def save_file(
                 logger.newline()
                 upper_ext = ext.upper().lstrip('.')
                 count = f" {len(data)}" if isinstance(data, list) else ""
-                logger.log(f"{'Appended' if append else 'Saved'} {upper_ext} data{count} to:",
+                logger.log(f"{'Appended' if append else 'Saved'} {upper_ext} data{count} to: ",
                            output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
         # HTML or Text
@@ -219,7 +219,7 @@ def save_file(
                 f.write(data)
             if verbose:
                 logger.newline()
-                logger.log(f"Saved {'HTML' if ext == '.html' else 'text'} to:", output_file,
+                logger.log(f"Saved {'HTML' if ext == '.html' else 'text'} to: ", output_file,
                            colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
         # Binary files (e.g., PNG, JPEG)
@@ -230,7 +230,7 @@ def save_file(
                 f.write(data)
             if verbose:
                 logger.newline()
-                logger.log(f"Saved binary data to:", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                logger.log("Saved binary data to: ", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
         # Other files
         else:
@@ -244,7 +244,7 @@ def save_file(
                     f.write(data)
             if verbose:
                 logger.newline()
-                logger.log("Saved data to:", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                logger.log("Saved data to: ", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
         return output_file
 

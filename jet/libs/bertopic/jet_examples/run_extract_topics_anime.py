@@ -60,8 +60,8 @@ class AnimeAnalyzer:
     def save_results(self, results: List[Dict[str, str]], output_path: str) -> None:
         """Save results to a CSV file."""
         df = pd.DataFrame(results)
-        df.to_csv(output_path, index=False)
-        logger.success(f"Saved CSV file to {output_path}")
+        df.to_csv(output_path, index=True)
+        logger.log("\nSaved CSV to: ", output_path, colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
 # Example usage
 if __name__ == "__main__":
