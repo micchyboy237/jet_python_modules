@@ -8,7 +8,7 @@ def calculate_dynamic_batch_size(
     max_memory_usage: float = 0.8,
     max_vram_usage: float = 0.8,
     memory_overhead_factor: float = 1.5,
-    max_batch_size_cap: int = 512,
+    max_batch_size_cap: int = 128,
     min_batch_size: int = 8,
     use_dynamic_limits: bool = False
 ) -> int:
@@ -21,7 +21,7 @@ def calculate_dynamic_batch_size(
         max_memory_usage: Fraction of available RAM to use (default: 0.8).
         max_vram_usage: Fraction of available VRAM to use (default: 0.8).
         memory_overhead_factor: Multiplier for model-specific memory overhead (default: 1.5).
-        max_batch_size_cap: Maximum allowed batch size (default: 512).
+        max_batch_size_cap: Maximum allowed batch size (default: 128).
         min_batch_size: Minimum batch size to reduce API overhead (default: 8).
         use_dynamic_limits: Use psutil for dynamic memory detection if True, else use static defaults (default: False).
     Returns:

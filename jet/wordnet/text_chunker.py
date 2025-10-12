@@ -128,7 +128,7 @@ def chunk_texts(
     texts: Union[str, List[str]],
     chunk_size: int = 128,
     chunk_overlap: int = 0,
-    model: Optional[OLLAMA_MODEL_NAMES] = None,
+    model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
     buffer: int = 0,
     strict_sentences: bool = False,
     min_chunk_size: int = 32,
@@ -264,7 +264,7 @@ def chunk_texts_with_data(
     texts: Union[str, List[str]],
     chunk_size: int = 128,
     chunk_overlap: int = 0,
-    model: Optional[OLLAMA_MODEL_NAMES] = None,
+    model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
     doc_ids: Optional[List[str]] = None,
     buffer: int = 0,
     strict_sentences: bool = False,
@@ -454,7 +454,7 @@ def chunk_texts_sliding_window(
     texts: Union[str, List[str]],
     chunk_size: int = 128,
     step_size: int = 96,
-    model: Optional[OLLAMA_MODEL_NAMES] = None,
+    model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
     doc_ids: Optional[List[str]] = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
@@ -543,7 +543,7 @@ def chunk_texts_sliding_window_fast(
     texts: Union[str, List[str]],
     chunk_size: int = 128,
     step_size: int = 96,
-    model: Optional[OLLAMA_MODEL_NAMES] = None,
+    model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
     doc_ids: Optional[List[str]] = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
@@ -604,7 +604,7 @@ def chunk_texts_sliding_window_fast(
 
 def truncate_texts(
     texts: str | List[str],
-    model: OLLAMA_MODEL_NAMES,
+    model: Union[str, OLLAMA_MODEL_NAMES],
     max_tokens: Optional[int] = None,
     strict_sentences: bool = False
 ) -> List[str]:
@@ -675,7 +675,7 @@ def truncate_texts(
 
 def truncate_texts_fast(
     texts: Union[str, List[str]],
-    model: OLLAMA_MODEL_NAMES,
+    model: Union[str, OLLAMA_MODEL_NAMES],
     max_tokens: Optional[int] = None,
     strict_sentences: bool = False,
     show_progress: bool = False
@@ -715,7 +715,7 @@ def truncate_texts_fast(
     return results
 
 
-def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, chunk_overlap: int = 0, model: Optional[OLLAMA_MODEL_NAMES] = None) -> List[str]:
+def chunk_sentences(texts: Union[str, List[str]], chunk_size: int = 5, chunk_overlap: int = 0, model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None) -> List[str]:
     """Chunk texts by sentences with sentence overlap, using tokens if model is provided, preserving original separators.
 
     Args:
@@ -821,7 +821,7 @@ def chunk_sentences_optimized(
     texts: Union[str, List[str]],
     chunk_size: int = 5,
     chunk_overlap: int = 0,
-    model: Optional[OLLAMA_MODEL_NAMES] = None,
+    model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
     show_progress: bool = False
 ) -> List[str]:
     """Fast, memory-efficient sentence chunking with optional progress bar."""
@@ -896,7 +896,7 @@ def chunk_sentences_optimized(
     return chunked_texts
 
 
-def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int = 5, chunk_overlap: int = 0, model: Optional[OLLAMA_MODEL_NAMES] = None) -> Tuple[List[str], List[int]]:
+def chunk_sentences_with_indices(texts: Union[str, List[str]], chunk_size: int = 5, chunk_overlap: int = 0, model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None) -> Tuple[List[str], List[int]]:
     """Chunk texts by sentences with sentence overlap and track original document indices, using tokens if model is provided.
 
     Args:
@@ -956,7 +956,7 @@ def chunk_sentences_with_indices_optimized(
     texts: Union[str, List[str]],
     chunk_size: int = 5,
     chunk_overlap: int = 0,
-    model: Optional[OLLAMA_MODEL_NAMES] = None,
+    model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
     show_progress: bool = False
 ) -> Tuple[List[str], List[int]]:
     """Optimized sentence chunking with document index tracking and optional progress bar."""
@@ -1018,7 +1018,7 @@ def chunk_sentences_with_indices_optimized(
     return chunked_texts, doc_indices
 
 
-# def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Optional[OLLAMA_MODEL_NAMES] = None) -> List[HeaderDocument]:
+# def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None) -> List[HeaderDocument]:
 #     """Chunk HeaderDocument list into smaller segments based on token count or lines, ensuring complete sentences when model is provided.
 
 #     Args:

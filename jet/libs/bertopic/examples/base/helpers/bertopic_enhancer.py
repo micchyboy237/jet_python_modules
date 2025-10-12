@@ -7,18 +7,22 @@ import pandas as pd
 from typing import List, Tuple, Any, Optional
 from tqdm import tqdm
 from PIL import Image
-from sklearn.datasets import fetch_20newsgroups
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer, util
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from bertopic.vectorizers import ClassTfidfTransformer
 from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
 from umap import UMAP
 from hdbscan import HDBSCAN
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
+
+from jet.adapters.bertopic.embeddings import BERTopicLlamacppEmbedder
+from jet.libs.bertopic.examples.mock import load_sample_data
+from jet.models.utils import get_context_size
+from jet.wordnet.text_chunker import chunk_texts
 try:
     from model2vec import StaticModel
     MODEL2VEC_AVAILABLE = True
@@ -36,7 +40,7 @@ class BERTopicEnhancer:
     
     def __init__(
         self,
-        embedding_model: Optional[Any] = None,
+        embedding_model: str = "embeddinggemma",
         vectorizer_model: Optional[CountVectorizer] = None,
         ctfidf_model: Optional[ClassTfidfTransformer] = None,
         representation_model: Optional[Any] = None,
@@ -44,7 +48,8 @@ class BERTopicEnhancer:
         hdbscan_model: Optional[Any] = None
     ):
         """Initialize BERTopic with optional custom models."""
-        self.embedding_model = embedding_model or SentenceTransformer("all-MiniLM-L6-v2")
+        self.model = embedding_model
+        self.embedding_model = BERTopicLlamacppEmbedder(embedding_model=self.model)
         self.vectorizer_model = vectorizer_model or CountVectorizer(stop_words="english")
         self.ctfidf_model = ctfidf_model
         self.representation_model = representation_model
@@ -83,9 +88,25 @@ class BERTopicEnhancer:
         """Extract the c-TF-IDF topic-term matrix and corresponding words."""
         return self.topic_model.c_tf_idf_, self.topic_model.vectorizer_model.get_feature_names_out()
 
-    def precompute_embeddings(self, docs: List[str]) -> np.ndarray:
+    def precompute_embeddings(self, docs: List[str], chunk_size: Optional[int] = None, chunk_overlap: Optional[int] = None) -> np.ndarray:
         """Pre-compute embeddings for documents."""
-        return self.embedding_model.encode(docs, show_progress_bar=False)
+        if chunk_size is None:
+            chunk_size = get_context_size(self.model)
+        if chunk_overlap is None:
+            chunk_overlap = 0
+
+        chunks = chunk_texts(
+            docs,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            model=self.model,
+        )
+        if hasattr(self.embedding_model, "embed"):
+            return self.embedding_model.embed(chunks, verbose=True)
+        elif hasattr(self.embedding_model, "encode"):
+            return self.embedding_model.encode(chunks, show_progress_bar=True)
+        else:
+            raise AttributeError("The embedding model must have either an 'embed' or 'encode' method.")
 
     def speed_up_umap(self, embeddings: np.ndarray, n_components: int = 5) -> None:
         """Configure UMAP with rescaled PCA embeddings for faster processing."""
@@ -123,10 +144,6 @@ class BERTopicEnhancer:
         hdbscan_metric: str = "euclidean"
     ) -> None:
         """Tune BERTopic, UMAP, and HDBSCAN hyperparameters."""
-        if language == "multilingual":
-            self.embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
-        else:
-            self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
         self.vectorizer_model = CountVectorizer(stop_words="english", ngram_range=n_gram_range)
         self.umap_model = UMAP(
             n_neighbors=umap_n_neighbors,
@@ -270,7 +287,7 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     # Example usage with 20newsgroups dataset
-    docs = fetch_20newsgroups(subset='all', remove=('headers', 'footers', 'quotes'))['data'][:1000]  # Limited for demo
+    docs = load_sample_data()
     enhancer = BERTopicEnhancer()
 
     # Option 1: Pre-compute embeddings with default model (sentence-transformers)
@@ -317,8 +334,8 @@ if __name__ == "__main__":
     # Example comparing two models
     en_docs = load_dataset("stsb_multi_mt", name="en", split="train").to_pandas().sentence1.tolist()[:500]
     nl_docs = load_dataset("stsb_multi_mt", name="nl", split="train").to_pandas().sentence1.tolist()[:500]
-    en_enhancer = BERTopicEnhancer(embedding_model=SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2"))
-    nl_enhancer = BERTopicEnhancer(embedding_model=SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2"))
+    en_enhancer = BERTopicEnhancer()
+    nl_enhancer = BERTopicEnhancer()
     en_enhancer.tune_hyperparameters(language="multilingual", min_topic_size=30, hdbscan_min_cluster_size=30)
     nl_enhancer.tune_hyperparameters(language="multilingual", min_topic_size=30, hdbscan_min_cluster_size=30)
     en_enhancer.topic_model.fit(en_docs)
