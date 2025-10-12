@@ -96,16 +96,16 @@ class LlamacppEmbedding:
             max_length = 512
         
         token_counts: List[int] = token_counter(valid_inputs, self.model, prevent_total=True)
-        max_token_count = max(token_counts) if token_counts else 0
 
         # Log detailed input statistics
         logger.info(
             f"Embedding stats -> model: {self.model}, "
             f"embedding_size: {embedding_size}, "
             f"context_size: {context_size}, "
-            f"max_length: {max_length}, "
-            f"max_token_count: {max_token_count}"
+            f"max_length: {max_length}"
         )
+        logger.debug(f"\nInputs: {len(input_list)}")
+        logger.debug(f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}")
 
         long_inputs = [(count, idx) for idx, count in enumerate(token_counts) if count > max_length]
         
@@ -211,16 +211,16 @@ class LlamacppEmbedding:
             max_length = 512
 
         token_counts: List[int] = token_counter(valid_inputs, self.model, prevent_total=True)
-        max_token_count = max(token_counts) if token_counts else 0
 
         # Log detailed input statistics
         logger.info(
             f"Embedding stats -> model: {self.model}, "
             f"embedding_size: {embedding_size}, "
             f"context_size: {context_size}, "
-            f"max_length: {max_length}, "
-            f"max_token_count: {max_token_count}"
+            f"max_length: {max_length}"
         )
+        logger.debug(f"\nInputs: {len(input_list)}")
+        logger.debug(f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}")
 
         long_inputs = [(count, idx) for idx, count in enumerate(token_counts) if count > max_length]
         

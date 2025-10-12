@@ -5,7 +5,7 @@ from typing import Literal
 from jet.code.markdown_types.markdown_parsed_types import HeaderDoc
 from jet.code.markdown_utils._preprocessors import clean_markdown_links
 from jet.utils.url_utils import clean_links
-from jet.wordnet.text_chunker import chunk_texts
+from jet.wordnet.text_chunker import chunk_texts, truncate_texts
 from jet.file.utils import load_file
 from jet.logger import logger
 
@@ -79,7 +79,7 @@ def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, 
         ]
     return unique_categories
 
-def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32) -> List[str]:
+def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32, truncate: bool = False) -> List[str]:
     """Load sample dataset from local for topic modeling."""
     headers_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/all_headers.json"
     
@@ -93,14 +93,22 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
     documents = [clean_markdown_links(doc) for doc in documents]
     documents = [clean_links(doc) for doc in documents]
 
-    documents = chunk_texts(
-        documents,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        model=model,
-    )
+    if not truncate:
+        documents = chunk_texts(
+            documents,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            model=model,
+        )
+    else:
+        documents = truncate_texts(
+            documents,
+            max_tokens=chunk_size,
+            model=model,
+            strict_sentences=True
+        )
 
-    return documents
+    return [doc for doc in documents if doc.strip()]
 
 def load_news_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32) -> List[str]:
     """
