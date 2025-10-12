@@ -87,7 +87,7 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 96, chunk_overl
     headers_dict = load_file(headers_file)
     # headers: List[HeaderDoc] = [h for h_list in headers_dict.values() for h in h_list]
     headers: List[HeaderDoc] = headers_dict["https://gamerant.com/new-isekai-anime-2025"]
-    documents = [f"{doc["header"]}\n\n{doc['content']}" for doc in headers]
+    documents = [f"{doc["parent_header"].lstrip("#") if doc["parent_header"] else ""}\n{doc["header"].lstrip("#")}\n{doc['content']}".strip() for doc in headers]
 
     # Clean all links
     documents = [clean_markdown_links(doc) for doc in documents]
