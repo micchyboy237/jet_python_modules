@@ -12,14 +12,14 @@ from jet.logger import logger
 OUTPUT_DIR = os.path.join(
         os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
 
-TRUNCATE = True
+TRUNCATE = False
 
 if not TRUNCATE:
     CHUNK_SIZE = 96
     CHUNK_OVERLAP = 32
     OUTPUT_DIR = f"{OUTPUT_DIR}/chunked_{CHUNK_SIZE}_{CHUNK_OVERLAP}"
 else:
-    CHUNK_SIZE = 150
+    CHUNK_SIZE = 64
     CHUNK_OVERLAP = 0
     OUTPUT_DIR += f"/truncate_{CHUNK_SIZE}"
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
