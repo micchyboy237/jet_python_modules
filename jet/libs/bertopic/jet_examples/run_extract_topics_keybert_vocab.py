@@ -31,19 +31,17 @@ if __name__ == "__main__":
     # Prepare documents
     # docs = fetch_20newsgroups(subset='all',  remove=('headers', 'footers', 'quotes'))['data']
     docs = load_sample_data()
+    save_file(docs, f"{OUTPUT_DIR}/docs.json")
 
     # Extract keywords
     kw_model = KeyBERT()
     keywords = kw_model.extract_keywords(docs)
+    save_file(keywords, f"{OUTPUT_DIR}/keywords.json")
 
     # Create our vocabulary
     vocabulary = [k[0] for keyword in keywords for k in keyword]
     vocabulary = list(set(vocabulary))
-
-    save_file({
-        "keywords": keywords,
-        "vocabulary": vocabulary,
-    }, f"{OUTPUT_DIR}/keybert_results.json")
+    save_file(vocabulary, f"{OUTPUT_DIR}/vocabulary.json")
 
     
     # Pass vocabulary to BERTopic

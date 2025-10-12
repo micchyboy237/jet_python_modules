@@ -79,7 +79,7 @@ def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, 
         ]
     return unique_categories
 
-def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32, truncate: bool = False) -> List[str]:
+def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 96, chunk_overlap: int = 32, truncate: bool = False) -> List[str]:
     """Load sample dataset from local for topic modeling."""
     headers_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/all_headers.json"
     
