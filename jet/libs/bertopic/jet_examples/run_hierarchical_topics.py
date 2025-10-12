@@ -28,6 +28,9 @@ def generate_hierarchical_topics(
     topic_model = BERTopic()
     topics, probs = topic_model.fit_transform(docs)
 
+    document_info = topic_model.get_document_info(docs)
+    topic_info = topic_model.get_topic_info()
+
     linkage_function = lambda x: sch.linkage(x, method, optimal_ordering=True)
 
     hierarchical_topics = topic_model.hierarchical_topics(
@@ -39,6 +42,9 @@ def generate_hierarchical_topics(
     logger.debug(f"Method: '{method}' hierarchical tree:")
     logger.success(tree)
 
+    
+    save_file(document_info.to_dict(orient="records"), f"{output_dir}/document_info.json")
+    save_file(topic_info.to_dict(orient="records"), f"{output_dir}/topic_info.json")
     save_file(hierarchical_topics.to_dict(orient="records"), f"{output_dir}/hierarchical_topics.json")
     save_file(topic_model.visualize_hierarchy(hierarchical_topics=hierarchical_topics).to_image(), f"{output_dir}/plots.png")
     save_file(tree, f"{output_dir}/tree.txt")
