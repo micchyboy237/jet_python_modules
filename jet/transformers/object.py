@@ -2,6 +2,7 @@ import json
 import base64
 import numpy as np
 import types
+import collections.abc
 from typing import Any, Dict
 from enum import Enum
 from jet.transformers.text import to_snake_case
@@ -33,7 +34,27 @@ def make_serializable(obj, seen=None):
         seen = set()
 
     def _serialize_inner(inner_obj, seen):
-        # Handle basic types first to avoid incorrect circular reference detection
+        # Handle Protobuf objects from google._upb._message
+        if hasattr(inner_obj, '__class__') and inner_obj.__class__.__module__.startswith('google._upb._message'):
+            # Check if the object is iterable (but not a string or bytes)
+            try:
+                is_iterable = isinstance(inner_obj, collections.abc.Iterable) and not isinstance(inner_obj, (str, bytes))
+            except TypeError:
+                is_iterable = False
+            if is_iterable:
+                try:
+                    # Serialize each item and apply snake_case to dictionaries
+                    serialized_items = []
+                    for item in inner_obj:
+                        serialized_item = _serialize_inner(item, seen.copy())
+                        if isinstance(serialized_item, dict):
+                            serialized_item = convert_dict_keys_to_snake_case(serialized_item)
+                        serialized_items.append(serialized_item)
+                    return serialized_items
+                except Exception:
+                    return inner_obj.__class__.__name__  # Fallback to class name if iteration fails
+            return inner_obj.__class__.__name__  # Non-iterable Protobuf objects
+
         if isinstance(inner_obj, Enum):
             return inner_obj.value
         elif isinstance(inner_obj, bytes):
@@ -68,15 +89,10 @@ def make_serializable(obj, seen=None):
                 return _serialize_inner(asdict(inner_obj), seen.copy())
             except Exception:
                 return _serialize_inner(vars(inner_obj), seen.copy())
-        
-        # Check for circular reference after handling basic types
         if id(inner_obj) in seen:
             return f"<{inner_obj.__class__.__name__} object>"
-
-        # Create a new seen set for this recursive branch
         new_seen = seen.copy()
         new_seen.add(id(inner_obj))
-
         if isinstance(inner_obj, set):
             return [_serialize_inner(item, new_seen) for item in inner_obj]
         elif isinstance(inner_obj, tuple):
@@ -88,7 +104,7 @@ def make_serializable(obj, seen=None):
             for key, value in inner_obj.items():
                 serialized_key = str(key) if not isinstance(key, str) else key
                 serialized_dict[serialized_key] = _serialize_inner(value, new_seen)
-            return serialized_dict
+            return convert_dict_keys_to_snake_case(serialized_dict)
         elif hasattr(inner_obj, "__dict__"):
             try:
                 if callable(getattr(inner_obj, "__dict__", None)):
@@ -102,8 +118,7 @@ def make_serializable(obj, seen=None):
             return str(inner_obj)
 
     result = _serialize_inner(obj, seen)
-    return result
-
+    return convert_dict_keys_to_snake_case(result)
 
 # Example usage
 if __name__ == "__main__":
