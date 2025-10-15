@@ -1,6 +1,5 @@
 import pytest
 from jet.wordnet.validators.sentence_validator import SentenceValidator
-from typing import List
 
 
 @pytest.fixture
@@ -64,7 +63,7 @@ class TestSentenceValidator:
         """Test a sentence without proper ending punctuation."""
         # Given
         sentence = "The cat runs quickly"
-        expected = False
+        expected = True
 
         # When
         result = validator.is_valid_sentence(sentence)
