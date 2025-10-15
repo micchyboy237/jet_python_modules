@@ -211,7 +211,7 @@ def link_to_text_ratio(text: str, threshold: float = 0.5) -> LinkTextRatio:
     total_chars = len(''.join(re.findall(r'[a-zA-Z0-9]', text)))
 
     # Clean the text to remove links and get the remaining content
-    cleaned_text = clean_markdown_links(text)
+    cleaned_text = remove_markdown_links(text)
     # Normalize cleaned text similarly
     cleaned_text = cleaned_text.strip().rstrip('.')
     cleaned_text_length = len(
@@ -376,6 +376,7 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
 __all__ = [
     "clean_markdown_text",
     "clean_markdown_links",
+    "remove_markdown_links",
     "preprocess_markdown",
     "process_separator_lines",
     "link_to_text_ratio",

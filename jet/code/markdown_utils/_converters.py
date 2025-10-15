@@ -1,14 +1,16 @@
 import re
-from pathlib import Path
-from typing import Union
 
 import html2text
+import markdown
+from markdown_it import MarkdownIt
+from mdit_plain.renderer import RendererPlain
+from pathlib import Path
+from typing import Optional, Union
 from jet.code.html_utils import preprocess_html
 from jet.transformers.formatters import format_html
 from jet.code.markdown_types.converter_types import MarkdownExtensions
-from jet.code.markdown_utils._preprocessors import clean_markdown_links, preprocess_markdown
+from jet.code.markdown_utils._preprocessors import remove_markdown_links, preprocess_markdown
 from jet.file.utils import load_file
-import markdown
 
 
 
@@ -27,13 +29,15 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     # html_content = add_list_table_header_placeholders(html_content)
 
     converter = html2text.HTML2Text()
-    converter.ignore_links = ignore_links
+    converter.ignore_links = False
     converter.ignore_images = True
     converter.ignore_emphasis = True
     converter.mark_code = True
     converter.body_width = 0
 
     md_content = converter.handle(html_content)
+    if ignore_links:
+        md_content = remove_markdown_links(md_content)
     md_content = preprocess_markdown(md_content)
 
     # preprocessed_html_content = convert_markdown_to_html(md_content)
@@ -97,10 +101,10 @@ def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtension
         else:
             raise ValueError(f"Unsupported markdown extension: {ext}")
 
-    md_content = preprocess_markdown(md_content)
-
     if ignore_links:
-        md_content = clean_markdown_links(md_content)
+        md_content = remove_markdown_links(md_content)
+
+    md_content = preprocess_markdown(md_content)
 
     # Render markdown with specified extensions
     html_content = markdown.markdown(md_content, extensions=valid_extensions)
@@ -108,6 +112,33 @@ def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtension
     html_content = format_html(html_content)
 
     return html_content
+
+
+def convert_markdown_to_text(md_content: str) -> Optional[str]:
+    """
+    Convert Markdown string to plain text using mdit-plain.
+
+    Args:
+        md_content (str): Input Markdown string.
+
+    Returns:
+        Optional[str]: Plain text string or None if input is invalid.
+
+    Raises:
+        ValueError: If md_content is empty or not a string.
+    """
+    if not isinstance(md_content, str):
+        raise ValueError("Input must be a string")
+    if not md_content.strip():
+        raise ValueError("Input Markdown content cannot be empty")
+
+    try:
+        parser = MarkdownIt(renderer_cls=RendererPlain)
+        plain_text = parser.render(md_content)
+        return plain_text
+    except Exception:
+        # Log error in production; for now, return None for robustness
+        return None
 
 
 def add_list_table_header_placeholders(html: str) -> str:
@@ -126,4 +157,5 @@ def add_list_table_header_placeholders(html: str) -> str:
 __all__ = [
     "convert_html_to_markdown",
     "convert_markdown_to_html",
+    "convert_markdown_to_text",
 ]

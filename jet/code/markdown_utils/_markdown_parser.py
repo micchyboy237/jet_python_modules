@@ -549,6 +549,7 @@ __all__ = [
     "remove_leading_non_headers",
     "merge_headers_with_content",
     "parse_markdown",
-    "derive_text",
     "prepend_missing_headers_by_type",
+    "derive_text",
+    "derive_by_header_hierarchy",
 ]

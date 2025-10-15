@@ -19,6 +19,8 @@ justext
 lxml
 Markdown
 mrkdwn-analysis
+markdown-it-py
+mdit-plain
 model2vec
 fastembed
 wordcloud
