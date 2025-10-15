@@ -22,6 +22,8 @@ mrkdwn-analysis
 model2vec
 fastembed
 wordcloud
+wtpsplit
+infinity_client
 
 # KeyBERT Peers
 # flair
