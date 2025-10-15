@@ -30,7 +30,7 @@ async def scrape_url(
     timeout: Optional[float] = 10000,
     max_retries: int = 1,
     with_screenshot: bool = True,
-    wait_for_js: bool = False,
+    wait_for_js: bool = True,
     use_cache: bool = True
 ) -> ScrapeResult:
     cache_key = f"html:{url}"
@@ -112,7 +112,7 @@ async def scrape_urls(
     max_retries: int = 1,
     with_screenshot: bool = True,
     headless: bool = True,
-    wait_for_js: bool = False,
+    wait_for_js: bool = True,
     use_cache: bool = True
 ) -> AsyncIterator[ScrapeResult]:
     semaphore = asyncio.Semaphore(num_parallel)
@@ -225,7 +225,7 @@ def scrape_urls_sync(
     max_retries: int = 1,
     with_screenshot: bool = True,
     headless: bool = True,
-    wait_for_js: bool = False,
+    wait_for_js: bool = True,
     use_cache: bool = True
 ) -> Iterator[ScrapeResult]:
     """

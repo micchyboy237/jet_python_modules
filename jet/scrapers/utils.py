@@ -5,6 +5,7 @@ import os
 import json
 import re
 import parsel
+import base64
 
 from datetime import datetime
 from lxml.etree import Comment
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import AsyncGenerator, Tuple
 from urllib.parse import urljoin, urlparse
 from pyquery import PyQuery as pq
+from fake_useragent import UserAgent
 
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
 from jet.transformers.formatters import format_html
@@ -24,7 +26,7 @@ from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
 from jet.logger.config import colorize_log
 from jet.logger import logger
 from jet.utils.text import fix_and_unidecode
-from jet.utils.inspect_utils import get_entry_file_dir
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 
 
 # def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
@@ -1082,7 +1084,7 @@ class BaseNode:
         text: Optional[str],
         depth: int,
         id: str,
-        raw_depth: Optional[int],  # Added to store unadjusted DOM depth
+        raw_depth: Optional[int] = None,  # Added to store unadjusted DOM depth
         class_names: List[str] = [],
         line: int = 0,
         html: Optional[str] = None
@@ -1399,7 +1401,10 @@ def exclude_elements(doc: pq, excludes: List[str]) -> None:
 def extract_tree_with_text(
     source: str,
     excludes: List[str] = ["nav", "footer", "script", "style"],
-    timeout_ms: int = 1000
+    timeout_ms: int = 10000,
+    with_screenshot: bool = True,
+    wait_for_js: bool = True,
+    headless: bool = False,
 ) -> TreeNode:
     """
     Extracts a tree structure from HTML with id, parent_id, links attributes, actual line numbers, and outer HTML from formatted HTML.
@@ -1416,21 +1421,37 @@ def extract_tree_with_text(
         html = source
 
     with sync_playwright() as p:
-        traces_dir = f"{get_entry_file_dir()}/playwright/traces"
+        traces_dir = f"{get_entry_file_dir()}/generated/{get_entry_file_name(remove_extension=True)}/playwright/traces"
         os.makedirs(traces_dir, exist_ok=True)
         browser = p.chromium.launch(
-            headless=True,
+            headless=headless,
             executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
             traces_dir=traces_dir,
         )
-        page = browser.new_page()
+
+        ua = UserAgent()
+        page = browser.new_page(user_agent=ua.random)
 
         if url:
-            page.goto(url, wait_until="networkidle")
+            page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         else:
-            page.set_content(html)
+            page.set_content(html, timeout=timeout_ms, wait_until="domcontentloaded")
 
-        page.wait_for_timeout(timeout_ms)
+        if wait_for_js:
+            js_timeout = 5000
+            logger.debug(f"Waiting JS content for {js_timeout // 1000}s")
+            page.wait_for_timeout(js_timeout)
+
+        if with_screenshot:
+            # Generate a random screenshot name using uuid
+            screenshot_name = f"screenshot_{uuid.uuid4().hex}.png"
+            screenshot_path = f"{get_entry_file_dir()}/generated/{get_entry_file_name(remove_extension=True)}/playwright/screenshots/{screenshot_name}"
+            screenshot = page.screenshot(full_page=True, path=screenshot_path)
+            if screenshot:
+                decoded_screenshot = base64.b64encode(screenshot).decode('utf-8')
+                logger.debug(f"Decoded screenshot, length: {len(decoded_screenshot)}")
+                logger.success(f"Screenshot saved at: {screenshot_path}")
+
         page_content = page.content()
         browser.close()
 
@@ -1538,55 +1559,6 @@ def extract_tree_with_text(
     return root_node
 
 
-def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
-    """
-    Flattens a TreeNode hierarchy into a list of TreeNode objects.
-
-    Args:
-        root: The root TreeNode to flatten.
-
-    Returns:
-        A list of TreeNode objects representing all nodes in the tree in depth-first order.
-    """
-    result: List[TreeNode] = []
-
-    def traverse(node: TreeNode) -> None:
-        # Create a TreeNode copy of the current node
-        result.append(create_node(node))
-
-        # Recursively process children
-        for child in node.get_children():
-            traverse(child)
-
-    traverse(root)
-    return result
-
-
-def get_leaf_nodes(root: TreeNode) -> List[TreeNode]:
-    """
-    Returns a list of TreeNode objects for leaf nodes (nodes with no children).
-
-    Args:
-        root: The root TreeNode of the tree to traverse.
-
-    Returns:
-        A list of TreeNode objects for leaf nodes.
-    """
-    result: List[TreeNode] = []
-
-    def traverse(node: TreeNode) -> None:
-        # Check if the node is a leaf (no children)
-        if not node.has_children():
-            result.append(create_node(node))
-
-        # Recursively traverse children
-        for child in node.get_children():
-            traverse(child)
-
-    traverse(root)
-    return result
-
-
 def extract_by_heading_hierarchy(
     source: str,
     tags_to_split_on: List[Tuple[str, str]] = [
@@ -1691,15 +1663,25 @@ def extract_by_heading_hierarchy(
     return results
 
 
-def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "script", "style"], timeout_ms: int = 1000) -> List[str]:
+def extract_text_elements(
+    source: str, 
+    excludes: list[str] = ["nav", "footer", "script", "style"], 
+    timeout_ms: int = 10000,
+    with_screenshot: bool = True,
+    wait_for_js: bool = True,
+    headless: bool = False,
+) -> List[str]:
     """
-    Extracts a flattened list of text elements from the HTML document, ignoring specific elements like <style> and <script>.
-    Uses Playwright to render dynamic content if needed.
+    Extracts a flattened list of text elements from the HTML document, ignoring specific elements.
+    Uses Playwright to render dynamic content with advanced browser automation.
 
-    :param source: The HTML string or URL to parse.
+    :param source: The HTML string, file path, or URL to parse.
     :param excludes: A list of tag names to exclude (e.g., ["nav", "footer", "script", "style"]).
     :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
-    :return: A list of text elements found in the HTML.
+    :param with_screenshot: Whether to capture screenshots during rendering.
+    :param wait_for_js: Whether to wait for JavaScript execution to complete.
+    :param headless: Whether to run browser in headless mode.
+    :return: A flattened list of text elements found in the HTML.
     """
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
@@ -1711,58 +1693,143 @@ def extract_text_elements(source: str, excludes: list[str] = ["nav", "footer", "
         url = None
         html = source
 
-    # Use Playwright to render the page if URL is provided
     with sync_playwright() as p:
         traces_dir = f"{get_entry_file_dir()}/playwright/traces"
         os.makedirs(traces_dir, exist_ok=True)
+        
         browser = p.chromium.launch(
-            headless=True, 
+            headless=headless,
             executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
             traces_dir=traces_dir,
         )
-        page = browser.new_page()
-
+        
+        ua = UserAgent()
+        page = browser.new_page(user_agent=ua.random)
+        
         if url:
-            page.goto(url, wait_until="networkidle")
+            page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         else:
-            page.set_content(html)
-
-        page.wait_for_timeout(timeout_ms)
-
-        # Extract the content
+            page.set_content(html, timeout=timeout_ms, wait_until="domcontentloaded")
+        
+        if wait_for_js:
+            js_timeout = 5000
+            logger.debug(f"Waiting JS content for {js_timeout // 1000}s")
+            page.wait_for_timeout(js_timeout)
+        
+        if with_screenshot:
+            # Generate a random screenshot name using uuid
+            screenshot_name = f"screenshot_{uuid.uuid4().hex}.png"
+            screenshot_path = f"{get_entry_file_dir()}/generated/{get_entry_file_name(remove_extension=True)}/playwright/screenshots/{screenshot_name}"
+            os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
+            screenshot = page.screenshot(full_page=True, path=screenshot_path)
+            if screenshot:
+                decoded_screenshot = base64.b64encode(screenshot).decode('utf-8')
+                logger.debug(f"Decoded screenshot, length: {len(decoded_screenshot)}")
+                logger.success(f"Screenshot saved at: {screenshot_path}")
+        
         page_content = page.content()
         browser.close()
-
-    # Parse the content with PyQuery after Playwright has rendered it
-    doc = pq(page_content)
-
-    # Apply the exclusion logic before extracting text
+    
+    # Format the HTML content using format_html
+    formatted_html = format_html(page_content)
+    doc = pq(formatted_html)
     exclude_elements(doc, excludes)
-
-    def extract_text(element) -> List[str]:
-        text = pq(element).text().strip()
-
-        valid_id_pattern = r'^[a-zA-Z_-]+$'
-        element_id = pq(element).attr('id')
-        element_class = pq(element).attr('class')
-        id = element_id if element_id and re.match(
-            valid_id_pattern, element_id) else None
-        class_names = [name for name in (element_class.split() if element_class else [])
-                       if re.match(valid_id_pattern, name)]
-
-        if text and len(pq(element).children()) == 0:
-            return [text]
-
+    
+    def extract_text(element, depth: int = 0) -> List[str]:
+        """Recursively extract text from elements, handling special cases."""
+        el_pq = pq(element)
+        
+        # Skip comment nodes
+        if element.tag is Comment or str(element.tag).startswith('<cyfunction Comment'):
+            return []
+        
+        tag = element.tag if isinstance(element.tag, str) else str(element.tag)
+        
+        # Handle special text extraction for certain tags
+        if tag.lower() == "meta":
+            text = el_pq.attr("content") or ""
+            text = decode_text_with_unidecode(text.strip())
+            if text:
+                return [text]
+            return []
+        elif tag.lower() in TEXT_ELEMENTS:
+            # For text elements, extract direct text content
+            text_parts = []
+            for item in el_pq.contents():
+                if isinstance(item, str):
+                    text_parts.append(item.strip())
+                else:
+                    text_parts.append(decode_text_with_unidecode(
+                        pq(item).text().strip()))
+            text = " ".join(part for part in text_parts if part)
+        else:
+            text = decode_text_with_unidecode(el_pq.text().strip())
+        
         text_elements = []
-        for child in pq(element).children():
-            text_elements.extend(extract_text(child))
-
+        
+        # If element has meaningful text and no children, return it directly
+        if text and len(el_pq.children()) == 0:
+            text_elements.append(text)
+        else:
+            # Recursively extract from children for non-text elements
+            if tag.lower() not in TEXT_ELEMENTS:
+                for child in el_pq.children():
+                    text_elements.extend(extract_text(child, depth + 1))
+        
         return text_elements
-
-    # Start with the root element and gather all text elements in a flattened list
+    
+    # Start extraction from root element
     text_elements = extract_text(doc[0])
-
     return text_elements
+
+
+def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
+    """
+    Flattens a TreeNode hierarchy into a list of TreeNode objects.
+
+    Args:
+        root: The root TreeNode to flatten.
+
+    Returns:
+        A list of TreeNode objects representing all nodes in the tree in depth-first order.
+    """
+    result: List[TreeNode] = []
+
+    def traverse(node: TreeNode) -> None:
+        # Create a TreeNode copy of the current node
+        result.append(create_node(node))
+
+        # Recursively process children
+        for child in node.get_children():
+            traverse(child)
+
+    traverse(root)
+    return result
+
+
+def get_leaf_nodes(root: TreeNode) -> List[TreeNode]:
+    """
+    Returns a list of TreeNode objects for leaf nodes (nodes with no children).
+
+    Args:
+        root: The root TreeNode of the tree to traverse.
+
+    Returns:
+        A list of TreeNode objects for leaf nodes.
+    """
+    result: List[TreeNode] = []
+
+    def traverse(node: TreeNode) -> None:
+        # Check if the node is a leaf (no children)
+        if not node.has_children():
+            result.append(create_node(node))
+
+        # Recursively traverse children
+        for child in node.get_children():
+            traverse(child)
+
+    traverse(root)
+    return result
 
 
 # Function to print the tree-like structure recursively

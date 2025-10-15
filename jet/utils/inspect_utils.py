@@ -19,16 +19,16 @@ class INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE(TypedDict):
 
 
 # Paths to include and exclude in logs
-INCLUDE_PATHS = ["Jet_Projects/", "repo-libs/"]
+INCLUDE_PATHS = ["jet_python_modules/", "Jet_Projects/", "repo-libs/"]
 EXCLUDE_PATHS = ["site-packages/"]
 
 MAX_LOG_LENGTH = 100  # Max length for logged values
 
 
 def validate_filepath(file_path: str) -> bool:
-    # Check if path should be included
-    if not any(path in file_path for path in INCLUDE_PATHS):
-        return False  # Skip if not in allowed paths
+    # # Check if path should be included
+    # if not any(path in file_path for path in INCLUDE_PATHS):
+    #     return False  # Skip if not in allowed paths
 
     # Check if path should be excluded
     if any(path in file_path for path in EXCLUDE_PATHS):
@@ -73,7 +73,7 @@ def log_filtered_stack_trace(exc: Exception):
         logger.warning(
             f"Stack [{i}]: File \"{filename}\", line {line_number}, in {function_name}"
         )
-        logger.warning(f"Code:")  # Include line number
+        logger.warning("Code:")  # Include line number
         logger.error(code_context)
         logger.warning("Error Message:")
         logger.error(error_message)  # Log error message
@@ -238,21 +238,36 @@ def get_current_running_function():
         return current_function
 
 
-def get_entry_file_name():
+def get_entry_file_name(remove_extension: bool = False) -> str:
+    """
+    Returns the file name of the entry point script, optionally without the file extension.
+    Args:
+        remove_extension (bool): If True, returns the file name without the extension; otherwise, includes it.
+    Returns:
+        str: The file name of the entry point script, or "server" on error.
+    """
     try:
-        return Path(sys.modules["__main__"].__file__).name
+        file_path = Path(sys.modules["__main__"].__file__)
+        if remove_extension:
+            return file_path.with_suffix("").name
+        return file_path.name
     except (KeyError, AttributeError):
         return "server"
 
 
-def get_entry_file_path() -> Optional[str]:
+def get_entry_file_path(remove_extension: bool = False) -> Optional[str]:
     """
-    Returns the absolute file path of the entry point script.
-    Returns None if the entry point cannot be determined or is not a valid path.
+    Returns the absolute file path of the entry point script, optionally without the file extension.
+    Args:
+        remove_extension (bool): If True, returns the file path without the extension; otherwise, includes it.
+    Returns:
+        Optional[str]: The absolute file path of the entry point script, or None if invalid.
     """
     try:
         file_path = Path(sys.modules["__main__"].__file__).resolve()
         if validate_filepath(str(file_path)):
+            if remove_extension:
+                return str(file_path.with_suffix(""))
             return str(file_path)
         return None
     except (KeyError, AttributeError):
