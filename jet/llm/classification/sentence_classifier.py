@@ -2,12 +2,30 @@ from typing import Dict
 import spacy
 from transformers import pipeline
 
-nlp = spacy.load("en_core_web_sm")  # Small model; use 'lg' for better accuracy
-classifier = pipeline("text-classification", model="distilbert-base-uncased-finetuned-sst-2-english")  # Swap for custom fine-tuned model
+# Initialize as None to enable lazy loading
+_nlp = None
+_classifier = None
+
+def _load_models():
+    """Load spaCy and Transformers models lazily, only once."""
+    global _nlp, _classifier
+    try:
+        if _nlp is None:
+            _nlp = spacy.load("en_core_web_sm")  # Small model; use 'lg' for better accuracy
+        if _classifier is None:
+            _classifier = pipeline("text-classification", model="distilbert-base-uncased-finetuned-sst-2-english")  # Swap for custom fine-tuned model
+    except Exception as e:
+        raise RuntimeError(f"Failed to load models: {str(e)}. Ensure 'en_core_web_sm' is installed (`python -m spacy download en_core_web_sm`) and Transformers dependencies are available.") from e
 
 def classify_sentence(sentence: str) -> Dict[str, str]:
     """Classify a sentence across categories. Returns dict with keys from summary."""
-    doc = nlp(sentence)
+    # Load models if not already loaded
+    try:
+        _load_models()
+    except RuntimeError as e:
+        return {"error": str(e)}
+    
+    doc = _nlp(sentence)
     
     # By function (rule-based)
     func = "Declarative"
@@ -33,7 +51,7 @@ def classify_sentence(sentence: str) -> Dict[str, str]:
     
     # By meaning/brevity (ML embedding + simple rules)
     brevity = "One-word" if len(sentence.strip().split()) == 1 else "Minor" if clauses < 1 else "Full"
-    meaning_score = classifier(sentence)[0]  # Placeholder; fine-tune for causal/etc.
+    meaning_score = _classifier(sentence)[0]  # Placeholder; fine-tune for causal/etc.
     meaning = "Affirmative" if meaning_score["label"] == "POSITIVE" else "Negative"  # Extend with custom labels
     
     return {
