@@ -1,6 +1,6 @@
 import torch
 from wtpsplit import SaT
-from jet.code.markdown_utils import extract_sentences
+from jet.code.extraction import extract_sentences
 
 def run_examples():
     """
