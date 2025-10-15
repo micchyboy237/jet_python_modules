@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+enum Corpus {
+  CORPUS_UNSPECIFIED = 0;
+  CORPUS_UNIVERSAL = 1;
+  CORPUS_WEB = 2;
+  CORPUS_IMAGES = 3;
+  CORPUS_LOCAL = 4;
+  CORPUS_NEWS = 5;
+  CORPUS_PRODUCTS = 6;
+  CORPUS_VIDEO = 7;
+}
+
+message SearchRequest {
+  string query = 1;
+  int32 page_number = 2;
+  int32 results_per_page = 3;
+  optional Corpus corpus = 4;
+
+  message Geo {
+    string country = 1;
+    repeated double coordinates = 2;
+  }
+  optional Geo geo = 5;
+}
+
+message Result {
+  string url = 1;
+  string title = 2;
+  repeated string snippets = 3;
+}
+
+message SearchResponse {
+  repeated Result results = 1;
+  oneof next_page {
+    string next_page_token = 2;
+    int32 next_page_number = 3;
+  }
+}

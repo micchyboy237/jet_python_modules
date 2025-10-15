@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+message Book {
+  string title = 1;
+  map<string, string> metadata = 2;
+  repeated string tags = 8;
+  reserved 3 to 7;
+  reserved "old_field";
+}
