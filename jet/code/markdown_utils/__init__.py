@@ -3,7 +3,6 @@ from ._converters import *
 from ._base import *
 from ._markdown_analyzer import *
 from ._markdown_parser import *
-from .extraction import *
 
 __all__ = [
     "read_md_content",
@@ -15,7 +14,6 @@ __all__ = [
     "preprocess_markdown",
     "analyze_markdown",
     "parse_markdown",
-    "extract_sentences",
     "derive_text",
     "derive_by_header_hierarchy",
 ]
