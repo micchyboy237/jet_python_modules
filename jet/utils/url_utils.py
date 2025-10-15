@@ -1,4 +1,4 @@
-from jet.logger import logger
+# from jet.logger import logger
 from tqdm import tqdm
 from unidecode import unidecode
 from typing import Dict, List, Tuple
@@ -109,7 +109,63 @@ def clean_links(text: str) -> str:
     cleaned_words = [clean_single_url(word) if "://" in word else word for word in words]
     return " ".join(cleaned_words)
 
+
+def remove_links(text: str) -> str:
+    """
+    Remove all URLs and paths (except single "/") from text, preserving surrounding content.
+    """
+    # Separate patterns for better debugging and reliability
+    full_url_pattern = re.compile(
+        r'https?://[^\s<>"\'{}|\\^`\[\]]+', 
+        re.IGNORECASE
+    )
     
+    # Path pattern: starts with /, then path chars (but not just "/"), optional query/fragment
+    # Key: match / followed by at least one path character, then optional query/fragment
+    path_pattern = re.compile(
+        r'/(?=[^\s/])([a-zA-Z0-9\-._~:@!$&\'()*+,;=]|%[0-9a-fA-F]{2})+[^\s<>"\'{}|\\^`\[\]]*(?:\?[^\s<>"\'{}|\\^`\[\]]*)?(?:#[^\s<>"\'{}|\\^`\[\]]*)?',
+        re.IGNORECASE
+    )
+    
+    # Combined pattern to match either full URLs or paths
+    combined_pattern = re.compile(
+        f'({full_url_pattern.pattern})|({path_pattern.pattern})',
+        re.IGNORECASE
+    )
+    
+    output = ""
+    last_end = 0
+    matches_found = []
+    
+    for match in combined_pattern.finditer(text):
+        start, end = match.span()
+        matched_text = text[start:end].strip()
+        match_type = "FULL_URL" if match.group(1) else "PATH" if match.group(2) else "UNKNOWN"
+        
+        matches_found.append({
+            'start': start,
+            'end': end,
+            'text': matched_text,
+            'type': match_type
+        })
+        
+        # Explicitly preserve single "/"
+        if matched_text == "/":
+            output += text[last_end:start]
+            output += matched_text  # Keep the single "/"
+            last_end = end
+            continue
+        
+        # Remove URL/path matches (except single "/")
+        output += text[last_end:start]
+        last_end = end
+    
+    # Append remaining text
+    output += text[last_end:]
+    
+    return output
+
+
 def clean_url(url: str) -> str:
     """Clean a URL by ensuring a scheme, removing trailing slashes, normalizing format, and removing empty fragments."""
     if not url:

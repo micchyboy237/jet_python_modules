@@ -4,7 +4,6 @@ from urllib.parse import urljoin
 
 from jet.utils.text import fix_and_unidecode
 
-from jet.logger import logger
 
 
 class MDHeaderLink(TypedDict):
@@ -81,6 +80,38 @@ def clean_markdown_links(text: str) -> str:
     text = ''.join(parts)
 
     return text
+
+
+def remove_markdown_links(text: str) -> str:
+    """
+    Remove all markdown links, replacing [label](link) with just label.
+    """
+    pattern = re.compile(r'\[([^\]]*)\]\((\S+?)(?:\s+"([^"]+)")?\)')
+    output = ""
+    last_end = 0
+
+    for match in pattern.finditer(text):
+        start, end = match.span()
+        label = match.group(1)
+
+        # Skip empty labels or labels with only spaces
+        if not label.strip():
+            output += text[last_end:start]
+            last_end = end
+            continue
+
+        # Append text before this match
+        output += text[last_end:start]
+
+        # Replace with label only
+        output += label
+
+        last_end = end
+
+    # Append remaining text after last match
+    output += text[last_end:]
+
+    return output
 
 
 def preprocess_markdown(md_content: str) -> str:

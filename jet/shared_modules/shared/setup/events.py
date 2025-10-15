@@ -3,7 +3,6 @@ import time
 import threading
 from dataclasses import dataclass, field
 from typing import Dict, Literal, Optional
-from jet.logger.config import configure_logger
 from jet.logger import logger
 from jet.utils.inspect_utils import get_entry_file_name, inspect_original_script_path
 from shared.setup.types import EventData
@@ -98,7 +97,7 @@ class _EventSettings:
         self.event_data[event_name] = event_data
         self.events[event_name] = event_data
 
-        logger.log(f"File:", event_data.get(
+        logger.log("File:", event_data.get(
             'filename', 'N/A'), colors=["GRAY", "ORANGE"])
         return event_data
 
@@ -120,7 +119,7 @@ def setup_events():
         def pre_start_hook():
             event_data = EventSettings.pre_start_hook()
             logger.newline()
-            logger.success("pre_start_hook triggered at: " +
+            logger.teal("pre_start_hook triggered at: " +
                            EventSettings.get_entry_time())
 
         pre_start_hook()
