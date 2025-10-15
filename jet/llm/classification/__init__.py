@@ -1,1 +1,1 @@
-from .classify_sentence import *
+from .sentence_classifier import *

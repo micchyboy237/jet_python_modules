@@ -2,7 +2,6 @@ import os
 from jet.file.utils import load_file, save_file
 from transformers import pipeline
 from tqdm import tqdm
-from enum import Enum
 from jet.logger import logger
 from jet.wordnet.pos_tagger import POSTagger
 
