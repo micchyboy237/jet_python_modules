@@ -1,10 +1,14 @@
 # from IPython.display import display, HTML
+import argparse
+import os
+from typing import Any, List, Optional
 from spacy import displacy
 from spacy.tokens import Doc
 from stanza.models.common.constant import is_right_to_left
 from stanza.server.semgrex import Semgrex
 import spacy
 import stanza
+from tqdm import tqdm
 
 """
 IMPORTANT: For the code in this module to run, you must have corenlp and Java installed on your machine. Additionally,
@@ -193,7 +197,7 @@ def visualize_search_doc(doc, semgrex_queries, lang_code, start_match=0, end_mat
     return edited_html_strings
 
 
-def visualize_search_str(text, semgrex_queries, lang_code):
+def visualize_search_str(text, semgrex_queries, lang_code, pipe: Optional[stanza.Pipeline] = None):
     """
     Visualizes the deprel of the semgrex results from running semgrex search on a string with the given list of
     semgrex queries. Returns a list of the edited HTML strings. Each element in the list represents
@@ -203,9 +207,25 @@ def visualize_search_str(text, semgrex_queries, lang_code):
 
     'lang_code' is the two-letter language abbreviation for the language that the stanza doc object is written in.
     """
-    nlp = stanza.Pipeline(lang_code, processors="tokenize, pos, lemma, depparse")
-    doc = nlp(text)
+    if not pipe:
+        pipe = stanza.Pipeline(lang_code, processors="tokenize, pos, lemma, depparse")
+    doc = pipe(text)
     return visualize_search_doc(doc, semgrex_queries, lang_code)
+
+
+def visualize_strings(texts, semgrex_queries, lang_code) -> List[List[str]]:
+    """
+    Takes a language code (ex: 'en' for English) and a list of strings, returning dependency
+    visualization HTML strings for each text.
+
+    This function loads the Stanza pipeline for the given language and uses it to visualize
+    all of the strings provided.
+    """
+    pipe = stanza.Pipeline(lang_code, processors="tokenize, pos, lemma, depparse")
+    html_strings_matrix: List[List[str]] = []
+    for text in tqdm(texts, desc="Visualizing semgrex", unit="text"):
+        html_strings_matrix.append(visualize_search_str(text, semgrex_queries, lang_code, pipe))
+    return html_strings_matrix
 
 
 def adjust_dep_arrows(raw_html):
@@ -287,3 +307,91 @@ def edit_dep_arrow(arrow_html):
         terms = [first_term, second_term, third_term] + second_d_split[3:]
         second_d = ",".join(terms)
     return arrow_html[:first_d_idx] + first_d + " " + arrow_html[first_fill_start_idx:second_d_idx] + second_d + " " + arrow_html[second_fill_start_idx:]
+
+
+def edit_html_overflow(html_string: str) -> str:
+    """
+    Adds to overflow and display settings to the SVG header to visualize overflowing HTML renderings in the
+    Semgrex streamlit app. Prevents Semgrex search tags from being cut off at the bottom of visualizations.
+
+    The opening of each HTML string looks similar to this; we add to the end of the SVG header.
+
+    <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:lang="en" id="fa9446a525de4862b233007f26dbbecb-0" class="displacy" width="850" height="242.0" direction="ltr" style="max-width: none; height: 242.0px; color: #000000; background: #ffffff; font-family: Arial; direction: ltr">
+    <style> .bolded{font-weight: bold;} </style>
+    <text class="displacy-token" fill="currentColor" text-anchor="middle" y="182.0">
+        <tspan class="bolded" fill="#66CCEE" x="50">Banning</tspan>
+
+       <tspan class="displacy-tag" dy="2em" fill="currentColor" x="50">VERB</tspan>
+      <tspan class="displacy-word" dy="2em" fill="#66CCEE" x=50>Act.</tspan>
+    </text>
+
+    @param html_string: HTML of the result of running Semgrex search on a text
+    @return: Edited HTML to visualize the dependencies even in the case of overflow.
+    """
+
+    BUFFER_LEN = 14  # length of 'direction: ltr"'
+    editing_start_idx = find_nth(html_string, "direction: ltr", n=1)
+    SVG_HEADER_ADDITION = "overflow: visible; display: block"
+    return (
+        html_string[:editing_start_idx]
+        + "; "
+        + SVG_HEADER_ADDITION
+        + html_string[editing_start_idx + BUFFER_LEN :]
+    )
+
+
+def main():
+    """
+    IMPORTANT: For the code in this module to run, you must have corenlp and Java installed on your machine. Additionally,
+    set an environment variable CLASSPATH equal to the path of your corenlp directory.
+
+    Example: CLASSPATH=C:\\Users\\Alex\\PycharmProjects\\pythonProject\\stanford-corenlp-4.5.0\\stanford-corenlp-4.5.0\\*
+    """
+    nlp = stanza.Pipeline("en", processors="tokenize,pos,lemma,depparse")
+    doc = nlp(
+        "Banning opal removed artifact decks from the meta. Banning tennis resulted in players banning people."
+    )
+    queries = [
+        "{pos:NN}=object <obl {}=action",
+        "{cpos:NOUN}=thing <obj {cpos:VERB}=action",
+    ]
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--doc", type=Any, default=doc, help="Stanza document to process."
+    )
+    parser.add_argument(
+        "--queries",
+        type=List[str],
+        default=queries,
+        help="Semgrex queries to search for",
+    )
+    parser.add_argument(
+        "--lang_code",
+        type=str,
+        default="en",
+        help="Two letter abbreviation the document's language e.g. 'en' for English",
+    )
+    parser.add_argument(
+        "--CLASSPATH",
+        type=str,
+        default="C:\\stanford-corenlp-4.5.2\\stanford-corenlp-4.5.2\\*",
+        help="Path to your coreNLP directory",
+    )
+    args = parser.parse_args()
+    os.environ["CLASSPATH"] = args.CLASSPATH
+    try:
+        res = visualize_search_doc(doc, queries, "en")
+        print(res[0])  # first sentence's HTML
+    except TypeError:
+        raise TypeError(
+            """For the code in this module to run, you must have corenlp and Java installed on your machine. 
+            Once installed, you can pass in the path to your corenlp directory as a command-line argument named 
+            "CLASSPATH". Alternatively, set an environment variable CLASSPATH equal to the path of your corenlp 
+            directory."""
+        )
+    return
+
+
+if __name__ == "__main__":
+    main()

@@ -11,6 +11,8 @@ import stanza
 import spacy
 import copy
 
+from tqdm import tqdm
+
 
 def visualize_ner_doc(doc, language, select=None, colors=None) -> List[str]:
     """
@@ -122,7 +124,7 @@ def visualize_strings(texts, language_code, select=None, colors=None) -> List[Li
     lang_pipe = stanza.Pipeline(language_code, processors="tokenize,ner")
 
     html_strings_matrix = []
-    for text in texts:
+    for text in tqdm(texts, desc="Visualizing ner", unit="text"):
         html_strings_matrix.append(visualize_ner_str(text, lang_pipe, select=select, colors=colors))
     return html_strings_matrix
 
@@ -141,7 +143,7 @@ def visualize_docs(docs, language_code, select=None, colors=None) -> List[List[s
     values (ex: "linear-gradient(90deg, #aa9cfc, #fc9ce7)").
     """
     html_strings_matrix = []
-    for doc in docs:
+    for doc in tqdm(docs, desc="Visualizing ner docs", unit="doc"):
         html_strings_matrix.append(visualize_ner_doc(doc, language_code, select=select, colors=colors))
     return html_strings_matrix
 

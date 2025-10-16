@@ -8,6 +8,7 @@ import stanza
 import spacy
 from spacy import displacy
 from spacy.tokens import Doc
+from tqdm import tqdm
 
 
 def visualize_doc(doc, language) -> List[str]:
@@ -91,7 +92,7 @@ def visualize_strings(texts, lang_code) -> List[List[str]]:
     """
     pipe = stanza.Pipeline(lang_code, processors="tokenize,pos,lemma,depparse")
     html_strings_matrix: List[List[str]] = []
-    for text in texts:
+    for text in tqdm(texts, desc="Visualizing dependencies", unit="text"):
         html_strings_matrix.append(visualize_str(text, lang_code, pipe))
     return html_strings_matrix
 
