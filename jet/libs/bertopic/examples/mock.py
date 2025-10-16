@@ -2,9 +2,9 @@ from typing import Optional, TypedDict, List
 from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
-from jet.code.markdown_types.markdown_parsed_types import HeaderDoc
-from jet.code.markdown_utils._preprocessors import clean_markdown_links
-from jet.utils.url_utils import clean_links
+# from jet.code.extraction.sentence_extraction import extract_sentences
+from jet.code.markdown_utils._converters import convert_html_to_markdown, convert_markdown_to_text
+from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
 from jet.wordnet.text_chunker import chunk_texts, truncate_texts
 from jet.file.utils import load_file
 from jet.logger import logger
@@ -81,28 +81,26 @@ def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, 
 
 def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 96, chunk_overlap: int = 32, truncate: bool = False) -> List[str]:
     """Load sample dataset from local for topic modeling."""
-    headers_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/all_headers.json"
-    
-    logger.info("Loading sample dataset...")
-    headers_dict = load_file(headers_file)
-    # headers: List[HeaderDoc] = [h for h_list in headers_dict.values() for h in h_list]
-    headers: List[HeaderDoc] = headers_dict["https://gamerant.com/new-isekai-anime-2025"]
-    documents = [f"{doc["parent_header"].lstrip("#") if doc["parent_header"] else ""}\n{doc["header"].lstrip("#")}\n{doc['content']}".strip() for doc in headers]
+    html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
 
-    # Clean all links
-    documents = [clean_markdown_links(doc) for doc in documents]
-    documents = [clean_links(doc) for doc in documents]
+    md_content = convert_html_to_markdown(html, ignore_links=True)
+    headers = derive_by_header_hierarchy(md_content, ignore_links=True)
+    header_md_contents = [f"{header['header']}\n\n{header['content']}" for header in headers]
+    header_contents = [convert_markdown_to_text(md_content) for md_content in header_md_contents]
+    # sentences = [sentence for content in header_contents for sentence in extract_sentences(content, use_gpu=True)]
+
+    texts = header_contents
 
     if not truncate:
         documents = chunk_texts(
-            documents,
+            texts,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             model=model,
         )
     else:
         documents = truncate_texts(
-            documents,
+            texts,
             max_tokens=chunk_size,
             model=model,
             strict_sentences=True

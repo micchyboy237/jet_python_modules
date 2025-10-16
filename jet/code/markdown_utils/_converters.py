@@ -5,7 +5,7 @@ import markdown
 from markdown_it import MarkdownIt
 from mdit_plain.renderer import RendererPlain
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 from jet.code.html_utils import preprocess_html
 from jet.transformers.formatters import format_html
 from jet.code.markdown_types.converter_types import MarkdownExtensions
@@ -114,7 +114,7 @@ def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtension
     return html_content
 
 
-def convert_markdown_to_text(md_content: str) -> Optional[str]:
+def convert_markdown_to_text(md_content: str) -> str:
     """
     Convert Markdown string to plain text using mdit-plain.
 
@@ -122,7 +122,7 @@ def convert_markdown_to_text(md_content: str) -> Optional[str]:
         md_content (str): Input Markdown string.
 
     Returns:
-        Optional[str]: Plain text string or None if input is invalid.
+        str: Plain text string.
 
     Raises:
         ValueError: If md_content is empty or not a string.
@@ -132,13 +132,9 @@ def convert_markdown_to_text(md_content: str) -> Optional[str]:
     if not md_content.strip():
         raise ValueError("Input Markdown content cannot be empty")
 
-    try:
-        parser = MarkdownIt(renderer_cls=RendererPlain)
-        plain_text = parser.render(md_content)
-        return plain_text
-    except Exception:
-        # Log error in production; for now, return None for robustness
-        return None
+    parser = MarkdownIt(renderer_cls=RendererPlain)
+    plain_text = parser.render(md_content)
+    return plain_text
 
 
 def add_list_table_header_placeholders(html: str) -> str:
