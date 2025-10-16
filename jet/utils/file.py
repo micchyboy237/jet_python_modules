@@ -9,6 +9,8 @@ def search_files(
     extensions: list[str],
     include_files: list[str] = [],
     exclude_files: list[str] = [],
+    include_contents: list[str] = [],  # NEW
+    exclude_contents: list[str] = [],  # NEW
 ) -> list[str]:
     """
     Scrape directories for files matching specific extensions and inclusion/exclusion criteria.
@@ -17,6 +19,8 @@ def search_files(
         extensions (list[str]): File extensions to include.
         include_files (list[str], optional): Files or directories to include (supports wildcards, partial, relative, or full paths). Defaults to [].
         exclude_files (list[str], optional): Files or directories to exclude (supports wildcards, partial, relative, or full paths). Defaults to [].
+        include_contents (list[str], optional): Text patterns to include files containing matching content (supports wildcards). Defaults to [].
+        exclude_contents (list[str], optional): Text patterns to exclude files containing matching content (supports wildcards). Defaults to [].
     Returns:
         list[str]: List of filtered file paths.
     """
@@ -32,15 +36,20 @@ def search_files(
             for f in filenames
             if any(f.endswith(ext) for ext in extensions)
         )
-
+    
+    # Apply file/directory filters first (path-based)
     if include_files:
-        files = [file for file in files if matches_pattern(
-            file, include_files)]
+        files = [file for file in files if matches_pattern(file, include_files)]
     if exclude_files:
-        files = [file for file in files if not matches_pattern(
-            file, exclude_files)]
-
-    return sorted(files)  # Sort for consistent output in tests
+        files = [file for file in files if not matches_pattern(file, exclude_files)]
+    
+    # Apply content filters last (content-based, more expensive)
+    if include_contents:
+        files = [file for file in files if content_matches_pattern(file, include_contents)]
+    if exclude_contents:
+        files = [file for file in files if not content_matches_pattern(file, exclude_contents)]
+    
+    return sorted(files)
 
 
 def matches_pattern(path: str, patterns: list[str]) -> bool:
@@ -66,6 +75,33 @@ def matches_pattern(path: str, patterns: list[str]) -> bool:
         if fnmatch.fnmatch(normalized_path, f"*{os.sep}{pattern}"):
             return True
 
+    return False
+
+
+def content_matches_pattern(file_path: str, patterns: list[str]) -> bool:
+    """
+    Check if file contents match any of the given text patterns using wildcards.
+    
+    Args:
+        file_path (str): Path to the file to read and check.
+        patterns (list[str]): Text patterns to match against file contents (supports wildcards).
+    
+    Returns:
+        bool: True if any pattern matches content, False otherwise.
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+        
+        for pattern in patterns:
+            # Escape special regex characters for fnmatch compatibility
+            # fnmatch works with shell-style wildcards, not regex
+            if fnmatch.fnmatch(content, pattern):
+                return True
+    except (IOError, OSError, UnicodeDecodeError):
+        # File doesn't exist, can't be read, or encoding issues - no match
+        pass
+    
     return False
 
 
