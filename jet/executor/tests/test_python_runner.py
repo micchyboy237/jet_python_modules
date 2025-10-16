@@ -224,3 +224,53 @@ class TestRunPythonFilesInDirectory:
         result_files = [str(target_dir / entry["file"]) for entry in result]
         assert sorted(result_files) == sorted(expected_files), \
             f"Expected {expected_files}, but got {result_files}"
+    def test_given_file_processing_when_running_files_then_status_file_updated_each_time(
+        self, setup_test_files: Path, output_dir: Path
+    ):
+        """Test that files_status.json is updated after each file is processed."""
+        # Given: A target directory with test files and an output directory
+        target_dir = setup_test_files
+        status_file = output_dir / "files_status.json"
+        expected_files = [
+            str(target_dir / "1_success.py"),
+            str(target_dir / "2_fail.py"),
+            str(target_dir / "3_another_success.py")
+        ]
+
+        # When: Running files with mocked subprocess
+        with patch("subprocess.Popen") as mock_popen, patch("jet.utils.file.search_files") as mock_search:
+            mock_search.return_value = expected_files
+            mock_process = Mock()
+            mock_process.stdout = ["Output\n"]
+            mock_process.wait.side_effect = [0, 1, 0]  # Success, Fail, Success
+            mock_popen.return_value = mock_process
+
+            status_updates = []
+            def check_status_file():
+                if status_file.exists():
+                    with status_file.open("r") as f:
+                        status_updates.append(json.load(f))
+                else:
+                    status_updates.append([])
+
+            # Patch save_file to capture status updates after each save
+            with patch("jet.file.utils.save_file") as mock_save:
+                mock_save.side_effect = lambda data, file: check_status_file()
+                run_python_files_in_directory(
+                    target_dir=target_dir,
+                    output_dir=output_dir,
+                    recursive=False,
+                    rerun_mode="all",
+                    include_contents=[],
+                    exclude_contents=[],
+                )
+
+            # Then: Verify status file was updated after each file
+            assert len(status_updates) == len(expected_files), \
+                f"Expected {len(expected_files)} status updates, got {len(status_updates)}"
+            for i, update in enumerate(status_updates, 1):
+                assert len(update) == i, \
+                    f"Expected {i} entries in status update {i}, got {len(update)}"
+                if update:  # Ensure update is not empty
+                    assert update[-1]["file"] == str(Path(expected_files[i-1]).relative_to(target_dir)), \
+                        f"Expected last file in update {i} to be {expected_files[i-1]}, got {update[-1]['file']}"

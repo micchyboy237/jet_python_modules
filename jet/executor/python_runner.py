@@ -124,6 +124,12 @@ def run_python_files_in_directory(
                 break
         if not found:
             new_status_data.append(status_entry)
+        
+        # Save status file after each file is processed
+        if status_file:
+            logger.debug(f"Saving status file: {status_file}")
+            save_file(new_status_data, status_file)
+
         if success_dir and failed_dir:
             relative_dir = file_path.parent.relative_to(target_dir)
             success_log_dir = success_dir / relative_dir
