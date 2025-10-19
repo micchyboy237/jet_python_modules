@@ -25,9 +25,9 @@ def _load_model(model_name: str, style_or_domain: Optional[str], language: str) 
     return _model_cache["model"]
 
 def extract_sentences(
-    text: str,
-    model_name: str = "sat-12l-sm",
-    use_gpu: bool = True,
+    text: str, 
+    model_name: str = "sat-12l-sm", 
+    use_gpu: bool = True, 
     sentence_threshold: float = 0.5,
     style_or_domain: Optional[str] = None,
     language: str = "en"
@@ -59,17 +59,22 @@ def extract_sentences(
     """
     if not text.strip():
         raise ValueError("Input text cannot be empty.")
+    
     sat = _load_model(model_name, style_or_domain, language)
+    
     device = "cpu"
     if use_gpu:
         if torch.backends.mps.is_available():
             device = "mps"
         elif torch.cuda.is_available():
             device = "cuda"
+    
+    # Move model to device only if it hasn't been moved already
     if sat.device != device:
         sat.to(device)
         if device == "cuda":
             sat.half()
-    segmented = sat.split(text, do_paragraph_segmentation=False, sentence_threshold=sentence_threshold)
-    # Return sentences directly, respecting the threshold-based splitting from sat.split
-    return [sent.strip() for sent in segmented if sent.strip()]
+    
+    segmented = sat.split(text, do_paragraph_segmentation=True, paragraph_threshold=sentence_threshold)
+    sentences = [' '.join(sent.strip() for sent in para) for para in segmented]
+    return sentences
