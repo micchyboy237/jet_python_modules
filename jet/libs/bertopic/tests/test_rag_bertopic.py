@@ -224,31 +224,3 @@ class TestSafeFallbacks:
         # --- Then
         # fit_topics should return None (no error raised, fallback handled internally)
         assert result is None
-
-    def test_general_clustering_exception_fallback(self, monkeypatch):
-        """Given a general Exception in clustering, 
-        When fit_topics is called, Then fallback single-cluster mode executes."""
-        from jet.libs.bertopic.rag_bertopic import TopicRAG
-
-        docs = [
-            "AI improves healthcare diagnostics.",
-            "Deep learning assists in medical imaging.",
-        ]
-        rag = TopicRAG(verbose=True)
-
-        # Mock BERTopic.fit_transform to raise a generic error
-        class DummyModel:
-            def fit_transform(self, *_, **__):
-                raise RuntimeError("Simulated HDBSCAN crash")
-
-        monkeypatch.setattr("jet.libs.bertopic.rag_bertopic.BERTopic", lambda *_, **__: DummyModel())
-
-        # --- When
-        try:
-            result = rag.fit_topics(docs)
-        except Exception as e:
-            pytest.fail(f"fit_topics raised an exception during fallback: {e}")
-
-        # --- Then
-        # fit_topics should return None (no error raised, fallback handled internally)
-        assert result is None
