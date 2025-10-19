@@ -32,7 +32,7 @@ class TopicIndex:
 
 
 class TopicRAG:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", verbose: bool = True):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", verbose: bool = False):
         self.verbose = verbose
         self.model = None
         self.topic_indexes: Dict[int, TopicIndex] = {}
