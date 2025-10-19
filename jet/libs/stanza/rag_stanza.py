@@ -125,14 +125,6 @@ def run_rag_stanza_demo(text: str) -> Dict[str, Any]:
         chunks = build_context_chunks(parsed_sentences, max_tokens=80)
         print(f"Generated {len(chunks)} chunks.\n")
     
-    for i, ch in enumerate(tqdm(chunks, desc="Displaying chunks")):
-        print(f">>> Chunk {i + 1}")
-        print(f"Sentences: {ch['sent_indices']}")
-        print(f"Token count (approx): {ch['tokens']}")
-        print(f"Salience score: {ch['salience']}")
-        print(f"Text preview: {ch['text'][:180]}...\n")
-        print(f"Entities in chunk: {', '.join(ch['entities']) if ch['entities'] else 'None'}\n")
-    
     return {"parsed_sentences": parsed_sentences, "chunks": chunks}
 
 

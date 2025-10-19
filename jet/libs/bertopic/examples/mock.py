@@ -5,7 +5,7 @@ from typing import Literal
 # from jet.code.extraction.sentence_extraction import extract_sentences
 from jet.code.markdown_utils._converters import convert_html_to_markdown
 from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
-from jet.wordnet.text_chunker import chunk_texts, truncate_texts
+from jet.wordnet.text_chunker import ChunkResult, chunk_texts, chunk_texts_with_data, truncate_texts
 from jet.file.utils import load_file
 from jet.logger import logger
 
@@ -23,6 +23,18 @@ class TargetInfo(TypedDict):
     label: int
     category: str
     count: int
+
+class ChunkResultMeta(TypedDict):
+    doc_id: str
+    doc_index: int
+    header: str
+    level: Optional[int]
+    parent_header: Optional[str]
+    parent_level: Optional[int]
+    source: Optional[str]
+
+class ChunkResultWithMeta(ChunkResult):
+    meta: ChunkResultMeta
 
 def fetch_newsgroups_samples(*, subset: Literal["train", "test", "all"] = "train", **kwargs) -> List[NewsGroupDocument]:
     """Load sample dataset from 20 newsgroups for topic modeling, with global cache."""
@@ -79,7 +91,7 @@ def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, 
         ]
     return unique_categories
 
-def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 96, chunk_overlap: int = 32, truncate: bool = False) -> List[str]:
+def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32, truncate: bool = False) -> List[str]:
     """Load sample dataset from local for topic modeling."""
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
 
@@ -107,6 +119,66 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 96, chunk_overl
         )
 
     return [doc for doc in documents if doc.strip()]
+
+def load_sample_data_with_info(
+    model: str = EMBED_MODEL,
+    chunk_size: int = 128,
+    chunk_overlap: int = 32
+) -> List[ChunkResultWithMeta]:
+    """
+    Load sample dataset from local for topic modeling, returning chunk results with section meta information.
+    """
+    html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
+    md_content = convert_html_to_markdown(html, ignore_links=True)
+    headers = derive_by_header_hierarchy(md_content, ignore_links=True)
+    header_md_contents = [f"{header['header']}\n\n{header['content']}" for header in headers]
+
+    texts = header_md_contents
+    doc_ids = [header["id"] for header in headers]
+
+    # Map header id to header metadata (assuming doc_ids are unique and order-aligned)
+    header_id_to_meta: dict[str, ChunkResultMeta] = {}
+    for header in headers:
+        header_meta: ChunkResultMeta = {
+            "doc_id": header["id"],
+            "doc_index": header["doc_index"],
+            "header": header["header"],
+            "level": header.get("level"),
+            "parent_header": header.get("parent_header"),
+            "parent_level": header.get("parent_level"),
+            "source": header.get("source"),
+        }
+        header_id_to_meta[header["id"]] = header_meta
+
+    base_chunks: List[ChunkResult] = chunk_texts_with_data(
+        texts,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        model=model,
+        ids=doc_ids,
+    )
+
+    # Attach section meta-data from the corresponding HeaderDoc to each chunk
+    enriched_chunks: List[ChunkResultWithMeta] = []
+    for chunk in base_chunks:
+        doc_id = chunk["doc_id"]
+        if doc_id in header_id_to_meta:
+            chunk_meta = header_id_to_meta[doc_id]
+        else:
+            # Safely fill with correct types for fields
+            chunk_meta: ChunkResultMeta = {
+                "doc_id": doc_id,
+                "doc_index": -1,
+                "header": "",
+                "level": None,
+                "parent_header": None,
+                "parent_level": None,
+                "source": None,
+            }
+        chunk_with_meta: ChunkResultWithMeta = {**chunk, "meta": chunk_meta}
+        enriched_chunks.append(chunk_with_meta)
+
+    return enriched_chunks
 
 def load_sample_text() -> str:
     """Load sample dataset from local for topic modeling."""

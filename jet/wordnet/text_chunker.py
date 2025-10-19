@@ -265,7 +265,7 @@ def chunk_texts_with_data(
     chunk_size: int = 128,
     chunk_overlap: int = 0,
     model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
-    doc_ids: Optional[List[str]] = None,
+    ids: Optional[List[str]] = None,
     buffer: int = 0,
     strict_sentences: bool = False,
     min_chunk_size: int = 32,
@@ -290,7 +290,7 @@ def chunk_texts_with_data(
         sentences = split_sentences(text)
         if not sentences:
             continue
-        doc_id = doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4())
+        doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
 
         # Fast token-based path
         if not strict_sentences and model:
@@ -455,7 +455,7 @@ def chunk_texts_sliding_window(
     chunk_size: int = 128,
     step_size: int = 96,
     model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
-    doc_ids: Optional[List[str]] = None,
+    ids: Optional[List[str]] = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
 ) -> List[ChunkResult]:
@@ -467,7 +467,7 @@ def chunk_texts_sliding_window(
         chunk_size: Number of tokens per chunk.
         step_size: Number of tokens to move the window at each step.
         model: Optional LLM model name for token-based chunking.
-        doc_ids: Optional list of document IDs.
+        ids: Optional list of document IDs.
         buffer: Buffer size to reserve in each chunk.
         min_chunk_size: Minimum number of tokens for a chunk to be valid.
     
@@ -496,7 +496,7 @@ def chunk_texts_sliding_window(
         tokens = size_fn(text)
         if not tokens:
             continue
-        doc_id = doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4())
+        doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
         windows = sliding_window(tokens, chunk_size - buffer, step_size)
         
         for chunk_index, window in enumerate(windows):
@@ -544,7 +544,7 @@ def chunk_texts_sliding_window_fast(
     chunk_size: int = 128,
     step_size: int = 96,
     model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
-    doc_ids: Optional[List[str]] = None,
+    ids: Optional[List[str]] = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
     show_progress: bool = True
@@ -569,7 +569,7 @@ def chunk_texts_sliding_window_fast(
         tokens = size_fn(text)
         if not tokens:
             continue
-        doc_id = doc_ids[i] if doc_ids and i < len(doc_ids) else str(uuid.uuid4())
+        doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
 
         for chunk_index in range(0, len(tokens) - effective_size + 1, step_size):
             window = tokens[chunk_index:chunk_index + effective_size]
