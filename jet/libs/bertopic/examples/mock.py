@@ -5,7 +5,7 @@ from typing import Literal
 # from jet.code.extraction.sentence_extraction import extract_sentences
 from jet.code.markdown_utils._converters import convert_html_to_markdown
 from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
-from jet.wordnet.text_chunker import ChunkResult, chunk_texts, chunk_texts_with_data, truncate_texts
+from jet.wordnet.text_chunker import chunk_texts, chunk_texts_with_data, truncate_texts
 from jet.file.utils import load_file
 from jet.logger import logger
 
@@ -25,6 +25,18 @@ class TargetInfo(TypedDict):
     count: int
 
 class ChunkResultMeta(TypedDict):
+    """Metadata for document chunks.
+
+    Attributes:
+        doc_id: Document ID (same for all chunks of a document).
+        doc_index: Document index in the source dataset.
+        header: Header text (e.g., '### Title').
+        level: Header level (e.g., 2 → '##').
+        parent_header: Parent section header (e.g., '## Parent').
+        parent_level: Parent header level (e.g., 2 → '##').
+        source: File path, URL, or other source reference.
+    """
+
     doc_id: str
     doc_index: int
     header: str
@@ -33,7 +45,42 @@ class ChunkResultMeta(TypedDict):
     parent_level: Optional[int]
     source: Optional[str]
 
+class ChunkResult(TypedDict):
+    """Core information for an individual chunk.
+
+    Attributes:
+        id: Unique chunk identifier.
+        doc_id: Document ID (same as in meta).
+        doc_index: Document index (same as in meta).
+        chunk_index: Chunk order within the document.
+        num_tokens: Number of tokens in this chunk.
+        content: Text content of the chunk.
+        start_idx: Start offset in source content.
+        end_idx: End offset in source content.
+        line_idx: Line number in the source.
+        overlap_start_idx: Start index of overlap with previous chunk, if any.
+        overlap_end_idx: End index of overlap with next chunk, if any.
+    """
+
+    id: str
+    doc_id: str
+    doc_index: int
+    chunk_index: int
+    num_tokens: int
+    content: str
+    start_idx: int
+    end_idx: int
+    line_idx: int
+    overlap_start_idx: Optional[int]
+    overlap_end_idx: Optional[int]
+
 class ChunkResultWithMeta(ChunkResult):
+    """Chunk data extended with metadata.
+
+    Attributes:
+        meta: Metadata containing headers, structure, and source info.
+    """
+
     meta: ChunkResultMeta
 
 def fetch_newsgroups_samples(*, subset: Literal["train", "test", "all"] = "train", **kwargs) -> List[NewsGroupDocument]:

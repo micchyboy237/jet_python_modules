@@ -13,11 +13,13 @@ Run:
     python examples_rag_stanza.py
 """
 
+import time
+from contextlib import contextmanager
+from typing import Any, Dict
 from jet.libs.stanza.rag_stanza import (
     build_stanza_pipeline,
     parse_sentences,
     build_context_chunks,
-    run_rag_stanza_demo,
 )
 
 EXAMPLE_TEXT = (
@@ -71,6 +73,32 @@ def example_build_chunks():
         print(f"Text preview: {c['text'][:150]}...")
     return chunks
 
+@contextmanager
+def timer(description: str) -> None:
+    """Context manager to track and print execution time."""
+    start = time.time()
+    yield
+    elapsed = time.time() - start
+    print(f"{description}: {elapsed:.2f} seconds")
+
+
+def run_rag_stanza_demo(text: str) -> Dict[str, Any]:
+    """
+    Run the full Stanza-based RAG preprocessing pipeline with progress tracking.
+    Returns a dict with sentence-level and chunk-level information.
+    """
+    with timer("=== Building Stanza pipeline"):
+        nlp = build_stanza_pipeline()
+    
+    with timer("=== Parsing sentences"):
+        parsed_sentences = parse_sentences(text, nlp)
+        print(f"Total sentences parsed: {len(parsed_sentences)}")
+    
+    with timer("=== Creating context chunks for RAG"):
+        chunks = build_context_chunks(parsed_sentences, max_tokens=80)
+        print(f"Generated {len(chunks)} chunks.\n")
+    
+    return {"parsed_sentences": parsed_sentences, "chunks": chunks}
 
 def example_full_demo():
     """Example: run full integrated demo."""

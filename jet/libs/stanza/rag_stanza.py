@@ -10,10 +10,8 @@ This demo:
 """
 
 from __future__ import annotations
-import time
 import stanza
 from typing import Dict, Any, List
-from contextlib import contextmanager
 from tqdm import tqdm
 
 from jet.libs.stanza.pipeline import StanzaPipelineCache
@@ -95,53 +93,3 @@ def _finalize_chunk(sentences: List[Dict[str, Any]], start_idx: int) -> Dict[str
         "entities": list(set(all_entities)),
         "salience": salience,
     }
-
-
-# ---------------------------------------------------------------------------------------
-# Demo entrypoint — used by tests and notebooks
-# ---------------------------------------------------------------------------------------
-@contextmanager
-def timer(description: str) -> None:
-    """Context manager to track and print execution time."""
-    start = time.time()
-    yield
-    elapsed = time.time() - start
-    print(f"{description}: {elapsed:.2f} seconds")
-
-
-def run_rag_stanza_demo(text: str) -> Dict[str, Any]:
-    """
-    Run the full Stanza-based RAG preprocessing pipeline with progress tracking.
-    Returns a dict with sentence-level and chunk-level information.
-    """
-    with timer("=== Building Stanza pipeline"):
-        nlp = build_stanza_pipeline()
-    
-    with timer("=== Parsing sentences"):
-        parsed_sentences = parse_sentences(text, nlp)
-        print(f"Total sentences parsed: {len(parsed_sentences)}")
-    
-    with timer("=== Creating context chunks for RAG"):
-        chunks = build_context_chunks(parsed_sentences, max_tokens=80)
-        print(f"Generated {len(chunks)} chunks.\n")
-    
-    return {"parsed_sentences": parsed_sentences, "chunks": chunks}
-
-
-# ---------------------------------------------------------------------------------------
-# Allow running directly for manual demo
-# ---------------------------------------------------------------------------------------
-if __name__ == "__main__":
-    sample_text = (
-        "OpenAI announced the GPT-5 model on October 15, 2025, marking a major leap "
-        "in multimodal reasoning and multilingual understanding. "
-        "The company claims that GPT-5 can handle text, image, and structured data "
-        "simultaneously, offering developers a unified API for advanced RAG systems. "
-        "Meanwhile, universities like Stanford and MIT are exploring Stanza-based "
-        "syntactic chunking for retrieval-augmented generation improvements."
-    )
-
-    output = run_rag_stanza_demo(sample_text)
-    print("\n=== Summary ===")
-    print(f"Sentences parsed: {len(output['parsed_sentences'])}")
-    print(f"Chunks created: {len(output['chunks'])}")
