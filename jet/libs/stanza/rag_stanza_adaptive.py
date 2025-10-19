@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-from jet.libs.stanza.rag_stanza2 import build_stanza_pipeline, parse_sentences
+from jet.libs.stanza.rag_stanza import build_stanza_pipeline, parse_sentences
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 
 

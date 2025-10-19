@@ -20,7 +20,7 @@ from jet.libs.stanza.rag_stanza_adaptive import (
     visualize_sentence_dependency_dot,
     run_rag_stanza_adaptive_demo,
 )
-from jet.libs.stanza.rag_stanza2 import build_stanza_pipeline, parse_sentences
+from jet.libs.stanza.rag_stanza import build_stanza_pipeline, parse_sentences
 
 EXAMPLE_TEXT = (
     "OpenAI released GPT-5 in October 2025, marking a major leap in multimodal reasoning. "

@@ -1,189 +1,155 @@
-# rag_stanza.py
-from typing import List, Dict, TypedDict, Optional, Callable
+"""
+Example module: Demonstrate how to use Stanza NLP for syntax-aware RAG context building.
+
+This demo:
+- Parses sentences using the Stanza NLP pipeline.
+- Extracts tokens, POS tags, lemmas, and named entities.
+- Groups sentences into syntax-aware context chunks.
+- Computes a simple salience score per chunk (based on entity density and length).
+- Returns structured results ready for downstream retrieval or embedding.
+"""
+
+from __future__ import annotations
+import time
 import stanza
+from typing import Dict, Any, List
+from contextlib import contextmanager
+from tqdm import tqdm
 
-# --- types ---
-class Entity(TypedDict):
-    text: str
-    type: str
-    start_char: int
-    end_char: int
+from jet.libs.stanza.pipeline import StanzaPipelineCache
 
-class SentenceData(TypedDict):
-    text: str
-    tokens: List[str]
-    lemmas: List[str]
-    pos: List[str]
-    deps: List[Dict[str, object]]  # each: {"text": str, "head": int, "deprel": str, "index": int}
-    constituency: Optional[str]
-    entities: List[Entity]
 
-class Chunk(TypedDict):
-    text: str
-    sentence_indices: List[int]
-    est_token_count: int
-    metadata: Dict[str, object]
+# ---------------------------------------------------------------------------------------
+# Initialize Stanza pipeline (English, fast mode)
+# ---------------------------------------------------------------------------------------
+def build_stanza_pipeline() -> stanza.Pipeline:
+    """Build and return a lightweight Stanza pipeline from cache."""
+    cache = StanzaPipelineCache()
+    return cache.get_pipeline(lang="en", processors="tokenize,pos,lemma,depparse,ner", use_gpu=True)
 
-# --- pipeline helpers ---
-def build_stanza_pipeline(lang: str = "en",
-                          processors: str = "tokenize,mwt,pos,lemma,depparse,ner,constituency",
-                          use_gpu: bool = False) -> stanza.Pipeline:
-    """
-    Build a Stanza pipeline with sensible defaults for RAG context building.
-    Ensure the processors needed by depparse/constituency are included.
-    """
-    return stanza.Pipeline(lang=lang, processors=processors, use_gpu=use_gpu, verbose=False)
 
-def parse_sentences(text: str, pipeline: stanza.Pipeline) -> List[SentenceData]:
-    """
-    Parse text into SentenceData entries using the provided stanza pipeline.
-    """
-    doc = pipeline(text)
-    sentences: List[SentenceData] = []
-
-    for sent in doc.sentences:
-        tokens = [w.text for w in sent.words]
-        lemmas = [w.lemma if getattr(w, "lemma", None) is not None else w.text for w in sent.words]
-        pos = [w.upos for w in sent.words]
-        deps = [{"text": w.text, "head": w.head, "deprel": w.deprel, "index": w.id} for w in sent.words]
-
-        # constituency: stanza stores parse_tree; convert to bracket string if present
-        constituency_str: Optional[str] = None
-        if hasattr(sent, "constituency") and getattr(sent, "constituency", None) is not None:
-            constituency_str = str(sent.constituency)
-
-        entities: List[Entity] = []
-        # stanza stores named entities at doc level; filter those overlapping sentence offsets
-        for ent in doc.ents:
-            if ent.start_char >= sent.tokens[0].start_char and ent.end_char <= sent.tokens[-1].end_char:
-                entities.append({
-                    "text": ent.text,
-                    "type": ent.type,
-                    "start_char": ent.start_char,
-                    "end_char": ent.end_char
-                })
-
-        sentences.append(SentenceData(
-            text=sent.text,
-            tokens=tokens,
-            lemmas=lemmas,
-            pos=pos,
-            deps=deps,
-            constituency=constituency_str,
-            entities=entities
-        ))
-    return sentences
-
-# --- salience & chunking ---
-def sentence_salience_score(s: SentenceData) -> float:
-    """
-    Heuristic salience: prioritize sentences with named entities and syntactic heads.
-    score = num_entities * 2 + unique_content_pos_count / 10 + root_token_indicator
-    This is intentionally lightweight and deterministic.
-    """
-    num_entities = len(s["entities"])
-    # content POS set
-    content_pos = {"NOUN", "PROPN", "VERB", "ADJ"}
-    content_count = sum(1 for p in s["pos"] if p in content_pos)
-    # root presence indicator: presence of a 'root' deprel in deps
-    root_indicator = 1.0 if any(d["deprel"].lower() == "root" for d in s["deps"]) else 0.0
-    score = num_entities * 2.0 + (content_count / 10.0) + root_indicator
-    return score
-
-def chunk_sentences_for_rag(sentences: List[SentenceData],
-                            max_tokens: int = 200,
-                            overlap: int = 30,
-                            token_counter: Optional[Callable[[List[str]], int]] = None) -> List[Chunk]:
-    """
-    Group sentences into chunks suited for RAG (est. token counts).
-    token_counter: optional function that returns estimated token length given tokens list.
-    Default uses simple token count (len(tokens)).
-    """
-    if token_counter is None:
-        token_counter = lambda toks: len(toks)
-
-    chunks: List[Chunk] = []
-    current: List[int] = []
-    current_tokens = 0
-
-    for i, s in enumerate(sentences):
-        s_token_count = token_counter(s["tokens"])
-        # If single sentence exceeds max_tokens, create a chunk for it alone.
-        if s_token_count >= max_tokens and not current:
-            chunks.append(Chunk(
-                text=s["text"],
-                sentence_indices=[i],
-                est_token_count=s_token_count,
-                metadata={"salience": sentence_salience_score(s)}
-            ))
-            continue
-
-        # if adding stays within limit, add
-        if current_tokens + s_token_count <= max_tokens:
-            current.append(i)
-            current_tokens += s_token_count
-        else:
-            # finalize current chunk
-            chunk_text = " ".join(sentences[j]["text"] for j in current)
-            chunk_meta = {
-                "salience": max(sentence_salience_score(sentences[j]) for j in current),
-                "entities": [e for j in current for e in sentences[j]["entities"]],
+# ---------------------------------------------------------------------------------------
+# Sentence parsing utility
+# ---------------------------------------------------------------------------------------
+def parse_sentences(text: str, nlp: stanza.Pipeline) -> List[Dict[str, Any]]:
+    """Parse text into structured sentence objects with progress tracking."""
+    doc = nlp(text)
+    parsed = []
+    for sent in tqdm(doc.sentences, desc="Parsing sentences"):
+        tokens = [word.text for word in sent.words]
+        pos_tags = [word.xpos for word in sent.words]
+        lemmas = [word.lemma for word in sent.words]
+        deps = [word.deprel for word in sent.words]
+        entities = [f"{ent.text}:{ent.type}" for ent in sent.ents]
+        parsed.append(
+            {
+                "text": sent.text.strip(),
+                "tokens": tokens,
+                "pos": pos_tags,
+                "lemmas": lemmas,
+                "entities": entities,
+                "deps": deps,
             }
-            chunks.append(Chunk(text=chunk_text, sentence_indices=current.copy(), est_token_count=current_tokens, metadata=chunk_meta))
+        )
+    return parsed
 
-            # start new chunk with overlap
-            # determine overlap indices from tail of current
-            overlap_indices = []
-            tok_sum = 0
-            # pick overlap sentences from the end until overlap token limit reached
-            for j in reversed(current):
-                tok = token_counter(sentences[j]["tokens"])
-                if tok_sum + tok > overlap:
-                    break
-                overlap_indices.insert(0, j)
-                tok_sum += tok
 
-            current = overlap_indices.copy()
-            current_tokens = tok_sum
-            # now add current sentence if it fits
-            if s_token_count + current_tokens <= max_tokens:
-                current.append(i)
-                current_tokens += s_token_count
-            else:
-                # otherwise, finalize current (if any) and put this sentence alone
-                if current:
-                    chunk_text = " ".join(sentences[j]["text"] for j in current)
-                    chunk_meta = {
-                        "salience": max(sentence_salience_score(sentences[j]) for j in current),
-                        "entities": [e for j in current for e in sentences[j]["entities"]],
-                    }
-                    chunks.append(Chunk(text=chunk_text, sentence_indices=current.copy(), est_token_count=current_tokens, metadata=chunk_meta))
-                    current = []
-                    current_tokens = 0
-
-                chunks.append(Chunk(text=s["text"], sentence_indices=[i], est_token_count=s_token_count, metadata={"salience": sentence_salience_score(s), "entities": s["entities"]}))
-
-    # finalize leftover
-    if current:
-        chunk_text = " ".join(sentences[j]["text"] for j in current)
-        chunk_meta = {
-            "salience": max(sentence_salience_score(sentences[j]) for j in current),
-            "entities": [e for j in current for e in sentences[j]["entities"]],
-        }
-        chunks.append(Chunk(text=chunk_text, sentence_indices=current.copy(), est_token_count=current_tokens, metadata=chunk_meta))
-
+# ---------------------------------------------------------------------------------------
+# Context chunking for RAG
+# ---------------------------------------------------------------------------------------
+def build_context_chunks(parsed_sentences: List[Dict[str, Any]], max_tokens: int = 80) -> List[Dict[str, Any]]:
+    """
+    Combine parsed sentences into syntax-aware chunks with progress tracking.
+    - Merges sentences until max_tokens is reached.
+    - Computes a naive salience score based on entity density.
+    """
+    chunks: List[Dict[str, Any]] = []
+    current_chunk: List[Dict[str, Any]] = []
+    current_len = 0
+    current_start_idx = 0
+    for i, sent in enumerate(tqdm(parsed_sentences, desc="Building chunks")):
+        sent_len = len(sent["tokens"])
+        if current_len + sent_len > max_tokens and current_chunk:
+            chunks.append(_finalize_chunk(current_chunk, start_idx=current_start_idx))
+            current_chunk = [sent]
+            current_len = sent_len
+            current_start_idx = i
+        else:
+            current_chunk.append(sent)
+            current_len += sent_len
+    if current_chunk:
+        chunks.append(_finalize_chunk(current_chunk, start_idx=current_start_idx))
     return chunks
 
-# --- small convenience: pipeline + chunk wrapper ---
-def build_context_chunks(text: str,
-                         lang: str = "en",
-                         max_tokens: int = 200,
-                         overlap: int = 30,
-                         pipeline: Optional[stanza.Pipeline] = None) -> List[Chunk]:
+
+def _finalize_chunk(sentences: List[Dict[str, Any]], start_idx: int) -> Dict[str, Any]:
+    """Helper to finalize chunk structure and compute salience."""
+    text = " ".join(s["text"] for s in sentences)
+    all_entities = [ent.split(":")[0] for s in sentences for ent in s["entities"]]
+    sent_indices = list(range(start_idx, start_idx + len(sentences)))
+    salience = round(len(set(all_entities)) * 1.2 + len(text) / 100, 2)
+    return {
+        "text": text,
+        "sent_indices": sent_indices,
+        "tokens": sum(len(s["tokens"]) for s in sentences),
+        "entities": list(set(all_entities)),
+        "salience": salience,
+    }
+
+
+# ---------------------------------------------------------------------------------------
+# Demo entrypoint — used by tests and notebooks
+# ---------------------------------------------------------------------------------------
+@contextmanager
+def timer(description: str) -> None:
+    """Context manager to track and print execution time."""
+    start = time.time()
+    yield
+    elapsed = time.time() - start
+    print(f"{description}: {elapsed:.2f} seconds")
+
+
+def run_rag_stanza_demo(text: str) -> Dict[str, Any]:
     """
-    High-level convenience function: builds pipeline if needed, parses, chunks, returns chunks.
+    Run the full Stanza-based RAG preprocessing pipeline with progress tracking.
+    Returns a dict with sentence-level and chunk-level information.
     """
-    if pipeline is None:
-        pipeline = build_stanza_pipeline(lang=lang)
-    sents = parse_sentences(text, pipeline)
-    return chunk_sentences_for_rag(sents, max_tokens=max_tokens, overlap=overlap)
+    with timer("=== Building Stanza pipeline"):
+        nlp = build_stanza_pipeline()
+    
+    with timer("=== Parsing sentences"):
+        parsed_sentences = parse_sentences(text, nlp)
+        print(f"Total sentences parsed: {len(parsed_sentences)}")
+    
+    with timer("=== Creating context chunks for RAG"):
+        chunks = build_context_chunks(parsed_sentences, max_tokens=80)
+        print(f"Generated {len(chunks)} chunks.\n")
+    
+    for i, ch in enumerate(tqdm(chunks, desc="Displaying chunks")):
+        print(f">>> Chunk {i + 1}")
+        print(f"Sentences: {ch['sent_indices']}")
+        print(f"Token count (approx): {ch['tokens']}")
+        print(f"Salience score: {ch['salience']}")
+        print(f"Text preview: {ch['text'][:180]}...\n")
+        print(f"Entities in chunk: {', '.join(ch['entities']) if ch['entities'] else 'None'}\n")
+    
+    return {"parsed_sentences": parsed_sentences, "chunks": chunks}
+
+
+# ---------------------------------------------------------------------------------------
+# Allow running directly for manual demo
+# ---------------------------------------------------------------------------------------
+if __name__ == "__main__":
+    sample_text = (
+        "OpenAI announced the GPT-5 model on October 15, 2025, marking a major leap "
+        "in multimodal reasoning and multilingual understanding. "
+        "The company claims that GPT-5 can handle text, image, and structured data "
+        "simultaneously, offering developers a unified API for advanced RAG systems. "
+        "Meanwhile, universities like Stanford and MIT are exploring Stanza-based "
+        "syntactic chunking for retrieval-augmented generation improvements."
+    )
+
+    output = run_rag_stanza_demo(sample_text)
+    print("\n=== Summary ===")
+    print(f"Sentences parsed: {len(output['parsed_sentences'])}")
+    print(f"Chunks created: {len(output['chunks'])}")
