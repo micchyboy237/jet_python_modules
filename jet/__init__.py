@@ -49,5 +49,13 @@ def suppress_logging():
     # Suppress HTTP request/response logs from openai
     logging.getLogger("openai").setLevel(logging.WARNING)
 
+    # Suppress DEBUG/INFO from markdown-it-py and mdit_plain modules
+    logging.getLogger('markdown_it').setLevel(logging.WARNING)
+    logging.getLogger('mdit_plain').setLevel(logging.WARNING)
+
+    # # Optional: Disable propagation to prevent bubbling to root
+    # logging.getLogger('markdown_it').propagate = False
+    # logging.getLogger('mdit_plain').propagate = False
+
 
 suppress_logging()

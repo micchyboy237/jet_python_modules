@@ -14,40 +14,26 @@ Demonstrates:
 
 from pprint import pprint
 from textwrap import shorten
-from typing import List, Dict
+from typing import List, Dict, TypedDict
 
 import stanza
 
+from jet.libs.bertopic.examples.mock import load_sample_data_with_info
 from jet.libs.stanza.rag_stanza import (
     StanzaPipelineCache,
     parse_sentences,
 )
 
+import os
+import shutil
 
-def example_long_text() -> str:
-    """Return a long multi-paragraph example input text."""
-    return (
-        "In the early 21st century, artificial intelligence (AI) has transformed "
-        "nearly every sector—from healthcare and education to finance and manufacturing. "
-        "The rise of large language models, such as GPT-5, has accelerated the pace of "
-        "automation and knowledge work, enabling machines to understand and generate "
-        "human-like text at unprecedented scale.\n\n"
-        "Researchers from Stanford University and the Massachusetts Institute of Technology "
-        "recently published a comprehensive report analyzing the economic impact of LLMs. "
-        "They found that organizations integrating AI into their workflows reported a 34% "
-        "increase in operational efficiency within two years. "
-        "However, concerns about data privacy, hallucination, and bias remain critical issues.\n\n"
-        "Meanwhile, governments around the world are responding with new regulatory frameworks. "
-        "The European Union’s AI Act is expected to become a global benchmark for responsible AI "
-        "governance. In the United States, the National Institute of Standards and Technology "
-        "(NIST) is developing an AI Risk Management Framework. "
-        "Both initiatives emphasize transparency, accountability, and fairness.\n\n"
-        "In practical applications, smaller models like LLaMA and Mistral have become popular "
-        "for edge deployment, where low-latency inference is crucial. "
-        "Developers are increasingly fine-tuning open-weight models on domain-specific corpora "
-        "to create high-performing, efficient RAG systems capable of question answering, summarization, "
-        "and knowledge grounding across diverse data sources."
-    )
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+# Sample web scraped data
+EXAMPLE_DATA: List[str] = load_sample_data_with_info(model="embeddinggemma", chunk_size=512, truncate=True)
+EXAMPLE_TEXT = EXAMPLE_DATA[4]["content"]
 
 
 def build_cached_pipeline(lang: str = "en") -> stanza.Pipeline:
@@ -61,9 +47,8 @@ def build_cached_pipeline(lang: str = "en") -> stanza.Pipeline:
     return pipeline
 
 
-def example_parse_text(pipeline: stanza.Pipeline) -> List[Dict]:
+def example_parse_text(text: str, pipeline: stanza.Pipeline) -> List[Dict]:
     """Example: parse a long text into structured sentences."""
-    text = example_long_text()
     print("\n--- Parsing long text with Stanza ---")
     sentences = parse_sentences(text, pipeline)
 
@@ -72,7 +57,7 @@ def example_parse_text(pipeline: stanza.Pipeline) -> List[Dict]:
     return sentences
 
 
-def example_extract_entities(sentences: List[Dict]) -> None:
+def example_extract_entities(sentences: List[Dict]) -> List[Dict]:
     """Example: extract named entities from parsed sentences."""
     print("\n--- Extracting Named Entities ---")
     all_entities = []
@@ -85,6 +70,7 @@ def example_extract_entities(sentences: List[Dict]) -> None:
                 "lemma": ent["lemma"]
             })
     pprint(all_entities)
+    return all_entities
 
 
 def example_build_rag_context(sentences: List[Dict], query: str = None) -> List[Dict]:
@@ -126,6 +112,14 @@ def example_build_rag_context(sentences: List[Dict], query: str = None) -> List[
 
 from sklearn.metrics.pairwise import cosine_similarity
 
+
+class SearchResult(TypedDict):
+    rank: int
+    doc_index: int
+    score: float
+    text: str
+
+
 # Try using OllamaEmbeddings if available, otherwise fallback
 try:
     from jet.llm.ollama.base_langchain import OllamaEmbeddings
@@ -153,8 +147,8 @@ def compute_embeddings(texts: List[str], model):
         raise TypeError("Unsupported embedding model interface.")
 
 
-def retrieve_similar_chunks(chunks: List[Dict], query: str, model, top_k: int = 3):
-    """Retrieve top-K chunks most similar to a query."""
+def retrieve_similar_chunks(chunks: List[Dict], query: str, model, top_k: int = 3) -> List[SearchResult]:
+    """Retrieve top-K chunks most similar to a query and return them as List[SearchResult]."""
     print("\n--- Running Similarity Search ---")
     texts = [c["text"] for c in chunks]
 
@@ -167,24 +161,32 @@ def retrieve_similar_chunks(chunks: List[Dict], query: str, model, top_k: int = 
 
     # Compute cosine similarity
     scores = cosine_similarity([query_vec], chunk_vecs)[0]
-    ranked = sorted(
-        zip(chunks, scores),
+    # List of (idx, score) for each chunk
+    indices_scores = sorted(
+        enumerate(scores),
         key=lambda x: x[1],
-        reverse=True,
+        reverse=True
     )
 
-    top = ranked[:top_k]
+    top = indices_scores[:top_k]
+    search_results: List[SearchResult] = []
     print(f"\nTop-{top_k} retrieved chunks for query: '{query}'")
-    for i, (chunk, score) in enumerate(top, start=1):
-        print(f"({i}) score={score:.3f} | {shorten(chunk['text'], width=100)}")
-    return top
+    for rank_i, (doc_index, score) in enumerate(top, start=1):
+        chunk = chunks[doc_index]
+        print(f"({rank_i}) score={score:.3f} | {shorten(chunk['text'], width=100)}")
+        search_results.append({
+            "rank": rank_i,
+            "doc_index": doc_index,
+            "score": float(score),
+            "text": chunk["text"]
+        })
+    return search_results
 
 
-def example_end_to_end_rag_flow():
+def example_end_to_end_rag_flow(query: str, text: str) -> List[SearchResult]:
     """Full example: parse → extract → chunk → embed → retrieve."""
     print("\n==================== RAG Flow Example ====================")
     pipeline = build_cached_pipeline()
-    text = example_long_text()
     sentences = parse_sentences(text, pipeline)
     chunks = example_build_rag_context(sentences)
 
@@ -192,11 +194,12 @@ def example_end_to_end_rag_flow():
     model = get_embedding_model()
 
     # Step 2: Embed and retrieve
-    query = "AI policy and regulation efficiency"
-    retrieve_similar_chunks(chunks, query, model, top_k=5)
+    results = retrieve_similar_chunks(chunks, query, model, top_k=5)
+
+    return results
 
 
-def main():
+def main(text):
     """
     Demonstration entrypoint:
       1. Build pipeline
@@ -205,14 +208,20 @@ def main():
       4. Build RAG contexts
     """
     pipeline = build_cached_pipeline()
-    sentences = example_parse_text(pipeline)
-    example_extract_entities(sentences)
-    example_build_rag_context(sentences, query="AI regulation efficiency")
+
+    sentences = example_parse_text(text, pipeline)
+    
+    entities = example_extract_entities(sentences)
+
+    rag_chunks = example_build_rag_context(sentences, query="AI regulation efficiency")
 
     
 if __name__ == "__main__":
+
+    query = "Top isekai anime 2025"
+
     # Keep existing main as is
-    main()
+    main(EXAMPLE_TEXT)
 
     # Add full RAG flow demo
-    example_end_to_end_rag_flow()
+    search_results = example_end_to_end_rag_flow(query, EXAMPLE_TEXT)

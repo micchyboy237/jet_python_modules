@@ -3,7 +3,7 @@ from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
 # from jet.code.extraction.sentence_extraction import extract_sentences
-from jet.code.markdown_utils._converters import convert_html_to_markdown
+from jet.code.markdown_utils._converters import convert_html_to_markdown, convert_markdown_to_text
 from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
 from jet.wordnet.text_chunker import chunk_texts, chunk_texts_with_data, truncate_texts
 from jet.file.utils import load_file
@@ -148,7 +148,8 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
     # header_contents = [convert_markdown_to_text(md_content) for md_content in header_md_contents]
     # sentences = [sentence for content in header_contents for sentence in extract_sentences(content, use_gpu=True)]
 
-    texts = header_md_contents
+    # Preprocess markdown to plain text
+    texts = [convert_markdown_to_text(md_content) for md_content in header_md_contents]
 
     if not truncate:
         documents = chunk_texts(
@@ -170,17 +171,20 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
 def load_sample_data_with_info(
     model: str = EMBED_MODEL,
     chunk_size: int = 128,
-    chunk_overlap: int = 32
+    chunk_overlap: int = 32,
+    truncate: bool = False
 ) -> List[ChunkResultWithMeta]:
     """
     Load sample dataset from local for topic modeling, returning chunk results with section meta information.
+    If truncate is True, only keep chunks where chunk_index == 0.
     """
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
     md_content = convert_html_to_markdown(html, ignore_links=True)
     headers = derive_by_header_hierarchy(md_content, ignore_links=True)
-    header_md_contents = [f"{header['parent_header'] or ""}\n{header['header']}\n{header['content']}".strip() for header in headers]
+    header_md_contents = [f"{header['header']}\n{header['content']}".strip() for header in headers]
 
-    texts = header_md_contents
+    # Preprocess markdown to plain text
+    texts = [convert_markdown_to_text(md_content) for md_content in header_md_contents]
     doc_ids = [header["id"] for header in headers]
 
     # Map header id to header metadata (assuming doc_ids are unique and order-aligned)
@@ -224,6 +228,9 @@ def load_sample_data_with_info(
             }
         chunk_with_meta: ChunkResultWithMeta = {**chunk, "meta": chunk_meta}
         enriched_chunks.append(chunk_with_meta)
+
+    if truncate:
+        enriched_chunks = [chunk for chunk in enriched_chunks if chunk.get("chunk_index", 0) == 0]
 
     return enriched_chunks
 
