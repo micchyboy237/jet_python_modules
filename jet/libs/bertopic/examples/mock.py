@@ -131,7 +131,7 @@ def load_sample_data_with_info(
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
     md_content = convert_html_to_markdown(html, ignore_links=True)
     headers = derive_by_header_hierarchy(md_content, ignore_links=True)
-    header_md_contents = [f"{header['header']}\n\n{header['content']}" for header in headers]
+    header_md_contents = [f"{header['parent_header'] or ""}\n{header['header']}\n{header['content']}".strip() for header in headers]
 
     texts = header_md_contents
     doc_ids = [header["id"] for header in headers]
