@@ -9,7 +9,7 @@ def run_example_rag_bertopic():
         "Machine learning enhances medical imaging.",
         "Cats are great pets with playful behavior.",
     ]
-    rag1 = TopicRAG(verbose=False)
+    rag1 = TopicRAG(verbose=True)
     rag1.fit_topics(docs_short)
     print("\n[Example 1] Query: 'AI in medicine'")
     for r in rag1.retrieve_for_query("AI in medicine"):
@@ -24,7 +24,7 @@ def run_example_rag_bertopic():
         "Cooking pasta perfectly requires timing and temperature.",
         "Italian cuisine includes pasta, pizza, and olive oil.",
     ]
-    rag2 = TopicRAG(verbose=False)
+    rag2 = TopicRAG(verbose=True)
     rag2.fit_topics(docs_medium)
     print("\n[Example 2] Query: 'renewable energy investments'")
     for r in rag2.retrieve_for_query("renewable energy investments", top_topics=2, top_k=3):
@@ -43,7 +43,7 @@ def run_example_rag_bertopic():
         "Cooking and nutrition are key to a healthy lifestyle.",
         "Electric vehicles are reducing carbon emissions worldwide.",
     ]
-    rag3 = TopicRAG(verbose=False)
+    rag3 = TopicRAG(verbose=True)
     rag3.fit_topics(docs_large)
     print("\n[Example 3] Query: 'machine learning and AI applications'")
     for r in rag3.retrieve_for_query("machine learning and AI applications", top_topics=3, top_k=5):
