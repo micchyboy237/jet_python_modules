@@ -19,9 +19,9 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     html_content: str
     if isinstance(html_input, (str, Path)) and str(html_input).endswith(('.html', '.htm')) and Path(str(html_input)).is_file():
         html_content = load_file(str(html_input))
-        html_content = preprocess_html(html_content)
+        html_content = preprocess_html(html_content, excludes=["script", "style"])
     else:
-        html_content = preprocess_html(str(html_input))
+        html_content = preprocess_html(str(html_input), excludes=["script", "style"])
 
     html_content = format_html(html_content)
 

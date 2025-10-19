@@ -1,7 +1,5 @@
-import pytest
-
-from jet.code.html_utils import format_html, preprocess_html
-
+from jet.code.html_utils import preprocess_html
+from jet.transformers.formatters import format_html
 
 class TestPreprocessHTML:
     def test_removes_unwanted_elements(self):
@@ -26,10 +24,8 @@ class TestPreprocessHTML:
         </body>
         </html>
         """
-
         # When: preprocess_html is called
         result = preprocess_html(html_input)
-
         # Then: Unwanted elements are removed, title is inserted as h1
         assert format_html(result) == format_html(expected)
 
@@ -63,10 +59,8 @@ class TestPreprocessHTML:
         </body>
         </html>
         """
-
         # When: preprocess_html is called
         result = preprocess_html(html_input)
-
         # Then: dt/dd pairs are converted to paragraphs, dl is preserved, inner divs are removed
         assert format_html(result) == format_html(expected)
 
@@ -88,10 +82,8 @@ class TestPreprocessHTML:
         </body>
         </html>
         """
-
         # When: preprocess_html is called
         result = preprocess_html(html_input)
-
         # Then: Space is added between inline elements
         assert format_html(result) == format_html(expected)
 
@@ -115,10 +107,8 @@ class TestPreprocessHTML:
         </body>
         </html>
         """
-
         # When: preprocess_html is called
         result = preprocess_html(html_input)
-
         # Then: Existing h1 is preserved, no title insertion
         assert format_html(result) == format_html(expected)
 
@@ -141,9 +131,61 @@ class TestPreprocessHTML:
         </body>
         </html>
         """
-
         # When: preprocess_html is called
         result = preprocess_html(html_input)
-
         # Then: Comments are removed
+        assert format_html(result) == format_html(expected)
+
+    def test_includes_specific_tags(self):
+        # Given: HTML with various tags, including only nav and p
+        html_input = """
+        <html>
+        <head><title>Test Title</title></head>
+        <body>
+        <nav>Navigation</nav>
+        <p>Paragraph</p>
+        <footer>Footer</footer>
+        <script>alert('test');</script>
+        </body>
+        </html>
+        """
+        expected = """
+        <html>
+        <head><title>Test Title</title></head>
+        <body><h1>Test Title</h1>
+        <nav>Navigation</nav>
+        <p>Paragraph</p>
+        </body>
+        </html>
+        """
+        # When: preprocess_html is called with includes=['nav', 'p']
+        result = preprocess_html(html_input, includes=['nav', 'p'])
+        # Then: Only nav and p tags are kept
+        assert format_html(result) == format_html(expected)
+
+    def test_excludes_specific_tags(self):
+        # Given: HTML with various tags, excluding nav and footer
+        html_input = """
+        <html>
+        <head><title>Test Title</title></head>
+        <body>
+        <nav>Navigation</nav>
+        <p>Paragraph</p>
+        <footer>Footer</footer>
+        <div>Content</div>
+        </body>
+        </html>
+        """
+        expected = """
+        <html>
+        <head><title>Test Title</title></head>
+        <body><h1>Test Title</h1>
+        <p>Paragraph</p>
+        <div>Content</div>
+        </body>
+        </html>
+        """
+        # When: preprocess_html is called with excludes=['nav', 'footer']
+        result = preprocess_html(html_input, excludes=['nav', 'footer'])
+        # Then: nav and footer tags are removed
         assert format_html(result) == format_html(expected)

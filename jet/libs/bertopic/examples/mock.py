@@ -3,6 +3,7 @@ from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
 # from jet.code.extraction.sentence_extraction import extract_sentences
+from jet.code.markdown_types.markdown_parsed_types import MarkdownToken
 from jet.code.markdown_utils._converters import convert_html_to_markdown, convert_markdown_to_text
 from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
 from jet.wordnet.text_chunker import chunk_texts, chunk_texts_with_data, truncate_texts
@@ -35,6 +36,7 @@ class ChunkResultMeta(TypedDict):
         parent_header: Parent section header (e.g., '## Parent').
         parent_level: Parent header level (e.g., 2 → '##').
         source: File path, URL, or other source reference.
+        tokens: List of parsed markdown tokens for this chunk.
     """
 
     doc_id: str
@@ -44,6 +46,7 @@ class ChunkResultMeta(TypedDict):
     parent_header: Optional[str]
     parent_level: Optional[int]
     source: Optional[str]
+    tokens: List[MarkdownToken]
 
 class ChunkResult(TypedDict):
     """Core information for an individual chunk.
@@ -179,6 +182,7 @@ def load_sample_data_with_info(
     If truncate is True, only keep chunks where chunk_index == 0.
     """
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
+    # html = add_list_table_header_placeholders(html)
     md_content = convert_html_to_markdown(html, ignore_links=True)
     headers = derive_by_header_hierarchy(md_content, ignore_links=True)
     header_md_contents = [f"{header['parent_header'] or ''}\n{header['header']}\n{header['content']}".strip() for header in headers]
@@ -198,6 +202,7 @@ def load_sample_data_with_info(
             "parent_header": header.get("parent_header"),
             "parent_level": header.get("parent_level"),
             "source": header.get("source"),
+            "tokens": header.get("tokens"),
         }
         header_id_to_meta[header["id"]] = header_meta
 
@@ -225,6 +230,7 @@ def load_sample_data_with_info(
                 "parent_header": None,
                 "parent_level": None,
                 "source": None,
+                "tokens": [],
             }
         chunk_with_meta: ChunkResultWithMeta = {**chunk, "meta": chunk_meta}
         enriched_chunks.append(chunk_with_meta)
