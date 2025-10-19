@@ -164,6 +164,16 @@ class TopicRAG:
             else:
                 raise
 
+        # 🔍 Add diagnostic logging here
+        topic_info = self.model.get_topic_info()
+        self._log(f"Topic summary:\n{topic_info.to_string(index=False)}", logging.DEBUG)
+
+        topic_map = {}
+        for doc, topic in zip(docs, topics):
+            topic_map.setdefault(topic, []).append(doc)
+        for tid, td in topic_map.items():
+            self._log(f"Topic {tid}: {len(td)} docs\n - " + "\n - ".join(td), logging.DEBUG)
+
         self._build_indexes(docs, embeddings, topics)
 
     def _build_indexes(self, docs: List[str], embeddings: np.ndarray, topics: List[int]):
@@ -171,8 +181,8 @@ class TopicRAG:
         topic_vecs: Dict[int, List[np.ndarray]] = {}
 
         for doc, topic, emb in zip(docs, topics, embeddings):
-            if topic == -1:
-                continue
+            # if topic == -1:
+            #     continue
             topic_docs.setdefault(topic, []).append(doc)
             topic_vecs.setdefault(topic, []).append(emb)
 
