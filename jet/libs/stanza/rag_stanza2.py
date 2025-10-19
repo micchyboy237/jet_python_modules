@@ -64,16 +64,20 @@ def build_context_chunks(parsed_sentences: List[Dict[str, Any]], max_tokens: int
     chunks: List[Dict[str, Any]] = []
     current_chunk: List[Dict[str, Any]] = []
     current_len = 0
+    current_start_idx = 0
     for i, sent in enumerate(parsed_sentences):
         sent_len = len(sent["tokens"])
+        # Split only if adding the sentence exceeds max_tokens
         if current_len + sent_len > max_tokens and current_chunk:
-            chunks.append(_finalize_chunk(current_chunk, start_idx=len(chunks) * len(current_chunk)))
-            current_chunk = []
-            current_len = 0
-        current_chunk.append(sent)
-        current_len += sent_len
+            chunks.append(_finalize_chunk(current_chunk, start_idx=current_start_idx))
+            current_chunk = [sent]
+            current_len = sent_len
+            current_start_idx = i
+        else:
+            current_chunk.append(sent)
+            current_len += sent_len
     if current_chunk:
-        chunks.append(_finalize_chunk(current_chunk, start_idx=len(chunks) * len(current_chunk)))
+        chunks.append(_finalize_chunk(current_chunk, start_idx=current_start_idx))
     return chunks
 
 
