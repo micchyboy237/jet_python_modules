@@ -10,34 +10,37 @@ This demo:
 """
 
 from __future__ import annotations
+import time
 import stanza
 from typing import Dict, Any, List
+from contextlib import contextmanager
+from tqdm import tqdm
+
+from jet.libs.stanza.pipeline import StanzaPipelineCache
 
 
 # ---------------------------------------------------------------------------------------
 # Initialize Stanza pipeline (English, fast mode)
 # ---------------------------------------------------------------------------------------
 def build_stanza_pipeline() -> stanza.Pipeline:
-    """Build and return a lightweight Stanza pipeline."""
-    stanza.download("en", processors="tokenize,pos,lemma,depparse,ner", verbose=False)
-    return stanza.Pipeline(lang="en", processors="tokenize,pos,lemma,depparse,ner", use_gpu=False, verbose=False)
+    """Build and return a lightweight Stanza pipeline from cache."""
+    cache = StanzaPipelineCache()
+    return cache.get_pipeline(lang="en", processors="tokenize,pos,lemma,depparse,ner", use_gpu=True)
 
 
 # ---------------------------------------------------------------------------------------
 # Sentence parsing utility
 # ---------------------------------------------------------------------------------------
 def parse_sentences(text: str, nlp: stanza.Pipeline) -> List[Dict[str, Any]]:
-    """Parse text into structured sentence objects."""
+    """Parse text into structured sentence objects with progress tracking."""
     doc = nlp(text)
     parsed = []
-
-    for sent in doc.sentences:
+    for sent in tqdm(doc.sentences, desc="Parsing sentences"):
         tokens = [word.text for word in sent.words]
         pos_tags = [word.xpos for word in sent.words]
         lemmas = [word.lemma for word in sent.words]
         deps = [word.deprel for word in sent.words]
         entities = [f"{ent.text}:{ent.type}" for ent in sent.ents]
-
         parsed.append(
             {
                 "text": sent.text.strip(),
@@ -48,7 +51,6 @@ def parse_sentences(text: str, nlp: stanza.Pipeline) -> List[Dict[str, Any]]:
                 "deps": deps,
             }
         )
-
     return parsed
 
 
@@ -57,7 +59,7 @@ def parse_sentences(text: str, nlp: stanza.Pipeline) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------------------
 def build_context_chunks(parsed_sentences: List[Dict[str, Any]], max_tokens: int = 80) -> List[Dict[str, Any]]:
     """
-    Combine parsed sentences into syntax-aware chunks.
+    Combine parsed sentences into syntax-aware chunks with progress tracking.
     - Merges sentences until max_tokens is reached.
     - Computes a naive salience score based on entity density.
     """
@@ -65,9 +67,8 @@ def build_context_chunks(parsed_sentences: List[Dict[str, Any]], max_tokens: int
     current_chunk: List[Dict[str, Any]] = []
     current_len = 0
     current_start_idx = 0
-    for i, sent in enumerate(parsed_sentences):
+    for i, sent in enumerate(tqdm(parsed_sentences, desc="Building chunks")):
         sent_len = len(sent["tokens"])
-        # Split only if adding the sentence exceeds max_tokens
         if current_len + sent_len > max_tokens and current_chunk:
             chunks.append(_finalize_chunk(current_chunk, start_idx=current_start_idx))
             current_chunk = [sent]
@@ -99,30 +100,39 @@ def _finalize_chunk(sentences: List[Dict[str, Any]], start_idx: int) -> Dict[str
 # ---------------------------------------------------------------------------------------
 # Demo entrypoint — used by tests and notebooks
 # ---------------------------------------------------------------------------------------
+@contextmanager
+def timer(description: str) -> None:
+    """Context manager to track and print execution time."""
+    start = time.time()
+    yield
+    elapsed = time.time() - start
+    print(f"{description}: {elapsed:.2f} seconds")
+
+
 def run_rag_stanza_demo(text: str) -> Dict[str, Any]:
     """
-    Run the full Stanza-based RAG preprocessing pipeline.
+    Run the full Stanza-based RAG preprocessing pipeline with progress tracking.
     Returns a dict with sentence-level and chunk-level information.
     """
-    print("=== Building Stanza pipeline (this may take a few seconds) ===")
-    nlp = build_stanza_pipeline()
-
-    print("\n=== Parsing sentences ===")
-    parsed_sentences = parse_sentences(text, nlp)
-    print(f"Total sentences parsed: {len(parsed_sentences)}")
-
-    print("\n=== Creating context chunks for RAG ===")
-    chunks = build_context_chunks(parsed_sentences, max_tokens=80)
-    print(f"Generated {len(chunks)} chunks.\n")
-
-    for i, ch in enumerate(chunks, 1):
-        print(f">>> Chunk {i}")
+    with timer("=== Building Stanza pipeline"):
+        nlp = build_stanza_pipeline()
+    
+    with timer("=== Parsing sentences"):
+        parsed_sentences = parse_sentences(text, nlp)
+        print(f"Total sentences parsed: {len(parsed_sentences)}")
+    
+    with timer("=== Creating context chunks for RAG"):
+        chunks = build_context_chunks(parsed_sentences, max_tokens=80)
+        print(f"Generated {len(chunks)} chunks.\n")
+    
+    for i, ch in enumerate(tqdm(chunks, desc="Displaying chunks")):
+        print(f">>> Chunk {i + 1}")
         print(f"Sentences: {ch['sent_indices']}")
         print(f"Token count (approx): {ch['tokens']}")
         print(f"Salience score: {ch['salience']}")
         print(f"Text preview: {ch['text'][:180]}...\n")
         print(f"Entities in chunk: {', '.join(ch['entities']) if ch['entities'] else 'None'}\n")
-
+    
     return {"parsed_sentences": parsed_sentences, "chunks": chunks}
 
 
