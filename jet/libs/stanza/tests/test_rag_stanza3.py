@@ -46,9 +46,51 @@ class TestRagStanzaPipeline:
         expected = {"num_scores": 4, "all_floats": all(isinstance(x, float) for x in scores)}
         assert len(result["scores"]) == expected["num_scores"], f"Expected {expected['num_scores']} scores, got {len(result['scores'])}"
         assert expected["all_floats"], "Not all salience scores are floats"
-        # Additional check: ensure scores reflect length factor
+        # Check: sentence with most entities has a high salience score
+        entity_counts = [len(s["entities"]) for s in sents]
+        max_entity_idx = max(range(len(sents)), key=lambda i: entity_counts[i])
+        median_score = sorted(scores)[len(scores) // 2]
+        result = {"max_entity_score": scores[max_entity_idx]}
+        expected = {"min_score": median_score}
+        assert result["max_entity_score"] >= expected["min_score"], (
+            f"Sentence with most entities (index {max_entity_idx}) has score {result['max_entity_score']:.2f}, "
+            f"below median score {expected['min_score']:.2f}"
+        )
+        # Check: highest score corresponds to a sentence with entities or high content
+        max_score_idx = max(range(len(sents)), key=lambda i: scores[i])
+        content_pos = {"NOUN", "PROPN", "VERB", "ADJ"}
+        content_count = sum(1 for p in sents[max_score_idx]["pos"] if p in content_pos)
+        assert len(sents[max_score_idx]["entities"]) > 0 or content_count >= 4, (
+            f"Highest salience sentence (index {max_score_idx}, score {scores[max_score_idx]:.2f}) "
+            "should have entities or at least 4 content-rich tokens"
+        )
+
+    def test_sentence_salience_length_contribution(self):
+        # Given: parse results
+        sents = parse_sentences(SAMPLE_TEXT, self.pipeline)
+
+        # When: compute salience for each and find longest sentence
+        scores = [sentence_salience_score(s) for s in sents]
         longest_sent_idx = max(range(len(sents)), key=lambda i: len(sents[i]["tokens"]))
-        assert result["scores"][longest_sent_idx] >= result["scores"][0], "Longest sentence should have equal or higher salience"
+
+        # Then: verify length contributes to score
+        result = {"longest_score": scores[longest_sent_idx]}
+        # Calculate score without length factor for comparison
+        s = sents[longest_sent_idx]
+        num_entities = len(s["entities"])
+        content_pos = {"NOUN", "PROPN", "VERB", "ADJ"}
+        content_count = sum(1 for p in s["pos"] if p in content_pos)
+        root_indicator = 1.0 if any(d["deprel"].lower() == "root" for d in s["deps"]) else 0.0
+        score_without_length = num_entities * 2.0 + (content_count / 10.0) + root_indicator
+        expected = {"min_score_increase": score_without_length + 0.1}  # Length adds at least 0.1 (e.g., 5 tokens)
+        assert result["longest_score"] > score_without_length, (
+            f"Longest sentence score {result['longest_score']:.2f} should exceed score without length "
+            f"{score_without_length:.2f}"
+        )
+        assert result["longest_score"] >= expected["min_score_increase"], (
+            f"Longest sentence score {result['longest_score']:.2f} should be at least "
+            f"{expected['min_score_increase']:.2f}"
+        )
 
     def test_chunking_behaviour_basic(self):
         # Given: parsed sentences and transformer token counter
