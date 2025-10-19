@@ -137,3 +137,51 @@ class TestRagStanzaExamples:
         assert expected_keywords.intersection(all_entities), (
             f"Expected key entities missing. Found only: {all_entities}"
         )
+
+import pytest
+from jet.libs.stanza.rag_stanza2 import build_stanza_pipeline, parse_sentences, build_context_chunks
+
+@pytest.fixture
+def nlp():
+    return build_stanza_pipeline()
+
+@pytest.fixture
+def sample_text():
+    return (
+        "OpenAI unveiled the GPT-5 model in October 2025, showcasing advanced reasoning "
+        "and multilingual understanding capabilities. "
+        "The model can process text, images, and structured data simultaneously. "
+        "Analysts from Gartner believe this integration may redefine enterprise AI search. "
+        "Meanwhile, universities such as MIT and ETH Zurich are testing Stanza-based parsing "
+        "to improve context chunking for retrieval-augmented generation systems."
+    )
+
+class TestBuildContextChunks:
+    def test_chunking_correct_indices_and_entities(self, nlp, sample_text):
+        # Given: Parsed sentences from sample text
+        parsed = parse_sentences(sample_text, nlp)
+        # When: Building chunks with max_tokens=80
+        chunks = build_context_chunks(parsed, max_tokens=80)
+        # Then: Expect two chunks with correct indices and entities
+        result = chunks
+        expected = [
+            {
+                "sent_indices": [0, 1, 2],
+                "tokens": sum(len(s["tokens"]) for s in parsed[:3]),
+                "entities": ["OpenAI", "GPT-5", "October 2025", "Gartner"],
+            },
+            {
+                "sent_indices": [3],
+                "tokens": len(parsed[3]["tokens"]),
+                "entities": ["MIT", "ETH Zurich", "Stanza"],
+            },
+        ]
+        assert len(result) == len(expected), "Incorrect number of chunks"
+        for i, chunk in enumerate(result):
+            assert chunk["sent_indices"] == expected[i]["sent_indices"], f"Chunk {i+1} has incorrect sentence indices"
+            assert sorted(chunk["entities"]) == sorted(expected[i]["entities"]), f"Chunk {i+1} has incorrect entities"
+            assert chunk["tokens"] == expected[i]["tokens"], f"Chunk {i+1} has incorrect token count"
+
+@pytest.fixture(autouse=True)
+def cleanup():
+    yield  # Clean up after tests if needed

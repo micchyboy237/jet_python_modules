@@ -64,30 +64,25 @@ def build_context_chunks(parsed_sentences: List[Dict[str, Any]], max_tokens: int
     chunks: List[Dict[str, Any]] = []
     current_chunk: List[Dict[str, Any]] = []
     current_len = 0
-
     for i, sent in enumerate(parsed_sentences):
         sent_len = len(sent["tokens"])
         if current_len + sent_len > max_tokens and current_chunk:
-            chunks.append(_finalize_chunk(current_chunk))
+            chunks.append(_finalize_chunk(current_chunk, start_idx=len(chunks) * len(current_chunk)))
             current_chunk = []
             current_len = 0
         current_chunk.append(sent)
         current_len += sent_len
-
     if current_chunk:
-        chunks.append(_finalize_chunk(current_chunk))
-
+        chunks.append(_finalize_chunk(current_chunk, start_idx=len(chunks) * len(current_chunk)))
     return chunks
 
 
-def _finalize_chunk(sentences: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _finalize_chunk(sentences: List[Dict[str, Any]], start_idx: int) -> Dict[str, Any]:
     """Helper to finalize chunk structure and compute salience."""
     text = " ".join(s["text"] for s in sentences)
     all_entities = [ent.split(":")[0] for s in sentences for ent in s["entities"]]
-    sent_indices = list(range(len(sentences)))
-
-    salience = round(len(all_entities) * 1.2 + len(text) / 100, 2)  # simple heuristic
-
+    sent_indices = list(range(start_idx, start_idx + len(sentences)))
+    salience = round(len(set(all_entities)) * 1.2 + len(text) / 100, 2)
     return {
         "text": text,
         "sent_indices": sent_indices,
