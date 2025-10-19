@@ -5,10 +5,12 @@ Enhancements:
 - Dependency tree visualization using DOT format
 """
 from __future__ import annotations
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
 from jet.libs.stanza.rag_stanza2 import build_stanza_pipeline, parse_sentences
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 
 
 def adaptive_chunk_score(sentence: Dict[str, Any]) -> float:
@@ -111,6 +113,6 @@ def run_rag_stanza_adaptive_demo(text: str) -> Dict[str, Any]:
     print(f"Generated {len(chunks)} adaptive chunks.\n")
 
     # Visualize the first sentence for debugging/demo
-    dot_file = visualize_sentence_dependency_dot(parsed_sentences[0], "output/deptree_demo.dot")
+    dot_file = visualize_sentence_dependency_dot(parsed_sentences[0], f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/ldeptree_demo.dot")
     print(f"Dependency tree DOT file written to: {dot_file.resolve()}")
     return {"parsed_sentences": parsed_sentences, "chunks": chunks, "dot_file": str(dot_file)}

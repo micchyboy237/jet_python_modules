@@ -1,10 +1,12 @@
 """
 Tests for adaptive Stanza-based RAG pipeline and dependency visualization.
 """
+import os
 from pathlib import Path
 from typing import Dict, Any
 
 from jet.libs.stanza.rag_stanza_adaptive import run_rag_stanza_adaptive_demo, visualize_sentence_dependency_dot
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 
 
 class TestRagStanzaAdaptive:
@@ -43,7 +45,7 @@ class TestRagStanzaAdaptive:
             "heads": [2, 0, 2],
             "deps": ["nsubj", "root", "obj"],
         }
-        out_path = "output/test_dep_tree.dot"
+        out_path = f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}/test_dep_tree.dot"
         dot_path = visualize_sentence_dependency_dot(parsed_sent, out_path)
         assert Path(dot_path).exists()
         content = Path(dot_path).read_text()
