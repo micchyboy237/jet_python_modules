@@ -3,6 +3,7 @@ cmake
 cython
 datasets
 evaluate
+faiss-cpu
 huggingface-hub
 matplotlib
 meson-python
