@@ -1,6 +1,5 @@
 """
 Unit tests for TopicRAG (BERTopic + FAISS hybrid retriever)
-Author: Jet
 
 These tests validate:
 - Topic fitting and topic index creation
@@ -146,3 +145,46 @@ class TestEdgeCases:
         assert isinstance(results, list)
         assert all(isinstance(i, tuple) and len(i) == 2 for i in results)
         assert all(isinstance(i[0], int) for i in results)
+
+    def test_tiny_docset_triggers_safe_fallback(self):
+        """Given ≤4 docs, When fit_topics called, Then safe single-cluster fallback runs without error."""
+        docs = [
+            "AI improves healthcare diagnostics.",
+            "Deep learning assists in medical image analysis.",
+            "Neural networks optimize patient treatment plans.",
+        ]
+        rag = TopicRAG(verbose=True)
+        # Should not raise ValueError or crash due to hdbscan
+        rag.fit_topics(docs)
+        assert rag.model is not None
+        # All docs should belong to a single cluster (topic 0)
+        assert len(rag.topic_indexes) == 1
+        tindex = next(iter(rag.topic_indexes.values()))
+        assert len(tindex.texts) == len(docs)
+        # Retrieval should work and return expected results
+        results = rag.retrieve_for_query("AI healthcare", top_topics=1, top_k=2)
+        assert isinstance(results, list)
+        assert all(isinstance(r, dict) for r in results)
+        assert len(results) > 0
+
+    def test_blank_docs_raise_value_error(self):
+        """Given blank or invalid docs, When fit_topics called, Then ValueError raised."""
+        rag = TopicRAG()
+        with pytest.raises(ValueError, match="No valid text documents"):
+            rag.fit_topics(["", "   ", None])
+
+    def test_empty_embeddings_raise_value_error(self, monkeypatch):
+        """Given mocked empty embeddings, When fit_topics called, Then ValueError raised."""
+        rag = TopicRAG()
+        # Force encode() to return an empty list
+        monkeypatch.setattr(rag.embedder, "encode", lambda x, **_: [])
+        with pytest.raises(ValueError, match="No embeddings were generated"):
+            rag.fit_topics(["AI in medicine", "Machine learning in healthcare"])
+
+    def test_mismatched_embeddings_raise_value_error(self, monkeypatch):
+        """Given mismatched embedding shape, When fit_topics called, Then ValueError raised."""
+        rag = TopicRAG()
+        fake_embeddings = np.zeros((1, 384))  # Should not match 2 documents
+        monkeypatch.setattr(rag.embedder, "encode", lambda x, **_: fake_embeddings)
+        with pytest.raises(ValueError, match="Mismatch between documents"):
+            rag.fit_topics(["AI in medicine", "Machine learning in healthcare"])

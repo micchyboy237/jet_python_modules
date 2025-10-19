@@ -1,98 +1,59 @@
-# examples/bertopic_rag_usage_example.py
-"""
-Example: Using TopicRAG for topic-guided document retrieval in RAG pipelines.
-"""
-
-from typing import List
-import random
-
 from jet.libs.bertopic.rag_bertopic import TopicRAG
 
+def run_example_rag_bertopic():
+    """Demonstrates RAG retrieval with varying document sets and queries."""
 
-def build_large_corpus() -> List[str]:
-    """Builds a realistic large corpus with varied topics."""
-    tech_docs = [
-        "AI models like GPT and BERT are revolutionizing natural language processing.",
-        "Quantum computing offers exponential speed-ups for certain computations.",
-        "New GPUs from NVIDIA and AMD improve deep learning performance.",
-        "Edge AI is enabling real-time decision making on IoT devices.",
-        "MLOps best practices include continuous integration for machine learning.",
-        "Data engineers optimize ETL pipelines for scalable cloud analytics."
+    # Example 1: Small doc set (short texts)
+    docs_short = [
+        "AI is transforming healthcare with diagnostic tools.",
+        "Machine learning enhances medical imaging.",
+        "Cats are great pets with playful behavior.",
     ]
-    sports_docs = [
-        "The Lakers won the championship after an intense seven-game series.",
-        "Cristiano Ronaldo scored twice leading Portugal to victory.",
-        "Tennis legend Serena Williams retires after her final match.",
-        "The national basketball team begins training for the upcoming Olympics.",
-        "Rain delays the cricket world cup semi-final.",
-        "Local marathon sees record participation this year."
+    rag1 = TopicRAG(verbose=False)
+    rag1.fit_topics(docs_short)
+    print("\n[Example 1] Query: 'AI in medicine'")
+    for r in rag1.retrieve_for_query("AI in medicine"):
+        print(r)
+
+    # Example 2: Medium doc set (mixed topics)
+    docs_medium = [
+        "Climate change affects polar bears and sea levels.",
+        "Solar energy and wind power are sustainable options.",
+        "The stock market fluctuates due to economic factors.",
+        "Investors are optimistic about renewable energy stocks.",
+        "Cooking pasta perfectly requires timing and temperature.",
+        "Italian cuisine includes pasta, pizza, and olive oil.",
     ]
-    finance_docs = [
-        "Federal Reserve raises interest rates to combat inflation.",
-        "Stock markets rally as tech shares recover.",
-        "Bitcoin surges above 60,000 USD amid investor optimism.",
-        "Banks report strong quarterly profits driven by higher loan demand.",
-        "Analysts expect slower GDP growth next quarter.",
-        "Venture capital funding slows down in startup ecosystem."
+    rag2 = TopicRAG(verbose=False)
+    rag2.fit_topics(docs_medium)
+    print("\n[Example 2] Query: 'renewable energy investments'")
+    for r in rag2.retrieve_for_query("renewable energy investments", top_topics=2, top_k=3):
+        print(r)
+
+    # Example 3: Large doc set (varied domains)
+    docs_large = [
+        "Quantum computing uses qubits for advanced computation.",
+        "Artificial intelligence drives innovation across industries.",
+        "Data privacy is critical for user trust in digital platforms.",
+        "The history of the Roman Empire spans centuries of conquest.",
+        "World War II changed global politics and alliances.",
+        "Gardening improves mental health and provides fresh produce.",
+        "Python programming is widely used in machine learning.",
+        "Software testing ensures system reliability and performance.",
+        "Cooking and nutrition are key to a healthy lifestyle.",
+        "Electric vehicles are reducing carbon emissions worldwide.",
     ]
-    health_docs = [
-        "New vaccine trials show promising immunity response against variant strains.",
-        "Doctors recommend regular exercise and balanced diet for heart health.",
-        "Mental health awareness campaigns grow across social media.",
-        "Hospitals report fewer flu cases this season.",
-        "Breakthrough in cancer immunotherapy offers hope to patients.",
-        "Health insurance premiums expected to rise next year."
-    ]
-    travel_docs = [
-        "Tourism rebounds as restrictions ease across Europe.",
-        "Top 10 destinations for budget travelers in Southeast Asia.",
-        "Airlines offer flexible booking policies post-pandemic.",
-        "Luxury resorts attract digital nomads with long-term stays.",
-        "Backpacking through South America remains a popular adventure.",
-        "Cruise lines introduce AI-powered customer experiences."
-    ]
+    rag3 = TopicRAG(verbose=False)
+    rag3.fit_topics(docs_large)
+    print("\n[Example 3] Query: 'machine learning and AI applications'")
+    for r in rag3.retrieve_for_query("machine learning and AI applications", top_topics=3, top_k=5):
+        print(r)
 
-    # Combine all categories and randomly expand
-    all_docs = tech_docs + sports_docs + finance_docs + health_docs + travel_docs
-    big_corpus = [random.choice(all_docs) for _ in range(200)]
-
-    # Deduplicate
-    seen = set()
-    unique_docs = [d for d in big_corpus if not (d in seen or seen.add(d))]
-    return unique_docs
-
-
-def main() -> None:
-    docs = build_large_corpus()
-    print(f"Corpus size after deduplication: {len(docs)}")
-
-    # Initialize TopicRAG with verbose output
-    rag = TopicRAG(embedding_model="all-MiniLM-L6-v2", verbose=True)
-
-    print("\n[Training topic model...]")
-    rag.fit_topics(docs, nr_topics="auto", min_topic_size=5)
-
-    print("\n[Topic Summary]")
-    print(rag.model.get_topic_info().head())
-
-    # Sample queries
-    queries = [
-        "Latest AI models and GPU advancements",
-        "Who won the basketball finals?",
-        "How to stay healthy and improve heart condition?",
-        "Best travel destinations after pandemic",
-        "AI in healthcare technology"
-    ]
-
-    for query in queries:
-        print("\n" + "=" * 90)
-        print(f"Query: {query}")
-        results = rag.retrieve_for_query(query, top_topics=2, top_k=5, unique_by="text")
-        print(f"Retrieved {len(results)} docs across top 2 topics:\n")
-        for i, r in enumerate(results, start=1):
-            preview = r["text"][:90] + ("..." if len(r["text"]) > 90 else "")
-            print(f"{i:>2}. [Topic {r['topic']:>2}] (score={r['score']:.3f}) -> {preview}")
+    # Example 4: Query with no expected match
+    print("\n[Example 4] Query: 'medieval knights and castles'")
+    results = rag3.retrieve_for_query("medieval knights and castles", top_topics=2, top_k=3)
+    print("No relevant documents found." if not results else results)
 
 
 if __name__ == "__main__":
-    main()
+    run_example_rag_bertopic()
