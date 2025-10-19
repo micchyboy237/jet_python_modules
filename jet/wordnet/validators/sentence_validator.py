@@ -1,58 +1,38 @@
-import nltk
-from typing import List, Tuple
-from nltk import pos_tag, word_tokenize
+from jet.libs.stanza.pipeline import StanzaPipelineCache
 
-
-class SentenceValidator:
-    """A class to validate sentences using POS tagging."""
-
-    def __init__(self):
-        """Initialize the validator with NLTK resources."""
-        try:
-            nltk.data.find('taggers/averaged_perceptron_tagger')
-            nltk.data.find('tokenizers/punkt')
-        except LookupError:
-            nltk.download('averaged_perceptron_tagger')
-            nltk.download('punkt')
-
-    def is_valid_sentence(self, sentence: str) -> bool:
-        return is_valid_sentence(sentence)
+_nlp_cache = StanzaPipelineCache()
 
 def is_valid_sentence(sentence: str) -> bool:
     """
     Validate if the input string is a grammatically valid sentence.
-
     Args:
         sentence: The input sentence to validate.
-
     Returns:
         bool: True if the sentence is valid, False otherwise.
     """
-    if not sentence or not isinstance(sentence, str):
+    if not sentence or not sentence.strip():
         return False
-
-    # Tokenize and get POS tags
-    tokens: List[str] = word_tokenize(sentence)
-    # Count non-punctuation tokens for length check
-    non_punct_tokens = [token for token in tokens if token not in '.!?,;:']
-    if len(non_punct_tokens) < 3:  # Minimum length check for non-punctuation tokens
+    nlp = _nlp_cache.get_pipeline(lang='en', processors='tokenize,mwt,pos,lemma,depparse')
+    doc = nlp(sentence.strip())
+    if len(doc.sentences) != 1:
         return False
-
-    pos_tags: List[Tuple[str, str]] = pos_tag(tokens)
-
-    # Check for at least one noun and one verb
-    has_noun = False
-    has_verb = False
-
-    noun_tags = {'NN', 'NNS', 'NNP', 'NNPS'}
-    verb_tags = {'VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ'}
-
-    for _, tag in pos_tags:
-        if tag in noun_tags:
-            has_noun = True
-        if tag in verb_tags:
-            has_verb = True
-        if has_noun and has_verb:
-            return True
-
-    return False
+    sent = doc.sentences[0]
+    root_word = None
+    for w in sent.words:
+        if w.head == 0 and w.deprel == 'root':
+            root_word = w
+            break
+    if root_word is None:
+        return False
+    if root_word.upos not in ('VERB', 'AUX'):
+        return False
+    has_subj = False
+    for w in sent.words:
+        if w.deprel in ('nsubj', 'nsubj:pass', 'csubj') and w.head == root_word.id:
+            has_subj = True
+            break
+    if not has_subj:
+        return False
+    if len([w for w in sent.words if w.upos not in ('PUNCT',)]) < 2:
+        return False
+    return True

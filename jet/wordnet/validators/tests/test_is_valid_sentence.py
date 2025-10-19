@@ -1,103 +1,54 @@
-# jet_python_modules/jet/wordnet/validators/tests/test_is_valid_sentence.py
 from jet.wordnet.validators.sentence_validator import is_valid_sentence
 
 class TestIsValidSentence:
-    """Test suite for the standalone is_valid_sentence function."""
-    
-    def test_valid_sentence(self):
-        """Given a grammatically valid sentence with noun and verb, 
-           When is_valid_sentence is called, 
-           Then it should return True."""
-        # Given
-        sentence = "The cat runs quickly."
-        expected = True
-        
-        # When
-        result = is_valid_sentence(sentence)
-        
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-    
-    def test_missing_verb(self):
-        """Given a sentence missing a verb, 
-           When is_valid_sentence is called, 
-           Then it should return False."""
-        # Given
-        sentence = "The cat dog."
-        expected = False
-        
-        # When
-        result = is_valid_sentence(sentence)
-        
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-    
-    def test_missing_noun(self):
-        """Given a sentence missing a noun, 
-           When is_valid_sentence is called, 
-           Then it should return False."""
-        # Given
-        sentence = "Running quickly always."
-        expected = False
-        
-        # When
-        result = is_valid_sentence(sentence)
-        
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-    
-    def test_too_short_sentence(self):
-        """Given a sentence with fewer than 3 non-punctuation tokens, 
-           When is_valid_sentence is called, 
-           Then it should return False."""
-        # Given
-        sentence = "Cat runs."
-        expected = False
-        
-        # When
-        result = is_valid_sentence(sentence)
-        
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-    
-    def test_missing_punctuation(self):
-        """Given a sentence without proper ending punctuation, 
-           When is_valid_sentence is called, 
-           Then it should return True."""
-        # Given
-        sentence = "The cat runs quickly"
-        expected = True
-        
-        # When
-        result = is_valid_sentence(sentence)
-        
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-    
-    def test_empty_sentence(self):
-        """Given an empty sentence, 
-           When is_valid_sentence is called, 
-           Then it should return False."""
-        # Given
-        sentence = ""
-        expected = False
-        
-        # When
-        result = is_valid_sentence(sentence)
-        
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
-    
-    def test_invalid_input_type(self):
-        """Given invalid input type (None), 
-           When is_valid_sentence is called, 
-           Then it should return False."""
-        # Given
-        sentence = None
-        expected = False
-        
-        # When
-        result = is_valid_sentence(sentence)
-        
-        # Then
-        assert result == expected, f"Expected {expected}, but got {result}"
+    def test_empty_string(self):
+        # Given an empty string
+        result = is_valid_sentence("")
+        # Then should return False
+        assert result is False
+
+    def test_only_punctuation(self):
+        # Given just punctuation
+        result = is_valid_sentence("!!!")
+        assert result is False
+
+    def test_single_word(self):
+        # Given a single word no subject/verb
+        result = is_valid_sentence("Hello")
+        assert result is False
+
+    def test_fragment_phrase(self):
+        # Given a phrase lacking main verb
+        result = is_valid_sentence("Running down the street")
+        assert result is False
+
+    def test_simple_valid_sentence(self):
+        # Given a simple sentence subject + verb
+        result = is_valid_sentence("She sings.")
+        assert result is True
+
+    def test_valid_sentence_no_period(self):
+        # Given valid sentence without punctuation at end
+        result = is_valid_sentence("He runs fast")
+        assert result is True
+
+    def test_valid_sentence_question(self):
+        # Given question style sentence
+        result = is_valid_sentence("Are you coming?")
+        assert result is True
+
+    def test_valid_sentence_passive(self):
+        # Given a passive sentence
+        result = is_valid_sentence("The ball was thrown by John.")
+        assert result is True
+
+    def test_invalid_missing_subject(self):
+        # Given sentence with verb but no explicit subject
+        result = is_valid_sentence("rains in July.")
+        # Note: “it” may be dummy subject; treat maybe valid? here we assume False
+        assert result is False
+
+    def test_multiple_sentences_input(self):
+        # Given two sentences in one string
+        result = is_valid_sentence("She sings. He dances.")
+        assert result is False

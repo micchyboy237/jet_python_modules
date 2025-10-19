@@ -1,9 +1,8 @@
-from io import StringIO
 import re
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 
-from tqdm import tqdm
 from nltk.tokenize import sent_tokenize, word_tokenize
+from jet.wordnet.validators.sentence_validator import is_valid_sentence
 from jet.wordnet.words import count_words, get_words
 
 # nltk.download('punkt')
@@ -162,7 +161,7 @@ def is_sentence(text: str) -> bool:
     return len(non_punct_tokens) > 0 and has_punctuation
 
 
-def split_sentences(text: str, num_sentence: int = 1) -> list[str]:
+def split_sentences(text: str, num_sentence: int = 1, valid_only: bool = False) -> list[str]:
     if num_sentence < 1:
         raise ValueError("num_sentence must be a positive integer")
 
@@ -199,10 +198,13 @@ def split_sentences(text: str, num_sentence: int = 1) -> list[str]:
         chunk = adjusted_sentences[j:j + num_sentence]
         combined_results.append('\n'.join(chunk))
 
+    if valid_only:
+        combined_results = [s for s in combined_results if is_valid_sentence(s)]
+
     return combined_results
 
 
-def split_sentences_with_separators(text: str, num_sentence: int = 1) -> List[str]:
+def split_sentences_with_separators(text: str, num_sentence: int = 1, valid_only: bool = False) -> List[str]:
     """Split text into sentences, preserving the separator after each sentence.
 
     Args:
@@ -283,6 +285,9 @@ def split_sentences_with_separators(text: str, num_sentence: int = 1) -> List[st
         # Use the last sentence's separator for the combined chunk
         final_separator = chunk[-1][1] if chunk else " "
         combined_results.append(combined_sentence + final_separator)
+
+    if valid_only:
+        combined_results = [s for s in combined_results if is_valid_sentence(s)]
 
     return combined_results
 

@@ -2,7 +2,7 @@ import json
 from jet.code.html_utils import valid_html
 from jet.code.markdown_utils._converters import add_list_table_header_placeholders
 from jet.code.markdown_utils._utils import preprocess_custom_code_blocks
-from jet.wordnet.sentence import is_list_sentence, is_ordered_list_marker
+from jet.wordnet.sentence import is_list_sentence, is_ordered_list_marker, split_sentences_with_separators
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
@@ -149,7 +149,7 @@ def parse_markdown(input: Union[str, Path], merge_contents: bool = True, merge_h
         raise
 
 
-def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> List[HeaderDoc]:
+def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False, valid_sentences_only: bool = False) -> List[HeaderDoc]:
     tokens = parse_markdown(
         md_content, merge_headers=False, merge_contents=False, ignore_links=ignore_links)
     sections: List[HeaderDoc] = []
@@ -162,6 +162,10 @@ def derive_by_header_hierarchy(md_content: str, ignore_links: bool = False) -> L
         token_type = token.get("type")
         token_content = token.get("content", "")
         token_level = token.get("level", None)
+
+        if valid_sentences_only:
+            valid_sentences = split_sentences_with_separators(token_content, valid_only=valid_sentences_only)
+            token_content = "".join(valid_sentences)
 
         if token_type == "header":
             if current_section:
