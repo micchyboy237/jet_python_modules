@@ -42,8 +42,10 @@ class TopicRAG:
         if self.verbose:
             logger.log(level, f"[TopicRAG] {msg}")
 
-    def _deduplicate(self, docs: List[str]) -> List[str]:
-        return list(dict.fromkeys(docs))
+    def _preprocess_and_filter(self, docs: List[str]) -> List[str]:
+        deduplicated_docs = list(dict.fromkeys(docs))
+        valid_docs = [d for d in deduplicated_docs if isinstance(d, str) and d.strip()]
+        return valid_docs
 
     def _safe_umap(self, docs: List[str]) -> UMAP:
         """
@@ -113,7 +115,7 @@ class TopicRAG:
         if not docs:
             raise ValueError("No documents provided for topic fitting.")
 
-        docs = self._deduplicate(docs)
+        docs = self._preprocess_and_filter(docs)
         self._log(f"Starting topic fitting on {len(docs)} docs")
 
         # Embeddings
@@ -123,7 +125,7 @@ class TopicRAG:
         if umap_model is None:
             self._log("Falling back to BERTopic without UMAP (document-level clustering only).", logging.WARNING)
             self.model = BERTopic(
-                embedding_model=None,   # <-- added fix
+                embedding_model=None,
                 calculate_probabilities=True,
                 nr_topics=nr_topics,
                 min_topic_size=min_topic_size,
@@ -132,7 +134,7 @@ class TopicRAG:
             )
         else:
             self.model = BERTopic(
-                embedding_model=None,   # <-- added fix
+                embedding_model=None,
                 calculate_probabilities=True,
                 nr_topics=nr_topics,
                 min_topic_size=min_topic_size,
@@ -143,23 +145,21 @@ class TopicRAG:
         try:
             topics, _ = self.model.fit_transform(docs, embeddings)
 
-        except ValueError as e:
-            if "Found array with 0 sample" in str(e):
-                self._log(f"Empty embedding array detected: {e}", logging.WARNING)
-                # Create a dummy embedding for graceful degradation
-                if embeddings.shape[0] == 0:
-                    embeddings = np.zeros((len(docs), 384))
-                # Retry with a safe UMAP
-                safe_umap = UMAP(
-                    n_neighbors=2,
-                    n_components=min(2, len(docs) - 1),
-                    metric="cosine",
-                    init="random",
-                    random_state=42,
-                    low_memory=True,
-                )
-                self.model = BERTopic(umap_model=safe_umap)
-                topics, _ = self.model.fit_transform(docs, embeddings)
+        except ValueError:
+            # For very small datasets, use fallback clustering
+            self._log(
+                f"Too few samples ({embeddings.shape[0]}). Using safe single-cluster fallback.",
+                logging.WARNING,
+            )
+            topics = [0] * len(docs)
+            self.model = BERTopic(
+                embedding_model=None,
+                calculate_probabilities=False,
+                vectorizer_model=CountVectorizer(stop_words="english"),
+                umap_model=None,
+            )
+            self._build_indexes(docs, embeddings, topics)
+            return
 
         except TypeError as e:
             if "k >= N" in str(e):

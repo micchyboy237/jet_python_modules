@@ -188,3 +188,67 @@ class TestEdgeCases:
         monkeypatch.setattr(rag.embedder, "encode", lambda x, **_: fake_embeddings)
         with pytest.raises(ValueError, match="Mismatch between documents"):
             rag.fit_topics(["AI in medicine", "Machine learning in healthcare"])
+
+# =====================================================================
+# TestSafeFallbacks
+# =====================================================================
+
+class TestSafeFallbacks:
+    """Validate safe fallback handling for BERTopic clustering errors."""
+
+    def test_zero_sample_error_triggers_fallback(self, monkeypatch):
+        """Given HDBSCAN returns ValueError('Found array with 0 sample'), 
+        When fit_topics is called, Then fallback single-cluster mode runs safely."""
+        from jet.libs.bertopic.rag_bertopic import TopicRAG
+
+        # --- Given
+        docs = [
+            "AI improves diagnostics.",
+            "Machine learning enhances predictions.",
+            "Deep learning transforms industries.",
+        ]
+        rag = TopicRAG(verbose=True)
+
+        # Mock BERTopic.fit_transform to raise ValueError
+        class DummyModel:
+            def fit_transform(self, *_, **__):
+                raise ValueError("Found array with 0 sample(s) (shape=(0, 384)) while a minimum of 1 is required.")
+        monkeypatch.setattr("jet.libs.bertopic.rag_bertopic.BERTopic", lambda *_, **__: DummyModel())
+
+        # --- When
+        try:
+            result = rag.fit_topics(docs)
+        except Exception as e:
+            pytest.fail(f"fit_topics raised an exception during fallback: {e}")
+
+        # --- Then
+        # fit_topics should return None (no error raised, fallback handled internally)
+        assert result is None
+
+    def test_general_clustering_exception_fallback(self, monkeypatch):
+        """Given a general Exception in clustering, 
+        When fit_topics is called, Then fallback single-cluster mode executes."""
+        from jet.libs.bertopic.rag_bertopic import TopicRAG
+
+        docs = [
+            "AI improves healthcare diagnostics.",
+            "Deep learning assists in medical imaging.",
+        ]
+        rag = TopicRAG(verbose=True)
+
+        # Mock BERTopic.fit_transform to raise a generic error
+        class DummyModel:
+            def fit_transform(self, *_, **__):
+                raise RuntimeError("Simulated HDBSCAN crash")
+
+        monkeypatch.setattr("jet.libs.bertopic.rag_bertopic.BERTopic", lambda *_, **__: DummyModel())
+
+        # --- When
+        try:
+            result = rag.fit_topics(docs)
+        except Exception as e:
+            pytest.fail(f"fit_topics raised an exception during fallback: {e}")
+
+        # --- Then
+        # fit_topics should return None (no error raised, fallback handled internally)
+        assert result is None
