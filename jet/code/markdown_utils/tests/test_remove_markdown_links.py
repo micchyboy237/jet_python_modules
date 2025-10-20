@@ -114,3 +114,43 @@ Line 3 with link2"""
         
         # Then: All links are replaced with their labels
         assert result == expected
+
+class TestRemoveMarkdownLinksRemoveText:
+    """Tests for remove_markdown_links with remove_text=True."""
+
+    def test_remove_text_single_link(self):
+        # Given
+        input_text = "Visit [Google](https://www.google.com) now"
+        # When
+        result = remove_markdown_links(input_text, remove_text=True)
+        # Then
+        expected = "Visit  now"
+        assert result == expected
+
+    def test_remove_text_image_link(self):
+        input_text = "Image ![alt](https://example.com/image.jpg)"
+        result = remove_markdown_links(input_text, remove_text=True)
+        expected = "Image "
+        assert result == expected
+
+    def test_remove_text_multiple_links(self):
+        input_text = "[link1](a.com) and [link2](b.com)"
+        result = remove_markdown_links(input_text, remove_text=True)
+        expected = " and "
+        assert result == expected
+
+    def test_remove_text_multiline(self):
+        input_text = """Line 1 [a](a.com)
+Line 2 ![b](b.jpg)
+Line 3 [c](c.com)"""
+        result = remove_markdown_links(input_text, remove_text=True)
+        expected = """Line 1 
+Line 2 
+Line 3 """
+        assert result == expected
+
+    def test_remove_text_no_links(self):
+        input_text = "Just plain text"
+        result = remove_markdown_links(input_text, remove_text=True)
+        expected = "Just plain text"
+        assert result == expected

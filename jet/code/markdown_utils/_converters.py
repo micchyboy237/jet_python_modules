@@ -28,11 +28,13 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     # html_content = add_list_table_header_placeholders(html_content)
 
     converter = html2text.HTML2Text()
-    converter.ignore_links = False
-    converter.ignore_mailto_links = ignore_links
-    # converter.protect_links = False
     converter.ignore_images = True
     converter.ignore_emphasis = True
+    converter.ignore_links = False
+    converter.ignore_mailto_links = ignore_links
+    converter.skip_internal_links = ignore_links
+    # converter.protect_links = not ignore_links
+    # converter.links_each_paragraph = not ignore_links
     converter.mark_code = True
     converter.body_width = 0
 

@@ -82,20 +82,35 @@ def clean_markdown_links(text: str) -> str:
     return text
 
 
-def remove_markdown_links(text: str) -> str:
+def remove_markdown_links(text: str, remove_text: bool = False) -> str:
     """
-    Remove all markdown links, replacing [label](link) and ![alt](url) with their label or alt text.
-    Handles nested brackets in labels, e.g., [nested [brackets]](url) -> nested [brackets].
+    Remove all markdown links and optionally their visible text content.
+    
+    Args:
+        text: Markdown text possibly containing links or images.
+        remove_text: If True, removes both the markdown link syntax and its text/alt label.
+                     If False (default), keeps the label text.
+    
+    Returns:
+        str: Text with markdown links removed or replaced by labels depending on remove_text flag.
     """
-    pattern = re.compile(r'(!)?\[([^\[\]]*?(?:\[[^\[\]]*?\])*?[^\[\]]*?)\]\((\S+?)(?:\s+"([^"]+)")?\)')
+    pattern = re.compile(
+        r'(!)?\[([^\[\]]*?(?:\[[^\[\]]*?\])*?[^\[\]]*?)\]\((\S+?)(?:\s+"([^"]+)")?\)'
+    )
     output = ""
     last_end = 0
+
     for match in pattern.finditer(text):
         start, end = match.span()
-        label = match.group(2)
+        label = match.group(2).strip()
         output += text[last_end:start]
-        output += label.strip() if label.strip() else ""
+
+        if not remove_text:
+            output += label
+        # if remove_text=True, skip adding label text entirely
+
         last_end = end
+
     output += text[last_end:]
     return output
 
