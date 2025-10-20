@@ -42,7 +42,7 @@ class Chunk:
     embedding: Optional[np.ndarray] = None
     metadata: Optional[Dict] = None
 
-    def to_dict(self, include_embedding: bool = True) -> Dict[str, object]:
+    def to_dict(self, include_embedding: bool = False) -> Dict[str, object]:
         """Return dictionary representation, optionally excluding embedding."""
         data = asdict(self)
         if not include_embedding:
