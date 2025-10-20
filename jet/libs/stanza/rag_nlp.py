@@ -11,12 +11,18 @@ Supports:
 from __future__ import annotations
 import re
 import numpy as np
-from dataclasses import asdict, dataclass
+import torch
+from dataclasses import dataclass
 from typing import List, Dict, Optional
 
 from sentence_transformers import SentenceTransformer, util
 from bertopic import BERTopic
 import stanza
+
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
+from jet.libs.bertopic.examples.mock import EMBED_MODEL
+from jet.wordnet.text_chunker import ChunkResult, ChunkResultMeta, ChunkResultWithMeta, chunk_texts_with_data
 
 
 # =============== MODELS ======================
@@ -26,9 +32,10 @@ def get_stanza_pipeline(lang: str = "en"):
     return stanza.Pipeline(lang=lang, processors="tokenize,pos,lemma,depparse", use_gpu=False, verbose=False)
 
 
-def get_embedder(model_name: str = "all-MiniLM-L6-v2"):
-    """Load a pretrained SentenceTransformer embedder."""
-    return SentenceTransformer(model_name)
+def get_embedder(model_name: str = "embeddinggemma"):
+    # """Load a pretrained SentenceTransformer embedder."""
+    # return SentenceTransformer(model_name)
+    return LlamacppEmbedding(model="embeddinggemma")
 
 
 # =============== DATA STRUCTURES ==============
@@ -39,15 +46,7 @@ class Chunk:
     text: str
     section_title: Optional[str] = None
     header_level: Optional[int] = None
-    embedding: Optional[np.ndarray] = None
     metadata: Optional[Dict] = None
-
-    def to_dict(self, include_embedding: bool = False) -> Dict[str, object]:
-        """Return dictionary representation, optionally excluding embedding."""
-        data = asdict(self)
-        if not include_embedding:
-            data.pop("embedding", None)
-        return data
 
 # =============== UTILITIES ====================
 
@@ -141,29 +140,75 @@ def chunk_by_sentences(
 
 def chunk_markdown_sections(
     markdown_text: str,
-    max_tokens: int = 200,
+    chunk_size: int = 200,
+    chunk_overlap: int = 32,
+    model: str = EMBED_MODEL,
     stride_ratio: float = 0.3,
-    embedder: Optional[SentenceTransformer] = None
+    embedder: Optional[SentenceTransformer] = None,
+    ignore_links: bool = False,
+    truncate: bool = False,
 ) -> List[Chunk]:
-    """Chunk markdown by headers, then apply sliding-window chunking within sections."""
-    sections = split_by_markdown_headers(markdown_text)
-    all_chunks: List[Chunk] = []
-    idx = 0
+    """Chunk markdown by headers."""
+    headers = derive_by_header_hierarchy(markdown_text, ignore_links=True)
+    header_md_contents = [f"{header['parent_header'] or ''}\n{header['header']}\n{header['content']}".strip() for header in headers]
 
-    for sec in sections:
-        sentences = re.split(r'(?<=[.!?])\s+', sec["content"])
-        section_chunks = chunk_by_sentences(
-            sentences, max_tokens=max_tokens, stride_ratio=stride_ratio, embedder=embedder
-        )
-        for c in section_chunks:
-            c.section_title = sec["header"]
-            c.header_level = sec["level"]
-            c.id = f"chunk_{idx}"
-            c.metadata = {"section": sec["header"], "level": sec["level"]}
-            all_chunks.append(c)
-            idx += 1
+    texts = header_md_contents
+    doc_ids = [header["id"] for header in headers]
 
-    return all_chunks
+    # Map header id to header metadata (assuming doc_ids are unique and order-aligned)
+    header_id_to_meta: dict[str, ChunkResultMeta] = {}
+    for header in headers:
+        header_meta: ChunkResultMeta = {
+            "doc_id": header["id"],
+            "doc_index": header["doc_index"],
+            "header": header["header"],
+            "level": header.get("level"),
+            "parent_header": header.get("parent_header"),
+            "parent_level": header.get("parent_level"),
+            "source": header.get("source"),
+            "tokens": header.get("tokens"),
+        }
+        header_id_to_meta[header["id"]] = header_meta
+
+    base_chunks: List[ChunkResult] = chunk_texts_with_data(
+        texts,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        model=model,
+        ids=doc_ids,
+    )
+
+    # Attach section meta-data from the corresponding HeaderDoc to each chunk
+    enriched_chunks: List[ChunkResultWithMeta] = []
+    for chunk in base_chunks:
+        doc_id = chunk["doc_id"]
+        if doc_id in header_id_to_meta:
+            chunk_meta = header_id_to_meta[doc_id]
+        else:
+            # Safely fill with correct types for fields
+            chunk_meta: ChunkResultMeta = {
+                "doc_id": doc_id,
+                "doc_index": -1,
+                "header": "",
+                "level": None,
+                "parent_header": None,
+                "parent_level": None,
+                "source": None,
+                "tokens": [],
+            }
+        chunk_with_meta: ChunkResultWithMeta = {**chunk, "meta": chunk_meta}
+        enriched_chunks.append(chunk_with_meta)
+
+    if truncate:
+        enriched_chunks = [chunk for chunk in enriched_chunks if chunk.get("chunk_index", 0) == 0]
+
+    return [Chunk(
+        id=chunk["id"],
+        text=chunk["content"],
+        section_title=chunk["meta"]["header"].lstrip('#').strip(),
+        header_level=chunk["meta"]["level"],
+        metadata={"section": chunk["meta"]["header"].lstrip('#').strip(), "level": chunk["meta"]["level"]},
+    ) for chunk in enriched_chunks]
 
 
 # =============== RETRIEVAL =====================
@@ -177,7 +222,6 @@ def mmr_select_with_scores(
     """
     MMR selection that also returns similarity and diversity scores.
     """
-    import torch
     if isinstance(query_emb, torch.Tensor):
         query_emb = query_emb.detach().to("cpu")
     if isinstance(doc_embs, list):
@@ -234,7 +278,7 @@ class RAGPipeline:
 
     def prepare_chunks(self, text: str) -> List[Chunk]:
         if self.use_markdown:
-            return chunk_markdown_sections(text, stride_ratio=self.stride_ratio, embedder=self.embedder)
+            return chunk_markdown_sections(text)
         else:
             sentences = re.split(r'(?<=[.!?])\s+', text)
             return chunk_by_sentences(sentences, stride_ratio=self.stride_ratio, embedder=self.embedder)
@@ -244,10 +288,11 @@ class RAGPipeline:
         Retrieve top chunks using cosine similarity or MMR if diversity is provided.
         Adds similarity/diversity scores to each chunk's metadata.
         """
-        query_emb = self.embedder.encode(query, convert_to_tensor=True)
-        doc_embs = [c.embedding for c in chunks if c.embedding is not None]
-        import torch
-        sim_scores = util.cos_sim(query_emb, torch.stack(doc_embs))[0].cpu().numpy()
+        all_emb = self.embedder([query] + [c.text for c in chunks])
+        query_emb = all_emb[0]
+        doc_embs = all_emb[1:]
+
+        sim_scores = util.cos_sim(query_emb, doc_embs)[0].cpu().numpy()
 
         if diversity is not None:
             selected_info = mmr_select_with_scores(query_emb, doc_embs, top_k=top_k, diversity=diversity)

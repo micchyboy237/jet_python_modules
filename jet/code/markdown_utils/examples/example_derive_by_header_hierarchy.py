@@ -1,12 +1,10 @@
 import os
+import shutil
 
-from jet.code.markdown_utils import parse_markdown
-from jet.code.markdown_utils._converters import convert_html_to_markdown
-from jet.code.markdown_utils._markdown_parser import base_parse_markdown, derive_by_header_hierarchy
-from jet.file.utils import load_file, save_file
+from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
+from jet.file.utils import save_file
 from jet.logger import logger
 from jet.transformers.formatters import format_json
-from jet.utils.print_utils import print_dict_types
 
 md_content = """
 Sample title
@@ -83,5 +81,11 @@ Inline JSON Example of Metadata Scoring:
 """
 
 if __name__ == "__main__":
-    results = derive_by_header_hierarchy(md_content)
-    logger.success(format_json(results))
+  output_dir = os.path.join(os.path.dirname(
+      __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+  shutil.rmtree(output_dir, ignore_errors=True)
+
+  results = derive_by_header_hierarchy(md_content)
+  logger.success(format_json(results))
+
+  save_file(results, f"{output_dir}/results.json")

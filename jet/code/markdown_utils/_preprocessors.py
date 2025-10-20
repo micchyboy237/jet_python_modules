@@ -112,7 +112,21 @@ def remove_markdown_links(text: str, remove_text: bool = False) -> str:
         last_end = end
 
     output += text[last_end:]
-    return output
+    return output.strip()
+
+
+def is_markdown_link(text: str) -> bool:
+    """
+    Check if the input text is a single markdown or image link without other text.
+    
+    Args:
+        text (str): Input text
+    
+    Returns:
+        bool: True if the text is a markdown or image link without other text, False otherwise.
+    """
+    cleaned_text = remove_markdown_links(text, remove_text=True)
+    return not bool(cleaned_text)
 
 
 def preprocess_markdown(md_content: str) -> str:

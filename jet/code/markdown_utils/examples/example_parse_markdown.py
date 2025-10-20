@@ -1,6 +1,10 @@
+import os
+import shutil
 
 from jet.code.markdown_utils import parse_markdown
-from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
+from jet.file.utils import save_file
+from jet.utils.commands import copy_to_clipboard
+from jet.utils.print_utils import print_dict_types
 
 md_content = """
 Sample title
@@ -32,29 +36,14 @@ def greet(name: str) -> str:
 ##### Inline Code
 Use `print("Hello")` for quick debugging.
 
-##### Code Block
-[code]
-print("Hello, world!")
-[/code]
-
 ###### Emphasis
 *Italic*, **bold**, and ***bold italic*** text are supported.
 
 <div class="alert">This is an HTML block.</div>
 <span class="badge">New</span> inline HTML.
 
-##### Footnote
-Here's a simple footnote,[^1] and here's a longer one.[^bignote]
-
-[^1]: This is the first footnote.
-
-[^bignote]: Here's one with multiple paragraphs and code.
-
-    Indent paragraphs to include them in the footnote.
-
-    `{ my code }`
-
-    Add as many paragraphs as you like.
+[^1]: This is a footnote reference.
+[^1]: Footnote definition here.
 
 ## Unordered list
 - List item 1
@@ -72,19 +61,23 @@ Here's a simple footnote,[^1] and here's a longer one.[^bignote]
 """
 
 if __name__ == "__main__":
-    headers_with_heirarchy = derive_by_header_hierarchy(md_content)
-    print(headers_with_heirarchy)
+    output_dir = os.path.join(os.path.dirname(
+        __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    shutil.rmtree(output_dir, ignore_errors=True)
 
     results_ignore_links = parse_markdown(md_content, ignore_links=True)
     results_with_links = parse_markdown(md_content, ignore_links=False)
 
-    print(results_ignore_links)
-    print(results_with_links)
+    lines = print_dict_types(results_with_links)
+    copy_to_clipboard("\n".join(lines))
+
+    save_file(results_with_links, f"{output_dir}/merged/results_with_links.json")
+    save_file(results_ignore_links, f"{output_dir}/merged/results_ignore_links.json")
 
     results_ignore_links = parse_markdown(
         md_content, merge_headers=False, merge_contents=False, ignore_links=True)
     results_with_links = parse_markdown(
         md_content, merge_headers=False, merge_contents=False, ignore_links=False)
 
-    print(results_ignore_links)
-    print(results_with_links)
+    save_file(results_with_links, f"{output_dir}/no_merge/results_with_links.json")
+    save_file(results_ignore_links, f"{output_dir}/no_merge/results_ignore_links.json")

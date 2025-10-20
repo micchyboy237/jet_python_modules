@@ -1,7 +1,9 @@
+import os
+import shutil
 
 from jet.code.markdown_utils import base_parse_markdown
-from jet.logger import logger
-from jet.transformers.formatters import format_json
+from jet.file.utils import save_file
+from jet.utils.commands import copy_to_clipboard
 from jet.utils.print_utils import print_dict_types
 
 md_content = """
@@ -34,11 +36,6 @@ def greet(name: str) -> str:
 ##### Inline Code
 Use `print("Hello")` for quick debugging.
 
-##### Code Block
-[code]
-print("Hello, world!")
-[/code]
-
 ###### Emphasis
 *Italic*, **bold**, and ***bold italic*** text are supported.
 
@@ -64,13 +61,15 @@ print("Hello, world!")
 """
 
 if __name__ == "__main__":
+    output_dir = os.path.join(os.path.dirname(
+        __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    shutil.rmtree(output_dir, ignore_errors=True)
+
     results_ignore_links = base_parse_markdown(md_content, ignore_links=True)
     results_with_links = base_parse_markdown(md_content, ignore_links=False)
 
-    print_dict_types(results_with_links)
+    lines = print_dict_types(results_with_links)
+    copy_to_clipboard("\n".join(lines))
 
-    logger.info(f"\nresults_with_links ({len(results_with_links)}):")
-    logger.success(format_json(results_with_links))
-
-    logger.info(f"\nresults_ignore_links ({len(results_ignore_links)}):")
-    logger.success(format_json(results_ignore_links))
+    save_file(results_with_links, f"{output_dir}/results_with_links.json")
+    save_file(results_ignore_links, f"{output_dir}/results_ignore_links.json")
