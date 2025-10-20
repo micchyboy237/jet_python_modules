@@ -30,6 +30,8 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
     converter = html2text.HTML2Text()
     converter.ignore_links = False
+    converter.ignore_mailto_links = ignore_links
+    # converter.protect_links = False
     converter.ignore_images = True
     converter.ignore_emphasis = True
     converter.mark_code = True

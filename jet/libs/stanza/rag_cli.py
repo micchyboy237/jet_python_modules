@@ -103,6 +103,7 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Print debug info.")
 
     args = parser.parse_args()
+    save_file(args, f"{OUTPUT_DIR}/inputs.json")
 
     console.print("[bold green]>>> Loading RAG pipeline...[/bold green]")
     pipeline = RAGPipeline(
