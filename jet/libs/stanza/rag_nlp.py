@@ -162,48 +162,44 @@ def chunk_markdown_sections(
 
 # =============== RETRIEVAL =====================
 
-def mmr_select(
+def mmr_select_with_scores(
     query_emb,
     doc_embs,
     top_k: int = 5,
     diversity: float = 0.5
 ):
     """
-    Maximal Marginal Relevance (MMR) for diverse retrieval.
+    MMR selection that also returns similarity and diversity scores.
     """
     import torch
-
-    # Ensure tensors are on CPU and detached
     if isinstance(query_emb, torch.Tensor):
         query_emb = query_emb.detach().to("cpu")
-
-    # Convert document embeddings to tensor
     if isinstance(doc_embs, list):
         doc_embs = [e.detach().to("cpu") if isinstance(e, torch.Tensor) else torch.tensor(e) for e in doc_embs]
         doc_embs = torch.stack(doc_embs)
 
-    # Compute cosine similarities safely on CPU
     sim_query = util.cos_sim(query_emb, doc_embs)[0].cpu().numpy()
     sim_doc = util.cos_sim(doc_embs, doc_embs).cpu().numpy()
 
     selected = [int(np.argmax(sim_query))]
-    candidates = list(range(len(doc_embs)))
+    scores = [{"idx": selected[0], "similarity": float(sim_query[selected[0]]), "diversity": 0.0}]
 
+    candidates = list(range(len(doc_embs)))
     for _ in range(1, top_k):
         mmr_scores = []
         for idx in candidates:
-            if idx in selected:
+            if idx in [s["idx"] for s in scores]:
                 continue
             relevance = sim_query[idx]
-            diversity_score = max(sim_doc[idx][selected]) if selected else 0
+            diversity_score = max(sim_doc[idx][[s["idx"] for s in scores]]) if scores else 0
             score = (1 - diversity) * relevance - diversity * diversity_score
-            mmr_scores.append((idx, score))
+            mmr_scores.append((idx, relevance, diversity_score, score))
         if not mmr_scores:
             break
-        best = max(mmr_scores, key=lambda x: x[1])[0]
-        selected.append(best)
+        best = max(mmr_scores, key=lambda x: x[3])
+        scores.append({"idx": best[0], "similarity": float(best[1]), "diversity": float(best[2])})
 
-    return selected
+    return scores
 
 
 # =============== TOPIC TAGGING =================
@@ -237,9 +233,29 @@ class RAGPipeline:
             sentences = re.split(r'(?<=[.!?])\s+', text)
             return chunk_by_sentences(sentences, stride_ratio=self.stride_ratio, embedder=self.embedder)
 
-    def retrieve(self, query: str, chunks: List[Chunk], top_k: int = 5, diversity: float = 0.5):
+    def retrieve(self, query: str, chunks: List[Chunk], top_k: int = 5, diversity: Optional[float] = None):
+        """
+        Retrieve top chunks using cosine similarity or MMR if diversity is provided.
+        Adds similarity/diversity scores to each chunk's metadata.
+        """
         query_emb = self.embedder.encode(query, convert_to_tensor=True)
         doc_embs = [c.embedding for c in chunks if c.embedding is not None]
-        selected_idx = mmr_select(query_emb, doc_embs, top_k=top_k, diversity=diversity)
-        return [chunks[i] for i in selected_idx]
+        import torch
+        sim_scores = util.cos_sim(query_emb, torch.stack(doc_embs))[0].cpu().numpy()
+
+        if diversity is not None:
+            selected_info = mmr_select_with_scores(query_emb, doc_embs, top_k=top_k, diversity=diversity)
+        else:
+            top_idx = np.argsort(sim_scores)[::-1][:top_k]
+            selected_info = [{"idx": int(i), "similarity": float(sim_scores[i]), "diversity": 0.0} for i in top_idx]
+
+        results = []
+        for s in selected_info:
+            c = chunks[s["idx"]]
+            c.metadata = c.metadata or {}
+            c.metadata["similarity"] = s["similarity"]
+            if diversity is not None:
+                c.metadata["diversity"] = s["diversity"]
+            results.append(c)
+        return results
 

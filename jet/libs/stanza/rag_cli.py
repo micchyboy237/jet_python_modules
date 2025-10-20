@@ -59,12 +59,16 @@ def show_results(query: str, chunks: List[Chunk]):
     table.add_column("Section", justify="left", style="magenta")
     table.add_column("Chunk Text", justify="left", style="white", no_wrap=False)
     table.add_column("Topic", justify="center", style="yellow")
+    table.add_column("Sim", justify="center", style="green")
+    table.add_column("Div", justify="center", style="blue")
 
     for idx, c in enumerate(chunks):
         text_preview = (c.text[:200] + "...") if len(c.text) > 200 else c.text
         topic = str(c.metadata.get("topic")) if c.metadata and "topic" in c.metadata else "-"
         section = c.section_title or "-"
-        table.add_row(str(idx + 1), section, text_preview, topic)
+        sim_score = f"{c.metadata.get('similarity', 0):.3f}" if c.metadata else "-"
+        div_score = f"{c.metadata.get('diversity', 0):.3f}" if c.metadata and "diversity" in c.metadata else "-"
+        table.add_row(str(idx + 1), section, text_preview, topic, sim_score, div_score)
 
     console.print(table)
 
@@ -79,6 +83,7 @@ def main():
     parser.add_argument("--max-chunks", type=int, default=5, help="Number of top chunks to retrieve.")
     parser.add_argument("--stride-ratio", type=float, default=0.3, help="Sliding window overlap ratio (0–0.9).")
     parser.add_argument("--diversity", type=float, default=0.5, help="MMR diversity parameter (0–1).")
+    parser.add_argument("--use-mmr", action="store_true", help="Enable MMR-based diverse retrieval.")
     parser.add_argument("--with-topics", action="store_true", help="Enable BERTopic topic tagging.")
     parser.add_argument("--debug", action="store_true", help="Print debug info.")
 
@@ -105,9 +110,13 @@ def main():
         topic_model = tag_topics(all_chunks, pipeline.embedder)
         console.print(f"[green]Found {len(set([c.metadata['topic'] for c in all_chunks]))} topics[/green]")
 
-    console.print(f"[bold blue]>>> Running MMR retrieval for query:[/bold blue] '{args.query}'")
-    results = pipeline.retrieve(args.query, all_chunks, top_k=args.max_chunks, diversity=args.diversity)
-
+    console.print(f"[bold blue]>>> Running {'MMR' if args.use_mmr else 'similarity'} retrieval for query:[/bold blue] '{args.query}'")
+    results = pipeline.retrieve(
+        args.query,
+        all_chunks,
+        top_k=args.max_chunks,
+        diversity=args.diversity if args.use_mmr else None,
+    )
     show_results(args.query, results)
 
     if args.debug:
