@@ -1,6 +1,9 @@
 import torch
+from tqdm import tqdm
 from wtpsplit import SaT
 from typing import List, Optional
+
+from jet.wordnet.validators.sentence_validator import is_valid_sentence
 
 # Global cache for a single SaT model instance
 _model_cache = {"model": None, "key": None}
@@ -30,7 +33,8 @@ def extract_sentences(
     use_gpu: bool = True, 
     sentence_threshold: float = 0.5,
     style_or_domain: Optional[str] = None,
-    language: str = "en"
+    language: str = "en",
+    valid_only: bool = False
 ) -> List[str]:
     """
     Extracts sentences from unstructured text without relying on newline delimiters.
@@ -48,6 +52,9 @@ def extract_sentences(
         style_or_domain (Optional[str], optional): LoRA adaptation style/domain (e.g., "ud" for Universal Dependencies).
                                                   Defaults to None (no adaptation).
         language (str, optional): Language for LoRA module (e.g., "en"). Defaults to "en".
+        valid_only (bool, optional): If True, only keep sentences passing a validator
+                                      (filters out e.g. fragments or very short/incomplete sentences).
+                                      Defaults to False.
     Returns:
         List[str]: A list of extracted sentences as strings.
     Raises:
@@ -77,4 +84,7 @@ def extract_sentences(
     
     segmented = sat.split(text, do_paragraph_segmentation=True, paragraph_threshold=sentence_threshold)
     sentences = [' '.join(sent.strip() for sent in para) for para in segmented]
+    if valid_only:
+        # Filter valid sentences
+        sentences = [s for s in tqdm(sentences, desc="Filtering valid sentences") if is_valid_sentence(s)]
     return sentences

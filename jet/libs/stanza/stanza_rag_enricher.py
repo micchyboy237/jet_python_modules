@@ -20,7 +20,7 @@ class StanzaRAGEnricher:
     Focuses on POS, lemmatization, and dependency parsing to add structural context.
     Reusable for batch processing; configurable for languages/processors.
     """
-    def __init__(self, lang: str = "en", processors: str = "tokenize,pos,lemma,depparse", use_gpu: bool = False):
+    def __init__(self, lang: str = "en", processors: str = "tokenize,pos,lemma,depparse", use_gpu: bool = True, verbose: bool = False):
         """
         Initialize Stanza pipeline.
         
@@ -28,7 +28,7 @@ class StanzaRAGEnricher:
         :param processors: Comma-separated Stanza processors (add 'constituency' for 2025 updates).
         :param use_gpu: Enable GPU for M1 or GTX 1660 acceleration.
         """
-        self.nlp = stanza.Pipeline(lang=lang, processors=processors, use_gpu=use_gpu)
+        self.nlp = stanza.Pipeline(lang=lang, processors=processors, use_gpu=use_gpu, verbose=verbose)
 
     def enrich_document(self, text: str) -> EnrichedDocument:
         """

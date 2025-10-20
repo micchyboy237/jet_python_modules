@@ -22,14 +22,15 @@ from jet.libs.stanza.pipeline import StanzaPipelineCache
 def build_stanza_pipeline(
     lang: str = "en",
     processors: str = "tokenize,pos,lemma,depparse,ner",
-    use_gpu: bool = False
+    use_gpu: bool = True,
+    verbose: bool = False,
 ):
     """
     Create or retrieve a cached Stanza pipeline.
     Ensures compatibility with StanzaPipelineCache.get_pipeline signature.
     """
     cache = StanzaPipelineCache()
-    return cache.get_pipeline(lang=lang, processors=processors, use_gpu=use_gpu)
+    return cache.get_pipeline(lang=lang, processors=processors, use_gpu=use_gpu, verbose=verbose)
 
 # ---------------------------------------------------------------------------------------
 # Sentence parsing utility

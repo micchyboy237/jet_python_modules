@@ -1,67 +1,67 @@
-from typing import List, Optional
 import pytest
-import stanza
 from jet.libs.stanza.pipeline import StanzaPipelineCache
-from rag_stanza import build_stanza_pipeline
 
 @pytest.fixture
-def clear_cache():
-    """Fixture to clear the pipeline cache before and after each test."""
+def pipeline_cache():
+    # Given: A fresh StanzaPipelineCache instance
     cache = StanzaPipelineCache()
-    cache.clear_cache()
-    yield
+    cache.clear_cache()  # Ensure clean state before each test
+    yield cache
+    # Cleanup: Clear cache after each test
     cache.clear_cache()
 
 class TestStanzaPipelineCache:
-    def test_pipeline_caching_same_config(self, clear_cache):
-        """Given the same configuration, When requesting the pipeline twice, Then the same instance is returned."""
-        # Given
-        expected: Optional[stanza.Pipeline] = None
-        
-        # When
-        pipeline1 = build_stanza_pipeline()
-        pipeline2 = build_stanza_pipeline()
-        result = pipeline1 is pipeline2  # Check for object identity
-        
-        # Then
+    def test_singleton_instance(self, pipeline_cache):
+        # Given: A StanzaPipelineCache instance
+        first_instance = pipeline_cache
+        # When: Creating another instance
+        second_instance = StanzaPipelineCache()
+        # Then: Both instances should be the same
+        result = first_instance is second_instance
         expected = True
-        assert result == expected, "Pipelines with the same config should be identical (cached)."
+        assert result == expected, "StanzaPipelineCache should return the same instance for multiple calls"
 
-    def test_pipeline_caching_different_configs(self, clear_cache):
-        """Given different configurations, When requesting pipelines, Then different instances are returned."""
-        # Given
-        cache = StanzaPipelineCache()
-        expected: Optional[stanza.Pipeline] = None
-        
-        # When
-        pipeline1 = cache.get_pipeline(lang="en", processors="tokenize,pos")
-        pipeline2 = cache.get_pipeline(lang="en", processors="tokenize,ner")
-        result = pipeline1 is pipeline2
-        
-        # Then
-        expected = False
-        assert result == expected, "Pipelines with different configs should not be identical."
+    def test_get_pipeline_creates_single_pipeline(self, pipeline_cache):
+        # Given: An empty cache
+        # When: Requesting a pipeline with specific configuration
+        pipeline = pipeline_cache.get_pipeline(lang="en", processors="tokenize,pos", use_gpu=False, verbose=True)
+        # Then: The pipeline should be stored and match the requested configuration
+        result = pipeline_cache._pipeline
+        expected = pipeline
+        assert result == expected, "Cache should store the created pipeline"
+        assert pipeline.lang == "en", "Pipeline language should be 'en'"
+        assert set(pipeline.processors.keys()) == {"tokenize", "pos", "mwt"}, "Pipeline processors should match requested"
 
-    def test_pipeline_caching_thread_safety(self, clear_cache):
-        """Given concurrent pipeline requests, When fetching pipelines, Then the same instance is returned."""
-        # Given
-        import threading
-        results: List[bool] = []
-        pipeline_ref: Optional[stanza.Pipeline] = None
-        expected = True
-        
-        def fetch_pipeline():
-            pipeline = build_stanza_pipeline()
-            results.append(pipeline is pipeline_ref)
-        
-        # When
-        pipeline_ref = build_stanza_pipeline()
-        threads = [threading.Thread(target=fetch_pipeline) for _ in range(5)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        result = all(results)
-        
-        # Then
-        assert result == expected, "Concurrent pipeline requests should return the same cached instance."
+    def test_get_pipeline_replaces_pipeline(self, pipeline_cache):
+        # Given: A cache with an existing pipeline
+        first_pipeline = pipeline_cache.get_pipeline(lang="en", processors="tokenize", use_gpu=False, verbose=True)
+        # When: Requesting a pipeline with different configuration
+        second_pipeline = pipeline_cache.get_pipeline(lang="fr", processors="tokenize,pos", use_gpu=True, verbose=True)
+        # Then: The cache should store only the new pipeline
+        result = pipeline_cache._pipeline
+        expected = second_pipeline
+        assert result == expected, "Cache should replace old pipeline with new one"
+        assert result != first_pipeline, "New pipeline should differ from old one"
+        assert pipeline_cache._config == ("fr", "tokenize,pos", True), "Config should match new pipeline"
+
+    def test_clear_cache(self, pipeline_cache):
+        # Given: A cache with a pipeline
+        pipeline_cache.get_pipeline(lang="en", processors="tokenize", use_gpu=False, verbose=True)
+        # When: Clearing the cache
+        pipeline_cache.clear_cache()
+        # Then: The pipeline and config should be None
+        result_pipeline = pipeline_cache._pipeline
+        result_config = pipeline_cache._config
+        expected = None
+        assert result_pipeline == expected, "Pipeline should be None after clear_cache"
+        assert result_config == expected, "Config should be None after clear_cache"
+
+    def test_get_pipeline_reuses_same_config(self, pipeline_cache):
+        # Given: A cache with a pipeline
+        first_pipeline = pipeline_cache.get_pipeline(lang="en", processors="tokenize,pos", use_gpu=False, verbose=True)
+        # When: Requesting a pipeline with the same configuration
+        second_pipeline = pipeline_cache.get_pipeline(lang="en", processors="tokenize,pos", use_gpu=False, verbose=True)
+        # Then: The same pipeline instance should be returned
+        result = second_pipeline
+        expected = first_pipeline
+        assert result == expected, "Cache should reuse the same pipeline for identical configuration"

@@ -29,14 +29,15 @@ _pipeline_cache: Dict[str, stanza.Pipeline] = {}
 
 def build_stanza_pipeline(lang: str = "en",
                           processors: str = "tokenize,mwt,pos,lemma,depparse,ner,constituency",
-                          use_gpu: bool = False) -> stanza.Pipeline:
+                          use_gpu: bool = True,
+                          verbose: bool = False) -> stanza.Pipeline:
     """
     Build a Stanza pipeline with sensible defaults for RAG context building.
     Ensure the processors needed by depparse/constituency are included.
     """
     cache_key = f"{lang}_{processors}_{use_gpu}"
     if cache_key not in _pipeline_cache:
-        _pipeline_cache[cache_key] = stanza.Pipeline(lang=lang, processors=processors, use_gpu=use_gpu, verbose=False)
+        _pipeline_cache[cache_key] = stanza.Pipeline(lang=lang, processors=processors, use_gpu=use_gpu, verbose=verbose)
     return _pipeline_cache[cache_key]
 
 def parse_sentences(text: str, pipeline: stanza.Pipeline) -> List[SentenceData]:
