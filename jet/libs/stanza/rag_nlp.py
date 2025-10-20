@@ -171,14 +171,23 @@ def mmr_select(
     """
     Maximal Marginal Relevance (MMR) for diverse retrieval.
     """
-    query_emb = np.array(query_emb)
-    doc_embs = np.array(doc_embs)
+    import torch
+
+    # Ensure tensors are on CPU and detached
+    if isinstance(query_emb, torch.Tensor):
+        query_emb = query_emb.detach().to("cpu")
+
+    # Convert document embeddings to tensor
+    if isinstance(doc_embs, list):
+        doc_embs = [e.detach().to("cpu") if isinstance(e, torch.Tensor) else torch.tensor(e) for e in doc_embs]
+        doc_embs = torch.stack(doc_embs)
+
+    # Compute cosine similarities safely on CPU
     sim_query = util.cos_sim(query_emb, doc_embs)[0].cpu().numpy()
     sim_doc = util.cos_sim(doc_embs, doc_embs).cpu().numpy()
 
-    selected = []
+    selected = [int(np.argmax(sim_query))]
     candidates = list(range(len(doc_embs)))
-    selected.append(int(np.argmax(sim_query)))
 
     for _ in range(1, top_k):
         mmr_scores = []
