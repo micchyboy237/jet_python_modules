@@ -1,17 +1,16 @@
 import fnmatch
 import os
 import json
-from pathlib import Path
-import pickle
 import re
+import pickle
 import pandas as pd
-
+from pathlib import Path
 from typing import Any, Dict, List, Union
+from pydantic import BaseModel
+from rich.table import Table
 from jet.logger import logger
 from jet.transformers.formatters import format_html
 from jet.transformers.object import make_serializable
-from pydantic.main import BaseModel
-
 
 def get_file_last_modified(file_path: str) -> float:
     """Get the last modified time of a file."""
@@ -166,20 +165,52 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
 
 
 def save_file(
-    data: Union[str, bytes, List, Dict, BaseModel],
+    data: Union[str, bytes, List, Dict, BaseModel, Table],
     output_file: Union[str, Path],
     verbose: bool = True,
     append: bool = False
 ) -> str:
+    """
+    Save data to a file in various formats based on extension.
+
+    Args:
+        data: The data to save (str, bytes, List, Dict, BaseModel, or Table).
+        output_file: The path where the file will be saved.
+        verbose: Whether to log save operations.
+        append: Whether to append to JSONL files (ignored for other formats).
+
+    Returns:
+        The output file path as a string.
+
+    Raises:
+        ValueError: If data type is unsupported or invalid for the file format.
+        Exception: If file operations fail.
+    """
+    from rich.console import Console
+    from rich.padding import Padding
     output_file = str(output_file)
     output_file = re.sub(r"[^\w\-/\.]", "", output_file)
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-
     try:
         ext = Path(output_file).suffix.lower()
-
-        # JSON or JSONL
         if ext in {".json", ".jsonl"}:
+            if isinstance(data, Table):
+                if not data.columns or not data.rows:
+                    raise ValueError("Table is empty or has no columns/rows")
+                columns = [col.header for col in data.columns]
+                table_data = []
+                console = Console(record=True)
+                for row_idx in range(len(data.rows)):
+                    row_data = {}
+                    for col_idx, col in enumerate(data.columns):
+                        cells = list(data._get_cells(console, col_idx, col))
+                        cell_content = cells[row_idx].renderable if row_idx < len(cells) else ""
+                        # Extract inner renderable from Padding if present
+                        if isinstance(cell_content, Padding):
+                            cell_content = getattr(cell_content, 'renderable', cell_content)
+                        row_data[columns[col_idx]] = str(cell_content)
+                    table_data.append(row_data)
+                data = make_serializable(table_data)
             if isinstance(data, str):
                 try:
                     data = json.loads(data)
@@ -189,11 +220,10 @@ def save_file(
                     raise
             else:
                 data = make_serializable(data)
-
             if ext == ".json":
                 with open(output_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
-            else:  # .jsonl
+            else:
                 mode = "a" if append and os.path.exists(output_file) else "w"
                 with open(output_file, mode, encoding="utf-8") as f:
                     if isinstance(data, list):
@@ -201,15 +231,44 @@ def save_file(
                             f.write(json.dumps(item, ensure_ascii=False) + "\n")
                     else:
                         f.write(json.dumps(data, ensure_ascii=False) + "\n")
-
             if verbose:
                 logger.newline()
                 upper_ext = ext.upper().lstrip('.')
                 count = f" {len(data)}" if isinstance(data, list) else ""
                 logger.log(f"{'Appended' if append else 'Saved'} {upper_ext} data{count} to: ",
                            output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
-
-        # HTML or Text
+        elif ext == ".md":
+            if isinstance(data, Table):
+                if not data.columns or not data.rows:
+                    raise ValueError("Table is empty or has no columns/rows")
+                columns = [str(col.header).replace("|", "\\|").replace("\n", " ") for col in data.columns]
+                console = Console(record=True)
+                table_data = []
+                for row_idx in range(len(data.rows)):
+                    row_data = {}
+                    for col_idx, col in enumerate(data.columns):
+                        cells = list(data._get_cells(console, col_idx, col))
+                        cell_content = cells[row_idx].renderable if row_idx < len(cells) else ""
+                        # Extract inner renderable from Padding if present
+                        if isinstance(cell_content, Padding):
+                            cell_content = getattr(cell_content, 'renderable', cell_content)
+                        cell_content = str(cell_content).replace("|", "\\|").replace("\n", " ")
+                        row_data[columns[col_idx]] = cell_content
+                    table_data.append(row_data)
+                header_row = '| ' + ' | '.join(columns) + ' |'
+                separator_row = '| ' + ' | '.join(['---' for _ in columns]) + ' |'
+                data_rows = [
+                    '| ' + ' | '.join(str(row.get(col, '')).replace("|", "\\|").replace("\n", " ") for col in columns) + ' |'
+                    for row in table_data
+                ]
+                data = '\n'.join([header_row, separator_row] + data_rows)
+            elif not isinstance(data, str):
+                data = str(data).replace("|", "\\|").replace("\n", " ")
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(data)
+            if verbose:
+                logger.newline()
+                logger.log("Saved Markdown to: ", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
         elif ext in {".html", ".txt"}:
             if not isinstance(data, str):
                 data = str(data)
@@ -221,8 +280,6 @@ def save_file(
                 logger.newline()
                 logger.log(f"Saved {'HTML' if ext == '.html' else 'text'} to: ", output_file,
                            colors=["SUCCESS", "BRIGHT_SUCCESS"])
-
-        # Binary files (e.g., PNG, JPEG)
         elif ext in {".png", ".jpg", ".jpeg"}:
             if not isinstance(data, bytes):
                 raise ValueError(f"Expected bytes for {ext} file, got {type(data)}")
@@ -231,8 +288,6 @@ def save_file(
             if verbose:
                 logger.newline()
                 logger.log("Saved binary data to: ", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
-
-        # Other files
         else:
             if isinstance(data, bytes):
                 with open(output_file, "wb") as f:
@@ -245,9 +300,7 @@ def save_file(
             if verbose:
                 logger.newline()
                 logger.log("Saved data to: ", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
-
         return output_file
-
     except Exception as e:
         if verbose:
             logger.newline()

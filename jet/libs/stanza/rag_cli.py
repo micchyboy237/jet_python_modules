@@ -15,6 +15,7 @@ python rag_cli.py --query "topic clustering" --docs ./docs --with-topics
 """
 
 import os
+import shutil
 import argparse
 import glob
 from typing import List
@@ -27,6 +28,11 @@ from jet.libs.stanza.rag_nlp import (
     tag_topics,
     Chunk,
 )
+from jet.file.utils import save_file
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 console = Console()
 
@@ -53,7 +59,7 @@ def load_markdown_files(path: str) -> List[str]:
 # =============== DISPLAY HELPERS ==================
 
 def show_results(query: str, chunks: List[Chunk]):
-    """Display retrieved chunks as a table."""
+    """Display retrieved chunks as a table and store row data."""
     table = Table(title=f"RAG Retrieval Results for Query: [green]{query}[/green]")
     table.add_column("Rank", justify="center", style="cyan")
     table.add_column("Section", justify="left", style="magenta")
@@ -61,7 +67,7 @@ def show_results(query: str, chunks: List[Chunk]):
     table.add_column("Topic", justify="center", style="yellow")
     table.add_column("Sim", justify="center", style="green")
     table.add_column("Div", justify="center", style="blue")
-
+    row_data = []
     for idx, c in enumerate(chunks):
         text_preview = (c.text[:200] + "...") if len(c.text) > 200 else c.text
         topic = str(c.metadata.get("topic")) if c.metadata and "topic" in c.metadata else "-"
@@ -69,8 +75,17 @@ def show_results(query: str, chunks: List[Chunk]):
         sim_score = f"{c.metadata.get('similarity', 0):.3f}" if c.metadata else "-"
         div_score = f"{c.metadata.get('diversity', 0):.3f}" if c.metadata and "diversity" in c.metadata else "-"
         table.add_row(str(idx + 1), section, text_preview, topic, sim_score, div_score)
-
+        row_data.append({
+            "Rank": str(idx + 1),
+            "Section": section,
+            "Chunk Text": text_preview,
+            "Topic": topic,
+            "Sim": sim_score,
+            "Div": div_score
+        })
+    table.row_data = row_data  # Attach row data to table object
     console.print(table)
+    return table
 
 
 # =============== MAIN RUNNER ==================
@@ -117,7 +132,7 @@ def main():
         top_k=args.max_chunks,
         diversity=args.diversity if args.use_mmr else None,
     )
-    show_results(args.query, results)
+    results_table = show_results(args.query, results)
 
     if args.debug:
         for idx, c in enumerate(results):
@@ -125,6 +140,9 @@ def main():
             console.print(f"[cyan]Section:[/cyan] {c.section_title}")
             console.print(f"[yellow]Tokens:[/yellow] {len(c.text.split())}")
             console.print(f"[white]{c.text}[/white]\n")
+
+    save_file(results_table, f"{OUTPUT_DIR}/results.json")
+    save_file(results_table, f"{OUTPUT_DIR}/table.md")
 
 
 if __name__ == "__main__":
