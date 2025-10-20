@@ -95,7 +95,7 @@ def main():
     parser.add_argument("--query", type=str, required=True, help="User query to retrieve relevant context.")
     parser.add_argument("--docs", type=str, help="Path to markdown file or folder.", default=f"{os.path.dirname(__file__)}/sample_docs")
     parser.add_argument("--chunk-mode", choices=["markdown", "sentence"], default="markdown", help="Chunking strategy.")
-    parser.add_argument("--max-chunks", type=int, default=5, help="Number of top chunks to retrieve.")
+    parser.add_argument("--top-k", type=int, default=5, help="Number of top chunks to retrieve.")
     parser.add_argument("--stride-ratio", type=float, default=0.3, help="Sliding window overlap ratio (0–0.9).")
     parser.add_argument("--diversity", type=float, default=0.5, help="MMR diversity parameter (0–1).")
     parser.add_argument("--use-mmr", action="store_true", help="Enable MMR-based diverse retrieval.")
@@ -130,7 +130,7 @@ def main():
     results = pipeline.retrieve(
         args.query,
         all_chunks,
-        top_k=args.max_chunks,
+        top_k=args.top_k,
         diversity=args.diversity if args.use_mmr else None,
     )
     results_table = show_results(args.query, results)
