@@ -13,7 +13,6 @@ from jet.code.markdown_utils._preprocessors import remove_markdown_links, prepro
 from jet.file.utils import load_file
 
 
-
 def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = False) -> str:
     """Convert HTML to Markdown with enhanced noise removal."""
     html_content: str
