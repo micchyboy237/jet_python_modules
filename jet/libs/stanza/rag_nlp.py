@@ -258,4 +258,3 @@ class RAGPipeline:
                 c.metadata["diversity"] = s["diversity"]
             results.append(c)
         return results
-
