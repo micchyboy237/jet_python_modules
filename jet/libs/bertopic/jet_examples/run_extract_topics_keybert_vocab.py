@@ -85,7 +85,6 @@ if __name__ == "__main__":
                     "text": docs[i]
                 })
         doc_prob_list.sort(key=lambda x: x["prob"], reverse=True)
-        doc_prob_list = doc_prob_list[:10]
 
         topic_entry: TopicEntry = {
             "label": topic_id,
