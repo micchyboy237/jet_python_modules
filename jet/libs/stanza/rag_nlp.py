@@ -11,7 +11,7 @@ Supports:
 from __future__ import annotations
 import re
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import List, Dict, Optional
 
 from sentence_transformers import SentenceTransformer, util
@@ -42,6 +42,12 @@ class Chunk:
     embedding: Optional[np.ndarray] = None
     metadata: Optional[Dict] = None
 
+    def to_dict(self, include_embedding: bool = True) -> Dict[str, object]:
+        """Return dictionary representation, optionally excluding embedding."""
+        data = asdict(self)
+        if not include_embedding:
+            data.pop("embedding", None)
+        return data
 
 # =============== UTILITIES ====================
 
