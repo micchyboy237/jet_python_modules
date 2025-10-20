@@ -6,7 +6,7 @@ from keybert.backend import BaseEmbedder
 class KeyBERTLlamacppEmbedder(BaseEmbedder):
     """KeyBERT embedder using LlamacppEmbedding for generating embeddings."""
     
-    def __init__(self, embedding_model: str = "embeddinggemma", base_url: str = "http://shawn-pc.local:8081/v1"):
+    def __init__(self, embedding_model: str = "embeddinggemma", base_url: str = "http://shawn-pc.local:8081/v1", use_cache: bool = False):
         """Initialize the embedder with LlamacppEmbedding model.
         
         Args:
@@ -14,7 +14,7 @@ class KeyBERTLlamacppEmbedder(BaseEmbedder):
             base_url: Base URL for the llama-server API.
         """
         super().__init__(
-            embedding_model=LlamacppEmbedding(model=embedding_model, base_url=base_url, use_cache=True, use_dynamic_batch_sizing=True),
+            embedding_model=LlamacppEmbedding(model=embedding_model, base_url=base_url, use_cache=use_cache, use_dynamic_batch_sizing=True),
             word_embedding_model=None
         )
     
