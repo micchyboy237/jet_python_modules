@@ -1,10 +1,11 @@
 
 from typing import List, TypedDict
 from jet.file.utils import save_file
+from jet.logger import logger
+import numpy as np
 import os
 import shutil
 
-from jet.logger import logger
 
 OUTPUT_DIR = os.path.join(
         os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
@@ -16,9 +17,13 @@ class TopicCategory(TypedDict):
     representation: List[str]
     count: int
 
-class TopicEntry(TopicCategory):
+class TopicDocProb(TypedDict):
     doc_index: int
-    text: str  # Original chunk text
+    prob: float
+    text: str
+
+class TopicEntry(TopicCategory):
+    doc_probs: List[TopicDocProb]
 
 # Example Usage
 if __name__ == "__main__":
@@ -55,30 +60,47 @@ if __name__ == "__main__":
     topic_model = BERTopic(vectorizer_model=vectorizer_model)
     topics, probs = topic_model.fit_transform(docs)
 
+    # Convert probs to List[float]
+    probs_list: List[float] = probs.tolist() if isinstance(probs, np.ndarray) else list(probs)
+
     topic_info = topic_model.get_topic_info()
 
-    for rank, topic_row in enumerate(topic_info.itertuples(), start=1):
-        # Safely access columns by index for a DataFrame row tuple
-        # topic_info columns are ['Topic', 'Name', 'Count', ...]
+    all_topics = []
+    for topic_row in topic_info.itertuples():
         topic_id = int(getattr(topic_row, 'Topic', -1))
         category_name = str(getattr(topic_row, 'Name', f"Topic {topic_id}"))
         representation = getattr(topic_row, 'Representation', [])
-        count = float(getattr(topic_row, 'Count', 0))
-        doc_indices = [i for i, t in enumerate(topics) if t == topic_id]
-        doc_index = doc_indices[0] if doc_indices else -1
-        text = docs[doc_index] if doc_index >= 0 else ""
+        count = int(getattr(topic_row, 'Count', 0))
+
+        # Build doc_probs: List[TopicDocProb]
+        doc_prob_list: List[TopicDocProb] = []
+        for i, assigned_topic in enumerate(topics):
+            if assigned_topic == topic_id:
+                prob = probs_list[i]
+                if topic_id == -1:
+                    prob = 0.0
+                doc_prob_list.append({
+                    "doc_index": i,
+                    "prob": float(prob),
+                    "text": docs[i]
+                })
+        doc_prob_list.sort(key=lambda x: x["prob"], reverse=True)
+        doc_prob_list = doc_prob_list[:10]
+
         topic_entry: TopicEntry = {
-            "doc_index": doc_index,
             "label": topic_id,
-            "count": count,
             "category": category_name,
             "representation": representation,
-            "text": text,
+            "count": count,
+            "doc_probs": doc_prob_list
         }
+
         topic_id_suffix = topic_id if topic_id != -1 else "outliers"
+        all_topics.append(topic_entry)
         save_file(
             topic_entry,
             f"{OUTPUT_DIR}/topics/topic_{topic_id_suffix}.json"
         )
 
+    save_file(all_topics, f"{OUTPUT_DIR}/topics.json")
     save_file(topic_info.to_dict(orient="records"), f"{OUTPUT_DIR}/topic_info.json")
