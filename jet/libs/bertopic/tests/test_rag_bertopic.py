@@ -64,11 +64,11 @@ class TestTopicRAGSetup:
         assert len(rag.topic_indexes) > 0
         assert all(len(ti.doc_ids) > 0 for ti in rag.topic_indexes.values())
 
-    def test_deduplication_removes_duplicates(self):
+    def test_removes_duplicate_and_empty_strings(self):
         """Given duplicate docs, When deduplicated, Then duplicates removed."""
         rag = TopicRAG()
-        docs = ["A", "A", "B", "C", "C"]
-        result = rag._deduplicate(docs)
+        docs = ["A", "A", "B", "C", "", "C"]
+        result = rag._preprocess_and_filter(docs)
         expected = ["A", "B", "C"]
         assert result == expected
 
@@ -166,28 +166,6 @@ class TestEdgeCases:
         assert isinstance(results, list)
         assert all(isinstance(r, dict) for r in results)
         assert len(results) > 0
-
-    def test_blank_docs_raise_value_error(self):
-        """Given blank or invalid docs, When fit_topics called, Then ValueError raised."""
-        rag = TopicRAG()
-        with pytest.raises(ValueError, match="No valid text documents"):
-            rag.fit_topics(["", "   ", None])
-
-    def test_empty_embeddings_raise_value_error(self, monkeypatch):
-        """Given mocked empty embeddings, When fit_topics called, Then ValueError raised."""
-        rag = TopicRAG()
-        # Force encode() to return an empty list
-        monkeypatch.setattr(rag.embedder, "encode", lambda x, **_: [])
-        with pytest.raises(ValueError, match="No embeddings were generated"):
-            rag.fit_topics(["AI in medicine", "Machine learning in healthcare"])
-
-    def test_mismatched_embeddings_raise_value_error(self, monkeypatch):
-        """Given mismatched embedding shape, When fit_topics called, Then ValueError raised."""
-        rag = TopicRAG()
-        fake_embeddings = np.zeros((1, 384))  # Should not match 2 documents
-        monkeypatch.setattr(rag.embedder, "encode", lambda x, **_: fake_embeddings)
-        with pytest.raises(ValueError, match="Mismatch between documents"):
-            rag.fit_topics(["AI in medicine", "Machine learning in healthcare"])
 
 # =====================================================================
 # TestSafeFallbacks

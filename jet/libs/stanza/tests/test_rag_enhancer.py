@@ -1,12 +1,12 @@
 import pytest
 from typing import List
 
-from jet.libs.stanza.rag_enhancer import RAGContextImprover
+from jet.libs.stanza.rag_enhancer import RAGEnhancer
 
 @pytest.fixture
 def improver():
-    """Fixture to initialize and clean up RAGContextImprover."""
-    yield RAGContextImprover(embedding_model='all-MiniLM-L6-v2')
+    """Fixture to initialize and clean up RAGEnhancer."""
+    yield RAGEnhancer(embedding_model='all-MiniLM-L6-v2')
 
 def test_preprocess_documents(improver):
     # Given: Sample markdown documents
@@ -58,8 +58,8 @@ def test_retrieve_contexts(improver):
 class TestSearchFeature:
     @pytest.fixture
     def improver(self):
-        """Fixture to initialize RAGContextImprover for search tests."""
-        yield RAGContextImprover(embedding_model='all-MiniLM-L6-v2')
+        """Fixture to initialize RAGEnhancer for search tests."""
+        yield RAGEnhancer(embedding_model='all-MiniLM-L6-v2')
 
     def test_search_documents_hybrid(self, improver):
         # Given: Query and mixed-format documents (markdown + plain)

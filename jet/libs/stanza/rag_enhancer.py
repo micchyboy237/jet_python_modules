@@ -6,7 +6,7 @@ from bertopic import BERTopic
 from sentence_transformers import SentenceTransformer
 from markdown import markdown
 
-class RAGContextImprover:
+class RAGEnhancer:
     def __init__(self, lang: str = 'en', embedding_model: str = 'all-MiniLM-L6-v2'):
         """
         Initializes the improver with Stanza pipeline and BERTopic using SentenceTransformer.
