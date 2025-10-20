@@ -96,9 +96,9 @@ def chunk_by_sentences(
     sentences: List[str],
     max_tokens: int = 200,
     stride_ratio: float = 0.3,
-    embedder: Optional[LlamacppEmbedding] = None
 ) -> List[Chunk]:
-    """Merge sentences into overlapping chunks using sliding window."""
+    """Merge sentences into overlapping chunks using sliding window.
+    Do not add Chunk with empty text."""
     chunks: List[Chunk] = []
     idx = 0
     stride_tokens = int(max_tokens * (1 - stride_ratio))
@@ -119,8 +119,9 @@ def chunk_by_sentences(
             continue
 
         text = " ".join(buf).strip()
-        chunks.append(Chunk(id=f"chunk_{idx}", text=text))
-        idx += 1
+        if text:  # Only add chunk if text is not empty
+            chunks.append(Chunk(id=f"chunk_{idx}", text=text))
+            idx += 1
 
         step_words = 0
         step_sentences = 0
@@ -138,7 +139,6 @@ def chunk_markdown_sections(
     markdown_text: str,
     max_tokens: int = 200,
     stride_ratio: float = 0.3,
-    embedder: Optional[LlamacppEmbedding] = None
 ) -> List[Chunk]:
     """Chunk markdown by headers, then apply sliding-window chunking within sections."""
     sections = split_by_markdown_headers(markdown_text)
@@ -148,7 +148,7 @@ def chunk_markdown_sections(
     for sec in sections:
         sentences = re.split(r'(?<=[.!?])\s+', sec["content"])
         section_chunks = chunk_by_sentences(
-            sentences, max_tokens=max_tokens, stride_ratio=stride_ratio, embedder=embedder
+            sentences, max_tokens=max_tokens, stride_ratio=stride_ratio
         )
         for c in section_chunks:
             c.section_title = sec["header"]
@@ -229,10 +229,10 @@ class RAGPipeline:
 
     def prepare_chunks(self, text: str) -> List[Chunk]:
         if self.use_markdown:
-            return chunk_markdown_sections(text, stride_ratio=self.stride_ratio, embedder=self.embedder)
+            return chunk_markdown_sections(text, stride_ratio=self.stride_ratio)
         else:
             sentences = re.split(r'(?<=[.!?])\s+', text)
-            return chunk_by_sentences(sentences, stride_ratio=self.stride_ratio, embedder=self.embedder)
+            return chunk_by_sentences(sentences, stride_ratio=self.stride_ratio)
 
     def retrieve(self, query: str, chunks: List[Chunk], top_k: int = 5, diversity: Optional[float] = None):
         """

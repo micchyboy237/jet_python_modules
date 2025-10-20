@@ -29,7 +29,7 @@ class LlamacppEmbedding:
         cache_backend: Literal["memory", "file", "sqlite"] = "sqlite",
         cache_ttl: Optional[int] = None,
         cache_max_size: int = 10000,
-        use_cache: bool = True,
+        use_cache: bool = False,
         use_dynamic_batch_sizing: bool = False
     ):
         """Initialize the client with server URL, model path, and cache settings."""
@@ -136,7 +136,7 @@ class LlamacppEmbedding:
                 else:
                     result = cached
                 logger.debug(f"Cache hit for {len(valid_inputs)} texts (key: {cache_key[:16]}...)")
-                return result[0] if isinstance(inputs, str) else result
+                return result
             logger.debug(f"Cache miss for {len(valid_inputs)} texts (key: {cache_key[:16]}...). Computing...")
         
         embeddings = []
@@ -160,7 +160,7 @@ class LlamacppEmbedding:
             self.cache.set(cache_key, final_embeddings.tolist() if return_format == "numpy" else final_embeddings)
             logger.info(f"Cached embeddings for {len(valid_inputs)} texts (key: {cache_key[:16]}...)")
         
-        return final_embeddings[0] if isinstance(inputs, str) else final_embeddings
+        return final_embeddings
 
     def get_embedding_function(
         self,

@@ -2,11 +2,12 @@
 
 import logging
 from typing import List, Dict, Any, Optional
-from sentence_transformers import SentenceTransformer
 import numpy as np
-from bertopic import BERTopic
+from jet.adapters.bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
+
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,11 @@ class TopicIndex:
 
 
 class TopicRAG:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", verbose: bool = False):
+    def __init__(self, model_name: str = "embeddinggemma", verbose: bool = False):
         self.verbose = verbose
         self.model = None
         self.topic_indexes: Dict[int, TopicIndex] = {}
-        self.embedder = SentenceTransformer(model_name, device="mps")
+        self.embedder = LlamacppEmbedding(model=model_name)
 
     def _log(self, msg: str, level: int = logging.INFO):
         if self.verbose:
@@ -119,7 +120,7 @@ class TopicRAG:
         self._log(f"Starting topic fitting on {len(docs)} docs")
 
         # Embeddings
-        embeddings = np.array(self.embedder.encode(docs, show_progress_bar=False)).astype("float32")
+        embeddings = self.embedder(docs, show_progress=True)
 
         umap_model = self._safe_umap(docs)
         if umap_model is None:
@@ -180,13 +181,39 @@ class TopicRAG:
 
         # 🔍 Add diagnostic logging here
         topic_info = self.model.get_topic_info()
-        self._log(f"Topic summary:\n{topic_info.to_string(index=False)}", logging.DEBUG)
+        # Limit to key columns and top N topics
+        max_topics_to_log = 5
+        max_docs_per_topic = 3
+        max_doc_length = 100  # Characters
+        if not topic_info.empty:
+            # Select key columns and limit rows
+            limited_topic_info = topic_info[["Topic", "Count", "Name"]].head(max_topics_to_log)
+            self._log(
+                f"Topic summary (top {max_topics_to_log}):\n{limited_topic_info.to_string(index=False)}",
+                logging.DEBUG,
+            )
+        else:
+            self._log("No topic information available.", logging.DEBUG)
 
+        # Log limited topic details
         topic_map = {}
         for doc, topic in zip(docs, topics):
             topic_map.setdefault(topic, []).append(doc)
-        for tid, td in topic_map.items():
-            self._log(f"Topic {tid}: {len(td)} docs\n - " + "\n - ".join(td), logging.DEBUG)
+        for tid, td in list(topic_map.items())[:max_topics_to_log]:
+            # Truncate documents and limit number of documents logged
+            truncated_docs = [
+                (doc[:max_doc_length] + "..." if len(doc) > max_doc_length else doc)
+                for doc in td[:max_docs_per_topic]
+            ]
+            self._log(
+                f"Topic {tid}: {len(td)} docs\n - " + "\n - ".join(truncated_docs),
+                logging.DEBUG,
+            )
+        if len(topic_map) > max_topics_to_log:
+            self._log(
+                f"...and {len(topic_map) - max_topics_to_log} more topics not shown.",
+                logging.DEBUG,
+            )
 
         self._build_indexes(docs, embeddings, topics)
 
@@ -213,7 +240,7 @@ class TopicRAG:
         if not self.model or not self.topic_indexes:
             raise RuntimeError("TopicRAG not yet fitted.")
 
-        qvec = np.array(self.embedder.encode([query], show_progress_bar=False)).astype("float32")
+        qvec = self.embedder(query, show_progress=True)
 
         # --- replaced old find_topics() call ---
         # topic_scores, _ = self.model.find_topics(query, top_n=top_topics)
