@@ -29,9 +29,10 @@ class BERTopic(BaseBERTopic):
         ctfidf_model: Optional[TfidfTransformer] = None,
         representation_model: Optional[BaseRepresentation] = None,
         verbose: bool = True,
+        use_cache: bool = False,
     ):
         if not embedding_model or isinstance(embedding_model, str):
-            embedder = BERTopicLlamacppEmbedder(embedding_model or DEFAULT_EMBEDDING_MODEL)
+            embedder = BERTopicLlamacppEmbedder(embedding_model or DEFAULT_EMBEDDING_MODEL, use_cache=use_cache)
             embedding_model = embedder
         
         if not vectorizer_model:

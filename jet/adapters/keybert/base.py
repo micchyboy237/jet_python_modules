@@ -9,9 +9,10 @@ class KeyBERT(BaseKeyBERT):
         self,
         model=DEFAULT_EMBEDDING_MODEL,
         llm: BaseLLM = None,
+        use_cache: bool = False,
     ):
         if not model or isinstance(model, str):
-            embedder = KeyBERTLlamacppEmbedder(model or DEFAULT_EMBEDDING_MODEL)
+            embedder = KeyBERTLlamacppEmbedder(model or DEFAULT_EMBEDDING_MODEL, use_cache=use_cache)
             model = embedder
 
         super().__init__(

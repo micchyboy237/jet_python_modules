@@ -27,6 +27,9 @@ class TopicEntry(TopicCategory):
 
 # Example Usage
 if __name__ == "__main__":
+    use_cache = True
+    model = "embeddinggemma"
+
     # Create vocabulary using KeyBERT
 
     from jet.adapters.keybert import KeyBERT
@@ -35,11 +38,11 @@ if __name__ == "__main__":
     logger.info("We first need to run KeyBERT on our data and create our vocabulary")
     # Prepare documents
     # docs = fetch_20newsgroups(subset='all',  remove=('headers', 'footers', 'quotes'))['data']
-    docs = load_sample_data()
+    docs = load_sample_data(model="embeddinggemma", convert_plain_text=True)
     save_file(docs, f"{OUTPUT_DIR}/docs.json")
 
     # Extract keywords
-    kw_model = KeyBERT()
+    kw_model = KeyBERT(model=model, use_cache=use_cache)
     keywords = kw_model.extract_keywords(docs)
     save_file(keywords, f"{OUTPUT_DIR}/keywords.json")
 
@@ -57,7 +60,7 @@ if __name__ == "__main__":
     logger.info("Then, we pass our vocabulary to BERTopic and train the model")
 
     vectorizer_model= CountVectorizer(vocabulary=vocabulary)
-    topic_model = BERTopic(vectorizer_model=vectorizer_model)
+    topic_model = BERTopic(embedding_model=model, vectorizer_model=vectorizer_model, use_cache=use_cache)
     topics, probs = topic_model.fit_transform(docs)
 
     # Convert probs to List[float]
