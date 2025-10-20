@@ -1,4 +1,5 @@
 from typing import List, Dict, Tuple
+from sklearn.feature_extraction.text import TfidfVectorizer
 import stanza
 import numpy as np
 from bertopic import BERTopic
@@ -81,3 +82,47 @@ class RAGContextImprover:
         # Sort and select top_k
         top_indices = sorted(relevant_chunks, key=lambda idx: scores[idx][1], reverse=True)[:top_k]
         return [chunks[i] for i in top_indices]
+
+    def search_documents(self, query: str, documents: List[str], top_k: int = 5, alpha: float = 0.5) -> List[str]:
+        """
+        Performs hybrid search (keyword + semantic) on documents, returning top_k relevant chunks.
+        
+        Args:
+            query: Search query string.
+            documents: List of documents (markdown or plain text).
+            top_k: Number of top results to return.
+            alpha: Fusion weight (0.0: keyword-only, 1.0: semantic-only, default 0.5).
+        
+        Returns:
+            List of top_k ranked chunks.
+        """
+        chunks, _ = self.preprocess_documents(documents)  # Chunks via Stanza; ignore entities for pure search
+        
+        if not chunks:
+            return []
+        
+        # Keyword search: TF-IDF cosine similarity
+        vectorizer = TfidfVectorizer(stop_words='english')
+        tfidf_matrix = vectorizer.fit_transform([query] + chunks)
+        query_tfidf = tfidf_matrix[0:1]
+        doc_tfidf = tfidf_matrix[1:]
+        keyword_scores = (query_tfidf @ doc_tfidf.T).toarray().flatten()  # Cosine sim
+        
+        # Semantic search: Embeddings
+        query_embedding = self.embedding_model.encode([query], batch_size=1, show_progress_bar=False)[0]
+        chunk_embeddings = self.embedding_model.encode(chunks, batch_size=32, show_progress_bar=False)  # Batch for efficiency
+        semantic_scores = np.array([
+            np.dot(query_embedding, emb) / (np.linalg.norm(query_embedding) * np.linalg.norm(emb))
+            for emb in chunk_embeddings
+        ])
+        
+        # Normalize scores to [0,1] for fusion
+        keyword_norm = (keyword_scores - keyword_scores.min()) / (keyword_scores.max() - keyword_scores.min() + 1e-8)
+        semantic_norm = (semantic_scores - semantic_scores.min()) / (semantic_scores.max() - semantic_scores.min() + 1e-8)
+        
+        # Weighted fusion
+        fused_scores = alpha * semantic_norm + (1 - alpha) * keyword_norm
+        
+        # Rank by score (descending)
+        ranked_indices = np.argsort(fused_scores)[::-1][:top_k]
+        return [chunks[i] for i in ranked_indices]
