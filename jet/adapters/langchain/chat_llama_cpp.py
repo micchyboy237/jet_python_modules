@@ -168,40 +168,45 @@ class ChatLlamaCpp(BaseChatModel):
         *,
         tool_choice: Any = None,
         **kwargs: Any,
-    ) -> "BaseChatModel":
+    ) -> Runnable:
         """Bind tools to the chat model using OpenAI-compatible tool calling."""
-        formatted_tools = [tool if isinstance(tool, dict) else tool.to_json() for tool in tools]
-        logger.info(
-            f"Binding tools: {format_json(formatted_tools)}")
-
-        def _tool_caller(messages: List[BaseMessage], **runtime_kwargs) -> ChatResult:
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+        formatted_tools = [
+            convert_to_openai_tool(tool) if not isinstance(tool, dict) else tool
+            for tool in tools
+        ]
+        available_functions = {}
+        for tool in tools:
+            if hasattr(tool, "name") and callable(tool):
+                available_functions[tool.name] = tool
+            elif isinstance(tool, dict) and "function" in tool:
+                name = tool["function"]["name"]
+                if hasattr(tool, "invoke"):
+                    available_functions[name] = lambda args, t=tool: t.invoke(args)
+                else:
+                    pass
+        logger.info(f"Binding {len(formatted_tools)} tools: {[t['function']['name'] for t in formatted_tools]}")
+        
+        def _tool_caller(messages: List[BaseMessage], **runtime_kwargs) -> AIMessage:
             llm_messages = self._convert_messages(messages)
-
-            # Merge runtime kwargs (e.g. temperature) with defaults
             call_kwargs = {
                 "temperature": self.temperature,
                 "max_tokens": self.max_tokens,
-                **runtime_kwargs
+                **runtime_kwargs,
+                **kwargs,
             }
-
-            # Use your existing LlamacppLLM tool-calling logic
             response = self.llm.chat_with_tools(
                 messages=llm_messages,
                 tools=formatted_tools,
-                available_functions={
-                    t["function"]["name"]: lambda *args, **kwargs: t["function"]["invoke"](kwargs)
-                    for t in formatted_tools
-                },
+                available_functions=available_functions,
                 **call_kwargs
             )
-
-            message = AIMessage(content=response)
-            generation = ChatGeneration(message=message)
-            return ChatResult(generations=[generation])
-
-        # Wrap in RunnableLambda and preserve config
-        bound = RunnableLambda(_tool_caller)
-        bound = bound.with_config(run_name="ChatLlamaCppWithTools")
+            return AIMessage(
+                content=response,
+                tool_calls=getattr(response, "tool_calls", [])
+            )
+        
+        bound = RunnableLambda(_tool_caller).with_config(run_name="ChatLlamaCppWithTools")
         return bound
 
     def with_structured_output(

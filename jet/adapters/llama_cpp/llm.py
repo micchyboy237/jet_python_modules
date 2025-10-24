@@ -158,55 +158,120 @@ class LlamacppLLM:
         tools: List[Dict[str, Any]],
         available_functions: Dict[str, Callable[..., Any]],
         temperature: float = 0.7,
+        max_tokens: Optional[int] = None,        # ← Control response length
+        **kwargs: Any,                           # ← Accept any extra OpenAI params (e.g. stop, metadata)
     ) -> str:
-        """Handle tool calling in a single sync call with final response and optional verbose logging."""
-        response = self.sync_client.chat.completions.create(
-            model=self.model,
-            messages=messages,  # type: ignore[arg-type]
-            tools=tools,
-            tool_choice="auto",
-            temperature=temperature,
-        )
+        """
+        Execute a complete tool-calling loop in one synchronous call:
+        1. Send user messages + tools → LLM decides to call tools or respond
+        2. If tool calls → execute via `available_functions`
+        3. Append tool results as `role: tool` messages
+        4. Final LLM call → generate natural language response
+
+        Fully compatible with LangChain's `bind_tools` and `langgraph_bigtool`.
+
+        Args:
+            messages: Conversation history in OpenAI format
+            tools: List of tool definitions (from `convert_to_openai_tool`)
+            available_functions: Mapping of tool name → actual callable
+            temperature: Sampling temperature
+            max_tokens: Limit output length (optional)
+            **kwargs: Extra args passed to OpenAI API (e.g. stop, presence_penalty)
+
+        Returns:
+            Final assistant response as string
+        """
+        # Build shared kwargs for both LLM calls
+        create_kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",           # Let model decide when to use tools
+            "temperature": temperature,
+            **({ "max_tokens": max_tokens } if max_tokens is not None else {}),
+            **kwargs,                        # Forward any extra OpenAI params
+        }
+
+        # Step 1: Initial LLM call — may return tool_calls
+        response = self.sync_client.chat.completions.create(**create_kwargs)
         message = response.choices[0].message
         tool_calls: List[ToolCall] = getattr(message, "tool_calls", []) or []
 
-        # No tool calls → return assistant content directly
+        # If no tool calls → return direct response
         if not tool_calls:
             content = message.content or ""
             if self.verbose:
                 logger.teal(content)
             return content
 
-        # Build updated message history
+        # Step 2: Build updated message history with assistant intent
         updated_messages: List[ChatMessage] = messages.copy()
         assistant_msg: ChatMessage = {
             "role": "assistant",
             "content": message.content or "",
         }
-        updated_messages.append(assistant_msg)  # type: ignore[arg-type]
+        # Preserve structured tool_calls for LangChain parsing
+        if tool_calls:
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                }
+                for tc in tool_calls
+            ]
+        updated_messages.append(assistant_msg)
 
-        # Execute each requested tool
+        # Step 3: Execute each tool call
         for tool_call in tool_calls:
             func_name = tool_call.function.name
             if self.verbose:
-                logger.info(f"Calling tool: {func_name}")
-            if func := available_functions.get(func_name):
-                args = json.loads(tool_call.function.arguments)
-                result = func(**args)
-                tool_response: ChatMessage = {
-                    "role": "tool",
-                    "content": json.dumps({"result": result}),
-                    "tool_call_id": tool_call.id,
-                }
-                updated_messages.append(tool_response)
-            else:
-                logger.warning(f"Function {func_name} not found")
+                logger.info(f"Executing tool: {func_name}")
 
-        # Final LLM call to synthesize the answer
+            func = available_functions.get(func_name)
+            if not func:
+                logger.warning(f"Tool '{func_name}' not found in available_functions. Skipping.")
+                continue
+
+            try:
+                # Parse arguments from JSON string
+                args = json.loads(tool_call.function.arguments)
+                if self.verbose:
+                    logger.debug(f"Tool {func_name} input: {args}")
+
+                # Execute tool
+                result = func(**args)
+
+                # Serialize result
+                result_str = json.dumps({"result": result}, ensure_ascii=False)
+
+                # Truncate long outputs in logs
+                ellipsis = "..." if len(result_str) > 200 else ""
+                if self.verbose:
+                    logger.debug(f"Tool {func_name} output: {result_str[:200]}{ellipsis}")
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse arguments for {func_name}: {e}")
+                result_str = json.dumps({"error": "Invalid JSON in tool arguments"})
+            except Exception as e:
+                logger.error(f"Tool {func_name} execution failed: {e}")
+                result_str = json.dumps({"error": str(e)})
+
+            # Append tool response to history
+            tool_response: ChatMessage = {
+                "role": "tool",
+                "content": result_str,
+                "tool_call_id": tool_call.id,
+            }
+            updated_messages.append(tool_response)
+
+        # Step 4: Final LLM call with tool results
         final_response = self.sync_client.chat.completions.create(
-            model=self.model,
-            messages=updated_messages,  # type: ignore[arg-type]
-            temperature=temperature,
+            **{k: v for k, v in create_kwargs.items() if k != "messages"},
+            messages=updated_messages
         )
         final_content = final_response.choices[0].message.content or ""
         if self.verbose:
