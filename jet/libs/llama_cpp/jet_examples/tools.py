@@ -63,7 +63,7 @@ messages = [{'role': 'user', 'content': 'What is three plus one?'}]
 print('Prompt:', messages[0]['content'])
 
 response = client.chat.completions.create(
-    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+    model="qwen3-instruct-2507:4b",
     messages=messages,
     tools=tools,
     tool_choice='auto',

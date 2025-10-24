@@ -5,6 +5,9 @@ from dataclasses import dataclass
 import math
 import re
 
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+
 # Optional imports (used only when plugging real backends)
 try:
     import faiss  # type: ignore
@@ -145,14 +148,29 @@ class RetrievalConfig:
     context_token_budget: int = 1500  # approximate token budget for context included in prompt
 
 class ContextEngine:
-    def __init__(self, embedding_fn: Callable[[List[str]], List[Embedding]], llm_fn: Callable[[str], str], index: Optional[InMemoryIndex] = None):
-        """
-        embedding_fn: function that accepts list[str] and returns list[list[float]] embeddings
-        llm_fn: function that accepts a prompt (str) and returns model text (str)
-        index: optional pre-created index (if None, a new InMemoryIndex is created)
-        """
-        self.embedding_fn = embedding_fn
-        self.llm_fn = llm_fn
+    def __init__(
+        self,
+        embedding_fn: Optional[Callable[[List[str]], List[Embedding]]] = None,
+        llm_fn: Optional[Callable[[str], str]] = None,
+        embedding_base_url: str = "http://shawn-pc.local:8081/v1",
+        llm_base_url: str = "http://shawn-pc.local:8080/v1",
+        embedding_model: str = "embeddinggemma",
+        llm_model: str = "qwen3-instruct-2507:4b",
+        index: Optional[InMemoryIndex] = None,
+    ):
+        self.embedding_client = LlamacppEmbedding(model=embedding_model, base_url=embedding_base_url, use_cache=True)
+        self.llm_client = LlamacppLLM(model=llm_model, base_url=llm_base_url, verbose=True)
+
+        def default_embed(texts: List[str]) -> List[Embedding]:
+            arr = self.embedding_client.get_embeddings(texts, return_format="numpy")
+            return arr.tolist()
+
+        def default_llm(prompt: str) -> str:
+            messages = [{"role": "user", "content": prompt}]
+            return self.llm_client.chat(messages, temperature=0.0)
+
+        self.embedding_fn = embedding_fn or default_embed
+        self.llm_fn = llm_fn or default_llm
         self.index = index or InMemoryIndex()
         self._chunks_added = False
 

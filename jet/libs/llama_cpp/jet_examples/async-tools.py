@@ -72,7 +72,7 @@ available_functions = {
 
 async def main():
     response = await client.chat.completions.create(
-        model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+        model="qwen3-instruct-2507:4b",
         messages=messages,
         tools=[add_two_numbers_tool, subtract_two_numbers_tool],
         tool_choice="auto",
@@ -97,7 +97,7 @@ async def main():
                 })
 
                 final_response = await client.chat.completions.create(
-                    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+                    model="qwen3-instruct-2507:4b",
                     messages=messages,
                 )
                 print('Final response:', final_response.choices[0].message.content)

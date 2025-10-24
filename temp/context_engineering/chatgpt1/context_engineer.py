@@ -1,11 +1,10 @@
 # context_engineer.py
 from typing import List, Tuple, TypedDict, Optional
-import math
-import os
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
-import openai  # pip install openai
+
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.llm import LlamacppLLM
 
 # ---- Types ----
 class RetrievedDoc(TypedDict):
@@ -39,16 +38,18 @@ def chunk_text(text: str, max_chars: int = 2000) -> List[str]:
 
 # ---- Embedding & Retrieval ----
 class Embedder:
-    """Wrapper for sentence-transformers model for easy mocking/testing."""
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        self.model = SentenceTransformer(model_name)
+    """Wrapper for LlamacppEmbedding – returns L2-normalized numpy arrays."""
+    def __init__(
+        self,
+        model_name: str = "embeddinggemma",
+        base_url: str = "http://shawn-pc.local:8081/v1",
+    ):
+        self.client = LlamacppEmbedding(model=model_name, base_url=base_url, use_cache=True)
 
     def embed_texts(self, texts: List[str]) -> np.ndarray:
-        """Return L2-normalized embeddings array shape (n, d)."""
         if not texts:
-            return np.zeros((0, self.model.get_sentence_embedding_dimension()))
-        embs = np.asarray(self.model.encode(texts, show_progress_bar=False))
-        # normalize for cosine
+            return np.zeros((0, 384), dtype=np.float32)   # 384 = default embedding size for embeddinggemma
+        embs = self.client.get_embeddings(texts, return_format="numpy")
         norms = np.linalg.norm(embs, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         return embs / norms
@@ -99,16 +100,8 @@ def retrieve_top_k(
     return results
 
 # ---- Condense / Context Management ----
-def condense_context_via_llm(prompt_prefix: str, contexts: List[str], model: str = "gpt-4o-mini") -> str:
-    """
-    Uses the LLM to produce a concise merged summary of contexts.
-    This helps fit a larger set of retrieved contexts into a small token budget.
-    """
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    if openai.api_key is None:
-        raise RuntimeError("OPENAI_API_KEY not found in environment")
-
-    # build instruction: ask for short, factual summary preserving citations
+def condense_context_via_llm(prompt_prefix: str, contexts: List[str], model: str = "qwen3-instruct-2507:4b") -> str:
+    llm = LlamacppLLM(model=model, base_url="http://shawn-pc.local:8080/v1", verbose=True)
     instruction = (
         prompt_prefix
         + "\n\n"
@@ -117,17 +110,11 @@ def condense_context_via_llm(prompt_prefix: str, contexts: List[str], model: str
     )
     for i, c in enumerate(contexts, start=1):
         instruction += f"--- Document {i} ---\n{c}\n"
-
-    resp = openai.ChatCompletion.create(
-        model=model,
-        messages=[{"role": "system", "content": "You are a concise assistant."},
-                  {"role": "user", "content": instruction}],
-        max_tokens=400,
-        temperature=0.0,
-    )
-    # modern OpenAI responses may include choices[0].message.content
-    out = resp["choices"][0]["message"]["content"].strip()
-    return out
+    messages = [
+        {"role": "system", "content": "You are a concise assistant."},
+        {"role": "user", "content": instruction},
+    ]
+    return llm.chat(messages, temperature=0.0, max_tokens=400)
 
 # ---- Prompt assembly and LLM generation ----
 def build_prompt(query: str, retrieved: List[RetrievedDoc], condensed_context: Optional[str] = None) -> str:
@@ -158,19 +145,13 @@ def build_prompt(query: str, retrieved: List[RetrievedDoc], condensed_context: O
     )
     return prompt
 
-def generate_answer(prompt: str, model: str = "gpt-4o-mini") -> str:
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    if openai.api_key is None:
-        raise RuntimeError("OPENAI_API_KEY not found in environment")
-
-    resp = openai.ChatCompletion.create(
-        model=model,
-        messages=[{"role": "system", "content": "You are a helpful assistant."},
-                  {"role": "user", "content": prompt}],
-        max_tokens=512,
-        temperature=0.0,
-    )
-    return resp["choices"][0]["message"]["content"].strip()
+def generate_answer(prompt: str, model: str = "qwen3-instruct-2507:4b") -> str:
+    llm = LlamacppLLM(model=model, base_url="http://shawn-pc.local:8080/v1")
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": prompt},
+    ]
+    return llm.chat(messages, temperature=0.0, max_tokens=512)
 
 # ---- High-level pipeline ----
 def answer_with_context_engineering(

@@ -7,7 +7,7 @@ suffix = """
     return result
 """
 response = client.completions.create(
-    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+    model="qwen3-instruct-2507:4b",
     prompt=prompt,
     suffix=suffix,
     max_tokens=128,

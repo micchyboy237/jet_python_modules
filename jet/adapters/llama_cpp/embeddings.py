@@ -3,7 +3,7 @@ from openai import OpenAI
 from typing import Iterator, List, Union, Literal, Callable, Optional
 from tqdm import tqdm
 from jet._token.token_utils import token_counter
-from jet.adapters.llama_cpp.models import resolve_model_value
+from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.models.utils import get_context_size, get_embedding_size
 from jet.models.embeddings.utils import calculate_dynamic_batch_size
 from jet.models.embeddings.cache import EmbeddingCache

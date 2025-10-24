@@ -1,9 +1,22 @@
 from langchain import hub
 from langchain_core.documents import Document
-from langchain.chat_models import init_chat_model
+from langchain_core.vectorstores.in_memory import InMemoryVectorStore
 from utils import split_documents, create_vector_store
 
 from config import EMBEDDING_MODEL, LLM_MODEL, CHUNK_SIZE, CHUNK_OVERLAP, RETRIEVAL_K
+
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+
+def create_vector_store(documents, embedding_model):
+    embedding_client = LlamacppEmbedding(model=embedding_model, base_url="http://shawn-pc.local:8081/v1")
+    texts = [doc.page_content for doc in documents]
+    embs = embedding_client.get_embeddings(texts, return_format="numpy")
+    # Simple in-memory store using the same logic as InMemoryVectorStore
+    store = InMemoryVectorStore.from_documents(documents, embedding=None)  # placeholder
+    store.embeddings = embs.tolist()
+    store.doc_texts = texts
+    return store
 
 def rag_generation(query: str, documents: list[str]):
     """
@@ -26,12 +39,12 @@ def rag_generation(query: str, documents: list[str]):
     
     # Load RAG prompt from LangChain hub
     prompt = hub.pull("rlm/rag-prompt")
-    
+
     # Initialize LLM
-    llm = init_chat_model(LLM_MODEL, model_provider="openai")  # Adapt for other providers if needed
-    
+    llm = LlamacppLLM(model=LLM_MODEL, base_url="http://shawn-pc.local:8080/v1", verbose=True)
+
     # Generate response
     messages = prompt.invoke({"question": query, "context": context})
-    response = llm.invoke(messages)
+    response = llm.chat([{"role": "user", "content": messages[0].content}], temperature=0.0)
     
     return response.content

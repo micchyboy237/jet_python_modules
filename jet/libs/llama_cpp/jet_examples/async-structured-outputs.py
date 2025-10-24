@@ -64,7 +64,7 @@ print("Prompt:", messages[0]["content"])
 async def main():
     client = AsyncOpenAI(base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234")  # Dummy API key
     response = await client.chat.completions.create(
-        model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+        model="qwen3-instruct-2507:4b",
         messages=messages,
         tools=tools,
         tool_choice="auto",
@@ -88,7 +88,7 @@ async def main():
                     }
                 )
                 final_response = await client.chat.completions.create(
-                    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+                    model="qwen3-instruct-2507:4b",
                     messages=messages,
                 )
                 print("Final response:", final_response.choices[0].message.content)

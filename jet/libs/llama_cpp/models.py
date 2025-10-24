@@ -7,5 +7,5 @@ llama.cpp available models:
 5. Llama-3.2-3B-Instruct-Q4_K_M
 6. Mistral-Nemo-Instruct-2407-Q4_K_M
 7. Qwen2.5-VL-7B-Instruct-Q4_K_M
-8. Qwen_Qwen3-4B-Instruct-2507-Q4_K_M
+8. qwen3-instruct-2507:4b
 """

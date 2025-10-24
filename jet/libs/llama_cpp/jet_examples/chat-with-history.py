@@ -22,7 +22,7 @@ messages = [
 while True:
     user_input = input("Chat with history: ")
     response = client.chat.completions.create(
-        model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+        model="qwen3-instruct-2507:4b",
         messages=messages + [{"role": "user", "content": user_input}],
     )
     assistant_message = response.choices[0].message.content

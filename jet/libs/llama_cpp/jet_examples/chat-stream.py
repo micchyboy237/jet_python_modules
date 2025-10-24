@@ -10,7 +10,7 @@ messages = [
     },
 ]
 stream = client.chat.completions.create(
-    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+    model="qwen3-instruct-2507:4b",
     messages=messages,
     stream=True,
 )
