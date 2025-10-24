@@ -6,6 +6,7 @@ evaluate
 faiss-cpu
 hdbscan
 huggingface-hub
+ipython
 matplotlib
 meson-python
 ninja

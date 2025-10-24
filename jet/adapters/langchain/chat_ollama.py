@@ -6,7 +6,7 @@ from langchain_ollama import ChatOllama as BaseChatOllama
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 from ollama import Options
 from jet.llm.mlx.logger_utils import ChatLogger
@@ -15,7 +15,6 @@ from jet.logger import logger
 from jet.transformers.formatters import format_json
 from jet.utils.text import format_sub_dir
 
-from .ollama_embeddings import OllamaEmbeddings
 
 DETERMINISTIC_LLM_SETTINGS = {
     "seed": 42,
@@ -29,7 +28,7 @@ class ChatOllama(BaseChatOllama):
     def __init__(
         self,
         model: str,
-        base_url: str = "http://localhost:11435",
+        base_url: str = "http://jethros-macbook-air.local:11434",
         agent_name: Optional[str] = None,
         log_dir: Optional[str] = None,
         **kwargs
