@@ -1,23 +1,21 @@
 # jet_python_modules/jet/adapters/langchain/chat_llama_cpp.py
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Callable, Iterator, List, Optional, Sequence, Union
+from typing import Any, AsyncIterator, Iterator, List, Optional, Sequence
 
 from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
 )
-from langchain_core.language_models import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
-from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from jet.adapters.llama_cpp.llm import ChatMessage, LlamacppLLM
-from jet.logger import logger
-from jet.transformers.formatters import format_json
+from langchain_core.pydantic_v1 import BaseModel as PydanticBaseModel
+from langchain_core.runnables import RunnableLambda
 
 
 class ChatLlamaCpp(BaseChatModel):
@@ -164,21 +162,57 @@ class ChatLlamaCpp(BaseChatModel):
 
     def bind_tools(
         self,
-        tools: Sequence[Union[dict[str, Any], type, Callable, BaseTool]],
+        tools: Sequence[Any],
+        *,
+        tool_choice: Any = None,
         **kwargs: Any,
-    ) -> Runnable[LanguageModelInput, BaseMessage]:
-        logger.info(
-            f"Binding tools: {format_json([tool if isinstance(tool, dict) else str(tool) for tool in tools])}")
-        return super().bind_tools(tools, **kwargs)
+    ) -> "BaseChatModel":
+        """Bind tools to the chat model using OpenAI-compatible tool calling."""
+        formatted_tools = [tool if isinstance(tool, dict) else tool.to_json() for tool in tools]
+
+        def _tool_caller(messages: List[BaseMessage], **runtime_kwargs) -> ChatResult:
+            llm_messages = self._convert_messages(messages)
+
+            # Merge runtime kwargs (e.g. temperature) with defaults
+            call_kwargs = {
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                **runtime_kwargs
+            }
+
+            # Use your existing LlamacppLLM tool-calling logic
+            response = self.llm.chat_with_tools(
+                messages=llm_messages,
+                tools=formatted_tools,
+                available_functions={
+                    t["function"]["name"]: lambda *args, **kwargs: t["function"]["invoke"](kwargs)
+                    for t in formatted_tools
+                },
+                **call_kwargs
+            )
+
+            message = AIMessage(content=response)
+            generation = ChatGeneration(message=message)
+            return ChatResult(generations=[generation])
+
+        # Wrap in RunnableLambda and preserve config
+        bound = RunnableLambda(_tool_caller)
+        bound = bound.with_config(run_name="ChatLlamaCppWithTools")
+        return bound
 
     def with_structured_output(
         self,
-        schema: Union[dict, type],
-        *,
-        method: str = "json_schema",
-        include_raw: bool = False,
+        schema: Any,
         **kwargs: Any,
-    ) -> Runnable[LanguageModelInput, Union[dict, BaseModel]]:
-        logger.info(
-            f"Configuring structured output with method: {method}, schema: {format_json(schema if isinstance(schema, dict) else str(schema))}")
-        return super().with_structured_output(schema, method=method, include_raw=include_raw, **kwargs)
+    ) -> Runnable:
+        if isinstance(schema, type) and issubclass(schema, PydanticBaseModel):
+            json_schema = schema.model_json_schema()
+        else:
+            json_schema = schema
+
+        def _invoke(messages: List[BaseMessage]) -> BaseModel:
+            llm_messages = self._convert_messages(messages)
+            return self.llm.chat_structured(llm_messages, schema, **kwargs)
+
+        from langchain_core.runnables import RunnableLambda
+        return RunnableLambda(_invoke)
