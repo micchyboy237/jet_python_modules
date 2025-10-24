@@ -7,6 +7,8 @@ faiss-cpu
 hdbscan
 huggingface-hub
 ipython
+ipywidgets
+jupyter
 matplotlib
 meson-python
 ninja
