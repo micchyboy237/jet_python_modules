@@ -33,6 +33,7 @@ OLLAMA_MODEL_NAMES = Literal[
     "qwen2.5vl:3b-q4_K_M",
     "qwen3",
     "qwen3:4b-q4_K_M",
+    "qwen3-instruct-2507:4b",
     "theqtcompany/codellama-7b-qml"
 ]
 
@@ -48,6 +49,7 @@ OLLAMA_LLM_MODELS = Literal[
     "deepseek-r1:1.5b",
     "llama3.2:1b",
     "qwen3:4b-q4_K_M",
+    "qwen3-instruct-2507:4b",
     "mistral",
     "mistral:7b-instruct-v0.3-q4_K_M",
 ]
@@ -88,7 +90,8 @@ OLLAMA_MODEL_CONTEXTS = {
     "qwen2.5vl:3b-q4_K_M": 128000,
     "qwen3": 40960,
     "qwen3:4b-q4_K_M": 40960,
-    "theqtcompany/codellama-7b-qml": 16384
+    "theqtcompany/codellama-7b-qml": 16384,
+    "qwen3-instruct-2507:4b": 262144,
 }
 
 # Map models to embedding sizes
@@ -113,7 +116,8 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "qwen2.5vl:3b-q4_K_M": 2048,
     "qwen3": 4096,
     "qwen3:4b-q4_K_M": 2560,
-    "theqtcompany/codellama-7b-qml": 4096
+    "theqtcompany/codellama-7b-qml": 4096,
+    "qwen3-instruct-2507:4b": 2560,
 }
 
 
@@ -138,6 +142,7 @@ OLLAMA_HF_MODELS = {
     "qwen2.5vl:3b-q4_K_M": "Qwen/Qwen2.5-VL-3B-Instruct",
     "qwen3": "Qwen/Qwen3-8B",
     "qwen3:4b-q4_K_M": "Qwen/Qwen3-4B",
+    "qwen3-instruct-2507:4b": "Qwen/Qwen3-4B-Instruct-2507",
     "theqtcompany/codellama-7b-qml": "QtGroup/CodeLlama-7B-QML",
 }
 
@@ -161,6 +166,7 @@ OLLAMA_HF_MODEL_NAMES = Literal[
     "Qwen/Qwen2.5-VL-3B-Instruct",
     "Qwen/Qwen3-8B",
     "Qwen/Qwen3-4B",
+    "Qwen/Qwen3-4B-Instruct-2507",
     "QtGroup/CodeLlama-7B-QML",
 ]
 

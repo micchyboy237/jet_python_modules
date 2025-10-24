@@ -1,44 +1,39 @@
 from typing import Iterator
-from ollama import Client
-from ollama._types import ChatResponse
-
+from openai import OpenAI
 from jet.logger import logger
+
+client = OpenAI(base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234")
 
 messages = [
     {
         'role': 'user',
-        'content': 'What is 10 + 23?',
+        'content': 'Think step by step and show your reasoning clearly before giving the final answer.\n\nWhat is 10 + 23?',
     },
 ]
 
-client = Client(
-    # Ollama Turbo
-    # host="https://ollama.com", headers={'Authorization': (os.getenv('OLLAMA_API_KEY'))}
+stream: Iterator = client.chat.completions.create(
+    model='deepseek-r1',
+    messages=messages,
+    stream=True,
+    temperature=0,
 )
 
-response_stream: Iterator[ChatResponse] = client.chat(
-    model='deepseek-r1', messages=messages, think=True, stream=True)
-tool_calls = []
 thinking = ''
 content = ''
-final = True
+final_printed = False
 
-for chunk in response_stream:
-    if chunk.message.tool_calls:
-        tool_calls.extend(chunk.message.tool_calls)
+for chunk in stream:
+    delta = chunk.choices[0].delta
+    if delta.content:
+        text = delta.content
+        content += text
+        logger.success(text, flush=True)
 
-    if chunk.message.content:
-        if not (chunk.message.thinking or chunk.message.thinking == '') and final:
+        # Detect transition to final answer
+        if not final_printed and any(phrase in text.lower() for phrase in ["answer", "final", "so, 10 + 23"]):
             print('\n\n' + '=' * 10)
             print('Final result: ')
-            final = False
-        logger.success(chunk.message.content, flush=True)
+            final_printed = True
 
-    if chunk.message.thinking:
-        # accumulate thinking
-        thinking += chunk.message.thinking
-        logger.debug(chunk.message.thinking, flush=True)
-
-
-logger.debug('Thinking:\n========\n\n' + thinking)
+logger.debug('Thinking:\n========\n\n' + content)  # All output is "thinking" until final
 logger.success('\nResponse:\n========\n\n' + content)
