@@ -25,7 +25,7 @@ model2vec
 fastembed
 wordcloud
 wtpsplit
-infinity_client
+# infinity_client
 
 # KeyBERT Peers
 # flair

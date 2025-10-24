@@ -4,6 +4,7 @@ cython
 datasets
 evaluate
 faiss-cpu
+hdbscan
 huggingface-hub
 matplotlib
 meson-python

@@ -1,4 +1,4 @@
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx
+mlx
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain
