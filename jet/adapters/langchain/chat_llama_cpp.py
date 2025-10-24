@@ -14,8 +14,10 @@ from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field
 
 from jet.adapters.llama_cpp.llm import ChatMessage, LlamacppLLM
-from langchain_core.pydantic_v1 import BaseModel as PydanticBaseModel
 from langchain_core.runnables import RunnableLambda
+
+from jet.logger import logger
+from jet.transformers.formatters import format_json
 
 
 class ChatLlamaCpp(BaseChatModel):
@@ -169,6 +171,8 @@ class ChatLlamaCpp(BaseChatModel):
     ) -> "BaseChatModel":
         """Bind tools to the chat model using OpenAI-compatible tool calling."""
         formatted_tools = [tool if isinstance(tool, dict) else tool.to_json() for tool in tools]
+        logger.info(
+            f"Binding tools: {format_json(formatted_tools)}")
 
         def _tool_caller(messages: List[BaseMessage], **runtime_kwargs) -> ChatResult:
             llm_messages = self._convert_messages(messages)
@@ -205,10 +209,12 @@ class ChatLlamaCpp(BaseChatModel):
         schema: Any,
         **kwargs: Any,
     ) -> Runnable:
-        if isinstance(schema, type) and issubclass(schema, PydanticBaseModel):
+        if isinstance(schema, type) and issubclass(schema, BaseModel):
             json_schema = schema.model_json_schema()
         else:
             json_schema = schema
+        logger.info(
+            f"Configuring structured output with options: {format_json(kwargs)}\n\nSchema: {format_json(json_schema)}")
 
         def _invoke(messages: List[BaseMessage]) -> BaseModel:
             llm_messages = self._convert_messages(messages)
