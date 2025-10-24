@@ -7,6 +7,7 @@ from pydantic import Field
 class OllamaEmbeddings(BaseOllamaEmbeddings):
     batch_size: int = Field(default=32, description="Batch size for embedding processing")
     return_format: Literal["list", "numpy"] = Field(default="list", description="Format of the returned embeddings")
+    use_cache: bool = Field(default=False, description="Whether to cache embeddings for reuse")
 
     def __init__(
         self,
@@ -16,7 +17,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
         use_cache: bool = False,
         **kwargs
     ):
-        """Initialize with default base_url, batch_size, and return_format."""
+        """Initialize with default base_url, batch_size, return_format, and use_cache."""
         super().__init__(base_url=base_url, **kwargs)
         self.batch_size = batch_size
         self.return_format = return_format
@@ -59,7 +60,8 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
             model_name=self.model,
             batch_size=self.batch_size,
             return_format=self.return_format,
-            url=self.base_url
+            url=self.base_url,
+            use_cache=self.use_cache,  # Added to ensure async method uses cache
         )
 
         try:
