@@ -1,18 +1,23 @@
 # jet_python_modules/jet/adapters/langchain/chat_llama_cpp.py
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Iterator, List, Optional
+from typing import Any, AsyncIterator, Callable, Iterator, List, Optional, Sequence, Union
 
 from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
 )
+from langchain_core.language_models import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
-from pydantic import Field
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
 
 from jet.adapters.llama_cpp.llm import ChatMessage, LlamacppLLM
+from jet.logger import logger
+from jet.transformers.formatters import format_json
 
 
 class ChatLlamaCpp(BaseChatModel):
@@ -156,3 +161,24 @@ class ChatLlamaCpp(BaseChatModel):
             content = delta.content if delta and delta.content is not None else ""
             if content:
                 yield ChatGenerationChunk(message=AIMessageChunk(content=content))
+
+    def bind_tools(
+        self,
+        tools: Sequence[Union[dict[str, Any], type, Callable, BaseTool]],
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, BaseMessage]:
+        logger.info(
+            f"Binding tools: {format_json([tool if isinstance(tool, dict) else str(tool) for tool in tools])}")
+        return super().bind_tools(tools, **kwargs)
+
+    def with_structured_output(
+        self,
+        schema: Union[dict, type],
+        *,
+        method: str = "json_schema",
+        include_raw: bool = False,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, Union[dict, BaseModel]]:
+        logger.info(
+            f"Configuring structured output with method: {method}, schema: {format_json(schema if isinstance(schema, dict) else str(schema))}")
+        return super().with_structured_output(schema, method=method, include_raw=include_raw, **kwargs)
