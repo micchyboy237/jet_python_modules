@@ -1,6 +1,6 @@
 # tests/functional/adapters/langchain/test_embed_llama_cpp_functional.py
 """
-Functional tests for LlamaCppEmbeddings using real embedding server.
+Functional tests for EmbedLlamaCpp using real embedding server.
 
 Prerequisites:
 - Run llama.cpp embedding server:
@@ -23,7 +23,7 @@ import asyncio
 import numpy as np
 import pytest
 
-from jet.adapters.langchain.embed_llama_cpp import LlamaCppEmbeddings
+from jet.adapters.langchain.embed_llama_cpp import EmbedLlamaCpp
 
 
 @pytest.fixture(scope="module")
@@ -34,9 +34,9 @@ def event_loop() -> asyncio.AbstractEventLoop:
 
 
 @pytest.fixture(scope="module")
-def embed_model_list() -> LlamaCppEmbeddings:
+def embed_model_list() -> EmbedLlamaCpp:
     """Embedding model returning list format."""
-    return LlamaCppEmbeddings(
+    return EmbedLlamaCpp(
         model="embeddinggemma",
         base_url="http://shawn-pc.local:8081/v1",
         batch_size=2,
@@ -46,22 +46,22 @@ def embed_model_list() -> LlamaCppEmbeddings:
 
 
 @pytest.fixture(scope="module")
-def embed_model_numpy() -> LlamaCppEmbeddings:
-    """Embedding model returning numpy format."""
-    return LlamaCppEmbeddings(
+def embed_model_numpy() -> EmbedLlamaCpp:
+    """Embedding model returning numpy format (default)."""
+    return EmbedLlamaCpp(
         model="embeddinggemma",
         base_url="http://shawn-pc.local:8081/v1",
         batch_size=2,
-        return_format="numpy",
+        # return_format omitted – defaults to "numpy"
         show_progress=False,
     )
 
 
-class TestLlamaCppEmbeddingsFunctional:
+class TestEmbedLlamaCppFunctional:
     # Given: Real embedding server
     # When: Embedding multiple documents
     # Then: Returns correct number of vectors with expected dimension
-    def test_embed_documents_list(self, embed_model_list: LlamaCppEmbeddings) -> None:
+    def test_embed_documents_list(self, embed_model_list: EmbedLlamaCpp) -> None:
         texts = ["hello world", "embedding test", "functional validation"]
         embeddings = embed_model_list.embed_documents(texts)
 
@@ -74,7 +74,7 @@ class TestLlamaCppEmbeddingsFunctional:
     # Given: return_format="numpy"
     # When: Embedding documents
     # Then: Internally uses numpy, converts to list
-    def test_embed_documents_numpy(self, embed_model_numpy: LlamaCppEmbeddings) -> None:
+    def test_embed_documents_numpy(self, embed_model_numpy: EmbedLlamaCpp) -> None:
         texts = ["numpy", "array", "conversion"]
         embeddings = embed_model_numpy.embed_documents(texts)
 
@@ -85,7 +85,7 @@ class TestLlamaCppEmbeddingsFunctional:
     # Given: Single query
     # When: embed_query
     # Then: Returns 1D vector
-    def test_embed_query(self, embed_model_list: LlamaCppEmbeddings) -> None:
+    def test_embed_query(self, embed_model_list: EmbedLlamaCpp) -> None:
         embedding = embed_model_list.embed_query("single query")
 
         assert isinstance(embedding, list)
@@ -96,7 +96,7 @@ class TestLlamaCppEmbeddingsFunctional:
     # When: aembed_documents
     # Then: Falls back to sync, returns correct result
     @pytest.mark.asyncio
-    async def test_aembed_documents(self, embed_model_list: LlamaCppEmbeddings) -> None:
+    async def test_aembed_documents(self, embed_model_list: EmbedLlamaCpp) -> None:
         texts = ["async", "embed"]
         embeddings = await embed_model_list.aembed_documents(texts)
 
@@ -107,7 +107,7 @@ class TestLlamaCppEmbeddingsFunctional:
     # When: aembed_query
     # Then: Returns embedding
     @pytest.mark.asyncio
-    async def test_aembed_query(self, embed_model_list: LlamaCppEmbeddings) -> None:
+    async def test_aembed_query(self, embed_model_list: EmbedLlamaCpp) -> None:
         embedding = await embed_model_list.aembed_query("async query")
 
         assert isinstance(embedding, list)
@@ -116,7 +116,7 @@ class TestLlamaCppEmbeddingsFunctional:
     # Given: Identical inputs
     # When: Embedding twice
     # Then: Results are nearly identical (within float tolerance)
-    def test_embedding_determinism(self, embed_model_list: LlamaCppEmbeddings) -> None:
+    def test_embedding_determinism(self, embed_model_list: EmbedLlamaCpp) -> None:
         text = "deterministic embedding test"
         emb1 = embed_model_list.embed_query(text)
         emb2 = embed_model_list.embed_query(text)

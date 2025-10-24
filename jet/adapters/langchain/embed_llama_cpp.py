@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 
 
-class LlamaCppEmbeddings(BaseModel, Embeddings):
+class EmbedLlamaCpp(BaseModel, Embeddings):
     """
     LangChain embeddings wrapper for LlamacppEmbedding.
     Supports both list and numpy return formats with batch processing and caching.
@@ -33,7 +33,7 @@ class LlamaCppEmbeddings(BaseModel, Embeddings):
     )
     batch_size: int = Field(default=32, ge=1, description="Batch size for embedding calls")
     return_format: Literal["list", "numpy"] = Field(
-        default="list", description="Output format: list of lists or numpy array"
+        default="numpy", description="Output format: list of lists or numpy array"
     )
     show_progress: bool = Field(default=True, description="Show progress bar")
     embedder: LlamacppEmbedding = Field(default=None, exclude=True, repr=False)
