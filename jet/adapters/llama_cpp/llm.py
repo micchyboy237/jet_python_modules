@@ -35,7 +35,7 @@ class LlamacppLLM:
     def __init__(
         self,
         model: str = "qwen3-instruct-2507:4b",
-        base_url: str = "http://localhost:8080/v1",
+        base_url: str = "http://shawn-pc.local:8080/v1",
         api_key: str = "sk-1234",
         max_retries: int = 3,
         verbose: bool = False,
@@ -53,6 +53,7 @@ class LlamacppLLM:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
+        stop: Optional[List[str]] = None,
     ) -> Union[str, Iterator[str]]:
         """Generate chat response (non-streaming or streaming)."""
         response = self.sync_client.chat.completions.create(
@@ -61,6 +62,7 @@ class LlamacppLLM:
             temperature=temperature,
             max_tokens=max_tokens,
             stream=stream,
+            stop=stop,
         )
         if stream:
             def stream_generator() -> Iterator[str]:
@@ -237,6 +239,7 @@ class LlamacppLLM:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
+        stop: Optional[List[str]] = None,
     ) -> Union[str, AsyncIterator[str]]:
         """Async chat completion (non-streaming or streaming)."""
         response = await self.async_client.chat.completions.create(
@@ -245,6 +248,7 @@ class LlamacppLLM:
             temperature=temperature,
             max_tokens=max_tokens,
             stream=stream,
+            stop=stop,
         )
         if stream:
             async def stream_generator() -> AsyncIterator[str]:
