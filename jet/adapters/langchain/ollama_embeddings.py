@@ -10,7 +10,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
 
     def __init__(
         self,
-        base_url: Optional[str] = "http://localhost:11435",
+        base_url: Optional[str] = "http://jethros-macbook-air.local:11434",
         batch_size: int = 32,
         return_format: Literal["list", "numpy"] = "list",
         **kwargs
