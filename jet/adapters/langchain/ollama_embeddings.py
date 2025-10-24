@@ -13,12 +13,14 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
         base_url: Optional[str] = "http://jethros-macbook-air.local:11434",
         batch_size: int = 32,
         return_format: Literal["list", "numpy"] = "list",
+        use_cache: bool = False,
         **kwargs
     ):
         """Initialize with default base_url, batch_size, and return_format."""
         super().__init__(base_url=base_url, **kwargs)
         self.batch_size = batch_size
         self.return_format = return_format
+        self.use_cache = use_cache
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed search docs using utils.embeddings with progress tracking."""
@@ -33,7 +35,8 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
             model_name=self.model,
             batch_size=self.batch_size,
             return_format=self.return_format,
-            url=self.base_url
+            url=self.base_url,
+            use_cache=self.use_cache,
         )
 
         try:
