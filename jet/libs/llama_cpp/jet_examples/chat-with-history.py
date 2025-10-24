@@ -22,7 +22,7 @@ messages = [
 while True:
     user_input = input("Chat with history: ")
     response = client.chat.completions.create(
-        model="ggml-org/gemma-3-4b-it-GGUF",
+        model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
         messages=messages + [{"role": "user", "content": user_input}],
     )
     assistant_message = response.choices[0].message.content

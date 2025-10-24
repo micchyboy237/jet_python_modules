@@ -10,9 +10,10 @@ messages = [
     },
 ]
 stream = client.chat.completions.create(
-    model="ggml-org/gemma-3-4b-it-GGUF",
+    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
     messages=messages,
     stream=True,
 )
 for part in stream:
-    logger.teal(part.choices[0].delta.content or "", flush=True)
+    if part.choices:
+        logger.teal(part.choices[0].delta.content or "", flush=True)

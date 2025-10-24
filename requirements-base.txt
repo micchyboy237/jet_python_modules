@@ -17,6 +17,7 @@ pandas
 pipdeptree
 playwright
 poetry
+psutil
 pytest
 pytest-asyncio
 pytest-benchmark

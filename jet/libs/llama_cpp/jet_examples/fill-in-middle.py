@@ -7,7 +7,7 @@ suffix = """
     return result
 """
 response = client.completions.create(
-    model="ggml-org/gemma-3-4b-it-GGUF",
+    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
     prompt=prompt,
     suffix=suffix,
     max_tokens=128,

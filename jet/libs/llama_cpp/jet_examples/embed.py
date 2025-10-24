@@ -4,7 +4,7 @@ from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 
 def main():
     """Example usage of EmbeddingClient."""
-    model = "embeddinggemma-300M-Q8_0.gguf"
+    model = "embeddinggemma"
     client = LlamacppEmbedding(model=model)
     
     # Example inputs

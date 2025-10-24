@@ -1,85 +1,98 @@
-from ollama import ChatResponse, chat
+from openai import OpenAI
+from typing import Any
+import json
 
+client = OpenAI(base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234")
 
 def add_two_numbers(a: int, b: int) -> int:
     """
     Add two numbers
-
     Args:
-      a (int): The first number
-      b (int): The second number
-
+        a (int): The first number
+        b (int): The second number
     Returns:
-      int: The sum of the two numbers
+        int: The sum of the two numbers
     """
-
-    # The cast is necessary as returned tool call arguments don't always conform exactly to schema
-    # E.g. this would prevent "what is 30 + 12" to produce '3012' instead of 42
     return int(a) + int(b)
-
 
 def subtract_two_numbers(a: int, b: int) -> int:
     """
     Subtract two numbers
     """
-
-    # The cast is necessary as returned tool call arguments don't always conform exactly to schema
     return int(a) - int(b)
 
-
-# Tools can still be manually defined and passed into chat
-subtract_two_numbers_tool = {
-    'type': 'function',
-    'function': {
-        'name': 'subtract_two_numbers',
-        'description': 'Subtract two numbers',
-        'parameters': {
-            'type': 'object',
-            'required': ['a', 'b'],
-            'properties': {
-                'a': {'type': 'integer', 'description': 'The first number'},
-                'b': {'type': 'integer', 'description': 'The second number'},
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "add_two_numbers",
+            "description": "Add two numbers",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer", "description": "The first number"},
+                    "b": {"type": "integer", "description": "The second number"},
+                },
+                "required": ["a", "b"],
             },
         },
     },
-}
-
-messages = [{'role': 'user', 'content': 'What is three plus one?'}]
-print('Prompt:', messages[0]['content'])
+    {
+        "type": "function",
+        "function": {
+            "name": "subtract_two_numbers",
+            "description": "Subtract two numbers",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer", "description": "The first number"},
+                    "b": {"type": "integer", "description": "The second number"},
+                },
+                "required": ["a", "b"],
+            },
+        },
+    },
+]
 
 available_functions = {
     'add_two_numbers': add_two_numbers,
     'subtract_two_numbers': subtract_two_numbers,
 }
 
-response: ChatResponse = chat(
-    'llama3.2',
+messages = [{'role': 'user', 'content': 'What is three plus one?'}]
+print('Prompt:', messages[0]['content'])
+
+response = client.chat.completions.create(
+    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
     messages=messages,
-    tools=[add_two_numbers, subtract_two_numbers_tool],
+    tools=tools,
+    tool_choice='auto',
 )
 
-if response.message.tool_calls:
-    # There may be multiple tool calls in the response
-    for tool in response.message.tool_calls:
-        # Ensure the function is available, and then call it
-        if function_to_call := available_functions.get(tool.function.name):
-            print('Calling function:', tool.function.name)
-            print('Arguments:', tool.function.arguments)
-            output = function_to_call(**tool.function.arguments)
+tool_calls = response.choices[0].message.tool_calls
+if tool_calls:
+    for tool_call in tool_calls:
+        func_name = tool_call.function.name
+        if function_to_call := available_functions.get(func_name):
+            print('Calling function:', func_name)
+            arguments = json.loads(tool_call.function.arguments)
+            print('Arguments:', arguments)
+            output: Any = function_to_call(**arguments)
             print('Function output:', output)
+            messages.append(response.choices[0].message)
+            messages.append({
+                "role": "tool",
+                "content": json.dumps({"result": output}),
+                "tool_call_id": tool_call.id,
+            })
         else:
-            print('Function', tool.function.name, 'not found')
+            print('Function', func_name, 'not found')
 
-# Only needed to chat with the model using the tool call results
-if response.message.tool_calls:
-    # Add the function response to messages for the model to use
-    messages.append(response.message)
-    messages.append({'role': 'tool', 'content': str(
-        output), 'tool_name': tool.function.name})
-
-    # Get final response from model with function outputs
-    final_response = chat('llama3.2', messages=messages)
-    print('Final response:', final_response.message.content)
-
+    # Second call to get final response
+    final_response = client.chat.completions.create(
+        model='llama3.2',
+        messages=messages,
+    )
+    print('Final response:', final_response.choices[0].message.content)
 else:
     print('No tool calls returned from model')
