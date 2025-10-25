@@ -81,7 +81,7 @@ if tool_calls:
 
     # Second call to get final response
     final_response = client.chat.completions.create(
-        model='llama3.2',
+        model="qwen3-instruct-2507:4b",
         messages=messages,
     )
     print('Final response:', final_response.choices[0].message.content)
