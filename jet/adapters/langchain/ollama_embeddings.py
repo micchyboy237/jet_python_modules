@@ -8,6 +8,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
     batch_size: int = Field(default=32, description="Batch size for embedding processing")
     return_format: Literal["list", "numpy"] = Field(default="list", description="Format of the returned embeddings")
     use_cache: bool = Field(default=False, description="Whether to cache embeddings for reuse")
+    verbose: bool = Field(default=False, description="Enable verbose logging")
 
     def __init__(
         self,
@@ -15,6 +16,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
         batch_size: int = 32,
         return_format: Literal["list", "numpy"] = "list",
         use_cache: bool = False,
+        verbose: bool = False,
         **kwargs
     ):
         """Initialize with default base_url, batch_size, return_format, and use_cache."""
@@ -22,6 +24,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
         self.batch_size = batch_size
         self.return_format = return_format
         self.use_cache = use_cache
+        self.verbose = verbose
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """Embed search docs using utils.embeddings with progress tracking."""
@@ -38,6 +41,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
             return_format=self.return_format,
             url=self.base_url,
             use_cache=self.use_cache,
+            show_progress=self.verbose,
         )
 
         try:
@@ -62,6 +66,7 @@ class OllamaEmbeddings(BaseOllamaEmbeddings):
             return_format=self.return_format,
             url=self.base_url,
             use_cache=self.use_cache,  # Added to ensure async method uses cache
+            show_progress=self.verbose,
         )
 
         try:

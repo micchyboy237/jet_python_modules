@@ -310,15 +310,20 @@ class MethodInfo(TypedDict):
 
 
 def get_method_info(method: Any) -> MethodInfo:
-    """Extract information from a typed class method in a structured format.
+    """Extract information from a typed class method or tool-wrapped callable."""
+    # Handle CallableWithToolSpec wrappers
+    if hasattr(method, "tool_spec"):
+        spec = method.tool_spec["function"]
+        name = spec["name"]
+        description = spec.get("description", "No description available")
+        parameters = spec.get("parameters", {"type": "object", "properties": {}, "required": []})
+        return {
+            "name": name,
+            "description": description,
+            "parameters": parameters,
+        }
 
-    Args:
-        method: The class method to inspect.
-
-    Returns:
-        A dictionary with method name, description, and parameters with their types and descriptions.
-    """
-    # Map Python types to JSON-compatible type strings
+    # Existing logic for regular methods...
     type_mapping = {
         int: "integer",
         str: "string",
@@ -329,17 +334,14 @@ def get_method_info(method: Any) -> MethodInfo:
         Any: "any"
     }
 
-    # Get type hints and parameters
     type_hints = get_type_hints(method)
     params = inspect.signature(method).parameters
-    required_params = [name for name in params if name != "self"]
+    required_params = [name for name in params if name != "self" and params[name].default is inspect.Parameter.empty]
     properties: Dict[str, ParameterInfo] = {}
 
-    # Extract parameter info and docstring
     docstring = inspect.getdoc(method) or "No description available"
     param_descriptions = {}
     if docstring:
-        # Parse docstring for parameter descriptions
         doc_lines = docstring.splitlines()
         in_args_section = False
         for line in doc_lines:
@@ -347,28 +349,25 @@ def get_method_info(method: Any) -> MethodInfo:
             if line.startswith("Args:"):
                 in_args_section = True
                 continue
-            if in_args_section:
-                # Check if we've moved to another section (e.g., Returns)
-                if line.startswith(("Returns:", "Raises:", "Examples:")) or line == "":
-                    in_args_section = False
-                    continue
-                # Match parameter lines, e.g., "a (int): The first number"
-                match = re.match(r"^\s*(\w+)\s*\([^)]+\):\s*(.+)$", line)
-                if match:
-                    param_name, param_desc = match.groups()
-                    param_descriptions[param_name] = param_desc.strip()
+            if in_args_section and (line.startswith(("Returns:", "Raises:", "Examples:")) or not line):
+                in_args_section = False
+                continue
+            match = re.match(r"^\s*(\w+)\s*(?:\([^)]*\))?:\s*(.+)$", line)
+            if match:
+                param_name, param_desc = match.groups()
+                param_descriptions[param_name] = param_desc.strip()
 
-    # Build properties for each parameter
     for name in required_params:
         param_type = type_hints.get(name, Any)
         type_name = type_mapping.get(param_type, "any")
         description = param_descriptions.get(name, f"The {name} parameter")
         properties[name] = {"type": type_name, "description": description}
 
+    first_line = docstring.split("\n")[0] if docstring else "No description available"
+
     return {
         "name": method.__name__,
-        # Use only the first paragraph as description
-        "description": docstring.split("\n\n")[0],
+        "description": first_line,
         "parameters": {
             "type": "object",
             "required": required_params,

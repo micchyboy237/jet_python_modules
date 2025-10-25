@@ -188,7 +188,7 @@ class ChatOllama(BaseChatOllama):
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, BaseMessage]:
         logger.info(
-            f"Binding tools: {format_json([tool if isinstance(tool, dict) else str(tool) for tool in tools])}")
+            f"Binding tools: {format_json(tools)}")
         return super().bind_tools(tools, **kwargs)
 
     def with_structured_output(

@@ -10,6 +10,8 @@ mlx
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-community/libs/community
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/langgraph
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph-bigtool
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph-supervisor-py
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph-supervisor-py/langchain-sandbox/libs/sandbox-py
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index
 
 pyppeteer # for rendering mermaid graph

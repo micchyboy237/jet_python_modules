@@ -136,10 +136,11 @@ def get_embedding_function(
                     result = cached_result
                     if return_format == "numpy":
                         result = np.array(cached_result)
-                    logger.debug(
-                        f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
-                        f"(key: {cache_key}): {text_summary}"
-                    )
+                    if show_progress:
+                        logger.debug(
+                            f"Memory cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                            f"(key: {cache_key}): {text_summary}"
+                        )
                     return result[0] if single_input else result
             with _cache_lock:
                 cache = load_cache()
@@ -148,15 +149,17 @@ def get_embedding_function(
                     result = cache[cache_key]
                     if return_format == "numpy":
                         result = np.array(cache[cache_key])
-                    logger.debug(
-                        f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
-                        f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
-                    )
+                    if show_progress:
+                        logger.debug(
+                            f"File cache hit for {'1 text' if single_input else f'{text_count} texts'} "
+                            f"(key: {cache_key}, file: {CACHE_PATH}): {text_summary}"
+                        )
                     return result[0] if single_input else result
-        logger.warning(
-            f"{'Cache miss' if use_cache else 'Cache disabled'} for {'1 text' if single_input else f'{text_count} texts'} "
-            f"(key: {cache_key if use_cache else 'N/A'}, file: {CACHE_PATH}): {text_summary}. Computing embeddings..."
-        )
+        if show_progress:
+            logger.warning(
+                f"{'Cache miss' if use_cache else 'Cache disabled'} for {'1 text' if single_input else f'{text_count} texts'} "
+                f"(key: {cache_key if use_cache else 'N/A'}, file: {CACHE_PATH}): {text_summary}. Computing embeddings..."
+            )
         input_texts = [input_text] if single_input else input_text
         computed_embeddings = embed_func(input_texts)
         if return_format == "numpy":
@@ -168,10 +171,11 @@ def get_embedding_function(
                 cache[cache_key] = computed_embeddings.tolist() if isinstance(
                     computed_embeddings, np.ndarray) else computed_embeddings
                 save_cache(cache)
-                logger.info(
-                    f"Cached embeddings for {'1 text' if single_input else f'{text_count} texts'} "
-                    f"(key: {cache_key}, model: {model_name}, batch_size: {batch_size}, file: {CACHE_PATH})."
-                )
+                if show_progress:
+                    logger.info(
+                        f"Cached embeddings for {'1 text' if single_input else f'{text_count} texts'} "
+                        f"(key: {cache_key}, model: {model_name}, batch_size: {batch_size}, file: {CACHE_PATH})."
+                    )
         return computed_embeddings[0] if single_input else computed_embeddings
 
     return embedding_function
@@ -195,16 +199,17 @@ class OllamaEmbeddingFunction:
         self.show_progress = show_progress
 
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
-        logger.info("Generating Ollama embeddings...")
-        logger.debug(f"Model: {self.model_name}")
-        logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
-        logger.debug(f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
-        logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
-        logger.debug(f"Batch size: {self.batch_size}")
-        logger.debug(f"Show progress: {self.show_progress}")
-        logger.info(
-            f"Total batches: {len(input) // self.batch_size + bool(len(input) % self.batch_size) if isinstance(input, list) else 1}"
-        )
+        if self.show_progress:
+            logger.info("Generating Ollama embeddings...")
+            logger.debug(f"Model: {self.model_name}")
+            logger.debug(f"Max Context: {OLLAMA_MODEL_CONTEXTS[self.model_name]}")
+            logger.debug(f"Embeddings Dim: {OLLAMA_MODEL_EMBEDDING_TOKENS[self.model_name]}")
+            logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
+            logger.debug(f"Batch size: {self.batch_size}")
+            logger.debug(f"Show progress: {self.show_progress}")
+            logger.info(
+                f"Total batches: {len(input) // self.batch_size + bool(len(input) % self.batch_size) if isinstance(input, list) else 1}"
+            )
 
         def func(query: str | list[str]):
             return generate_embeddings(
@@ -279,12 +284,13 @@ class SFEmbeddingFunction:
     def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
         base_input = input
 
-        logger.info("Generating SF embeddings...")
-        logger.debug(f"Model: {self.model_name}")
-        logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
-        logger.debug(f"Batch size: {self.batch_size}")
-        logger.debug(f"Return format: {self.return_format}")
-        logger.debug(f"Show progress: {show_progress}")
+        if self.show_progress:
+            logger.info("Generating SF embeddings...")
+            logger.debug(f"Model: {self.model_name}")
+            logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
+            logger.debug(f"Batch size: {self.batch_size}")
+            logger.debug(f"Return format: {self.return_format}")
+            logger.debug(f"Show progress: {self.show_progress}")
 
         all_embeddings = self.model.encode(
             base_input, convert_to_tensor=True, show_progress_bar=self.show_progress
@@ -297,13 +303,21 @@ class SFEmbeddingFunction:
 
 
 class SFRerankingFunction:
-    def __init__(self, model_name: str = DEFAULT_SF_EMBED_MODEL, batch_size: int = 32) -> None:
+    def __init__(
+        self,
+        model_name: str = DEFAULT_SF_EMBED_MODEL,
+        batch_size: int = 32,
+        return_format: Literal["list", "numpy"] = "numpy",
+        show_progress: bool = False,
+    ) -> None:
         self.model_name = model_name
         self.batch_size = batch_size
+        self.return_format = return_format
+        self.show_progress = show_progress
         self.model = sentence_transformers.CrossEncoder(model_name)
 
     def __getattr__(self, name):
-        """Delegate attribute/method calls to self.model if not found in SFEmbeddingFunction."""
+        """Delegate attribute/method calls to self.model if not found in SFRerankingFunction."""
         return getattr(self.model, name)
 
     def tokenize(self, documents: List[str]) -> List[List[str]]:
@@ -315,24 +329,29 @@ class SFRerankingFunction:
         tokenized = self.tokenize(documents)
         return [len(tokens) for tokens in tokenized]
 
-    # @time_it(function_name="generate_sf_batch_embeddings")
-    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]]:
-        logger.info("Generating SF embeddings...")
-        logger.debug(f"Model: {self.model_name}")
-        logger.debug(f"Texts: {len(input)}")
-        logger.debug(f"Batch size: {self.batch_size}")
+    def __call__(self, input: str | list[str]) -> list[float] | list[list[float]] | np.ndarray:
+        if self.show_progress:
+            logger.info("Generating SF (reranking) embeddings...")
+            logger.debug(f"Model: {self.model_name}")
+            logger.debug(f"Texts: {len(input) if isinstance(input, list) else 1}")
+            logger.debug(f"Batch size: {self.batch_size}")
+            logger.debug(f"Return format: {self.return_format}")
+            logger.debug(f"Show progress: {self.show_progress}")
 
-        if isinstance(input, str):
-            input = [input]
+        # Always handle input as list internally
+        base_input = input
+        if isinstance(base_input, str):
+            base_input = [base_input]
+
         # Tokenize the input and calculate token counts for each document
-        token_counts = self.calculate_tokens(input)
+        token_counts = self.calculate_tokens(base_input)
 
         batched_input = []
         current_batch = []
         current_token_count = 0
 
         # Split the input into batches based on the batch_size
-        for doc, token_count in zip(input, token_counts):
+        for doc, token_count in zip(base_input, token_counts):
             # Start a new batch when the batch size limit is reached
             if len(current_batch) >= self.batch_size:
                 batched_input.append(current_batch)
@@ -349,9 +368,13 @@ class SFRerankingFunction:
         all_embeddings = []
         for batch in batched_input:
             # Encode documents into embeddings
-            embeddings = self.model.encode(batch, show_progress_bar=True)
+            # CrossEncoder returns scores for pairs; for reranking we use a dummy second input
+            embeddings = self.model.encode(batch, show_progress_bar=self.show_progress)
             all_embeddings.extend(embeddings)
 
+        # Convert to requested format
+        if self.return_format == "numpy":
+            return np.array(all_embeddings)
         return all_embeddings
 
 
@@ -461,7 +484,7 @@ def generate_multiple(
         pbar = tqdm(range(0, len(query), batch_size),
                     desc="Generating embeddings", disable=not show_progress)
         for i in pbar:
-            if pbar.total and pbar.total > 1:
+            if show_progress and pbar.total and pbar.total > 1:
                 pbar.set_description(
                     f"Generating embeddings batch {i // batch_size + 1}")
             batch_result = func(query[i: i + batch_size])
@@ -546,13 +569,14 @@ def generate_embeddings_stream(
         (text, count) for text, count in zip(texts, token_counts) if count > model_max_tokens
     ]
     if exceeded_texts:
-        logger.warning(
-            "Some texts exceed the model's max token limit:\n" +
-            "\n".join(
-                f"- {count} tokens: {text[:50].replace('\n', ' ')}..."
-                for text, count in exceeded_texts
+        if show_progress:
+            logger.warning(
+                "Some texts exceed the model's max token limit:\n" +
+                "\n".join(
+                    f"- {count} tokens: {text[:50].replace('\n', ' ')}..."
+                    for text, count in exceeded_texts
+                )
             )
-        )
         texts = truncate_texts(texts, model, max_tokens)
 
     headers = {"Content-Type": "application/json"}
@@ -587,16 +611,18 @@ def generate_embeddings_stream(
                     yield batch_embeddings
                     break
                 else:
-                    logger.error("No embeddings found in response.")
+                    if show_progress:
+                        logger.error("No embeddings found in response.")
                     raise ValueError("Invalid response: missing embeddings")
 
             except requests.RequestException as e:
-                logger.error(
-                    f"Attempt {attempt + 1} failed with error: {e}, "
-                    f"Response text: {r.text if 'r' in locals() else 'No response'}"
-                )
-                logger.error(f"Model: {model}")
-                logger.error(f"Batch size: {len(batch_texts)}")
+                if show_progress:
+                    logger.error(
+                        f"Attempt {attempt + 1} failed with error: {e}, "
+                        f"Response text: {r.text if 'r' in locals() else 'No response'}"
+                    )
+                    logger.error(f"Model: {model}")
+                    logger.error(f"Batch size: {len(batch_texts)}")
                 if attempt == max_retries - 1:
                     raise e
                 time.sleep(2 ** attempt)
@@ -623,10 +649,11 @@ def generate_ollama_batch_embeddings(
 
     token_counts: list[int] = token_counter(texts, model, prevent_total=True)
 
-    logger.debug(f"generate_ollama_batch_embeddings - texts: {len(texts)}")
-    logger.debug(f"generate_ollama_batch_embeddings - model: {model}")
-    logger.debug(f"generate_ollama_batch_embeddings - largest text tokens: {max(token_counts)}")
-    logger.debug(f"generate_ollama_batch_embeddings - model max_tokens: {max_tokens}")
+    if show_progress:
+        logger.debug(f"generate_ollama_batch_embeddings - texts: {len(texts)}")
+        logger.debug(f"generate_ollama_batch_embeddings - model: {model}")
+        logger.debug(f"generate_ollama_batch_embeddings - largest text tokens: {max(token_counts)}")
+        logger.debug(f"generate_ollama_batch_embeddings - model max_tokens: {max_tokens}")
 
     # Identify texts that exceed the max token limit
     exceeded_texts = [
@@ -634,11 +661,12 @@ def generate_ollama_batch_embeddings(
     ]
 
     if exceeded_texts:
-        logger.warning(
-            "Some texts exceed the model's max token limit:\n" +
-            "\n".join(
-                f"- {count} tokens: {text[:50].replace('\n', ' ')}..." for text, count in exceeded_texts)
-        )
+        if show_progress:
+            logger.warning(
+                "Some texts exceed the model's max token limit:\n" +
+                "\n".join(
+                    f"- {count} tokens: {text[:50].replace('\n', ' ')}..." for text, count in exceeded_texts)
+            )
         texts = truncate_texts(texts, model, max_tokens)
 
     headers = {"Content-Type": "application/json"}
@@ -669,14 +697,16 @@ def generate_ollama_batch_embeddings(
                     embeddings.extend(batch_embeddings)
                     break
                 else:
-                    logger.error("No embeddings found in response.")
+                    if show_progress:
+                        logger.error("No embeddings found in response.")
                     raise ValueError("Invalid response: missing embeddings")
 
             except requests.RequestException as e:
-                logger.error(
-                    f"Attempt {attempt + 1} failed with error: {e}, Response text: {r.text if 'r' in locals() else 'No response'}")
-                logger.error(f"\nModel: {model}")
-                logger.error(f"\nTexts:\n{len(batch_texts)}")
+                if show_progress:
+                    logger.error(
+                        f"Attempt {attempt + 1} failed with error: {e}, Response text: {r.text if 'r' in locals() else 'No response'}")
+                    logger.error(f"\nModel: {model}")
+                    logger.error(f"\nTexts:\n{len(batch_texts)}")
                 if attempt == max_retries - 1:
                     raise e
                 time.sleep(2 ** attempt)

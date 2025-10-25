@@ -36,10 +36,17 @@ class EmbedLlamaCpp(BaseModel, Embeddings):
         default="numpy", description="Output format: list of lists or numpy array"
     )
     show_progress: bool = Field(default=True, description="Show progress bar")
+    verbose: bool = Field(default=False, description="Enable verbose logging")
     embedder: LlamacppEmbedding = Field(default=None, exclude=True, repr=False)
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *,
+        verbose: bool = False,
+        **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
+        self.verbose = verbose
         self.embedder = LlamacppEmbedding(
             model=self.model,
             base_url=self.base_url,
@@ -49,6 +56,7 @@ class EmbedLlamaCpp(BaseModel, Embeddings):
             cache_max_size=self.cache_max_size,
             use_cache=self.use_cache,
             use_dynamic_batch_sizing=self.use_dynamic_batch_sizing,
+            verbose=self.verbose,  # pass verbose flag to underlying LlamacppEmbedding
         )
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
