@@ -182,14 +182,15 @@ class LlamacppLLM:
             Final assistant response as string
         """
         # Build shared kwargs for both LLM calls
+        tool_choice = kwargs.get("tool_choice") or "auto"
         create_kwargs = {
             "model": self.model,
             "messages": messages,
             "tools": tools,
-            "tool_choice": "auto",           # Let model decide when to use tools
             "temperature": temperature,
+            "tool_choice": tool_choice,
             **({ "max_tokens": max_tokens } if max_tokens is not None else {}),
-            **kwargs,                        # Forward any extra OpenAI params
+            **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
 
         # Step 1: Initial LLM call — may return tool_calls

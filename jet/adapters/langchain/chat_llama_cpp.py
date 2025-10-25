@@ -32,7 +32,6 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_core.utils.pydantic import is_basemodel_subclass
 from jet.logger import logger
-from jet.transformers.formatters import format_json
 
 class ChatLlamaCpp(BaseChatModel):
     """
@@ -104,12 +103,15 @@ class ChatLlamaCpp(BaseChatModel):
             available_functions: Dict[str, Callable] = {}
             for tool in tools:
                 func_name = tool["function"]["name"]
-                # Use the actual tool callable from LangChain's BaseTool
-                available_functions[func_name] = lambda **args: BaseTool(**tool).run(args)
-            response = self.llm.chat_with_tools(
-                messages=llm_messages,
-                tools=tools,
-                available_functions=available_functions,
+                func = tool["function"].get("callable")
+                if func is not None and callable(func):
+                    available_functions[func_name] = func
+                else:
+                    raise ValueError(f"Tool {func_name} does not provide a valid callable function.")
+                response = self.llm.chat_with_tools(
+                    messages=llm_messages,
+                    tools=tools,
+                    available_functions=available_functions,
                 **params,
             )
         else:
@@ -142,8 +144,12 @@ class ChatLlamaCpp(BaseChatModel):
             available_functions: Dict[str, Callable] = {}
             for tool in tools:
                 func_name = tool["function"]["name"]
-                # Use the actual tool callable from LangChain's BaseTool
-                available_functions[func_name] = lambda **args: BaseTool(**tool).run(args)
+                # Find the actual callable object from the tool or its 'function'
+                func = tool.get("function", {}).get("callable")
+                if func is not None and callable(func):
+                    available_functions[func_name] = func
+                else:
+                    raise ValueError(f"Tool {func_name} does not provide a valid callable function.")
             response = await self.llm.achat_with_tools(
                 messages=llm_messages,
                 tools=tools,
@@ -210,43 +216,47 @@ class ChatLlamaCpp(BaseChatModel):
         tool_choice: Optional[Union[dict, bool, str]] = None,
         **kwargs: Any,
     ) -> Runnable[LanguageModelInput, AIMessage]:
-        """Bind tool-like objects to this chat model."""
-        formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
-        logger.info(f"Binding tools: {format_json(formatted_tools)}")
+        """Bind tool-like objects to this chat model with callable preservation."""
+        logger.info(f"Binding tools: {len(tools)} tools")
+
+        formatted_tools = []
+        for tool in tools:
+            if isinstance(tool, CallableWithToolSpec):
+                formatted_tools.append(tool.tool_spec)
+                continue
+
+            openai_tool = convert_to_openai_tool(tool)
+            func_name = openai_tool["function"]["name"]
+
+            # Extract callable from BaseTool or raw function
+            if isinstance(tool, BaseTool):
+                callable_func = tool.invoke
+            elif callable(tool):
+                callable_func = tool
+            else:
+                callable_func = None
+
+            # Attach callable if available
+            if callable_func:
+                openai_tool["function"]["callable"] = callable_func
+
+            formatted_tools.append(openai_tool)
+
+        # Validate tool_choice
         tool_names = [ft["function"]["name"] for ft in formatted_tools]
         if tool_choice:
             if isinstance(tool_choice, dict):
-                if not any(
-                    tool_choice["function"]["name"] == name for name in tool_names
-                ):
-                    raise ValueError(
-                        f"Tool choice {tool_choice=} was specified, but the only "
-                        f"provided tools were {tool_names}."
-                    )
+                if tool_choice.get("function", {}).get("name") not in tool_names:
+                    raise ValueError(f"Tool choice {tool_choice} not in {tool_names}")
             elif isinstance(tool_choice, str):
-                chosen = [
-                    f for f in formatted_tools if f["function"]["name"] == tool_choice
-                ]
-                if not chosen:
-                    raise ValueError(
-                        f"Tool choice {tool_choice=} was specified, but the only "
-                        f"provided tools were {tool_names}."
-                    )
-            elif isinstance(tool_choice, bool):
-                if len(formatted_tools) > 1:
-                    raise ValueError(
-                        "tool_choice=True can only be specified when a single tool is "
-                        f"passed in. Received {len(tools)} tools."
-                    )
+                if tool_choice not in tool_names:
+                    raise ValueError(f"Tool choice {tool_choice} not in {tool_names}")
+            elif tool_choice is True:
+                if len(tools) != 1:
+                    raise ValueError("tool_choice=True requires exactly one tool")
                 tool_choice = formatted_tools[0]
-            else:
-                raise ValueError(
-                    """Unrecognized tool_choice type. Expected dict having format like 
-                    this {"type": "function", "function": {"name": <<tool_name>>}}"""
-                    f"Received: {tool_choice}"
-                )
+
         kwargs["tool_choice"] = tool_choice
-        formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
         return super().bind(tools=formatted_tools, **kwargs)
 
     def with_structured_output(

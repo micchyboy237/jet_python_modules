@@ -1,80 +1,63 @@
-# --- CHANGE ---
-# from ollama import ChatResponse
-# client = ollama.AsyncClient()
-
 import asyncio
 from openai import AsyncOpenAI
-from typing import Any
+from typing import Any, Dict
 import json
 
 client = AsyncOpenAI(base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234")
 
-# --- UPDATE tools format for OpenAI ---
-add_two_numbers_tool = {
-    "type": "function",
-    "function": {
-        "name": "add_two_numbers",
-        "description": "Add two numbers",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "a": {"type": "integer", "description": "The first number"},
-                "b": {"type": "integer", "description": "The second number"},
+# === Tools schema (single source of truth) ===
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "add_two_numbers",
+            "description": "Add two numbers",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer", "description": "The first number"},
+                    "b": {"type": "integer", "description": "The second number"},
+                },
+                "required": ["a", "b"],
             },
-            "required": ["a", "b"],
         },
     },
-}
+    {
+        "type": "function",
+        "function": {
+            "name": "subtract_two_numbers",
+            "description": "Subtract two numbers",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "integer", "description": "The first number"},
+                    "b": {"type": "integer", "description": "The second number"},
+                },
+                "required": ["a", "b"],
+            },
+        },
+    },
+]
 
-subtract_two_numbers_tool = {
-    'type': 'function',
-    'function': {
-        'name': 'subtract_two_numbers',
-        'description': 'Subtract two numbers',
-        'parameters': {
-            'type': 'object',
-            'required': ['a', 'b'],
-            'properties': {
-                'a': {'type': 'integer', 'description': 'The first number'},
-                'b': {'type': 'integer', 'description': 'The second number'},
-            },
-        },
-    },
-}
+# === Dynamically derive callables from tool names ===
+available_functions: Dict[str, callable] = {}
+
+for tool in tools:
+    name = tool["function"]["name"]
+    if name == "add_two_numbers":
+        available_functions[name] = lambda a, b: int(a) + int(b)
+    elif name == "subtract_two_numbers":
+        available_functions[name] = lambda a, b: int(a) - int(b)
+    # Add more ops here or use registry pattern for scale
 
 messages = [{'role': 'user', 'content': 'What is three plus one?'}]
 print('Prompt:', messages[0]['content'])
-
-def add_two_numbers(a: int, b: int) -> int:
-    """
-    Add two numbers
-
-    Args:
-      a (int): The first number
-      b (int): The second number
-
-    Returns:
-      int: The sum of the two numbers
-    """
-    return a + b
-
-
-def subtract_two_numbers(a: int, b: int) -> int:
-    """
-    Subtract two numbers
-    """
-    return a - b
-
-available_functions = {
-    'add_two_numbers': add_two_numbers,
-    'subtract_two_numbers': subtract_two_numbers,
-}
 
 async def main():
     response = await client.chat.completions.create(
         model="qwen3-instruct-2507:4b",
         messages=messages,
-        tools=[add_two_numbers_tool, subtract_two_numbers_tool],
+        tools=tools,
         tool_choice="auto",
     )
 
@@ -96,6 +79,7 @@ async def main():
                     "tool_call_id": tool_call.id,
                 })
 
+                # Final response
                 final_response = await client.chat.completions.create(
                     model="qwen3-instruct-2507:4b",
                     messages=messages,
@@ -105,7 +89,6 @@ async def main():
                 print("Function", func_name, "not found")
     else:
         print('No tool calls returned from model')
-
 
 if __name__ == '__main__':
     try:

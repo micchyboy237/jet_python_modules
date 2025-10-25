@@ -1,26 +1,10 @@
 from openai import OpenAI
-from typing import Any
+from typing import Any, Dict
 import json
 
 client = OpenAI(base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234")
 
-def add_two_numbers(a: int, b: int) -> int:
-    """
-    Add two numbers
-    Args:
-        a (int): The first number
-        b (int): The second number
-    Returns:
-        int: The sum of the two numbers
-    """
-    return int(a) + int(b)
-
-def subtract_two_numbers(a: int, b: int) -> int:
-    """
-    Subtract two numbers
-    """
-    return int(a) - int(b)
-
+# Define tools schema (single source of truth)
 tools = [
     {
         "type": "function",
@@ -54,11 +38,18 @@ tools = [
     },
 ]
 
-available_functions = {
-    'add_two_numbers': add_two_numbers,
-    'subtract_two_numbers': subtract_two_numbers,
-}
+# === Dynamically create callable functions from tool names ===
+available_functions: Dict[str, callable] = {}
 
+for tool in tools:
+    func_name = tool["function"]["name"]
+    if func_name == "add_two_numbers":
+        available_functions[func_name] = lambda a, b: int(a) + int(b)
+    elif func_name == "subtract_two_numbers":
+        available_functions[func_name] = lambda a, b: int(a) - int(b)
+    # Add more dynamically as needed, or use a registry pattern for scalability
+
+# === Rest of the logic (unchanged) ===
 messages = [{'role': 'user', 'content': 'What is three plus one?'}]
 print('Prompt:', messages[0]['content'])
 
