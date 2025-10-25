@@ -61,6 +61,8 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForLLMRun
 from langchain_core.utils.pydantic import TypeBaseModel, is_basemodel_subclass
 from pydantic import model_validator
 
+from jet.utils.object import remove_null_keys
+
 log = logging.getLogger(__name__)
 
 def _get_usage_metadata_from_generation_info(
@@ -481,6 +483,7 @@ class ChatLlamaCpp(BaseChatModel):
             "top_p": kwargs.pop("top_p", self.top_p),
             "frequency_penalty": kwargs.pop("frequency_penalty", self.frequency_penalty),
             "stop": stop,
+            "tool_choice": "auto",
         }
 
         if tools := kwargs.get("tools"):
@@ -500,7 +503,7 @@ class ChatLlamaCpp(BaseChatModel):
                 },
             )
 
-        return params
+        return remove_null_keys(params)
 
     def _create_chat_stream(
         self,
@@ -694,7 +697,8 @@ class ChatLlamaCpp(BaseChatModel):
             ),
             generation_info=generation_info,
         )
-        return ChatResult(generations=[chat_generation])
+        result = ChatResult(generations=[chat_generation])
+        return result
 
     def _stream(
         self,
