@@ -2,7 +2,7 @@
 PLAYWRIGHT_CACHE_DIR = "/Users/jethroestrada/Library/Caches/ms-playwright"
 
 # Specific browser versions
-PLAYWRIGHT_CHROMIUM = f"{PLAYWRIGHT_CACHE_DIR}/chromium-1194"
+PLAYWRIGHT_CHROMIUM = f"{PLAYWRIGHT_CACHE_DIR}/chromium-1187"
 PLAYWRIGHT_FIREFOX = f"{PLAYWRIGHT_CACHE_DIR}/firefox-1495"
 PLAYWRIGHT_WEBKIT = f"{PLAYWRIGHT_CACHE_DIR}/webkit-2215"
 

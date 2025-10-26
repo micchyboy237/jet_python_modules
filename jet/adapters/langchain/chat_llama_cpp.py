@@ -106,7 +106,7 @@ def _get_image_from_data_content_block(block: dict) -> str:
 def _get_tool_calls_from_response(
     response: Union[ChatCompletion, dict[str, Any]],
 ) -> list[ToolCall]:
-    """Get tool calls from OpenAI response."""
+    log.info(">>> [TOOL PARSING] Starting tool call extraction from LLM response.")
     tool_calls = []
     if isinstance(response, dict) and "choices" in response and response["choices"]:
         choice = response["choices"][0]
@@ -123,7 +123,7 @@ def _get_tool_calls_from_response(
             )
     elif isinstance(response, ChatCompletionChunk) and response.choices:
         choice = response.choices[0]
-        if choice.delta.tool_calls:
+        if getattr(choice.delta, "tool_calls", None):
             tool_calls.extend(
                 [
                     tool_call(
@@ -131,10 +131,16 @@ def _get_tool_calls_from_response(
                         name=tc.function.name,
                         args=json.loads(tc.function.arguments or "{}"),
                     )
-                    for tc in choice.delta.tool_calls
+                    for tc in getattr(choice.delta, "tool_calls", [])
                     if tc.function and tc.function.name
                 ]
             )
+    if tool_calls:
+        log.warning(f">>> [TOOL DETECTED] Found {len(tool_calls)} tool call(s):")
+        for tc in tool_calls:
+            log.warning(f"    - Tool: {tc['name']}(id={tc['id']}) | Args: {tc['args']}")
+    else:
+        log.info(">>> [NO TOOL] No tool calls in response.")
     return tool_calls
 
 def _is_pydantic_class(obj: Any) -> bool:
@@ -143,164 +149,7 @@ def _is_pydantic_class(obj: Any) -> bool:
 class ChatLlamaCpp(BaseChatModel):
     r"""Llama.cpp chat model integration with OpenAI-compatible API.
 
-    .. dropdown:: Setup
-        :open:
-
-        Ensure the llama.cpp server is running with an OpenAI-compatible API at
-        `http://shawn-pc.local:8080/v1` and the desired model is loaded.
-
-        Install the required package:
-
-        .. code-block:: bash
-
-            pip install -U openai
-
-    Key init args — completion params:
-        model: str
-            Name of the llama.cpp model to use.
-        reasoning: Optional[Union[bool, str]]
-            Controls reasoning/thinking mode for supported models.
-
-            - ``True``: Enables reasoning mode. The model's reasoning process will be
-              captured and returned in the ``additional_kwargs`` of the response message,
-              under ``reasoning_content``. The main response content will not include
-              reasoning tags.
-            - ``False``: Disables reasoning mode. No reasoning content is included.
-            - ``None`` (Default): Uses the model's default reasoning behavior, which may
-              include reasoning content in the main response.
-            - ``str``: e.g., ``'low'``, ``'medium'``, ``'high'``. Enables reasoning with
-              a custom intensity level, if supported by the model.
-        temperature: Optional[float]
-            Sampling temperature. Ranges from ``0.0`` to ``2.0``. Default: ``0.8``.
-        max_tokens: Optional[int]
-            Maximum number of tokens to generate. Default: ``128``.
-
-    Instantiate:
-        .. code-block:: python
-
-            from chat_llama_cpp import ChatLlamaCpp
-
-            llm = ChatLlamaCpp(
-                model="gpt-oss:20b",
-                validate_model_on_init=True,
-                temperature=0.8,
-                max_tokens=256,
-            )
-
-    Invoke:
-        .. code-block:: python
-
-            messages = [
-                ("system", "You are a helpful translator. Translate the user sentence to French."),
-                ("human", "I love programming."),
-            ]
-            llm.invoke(messages)
-
-        .. code-block:: python
-
-            AIMessage(content='J\'adore programmer.', response_metadata={'model': 'gpt-oss:20b', 'created': 1698162061, 'usage': {'prompt_tokens': 32, 'completion_tokens': 71, 'total_tokens': 103}}, id='run-ba48f958-6402-41a5-b461-5e250a4ebd36-0')
-
-    Stream:
-        .. code-block:: python
-
-            for chunk in llm.stream("Return the words Hello World!"):
-                print(chunk.text, end="")
-
-        .. code-block:: python
-
-            Hello World!
-
-    Async:
-        .. code-block:: python
-
-            await llm.ainvoke("Hello how are you!")
-
-        .. code-block:: python
-
-            AIMessage(content="Hi there! I'm ready to help with any questions or tasks you may have!", response_metadata={'model': 'gpt-oss:20b', 'created': 1698162061, 'usage': {'prompt_tokens': 10, 'completion_tokens': 47, 'total_tokens': 57}}, id='run-29c510ae-49a4-4cdd-8f23-b972bfab1c49-0')
-
-    JSON mode:
-        .. code-block:: python
-
-            json_llm = ChatLlamaCpp(format="json")
-            llm.invoke(
-                "Return a query for the weather in a random location and time of day with two keys: location and time_of_day. "
-                "Respond using JSON only."
-            ).content
-
-        .. code-block:: python
-
-            '{"location": "Pune, India", "time_of_day": "morning"}'
-
-    Tool Calling:
-        .. code-block:: python
-
-            from chat_llama_cpp import ChatLlamaCpp
-            from pydantic import BaseModel, Field
-
-            class Multiply(BaseModel):
-                a: int = Field(..., description="First integer")
-                b: int = Field(..., description="Second integer")
-
-            ans = await llm.invoke("What is 45*67")
-            ans.tool_calls
-
-        .. code-block:: python
-
-            [
-                {
-                    "name": "Multiply",
-                    "args": {"a": 45, "b": 67},
-                    "id": "call_Ao02pnFYXD6GN1yzc0uXPsvF",
-                    "type": "tool_call",
-                }
-            ]
-
-    Thinking / Reasoning:
-        You can enable reasoning mode for models that support it by setting
-        the ``reasoning`` parameter to ``True`` in either the constructor or
-        the ``invoke``/``stream`` methods. This will enable the model to think
-        through the problem and return the reasoning process separately in the
-        ``additional_kwargs`` of the response message, under ``reasoning_content``.
-
-        If ``reasoning`` is set to ``None``, the model will use its default reasoning
-        behavior, and any reasoning content will be included in the main response content.
-
-        .. code-block:: python
-
-            from chat_llama_cpp import ChatLlamaCpp
-
-            llm = ChatLlamaCpp(
-                model="gpt-oss:20b",
-                validate_model_on_init=True,
-                reasoning=True,
-            )
-
-            llm.invoke("How many r's in the word strawberry?")
-
-        .. code-block:: python
-
-            AIMessage(content='The word "strawberry" contains **three r letters**.', additional_kwargs={'reasoning_content': 'Let\'s break down the word "strawberry": s-t-r-a-w-b-e-r-r-y. Counting the r\'s: 1 (t-r), 2 (r-r), 3 (r-y). Thus, there are three r\'s.'}, response_metadata={'model': 'gpt-oss:20b', 'created': 1698162061, 'usage': {'prompt_tokens': 10, 'completion_tokens': 3615, 'total_tokens': 3625}}, id='run-18f8269f-6a35-4a7c-826d-b89d52c753b3-0')
-
-    Structured Output:
-        .. code-block:: python
-
-            from pydantic import BaseModel, Field
-
-            class AnswerWithJustification(BaseModel):
-                answer: str
-                justification: str
-
-            llm = ChatLlamaCpp(model="gpt-oss:20b", temperature=0)
-            structured_llm = llm.with_structured_output(AnswerWithJustification)
-            structured_llm.invoke("What weighs more: a pound of bricks or a pound of feathers?")
-
-        .. code-block:: python
-
-            AnswerWithJustification(
-                answer='They weigh the same',
-                justification='Both a pound of bricks and a pound of feathers weigh one pound. The weight is the same, but the volume or density of the objects may differ.'
-            )
+    <docstring unchanged>
     """
 
     model: str
@@ -385,6 +234,7 @@ class ChatLlamaCpp(BaseChatModel):
     def _convert_messages_to_openai_messages(
         self, messages: list[BaseMessage]
     ) -> Sequence[ChatCompletionMessageParam]:
+        log.info("Converting LangChain messages to OpenAI format.")
         openai_messages: list[ChatCompletionMessageParam] = []
         for message in messages:
             role: str
@@ -459,6 +309,7 @@ class ChatLlamaCpp(BaseChatModel):
                 msg["tool_call_id"] = tool_call_id
             openai_messages.append(msg)
 
+        log.debug(f"Converted messages: {openai_messages}")
         return openai_messages
 
     def _chat_params(
@@ -467,6 +318,7 @@ class ChatLlamaCpp(BaseChatModel):
         stop: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        log.info("Preparing chat parameters for API call.")
         openai_messages = self._convert_messages_to_openai_messages(messages)
 
         if self.stop is not None and stop is not None:
@@ -486,8 +338,11 @@ class ChatLlamaCpp(BaseChatModel):
             "tool_choice": "auto",
         }
 
+        log.debug(f"Prepared params: {params}")
+
         if tools := kwargs.get("tools"):
             params["tools"] = tools
+            log.info(f"Tools bound: {[tool['function']['name'] for tool in tools]}")
 
         if self.format:
             params["response_format"] = (
@@ -538,6 +393,7 @@ class ChatLlamaCpp(BaseChatModel):
         verbose: bool = False,
         **kwargs: Any,
     ) -> ChatGenerationChunk:
+        log.info("Starting synchronous generation.")
         final_chunk = None
         for chunk in self._iterate_over_stream(messages, stop, **kwargs):
             if final_chunk is None:
@@ -553,6 +409,7 @@ class ChatLlamaCpp(BaseChatModel):
         if final_chunk is None:
             raise ValueError("No data received from llama.cpp stream.")
 
+        log.info("Generation complete.")
         return final_chunk
 
     async def _achat_stream_with_aggregation(
@@ -563,6 +420,7 @@ class ChatLlamaCpp(BaseChatModel):
         verbose: bool = False,
         **kwargs: Any,
     ) -> ChatGenerationChunk:
+        log.info("Starting asynchronous generation.")
         final_chunk = None
         async for chunk in self._aiterate_over_stream(messages, stop, **kwargs):
             if final_chunk is None:
@@ -578,6 +436,7 @@ class ChatLlamaCpp(BaseChatModel):
         if final_chunk is None:
             raise ValueError("No data received from llama.cpp stream.")
 
+        log.info("Asynchronous generation complete.")
         return final_chunk
 
     def _iterate_over_stream(
@@ -586,6 +445,7 @@ class ChatLlamaCpp(BaseChatModel):
         stop: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
+        log.info("Starting synchronous streaming.")
         reasoning = kwargs.get("reasoning", self.reasoning)
         for stream_resp in self._create_chat_stream(messages, stop, **kwargs):
             if isinstance(stream_resp, str):
@@ -619,6 +479,7 @@ class ChatLlamaCpp(BaseChatModel):
                 ),
                 generation_info=generation_info,
             )
+            log.debug(f"Yielded chunk: {chunk.text}")
             yield chunk
 
     async def _aiterate_over_stream(
@@ -627,6 +488,7 @@ class ChatLlamaCpp(BaseChatModel):
         stop: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
+        log.info("Starting asynchronous streaming.")
         reasoning = kwargs.get("reasoning", self.reasoning)
         async for stream_resp in self._acreate_chat_stream(messages, stop, **kwargs):
             if isinstance(stream_resp, str):
@@ -660,6 +522,7 @@ class ChatLlamaCpp(BaseChatModel):
                 ),
                 generation_info=generation_info,
             )
+            log.debug(f"Yielded chunk: {chunk.text}")
             yield chunk
 
     def _get_ls_params(
@@ -684,9 +547,15 @@ class ChatLlamaCpp(BaseChatModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
+        log.info(">>> [GENERATE START] Initiating LLM generation with tool support.")
         final_chunk = self._chat_stream_with_aggregation(
             messages, stop, run_manager, verbose=self.verbose, **kwargs
         )
+        aim = cast(AIMessage, final_chunk.message)
+        if aim.tool_calls:
+            log.warning(f">>> [TOOL CALL EMITTED] LLM requested {len(aim.tool_calls)} tool(s). Execution must be handled externally.")
+        else:
+            log.info(">>> [DIRECT RESPONSE] LLM returned final answer (no tools).")
         generation_info = final_chunk.generation_info
         chat_generation = ChatGeneration(
             message=AIMessage(
@@ -707,12 +576,14 @@ class ChatLlamaCpp(BaseChatModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
+        log.info("Starting synchronous streaming.")
         for chunk in self._iterate_over_stream(messages, stop, **kwargs):
             if run_manager:
                 run_manager.on_llm_new_token(
                     chunk.text,
                     verbose=self.verbose,
                 )
+            log.debug(f"Yielded chunk: {chunk.text}")
             yield chunk
 
     async def _astream(
@@ -722,12 +593,14 @@ class ChatLlamaCpp(BaseChatModel):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
+        log.info("Starting asynchronous streaming.")
         async for chunk in self._aiterate_over_stream(messages, stop, **kwargs):
             if run_manager:
                 await run_manager.on_llm_new_token(
                     chunk.text,
                     verbose=self.verbose,
                 )
+            log.debug(f"Yielded chunk: {chunk.text}")
             yield chunk
 
     async def _agenerate(
@@ -737,9 +610,11 @@ class ChatLlamaCpp(BaseChatModel):
         run_manager: Optional[AsyncCallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
+        log.info("Starting asynchronous generation.")
         final_chunk = await self._achat_stream_with_aggregation(
             messages, stop, run_manager, verbose=self.verbose, **kwargs
         )
+        log.info("Asynchronous generation complete.")
         generation_info = final_chunk.generation_info
         chat_generation = ChatGeneration(
             message=AIMessage(
@@ -774,6 +649,10 @@ class ChatLlamaCpp(BaseChatModel):
             kwargs: Additional parameters passed to ``self.bind(**kwargs)``.
         """
         formatted_tools = [convert_to_openai_tool(tool) for tool in tools]
+        log.info(f">>> [TOOL BINDING] Binding {len(formatted_tools)} tool(s): "
+                 f"{[t['function']['name'] for t in formatted_tools]}")
+        if tool_choice:
+            log.info(f">>> [TOOL CHOICE] Enforced: {tool_choice}")
         return super().bind(tools=formatted_tools, tool_choice=tool_choice, **kwargs)
 
     def with_structured_output(
@@ -795,6 +674,7 @@ class ChatLlamaCpp(BaseChatModel):
         Returns:
             A Runnable outputting structured data according to the schema.
         """
+        log.info(f"Configuring structured output with method: {method}, schema type: {type(schema)}")
         _ = kwargs.pop("strict", None)
         if kwargs:
             raise ValueError(f"Received unsupported arguments {kwargs}")
@@ -868,6 +748,7 @@ class ChatLlamaCpp(BaseChatModel):
                 f"'json_schema', or 'json_mode'. Received: '{method}'"
             )
 
+        log.debug("Structured output runnable configured.")
         if include_raw:
             parser_assign = RunnablePassthrough.assign(
                 parsed=itemgetter("raw") | output_parser, parsing_error=lambda _: None

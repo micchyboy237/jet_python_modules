@@ -55,7 +55,7 @@ create_kwargs = {
     "stream": True,
     "model": "qwen3-instruct-2507:4b",
     "temperature": 0.0,
-    "tool_choice": "auto",
+    # "tool_choice": "auto",
     "tools": tools,
 }
 
