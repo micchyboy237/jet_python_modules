@@ -1,0 +1,3 @@
+from jet.libs.llama_cpp.llamacpp_interceptor import setup_llamacpp_interceptors
+
+setup_llamacpp_interceptors()
