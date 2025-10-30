@@ -2,7 +2,7 @@
 HTTPX Global Interceptor Setup
 =============================
 
-Call `setup_llamacpp_interceptors(base_urls=[...])` at app startup to enable
+Call `setup_llamacpp_llm_interceptors(base_urls=[...])` at app startup to enable
 interception of all requests to specified base URLs (e.g., http://shawn-pc.local:8080/v1).
 
 Works globally with:
@@ -11,8 +11,8 @@ Works globally with:
 - Any library using httpx
 
 Usage:
-    from jet.shared_modules.shared.setup.httpx_interceptor import setup_llamacpp_interceptors
-    setup_llamacpp_interceptors(base_urls=["http://shawn-pc.local:8080/v1"])
+    from jet.shared_modules.shared.setup.httpx_interceptor import setup_llamacpp_llm_interceptors
+    setup_llamacpp_llm_interceptors(base_urls=["http://shawn-pc.local:8080/v1"])
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from jet.adapters.llama_cpp.tokens import count_tokens
 
 
 # === DEFAULT CONFIG ===
-DEFAULT_BASE_URLS = {"http://shawn-pc.local:8080/v1", "http://shawn-pc.local:8081/v1"}
+DEFAULT_BASE_URLS = {"http://shawn-pc.local:8080/v1"}
 # =====================
 
 class LocalInterceptor:
@@ -183,7 +183,7 @@ def setup_logger():
     from jet.llm.config import DEFAULT_LOG_DIR
     from jet.logger import logger, CustomLogger
 
-    llamacpp_log_file = f"{DEFAULT_LOG_DIR}/rest.log"
+    llamacpp_log_file = f"{DEFAULT_LOG_DIR}/llm.log"
 
     # Ensure log directory exists before logger instantiation
     os.makedirs(os.path.dirname(llamacpp_log_file), exist_ok=True)
@@ -191,11 +191,11 @@ def setup_logger():
     if os.path.exists(llamacpp_log_file):
         os.remove(llamacpp_log_file)
 
-    llamacpp_logger = CustomLogger("rest", filename=llamacpp_log_file)
+    llamacpp_logger = CustomLogger("llm", filename=llamacpp_log_file)
     logger.orange(f"REST logs: {llamacpp_log_file}")
     return llamacpp_logger
 
-def setup_llamacpp_interceptors(
+def setup_llamacpp_llm_interceptors(
     base_urls: Optional[set[str] | list[str]] = None,
     *,
     logger: Optional[Callable[[str], None]] = None,
@@ -255,18 +255,18 @@ def setup_llamacpp_interceptors(
 
 # === Optional: Manual client factories ===
 def create_client(**kwargs) -> httpx.Client:
-    setup_llamacpp_interceptors()
+    setup_llamacpp_llm_interceptors()
     return httpx.Client(**kwargs)
 
 
 def create_async_client(**kwargs) -> httpx.AsyncClient:
-    setup_llamacpp_interceptors()
+    setup_llamacpp_llm_interceptors()
     return httpx.AsyncClient(**kwargs)
 
 
 # === Demo ===
 def _run_demo():
-    setup_llamacpp_interceptors(base_urls=["http://shawn-pc.local:8080/v1", "http://api.local:9090"])
+    setup_llamacpp_llm_interceptors(base_urls=["http://shawn-pc.local:8080/v1", "http://api.local:9090"])
     print("\nDemo: Intercepted calls")
     with httpx.Client(base_url="http://shawn-pc.local:8080/v1") as c:
         c.get("/models")

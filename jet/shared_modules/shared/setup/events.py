@@ -107,9 +107,11 @@ _initialize_lock = threading.Lock()
 
 
 def setup_events():
-    from jet.libs.llama_cpp.llamacpp_interceptor import setup_llamacpp_interceptors
+    from jet.libs.llama_cpp.llamacpp_llm_interceptor import setup_llamacpp_llm_interceptors
+    from jet.libs.llama_cpp.llamacpp_embed_interceptors import setup_llamacpp_embed_interceptors
 
-    setup_llamacpp_interceptors()
+    setup_llamacpp_llm_interceptors()
+    setup_llamacpp_embed_interceptors()
 
     global _initialized
     if _initialized:
