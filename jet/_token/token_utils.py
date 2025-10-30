@@ -37,7 +37,15 @@ def get_ollama_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_
     raise ValueError(f"Model \"{model_name}\" not found")
 
 
-def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
+def get_tokenizer(
+    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None
+) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
+    """
+    Get a tokenizer for a given model name, or fall back to tiktoken if none/model not found.
+    """
+    if model_name is None:
+        return tiktoken.get_encoding("cl100k_base")
+
     if model_name in OLLAMA_MODEL_NAMES.__args__:
         model_name = OLLAMA_HF_MODELS[model_name]
 
@@ -48,17 +56,21 @@ def get_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         return tokenizer
     except Exception as e:
-        logger.warning(f"Model \"{model_name}\" not found, falling back to tiktoken cl100k_base: {str(e)}")
-        encoding = tiktoken.get_encoding("cl100k_base")
-        return encoding
+        logger.warning(
+            f"Model \"{model_name}\" not found, falling back to tiktoken cl100k_base: {str(e)}"
+        )
+        return tiktoken.get_encoding("cl100k_base")
 
 
-def get_tokenizer_fn(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES, add_special_tokens: bool = False) -> Callable[[Union[str, list[str]], bool], Union[list[int], list[list[int]]]]:
+def get_tokenizer_fn(
+    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
+    add_special_tokens: bool = False
+) -> Callable[[Union[str, list[str]], bool], Union[list[int], list[list[int]]]]:
     """
     Returns a tokenizer function for the specified model that tokenizes input text.
 
     Args:
-        model_name (str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES): The name of the model to get the tokenizer for.
+        model_name (str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES | None): The name of the model to get the tokenizer for. If None, uses tiktoken's "cl100k_base" tokenizer.
         add_special_tokens (bool, optional): Whether to add special tokens during tokenization. Defaults to False.
 
     Returns:
@@ -83,8 +95,8 @@ def get_tokenizer_fn(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAME
 
 
 def tokenize(
-    model_name: str | OLLAMA_MODEL_NAMES,
-    text: str | dict | list[str] | list[dict] | list[Message],
+    model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
+    text: str | dict | list[str] | list[dict] | list[Message] = "",
     add_special_tokens: bool = False
 ) -> list[int] | list[list[int]]:
     tokenizer = get_tokenizer(model_name)
@@ -134,6 +146,22 @@ def token_counter(
     else:
         token_counts = [len(item) for item in tokenized]
         return sum(token_counts) if not prevent_total else token_counts
+
+
+def count_tokens(
+    text: str | dict | list[str] | list[dict] | list[Message],
+    model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
+    add_special_tokens: bool = False
+) -> int:
+    if not text:
+        return 0
+
+    tokenized = tokenize(model, text, add_special_tokens)
+    if isinstance(text, (str, dict)):
+        return len(tokenized)
+    else:
+        token_counts = [len(item) for item in tokenized]
+        return sum(token_counts)
 
 
 class TokenCountsInfoResult(TypedDict):

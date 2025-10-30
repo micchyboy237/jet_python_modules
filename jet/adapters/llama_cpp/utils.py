@@ -1,7 +1,8 @@
 from jet.adapters.llama_cpp.models import LLAMACPP_MODELS, LLAMACPP_MODELS_REVERSED
+from jet.adapters.llama_cpp.types import LLAMACPP_TYPES
 
 
-def resolve_model_key(model: str) -> str:
+def resolve_model_key(model: LLAMACPP_TYPES) -> str:
     """
     Retrieves the model key (short name) for a given model key or path.
 
@@ -24,7 +25,7 @@ def resolve_model_key(model: str) -> str:
     return model
 
 
-def resolve_model_value(model: str) -> str:
+def resolve_model_value(model: LLAMACPP_TYPES) -> str:
     """
     Retrieves the model value (full path) for a given model key or path.
 

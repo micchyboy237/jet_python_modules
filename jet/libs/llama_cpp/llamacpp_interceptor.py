@@ -24,6 +24,8 @@ from datetime import datetime
 import json
 from urllib.parse import urlparse
 
+from jet.adapters.llama_cpp.tokens import count_tokens
+
 
 # === DEFAULT CONFIG ===
 DEFAULT_BASE_URLS = {"http://shawn-pc.local:8080/v1"}
@@ -57,12 +59,8 @@ class LocalInterceptor:
     def _get_request_id(self, request: httpx.Request) -> str:
         return f"{id(request):x}"
 
-    def _sanitize(self, body: dict | str | None) -> str:
-        """Return a printable, truncated representation of the body."""
-        if body is None:
-            return "None"
-        # Parse JSON only when the body is a string (request) – response already is text
-        data = body if isinstance(body, dict) else json.loads(body or "{}", strict=False)
+    def _sanitize(self, data: dict) -> str:
+        """Return a printable, truncated representation of the data."""
         return json.dumps(data, indent=2, ensure_ascii=False)
 
     def _format_headers(self, headers: httpx.Headers) -> str:
@@ -81,13 +79,26 @@ class LocalInterceptor:
 
         body = request.content.decode("utf-8", errors="ignore") if request.content else None
 
+        # Parse JSON only when the body is a string (request) – response already is text
+        data = body if isinstance(body, dict) else json.loads(body or "{}", strict=False)
+
+        prompt_tokens = count_tokens(data["messages"], data["model"])
+        tools_tokens = 0
+        if data.get("tools"):
+            tools_tokens = count_tokens(data["tools"], data["model"])
+
         msg = (
             f"\n{'='*80}\n"
             f"REQUEST → {request.method} {request.url}\n"
             f"ID: {rid} | {datetime.now():%H:%M:%S.%f}[:-3]\n"
             f"HEADERS:\n{self._format_headers(request.headers)}\n"
             f"PARAMS: {dict(request.url.params)}\n"
-            f"BODY:\n```json\n{self._sanitize(body) if body else 'None'}\n```\n"
+            f"TOKENS: {json.dumps({
+                "prompt": prompt_tokens,
+                "tools": tools_tokens,
+                "total": prompt_tokens + tools_tokens,
+            }, indent=2)}\n"
+            f"BODY:\n```json\n{self._sanitize(data) if body else "None"}\n```\n"
             f"{'='*80}"
         )
         self.logger(msg)
@@ -104,14 +115,17 @@ class LocalInterceptor:
         except Exception:
             pass
 
-        content = response.text or "No content"
+        content = response.text
+        # Parse JSON only when the result content is a string (response)
+        data = content if isinstance(content, dict) else json.loads(content or "{}", strict=False)
 
         msg = (
             f"\n{'='*80}\n"
             f"RESPONSE ← {response.status_code} {response.url}\n"
             f"ID: {rid} | {duration:.1f}ms\n"
             f"HEADERS:\n{self._format_headers(response.headers)}\n"
-            f"BODY:\n```json\n{self._sanitize(content)}\n```\n"
+            f"TOKENS: {count_tokens(data["choices"][0]["message"]["content"], data["model"])}\n"
+            f"BODY:\n```json\n{self._sanitize(data) if content else "No content"}\n```\n"
             f"{'='*80}"
         )
         self.logger(msg)
