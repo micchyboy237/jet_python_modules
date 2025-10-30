@@ -5,7 +5,7 @@ HTTPX Global Interceptor for Llama.cpp Embeddings
 Call `setup_llamacpp_embed_interceptors(base_urls=[...])` at app startup to enable
 interception of all embedding requests to specified base URLs (default: http://shawn-pc.local:8081/v1).
 
-- Logs request: method, URL, input count, model, input tokens
+- Logs request: method, URL, input count, model, TOKENS: {"min":..., "ave":..., "max":..., "total":...}
 - Logs response: status, duration, per-item `index` and `embedding.shape`
 - Does **not** log full embedding vectors
 - Works globally with httpx.Client / AsyncClient and OpenAI-compatible clients
@@ -77,8 +77,15 @@ class EmbedInterceptor:
             inputs = [inputs]
         input_count = len(inputs)
 
-        # Count input tokens
-        input_tokens = count_tokens(inputs, model) if inputs else 0
+        # Count tokens per input
+        token_counts = [count_tokens([inp], model) for inp in inputs] if inputs else []
+        total_tokens = sum(token_counts)
+        token_stats = {
+            "min": min(token_counts) if token_counts else 0,
+            "max": max(token_counts) if token_counts else 0,
+            "ave": round(total_tokens / len(token_counts), 1) if token_counts else 0.0,
+            "total": total_tokens,
+        }
 
         msg = (
             f"\n{'='*80}\n"
@@ -86,7 +93,7 @@ class EmbedInterceptor:
             f"ID: {rid} | {datetime.now():%H:%M:%S.%f}[:-3]\n"
             f"HEADERS:\n{self._format_headers(request.headers)}\n"
             f"INPUT: {input_count} item(s) | model: {model}\n"
-            f"TOKENS: {input_tokens}\n"
+            f"TOKENS: {json.dumps(token_stats)}\n"
             f"BODY:\n```json\n{self._sanitize_body(data)}\n```\n"
             f"{'='*80}"
         )
@@ -197,15 +204,6 @@ def setup_llamacpp_embed_interceptors(
     max_content_length: int = 2000,
     force: bool = False,
 ) -> None:
-    """
-    Enable global interception for embedding endpoints.
-    Args:
-        base_urls: URLs to intercept (default: http://shawn-pc.local:8081/v1)
-        logger: Custom logger (defaults to file logger)
-        include_sensitive: Show auth headers
-        max_content_length: Truncate body preview
-        force: Re-apply even if already patched
-    """
     global _patched, _interceptor
     if _patched and not force:
         return
