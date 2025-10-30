@@ -1,5 +1,5 @@
 import json
-from typing import Any, Union
+from typing import Any, Callable, Union
 from collections.abc import Mapping
 from jet.utils.class_utils import get_class_name
 
@@ -114,28 +114,35 @@ def remove_null_keys(data: Union[dict, list]) -> Union[dict, list]:
     return data
 
 
-def truncate_strings(obj, max_len=100, suffix=""):
+def truncate_strings(
+    obj: Any,
+    max_len: int = 100,
+    suffix: str | Callable[[str, str], str] = "",
+) -> Any:
     """
     Recursively traverse dicts, lists, tuples, sets and truncate string values to max_len.
-    If truncated, append `suffix` to the string.
+    If truncated, append `suffix` (static string or callable returning dynamic suffix).
     """
     if isinstance(obj, str):
         if len(obj) > max_len:
-            return obj[:max_len] + suffix
+            truncated = obj[:max_len]
+            if callable(suffix):
+                return truncated + suffix(obj, truncated)
+            return truncated + suffix
         return obj
-    
+
     elif isinstance(obj, Mapping):  # dict-like
         return {k: truncate_strings(v, max_len, suffix) for k, v in obj.items()}
-    
+
     elif isinstance(obj, list):
         return [truncate_strings(v, max_len, suffix) for v in obj]
-    
+
     elif isinstance(obj, tuple):
         return tuple(truncate_strings(v, max_len, suffix) for v in obj)
-    
+
     elif isinstance(obj, set):
         return {truncate_strings(v, max_len, suffix) for v in obj}
-    
+
     else:
         return obj
 

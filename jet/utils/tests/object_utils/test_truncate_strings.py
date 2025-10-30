@@ -76,5 +76,54 @@ class TestTruncateStringsWithSuffix(unittest.TestCase):
         self.assertEqual(result, data)  # unchanged
 
 
+class TestTruncateStringsWithDynamicSuffix(unittest.TestCase):
+    def _suffix_factory(self, orig: str, trunc: str) -> str:
+        return f"... [TRUNCATED {{{len(orig) - len(trunc)}}}]"
+
+    def test_simple_string_dynamic_suffix(self):
+        # Given
+        input_str = "a" * 250
+        max_len = 100
+        expected_suffix = "... [TRUNCATED {150}]"
+        expected = "a" * 100 + expected_suffix
+
+        # When
+        result = truncate_strings(input_str, max_len, self._suffix_factory)
+
+        # Then
+        self.assertEqual(result, expected)
+
+    def test_nested_structure_dynamic_suffix(self):
+        # Given
+        data = {
+            "msg": "x" * 300,
+            "details": {
+                "log": "y" * 180,
+                "items": ["z" * 220]
+            }
+        }
+        max_len = 100
+        suffix_factory = self._suffix_factory
+
+        # When
+        result = truncate_strings(data, max_len, suffix_factory)
+
+        # Then
+        self.assertEqual(result["msg"], "x" * 100 + "... [TRUNCATED {200}]")
+        self.assertEqual(result["details"]["log"], "y" * 100 + "... [TRUNCATED {80}]")
+        self.assertEqual(result["details"]["items"][0], "z" * 100 + "... [TRUNCATED {120}]")
+
+    def test_no_truncation_dynamic_suffix(self):
+        # Given
+        data = {"short": "hello", "num": 42}
+
+        # When
+        result = truncate_strings(data, 100, self._suffix_factory)
+
+        # Then
+        self.assertEqual(result["short"], "hello")
+        self.assertEqual(result["num"], 42)
+
+
 if __name__ == "__main__":
     unittest.main()
