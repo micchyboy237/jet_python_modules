@@ -21,22 +21,23 @@ from jet.logger import logger, CustomLogger
 import os
 import shutil
 
-shutil.rmtree(DEFAULT_LOG_DIR, ignore_errors=True)
-os.makedirs(DEFAULT_LOG_DIR, exist_ok=True)
+log_dir = f"{DEFAULT_LOG_DIR}/output"
+shutil.rmtree(log_dir, ignore_errors=True)
+os.makedirs(log_dir, exist_ok=True)
 
-agent_log_file = f"{DEFAULT_LOG_DIR}/agent.log"
+agent_log_file = f"{log_dir}/agent.log"
 agent_logger = CustomLogger("agent", filename=agent_log_file)
 logger.orange(f"Agent logs: {agent_log_file}")
 
-model_log_file = f"{DEFAULT_LOG_DIR}/model.log"
+model_log_file = f"{log_dir}/model.log"
 model_logger = CustomLogger("model", filename=model_log_file)
 logger.orange(f"Model logs: {model_log_file}")
 
-tool_log_file = f"{DEFAULT_LOG_DIR}/tool.log"
+tool_log_file = f"{log_dir}/tool.log"
 tool_logger = CustomLogger("tool", filename=tool_log_file)
 logger.orange(f"Tool logs: {tool_log_file}")
 
-# tool_log_file = f"{DEFAULT_LOG_DIR}/tools.log"
+# tool_log_file = f"{log_dir}/tools.log"
 # tool_logger = CustomLogger("tools", filename=tool_log_file, level=logging.DEBUG)
 # logger.orange(f"Tool logs: {tool_log_file}")
 
