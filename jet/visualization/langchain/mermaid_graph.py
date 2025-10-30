@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from langchain_core.runnables.graph import MermaidDrawMethod
 
+from jet.logger import logger
+
 
 def render_mermaid_graph(
     agent,
@@ -32,3 +34,5 @@ def render_mermaid_graph(
     if open_file:
         # Open the PNG file with the default image viewer on macOS
         os.system(f"open {output_path}")
+
+    logger.log("Saved graph to: ", output_filename, colors=["SUCCESS", "BRIGHT_SUCCESS"])

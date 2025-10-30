@@ -5,6 +5,7 @@ datasets
 evaluate
 faiss-cpu
 hdbscan
+hf_xet
 huggingface-hub
 ipython
 ipywidgets

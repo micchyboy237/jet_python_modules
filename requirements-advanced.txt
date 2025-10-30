@@ -16,3 +16,4 @@ mlx
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index
 
 pyppeteer # for rendering mermaid graph
+simsimd
