@@ -1,39 +1,29 @@
+# jet_python_modules/jet/libs/llama_cpp/llamacpp_embed_interceptors.py
 """
-HTTPX Global Interceptor Setup for Embedding Endpoints
-======================================================
-
+HTTPX Global Interceptor for Llama.cpp Embeddings
+================================================
 Call `setup_llamacpp_embed_interceptors(base_urls=[...])` at app startup to enable
-interception of embedding requests to specified base URLs (e.g., http://shawn-pc.local:8081/v1).
+interception of all embedding requests to specified base URLs (default: http://shawn-pc.local:8081/v1).
 
-Works globally with:
-- httpx.Client / AsyncClient
-- openai.Embedding.create (used by LlamaCPP embedding clients)
-- Any library using httpx
-
-Usage:
-    from jet.shared_modules.shared.setup.httpx_interceptor import setup_llamacpp_embed_interceptors
-    setup_llamacpp_embed_interceptors(base_urls=["http://shawn-pc.local:8081/v1"])
+- Logs request: method, URL, input count, model, input tokens
+- Logs response: status, duration, per-item `index` and `embedding.shape`
+- Does **not** log full embedding vectors
+- Works globally with httpx.Client / AsyncClient and OpenAI-compatible clients
 """
-
 from __future__ import annotations
-
 import httpx
 from typing import Callable, Optional, Set
 import time
 from datetime import datetime
 import json
 from urllib.parse import urlparse
-
 from jet.adapters.llama_cpp.tokens import count_tokens
 
-
-# === DEFAULT CONFIG ===
 DEFAULT_BASE_URLS = {"http://shawn-pc.local:8081/v1"}
-# =====================
 
-class EmbeddingInterceptor:
+
+class EmbedInterceptor:
     """Intercepts embedding requests for specified base URLs."""
-    
     def __init__(
         self,
         base_urls: Set[str],
@@ -48,20 +38,15 @@ class EmbeddingInterceptor:
         self.start_times: dict[str, float] = {}
 
     def _should_intercept(self, url: str) -> bool:
-        """Check if URL matches any configured base_url and targets /embeddings."""
         try:
             parsed = urlparse(str(url))
-            base = f"{parsed.scheme}://{parsed.netloc}{parsed.path.rsplit('/embeddings', 1)[0]}".rstrip("/")
-            return any(base.startswith(target) for target in self.base_urls) and "/embeddings" in parsed.path
+            base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+            return any(base.startswith(target) for target in self.base_urls)
         except Exception:
             return False
 
     def _get_request_id(self, request: httpx.Request) -> str:
         return f"{id(request):x}"
-
-    def _sanitize(self, data: dict | list) -> str:
-        """Return a printable, truncated representation of the data."""
-        return json.dumps(data, indent=2, ensure_ascii=False)[: self.max_content_length]
 
     def _format_headers(self, headers: httpx.Headers) -> str:
         h = dict(headers)
@@ -71,6 +56,9 @@ class EmbeddingInterceptor:
                     h[k] = "***HIDDEN***"
         return json.dumps(h, indent=2)
 
+    def _sanitize_body(self, data: dict) -> str:
+        return json.dumps(data, indent=2, ensure_ascii=False)[: self.max_content_length]
+
     def request_hook(self, request: httpx.Request) -> None:
         if not self._should_intercept(request.url):
             return
@@ -78,23 +66,28 @@ class EmbeddingInterceptor:
         self.start_times[rid] = time.time()
 
         body = request.content.decode("utf-8", errors="ignore") if request.content else None
-        data = json.loads(body or "{}", strict=False) if body else {}
+        try:
+            data = json.loads(body or "{}")
+        except json.JSONDecodeError:
+            data = {}
 
-        # Handle both list[str] and dict with "input"
-        input_texts = data.get("input") or data
-        if isinstance(input_texts, str):
-            input_texts = [input_texts]
+        model = data.get("model", "unknown")
+        inputs = data.get("input", [])
+        if isinstance(inputs, str):
+            inputs = [inputs]
+        input_count = len(inputs)
 
-        input_tokens = sum(count_tokens([text], data.get("model", "")) for text in input_texts)
+        # Count input tokens
+        input_tokens = count_tokens(inputs, model) if inputs else 0
 
         msg = (
             f"\n{'='*80}\n"
-            f"EMBEDDING REQUEST → {request.method} {request.url}\n"
+            f"EMBED REQUEST → {request.method} {request.url}\n"
             f"ID: {rid} | {datetime.now():%H:%M:%S.%f}[:-3]\n"
             f"HEADERS:\n{self._format_headers(request.headers)}\n"
-            f"PARAMS: {dict(request.url.params)}\n"
-            f"TOKENS: {json.dumps({'input': input_tokens}, indent=2)}\n"
-            f"BODY:\n```json\n{self._sanitize(data) if body else 'None'}\n```\n"
+            f"INPUT: {input_count} item(s) | model: {model}\n"
+            f"TOKENS: {input_tokens}\n"
+            f"BODY:\n```json\n{self._sanitize_body(data)}\n```\n"
             f"{'='*80}"
         )
         self.logger(msg)
@@ -112,30 +105,40 @@ class EmbeddingInterceptor:
             pass
 
         content = response.text
-        data = json.loads(content or "{}", strict=False)
+        try:
+            data = json.loads(content or "{}")
+        except json.JSONDecodeError:
+            data = {}
 
-        # Count tokens in usage.prompt_tokens if available, fallback to estimating from input
-        prompt_tokens = data.get("usage", {}).get("prompt_tokens", 0)
-        embedding_count = len(data.get("data", []))
+        # Handle both /v1/embeddings and /embeddings formats
+        items = data.get("data") or data  # OpenAI: data[], non-OpenAI: direct list
+
+        summary = []
+        for item in items:
+            idx = item.get("index", "?")
+            emb = item.get("embedding", [])
+            if isinstance(emb, list) and emb and isinstance(emb[0], list):
+                shape = f"[{len(emb)}, {len(emb[0])}]"  # [tokens, dim]
+            else:
+                shape = f"{len(emb)}"
+            summary.append(f"  - index: {idx}, shape: {shape}")
 
         msg = (
             f"\n{'='*80}\n"
-            f"EMBEDDING RESPONSE ← {response.status_code} {response.url}\n"
+            f"EMBED RESPONSE ← {response.status_code} {response.url}\n"
             f"ID: {rid} | {duration:.1f}ms\n"
             f"HEADERS:\n{self._format_headers(response.headers)}\n"
-            f"EMBEDDINGS RETURNED: {embedding_count}\n"
-            f"TOKENS (usage): {json.dumps({'prompt_tokens': prompt_tokens}, indent=2)}\n"
-            f"BODY:\n```json\n{self._sanitize(data) if content else 'No content'}\n```\n"
+            f"OUTPUT: {len(items)} embedding(s)\n"
+            + "\n".join(summary) + "\n"
             f"{'='*80}"
         )
         self.logger(msg)
 
 
-# === GLOBAL STATE ===
 _patched = False
 _original_client_init = None
 _original_async_client_init = None
-_interceptor: Optional[EmbeddingInterceptor] = None
+_interceptor: Optional[EmbedInterceptor] = None
 
 
 def _patch_client_init():
@@ -146,13 +149,13 @@ def _patch_client_init():
     def patched_init(self, *args, **kwargs):
         _original_client_init(self, *args, **kwargs)
         base_url = kwargs.get("base_url") or getattr(self, "base_url", "")
-        if _interceptor and _interceptor._should_intercept(httpx.URL(base_url)):
+        if _interceptor and _interceptor._should_intercept(base_url):
             hooks = getattr(self, "event_hooks", {}) or {}
             hooks.setdefault("request", []).append(_interceptor.request_hook)
             hooks.setdefault("response", []).append(_interceptor.response_hook)
             self.event_hooks = hooks
 
-    httpx.Client.__init__ = patched_init  # type: ignore
+    httpx.Client.__init__ = patched_init
 
 
 def _patch_async_client_init():
@@ -163,13 +166,13 @@ def _patch_async_client_init():
     def patched_init(self, *args, **kwargs):
         _original_async_client_init(self, *args, **kwargs)
         base_url = kwargs.get("base_url") or getattr(self, "base_url", "")
-        if _interceptor and _interceptor._should_intercept(httpx.URL(base_url)):
+        if _interceptor and _interceptor._should_intercept(base_url):
             hooks = getattr(self, "event_hooks", {}) or {}
             hooks.setdefault("request", []).append(_interceptor.request_hook)
             hooks.setdefault("response", []).append(_interceptor.response_hook)
             self.event_hooks = hooks
 
-    httpx.AsyncClient.__init__ = patched_init  # type: ignore
+    httpx.AsyncClient.__init__ = patched_init
 
 
 def setup_logger():
@@ -177,15 +180,13 @@ def setup_logger():
     from jet.llm.config import DEFAULT_LOG_DIR
     from jet.logger import logger, CustomLogger
 
-    embedding_log_file = f"{DEFAULT_LOG_DIR}/embedding.log"
-
-    os.makedirs(os.path.dirname(embedding_log_file), exist_ok=True)
-    if os.path.exists(embedding_log_file):
-        os.remove(embedding_log_file)
-
-    embedding_logger = CustomLogger("embedding", filename=embedding_log_file)
-    logger.orange(f"Embedding REST logs: {embedding_log_file}")
-    return embedding_logger
+    embed_log_file = f"{DEFAULT_LOG_DIR}/embed.log"
+    os.makedirs(os.path.dirname(embed_log_file), exist_ok=True)
+    if os.path.exists(embed_log_file):
+        os.remove(embed_log_file)
+    embed_logger = CustomLogger("embed", filename=embed_log_file)
+    logger.orange(f"Embedding logs: {embed_log_file}")
+    return embed_logger
 
 
 def setup_llamacpp_embed_interceptors(
@@ -198,17 +199,14 @@ def setup_llamacpp_embed_interceptors(
 ) -> None:
     """
     Enable global interception for embedding endpoints.
-
     Args:
-        base_urls: Set or list of base URLs to intercept (e.g., ["http://api.local:8081/v1"]).
-                   Defaults to ["http://shawn-pc.local:8081/v1"].
-        logger: Custom logger function (defaults to file-based).
-        include_sensitive: Log sensitive headers (default: False).
-        max_content_length: Truncate body preview length.
-        force: Re-apply patch even if already set up.
+        base_urls: URLs to intercept (default: http://shawn-pc.local:8081/v1)
+        logger: Custom logger (defaults to file logger)
+        include_sensitive: Show auth headers
+        max_content_length: Truncate body preview
+        force: Re-apply even if already patched
     """
     global _patched, _interceptor
-
     if _patched and not force:
         return
 
@@ -228,21 +226,18 @@ def setup_llamacpp_embed_interceptors(
     if not logger:
         logger = setup_logger()
 
-    _interceptor = EmbeddingInterceptor(
+    _interceptor = EmbedInterceptor(
         base_urls=base_urls,
         logger=logger,
         include_sensitive=include_sensitive,
         max_content_length=max_content_length,
     )
-
     _patch_client_init()
     _patch_async_client_init()
     _patched = True
+    print(f"\nHTTPX Embed Interceptors ENABLED for {', '.join(base_urls)}")
 
-    print(f"\nHTTPX Embedding Interceptors ENABLED for {', '.join(base_urls)}")
 
-
-# === Optional: Manual client factories ===
 def create_client(**kwargs) -> httpx.Client:
     setup_llamacpp_embed_interceptors()
     return httpx.Client(**kwargs)
@@ -253,15 +248,15 @@ def create_async_client(**kwargs) -> httpx.AsyncClient:
     return httpx.AsyncClient(**kwargs)
 
 
-# === Demo ===
 def _run_demo():
     setup_llamacpp_embed_interceptors(base_urls=["http://shawn-pc.local:8081/v1"])
-    print("\nDemo: Intercepted embedding call")
+    print("\nDemo: Embedding interception")
     with httpx.Client(base_url="http://shawn-pc.local:8081/v1") as c:
-        c.post("/embeddings", json={"input": ["Hello world"], "model": "nomic-embed-text"})
-    print("\nDemo: Ignored non-embedding call")
-    with httpx.Client(base_url="http://shawn-pc.local:8081/v1") as c:
-        c.get("/models")
+        c.post("/embeddings", json={"input": ["hello", "world"], "model": "nomic-embed-text"})
+    print("\nDemo: Ignored call")
+    with httpx.Client(base_url="https://httpbin.org") as c:
+        c.get("/get")
+
 
 if __name__ == "__main__":
     _run_demo()
