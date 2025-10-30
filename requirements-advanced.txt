@@ -6,6 +6,7 @@ mlx
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/checkpoint
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/partners/openai
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/partners/ollama
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain-community/libs/community
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/langgraph
