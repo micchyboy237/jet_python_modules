@@ -12,7 +12,7 @@ from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from langgraph.prebuilt.tool_node import ToolCallRequest
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.types import Command
 from jet.logger import logger, CustomLogger
 import os
@@ -168,3 +168,47 @@ def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instr
     )
 
     return agent
+
+def estimate_tokens(messages: List[BaseMessage]) -> int:
+    """Estimate token count for message list."""
+    import tiktoken
+    encoder = tiktoken.get_encoding("cl100k_base")
+    return sum(len(encoder.encode(m.content)) for m in messages) + len(messages) * 4  # +4 per message overhead
+
+def compress_context(
+    messages: List[BaseMessage],
+    retriever_results: str,
+    max_tokens: int = 3500,  # Leave ~600 for output + safety
+    llm: Optional[BaseChatModel] = None
+) -> str:
+    """
+    Compress retrieved docs + conversation history into a concise summary
+    while preserving accuracy via LLM self-summarization.
+    """
+    _llm = llm or ChatOpenAI(
+        model="qwen3-instruct-2507:4b",
+        temperature=0.0,
+        base_url="http://shawn-pc.local:8080/v1",
+        verbosity="high",
+    )
+
+    full_context = f"Retrieved Documents:\n{retriever_results}\n\nConversation So Far:\n"
+    for msg in messages[:-1]:  # exclude current user query
+        role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+        full_context += f"{role}: {msg.content}\n"
+
+    if estimate_tokens([SystemMessage(content=full_context)]) < max_tokens:
+        return full_context
+
+    # If too long: use LLM to summarize prior context losslessly
+    summary_prompt = f"""
+    Summarize the following research context and conversation **without losing any technical details, definitions, examples, or cited techniques**. 
+    Preserve accuracy and specificity. Focus on key concepts, mechanisms, and findings.
+
+    Content to summarize:
+    {full_context}
+
+    Concise Summary (preserve all facts):
+    """
+    summary_msg = _llm.invoke(summary_prompt)
+    return summary_msg.content
