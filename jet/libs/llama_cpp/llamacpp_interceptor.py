@@ -111,7 +111,7 @@ class LocalInterceptor:
             f"RESPONSE ← {response.status_code} {response.url}\n"
             f"ID: {rid} | {duration:.1f}ms\n"
             f"HEADERS:\n{self._format_headers(response.headers)}\n"
-            f"BODY: {self._sanitize(content)}\n"
+            f"BODY:\n```json\n{self._sanitize(content)}\n```\n"
             f"{'='*80}"
         )
         self.logger(msg)
