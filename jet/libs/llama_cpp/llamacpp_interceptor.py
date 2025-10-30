@@ -28,7 +28,7 @@ from jet.adapters.llama_cpp.tokens import count_tokens
 
 
 # === DEFAULT CONFIG ===
-DEFAULT_BASE_URLS = {"http://shawn-pc.local:8080/v1"}
+DEFAULT_BASE_URLS = {"http://shawn-pc.local:8080/v1", "http://shawn-pc.local:8081/v1"}
 # =====================
 
 class LocalInterceptor:
@@ -122,7 +122,7 @@ class LocalInterceptor:
         tool_calls_tokens = count_tokens([
             str(tc["function"])
             for tc in data["choices"][0]["message"]["tool_calls"]
-        ], data["model"]) if data["choices"][0]["message"]["tool_calls"] else 0
+        ], data["model"]) if data["choices"][0]["message"].get("tool_calls") else 0
 
         msg = (
             f"\n{'='*80}\n"
