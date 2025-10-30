@@ -515,6 +515,9 @@ def logger_examples(logger: CustomLogger):
     logger.magenta()  # Added
     logger.magenta("This is a magenta message.")
     logger.magenta("This is a bright magenta message.", bright=True)
+    logger.green()  # Added
+    logger.green("This is a green message.")
+    logger.green("This is a bright green message.", bright=True)
     logger.log("Unicode message:", "Playwright Team \u2551 \u255a",
             colors=["WHITE", "DEBUG"])
     logger.newline()
