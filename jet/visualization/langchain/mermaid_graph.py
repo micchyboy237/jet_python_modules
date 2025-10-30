@@ -4,7 +4,6 @@ from langchain_core.runnables.graph import MermaidDrawMethod
 
 from jet.logger import logger
 
-
 def render_mermaid_graph(
     agent,
     output_filename="graph_output.png",
