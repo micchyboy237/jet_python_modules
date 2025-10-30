@@ -52,6 +52,23 @@ class CustomLogger:
         print(
             f"DEBUG: Initialized logger with console_level: {self.console_level}\nlog_file: {self.log_file}")
 
+    def __call__(
+        self,
+        message: Any = "",
+        *args: Any,
+        bright: bool = False,
+        flush: bool = False,
+        end: str = None,
+        colors: list[str] = None,
+        exc_info: bool = True,
+        log_file: Optional[str] = None,
+    ) -> None:
+        self.custom_logger_method("LOG")(
+            message, *args,
+            bright=bright, flush=flush, end=end,
+            colors=colors, exc_info=exc_info, log_file=log_file
+        )
+
     def _initialize_logger(self, name: str) -> logging.Logger:
         logger = logging.getLogger(name)
         logger.setLevel(logging.DEBUG)
@@ -343,7 +360,12 @@ class CustomLogger:
                         try:
                             stack = traceback.extract_stack()
                             caller = None
-                            logger_methods = {'wrapper', '__getattr__', 'custom_logger_method'}
+                            logger_methods = {
+                                'wrapper',
+                                '__getattr__',
+                                'custom_logger_method',
+                                '__call__',
+                            }
                             for frame in reversed(stack):
                                 if frame.name in logger_methods and frame.filename == __file__:
                                     continue
@@ -456,6 +478,7 @@ def logger_examples(logger: CustomLogger):
     logger.log("\n==== LOGGER METHODS =====")
     logger.newline()
     logger.log("This is a default log message.")
+    logger("Called log message.")
     logger.info()  # Added
     logger.info("This is an info message.")
     logger.info("This is a bright info message.", bright=True)
