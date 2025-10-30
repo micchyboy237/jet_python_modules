@@ -30,6 +30,8 @@ COLORS = {
     "BRIGHT_LIME": BOLD + "\u001b[48;5;82m",
     "CYAN": BOLD + "\u001b[38;5;51m",
     "BRIGHT_CYAN": BOLD + "\u001b[48;5;51m",
+    "MAGENTA": BOLD + "\u001b[38;5;201m",
+    "BRIGHT_MAGENTA": BOLD + "\u001b[48;5;201m",
     "WHITE": BOLD + "\u001b[38;5;15m",
     "GRAY": "\u001b[38;5;250m",
     "LOG": BOLD + "\u001b[38;5;15m",
