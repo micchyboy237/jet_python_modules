@@ -95,7 +95,7 @@ def tokenize(
         return tokenized
 
 def count_tokens(
-    text: str | dict | list[str] | list[dict] | list[BaseMessage],
+    text: Optional[str | dict | list[str] | list[dict] | list[BaseMessage]],
     model: Optional[LLAMACPP_TYPES] = None,
     add_special_tokens: bool = False
 ) -> int:
