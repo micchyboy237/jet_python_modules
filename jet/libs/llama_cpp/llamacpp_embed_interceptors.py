@@ -18,9 +18,52 @@ from datetime import datetime
 import json
 from urllib.parse import urlparse
 from jet.adapters.llama_cpp.tokens import count_tokens
+from jet.llm.config import DEFAULT_LOG_DIR
+from jet.logger import logger, CustomLogger
+import threading
+import shutil
+import os
 
 DEFAULT_BASE_URLS = {"http://shawn-pc.local:8081/v1"}
 
+# ----------------------------------------------------------------------
+# Log-directory management (import-safe, shared with other modules)
+# ----------------------------------------------------------------------
+_embed_log_dir: Optional[str] = None
+_embed_log_lock = threading.Lock()
+
+def get_embed_log_dir() -> str:
+    """Lazily create the embed log directory – never deletes."""
+    global _embed_log_dir
+    if _embed_log_dir is None:
+        with _embed_log_lock:
+            if _embed_log_dir is None:
+                _embed_log_dir = DEFAULT_LOG_DIR
+                os.makedirs(_embed_log_dir, exist_ok=True)
+    return _embed_log_dir
+
+def reset_embed_log_dir() -> None:
+    """Explicit wipe of the embed log directory."""
+    dir_path = get_embed_log_dir()
+    if os.path.exists(dir_path):
+        shutil.rmtree(dir_path, ignore_errors=True)
+    os.makedirs(dir_path, exist_ok=True)
+
+# ----------------------------------------------------------------------
+# Logger creation – lazy, only on first use
+# ----------------------------------------------------------------------
+def _make_embed_logger() -> CustomLogger:
+    embed_log_file = f"{get_embed_log_dir()}/embed.log"
+    return CustomLogger("embed", filename=embed_log_file)
+
+_embed_logger: Optional[CustomLogger] = None
+def embed_logger() -> CustomLogger:
+    """Return the singleton embed logger (created on first call)."""
+    global _embed_logger
+    if _embed_logger is None:
+        _embed_logger = _make_embed_logger()
+        logger.orange(f"Embedding logs: {_embed_logger.log_file}")
+    return _embed_logger
 
 class EmbedInterceptor:
     """Intercepts embedding requests for specified base URLs."""
@@ -182,19 +225,7 @@ def _patch_async_client_init():
     httpx.AsyncClient.__init__ = patched_init
 
 
-def setup_logger():
-    import os
-    from jet.llm.config import DEFAULT_LOG_DIR
-    from jet.logger import logger, CustomLogger
-
-    embed_log_file = f"{DEFAULT_LOG_DIR}/embed.log"
-    os.makedirs(os.path.dirname(embed_log_file), exist_ok=True)
-    if os.path.exists(embed_log_file):
-        os.remove(embed_log_file)
-    embed_logger = CustomLogger("embed", filename=embed_log_file)
-    logger.orange(f"Embedding logs: {embed_log_file}")
-    return embed_logger
-
+# (setup_logger removed – replaced by lazy embed_logger())
 
 def setup_llamacpp_embed_interceptors(
     base_urls: Optional[set[str] | list[str]] = None,
@@ -231,7 +262,7 @@ def setup_llamacpp_embed_interceptors(
             raise ValueError(f"Invalid base_url: {url} ({e})")
 
     if not logger:
-        logger = setup_logger()
+        logger = embed_logger()                # <-- lazy logger
 
     _interceptor = EmbedInterceptor(
         base_urls=base_urls,
@@ -266,4 +297,5 @@ def _run_demo():
 
 
 if __name__ == "__main__":
+    reset_embed_log_dir()          # clean start when run directly
     _run_demo()

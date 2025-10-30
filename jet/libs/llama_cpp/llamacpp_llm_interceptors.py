@@ -26,10 +26,57 @@ from urllib.parse import urlparse
 
 from jet.adapters.llama_cpp.tokens import count_tokens
 
+import threading
+import os
+import shutil
+
+from jet.llm.config import DEFAULT_LOG_DIR
+from jet.logger import logger, CustomLogger
+
 
 # === DEFAULT CONFIG ===
 DEFAULT_BASE_URLS = {"http://shawn-pc.local:8080/v1"}
 # =====================
+
+# ----------------------------------------------------------------------
+# Log-directory management (import-safe)
+# ----------------------------------------------------------------------
+_llm_log_dir: Optional[str] = None
+_llm_log_lock = threading.Lock()
+
+def get_llm_log_dir() -> str:
+    """Lazily create the LLM log directory – never deletes."""
+    global _llm_log_dir
+    if _llm_log_dir is None:
+        with _llm_log_lock:
+            if _llm_log_dir is None:
+                _llm_log_dir = DEFAULT_LOG_DIR
+                os.makedirs(_llm_log_dir, exist_ok=True)
+    return _llm_log_dir
+
+def reset_llm_log_dir() -> None:
+    """Explicit wipe of the LLM log directory."""
+    dir_path = get_llm_log_dir()
+    if os.path.exists(dir_path):
+        shutil.rmtree(dir_path, ignore_errors=True)
+    os.makedirs(dir_path, exist_ok=True)
+
+# ----------------------------------------------------------------------
+# Lazy logger singleton
+# ----------------------------------------------------------------------
+def _make_llm_logger() -> CustomLogger:
+    llm_log_file = f"{get_llm_log_dir()}/llm.log"
+    return CustomLogger("llm", filename=llm_log_file)
+
+_llm_logger: Optional[CustomLogger] = None
+def llm_logger() -> CustomLogger:
+    """Return the singleton LLM logger (created on first call)."""
+    global _llm_logger
+    if _llm_logger is None:
+        _llm_logger = _make_llm_logger()
+        logger.orange(f"LLM logs: {_llm_logger.log_file}")
+    return _llm_logger
+
 
 class LocalInterceptor:
     """Intercepts requests for specified base URLs."""
@@ -89,7 +136,7 @@ class LocalInterceptor:
 
         msg = (
             f"\n{'='*80}\n"
-            f"REQUEST → {request.method} {request.url}\n"
+            f"LLM REQUEST → {request.method} {request.url}\n"
             f"ID: {rid} | {datetime.now():%H:%M:%S.%f}[:-3]\n"
             f"HEADERS:\n{self._format_headers(request.headers)}\n"
             f"PARAMS: {dict(request.url.params)}\n"
@@ -126,7 +173,7 @@ class LocalInterceptor:
 
         msg = (
             f"\n{'='*80}\n"
-            f"RESPONSE ← {response.status_code} {response.url}\n"
+            f"LLM RESPONSE ← {response.status_code} {response.url}\n"
             f"ID: {rid} | {duration:.1f}ms\n"
             f"HEADERS:\n{self._format_headers(response.headers)}\n"
             f"TOKENS: {json.dumps({
@@ -178,22 +225,7 @@ def _patch_async_client_init():
     httpx.AsyncClient.__init__ = patched_init  # type: ignore
 
 
-def setup_logger():
-    import os
-    from jet.llm.config import DEFAULT_LOG_DIR
-    from jet.logger import logger, CustomLogger
-
-    llamacpp_log_file = f"{DEFAULT_LOG_DIR}/llm.log"
-
-    # Ensure log directory exists before logger instantiation
-    os.makedirs(os.path.dirname(llamacpp_log_file), exist_ok=True)
-
-    if os.path.exists(llamacpp_log_file):
-        os.remove(llamacpp_log_file)
-
-    llamacpp_logger = CustomLogger("llm", filename=llamacpp_log_file)
-    logger.orange(f"REST logs: {llamacpp_log_file}")
-    return llamacpp_logger
+# (setup_logger removed – replaced by lazy llm_logger())
 
 def setup_llamacpp_llm_interceptors(
     base_urls: Optional[set[str] | list[str]] = None,
@@ -235,12 +267,12 @@ def setup_llamacpp_llm_interceptors(
             raise ValueError(f"Invalid base_url: {url} ({e})")
 
     if not logger:
-        logger = setup_logger()
+        logger = llm_logger()                 # <-- lazy logger
 
     # Create interceptor
     _interceptor = LocalInterceptor(
         base_urls=base_urls,
-        logger=setup_logger(),
+        logger=logger,
         include_sensitive=include_sensitive,
         max_content_length=max_content_length,
     )
@@ -277,4 +309,5 @@ def _run_demo():
         c.get("/get")
 
 if __name__ == "__main__":
+    reset_llm_log_dir()          # clean start when run directly
     _run_demo()
