@@ -165,25 +165,26 @@ class LocalInterceptor:
         content = response.text
         # Parse JSON only when the result content is a string (response)
         data = content if isinstance(content, dict) else json.loads(content or "{}", strict=False)
-        content_tokens = count_tokens(data["choices"][0]["message"]["content"], data["model"])
-        tool_calls_tokens = count_tokens([
-            str(tc["function"])
-            for tc in data["choices"][0]["message"]["tool_calls"]
-        ], data["model"]) if data["choices"][0]["message"].get("tool_calls") else 0
+        if data["choices"]:
+            content_tokens = count_tokens(data["choices"][0]["message"]["content"], data["model"])
+            tool_calls_tokens = count_tokens([
+                str(tc["function"])
+                for tc in data["choices"][0]["message"]["tool_calls"]
+            ], data["model"]) if data["choices"][0]["message"].get("tool_calls") else 0
 
-        msg = (
-            f"\n{'='*80}\n"
-            f"LLM RESPONSE ← {response.status_code} {response.url}\n"
-            f"ID: {rid} | {duration:.1f}ms\n"
-            f"HEADERS:\n{self._format_headers(response.headers)}\n"
-            f"TOKENS: {json.dumps({
-                "content": content_tokens,
-                "tool_calls": tool_calls_tokens,
-            }, indent=2)}\n"
-            f"BODY:\n```json\n{self._sanitize(data) if content else "No content"}\n```\n"
-            f"{'='*80}"
-        )
-        self.logger(msg)
+            msg = (
+                f"\n{'='*80}\n"
+                f"LLM RESPONSE ← {response.status_code} {response.url}\n"
+                f"ID: {rid} | {duration:.1f}ms\n"
+                f"HEADERS:\n{self._format_headers(response.headers)}\n"
+                f"TOKENS: {json.dumps({
+                    "content": content_tokens,
+                    "tool_calls": tool_calls_tokens,
+                }, indent=2)}\n"
+                f"BODY:\n```json\n{self._sanitize(data) if content else "No content"}\n```\n"
+                f"{'='*80}"
+            )
+            self.logger(msg)
 
 
 # === GLOBAL STATE ===
