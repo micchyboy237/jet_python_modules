@@ -204,6 +204,15 @@ def setup_llamacpp_embed_interceptors(
     max_content_length: int = 2000,
     force: bool = False,
 ) -> None:
+    """
+    Enable global interception for embedding endpoints.
+    Args:
+        base_urls: URLs to intercept (default: http://shawn-pc.local:8081/v1)
+        logger: Custom logger (defaults to file logger)
+        include_sensitive: Show auth headers
+        max_content_length: Truncate body preview
+        force: Re-apply even if already patched
+    """
     global _patched, _interceptor
     if _patched and not force:
         return
