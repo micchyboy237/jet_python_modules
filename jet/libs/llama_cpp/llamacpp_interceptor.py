@@ -23,6 +23,7 @@ import time
 from datetime import datetime
 import json
 from urllib.parse import urlparse
+from jet.transformers.formatters import format_json
 
 # === DEFAULT CONFIG ===
 DEFAULT_BASE_URLS = {"http://shawn-pc.local:8080/v1"}
@@ -82,8 +83,8 @@ class LocalInterceptor:
             f"REQUEST → {request.method} {request.url}\n"
             f"ID: {rid} | {datetime.now():%H:%M:%S.%f}[:-3]\n"
             f"HEADERS:\n{self._format_headers(request.headers)}\n"
-            f"PARAMS: {dict(request.url.params)}\n"
-            f"BODY: {self._sanitize(body) if body else 'None'}\n"
+            f"PARAMS: {format_json(dict(request.url.params))}\n"
+            f"BODY: {format_json(self._sanitize(body)) if body else 'None'}\n"
             f"{'='*80}"
         )
         self.logger(msg)
@@ -152,6 +153,23 @@ def _patch_async_client_init():
     httpx.AsyncClient.__init__ = patched_init  # type: ignore
 
 
+def setup_logger():
+    import os
+    from jet.llm.config import DEFAULT_LOG_DIR
+    from jet.logger import logger, CustomLogger
+
+    llamacpp_log_file = f"{DEFAULT_LOG_DIR}/rest.log"
+
+    # Ensure log directory exists before logger instantiation
+    os.makedirs(os.path.dirname(llamacpp_log_file), exist_ok=True)
+
+    if os.path.exists(llamacpp_log_file):
+        os.remove(llamacpp_log_file)
+
+    llamacpp_logger = CustomLogger("rest", filename=llamacpp_log_file)
+    logger.orange(f"REST logs: {llamacpp_log_file}")
+    return llamacpp_logger
+
 def setup_llamacpp_interceptors(
     base_urls: Optional[set[str] | list[str]] = None,
     *,
@@ -191,10 +209,13 @@ def setup_llamacpp_interceptors(
         except Exception as e:
             raise ValueError(f"Invalid base_url: {url} ({e})")
 
+    if not logger:
+        logger = setup_logger()
+
     # Create interceptor
     _interceptor = LocalInterceptor(
         base_urls=base_urls,
-        logger=logger,
+        logger=setup_logger(),
         include_sensitive=include_sensitive,
         max_content_length=max_content_length,
     )
