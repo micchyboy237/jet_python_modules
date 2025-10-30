@@ -56,8 +56,11 @@ class EmbedInterceptor:
                     h[k] = "***HIDDEN***"
         return json.dumps(h, indent=2)
 
-    def _sanitize_body(self, data: dict) -> str:
-        return json.dumps(data, indent=2, ensure_ascii=False)[: self.max_content_length]
+    def _sanitize_body(self, inputs: list[str], token_counts: list[int]) -> str:
+        body_strings = []
+        for idx, (input, tokens) in enumerate(zip(inputs, token_counts)):
+            body_strings.append(f"{idx + 1} | Tokens: {tokens} | Input: {json.dumps(input)[:100]}")
+        return "\n".join(body_strings)
 
     def request_hook(self, request: httpx.Request) -> None:
         if not self._should_intercept(request.url):
@@ -78,7 +81,7 @@ class EmbedInterceptor:
         input_count = len(inputs)
 
         # Count tokens per input
-        token_counts = [count_tokens([inp], model) for inp in inputs] if inputs else []
+        token_counts = count_tokens(inputs, model, prevent_total=True)
         total_tokens = sum(token_counts)
         token_stats = {
             "min": min(token_counts) if token_counts else 0,
@@ -94,7 +97,7 @@ class EmbedInterceptor:
             f"HEADERS:\n{self._format_headers(request.headers)}\n"
             f"INPUT: {input_count} item(s) | model: {model}\n"
             f"TOKENS: {json.dumps(token_stats)}\n"
-            f"BODY:\n```json\n{self._sanitize_body(data)}\n```\n"
+            f"BODY:\n```json\n{self._sanitize_body(inputs, token_counts)}\n```\n"
             f"{'='*80}"
         )
         self.logger(msg)
@@ -120,23 +123,20 @@ class EmbedInterceptor:
         # Handle both /v1/embeddings and /embeddings formats
         items = data.get("data") or data  # OpenAI: data[], non-OpenAI: direct list
 
-        summary = []
-        for item in items:
-            idx = item.get("index", "?")
-            emb = item.get("embedding", [])
-            if isinstance(emb, list) and emb and isinstance(emb[0], list):
-                shape = f"[{len(emb)}, {len(emb[0])}]"  # [tokens, dim]
+        # Only show 1 line summarizing the shape of the embeddings
+        shape = "unknown"
+        if items:
+            first_emb = items[0].get("embedding", [])
+            if isinstance(first_emb, list) and first_emb and isinstance(first_emb[0], list):
+                shape = f"[{len(first_emb)}, {len(first_emb[0])}]"  # [tokens, dim]
             else:
-                shape = f"{len(emb)}"
-            summary.append(f"  - index: {idx}, shape: {shape}")
-
+                shape = f"{len(first_emb)}"
         msg = (
             f"\n{'='*80}\n"
             f"EMBED RESPONSE ← {response.status_code} {response.url}\n"
             f"ID: {rid} | {duration:.1f}ms\n"
             f"HEADERS:\n{self._format_headers(response.headers)}\n"
-            f"OUTPUT: {len(items)} embedding(s)\n"
-            + "\n".join(summary) + "\n"
+            f"OUTPUT: {len(items)} embedding(s), shape: {shape}\n"
             f"{'='*80}"
         )
         self.logger(msg)

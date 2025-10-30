@@ -1,6 +1,6 @@
 import tiktoken
 
-from typing import Callable, Optional, Union
+from typing import Callable, List, Union, Optional, Literal, overload
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 from langchain_core.messages import BaseMessage
 
@@ -94,16 +94,36 @@ def tokenize(
             tokenized = tokenizer.encode(text_str, add_special_tokens=add_special_tokens)
         return tokenized
 
+TokenizableInput = str | dict | list[str] | list[dict] | list[BaseMessage]
+
+@overload
 def count_tokens(
-    text: Optional[str | dict | list[str] | list[dict] | list[BaseMessage]],
+    text: TokenizableInput,
     model: Optional[LLAMACPP_TYPES] = None,
+    prevent_total: Literal[False] = False,
     add_special_tokens: bool = False
-) -> int:
+) -> int: ...
+
+@overload
+def count_tokens(
+    text: TokenizableInput,
+    model: Optional[LLAMACPP_TYPES] = None,
+    prevent_total: Literal[True] = True,
+    add_special_tokens: bool = False
+) -> List[int]: ...
+
+def count_tokens(
+    text: TokenizableInput,
+    model: Optional[LLAMACPP_TYPES] = None,
+    prevent_total: bool = False,
+    add_special_tokens: bool = False
+) -> Union[int, List[int]]:
     if not text:
         return 0
+
     tokenized = tokenize(text, model, add_special_tokens)
     if isinstance(text, (str, dict)):
         return len(tokenized)
     else:
         token_counts = [len(item) for item in tokenized]
-        return sum(token_counts)
+        return sum(token_counts) if not prevent_total else token_counts

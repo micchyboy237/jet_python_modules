@@ -1,4 +1,4 @@
-from typing import Callable, Literal, Optional, TypedDict, Union
+from typing import Callable, List, Literal, Optional, TypedDict, Union, overload
 from jet.logger import logger
 # from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
 # from jet.vectors.document_types import HeaderDocument, HeaderTextNode
@@ -131,12 +131,30 @@ def tokenize(
         return tokenized
 
 
+TokenizableInput = str | dict | list[str] | list[dict] | list[Message]
+
+@overload
 def token_counter(
-    text: str | dict | list[str] | list[dict] | list[Message],
+    text: TokenizableInput,
+    model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
+    prevent_total: Literal[False] = False,
+    add_special_tokens: bool = False
+) -> int: ...
+
+@overload
+def token_counter(
+    text: TokenizableInput,
+    model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
+    prevent_total: Literal[True] = True,
+    add_special_tokens: bool = False
+) -> list[int]: ...
+
+def token_counter(
+    text: TokenizableInput,
     model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
     prevent_total: bool = False,
     add_special_tokens: bool = False
-) -> int | list[int]:
+) -> Union[int, List[int]]:
     if not text:
         return 0
 
@@ -177,7 +195,7 @@ class TokenCountsInfo(TypedDict):
 
 
 def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenCountsInfo:
-    token_counts: list[int] = token_counter(texts, model, prevent_total=True)
+    token_counts = token_counter(texts, model, prevent_total=True)
     total_count = sum(token_counts)
     avg_count = round(total_count / len(token_counts),
                       2) if token_counts else 0.0  # Rounded average
