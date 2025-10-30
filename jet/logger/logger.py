@@ -27,7 +27,7 @@ class CustomLogger:
     def __init__(
         self,
         name: str = DEFAULT_LOGGER,
-        log_file: Optional[str] = None,
+        filename: Optional[str] = None,
         overwrite: bool = False,
         console_level: Union[int, Literal["DEBUG", "INFO",
                                           "WARNING", "ERROR", "CRITICAL"]] = "DEBUG",
@@ -35,7 +35,7 @@ class CustomLogger:
                                   "WARNING", "ERROR", "CRITICAL"]] = "DEBUG",
         fmt: Union[str, logging.Formatter] = "%(message)s",
     ):
-        self.log_file = log_file
+        self.log_file = filename
         if self.log_file:
             log_dir = os.path.dirname(os.path.abspath(self.log_file))
             os.makedirs(log_dir, exist_ok=True)
@@ -634,7 +634,7 @@ if __name__ == "__main__":
 
     file_path = f"{OUTPUT_DIR}/log.txt"
     logger_with_file = CustomLogger(
-        log_file=file_path,
+        filename=file_path,
         overwrite=False,
         console_level=args.log_cli_level
     )
