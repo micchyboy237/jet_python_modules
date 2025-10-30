@@ -759,3 +759,9 @@ class ChatLlamaCpp(BaseChatModel):
             )
             return RunnableMap(raw=llm) | parser_with_fallback
         return llm | output_parser
+
+from langchain_openai import ChatOpenAI
+
+class ChatLlamaCpp2(ChatOpenAI):
+    def __init__(self, *args, base_url: str = "http://shawn-pc.local:8080/v1", **kwargs):
+        super().__init__(*args, base_url=base_url, **kwargs)
