@@ -24,7 +24,6 @@ from datetime import datetime
 import json
 from urllib.parse import urlparse
 
-from jet.utils.object import truncate_strings
 
 # === DEFAULT CONFIG ===
 DEFAULT_BASE_URLS = {"http://shawn-pc.local:8080/v1"}
@@ -64,12 +63,7 @@ class LocalInterceptor:
             return "None"
         # Parse JSON only when the body is a string (request) – response already is text
         data = body if isinstance(body, dict) else json.loads(body or "{}", strict=False)
-        truncated = truncate_strings(
-            data,
-            max_len=self.max_content_length,
-            suffix=lambda orig, new: f"... [TRUNCATED {{{len(orig) - len(new)}}}]"
-        )
-        return json.dumps(truncated, indent=2, ensure_ascii=False)
+        return json.dumps(data, indent=2, ensure_ascii=False)
 
     def _format_headers(self, headers: httpx.Headers) -> str:
         h = dict(headers)
@@ -93,7 +87,7 @@ class LocalInterceptor:
             f"ID: {rid} | {datetime.now():%H:%M:%S.%f}[:-3]\n"
             f"HEADERS:\n{self._format_headers(request.headers)}\n"
             f"PARAMS: {dict(request.url.params)}\n"
-            f"BODY: {self._sanitize(body) if body else 'None'}\n"
+            f"BODY:\n```json\n{self._sanitize(body) if body else 'None'}\n```\n"
             f"{'='*80}"
         )
         self.logger(msg)
