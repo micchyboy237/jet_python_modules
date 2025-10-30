@@ -2,10 +2,12 @@
 LangChain Agent Example (create_agent + AgentState)
 ✅ Fixed for LangChain 0.3+ / LangGraph runtime
 """
+import json
 from typing import List, Optional
 from typing import Callable, Awaitable
 
 from langchain.chat_models import BaseChatModel
+import tiktoken
 from jet.transformers.formatters import format_json
 from langchain.agents import create_agent
 from langchain_core.tools import BaseTool
@@ -169,11 +171,35 @@ def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instr
 
     return agent
 
-def estimate_tokens(messages: List[BaseMessage]) -> int:
-    """Estimate token count for message list."""
-    import tiktoken
-    encoder = tiktoken.get_encoding("cl100k_base")
-    return sum(len(encoder.encode(m.content)) for m in messages) + len(messages) * 4  # +4 per message overhead
+def estimate_tokens(
+    system_prompt: str,
+    messages: List[BaseMessage],
+    tools: List[BaseTool] | None = None
+) -> int:
+    """Accurately estimate total prompt tokens including tools."""
+    total = 0
+    enc = tiktoken.get_encoding("cl100k_base")
+
+    # System prompt
+    total += len(enc.encode(system_prompt)) + 4
+
+    # Messages
+    for msg in messages:
+        total += len(enc.encode(msg.content)) + 4  # role + content
+
+    # Tools (JSON schema)
+    if tools:
+        tools_json = json.dumps([{
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.args
+            }
+        } for t in tools], ensure_ascii=False)
+        total += len(enc.encode(tools_json)) + 10  # overhead
+
+    return total
 
 def compress_context(
     messages: List[BaseMessage],
