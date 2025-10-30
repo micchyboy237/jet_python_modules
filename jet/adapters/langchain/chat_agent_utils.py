@@ -8,6 +8,7 @@ from typing import Callable, Awaitable
 
 from langchain.chat_models import BaseChatModel
 import tiktoken
+from jet.llm.config import DEFAULT_LOG_DIR
 from jet.transformers.formatters import format_json
 from langchain.agents import create_agent
 from langchain_core.tools import BaseTool
@@ -20,24 +21,22 @@ from jet.logger import logger, CustomLogger
 import os
 import shutil
 
-OUTPUT_DIR = os.path.join(os.path.dirname(
-    __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+shutil.rmtree(DEFAULT_LOG_DIR, ignore_errors=True)
+os.makedirs(DEFAULT_LOG_DIR, exist_ok=True)
 
-agent_log_file = f"{OUTPUT_DIR}/agent.log"
+agent_log_file = f"{DEFAULT_LOG_DIR}/agent.log"
 agent_logger = CustomLogger("agent", filename=agent_log_file)
 logger.orange(f"Agent logs: {agent_log_file}")
 
-model_log_file = f"{OUTPUT_DIR}/model.log"
+model_log_file = f"{DEFAULT_LOG_DIR}/model.log"
 model_logger = CustomLogger("model", filename=model_log_file)
 logger.orange(f"Model logs: {model_log_file}")
 
-tool_log_file = f"{OUTPUT_DIR}/tool.log"
+tool_log_file = f"{DEFAULT_LOG_DIR}/tool.log"
 tool_logger = CustomLogger("tool", filename=tool_log_file)
 logger.orange(f"Tool logs: {tool_log_file}")
 
-# tool_log_file = f"{OUTPUT_DIR}/tools.log"
+# tool_log_file = f"{DEFAULT_LOG_DIR}/tools.log"
 # tool_logger = CustomLogger("tools", filename=tool_log_file, level=logging.DEBUG)
 # logger.orange(f"Tool logs: {tool_log_file}")
 
