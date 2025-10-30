@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Literal, Optional
 from jet.logger import logger
 from jet.utils.inspect_utils import get_entry_file_name, inspect_original_script_path
+from shared.setup.httpx_interceptor import setup_httpx_interceptors
 from shared.setup.types import EventData
 
 
@@ -107,6 +108,8 @@ _initialize_lock = threading.Lock()
 
 
 def setup_events():
+    setup_httpx_interceptors()
+
     global _initialized
     if _initialized:
         return

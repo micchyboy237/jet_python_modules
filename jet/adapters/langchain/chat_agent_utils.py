@@ -203,7 +203,7 @@ def estimate_tokens(
 def compress_context(
     messages: List[BaseMessage],
     retriever_results: str,
-    max_tokens: int = 3500,  # Leave ~600 for output + safety
+    max_tokens: int = 3500,
     llm: Optional[BaseChatModel] = None
 ) -> str:
     """
@@ -216,23 +216,22 @@ def compress_context(
         base_url="http://shawn-pc.local:8080/v1",
         verbosity="high",
     )
-
     full_context = f"Retrieved Documents:\n{retriever_results}\n\nConversation So Far:\n"
-    for msg in messages[:-1]:  # exclude current user query
+    for msg in messages[:-1]:
         role = "User" if isinstance(msg, HumanMessage) else "Assistant"
         full_context += f"{role}: {msg.content}\n"
 
-    if estimate_tokens([SystemMessage(content=full_context)]) < max_tokens:
+    # Call estimate_tokens with explicit system_prompt and messages args.
+    # Use an empty system prompt here because compress_context builds the
+    # combined context itself; we only want to estimate tokens of that context.
+    if estimate_tokens(system_prompt="", messages=[SystemMessage(content=full_context)]) < max_tokens:
         return full_context
 
-    # If too long: use LLM to summarize prior context losslessly
     summary_prompt = f"""
     Summarize the following research context and conversation **without losing any technical details, definitions, examples, or cited techniques**. 
     Preserve accuracy and specificity. Focus on key concepts, mechanisms, and findings.
-
     Content to summarize:
     {full_context}
-
     Concise Summary (preserve all facts):
     """
     summary_msg = _llm.invoke(summary_prompt)
