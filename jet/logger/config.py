@@ -3,6 +3,7 @@ import logging
 DEFAULT_LOGGER = ""
 
 # ANSI color codes
+# Color table: https://codehs.com/uploads/7c2481e9158534231fcb3c9b6003d6b3
 BOLD = "\u001b[1m"
 RESET = "\u001b[0m"
 COLORS = {
