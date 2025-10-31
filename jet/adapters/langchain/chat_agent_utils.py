@@ -3,6 +3,7 @@ LangChain Agent Example (create_agent + AgentState)
 ✅ Fixed for LangChain 0.3+ / LangGraph runtime
 """
 import json
+import math
 from typing import List, Optional
 from typing import Callable, Awaitable
 
@@ -304,7 +305,7 @@ def compress_context(
     non_doc_tokens = static_tokens + summary_prompt_template_token_count + SAFETY_BUFFER
     available_output_tokens = max_tokens - non_doc_tokens
 
-    max_context_tokens = max_tokens ** 0.5
+    max_context_tokens = math.ceil(max_tokens * 0.5)
     max_context_tokens = max_context_tokens if max_context_tokens < available_output_tokens else available_output_tokens
     full_context = filter_full_context(max_context_tokens)
     # Token-count - Full context
