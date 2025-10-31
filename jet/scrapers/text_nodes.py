@@ -10,7 +10,7 @@ from fake_useragent import UserAgent
 from playwright.sync_api import sync_playwright
 
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
-from jet.scrapers.utils import BaseNode, exclude_elements
+from jet.scrapers.utils import BaseNode, exclude_elements, get_xpath
 from jet.utils.inspect_utils import get_entry_file_path
 from jet.transformers.formatters import format_html
 from jet.scrapers.config import TEXT_ELEMENTS
@@ -61,7 +61,7 @@ def extract_text_nodes(
     timeout_ms: int = 10000,
     with_screenshot: bool = True,
     wait_for_js: bool = True,
-    headless: bool = False,
+    headless: bool = True,
 ) -> List[BaseNode]:
     """
     Extracts text nodes from an HTML source using Playwright, excluding specified tags.
@@ -181,6 +181,7 @@ def extract_text_nodes(
                     line_number = 1  # Default fallback
             
             # Create BaseNode (assuming BaseNode has similar fields to TreeNode)
+            xpath = get_xpath(child)
             node = BaseNode(
                 tag=tag,
                 text=text,
@@ -188,6 +189,7 @@ def extract_text_nodes(
                 id=element_id,
                 class_names=class_names,
                 line=line_number,
+                xpath=xpath,
                 html=child_pq.outer_html()
             )
             

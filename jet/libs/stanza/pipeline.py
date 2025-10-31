@@ -15,14 +15,14 @@ class StanzaPipelineCache:
                 cls._instance = super(StanzaPipelineCache, cls).__new__(cls)
             return cls._instance
 
-    def get_pipeline(self, lang: str = "en", processors: str = "tokenize,pos,lemma,depparse,ner", use_gpu: bool = True, verbose: bool = False) -> stanza.Pipeline:
+    def get_pipeline(self, lang: str = "en", processors: str = "tokenize,pos,lemma,depparse,ner", use_gpu: bool = True, verbose: bool = False, **kwargs) -> stanza.Pipeline:
         """Retrieve or create a single Stanza pipeline, replacing any existing one."""
         config = (lang, processors, use_gpu)
         with self._lock:
             if self._pipeline is None or self._config != config:
                 stanza.download(lang, processors=processors, verbose=verbose)
                 self._pipeline = stanza.Pipeline(
-                    lang=lang, processors=processors, use_gpu=use_gpu, verbose=False
+                    lang=lang, processors=processors, use_gpu=use_gpu, verbose=verbose, **kwargs
                 )
                 self._config = config
             return self._pipeline

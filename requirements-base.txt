@@ -27,6 +27,9 @@ pytest-asyncio
 pytest-benchmark
 pytest-mock
 pytest-watcher
+pytest-html
+pytest-json-report
+pytest-metadata
 redis
 requests
 scikit-learn

@@ -1,244 +1,375 @@
-# test_semgrex_searcher.py
-"""
-Comprehensive pytest suite for SemgrexSearcher.
-
-Follows BDD style:
-- Given: setup data / state
-- When: action (search)
-- Then: assertions on exact outputs
-
-Uses real-world examples, exact dict matching, and fixture cleanup.
-Assumes semgrex_searcher.py is importable from the project root.
-"""
-
 import pytest
 from typing import List, Dict, Any
-
-# Adjust path if running from project root
-from jet.libs.stanza.semgrex_searcher import SemgrexSearcher
+from jet.libs.stanza.semgrex_searcher import SemgrexSearcher, SemgrexMatch
 
 
-@pytest.fixture(scope="module")
-def searcher() -> SemgrexSearcher:
+class DummyClient:
     """
-    Fixture: One SemgrexSearcher per test module.
-    Yields for use, then closes Java server to prevent leaks.
+    Fake CoreNLP-like client returning consistent Semgrex structure.
     """
-    s = SemgrexSearcher(lang="en", use_java=True)
-    yield s
-    s.close()  # Ensures Java process terminates
-
-
-# ----------------------------------------------------------------------
-# Helper for cleaner assertions (optional, but improves readability)
-# ----------------------------------------------------------------------
-def _node_text(nodes: Dict[str, Dict], key: str) -> str:
-    return nodes.get(key, {}).get("text", "")
-
-
-# ----------------------------------------------------------------------
-# Test Class: Acquisition Pattern (SVO with proper nouns)
-# ----------------------------------------------------------------------
-class TestAcquisitionPattern:
-    # Given: Text containing acquisition events and distractors
-    # When: Searching with subject-acquire-object pattern
-    # Then: Only valid triples are returned with correct node texts
-    def test_finds_two_acquisitions(self, searcher: SemgrexSearcher):
-        text = (
-            "Apple acquires Beats for $3 billion in 2014. "
-            "Google buys DeepMind. "
-            "Microsoft partners with OpenAI but does not acquire it."
-        )
-        pattern = '{pos:/NNP|PROPN/}=subject >nsubj {lemma:acquire}=verb >dobj {pos:/NNP|PROPN/}=object'
-
-        result: List[Dict[str, Any]] = searcher.search_in_doc(text, pattern)
-        expected = [
-            {
-                "sentence_text": "Apple acquires Beats for $3 billion in 2014.",
-                "matched_nodes": {
-                    "subject": {"text": "Apple"},
-                    "verb": {"text": "acquires"},
-                    "object": {"text": "Beats"},
+    def semgrex(self, text: str, pattern: str) -> List[Dict[str, Any]]:
+        # Simulate different sentence structures per document
+        if "Chris wrote" in text:
+            return [
+                {
+                    "sentenceIndex": 0,
+                    "matchNumber": 1,
+                    "nodes": {
+                        "subject": {"text": "Chris", "index": 1, "tag": "NNP"},
+                        "verb": {"text": "wrote", "index": 2, "tag": "VBD"}
+                    }
+                }
+            ]
+        elif "He gives" in text and "She reads" in text:
+            return [
+                {
+                    "sentenceIndex": 0,
+                    "matchNumber": 1,
+                    "nodes": {
+                        "subject": {"text": "He", "index": 1, "tag": "PRP"},
+                        "verb": {"text": "gives", "index": 2, "tag": "VBZ"}
+                    }
                 },
-                "length": 3,
+                {
+                    "sentenceIndex": 1,
+                    "matchNumber": 1,
+                    "nodes": {
+                        "subject": {"text": "She", "index": 1, "tag": "PRP"},
+                        "verb": {"text": "reads", "index": 2, "tag": "VBZ"}
+                    }
+                }
+            ]
+        else:
+            return []
+
+
+@pytest.fixture
+def searcher():
+    client = DummyClient()
+    return SemgrexSearcher(client)
+
+
+class TestSemgrexSearcherSuccess:
+    """
+    Test successful search and normalization on single and multiple documents.
+    """
+
+    # Given: a single document with one match
+    # When: calling search()
+    # Then: returns normalized match with doc_index=0
+    def test_search_single_document(self, searcher):
+        text = "Chris wrote a book."
+        pattern = "{pos:NN} >nsubj {}"
+        result = searcher.search(text, pattern)
+
+        expected: List[SemgrexMatch] = [
+            {
+                "doc_index": 0,
+                "sentence_index": 0,
+                "match_index": 1,
+                "nodes": [
+                    {"name": "subject", "text": "Chris", "attributes": {"index": 1, "tag": "NNP"}},
+                    {"name": "verb", "text": "wrote", "attributes": {"index": 2, "tag": "VBD"}},
+                ],
+            }
+        ]
+        assert result == expected
+
+    # Given: multiple documents with varying sentence counts
+    # When: calling search_documents()
+    # Then: all matches include correct doc_index and are normalized
+    def test_search_documents_multiple(self, searcher):
+        docs = [
+            "Chris wrote a book.",                    # doc 0
+            "He gives oranges. She reads books.",     # doc 1
+        ]
+        pattern = "{pos:NN} >nsubj {}"
+        result = searcher.search_documents(docs, pattern)
+
+        expected: List[SemgrexMatch] = [
+            {
+                "doc_index": 0,
+                "sentence_index": 0,
+                "match_index": 1,
+                "nodes": [
+                    {"name": "subject", "text": "Chris", "attributes": {"index": 1, "tag": "NNP"}},
+                    {"name": "verb", "text": "wrote", "attributes": {"index": 2, "tag": "VBD"}},
+                ],
             },
             {
-                "sentence_text": "Google buys DeepMind.",
-                "matched_nodes": {
-                    "subject": {"text": "Google"},
-                    "verb": {"text": "buys"},
-                    "object": {"text": "DeepMind"},
-                },
-                "length": 3,
+                "doc_index": 1,
+                "sentence_index": 0,
+                "match_index": 1,
+                "nodes": [
+                    {"name": "subject", "text": "He", "attributes": {"index": 1, "tag": "PRP"}},
+                    {"name": "verb", "text": "gives", "attributes": {"index": 2, "tag": "VBZ"}},
+                ],
+            },
+            {
+                "doc_index": 1,
+                "sentence_index": 1,
+                "match_index": 1,
+                "nodes": [
+                    {"name": "subject", "text": "She", "attributes": {"index": 1, "tag": "PRP"}},
+                    {"name": "verb", "text": "reads", "attributes": {"index": 2, "tag": "VBZ"}},
+                ],
             },
         ]
+        assert result == expected
 
-        assert len(result) == 2
-        for res, exp in zip(result, expected):
-            assert res["sentence_text"] == exp["sentence_text"]
-            assert res["length"] == exp["length"]
-            # Compare only text fields (indices may vary slightly)
-            assert {k: v["text"] for k, v in res["matched_nodes"].items()} == \
-                   {k: v["text"] for k, v in exp["matched_nodes"].items()}
+    # Given: search() is called
+    # When: underlying search_documents is used
+    # Then: search() forwards to search_documents with list of one
+    def test_search_forwards_to_search_documents(self, searcher, monkeypatch):
+        calls = []
 
-    # Given: Text with no acquisition
-    # When: Same pattern
-    # Then: Empty list
-    def test_no_acquisition_returns_empty(self, searcher: SemgrexSearcher):
-        text = "The cat sleeps peacefully."
-        pattern = '{pos:/NNP|PROPN/}=subject >nsubj {lemma:acquire}=verb >dobj {pos:/NNP|PROPN/}=object'
+        def mock_search_documents(docs, pattern):
+            calls.append((docs, pattern))
+            return [{"doc_index": 0, "sentence_index": 0, "match_index": 1, "nodes": []}]
 
-        result = searcher.search_in_doc(text, pattern)
-        expected: List[Dict[str, Any]] = []
+        monkeypatch.setattr(searcher, "search_documents", mock_search_documents)
+        searcher.search("single doc", "pattern")
+        assert calls == [(["single doc"], "pattern")]
 
+
+class TestSemgrexSearcherFiltering:
+    """
+    Test all filter_match scenarios with multi-document results.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_matches(self, searcher):
+        self.docs = [
+            "Chris wrote a book.",
+            "He gives oranges. She reads books.",
+        ]
+        self.pattern = "{pos:NN} >nsubj {}"
+        self.matches = searcher.search_documents(self.docs, self.pattern)
+
+    # Given: matches from multiple docs
+    # When: filtering by doc_index
+    # Then: only matches from that document are returned
+    def test_filter_by_doc_index(self, searcher):
+        result = searcher.filter_matches(self.matches, doc_index=0)
+        expected = [m for m in self.matches if m["doc_index"] == 0]
+        assert result == expected
+
+        result = searcher.filter_matches(self.matches, doc_index=1)
+        expected = [m for m in self.matches if m["doc_index"] == 1]
+        assert result == expected
+
+    # Given: matches across sentences
+    # When: filtering by sentence_index
+    # Then: only matches from that sentence (within any doc) are kept
+    def test_filter_by_sentence_index(self, searcher):
+        result = searcher.filter_matches(self.matches, sentence_index=0)
+        expected = [m for m in self.matches if m["sentence_index"] == 0]
+        assert result == expected
+
+    # Given: matches with named nodes
+    # When: filtering by node_name
+    # Then: only matches containing that node name are kept
+    def test_filter_by_node_name(self, searcher):
+        result = searcher.filter_matches(self.matches, node_name="subject")
+        expected = self.matches  # all have subject
+        assert result == expected
+
+        result = searcher.filter_matches(self.matches, node_name="object")
+        expected = []
+        assert result == expected
+
+    # Given: matches with node text
+    # When: filtering by node_text_contains (case-insensitive)
+    # Then: matches with substring in any node text are kept
+    def test_filter_by_node_text_contains(self, searcher):
+        result = searcher.filter_matches(self.matches, node_text_contains="chris")
+        expected = [m for m in self.matches if m["doc_index"] == 0]
+        assert result == expected
+
+        result = searcher.filter_matches(self.matches, node_text_contains="READS")
+        expected = [m for m in self.matches if m["doc_index"] == 1 and m["sentence_index"] == 1]
+        assert result == expected
+
+    # Given: nodes with attributes
+    # When: filtering by node_attr (exact key/value match)
+    # Then: only matches with a node having all attributes are kept
+    def test_filter_by_node_attr(self, searcher):
+        result = searcher.filter_matches(self.matches, node_attr={"tag": "VBD"})
+        expected = [m for m in self.matches if m["doc_index"] == 0]
+        assert result == expected
+
+        result = searcher.filter_matches(self.matches, node_attr={"tag": "PRP", "index": 1})
+        expected = [m for m in self.matches if m["doc_index"] == 1]
+        assert result == expected
+
+    # Given: multiple filter criteria
+    # When: combining doc_index + node_attr + text
+    # Then: all conditions must pass
+    def test_combined_filters(self, searcher):
+        result = searcher.filter_matches(
+            self.matches,
+            doc_index=1,
+            node_name="verb",
+            node_text_contains="gives",
+            node_attr={"tag": "VBZ"}
+        )
+        expected = [m for m in self.matches if m["doc_index"] == 1 and m["sentence_index"] == 0]
+        assert result == expected
+
+        result = searcher.filter_matches(
+            self.matches,
+            doc_index=0,
+            node_text_contains="unknown"
+        )
+        expected = []
         assert result == expected
 
 
-# ----------------------------------------------------------------------
-# Test Class: Passive Voice Detection
-# ----------------------------------------------------------------------
-class TestPassiveVoicePattern:
-    # Given: Mixed active/passive sentences
-    # When: Querying for verb with passive 'be' auxiliary
-    # Then: Only passive sentences match, with correct aux/verb
-    def test_finds_two_passives(self, searcher: SemgrexSearcher):
-        text = (
-            "The movie was praised by critics. "
-            "Users loved the ending. "
-            "It was hated by some. "
-            "I ate the cake."
-        )
-        pattern = '{}=verb >aux:pass {lemma:be}=aux'
+class TestSemgrexSearcherErrors:
+    """
+    Test error handling for missing/invalid client.
+    """
 
-        result = searcher.search_in_doc(text, pattern)
-        expected = [
+    def test_no_client_raises(self):
+        searcher = SemgrexSearcher(None)
+        with pytest.raises(RuntimeError, match="No client configured"):
+            searcher.search("text", "pattern")
+
+        with pytest.raises(RuntimeError, match="No client configured"):
+            searcher.search_documents(["text"], "pattern")
+
+    def test_client_without_semgrex_raises(self):
+        class NoSemgrexClient:
+            pass
+
+        searcher = SemgrexSearcher(NoSemgrexClient())
+        with pytest.raises(RuntimeError, match="Client does not expose"):
+            searcher.search("text", "pattern")
+
+
+class TestSemgrexSearcherOptionalClient:
+    """
+    Test behavior when client is optional or set later.
+    """
+
+    # Given: searcher with no client
+    # When: calling search() with raw data and mode="raw"
+    # Then: normalizes correctly without needing a client
+    def test_search_raw_without_client(self):
+        searcher = SemgrexSearcher()  # no client
+
+        raw_match = {
+            "sentenceIndex": 0,
+            "matchNumber": 1,
+            "nodes": {
+                "subject": {"text": "Chris", "tag": "NNP"}
+            }
+        }
+
+        result = searcher.search(raw_match, mode="raw")
+        expected: List[SemgrexMatch] = [
             {
-                "sentence_text": "The movie was praised by critics.",
-                "matched_nodes": {
-                    "verb": {"text": "praised"},
-                    "aux": {"text": "was"},
-                },
-                "length": 2,
-            },
-            {
-                "sentence_text": "It was hated by some.",
-                "matched_nodes": {
-                    "verb": {"text": "hated"},
-                    "aux": {"text": "was"},
-                },
-                "length": 2,
-            },
+                "doc_index": -1,
+                "sentence_index": 0,
+                "match_index": 1,
+                "nodes": [
+                    {"name": "subject", "text": "Chris", "attributes": {"tag": "NNP"}}
+                ]
+            }
         ]
-
-        assert len(result) == 2
-        for res, exp in zip(result, expected):
-            assert res["sentence_text"] == exp["sentence_text"]
-            assert res["length"] == exp["length"]
-            assert {k: v["text"] for k, v in res["matched_nodes"].items()} == \
-                   {k: v["text"] for k, v in exp["matched_nodes"].items()}
-
-    # Given: Only active sentences
-    # When: Passive pattern
-    # Then: No matches
-    def test_no_passive_returns_empty(self, searcher: SemgrexSearcher):
-        text = "I love pizza. She runs fast."
-        pattern = '{}=verb >aux:pass {lemma:be}=aux'
-
-        result = searcher.search_in_doc(text, pattern)
-        expected: List[Dict[str, Any]] = []
-
         assert result == expected
 
+    # Given: searcher with no client
+    # When: calling search_documents() with list of raw results
+    # Then: assigns correct doc_index and normalizes
+    def test_search_documents_raw_list(self):
+        searcher = SemgrexSearcher()
 
-# ----------------------------------------------------------------------
-# Test Class: WH-Subject Questions
-# ----------------------------------------------------------------------
-class TestWHSubjectQuestionPattern:
-    # Given: Questions and statements
-    # When: Pattern for WH-word as subject
-    # Then: Only subject-extracted WH questions match
-    def test_finds_wh_subject_questions(self, searcher: SemgrexSearcher):
-        text = (
-            "Who invented the telephone? "
-            "What is artificial intelligence? "
-            "Bell invented it. "
-            "Why did he leave?"
-        )
-        pattern = '{pos:/WP|WDT/}=wh >nsubj {}=verb'
+        raw_list = [
+            [  # doc 0
+                {
+                    "sentenceIndex": 0,
+                    "matchNumber": 1,
+                    "nodes": {"subj": {"text": "I", "tag": "PRP"}}
+                }
+            ],
+            [  # doc 1
+                {
+                    "sentenceIndex": 0,
+                    "matchNumber": 1,
+                    "nodes": {"subj": {"text": "You", "tag": "PRP"}}
+                }
+            ]
+        ]
 
-        result = searcher.search_in_doc(text, pattern)
-        expected = [
+        result = searcher.search_documents(raw_list, mode="raw")
+        expected: List[SemgrexMatch] = [
             {
-                "sentence_text": "Who invented the telephone?",
-                "matched_nodes": {
-                    "wh": {"text": "Who"},
-                    "verb": {"text": "invented"},
-                },
-                "length": 2,
+                "doc_index": 0,
+                "sentence_index": 0,
+                "match_index": 1,
+                "nodes": [{"name": "subj", "text": "I", "attributes": {"tag": "PRP"}}]
             },
-        ]  # "What is..." uses copula, not direct nsubj
+            {
+                "doc_index": 1,
+                "sentence_index": 0,
+                "match_index": 1,
+                "nodes": [{"name": "subj", "text": "You", "attributes": {"tag": "PRP"}}]
+            }
+        ]
+        assert result == expected
 
+    # Given: searcher created without client
+    # When: set_client() is called later
+    # Then: search() works with live client
+    def test_set_client_later(self, monkeypatch):
+        searcher = SemgrexSearcher()
+
+        class LiveClient:
+            def semgrex(self, text, pattern):
+                return [{"sentenceIndex": 0, "matchNumber": 1, "nodes": {"n": {"text": "set"}}}]
+
+        searcher.set_client(LiveClient())
+        result = searcher.search("test", "pat")
         assert len(result) == 1
-        res = result[0]
-        exp = expected[0]
-        assert res["sentence_text"] == exp["sentence_text"]
-        assert res["length"] == exp["length"]
-        assert {k: v["text"] for k, v in res["matched_nodes"].items()} == \
-               {k: v["text"] for k, v in exp["matched_nodes"].items()}
+        assert result[0]["doc_index"] == 0
 
-    # Given: No WH-questions
-    # When: WH-subject pattern
-    # Then: Empty
-    def test_no_wh_subject_returns_empty(self, searcher: SemgrexSearcher):
-        text = "The sky is blue. Dogs bark."
-        pattern = '{pos:/WP|WDT/}=wh >nsubj {}=verb'
-
-        result = searcher.search_in_doc(text, pattern)
-        expected: List[Dict[str, Any]] = []
-
-        assert result == expected
+    # Given: no client and no mode="raw"
+    # When: calling search() with text/pattern
+    # Then: raises clear RuntimeError
+    def test_search_text_without_client_raises(self):
+        searcher = SemgrexSearcher()
+        with pytest.raises(RuntimeError, match="No client configured"):
+            searcher.search("text", "pattern")
 
 
-# ----------------------------------------------------------------------
-# Test Class: Edge Cases & Robustness
-# ----------------------------------------------------------------------
-class TestEdgeCases:
-    # Given: Empty text
-    # When: Any pattern
-    # Then: Empty list, no crash
-    def test_empty_text_returns_empty(self, searcher: SemgrexSearcher):
-        text = ""
-        pattern = '{pos:NN}'
+class TestSemgrexSearcherEdgeCases:
+    """
+    Test empty inputs, malformed raw data, and edge filtering.
+    """
 
-        result = searcher.search_in_doc(text, pattern)
-        expected: List[Dict[str, Any]] = []
+    def test_search_documents_empty_list(self, searcher, monkeypatch):
+        # Given: empty doc list
+        # When: calling search_documents
+        # Then: returns empty list
+        result = searcher.search_documents([], "pattern")
+        assert result == []
 
-        assert result == expected
+    def test_filter_matches_empty_list(self, searcher):
+        result = searcher.filter_matches([], doc_index=0)
+        assert result == []
 
-    # Given: Malformed pattern (invalid syntax)
-    # When: search_in_doc
-    # Then: Raises ValueError from Semgrex (propagated)
-    def test_invalid_pattern_raises_error(self, searcher: SemgrexSearcher):
-        text = "Test sentence."
-        pattern = '{pos:INVALID'  # Unclosed brace
+    def test_normalize_handles_varied_raw_formats(self, monkeypatch):
+        client = DummyClient()
+        searcher = SemgrexSearcher(client)
 
-        with pytest.raises(ValueError, match=".*Semgrex.*"):
-            searcher.search_in_doc(text, pattern)
+        # Patch client to return non-standard formats
+        def mock_semgrex(text, pattern):
+            return {"matches": []}
+        monkeypatch.setattr(client, "semgrex", mock_semgrex)
+        assert searcher.search_documents(["doc"], "pat") == []
 
-    # Given: Multiple matches in one sentence (overlapping)
-    # When: Pattern that could match twice
-    # Then: Only one match per root (Semgrex limitation)
-    def test_single_match_per_root(self, searcher: SemgrexSearcher):
-        text = "The cat that sleeps eats."
-        pattern = '{pos:NN}=noun >nsubj {pos:VB}=verb'
-
-        result = searcher.search_in_doc(text, pattern)
-        # "cat" and "sleeps" could match, but only one per root
-        assert len(result) <= 1  # Known Semgrex behavior
-
-
-# ----------------------------------------------------------------------
-# Run instructions
-# ----------------------------------------------------------------------
-if __name__ == "__main__":
-    pytest.main(["-v", __file__])
+        def mock_semgrex2(text, pattern):
+            return []
+        monkeypatch.setattr(client, "semgrex", mock_semgrex2)
+        assert searcher.search_documents(["doc"], "pat") == []

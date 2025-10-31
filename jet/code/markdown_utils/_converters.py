@@ -6,11 +6,12 @@ from markdown_it import MarkdownIt
 from mdit_plain.renderer import RendererPlain
 from pathlib import Path
 from typing import Union
-from jet.code.html_utils import preprocess_html
+from jet.code.html_utils import convert_dl_blocks_to_md, preprocess_html
 from jet.code.markdown_utils._base import read_html_content
 from jet.transformers.formatters import format_html
 from jet.code.markdown_types.converter_types import MarkdownExtensions
 from jet.code.markdown_utils._preprocessors import remove_markdown_links, preprocess_markdown
+from jet.utils.code_utils import normalize_multiline_spaces
 from jet.file.utils import load_file
 
 
@@ -31,8 +32,9 @@ def base_convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bo
     md_content = converter.handle(html_content)
     if ignore_links:
         md_content = remove_markdown_links(md_content)
+    md_content = preprocess_markdown(md_content)
 
-    return md_content
+    return md_content.strip()
 
 
 def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = False) -> str:
@@ -44,26 +46,14 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
     else:
         html_content = preprocess_html(str(html_input), excludes=["script", "style"])
 
+    html_content = convert_dl_blocks_to_md(html_content)
     html_content = format_html(html_content)
 
     # # Add header placeholder after closing list elements (ul, ol, table)
     # html_content = add_list_table_header_placeholders(html_content)
 
-    converter = html2text.HTML2Text()
-    converter.ignore_images = True
-    converter.ignore_emphasis = True
-    converter.ignore_links = False
-    converter.ignore_mailto_links = ignore_links
-    converter.skip_internal_links = ignore_links
-    # converter.protect_links = not ignore_links
-    # converter.links_each_paragraph = not ignore_links
-    converter.mark_code = True
-    converter.body_width = 0
-
-    md_content = converter.handle(html_content)
-    if ignore_links:
-        md_content = remove_markdown_links(md_content)
-    md_content = preprocess_markdown(md_content)
+    md_content = base_convert_html_to_markdown(html_content, ignore_links=ignore_links)
+    # md_content = preprocess_markdown(md_content)
 
     # preprocessed_html_content = convert_markdown_to_html(md_content)
 
@@ -73,7 +63,12 @@ def convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = 
 
     # preprocessed_md_content = converter.handle(preprocessed_html_content)
 
-    return md_content.strip()
+    md_content = normalize_multiline_spaces(md_content)
+
+    # Collapse 3+ newlines → exactly 2
+    md_content = re.sub(r'\n{3,}', '\n\n', md_content)
+
+    return md_content
 
 
 def convert_markdown_to_html(md_input: Union[str, Path], exts: MarkdownExtensions = {"extensions": [

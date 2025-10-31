@@ -172,8 +172,8 @@ def preprocess_html(html: str, includes: list[str] | None = None, excludes: list
                 tag.decompose()
         html = str(soup)
 
-    # Convert <dl><dt><dd> sections into Markdown definition lists
-    html = convert_dl_blocks_to_md(html)
+    # # Convert <dl><dt><dd> sections into Markdown definition lists
+    # html = convert_dl_blocks_to_md(html)
 
     # # Add spaces between inline elements
     # inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'

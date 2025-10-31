@@ -1075,6 +1075,31 @@ def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
         return search_inputs
 
 
+def get_xpath(element) -> str:
+    # Helper to build the xpath string for an element in the PyQuery tree
+    path_elems = []
+    # element is a lxml Element inside PyQuery
+    current = element
+    while current is not None and hasattr(current, "tag"):  # root's parent is None
+        parent = current.getparent()
+        tag = current.tag
+
+        # Find the index (nth position among same tag siblings)
+        if parent is not None:
+            same_tag_siblings = [sib for sib in parent if sib.tag == tag]
+            if len(same_tag_siblings) == 1:
+                idx = ""
+            else:
+                # XPath is 1-based
+                idx = "[%d]" % (same_tag_siblings.index(current) + 1)
+            path_elems.append(f"{tag}{idx}")
+        else:
+            path_elems.append(f"{tag}")
+        current = parent
+    xpath = "/" + "/".join(reversed(path_elems))
+    return xpath
+
+
 class BaseNode:
     """Base class for nodes with common attributes."""
 
@@ -1087,7 +1112,8 @@ class BaseNode:
         raw_depth: Optional[int] = None,  # Added to store unadjusted DOM depth
         class_names: List[str] = [],
         line: int = 0,
-        html: Optional[str] = None
+        xpath: Optional[str] = None,
+        html: Optional[str] = None,
     ):
         self.tag = tag
         self.text = text
@@ -1096,6 +1122,7 @@ class BaseNode:
         self.id = id
         self.class_names = class_names
         self.line = line
+        self.xpath = xpath
         self._html = html.strip() if html else ""
 
     def get_html(self) -> str:
@@ -1132,7 +1159,8 @@ class TreeNode(BaseNode):
         class_names: List[str] = [],
         children: Optional[List['TreeNode']] = None,
         line: int = 0,
-        html: Optional[str] = None
+        xpath: Optional[str] = None,
+        html: Optional[str] = None,
     ):
         super().__init__(
             tag=tag,
@@ -1141,12 +1169,12 @@ class TreeNode(BaseNode):
             id=id,
             class_names=class_names,
             line=line,
+            xpath=xpath,
             html=html,
             raw_depth=None
         )
         self._text = text
-        self._children: List['TreeNode'] = children if children is not None else [
-        ]
+        self._children: List['TreeNode'] = children if children is not None else []
         self._parent_node: Optional['TreeNode'] = None
         self._links: List[str] = []
         self._initialize_links()
@@ -1361,6 +1389,13 @@ class TreeNode(BaseNode):
         """
         return self._links
 
+    @property
+    def children(self) -> List['TreeNode']:
+        """
+        Public read-only access to the node's children.
+        """
+        return self._children.copy()
+
 
 def create_node(node: TreeNode) -> TreeNode:
     """
@@ -1380,6 +1415,7 @@ def create_node(node: TreeNode) -> TreeNode:
         class_names=node.class_names,
         children=node._children,
         line=node.line,
+        xpath=node.xpath,
         html=node.get_html()
     )
     tree_node._parent_node = node._parent_node
@@ -1485,6 +1521,9 @@ def extract_tree_with_text(
     if root_node._parent_node is None:
         root_node._parent_node = None
 
+    # Add XPath for root node
+    root_node.xpath = get_xpath(root_el)
+
     stack = [(root_el, root_node, 0)]  # (element, parent_node, depth)
 
     while stack:
@@ -1533,6 +1572,8 @@ def extract_tree_with_text(
                 else:
                     line_number = parent_node.line + 1  # Fallback to parent line + 1 if not found
 
+            # Add XPath for child node
+            xpath = get_xpath(child)
             child_node = TreeNode(
                 tag=tag,
                 text=text,
@@ -1541,6 +1582,7 @@ def extract_tree_with_text(
                 class_names=class_names,
                 children=[],
                 line=line_number,
+                xpath=xpath,
                 html=child_pq.outer_html()
             )
             if child_node._parent_node is None:
@@ -1796,8 +1838,11 @@ def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
     result: List[TreeNode] = []
 
     def traverse(node: TreeNode) -> None:
-        # Create a TreeNode copy of the current node
-        result.append(create_node(node))
+        node_copy = create_node(node)
+        # Remove 'children' property from the copy before appending
+        if hasattr(node_copy, '_children'):
+            node_copy._children = []
+        result.append(node_copy)
 
         # Recursively process children
         for child in node.get_children():

@@ -81,6 +81,7 @@ def normalize_multiline_spaces(text: str) -> str:
     - Collapses 3+ consecutive newlines → exactly 2
     """
     text = dedent(text)
+    return text.strip()
     # Collapse horizontal whitespace and strip each line
     lines = [re.sub(r'\s+', ' ', line).strip() for line in text.splitlines()]
     
