@@ -271,12 +271,12 @@ def compress_context(
         model="qwen3-instruct-2507:4b",
     )
 
-    def filter_full_context(_max_tokens: int, buffer: int = 0) -> str:
+    def filter_full_context(_max_tokens: int) -> str:
         # Greedily truncate doc until budget is exhausted
         selected_texts = truncate_texts_fast(
             retriever_results,
             model="qwen3-instruct-2507:4b",
-            max_tokens=_max_tokens - buffer,
+            max_tokens=_max_tokens,
             strict_sentences=True,
             show_progress=True
         )
@@ -301,8 +301,10 @@ def compress_context(
 
     # Budget for documents (leave room for summary prompt + safety)
     SAFETY_BUFFER = 600
+    non_doc_tokens = static_tokens + summary_prompt_template_token_count + SAFETY_BUFFER
+    available_for_docs_tokens = max_tokens - non_doc_tokens
 
-    full_context = filter_full_context(max_tokens, SAFETY_BUFFER)
+    full_context = filter_full_context(available_for_docs_tokens)
     # Token-count - Full context
     full_context_token_count = count_tokens(
         full_context,
@@ -320,15 +322,17 @@ def compress_context(
     remaining_tokens = max_tokens - summary_prompt_token_count
 
     token_logger.info("Input Tokens: %s", format_json({
-        "doc_tokens": doc_token_count,
         "static_tokens": static_tokens,
         "template_tokens": summary_prompt_template_token_count,
         "safety_buffer": SAFETY_BUFFER,
     }))
-    token_logger.info("Max Tokens: %d", max_tokens)
-    token_logger.info("Context Tokens: %d", full_context_token_count)
+    token_logger.green("Max Tokens: %d", max_tokens)
+    token_logger.info("Original Tokens: %d", doc_token_count)
+    token_logger.info("Selected Tokens: %d", full_context_token_count)
     token_logger.info("Prompt Tokens: %d", summary_prompt_token_count)
-    token_logger.debug("Available Tokens: %d", remaining_tokens)
+    token_logger.info("Used Tokens: %d", non_doc_tokens)
+    token_logger.debug("Available Tokens: %d", available_for_docs_tokens)
+    token_logger.debug("Remaining Tokens: %d", remaining_tokens)
 
     summary_msg = _llm.invoke(summary_prompt)
     return summary_msg.content
