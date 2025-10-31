@@ -25,7 +25,7 @@ def base_convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bo
     converter.skip_internal_links = ignore_links
     # converter.protect_links = not ignore_links
     # converter.links_each_paragraph = not ignore_links
-    converter.mark_code = True
+    # converter.mark_code = True
     converter.body_width = 0
 
     md_content = converter.handle(html_content)

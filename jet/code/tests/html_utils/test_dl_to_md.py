@@ -62,7 +62,7 @@ class TestDlToMd:
         # Given full HTML containing a dl block
         html = "<p>Intro</p><dl><dt>Term</dt><dd>Definition</dd></dl><p>Outro</p>"
         result = convert_dl_blocks_to_md(html)
-        expected = "<p>Intro</p><pre>Term\n: Definition\n\n</pre><p>Outro</p>"
+        expected = "<p>Intro</p><pre class=\"jet-dl-block\">Term\n: Definition\n\n</pre><p>Outro</p>"
         assert expected in result
 
 
@@ -88,20 +88,22 @@ class TestConvertDlBlocksToMdPreserveNewlines:
         <p>Available now!</p>
         """
         result = convert_dl_blocks_to_md(html)
-        expected_md_block = (
-            "Genre\n"
-            ": Action Adventure\n"
-            "\n"
-            "Developer\n"
-            ": Studio X\n"
-            "\n"
-        )
-        expected_wrapper = f"<pre>{expected_md_block}</pre>"
-        # Verify surrounding HTML and newlines are preserved
-        assert "<div class=\"intro\">" in result
-        assert "<p>Available now!</p>" in result
-        assert result.count("\n") >= 5  # At least original newlines + internal
-        assert expected_wrapper in result
+        expected = """
+<div class="intro">
+<p>Game overview:</p>
+</div>
+
+<pre class="jet-dl-block">Genre
+: Action Adventure
+
+Developer
+: Studio X
+
+</pre>
+
+<p>Available now!</p>
+""".strip()
+        assert result == expected
 
     # Given: Multiple <dl> blocks with complex content
     # When: convert_dl_blocks_to_md processes all
@@ -113,8 +115,16 @@ class TestConvertDlBlocksToMdPreserveNewlines:
         <dl><dt>B</dt><dd>2</dd><dd>3</dd></dl>
         """
         result = convert_dl_blocks_to_md(html)
-        pre_blocks = re.findall(r"<pre>.*?</pre>", result, re.DOTALL)
-        assert len(pre_blocks) == 2
-        assert "A\n: 1\n\n" in pre_blocks[0]
-        assert "B\n: 2\n: 3\n\n" in pre_blocks[1]
-        assert "<p>---</p>" in result
+        expected = """
+<pre class="jet-dl-block">A
+: 1
+
+</pre>
+<p>---</p>
+<pre class="jet-dl-block">B
+: 2
+: 3
+
+</pre>
+""".strip()
+        assert result == expected

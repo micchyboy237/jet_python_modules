@@ -1,4 +1,5 @@
 import ast
+import re
 from textwrap import dedent
 
 
@@ -69,3 +70,29 @@ def shorten_functions(content: str, remove_class_vars: bool = False) -> str:
                 definitions.append(result)
 
     return dedent("\n".join(definitions))
+
+
+def normalize_multiline_spaces(text: str) -> str:
+    """
+    Normalizes whitespace in a multiline string:
+    - Dedents the text
+    - Collapses horizontal whitespace per line
+    - Preserves intentional blank lines (up to 2 consecutive)
+    - Collapses 3+ consecutive newlines → exactly 2
+    """
+    text = dedent(text)
+    # Collapse horizontal whitespace and strip each line
+    lines = [re.sub(r'\s+', ' ', line).strip() for line in text.splitlines()]
+    
+    # Build result by joining non-empty lines with '\n', and insert '\n' for empty lines
+    result_lines = []
+    for line in lines:
+        if line:
+            result_lines.append(line)
+        else:
+            result_lines.append('')  # Preserve blank line
+
+    joined = "\n".join(result_lines)
+    # Collapse 3+ newlines → exactly 2
+    normalized = re.sub(r'\n{3,}', '\n\n', joined)
+    return normalized.strip()

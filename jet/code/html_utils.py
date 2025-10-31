@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from lxml import etree
 
 from jet.logger import logger
+from jet.utils.code_utils import normalize_multiline_spaces
 from jet.utils.text import fix_and_unidecode
 
 
@@ -239,14 +240,15 @@ def convert_dl_blocks_to_md(html: str) -> str:
     """Replace all <dl>...</dl> blocks in HTML with Markdown definition lists wrapped in <pre> to preserve newlines."""
     def repl(match: re.Match) -> str:
         md_content = dl_to_md(match)
-        return f"<pre>{md_content}</pre>"
+        return f"<pre class=\"jet-dl-block\">{md_content}</pre>"
 
-    return re.sub(
+    result = re.sub(
         r"<dl[^>]*>\s*(.*?)\s*</dl>",
         repl,
         html,
         flags=re.DOTALL | re.IGNORECASE,
     )
+    return normalize_multiline_spaces(result)
 
 
 def clean_html(html: str, max_link_density: float = 0.2, max_link_ratio: float = 0.3, language: str = "English"): # -> List[justext.paragraph.Paragraph]:
