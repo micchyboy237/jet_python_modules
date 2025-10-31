@@ -28,8 +28,6 @@ class StanzaPipelineCache:
                     lang=lang, processors=processors, use_gpu=use_gpu, verbose=verbose, **kwargs
                 )
                 self._config = config
-            else:
-                logger.debug(f"Reusing cached Stanza pipeline for config: {config}")
             return self._pipeline
 
     def clear_cache(self) -> None:
