@@ -101,7 +101,7 @@ def extract_text_nodes(
         if url:
             page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         else:
-            page.set_content(html, timeout=timeout_ms, wait_until="domcontentloaded")
+            page.set_content(html)
         
         if wait_for_js:
             js_timeout = 5000

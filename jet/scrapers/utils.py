@@ -1224,8 +1224,8 @@ class TreeNode(BaseNode):
             The combined content as a string.
         """
         texts = []
-        if not self.get_header() and self._text and self._text.strip():
-            texts.append(self._text.strip())
+        # if not self.get_header() and self._text and self._text.strip():
+        #     texts.append(self._text.strip())
         for child in self._children:
             child_content = child._content
             if child_content:
@@ -1240,15 +1240,16 @@ class TreeNode(BaseNode):
         Returns:
             The combined header and content, or the original text, or None.
         """
-        texts = []
-        if self._text and self._text.strip():
-            texts.append(self._text.strip())
+        # texts = []
+        # if self._text and self._text.strip():
+        #     texts.append(self._text.strip())
 
-            for child in self._children:
-                child_content = child._content
-                if child_content:
-                    texts.append(child_content)
-        return "\n".join(texts).strip()
+        #     for child in self._children:
+        #         child_content = child._content
+        #         if child_content:
+        #             texts.append(child_content)
+        # return "\n".join(texts).strip()
+        return self._text or ""
 
     @text.setter
     def text(self, value: Optional[str]) -> None:
