@@ -321,6 +321,7 @@ def compress_context(
     token_logger.info("Context Tokens: %d", full_context_token_count)
     token_logger.info("Template Tokens: %d", summary_prompt_template_token_count)
     token_logger.info("Prompt Tokens: %d", summary_prompt_token_count)
+    token_logger.debug("Available Tokens: %d", available_for_docs)
 
     summary_msg = _llm.invoke(summary_prompt)
     return summary_msg.content
