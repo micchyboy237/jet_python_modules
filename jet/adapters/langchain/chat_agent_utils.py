@@ -2,13 +2,11 @@
 LangChain Agent Example (create_agent + AgentState)
 ✅ Fixed for LangChain 0.3+ / LangGraph runtime
 """
-import json
 import math
 from typing import List, Optional
 from typing import Callable, Awaitable
 
 from langchain.chat_models import BaseChatModel
-import tiktoken
 from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.transformers.formatters import format_json
@@ -83,6 +81,8 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
     def __init__(self) -> None:
         super().__init__()
 
+    # ── SYNC ─────────────────────────────────────────────────────────────────
+
     def before_agent(self, state, runtime):
         agent_logger.info(
             "[BEFORE AGENT] (State=%s)", format_json(state)
@@ -93,7 +93,6 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
             "[AFTER AGENT] (State=%s)", format_json(state)
         )
 
-    # ── SYNC ─────────────────────────────────────────────────────────────────
     def wrap_tool_call(
         self,
         request: ToolCallRequest,
@@ -138,6 +137,17 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         return result
 
     # ── ASYNC ───────────────────────────────────────────────────────────────
+
+    async def abefore_agent(self, state, runtime):
+        agent_logger.info(
+            "[BEFORE AGENT] (State=%s)", format_json(state)
+        )
+
+    async def aafter_agent(self, state, runtime):
+        agent_logger.teal(
+            "[AFTER AGENT] (State=%s)", format_json(state)
+        )
+
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
@@ -185,7 +195,7 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         return result
 
 
-def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instruct-2507:4b", system_prompt: Optional[str] = None, temperature: float = 0.0):
+def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instruct-2507:4b", system_prompt: Optional[str] = None, temperature: float = 0.0, name: Optional[str] = None, **kwargs):
     """Create a LangChain agent that can perform basic arithmetic."""
     model = ChatOpenAI(
         model=model,
@@ -200,39 +210,11 @@ def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instr
         system_prompt=system_prompt,
         middleware=[ToolCallLoggingMiddleware()],
         debug=True,
+        name=name,
+        **kwargs
     )
 
     return agent
-
-def estimate_tokens(
-    system_prompt: str,
-    messages: List[BaseMessage],
-    tools: List[BaseTool] | None = None
-) -> int:
-    """Accurately estimate total prompt tokens including tools."""
-    total = 0
-    enc = tiktoken.get_encoding("cl100k_base")
-
-    # System prompt
-    total += len(enc.encode(system_prompt)) + 4
-
-    # Messages
-    for msg in messages:
-        total += len(enc.encode(msg.content)) + 4  # role + content
-
-    # Tools (JSON schema)
-    if tools:
-        tools_json = json.dumps([{
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": t.args
-            }
-        } for t in tools], ensure_ascii=False)
-        total += len(enc.encode(tools_json)) + 10  # overhead
-
-    return total
 
 def compress_context(
     messages: List[BaseMessage],
