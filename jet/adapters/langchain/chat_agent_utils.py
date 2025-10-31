@@ -301,9 +301,8 @@ def compress_context(
 
     # Budget for documents (leave room for summary prompt + safety)
     SAFETY_BUFFER = 600
-    available_for_docs = max_tokens - static_tokens - SAFETY_BUFFER - summary_prompt_template_token_count
 
-    full_context = filter_full_context(available_for_docs)
+    full_context = filter_full_context(max_tokens, SAFETY_BUFFER)
     # Token-count - Full context
     full_context_token_count = count_tokens(
         full_context,
@@ -317,11 +316,19 @@ def compress_context(
         model="qwen3-instruct-2507:4b",
     )
 
-    token_logger.info("Orig Tokens: %d", doc_token_count)
+    # Token-count - Available remaining
+    remaining_tokens = max_tokens - summary_prompt_token_count
+
+    token_logger.info("Input Tokens: %s", format_json({
+        "doc_tokens": doc_token_count,
+        "static_tokens": static_tokens,
+        "template_tokens": summary_prompt_template_token_count,
+        "safety_buffer": SAFETY_BUFFER,
+    }))
+    token_logger.info("Max Tokens: %d", max_tokens)
     token_logger.info("Context Tokens: %d", full_context_token_count)
-    token_logger.info("Template Tokens: %d", summary_prompt_template_token_count)
     token_logger.info("Prompt Tokens: %d", summary_prompt_token_count)
-    token_logger.debug("Available Tokens: %d", available_for_docs)
+    token_logger.debug("Available Tokens: %d", remaining_tokens)
 
     summary_msg = _llm.invoke(summary_prompt)
     return summary_msg.content
