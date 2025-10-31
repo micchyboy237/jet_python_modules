@@ -1110,6 +1110,7 @@ class BaseNode:
         depth: int,
         id: str,
         raw_depth: Optional[int] = None,  # Added to store unadjusted DOM depth
+        parent_class_names: List[str] = [],  # <-- NEW
         class_names: List[str] = [],
         line: int = 0,
         xpath: Optional[str] = None,
@@ -1120,6 +1121,7 @@ class BaseNode:
         self.depth = depth
         self.raw_depth = raw_depth  # Store unadjusted depth
         self.id = id
+        self.parent_class_names = parent_class_names  # <-- NEW
         self.class_names = class_names
         self.line = line
         self.xpath = xpath
@@ -1157,6 +1159,7 @@ class TreeNode(BaseNode):
         depth: int,
         id: str,
         class_names: List[str] = [],
+        parent_class_names: List[str] = [],  # <-- NEW
         children: Optional[List['TreeNode']] = None,
         line: int = 0,
         xpath: Optional[str] = None,
@@ -1168,6 +1171,7 @@ class TreeNode(BaseNode):
             depth=depth,
             id=id,
             class_names=class_names,
+            parent_class_names=parent_class_names,  # <-- NEW
             line=line,
             xpath=xpath,
             html=html,
@@ -1415,6 +1419,7 @@ def create_node(node: TreeNode) -> TreeNode:
         text=node.text,
         depth=node.depth,
         id=node.id,
+        parent_class_names=node.parent_class_names,  # <-- NEW
         class_names=node.class_names,
         children=node._children,
         line=node.line,
@@ -1516,6 +1521,7 @@ def extract_tree_with_text(
         text=None,
         depth=0,
         id=root_id,
+        parent_class_names=[],  # <-- NEW
         class_names=[],
         children=[],
         line=root_line,
@@ -1532,6 +1538,12 @@ def extract_tree_with_text(
     while stack:
         el, parent_node, depth = stack.pop()
         el_pq = pq(el)
+
+        # Prepare parent_class_names for child nodes
+        parent_pq = pq(el) if el is not None else None
+        parent_class_names = []
+        if parent_pq is not None:
+            parent_class_names = [cls for cls in (parent_pq.attr("class") or "").split() if not cls.startswith("css-")]
 
         for child in el_pq.children():
             child_pq = pq(child)
@@ -1581,6 +1593,7 @@ def extract_tree_with_text(
                 tag=tag,
                 text=text,
                 depth=depth + 1,
+                parent_class_names=parent_class_names,  # <-- NEW
                 id=element_id,
                 class_names=class_names,
                 children=[],
@@ -1856,12 +1869,13 @@ def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
     return result
 
 
-def get_leaf_nodes(root: TreeNode) -> List[TreeNode]:
+def get_leaf_nodes(root: TreeNode, with_text: bool = False) -> List[TreeNode]:
     """
     Returns a list of TreeNode objects for leaf nodes (nodes with no children).
 
     Args:
         root: The root TreeNode of the tree to traverse.
+        with_text: If True, only include leaf nodes with non-empty text.
 
     Returns:
         A list of TreeNode objects for leaf nodes.
@@ -1871,7 +1885,8 @@ def get_leaf_nodes(root: TreeNode) -> List[TreeNode]:
     def traverse(node: TreeNode) -> None:
         # Check if the node is a leaf (no children)
         if not node.has_children():
-            result.append(create_node(node))
+            if not with_text or (getattr(node, "text", None) or "").strip():
+                result.append(create_node(node))
 
         # Recursively traverse children
         for child in node.get_children():
