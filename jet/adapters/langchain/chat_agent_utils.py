@@ -8,6 +8,7 @@ from typing import Callable, Awaitable
 
 from langchain.chat_models import BaseChatModel
 import tiktoken
+from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.transformers.formatters import format_json
 from langchain.agents import create_agent
@@ -15,7 +16,7 @@ from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from langgraph.prebuilt.tool_node import ToolCallRequest
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 from jet.logger import logger, CustomLogger
 import os
@@ -235,6 +236,7 @@ def compress_context(
     """
     Compress retrieved docs + conversation history into a concise summary
     while preserving accuracy via LLM self-summarization.
+    Uses `count_tokens` to limit `retriever_results` before building `full_context`.
     """
     _llm = llm or ChatOpenAI(
         model="qwen3-instruct-2507:4b",
@@ -242,17 +244,51 @@ def compress_context(
         base_url="http://shawn-pc.local:8080/v1",
         verbosity="high",
     )
-    full_context = f"Retrieved Documents:\n{retriever_results}\n\nConversation So Far:\n"
+    # Token-count each retrieved document
+    doc_texts = [doc.page_content for doc in retriever_results] if hasattr(retriever_results, '__iter__') and not isinstance(retriever_results, str) else [retriever_results]
+    doc_token_counts = count_tokens(
+        doc_texts,
+        model="qwen3-instruct-2507:4b",
+        prevent_total=True,
+        add_special_tokens=False,
+    )
+    # Build conversation history string
+    history_lines = []
     for msg in messages[:-1]:
         role = "User" if isinstance(msg, HumanMessage) else "Assistant"
-        full_context += f"{role}: {msg.content}\n"
+        history_lines.append(f"{role}: {msg.content}")
+    history_text = "\n".join(history_lines)
 
-    # Call estimate_tokens with explicit system_prompt and messages args.
-    # Use an empty system prompt here because compress_context builds the
-    # combined context itself; we only want to estimate tokens of that context.
-    if estimate_tokens(system_prompt="", messages=[SystemMessage(content=full_context)]) < max_tokens:
+    # Static parts (prompt + headers)
+    static_parts = (
+        "Retrieved Documents:\n"
+        + "\n\nConversation So Far:\n"
+        + history_text
+    )
+    static_tokens = count_tokens(static_parts, model="qwen3-instruct-2507:4b")
+
+    # Budget for documents (leave room for summary prompt + safety)
+    SAFETY_BUFFER = 600
+    available_for_docs = max_tokens - static_tokens - SAFETY_BUFFER
+
+    # Greedily select docs until budget is exhausted
+    selected_docs = []
+    consumed = 0
+    for txt, cnt in zip(doc_texts, doc_token_counts):
+        if consumed + cnt <= available_for_docs:
+            selected_docs.append(txt)
+            consumed += cnt
+        else:
+            break
+    selected_text = "\n\n".join(selected_docs) if selected_docs else ""
+
+    full_context = f"Retrieved Documents:\n{selected_text}\n\nConversation So Far:\n{history_text}"
+
+    # If still under limit, return early
+    if count_tokens(full_context, model="qwen3-instruct-2507:4b") < max_tokens:
         return full_context
 
+    # Otherwise, summarize
     summary_prompt = f"""
     Summarize the following research context and conversation **without losing any technical details, definitions, examples, or cited techniques**. 
     Preserve accuracy and specificity. Focus on key concepts, mechanisms, and findings.

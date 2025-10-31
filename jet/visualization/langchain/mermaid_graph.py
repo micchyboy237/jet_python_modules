@@ -12,7 +12,7 @@ def render_mermaid_graph(
     retry_delay: float = 2.0,
     open_file: bool = False,
     **kwargs
-):
+) -> bytes:
     """
     Generates a Mermaid graph PNG from the agent and opens it using the system's default viewer on macOS.
 
@@ -35,3 +35,5 @@ def render_mermaid_graph(
         os.system(f"open {output_path}")
 
     logger.log("Saved graph to: ", output_filename, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+
+    return png_bytes
