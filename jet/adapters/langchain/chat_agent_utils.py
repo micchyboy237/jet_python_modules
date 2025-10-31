@@ -302,9 +302,10 @@ def compress_context(
     # Budget for documents (leave room for summary prompt + safety)
     SAFETY_BUFFER = 600
     non_doc_tokens = static_tokens + summary_prompt_template_token_count + SAFETY_BUFFER
-    available_context_tokens = max_tokens - non_doc_tokens
+    available_output_tokens = max_tokens - non_doc_tokens
 
     max_context_tokens = max_tokens ** 0.5
+    max_context_tokens = max_context_tokens if max_context_tokens < available_output_tokens else available_output_tokens
     full_context = filter_full_context(max_context_tokens)
     # Token-count - Full context
     full_context_token_count = count_tokens(
@@ -333,7 +334,7 @@ def compress_context(
     token_logger.info("Selected Tokens: %d", full_context_token_count)
     token_logger.info("Prompt Tokens: %d", summary_prompt_token_count)
     token_logger.info("Used Tokens: %d", non_doc_tokens)
-    token_logger.debug("Available Context Tokens: %d", available_context_tokens)
+    token_logger.debug("Available Output Tokens: %d", available_output_tokens)
     token_logger.debug("Remaining Tokens: %d", remaining_tokens)
 
     summary_msg = _llm.invoke(summary_prompt)
