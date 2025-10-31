@@ -23,6 +23,8 @@ import os
 import shutil
 import threading
 
+from jet.wordnet.text_chunker import truncate_texts_fast
+
 # ----------------------------------------------------------------------
 # Log-directory management (import-safe)
 # ----------------------------------------------------------------------
@@ -62,6 +64,10 @@ logger.orange(f"Model logs: {model_log_file}")
 tool_log_file = f"{log_dir}/tool.log"
 tool_logger = CustomLogger("tool", filename=tool_log_file)
 logger.orange(f"Tool logs: {tool_log_file}")
+
+token_log_file = f"{log_dir}/token.log"
+token_logger = CustomLogger("token", filename=token_log_file)
+logger.orange(f"Token logs: {token_log_file}")
 
 # tool_log_file = f"{log_dir}/tools.log"
 # tool_logger = CustomLogger("tools", filename=tool_log_file, level=logging.DEBUG)
@@ -244,14 +250,6 @@ def compress_context(
         base_url="http://shawn-pc.local:8080/v1",
         verbosity="high",
     )
-    # Token-count each retrieved document
-    doc_texts = [doc.page_content for doc in retriever_results] if hasattr(retriever_results, '__iter__') and not isinstance(retriever_results, str) else [retriever_results]
-    doc_token_counts = count_tokens(
-        doc_texts,
-        model="qwen3-instruct-2507:4b",
-        prevent_total=True,
-        add_special_tokens=False,
-    )
     # Build conversation history string
     history_lines = []
     for msg in messages[:-1]:
@@ -267,34 +265,62 @@ def compress_context(
     )
     static_tokens = count_tokens(static_parts, model="qwen3-instruct-2507:4b")
 
-    # Budget for documents (leave room for summary prompt + safety)
-    SAFETY_BUFFER = 600
-    available_for_docs = max_tokens - static_tokens - SAFETY_BUFFER
+    # Token-count retrieved document
+    doc_token_count = count_tokens(
+        retriever_results,
+        model="qwen3-instruct-2507:4b",
+    )
 
-    # Greedily select docs until budget is exhausted
-    selected_docs = []
-    consumed = 0
-    for txt, cnt in zip(doc_texts, doc_token_counts):
-        if consumed + cnt <= available_for_docs:
-            selected_docs.append(txt)
-            consumed += cnt
-        else:
-            break
-    selected_text = "\n\n".join(selected_docs) if selected_docs else ""
-
-    full_context = f"Retrieved Documents:\n{selected_text}\n\nConversation So Far:\n{history_text}"
-
-    # If still under limit, return early
-    if count_tokens(full_context, model="qwen3-instruct-2507:4b") < max_tokens:
+    def filter_full_context(_max_tokens: int, buffer: int = 0) -> str:
+        # Greedily truncate doc until budget is exhausted
+        selected_texts = truncate_texts_fast(
+            retriever_results,
+            model="qwen3-instruct-2507:4b",
+            max_tokens=_max_tokens - buffer,
+            strict_sentences=True,
+            show_progress=True
+        )
+        selected_text = "\n".join(selected_texts)
+        full_context = f"Retrieved Documents:\n{selected_text}\n\nConversation So Far:\n{history_text}"
         return full_context
 
     # Otherwise, summarize
-    summary_prompt = f"""
+    summary_prompt_template = """
     Summarize the following research context and conversation **without losing any technical details, definitions, examples, or cited techniques**. 
     Preserve accuracy and specificity. Focus on key concepts, mechanisms, and findings.
     Content to summarize:
     {full_context}
     Concise Summary (preserve all facts):
     """
+
+    # Token-count - Prompt template
+    summary_prompt_template_token_count = count_tokens(
+        summary_prompt_template,
+        model="qwen3-instruct-2507:4b",
+    )
+
+    # Budget for documents (leave room for summary prompt + safety)
+    SAFETY_BUFFER = 600
+    available_for_docs = max_tokens - static_tokens - SAFETY_BUFFER - summary_prompt_template_token_count
+
+    full_context = filter_full_context(available_for_docs)
+    # Token-count - Full context
+    full_context_token_count = count_tokens(
+        full_context,
+        model="qwen3-instruct-2507:4b",
+    )
+
+    summary_prompt = summary_prompt_template.format(full_context=full_context)
+    # Token-count - Full summary prompt
+    summary_prompt_token_count = count_tokens(
+        summary_prompt,
+        model="qwen3-instruct-2507:4b",
+    )
+
+    token_logger.info("Orig Tokens: %d", doc_token_count)
+    token_logger.info("Context Tokens: %d", full_context_token_count)
+    token_logger.info("Template Tokens: %d", summary_prompt_template_token_count)
+    token_logger.info("Prompt Tokens: %d", summary_prompt_token_count)
+
     summary_msg = _llm.invoke(summary_prompt)
     return summary_msg.content
