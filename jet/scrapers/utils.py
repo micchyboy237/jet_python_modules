@@ -1216,7 +1216,7 @@ class TreeNode(BaseNode):
         return ""
 
     @property
-    def content(self) -> str:
+    def _content(self) -> str:
         """
         Returns the combined content of the node and its descendants, excluding header text if this is a heading node.
 
@@ -1227,7 +1227,7 @@ class TreeNode(BaseNode):
         if not self.header and self._text and self._text.strip():
             texts.append(self._text.strip())
         for child in self._children:
-            child_content = child.content
+            child_content = child._content
             if child_content:
                 texts.append(child_content)
         return "\n".join(texts).strip()
@@ -1245,7 +1245,7 @@ class TreeNode(BaseNode):
             texts.append(self._text.strip())
 
             for child in self._children:
-                child_content = child.content
+                child_content = child._content
                 if child_content:
                     texts.append(child_content)
         return "\n".join(texts).strip()
@@ -1283,16 +1283,16 @@ class TreeNode(BaseNode):
         parent = self.get_parent_node()
         return parent.header if parent else None
 
-    @property
-    def parent_content(self) -> Optional[str]:
-        """
-        Returns the content of the parent node if it exists, else None.
+    # @property
+    # def parent_content(self) -> Optional[str]:
+    #     """
+    #     Returns the content of the parent node if it exists, else None.
 
-        Returns:
-            The parent's content or None.
-        """
-        parent = self.get_parent_node()
-        return parent.content if parent else None
+    #     Returns:
+    #         The parent's content or None.
+    #     """
+    #     parent = self.get_parent_node()
+    #     return parent.content if parent else None
 
     @property
     def parent_level(self) -> Optional[int]:
@@ -1305,22 +1305,22 @@ class TreeNode(BaseNode):
         parent = self.get_parent_node()
         return parent.level if parent else None
 
-    @property
-    def parent_headers(self) -> List[str]:
-        """
-        Returns a list of header texts from parent nodes with lower levels, ordered from root to immediate parent.
+    # @property
+    # def parent_headers(self) -> List[str]:
+    #     """
+    #     Returns a list of header texts from parent nodes with lower levels, ordered from root to immediate parent.
 
-        Returns:
-            A list of parent header texts.
-        """
-        headers = []
-        current = self.get_parent_node()
-        while current:
-            if current.header and current.level is not None and (self.level is None or current.level < self.level):
-                headers.append((current.header, current.level))
-            current = current.get_parent_node()
-        headers.sort(key=lambda x: x[1])
-        return [header for header, _ in headers]
+    #     Returns:
+    #         A list of parent header texts.
+    #     """
+    #     headers = []
+    #     current = self.get_parent_node()
+    #     while current:
+    #         if current.header and current.level is not None and (self.level is None or current.level < self.level):
+    #             headers.append((current.header, current.level))
+    #         current = current.get_parent_node()
+    #     headers.sort(key=lambda x: x[1])
+    #     return [header for header, _ in headers]
 
     def get_parent_node(self) -> Optional['TreeNode']:
         """
