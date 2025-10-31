@@ -1674,6 +1674,7 @@ def extract_by_heading_hierarchy(
             text=text,
             depth=new_depth,
             id=new_id,
+            parent_class_names=node.parent_class_names,
             class_names=node.class_names,
             children=[],
             line=node.line,

@@ -146,7 +146,10 @@ def extract_text_nodes(
             
             tag = child.tag if isinstance(child.tag, str) else str(child.tag)
             class_names = [cls for cls in (child_pq.attr("class") or "").split() 
-                          if not cls.startswith("css-")]
+                           if not cls.startswith("css-")]
+            parent_pq = pq(el)
+            parent_class_names = [cls for cls in (parent_pq.attr("class") or "").split()
+                                  if not cls.startswith("css-")]
             element_id = child_pq.attr("id")
             
             if not element_id or not re.match(r'^[a-zA-Z_-]+$', element_id):
@@ -188,6 +191,7 @@ def extract_text_nodes(
                 depth=depth + 1,
                 id=element_id,
                 class_names=class_names,
+                parent_class_names=parent_class_names,  # <-- NEW
                 line=line_number,
                 xpath=xpath,
                 html=child_pq.outer_html()
