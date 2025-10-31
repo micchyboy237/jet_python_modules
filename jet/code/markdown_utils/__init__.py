@@ -1,6 +1,6 @@
+from ._base import *
 from ._preprocessors import *
 from ._converters import *
-from ._base import *
 from ._markdown_analyzer import *
 from ._markdown_parser import *
 

@@ -1404,7 +1404,7 @@ def extract_tree_with_text(
     timeout_ms: int = 10000,
     with_screenshot: bool = True,
     wait_for_js: bool = True,
-    headless: bool = False,
+    headless: bool = True,
 ) -> TreeNode:
     """
     Extracts a tree structure from HTML with id, parent_id, links attributes, actual line numbers, and outer HTML from formatted HTML.
@@ -1669,7 +1669,7 @@ def extract_text_elements(
     timeout_ms: int = 10000,
     with_screenshot: bool = True,
     wait_for_js: bool = True,
-    headless: bool = False,
+    headless: bool = True,
 ) -> List[str]:
     """
     Extracts a flattened list of text elements from the HTML document, ignoring specific elements.

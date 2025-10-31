@@ -1,4 +1,5 @@
 import re
+from typing import List, Tuple
 from bs4 import BeautifulSoup
 from lxml import etree
 
@@ -170,36 +171,82 @@ def preprocess_html(html: str, includes: list[str] | None = None, excludes: list
                 tag.decompose()
         html = str(soup)
 
-    # Convert dt/dd → li within ul
-    def replace_dt_dd(match):
-        dt_content = match.group(2).strip() if match.group(2) else match.group(5).strip()
-        dd_content = match.group(3).strip() if match.group(3) else match.group(6).strip()
-        return f'<li>{dd_content}: {dt_content}</li>'
+    # Convert <dl><dt><dd> sections into Markdown definition lists
+    html = convert_dl_blocks_to_md(html)
 
-    html = re.sub(
-        r'(<div[^>]*>\s*)?<dt[^>]*>(.*?)</dt>\s*<dd[^>]*>(.*?)</dd>(\s*</div>)?',
-        replace_dt_dd,
-        html,
-        flags=re.DOTALL | re.IGNORECASE
-    )
-    html = re.sub(r'<dl[^>]*>', '<ul>', html, flags=re.IGNORECASE)
-    html = re.sub(r'</dl>', '</ul>', html, flags=re.IGNORECASE)
+    # # Add spaces between inline elements
+    # inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
+    # html = re.sub(rf'</({inline_elements})><({inline_elements})', r'</\1> <\2', html)
 
-    # Add spaces between inline elements
-    inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
-    html = re.sub(rf'</({inline_elements})><({inline_elements})', r'</\1> <\2', html)
-
-    # Add <h1> if not already first
-    body_match = re.search(r'(<body[^>]*>)\s*(<[^>]+>)', html, re.IGNORECASE)
-    has_h1_first = False
-    if body_match:
-        first_child = body_match.group(2)
-        has_h1_first = bool(re.match(r'<h1(?:\s+[^>]*)?>', first_child, re.IGNORECASE))
-    if not has_h1_first:
-        html = re.sub(r'(<body[^>]*>)', rf'\1<h1>{title}</h1>', html, flags=re.IGNORECASE)
+    # # Add <h1> if not already first
+    # body_match = re.search(r'(<body[^>]*>)\s*(<[^>]+>)', html, re.IGNORECASE)
+    # has_h1_first = False
+    # if body_match:
+    #     first_child = body_match.group(2)
+    #     has_h1_first = bool(re.match(r'<h1(?:\s+[^>]*)?>', first_child, re.IGNORECASE))
+    # if not has_h1_first:
+    #     html = re.sub(r'(<body[^>]*>)', rf'\1<h1>{title}</h1>', html, flags=re.IGNORECASE)
 
     html = fix_and_unidecode(html)
     return html
+
+
+def dl_to_md(match: re.Match) -> str:
+    """
+    Convert a <dl>...</dl> HTML block to Markdown definition list syntax.
+    Example output:
+
+    Term One
+    : Definition one.
+
+    Term Two
+    : Definition A
+    : Definition B
+    """
+    inner_html = match.group(1)
+    soup = BeautifulSoup(inner_html, "html.parser")
+
+    items: List[Tuple[str, List[str]]] = []
+    current_term: str | None = None
+
+    for node in soup.find_all(["dt", "dd"]):
+        text = " ".join(node.stripped_strings)
+        text = re.sub(r"\s+", " ", text).strip()
+
+        if node.name.lower() == "dt":
+            current_term = text
+            items.append((current_term, []))
+        elif node.name.lower() == "dd":
+            if not items:
+                items.append(("", [text]))
+                current_term = ""
+            else:
+                items[-1][1].append(text)
+
+    out_lines: List[str] = []
+    for term, defs in items:
+        if term:
+            out_lines.append(term)
+        for d in defs:
+            out_lines.append(f": {d}")
+        out_lines.append("")  # blank line between groups
+
+    md = "\n".join(out_lines).rstrip() + "\n\n"
+    return md
+
+
+def convert_dl_blocks_to_md(html: str) -> str:
+    """Replace all <dl>...</dl> blocks in HTML with Markdown definition lists wrapped in <pre> to preserve newlines."""
+    def repl(match: re.Match) -> str:
+        md_content = dl_to_md(match)
+        return f"<pre>{md_content}</pre>"
+
+    return re.sub(
+        r"<dl[^>]*>\s*(.*?)\s*</dl>",
+        repl,
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
 
 def clean_html(html: str, max_link_density: float = 0.2, max_link_ratio: float = 0.3, language: str = "English"): # -> List[justext.paragraph.Paragraph]:
