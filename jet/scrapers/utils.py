@@ -1203,17 +1203,17 @@ class TreeNode(BaseNode):
         """
         return self._parent_node.id if self._parent_node else None
 
-    @property
-    def header(self) -> str:
-        """
-        Returns the node's header text if it's a heading tag (h1–h6), else an empty string.
+    # @property
+    # def header(self) -> str:
+    #     """
+    #     Returns the node's header text if it's a heading tag (h1–h6), else an empty string.
 
-        Returns:
-            The header text or an empty string.
-        """
-        if self.tag.lower() in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-            return self._text.strip() if self._text else ""
-        return ""
+    #     Returns:
+    #         The header text or an empty string.
+    #     """
+    #     if self.tag.lower() in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+    #         return self._text.strip() if self._text else ""
+    #     return ""
 
     @property
     def _content(self) -> str:
@@ -1224,7 +1224,7 @@ class TreeNode(BaseNode):
             The combined content as a string.
         """
         texts = []
-        if not self.header and self._text and self._text.strip():
+        if not self.get_header() and self._text and self._text.strip():
             texts.append(self._text.strip())
         for child in self._children:
             child_content = child._content
@@ -1272,16 +1272,16 @@ class TreeNode(BaseNode):
             return int(self.tag.lower()[1])
         return None
 
-    @property
-    def parent_header(self) -> Optional[str]:
-        """
-        Returns the header text of the parent node if it exists, else None.
+    # @property
+    # def parent_header(self) -> Optional[str]:
+    #     """
+    #     Returns the header text of the parent node if it exists, else None.
 
-        Returns:
-            The parent's header text or None.
-        """
-        parent = self.get_parent_node()
-        return parent.header if parent else None
+    #     Returns:
+    #         The parent's header text or None.
+    #     """
+    #     parent = self.get_parent_node()
+    #     return parent.header if parent else None
 
     # @property
     # def parent_content(self) -> Optional[str]:
@@ -1357,13 +1357,15 @@ class TreeNode(BaseNode):
         return content
 
     def get_header(self) -> str:
-        headers = []
-        if self.tag and self.tag.lower() in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-            if self.text:
-                headers.append(self.text.strip())
-        for child in self._children:
-            headers.append(child.get_header())
-        return "\n".join([h for h in headers if h]).strip()
+        """
+        Returns the node's header text if it's a heading tag (h1–h6), else an empty string.
+
+        Returns:
+            The header text or an empty string.
+        """
+        if self.tag.lower() in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            return self._text.strip() if self._text else ""
+        return ""
 
     def has_children(self) -> bool:
         """
@@ -1661,6 +1663,7 @@ def extract_by_heading_hierarchy(
             class_names=node.class_names,
             children=[],
             line=node.line,
+            xpath=node.xpath,
             html=node.get_html()
         )
         if cloned._parent_node is None:
