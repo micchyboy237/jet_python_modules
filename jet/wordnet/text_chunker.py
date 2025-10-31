@@ -8,7 +8,7 @@ from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.logger import logger
 # from jet.vectors.document_types import HeaderDocument, HeaderMetadata
 from jet._token.token_utils import get_last_n_tokens_and_decode, get_model_max_tokens, get_tokenizer, get_tokenizer_fn
-from jet.wordnet.sentence import split_sentences, is_list_marker, is_list_sentence
+from jet.wordnet.sentence import split_sentences, is_list_marker, is_list_sentence, split_sentences_with_separators
 from jet.wordnet.utils import sliding_window
 from jet.wordnet.words import get_words
 
@@ -747,7 +747,7 @@ def truncate_texts_fast(
             results.append(tokenizer.decode(tokens).strip())
             continue
 
-        sentences = split_sentences(text)
+        sentences = split_sentences_with_separators(text)
         if not sentences:
             results.append("")
             continue
@@ -761,8 +761,9 @@ def truncate_texts_fast(
             kept_sentences.append(s)
             current_tokens += s_len
 
-        results.append(" ".join(kept_sentences).strip())
+        results.append("".join(kept_sentences).strip())
 
+    results = [r for r in results if r]
     return results
 
 
