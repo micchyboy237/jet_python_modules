@@ -3,6 +3,7 @@ mlx
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/ollama-python
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/GLiNER
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/SpanMarkerNER
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/checkpoint
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
@@ -19,3 +20,4 @@ mlx
 
 pyppeteer # for rendering mermaid graph
 simsimd
+span-marker
