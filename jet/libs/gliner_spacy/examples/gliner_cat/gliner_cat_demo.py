@@ -8,6 +8,7 @@
 # In this notebook, we will examine GliNER Cat, a new approach to performing sentence-level text classification with GliNER. To do this, we first need to import spaCy
 
 # %%
+import os
 import spacy
 
 # %% [markdown]
@@ -46,7 +47,7 @@ nlp.add_pipe("gliner_cat", config={"cat_data": cat_data, "style": "span"})
 # Now, we will load up a oral testimony from the USHMM.
 
 # %%
-with open("data/testimony.txt", "r", encoding="utf-8") as f:
+with open(f"{os.path.dirname(__file__)}/data/testimony.txt", "r", encoding="utf-8") as f:
     text = f.read()
 
 # %% [markdown]
