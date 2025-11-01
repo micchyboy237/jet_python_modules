@@ -2,7 +2,8 @@ mlx
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/ollama-python
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/GLiNER
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner-spacy
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/SpanMarkerNER
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/checkpoint
