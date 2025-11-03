@@ -1462,33 +1462,6 @@ class TreeNode(BaseNode):
         return self._children.copy()
 
 
-def create_node(node: TreeNode) -> TreeNode:
-    """
-    Creates a TreeNode from a TreeNode, copying all relevant attributes.
-
-    Args:
-        node: The source TreeNode to copy attributes from.
-
-    Returns:
-        A new TreeNode instance with attributes copied from the source TreeNode.
-    """
-    tree_node = TreeNode(
-        tag=node.tag,
-        text=node.text,
-        depth=node.depth,
-        id=node.id,
-        parent_class_names=node.parent_class_names,  # <-- NEW
-        class_names=node.class_names,
-        children=node._children,
-        line=node.line,
-        xpath=node.xpath,
-        html=node.get_html(),
-        element=node.get_element(),
-    )
-    tree_node._parent_node = node._parent_node
-    return tree_node
-
-
 def exclude_elements(doc: pq, excludes: List[str]) -> None:
     """
     Removes elements from the document that match the tags in the excludes list.
@@ -1903,6 +1876,33 @@ def extract_text_elements(
     # Start extraction from root element
     text_elements = extract_text(doc[0])
     return text_elements
+
+
+def create_node(node: TreeNode) -> TreeNode:
+    """
+    Creates a TreeNode from a TreeNode, copying all relevant attributes.
+
+    Args:
+        node: The source TreeNode to copy attributes from.
+
+    Returns:
+        A new TreeNode instance with attributes copied from the source TreeNode.
+    """
+    tree_node = TreeNode(
+        tag=node.tag,
+        text=node.text,
+        depth=node.depth,
+        id=node.id,
+        parent_class_names=node.parent_class_names,  # <-- NEW
+        class_names=node.class_names,
+        children=node._children,
+        line=node.line,
+        xpath=node.xpath,
+        html=node.get_html(),
+        element=node.get_element(),
+    )
+    tree_node._parent_node = node._parent_node
+    return tree_node
 
 
 def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
