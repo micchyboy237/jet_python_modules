@@ -20,7 +20,7 @@ class StanzaPipelineCache:
                 cls._instance = super(StanzaPipelineCache, cls).__new__(cls)
             return cls._instance
 
-    def __init__(self, lang: str = "en", processors: str = "tokenize,pos,lemma,depparse,ner",
+    def __init__(self, lang: str = "en", processors: str = "tokenize,mwt,pos,lemma,depparse,ner,sentiment,constituency",
                  use_gpu: bool = True, verbose: bool = False, **kwargs):
         """Optionally initialize pipeline on instantiation."""
         config = (lang, processors, use_gpu, verbose, tuple(sorted(kwargs.items())))
@@ -45,7 +45,7 @@ class StanzaPipelineCache:
                 current_lang, current_processors, current_use_gpu, current_verbose, current_kwargs = self._config
             else:
                 current_lang, current_processors, current_use_gpu, current_verbose, current_kwargs = (
-                    "en", "tokenize,pos,lemma,depparse,ner", True, False, tuple()
+                    "en", "tokenize,mwt,pos,lemma,depparse,ner,sentiment,constituency", True, False, tuple()
                 )
 
             merged_lang = lang or current_lang
