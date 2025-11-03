@@ -1,7 +1,3 @@
-from jet.libs.stanza.pipeline import StanzaPipelineCache
-
-_nlp_cache = StanzaPipelineCache()
-
 def is_valid_sentence(sentence: str) -> bool:
     """
     Validate if the input string is a grammatically valid sentence.
@@ -12,6 +8,9 @@ def is_valid_sentence(sentence: str) -> bool:
     """
     if not sentence or not sentence.strip():
         return False
+
+    from jet.libs.stanza.pipeline import StanzaPipelineCache
+    _nlp_cache = StanzaPipelineCache()
     nlp = _nlp_cache.get_pipeline(lang='en', processors='tokenize,mwt,pos,lemma,depparse')
     doc = nlp(sentence.strip())
     if len(doc.sentences) != 1:
