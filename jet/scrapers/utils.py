@@ -21,7 +21,7 @@ from fake_useragent import UserAgent
 
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
 from jet.transformers.formatters import format_html
-from jet.scrapers.config import TEXT_ELEMENTS
+from jet.scrapers.config import TEXT_ELEMENTS, JS_UTILS_PATH
 from jet.search.formatters import decode_text_with_unidecode
 from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
 from jet.logger.config import colorize_log
@@ -1101,6 +1101,127 @@ def get_xpath(element) -> str:
     return xpath
 
 
+def get_css_selector(element: HtmlElement) -> str:
+    """
+    Builds a unique, stable CSS selector for an lxml HtmlElement.
+    Mirrors Playwright / DOM logic used in Utils.getClickableElements().
+    """
+    if element is None or not hasattr(element, "tag"):
+        return ""
+
+    path = []
+    current = element
+
+    while current is not None and hasattr(current, "tag"):
+        tag = current.tag.lower()
+        if tag == "html":
+            path.insert(0, "html")
+            break
+
+        # If element has an ID — it's the most specific and unique selector
+        el_id = current.attrib.get("id")
+        if el_id and re.match(r"^[A-Za-z][\w\-\:\.]*$", el_id):
+            path.insert(0, f"#{el_id}")
+            break
+
+        # Build class part — avoid overly long class chains
+        el_class = current.attrib.get("class", "").strip()
+        if el_class:
+            classes = [cls for cls in el_class.split() if not cls.startswith("css-")]
+            if classes:
+                safe_classes = ".".join(re.sub(r"[^A-Za-z0-9_-]", "", c) for c in classes)
+                selector = f"{tag}.{safe_classes}"
+                path.insert(0, selector)
+                current = current.getparent()
+                continue
+
+        # Fallback: nth-of-type selector
+        parent = current.getparent()
+        if parent is not None:
+            same_tag_siblings = [
+                sib for sib in parent if getattr(sib, "tag", None) == current.tag
+            ]
+            if len(same_tag_siblings) > 1:
+                index = same_tag_siblings.index(current) + 1
+                selector = f"{tag}:nth-of-type({index})"
+            else:
+                selector = tag
+            path.insert(0, selector)
+        else:
+            path.insert(0, tag)
+
+        current = parent
+
+    return " > ".join(path)
+
+
+
+def is_element_clickable(
+    element: HtmlElement,
+    js_clickables: Optional[List[Dict[str, str]]] = None
+) -> bool:
+    """
+    Determines if an element is clickable using:
+      - JS-detected clickables from browser (`Utils.getClickableElements()`)
+      - Fallback static heuristics for HTML structure.
+    """
+    if element is None:
+        return False
+
+    tag = element.tag.lower()
+    attrs = element.attrib
+
+    # ✅ 1. JS-based detection (preferred)
+    if js_clickables:
+        # Use xpath match if available, else fallback to tag/text heuristic
+        el_id = attrs.get("id")
+        el_href = attrs.get("href")
+        el_role = attrs.get("role")
+        el_text = (element.text_content() or "").strip()[:100]
+
+        for js_el in js_clickables:
+            if js_el.get("role") == el_role and js_el.get("text") == el_text:
+                return True
+            if el_id and js_el["css_selector"].endswith(f"#{el_id}"):
+                return True
+            if el_href and js_el.get("href") == el_href:
+                return True
+
+    # ✅ 2. Static semantic roles & attributes
+    if tag in {"a", "button", "summary"}:
+        if tag == "a" and not attrs.get("href"):
+            return False
+        return True
+
+    if "onclick" in attrs or "onmousedown" in attrs or "onmouseup" in attrs:
+        return True
+
+    if attrs.get("role") in {"button", "link", "tab", "menuitem", "option"}:
+        return True
+
+    if attrs.get("tabindex", "-1") not in {"-1", None}:
+        return True
+
+    # ✅ 3. Input-based interaction
+    if tag == "input":
+        input_type = attrs.get("type", "text").lower()
+        if input_type in {"button", "submit", "reset", "checkbox", "radio", "file"}:
+            return True
+
+    # ✅ 4. Associated <label for="id"> clickable mapping
+    if tag == "label" and attrs.get("for"):
+        target_id = attrs["for"]
+        target = element.getroottree().find(f".//*[@id='{target_id}']")
+        if target is not None and is_element_clickable(target, js_clickables):
+            return True
+
+    # ✅ 5. Form elements inherently clickable
+    if tag in {"select", "textarea"}:
+        return True
+
+    return False
+
+
 class ElementDetails(TypedDict):
     """Complete low-level element metadata."""
     tag: str
@@ -1109,6 +1230,8 @@ class ElementDetails(TypedDict):
     attrs: Dict[str, str]
     direct_text: Optional[str]
     xpath: Optional[str]
+    css_selector: Optional[str]
+    is_clickable: bool
 
 
 class BaseNode:
@@ -1124,6 +1247,8 @@ class BaseNode:
         class_names: List[str] = [],
         line: int = 0,
         xpath: Optional[str] = None,
+        css_selector: Optional[str] = None,
+        is_clickable: Optional[bool] = None,
         html: Optional[str] = None,
         element: Optional[HtmlElement] = None,
     ):
@@ -1135,6 +1260,8 @@ class BaseNode:
         self.class_names = class_names
         self.line = line
         self.xpath = xpath
+        self.css_selector = css_selector
+        self.is_clickable = is_clickable
         self._html = html.strip() if html else ""
         self._element = element
 
@@ -1153,15 +1280,14 @@ class BaseNode:
     def get_element_details(self) -> Optional[ElementDetails]:
         """
         Return a typed dictionary with:
-          - tag
-          - node.id (HTML id or auto-generated)
-          - parent_id (from tree structure)
-          - all attributes
-          - direct text (element.text)
-          - xpath (cached or computed)
-
-        Returns:
-            ElementDetails if element exists, else None.
+        - tag
+        - node.id (HTML id or auto-generated)
+        - parent_id (from tree structure)
+        - all attributes
+        - direct text (element.text)
+        - xpath (cached or computed)
+        - css_selector (computed)
+        - is_clickable (determined via heuristic)
         """
         element: Optional[HtmlElement] = self.get_element()
         if element is None:
@@ -1170,19 +1296,16 @@ class BaseNode:
         # Use tree-level parent reference if available (TreeNode)
         parent_id: Optional[str] = None
         if isinstance(self, TreeNode):
-            parent_id = self.parent_id  # Uses @property from TreeNode
-        # Fallback: try to get parent element and find its node id (rarely needed)
+            parent_id = self.parent_id
         elif element.getparent() is not None:
             parent_elem = element.getparent()
-            # Search upward in tree if needed — but prefer tree structure
-            pass  # Not needed: BaseNode doesn't have parent_id
 
         direct_text = (element.text_content() if element.tag in TEXT_ELEMENTS else element.text or "").strip()
 
         # Prefer cached xpath
-        xpath = self.xpath
-        if not xpath and element is not None:
-            xpath = get_xpath(element)
+        xpath = self.xpath or get_xpath(element)
+        css_selector = self.css_selector or get_css_selector(element)
+        is_clickable = self.is_clickable or is_element_clickable(element)
 
         return ElementDetails(
             tag=element.tag if isinstance(element.tag, str) else str(element.tag),
@@ -1191,6 +1314,8 @@ class BaseNode:
             attrs=dict(element.attrib),
             direct_text=direct_text,
             xpath=xpath,
+            css_selector=css_selector,
+            is_clickable=is_clickable,
         )
 
     def get_node(self, node_id: str) -> Optional['BaseNode']:
@@ -1220,6 +1345,8 @@ class TreeNode(BaseNode):
         children: Optional[List['TreeNode']] = None,
         line: int = 0,
         xpath: Optional[str] = None,
+        css_selector: Optional[str] = None,
+        is_clickable: Optional[bool] = None,
         html: Optional[str] = None,
         element: Optional[HtmlElement] = None,
     ):
@@ -1232,6 +1359,8 @@ class TreeNode(BaseNode):
             parent_class_names=parent_class_names,  # <-- NEW
             line=line,
             xpath=xpath,
+            css_selector=css_selector,
+            is_clickable=is_clickable,
             html=html,
             element=element,
         )
@@ -1483,13 +1612,13 @@ def extract_tree_with_text(
     headless: bool = True,
 ) -> TreeNode:
     """
-    Extracts a tree structure from HTML with id, parent_id, links attributes, actual line numbers, and outer HTML from formatted HTML.
-    Sets the _parent_node attribute for each node if not already set.
+    Extracts a tree structure from HTML with id, parent_id, attributes, line numbers, and outer HTML.
+    Includes js-based clickability detection from Playwright's injected utils.
     """
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
 
-    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+    if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
     else:
@@ -1499,6 +1628,7 @@ def extract_tree_with_text(
     with sync_playwright() as p:
         traces_dir = f"{get_entry_file_dir()}/generated/{get_entry_file_name(remove_extension=True)}/playwright/traces"
         os.makedirs(traces_dir, exist_ok=True)
+
         browser = p.chromium.launch(
             headless=headless,
             executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
@@ -1508,71 +1638,93 @@ def extract_tree_with_text(
         ua = UserAgent()
         page = browser.new_page(user_agent=ua.random)
 
+        # --- Inject JS click-tracker before loading ---
+        page.add_init_script("""
+        (() => {
+          window.__clickableElements = new Set();
+          const origAddEventListener = EventTarget.prototype.addEventListener;
+          EventTarget.prototype.addEventListener = function(type, listener, options) {
+            if (type === 'click' && this instanceof Element) {
+              window.__clickableElements.add(this);
+            }
+            return origAddEventListener.call(this, type, listener, options);
+          };
+        })();
+        """)
+
+        # --- Load content ---
         if url:
             page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         else:
             page.set_content(html, timeout=timeout_ms, wait_until="domcontentloaded")
+
+        # --- Inject JS utilities after load ---
+        page.add_script_tag(path=JS_UTILS_PATH)
 
         if wait_for_js:
             js_timeout = 5000
             logger.debug(f"Waiting JS content for {js_timeout // 1000}s")
             page.wait_for_timeout(js_timeout)
 
+        # --- Optional screenshot ---
         if with_screenshot:
-            # Generate a random screenshot name using uuid
             screenshot_name = f"screenshot_{uuid.uuid4().hex}.png"
             screenshot_path = f"{get_entry_file_dir()}/generated/{get_entry_file_name(remove_extension=True)}/playwright/screenshots/{screenshot_name}"
             screenshot = page.screenshot(full_page=True, path=screenshot_path)
             if screenshot:
-                decoded_screenshot = base64.b64encode(screenshot).decode('utf-8')
+                decoded_screenshot = base64.b64encode(screenshot).decode("utf-8")
                 logger.debug(f"Decoded screenshot, length: {len(decoded_screenshot)}")
                 logger.success(f"Screenshot saved at: {screenshot_path}")
 
+        # --- Collect HTML and JS-based clickables ---
         page_content = page.content()
+        js_clickables = page.evaluate("Utils.getClickableElements()")
+        logger.info(f"Collected {len(js_clickables)} clickable elements from JS utils.")
+
+        # --- Build fast lookup for selectors ---
+        clickable_selectors: set[str] = set()
+        for item in js_clickables:
+            selector = item.get("css_selector") or item.get("selector")
+            if selector:
+                clickable_selectors.add(selector.strip())
+
+        logger.debug(f"Prepared clickable selector set: {len(clickable_selectors)} items")
+
         browser.close()
 
-    # Format the HTML content using format_html
+    # --- Format HTML and clean excluded tags ---
     formatted_html = format_html(page_content)
     doc = pq(formatted_html)
     exclude_elements(doc, excludes)
-
-    # Split formatted HTML into lines for line number tracking
     html_lines = formatted_html.splitlines()
 
+    # --- Build root node ---
     root_el = doc[0]
     root_id = f"auto_{uuid.uuid4().hex[:8]}"
-    tag_name = root_el.tag if isinstance(
-        root_el.tag, str) else str(root_el.tag)
+    tag_name = root_el.tag if isinstance(root_el.tag, str) else str(root_el.tag)
+    root_line = getattr(root_el, "sourceline", 1)
 
-    # Use sourceline if available, otherwise default to 1
-    root_line = getattr(root_el, 'sourceline', 1)
-
-    # Set root node's html using outer_html
     root_node = TreeNode(
         tag=tag_name,
         text=None,
         depth=0,
         id=root_id,
-        parent_class_names=[],  # <-- NEW
+        parent_class_names=[],
         class_names=[],
         children=[],
         line=root_line,
         html=pq(root_el).outer_html(),
         element=root_el,
     )
-    if root_node._parent_node is None:
-        root_node._parent_node = None
-
-    # Add XPath for root node
+    root_node._parent_node = None
     root_node.xpath = get_xpath(root_el)
 
-    stack = [(root_el, root_node, 0)]  # (element, parent_node, depth)
-
+    # --- Build the DOM tree recursively ---
+    stack = [(root_el, root_node, 0)]
     while stack:
         el, parent_node, depth = stack.pop()
         el_pq = pq(el)
 
-        # Prepare parent_class_names for child nodes
         parent_pq = pq(el) if el is not None else None
         parent_class_names = []
         if parent_pq is not None:
@@ -1580,53 +1732,51 @@ def extract_tree_with_text(
 
         for child in el_pq.children():
             child_pq = pq(child)
-            # Skip comment nodes
-            if child.tag is Comment or str(child.tag).startswith('<cyfunction Comment'):
+            if child.tag is Comment or str(child.tag).startswith("<cyfunction Comment"):
                 continue
 
             tag = child.tag if isinstance(child.tag, str) else str(child.tag)
-            class_names = [cls for cls in (child_pq.attr(
-                "class") or "").split() if not cls.startswith("css-")]
-            element_id = child_pq.attr("id")
+            class_names = [cls for cls in (child_pq.attr("class") or "").split() if not cls.startswith("css-")]
+            element_id = child_pq.attr("id") or f"auto_{uuid.uuid4().hex[:8]}"
 
-            if not element_id or not re.match(r'^[a-zA-Z_-]+$', element_id):
-                element_id = f"auto_{uuid.uuid4().hex[:8]}"
-
-            # Handle text extraction based on tag type
+            # --- Extract text ---
             if tag.lower() == "meta":
-                text = child_pq.attr("content") or ""
-                text = decode_text_with_unidecode(text.strip())
+                text = decode_text_with_unidecode((child_pq.attr("content") or "").strip())
             elif tag.lower() in TEXT_ELEMENTS:
                 text_parts = []
                 for item in child_pq.contents():
                     if isinstance(item, str):
                         text_parts.append(item.strip())
                     else:
-                        text_parts.append(decode_text_with_unidecode(
-                            pq(item).text().strip()))
+                        text_parts.append(decode_text_with_unidecode(pq(item).text().strip()))
                 text = " ".join(part for part in text_parts if part)
             else:
                 text = decode_text_with_unidecode(child_pq.text().strip())
 
-            # Get the actual line number from lxml's sourceline if available
-            line_number = getattr(child, 'sourceline', None)
+            # --- Line number ---
+            line_number = getattr(child, "sourceline", None)
             if line_number is None:
-                # Fallback: Approximate line number by searching for the element's tag in the formatted HTML
                 element_str = f"<{tag}"
                 for i, line in enumerate(html_lines, 1):
                     if element_str in line:
                         line_number = i
                         break
                 else:
-                    line_number = parent_node.line + 1  # Fallback to parent line + 1 if not found
+                    line_number = parent_node.line + 1
 
-            # Add XPath for child node
+            # --- XPath and CSS selector ---
             xpath = get_xpath(child)
+            css_selector = get_css_selector(child)
+
+            # --- Clickability (based on js_clickables) ---
+            is_clickable = css_selector in clickable_selectors
+
+            # --- Create node ---
             child_node = TreeNode(
                 tag=tag,
                 text=text,
                 depth=depth + 1,
-                parent_class_names=parent_class_names,  # <-- NEW
+                parent_class_names=parent_class_names,
                 id=element_id,
                 class_names=class_names,
                 children=[],
@@ -1634,17 +1784,18 @@ def extract_tree_with_text(
                 xpath=xpath,
                 html=child_pq.outer_html(),
                 element=child,
+                css_selector=css_selector,
+                is_clickable=is_clickable,
             )
+
             if child_node._parent_node is None:
                 child_node._parent_node = parent_node
 
-            # Check if child text is a substring of parent text and empty parent text if true
             if parent_node.text and child_node.text and child_node.text in parent_node.text:
                 parent_node.text = ""
 
             parent_node._children.append(child_node)
 
-            # Only traverse deeper if the tag is not in TEXT_ELEMENTS
             if tag.lower() not in TEXT_ELEMENTS and child_pq.children():
                 stack.append((child, child_node, depth + 1))
 

@@ -123,3 +123,5 @@ BLOCK_TEXT_ELEMENTS = [
 TEXT_ELEMENTS = INLINE_TEXT_ELEMENTS + BLOCK_TEXT_ELEMENTS
 
 HEADING_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6"]
+
+JS_UTILS_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/browser/scripts/utils.js"

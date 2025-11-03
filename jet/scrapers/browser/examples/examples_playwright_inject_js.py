@@ -11,7 +11,7 @@ shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 JS_UTILS_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/browser/scripts/utils.js"
 
-def example_inject_js():
+def example_inject_js(url):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
         page = browser.new_page()
@@ -31,7 +31,7 @@ def example_inject_js():
         """)
 
         # Now navigate normally
-        page.goto("https://example.com")
+        page.goto(url)
 
         # Inject our JS utilities (after load)
         page.add_script_tag(path=JS_UTILS_PATH)
@@ -62,7 +62,31 @@ def example_inject_js():
         Array.from(window.__clickableElements).map(el => ({
             tag: el.tagName.toLowerCase(),
             text: el.innerText?.trim().slice(0, 100) || '',
-            hasHref: !!el.getAttribute('href')
+            hasHref: !!el.getAttribute('href'),
+            css_selector: (() => {
+            const getCssSelector = (el) => {
+                if (!(el instanceof Element)) return null;
+                const path = [];
+                while (el && el.nodeType === Node.ELEMENT_NODE) {
+                let selector = el.nodeName.toLowerCase();
+                if (el.id) {
+                    selector += `#${el.id}`;
+                    path.unshift(selector);
+                    break;
+                } else {
+                    let sib = el, nth = 1;
+                    while (sib = sib.previousElementSibling) {
+                    if (sib.nodeName.toLowerCase() === selector) nth++;
+                    }
+                    if (nth > 1) selector += `:nth-of-type(${nth})`;
+                }
+                path.unshift(selector);
+                el = el.parentElement;
+                }
+                return path.join(" > ");
+            };
+            return getCssSelector(el);
+            })()
         }))
         """)
         print(f"Detected {len(js_clickables)} elements with JS click listeners")
@@ -82,4 +106,5 @@ def example_inject_js():
         browser.close()
 
 if __name__ == "__main__":
-    example_inject_js()
+    url = "https://gamerant.com/new-isekai-anime-2025"
+    example_inject_js(url)

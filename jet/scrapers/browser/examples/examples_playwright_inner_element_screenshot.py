@@ -8,11 +8,11 @@ OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
-def example_inner_element_screenshot():
+def example_inner_element_screenshot(url):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE)
         page = browser.new_page()
-        page.goto("https://example.com")
+        page.goto(url)
 
         # Locate the element you want to capture
         element = page.query_selector("h1")
@@ -28,4 +28,5 @@ def example_inner_element_screenshot():
         browser.close()
 
 if __name__ == "__main__":
-    example_inner_element_screenshot()
+    url = "https://gamerant.com/new-isekai-anime-2025"
+    example_inner_element_screenshot(url)

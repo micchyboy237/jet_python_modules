@@ -1,4 +1,3 @@
-// scripts/utils.js
 (() => {
   // Avoid overwriting if already loaded
   if (window.__utilsInjected__) return;
@@ -74,6 +73,44 @@
      * @returns {Array<Object>} List of clickable elements with tag, text, href, and bounding box.
      */
     getClickableElements() {
+      function getImplicitRole(el) {
+        const tag = el.tagName.toLowerCase();
+        if (tag === "a" && el.hasAttribute("href")) return "link";
+        if (tag === "button") return "button";
+        if (tag === "input") {
+          const type = el.getAttribute("type") || "text";
+          if (["button", "submit", "reset"].includes(type)) return "button";
+          if (["checkbox", "radio"].includes(type)) return type;
+          return "textbox";
+        }
+        if (tag === "select") return "listbox";
+        if (tag === "textarea") return "textbox";
+        return null;
+      }
+
+      function getCssSelector(el) {
+        if (!(el instanceof Element)) return null;
+        const path = [];
+        while (el && el.nodeType === Node.ELEMENT_NODE) {
+          let selector = el.nodeName.toLowerCase();
+          if (el.id) {
+            selector += `#${el.id}`;
+            path.unshift(selector);
+            break;
+          } else {
+            let sib = el,
+              nth = 1;
+            while ((sib = sib.previousElementSibling)) {
+              if (sib.nodeName.toLowerCase() === selector) nth++;
+            }
+            if (nth > 1) selector += `:nth-of-type(${nth})`;
+          }
+          path.unshift(selector);
+          el = el.parentElement;
+        }
+        return path.join(" > ");
+      }
+
       const clickableSelectors = [
         "a[href]",
         "button",
@@ -83,7 +120,6 @@
       ];
       const elements = document.querySelectorAll(clickableSelectors.join(","));
       const results = [];
-
       elements.forEach((el) => {
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) return; // skip invisible
@@ -91,7 +127,8 @@
           tag: el.tagName.toLowerCase(),
           text: el.innerText?.trim().slice(0, 100) || "",
           href: el.getAttribute("href") || null,
-          role: el.getAttribute("role") || null,
+          role: el.getAttribute("role") || getImplicitRole(el),
+          css_selector: getCssSelector(el),
           bbox: {
             x: rect.x,
             y: rect.y,
@@ -101,7 +138,6 @@
         };
         results.push(info);
       });
-
       return results;
     },
 
