@@ -43,15 +43,39 @@ def example_inject_js():
         page = browser.new_page()
         page.goto("https://example.com")
 
+        # Inject our JS helpers
         current_dir = os.path.dirname(__file__)
         js_path = Path(os.path.join(os.path.dirname(current_dir), "scripts/utils.js")).resolve()
         page.add_script_tag(path=str(js_path))
 
-        bbox = page.evaluate("Utils.getBoundingBox('h1')")
-        print("From injected bounding box:", bbox)
+        print("✅ Injected utils.js")
 
+        # Demonstrate all Utils functions
+
+        # 1. myInjectedFunction
         message = page.evaluate("Utils.myInjectedFunction('Jet')")
-        print(message)
+        print("myInjectedFunction:", message)
+
+        # 2. getBoundingBox
+        bbox = page.evaluate("Utils.getBoundingBox('h1')")
+        print("getBoundingBox('h1'):", bbox)
+
+        # 3. scrollIntoView
+        scrolled = page.evaluate("Utils.scrollIntoView('h1')")
+        print("scrollIntoView('h1'):", scrolled)
+
+        # 4. getLeafTexts
+        leaf_texts = page.evaluate("Utils.getLeafTexts('body')")
+        print("getLeafTexts('body'):", leaf_texts[:5], "..." if len(leaf_texts) > 5 else "")
+
+        # Optional: show bounding box visually by capturing element screenshot
+        element = page.query_selector("h1")
+        if element:
+            screenshot_path = Path(os.path.join(OUTPUT_DIR, "injected_h1_screenshot.png")).resolve()
+            element.screenshot(path=str(screenshot_path))
+            print(f"✅ Screenshot saved at {screenshot_path}")
+        else:
+            print("❌ Element for screenshot not found")
 
         browser.close()
 
