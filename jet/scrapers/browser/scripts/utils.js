@@ -69,6 +69,43 @@
     },
 
     /**
+     * Get all clickable elements on the page.
+     * Clickable = <a>, <button>, elements with onclick, role="button", or tabindex >= 0.
+     * @returns {Array<Object>} List of clickable elements with tag, text, href, and bounding box.
+     */
+    getClickableElements() {
+      const clickableSelectors = [
+        "a[href]",
+        "button",
+        "[onclick]",
+        '[role="button"]',
+        "[tabindex]:not([tabindex='-1'])",
+      ];
+      const elements = document.querySelectorAll(clickableSelectors.join(","));
+      const results = [];
+
+      elements.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return; // skip invisible
+        const info = {
+          tag: el.tagName.toLowerCase(),
+          text: el.innerText?.trim().slice(0, 100) || "",
+          href: el.getAttribute("href") || null,
+          role: el.getAttribute("role") || null,
+          bbox: {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          },
+        };
+        results.push(info);
+      });
+
+      return results;
+    },
+
+    /**
      * Example function for testing Playwright evaluate.
      * @param {string} name
      * @returns {string}
