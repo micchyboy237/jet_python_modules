@@ -1,6 +1,7 @@
 import stanza
 from threading import Lock
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Generator
+from contextlib import contextmanager
 from stanza.server import CoreNLPClient
 
 from jet.logger import logger
@@ -119,11 +120,36 @@ class StanzaPipelineCache:
             results.extend([str(sent.constituency) for sent in doc.sentences])
         return results
 
+    @classmethod
+    @contextmanager
+    def corenlp_client(cls, **client_kwargs) -> Generator[CoreNLPClient, None, None]:
+        """Thread-safe context manager for a shared CoreNLPClient instance."""
+        with cls._lock:
+            if not hasattr(cls, '_corenlp_client') or cls._corenlp_client is None:
+                logger.info("Starting shared CoreNLPClient")
+                cls._corenlp_client = CoreNLPClient(preload=False, **client_kwargs)
+                cls._corenlp_client.start()
+            client = cls._corenlp_client
+        try:
+            yield client
+        finally:
+            # Do not stop here; optional manual stop via clear_corenlp()
+            pass
+
+    @classmethod
+    def clear_corenlp(cls) -> None:
+        """Manually stop and clear the shared CoreNLPClient (call at script end if needed)."""
+        with cls._lock:
+            if hasattr(cls, '_corenlp_client') and cls._corenlp_client is not None:
+                logger.info("Stopping shared CoreNLPClient")
+                cls._corenlp_client.stop()
+                cls._corenlp_client = None
+
     def extract_scenes(self, text: str) -> list[str]:
-        """Extract POS tags or token strings."""
+        """Extract scene graphs using shared CoreNLPClient."""
         sentences = self.extract_sentences(text)
         results = []
-        with CoreNLPClient(preload=False) as client:
+        with self.corenlp_client() as client:  # Uses class-level shared client
             for sentence in sentences:
                 scenegraph = client.scenegraph(sentence)
                 results.append(scenegraph)
