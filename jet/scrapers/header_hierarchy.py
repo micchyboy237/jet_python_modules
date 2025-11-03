@@ -1,6 +1,7 @@
 from typing import Optional, List, TypedDict
 from jet.data.utils import generate_unique_id
 from jet.scrapers.text_nodes import extract_text_nodes
+from jet.scrapers.utils import ElementDetails
 
 
 class HtmlHeaderDoc(TypedDict):
@@ -15,6 +16,7 @@ class HtmlHeaderDoc(TypedDict):
     header: str
     content: str
     html: str
+    element: Optional[ElementDetails]
 
 
 def extract_header_hierarchy(
@@ -78,7 +80,8 @@ def extract_header_hierarchy(
                 "parent_header": parent_header,
                 "header": text,
                 "content": "",
-                "html": node.get_html()
+                "element": node.get_element_details(),
+                "html": node.get_html(),
             }
             header_stack.append((text, level, section_index))
             current_html_content.append(node.get_html())
