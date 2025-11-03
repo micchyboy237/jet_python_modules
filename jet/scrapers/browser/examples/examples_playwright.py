@@ -44,7 +44,7 @@ def example_inject_js():
         page.goto("https://example.com")
 
         current_dir = os.path.dirname(__file__)
-        js_path = Path(os.path.join(current_dir, "scripts/utils.js")).resolve()
+        js_path = Path(os.path.join(os.path.dirname(current_dir), "scripts/utils.js")).resolve()
         page.add_script_tag(path=str(js_path))
 
         bbox = page.evaluate("Utils.getBoundingBox('h1')")
