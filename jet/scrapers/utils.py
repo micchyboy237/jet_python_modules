@@ -1106,6 +1106,7 @@ class ElementDetails(TypedDict):
     tag: str
     attrs: Dict[str, str]
     direct_text: Optional[str]
+    xpath: Optional[str]
 
 
 class BaseNode:
@@ -1149,8 +1150,11 @@ class BaseNode:
 
     def get_element_details(self) -> Optional[ElementDetails]:
         """
-        Return a typed dictionary with the raw tag, all attributes, and the
-        element’s direct text (``element.text`` – not recursive).
+        Return a typed dictionary with:
+          - tag
+          - all attributes
+          - direct text (``element.text``)
+          - full XPath (cached or computed)
 
         Returns:
             ``ElementDetails`` if an ``HtmlElement`` is attached, otherwise ``None``.
@@ -1159,10 +1163,16 @@ class BaseNode:
         if element is None:
             return None
 
+        # Prefer pre-computed xpath; fall back to dynamic generation
+        xpath = self.xpath
+        if not xpath and element is not None:
+            xpath = get_xpath(element)
+
         return ElementDetails(
             tag=element.tag if isinstance(element.tag, str) else str(element.tag),
             attrs=dict(element.attrib),
             direct_text=(element.text_content() if element.tag in TEXT_ELEMENTS else element.text or "").strip(),
+            xpath=xpath,
         )
 
     def get_node(self, node_id: str) -> Optional['BaseNode']:
