@@ -1639,20 +1639,6 @@ def extract_tree_with_text(
         ua = UserAgent()
         page = browser.new_page(user_agent=ua.random)
 
-        # --- Inject JS click-tracker before loading ---
-        page.add_init_script("""
-        (() => {
-          window.__clickableElements = new Set();
-          const origAddEventListener = EventTarget.prototype.addEventListener;
-          EventTarget.prototype.addEventListener = function(type, listener, options) {
-            if (type === 'click' && this instanceof Element) {
-              window.__clickableElements.add(this);
-            }
-            return origAddEventListener.call(this, type, listener, options);
-          };
-        })();
-        """)
-
         # --- Load content ---
         if url:
             page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
