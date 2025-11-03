@@ -43,6 +43,9 @@ def extract_header_hierarchy(
     base_depth: Optional[int] = None  # Store the raw_depth of the first header
 
     for node in nodes:
+        # if node.tag == "label" and node.is_clickable:
+        #     continue
+
         tag = node.tag.lower()
         text = node.text.strip() if node.text else ""
         if tag in header_tags and text:
