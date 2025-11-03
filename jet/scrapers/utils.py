@@ -9,6 +9,7 @@ import base64
 
 from datetime import datetime
 from lxml.etree import Comment
+from lxml.html import HtmlElement
 from typing import Literal, Optional, List, Dict, Set, TypedDict, Union
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -1100,6 +1101,13 @@ def get_xpath(element) -> str:
     return xpath
 
 
+class ElementDetails(TypedDict):
+    """Structured details extracted from an lxml HtmlElement."""
+    tag: str
+    attrs: Dict[str, str]
+    direct_text: Optional[str]
+
+
 class BaseNode:
     """Base class for nodes with common attributes."""
 
@@ -1109,23 +1117,23 @@ class BaseNode:
         text: Optional[str],
         depth: int,
         id: str,
-        raw_depth: Optional[int] = None,  # Added to store unadjusted DOM depth
         parent_class_names: List[str] = [],  # <-- NEW
         class_names: List[str] = [],
         line: int = 0,
         xpath: Optional[str] = None,
         html: Optional[str] = None,
+        element: Optional[HtmlElement] = None,
     ):
         self.tag = tag
         self.text = text
         self.depth = depth
-        self.raw_depth = raw_depth  # Store unadjusted depth
         self.id = id
         self.parent_class_names = parent_class_names  # <-- NEW
         self.class_names = class_names
         self.line = line
         self.xpath = xpath
         self._html = html.strip() if html else ""
+        self._element = element
 
     def get_html(self) -> str:
         """
@@ -1135,6 +1143,27 @@ class BaseNode:
             The HTML content as a string if set, otherwise empty string.
         """
         return self._html
+
+    def get_element(self) -> Optional[HtmlElement]:
+        return self._element
+
+    def get_element_details(self) -> Optional[ElementDetails]:
+        """
+        Return a typed dictionary with the raw tag, all attributes, and the
+        element’s direct text (``element.text`` – not recursive).
+
+        Returns:
+            ``ElementDetails`` if an ``HtmlElement`` is attached, otherwise ``None``.
+        """
+        element: Optional[HtmlElement] = self.get_element()
+        if element is None:
+            return None
+
+        return ElementDetails(
+            tag=element.tag if isinstance(element.tag, str) else str(element.tag),
+            attrs=dict(element.attrib),
+            direct_text=(element.text_content() if element.tag in TEXT_ELEMENTS else element.text or "").strip(),
+        )
 
     def get_node(self, node_id: str) -> Optional['BaseNode']:
         """
@@ -1164,6 +1193,7 @@ class TreeNode(BaseNode):
         line: int = 0,
         xpath: Optional[str] = None,
         html: Optional[str] = None,
+        element: Optional[HtmlElement] = None,
     ):
         super().__init__(
             tag=tag,
@@ -1175,7 +1205,7 @@ class TreeNode(BaseNode):
             line=line,
             xpath=xpath,
             html=html,
-            raw_depth=None
+            element=element,
         )
         self._text = text
         self._children: List['TreeNode'] = children if children is not None else []
@@ -1424,7 +1454,8 @@ def create_node(node: TreeNode) -> TreeNode:
         children=node._children,
         line=node.line,
         xpath=node.xpath,
-        html=node.get_html()
+        html=node.get_html(),
+        element=node.get_element(),
     )
     tree_node._parent_node = node._parent_node
     return tree_node
@@ -1525,7 +1556,8 @@ def extract_tree_with_text(
         class_names=[],
         children=[],
         line=root_line,
-        html=pq(root_el).outer_html()
+        html=pq(root_el).outer_html(),
+        element=root_el,
     )
     if root_node._parent_node is None:
         root_node._parent_node = None
@@ -1599,7 +1631,8 @@ def extract_tree_with_text(
                 children=[],
                 line=line_number,
                 xpath=xpath,
-                html=child_pq.outer_html()
+                html=child_pq.outer_html(),
+                element=child,
             )
             if child_node._parent_node is None:
                 child_node._parent_node = parent_node
@@ -1679,7 +1712,8 @@ def extract_by_heading_hierarchy(
             children=[],
             line=node.line,
             xpath=node.xpath,
-            html=node.get_html()
+            html=node.get_html(),
+            element=node.get_element(),
         )
         if cloned._parent_node is None:
             cloned._parent_node = parent_node
@@ -2037,6 +2071,7 @@ class SignificantNode(TreeNode):
         children: List['TreeNode'] = [],
         line: int = 0,
         html: Optional[str] = None,
+        element: Optional[HtmlElement] = None,
         has_significant_descendants: bool = False
     ):
         super().__init__(
@@ -2047,7 +2082,8 @@ class SignificantNode(TreeNode):
             class_names=class_names,
             children=children,
             line=line,
-            html=html
+            html=html,
+            element=element,
         )
         self.has_significant_descendants = has_significant_descendants
 
@@ -2092,7 +2128,8 @@ def _node_to_outer_html(node: TreeNode) -> str:
 def create_significant_node(
     node: TreeNode,
     html: str,
-    has_significant_descendants: bool
+    has_significant_descendants: bool,
+    element: Optional[HtmlElement] = None,
 ) -> SignificantNode:
     """
     Creates a SignificantNode from a TreeNode, copying all relevant attributes.
@@ -2115,6 +2152,7 @@ def create_significant_node(
         children=node._children,
         line=node.line,
         html=html,
+        element=element,
         has_significant_descendants=has_significant_descendants
     )
 
@@ -2162,6 +2200,7 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
             result.append(create_significant_node(
                 node=node,
                 html=html,
+                element=node.get_element(),
                 has_significant_descendants=has_significant_descendants
             ))
 
@@ -2185,6 +2224,7 @@ class ParentWithCommonClass(TreeNode):
         children: List['TreeNode'] = [],
         line: int = 0,
         html: Optional[str] = None,
+        element: Optional[HtmlElement] = None,
         common_class: str = "",
         common_tag: str = "",
         children_count: int = 0
@@ -2197,7 +2237,8 @@ class ParentWithCommonClass(TreeNode):
             class_names=class_names,
             children=children,
             line=line,
-            html=html
+            html=html,
+            element=element,
         )
         self.common_class = common_class
         self.common_tag = common_tag
@@ -2242,6 +2283,7 @@ def get_parents_with_common_class(
                     class_names=node.class_names,
                     line=node.line,
                     html=node.get_html(),
+                    element=node.get_element(),
                     common_class=class_name,
                     common_tag="",
                     children_count=len(matching_children),
@@ -2281,6 +2323,7 @@ def get_parents_with_common_class(
                                     class_names=node.class_names,
                                     line=node.line,
                                     html=node.get_html(),
+                                    element=node.get_element(),
                                     common_class=cls,
                                     common_tag=tag,
                                     children_count=len(matching_children),
@@ -2304,6 +2347,7 @@ def get_parents_with_common_class(
                                 class_names=node.class_names,
                                 line=node.line,
                                 html=node.get_html(),
+                                element=node.get_element(),
                                 common_class=cls,
                                 common_tag="",
                                 children_count=len(matching_children),
@@ -2326,6 +2370,7 @@ def get_parents_with_common_class(
                                 class_names=node.class_names,
                                 line=node.line,
                                 html=node.get_html(),
+                                element=node.get_element(),
                                 common_class="",
                                 common_tag=tag,
                                 children_count=len(matching_children),

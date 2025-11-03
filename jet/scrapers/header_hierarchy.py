@@ -20,7 +20,7 @@ class HtmlHeaderDoc(TypedDict):
 def extract_header_hierarchy(
     source: str,
     excludes: List[str] = ["nav", "footer", "script", "style"],
-    timeout_ms: int = 1000
+    timeout_ms: int = 10000
 ) -> List[HtmlHeaderDoc]:
     """
     Extracts a list of HtmlHeaderDoc objects from HTML content, organizing text by header hierarchy.
@@ -53,11 +53,11 @@ def extract_header_hierarchy(
             current_content = []
             current_html_content = []
             level = header_tags[tag]
-            # Set base_depth to the first header's raw_depth
+            # Set base_depth to the first header's depth
             if base_depth is None:
-                base_depth = node.raw_depth
-            # Calculate depth relative to the first header's raw_depth
-            depth = max(1, node.raw_depth - base_depth + 1)
+                base_depth = node.depth
+            # Calculate depth relative to the first header's depth
+            depth = max(1, node.depth - base_depth + 1)
             parent_headers = []
             parent_header = None
             parent_level = None
@@ -83,7 +83,7 @@ def extract_header_hierarchy(
             header_stack.append((text, level, section_index))
             current_html_content.append(node.get_html())
         else:
-            if text and current_section is not None:  # Only append content if a header section exists
+            if text and current_section is not None:
                 current_content.append(text)
                 current_html_content.append(node.get_html())
 
