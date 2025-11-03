@@ -3,16 +3,30 @@
   if (window.__utilsInjected__) return;
   window.__utilsInjected__ = true;
 
-  /**
-   * Simple utility namespace.
-   * All helper functions live under `window.Utils`.
-   */
+  // --- INIT SCRIPT: Track JS click listeners ---
+  (() => {
+    if (window.__clickTrackerInjected__) return;
+    window.__clickTrackerInjected__ = true;
+
+    window.__clickableElements = new Set();
+    const origAddEventListener = EventTarget.prototype.addEventListener;
+
+    EventTarget.prototype.addEventListener = function (
+      type,
+      listener,
+      options
+    ) {
+      if (type === "click" && this instanceof Element) {
+        window.__clickableElements.add(this);
+      }
+      return origAddEventListener.call(this, type, listener, options);
+    };
+
+    console.log("✅ Click-tracker initialized");
+  })();
+
+  // --- UTILS NAMESPACE ---
   window.Utils = {
-    /**
-     * Get bounding box info for an element matching a selector.
-     * @param {string} selector - The CSS selector for the element.
-     * @returns {Object|null} bounding box {x, y, width, height, top, left, bottom, right}
-     */
     getBoundingBox(selector) {
       const el = document.querySelector(selector);
       if (!el) return null;
@@ -29,11 +43,6 @@
       };
     },
 
-    /**
-     * Scroll element into view smoothly.
-     * @param {string} selector - CSS selector for the target element.
-     * @returns {boolean} true if scrolled successfully, false otherwise.
-     */
     scrollIntoView(selector) {
       const el = document.querySelector(selector);
       if (!el) return false;
@@ -41,11 +50,6 @@
       return true;
     },
 
-    /**
-     * Get all text content of leaf nodes inside a given element.
-     * @param {string} selector - CSS selector for the parent element.
-     * @returns {string[]} Array of leaf text contents.
-     */
     getLeafTexts(selector) {
       const root = document.querySelector(selector);
       if (!root) return [];
@@ -67,11 +71,6 @@
       return leaves;
     },
 
-    /**
-     * Get all clickable elements on the page.
-     * Clickable = <a>, <button>, elements with onclick, role="button", or tabindex >= 0.
-     * @returns {Array<Object>} List of clickable elements with tag, text, href, and bounding box.
-     */
     getClickableElements() {
       function getImplicitRole(el) {
         const tag = el.tagName.toLowerCase();
@@ -122,8 +121,8 @@
       const results = [];
       elements.forEach((el) => {
         const rect = el.getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) return; // skip invisible
-        const info = {
+        if (rect.width === 0 && rect.height === 0) return;
+        results.push({
           tag: el.tagName.toLowerCase(),
           text: el.innerText?.trim().slice(0, 100) || "",
           href: el.getAttribute("href") || null,
@@ -135,17 +134,46 @@
             width: rect.width,
             height: rect.height,
           },
-        };
-        results.push(info);
+        });
       });
       return results;
     },
 
-    /**
-     * Example function for testing Playwright evaluate.
-     * @param {string} name
-     * @returns {string}
-     */
+    /** NEW: Get elements with JavaScript click listeners. */
+    getJSClickableElements() {
+      if (!window.__clickableElements) return [];
+      const elements = Array.from(window.__clickableElements);
+      const getCssSelector = (el) => {
+        if (!(el instanceof Element)) return null;
+        const path = [];
+        while (el && el.nodeType === Node.ELEMENT_NODE) {
+          let selector = el.nodeName.toLowerCase();
+          if (el.id) {
+            selector += `#${el.id}`;
+            path.unshift(selector);
+            break;
+          } else {
+            let sib = el,
+              nth = 1;
+            while ((sib = sib.previousElementSibling)) {
+              if (sib.nodeName.toLowerCase() === selector) nth++;
+            }
+            if (nth > 1) selector += `:nth-of-type(${nth})`;
+          }
+          path.unshift(selector);
+          el = el.parentElement;
+        }
+        return path.join(" > ");
+      };
+
+      return elements.map((el) => ({
+        tag: el.tagName.toLowerCase(),
+        text: el.innerText?.trim().slice(0, 100) || "",
+        hasHref: !!el.getAttribute("href"),
+        css_selector: getCssSelector(el),
+      }));
+    },
+
     myInjectedFunction(name) {
       return `Hello from injected JS, ${name}!`;
     },

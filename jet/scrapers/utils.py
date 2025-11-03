@@ -19,6 +19,7 @@ from urllib.parse import urljoin, urlparse
 from pyquery import PyQuery as pq
 from fake_useragent import UserAgent
 
+from jet.file.utils import save_file
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
 from jet.transformers.formatters import format_html
 from jet.scrapers.config import TEXT_ELEMENTS, JS_UTILS_PATH
@@ -1678,17 +1679,23 @@ def extract_tree_with_text(
 
         # --- Collect HTML and JS-based clickables ---
         page_content = page.content()
-        js_clickables = page.evaluate("Utils.getClickableElements()")
+        clickables = page.evaluate("Utils.getClickableElements()")
+        logger.info(f"Collected {len(clickables)} clickable elements from utils.")
+        js_clickables = page.evaluate("Utils.getJSClickableElements()")
         logger.info(f"Collected {len(js_clickables)} clickable elements from JS utils.")
 
         # --- Build fast lookup for selectors ---
         clickable_selectors: set[str] = set()
-        for item in js_clickables:
+        for item in clickables:
             selector = item.get("css_selector") or item.get("selector")
             if selector:
                 clickable_selectors.add(selector.strip())
 
+        out_dir = f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}"
         logger.debug(f"Prepared clickable selector set: {len(clickable_selectors)} items")
+        save_file(clickables, f"{out_dir}/clickables.json")
+        save_file(js_clickables, f"{out_dir}/js_clickables.json")
+        save_file(clickable_selectors, f"{out_dir}/clickable_selectors.json")
 
         browser.close()
 
@@ -1768,8 +1775,8 @@ def extract_tree_with_text(
             xpath = get_xpath(child)
             css_selector = get_css_selector(child)
 
-            # --- Clickability (based on js_clickables) ---
-            is_clickable = css_selector in clickable_selectors
+            # --- Clickability (based on clickables) ---
+            is_clickable = is_element_clickable(child, clickables)
 
             # --- Create node ---
             child_node = TreeNode(
@@ -1782,10 +1789,10 @@ def extract_tree_with_text(
                 children=[],
                 line=line_number,
                 xpath=xpath,
-                html=child_pq.outer_html(),
-                element=child,
                 css_selector=css_selector,
                 is_clickable=is_clickable,
+                html=child_pq.outer_html(),
+                element=child,
             )
 
             if child_node._parent_node is None:
@@ -1864,6 +1871,8 @@ def extract_by_heading_hierarchy(
             children=[],
             line=node.line,
             xpath=node.xpath,
+            css_selector=node.css_selector,
+            is_clickable=node.is_clickable,
             html=node.get_html(),
             element=node.get_element(),
         )
@@ -2049,6 +2058,8 @@ def create_node(node: TreeNode) -> TreeNode:
         children=node._children,
         line=node.line,
         xpath=node.xpath,
+        css_selector=node.css_selector,
+        is_clickable=node.is_clickable,
         html=node.get_html(),
         element=node.get_element(),
     )
