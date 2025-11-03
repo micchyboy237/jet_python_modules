@@ -15,8 +15,8 @@ class HtmlHeaderDoc(TypedDict):
     parent_header: Optional[str]
     header: str
     content: str
-    html: str
     element: Optional[ElementDetails]
+    html: str
 
 
 def extract_header_hierarchy(
