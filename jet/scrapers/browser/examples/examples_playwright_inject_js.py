@@ -1,12 +1,15 @@
 import os
 import shutil
 from pathlib import Path
+from jet.file.utils import save_file
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
 from playwright.sync_api import sync_playwright
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+JS_UTILS_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/browser/scripts/utils.js"
 
 def example_inject_js():
     with sync_playwright() as p:
@@ -31,9 +34,7 @@ def example_inject_js():
         page.goto("https://example.com")
 
         # Inject our JS utilities (after load)
-        current_dir = os.path.dirname(__file__)
-        js_path = Path(os.path.join(os.path.dirname(current_dir), "scripts/utils.js")).resolve()
-        page.add_script_tag(path=str(js_path))
+        page.add_script_tag(path=JS_UTILS_PATH)
 
         print("✅ Injected utils.js and click-tracker")
 
@@ -54,6 +55,7 @@ def example_inject_js():
         print(f"getClickableElements(): Found {len(clickables)} elements")
         for c in clickables[:3]:
             print(" -", c)
+        save_file(clickables, f"{OUTPUT_DIR}/clickables.json")
 
         # ---- Collect elements that had JS click listeners attached ----
         js_clickables = page.evaluate("""
@@ -66,6 +68,7 @@ def example_inject_js():
         print(f"Detected {len(js_clickables)} elements with JS click listeners")
         for el in js_clickables[:3]:
             print(" -", el)
+        save_file(js_clickables, f"{OUTPUT_DIR}/js_clickables.json")
 
         # ---- Capture screenshot for reference ----
         element = page.query_selector("h1")
