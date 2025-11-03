@@ -183,7 +183,7 @@ def chunk_texts(
     buffer: int = 0,
     strict_sentences: bool = False,
     min_chunk_size: int = 32,
-    show_progress: bool = True,
+    show_progress: bool = False,
 ) -> List[str]:
     """Optimized version of chunk_texts with O(n) time complexity per text."""
     

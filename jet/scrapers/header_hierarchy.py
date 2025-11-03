@@ -16,7 +16,7 @@ class HtmlHeaderDoc(TypedDict):
     header: str
     content: str
     element: Optional[ElementDetails]
-    html: str
+    # html: str
 
 
 def extract_header_hierarchy(
@@ -52,7 +52,7 @@ def extract_header_hierarchy(
             # Save current section if it has a header and content
             if current_section and current_section["header"].strip():
                 current_section["content"] = "\n".join(current_content)
-                current_section["html"] = "\n".join(current_html_content)
+                # current_section["html"] = "\n".join(current_html_content)
                 sections.append(current_section)
                 section_index += 1
             current_content = []
@@ -84,7 +84,7 @@ def extract_header_hierarchy(
                 "header": text,
                 "content": "",
                 "element": node.get_element_details(),
-                "html": node.get_html(),
+                # "html": node.get_html(),
             }
             header_stack.append((text, level, section_index))
             current_html_content.append(node.get_html())
