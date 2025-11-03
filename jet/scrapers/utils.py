@@ -1102,8 +1102,10 @@ def get_xpath(element) -> str:
 
 
 class ElementDetails(TypedDict):
-    """Structured details extracted from an lxml HtmlElement."""
+    """Complete low-level element metadata."""
     tag: str
+    id: str
+    parent_id: Optional[str]
     attrs: Dict[str, str]
     direct_text: Optional[str]
     xpath: Optional[str]
@@ -1152,26 +1154,42 @@ class BaseNode:
         """
         Return a typed dictionary with:
           - tag
+          - node.id (HTML id or auto-generated)
+          - parent_id (from tree structure)
           - all attributes
-          - direct text (``element.text``)
-          - full XPath (cached or computed)
+          - direct text (element.text)
+          - xpath (cached or computed)
 
         Returns:
-            ``ElementDetails`` if an ``HtmlElement`` is attached, otherwise ``None``.
+            ElementDetails if element exists, else None.
         """
         element: Optional[HtmlElement] = self.get_element()
         if element is None:
             return None
 
-        # Prefer pre-computed xpath; fall back to dynamic generation
+        # Use tree-level parent reference if available (TreeNode)
+        parent_id: Optional[str] = None
+        if isinstance(self, TreeNode):
+            parent_id = self.parent_id  # Uses @property from TreeNode
+        # Fallback: try to get parent element and find its node id (rarely needed)
+        elif element.getparent() is not None:
+            parent_elem = element.getparent()
+            # Search upward in tree if needed — but prefer tree structure
+            pass  # Not needed: BaseNode doesn't have parent_id
+
+        direct_text = (element.text_content() if element.tag in TEXT_ELEMENTS else element.text or "").strip()
+
+        # Prefer cached xpath
         xpath = self.xpath
         if not xpath and element is not None:
             xpath = get_xpath(element)
 
         return ElementDetails(
             tag=element.tag if isinstance(element.tag, str) else str(element.tag),
+            id=self.id,
+            parent_id=parent_id,
             attrs=dict(element.attrib),
-            direct_text=(element.text_content() if element.tag in TEXT_ELEMENTS else element.text or "").strip(),
+            direct_text=direct_text,
             xpath=xpath,
         )
 
