@@ -197,12 +197,9 @@ def dl_to_md(match: re.Match) -> str:
     Convert a <dl>...</dl> HTML block to Markdown definition list syntax.
     Example output:
 
-    Term One
-    : Definition one.
+    Term One: Definition one.
 
-    Term Two
-    : Definition A
-    : Definition B
+    Term Two: Definition A | Definition B
     """
     inner_html = match.group(1)
     soup = BeautifulSoup(inner_html, "html.parser")
@@ -226,11 +223,10 @@ def dl_to_md(match: re.Match) -> str:
 
     out_lines: List[str] = []
     for term, defs in items:
-        if term:
-            out_lines.append(term)
-        for d in defs:
-            out_lines.append(f": {d}")
-        out_lines.append("")  # blank line between groups
+        term_part = "" if not term else f"{term}: "
+        defs_part = " | ".join(defs)
+        out_lines.append(f"{term_part}{defs_part}")
+    out_lines.append("")  # blank line between groups
 
     md = "\n".join(out_lines).rstrip() + "\n\n"
     return md

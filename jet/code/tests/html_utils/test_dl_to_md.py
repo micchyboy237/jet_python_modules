@@ -15,7 +15,7 @@ class TestDlToMd:
 
         # When dl_to_md is called
         result = dl_to_md(match)
-        expected = "Release Date\n: January 1, 2025\n\n"
+        expected = "Release Date: January 1, 2025\n\n"
 
         # Then it should produce valid Markdown
         assert result == expected
@@ -27,7 +27,7 @@ class TestDlToMd:
 
         # When dl_to_md is called
         result = dl_to_md(match)
-        expected = "Platforms\n: PC\n: Mac\n\n"
+        expected = "Platforms: PC | Mac\n\n"
 
         assert result == expected
 
@@ -42,10 +42,11 @@ class TestDlToMd:
         match = self.pattern.search(html)
 
         result = dl_to_md(match)
-        expected = (
-            "Release Date\n: January 1, 2025\n\n"
-            "Platforms\n: PC\n: Mac\n\n"
-        )
+        expected = """\
+Release Date: January 1, 2025
+Platforms: PC | Mac
+
+"""
 
         assert result == expected
 
@@ -55,14 +56,14 @@ class TestDlToMd:
         match = self.pattern.search(html)
 
         result = dl_to_md(match)
-        expected = ": Orphaned definition\n\n"
+        expected = "Orphaned definition\n\n"
         assert result == expected
 
     def test_convert_dl_blocks_to_md_wrapper(self):
         # Given full HTML containing a dl block
         html = "<p>Intro</p><dl><dt>Term</dt><dd>Definition</dd></dl><p>Outro</p>"
         result = convert_dl_blocks_to_md(html)
-        expected = "<p>Intro</p><pre class=\"jet-dl-block\">Term\n: Definition\n\n</pre><p>Outro</p>"
+        expected = "<p>Intro</p><pre class=\"jet-dl-block\">Term: Definition\n\n</pre><p>Outro</p>"
         assert expected in result
 
 
@@ -74,30 +75,27 @@ class TestConvertDlBlocksToMdPreserveNewlines:
     # Then: The <dl> is replaced with Markdown inside a <pre> wrapper that preserves newlines
     def test_nested_elements_and_surrounding_newlines(self):
         html = """
-        <div class="intro">
-            <p>Game overview:</p>
-        </div>
+<div class="intro">
+    <p>Game overview:</p>
+</div>
 
-        <dl>
-            <dt>Genre</dt>
-            <dd><strong>Action</strong> Adventure</dd>
-            <dt>Developer</dt>
-            <dd><a href="/dev">Studio X</a></dd>
-        </dl>
+<dl>
+    <dt>Genre</dt>
+    <dd><strong>Action</strong> Adventure</dd>
+    <dt>Developer</dt>
+    <dd><a href="/dev">Studio X</a></dd>
+</dl>
 
-        <p>Available now!</p>
-        """
+<p>Available now!</p>
+"""
         result = convert_dl_blocks_to_md(html)
         expected = """
 <div class="intro">
-<p>Game overview:</p>
+    <p>Game overview:</p>
 </div>
 
-<pre class="jet-dl-block">Genre
-: Action Adventure
-
-Developer
-: Studio X
+<pre class="jet-dl-block">Genre: Action Adventure
+Developer: Studio X
 
 </pre>
 
@@ -110,20 +108,17 @@ Developer
     # Then: Each is wrapped in <pre> independently
     def test_multiple_dl_blocks(self):
         html = """
-        <dl><dt>A</dt><dd>1</dd></dl>
-        <p>---</p>
-        <dl><dt>B</dt><dd>2</dd><dd>3</dd></dl>
-        """
+<dl><dt>A</dt><dd>1</dd></dl>
+<p>---</p>
+<dl><dt>B</dt><dd>2</dd><dd>3</dd></dl>
+"""
         result = convert_dl_blocks_to_md(html)
         expected = """
-<pre class="jet-dl-block">A
-: 1
+<pre class="jet-dl-block">A: 1
 
 </pre>
 <p>---</p>
-<pre class="jet-dl-block">B
-: 2
-: 3
+<pre class="jet-dl-block">B: 2 | 3
 
 </pre>
 """.strip()
