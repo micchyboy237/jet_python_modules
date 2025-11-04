@@ -1,19 +1,30 @@
 import spacy
+from jet.logger import logger
+from jet.transformers.formatters import format_json
 
 # Initialize a blank English pipeline
 nlp = spacy.blank("en")
 
-# Add GLiNER component with no predefined labels
+# Add GLiNER component with correct config
 nlp.add_pipe("gliner_spacy", config={
-    "model": "urchade/gliner_large-v2.1",
+    "gliner_model": "urchade/gliner_large-v2.1",  # Correct key
     "labels": ["entity"],   # or even []
-    "threshold": 0.5
+    "threshold": 0.1,
+    "style": "ent"
 })
 
-doc = nlp("""
-The Barbie movie directed by Greta Gerwig became a cultural phenomenon in 2023.
-Microsoft invested billions into OpenAI around the same time.
-""")
+text = """
+Apple announced the new iPhone 16 during its annual event in Cupertino.
+Elon Musk responded on X, saying Tesla's new battery tech will outperform everyone.
+"""
 
-for ent in doc.ents:
-    print(ent.text, ent.label_)
+doc = nlp(text)
+
+entities = [{
+    "text": entity.text,
+    "label": entity.label_,
+    "score": f"{entity._.score:.4f}"
+} for entity in doc.ents]
+
+logger.gray(f"RESULT ({len(entities)}):")
+logger.success(format_json(entities))

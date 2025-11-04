@@ -12,7 +12,8 @@ Elon Musk responded on X, saying Tesla's new battery tech will outperform everyo
 generic_labels = ["entity"]  # open ontology mode
 
 # Predict entities
-entities = model.predict_entities(text, generic_labels, threshold=0.5)
+entities = model.predict_entities(text, generic_labels, threshold=0.1)
 
+print(f"Entities: {len(entities)}")
 for ent in entities:
     print(ent)
