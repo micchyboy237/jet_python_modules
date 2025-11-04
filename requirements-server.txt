@@ -1,2 +1,5 @@
 fastapi
+pgvector
+psycopg
+psycopg2
 uvicorn
