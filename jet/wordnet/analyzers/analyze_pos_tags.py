@@ -1,7 +1,5 @@
 import os
 import pandas as pd
-import json
-import random
 import re
 from itertools import islice, tee, combinations
 from collections import defaultdict
@@ -11,7 +9,7 @@ from jet.file.utils import save_data
 from jet.logger.timer import time_it
 from jet.wordnet.analyzers.helpers import text_lambda
 from jet.wordnet.words import get_words
-from jet.wordnet.pos_tagger import POSTagger, POSItem
+from jet.wordnet.pos_tagger import POSTagger
 
 
 class LanguageDataProcessor:
@@ -236,13 +234,13 @@ class LanguageDataProcessor:
                         break
         formatted_pos_texts = {}
         for lang, pos_texts in word_texts.items():
-            if not lang in formatted_pos_texts:
+            if lang not in formatted_pos_texts:
                 formatted_pos_texts[lang] = {}
             for pos_sequence, text in pos_texts.items():
                 for word_sequence in pos_sequence.split(" "):
                     word = word_sequence.split("/")[0].lower()
                     pos = word_sequence.split("/")[1]
-                    if not pos in formatted_pos_texts[lang]:
+                    if pos not in formatted_pos_texts[lang]:
                         formatted_pos_texts[lang][pos] = {}
                     if word not in formatted_pos_texts[lang][pos]:
                         formatted_pos_texts[lang][pos][word] = text
@@ -463,16 +461,16 @@ def analyze_pos_tags(
             result = clean_dictionary(data[lang])
             if type == "word_dict":
                 save_data(
-                    f'{output_dir}/datasets/{lang}/{n_label}_word_dict_{n_scope}.json', result, write=True)
+                    f'{output_dir}/datasets/{lang}/{n_label}_word_dict_{n_scope}.json', result, overwrite=True)
             elif type == "word_texts":
                 save_data(
-                    f'{output_dir}/datasets/{lang}/{n_label}_word_texts_{n_scope}.json', result, write=True)
+                    f'{output_dir}/datasets/{lang}/{n_label}_word_texts_{n_scope}.json', result, overwrite=True)
             elif type == "pos_word_counts":
                 save_data(
-                    f'{output_dir}/datasets/{lang}/{n_label}_pos_word_counts_{n_scope}.json', result, write=True)
+                    f'{output_dir}/datasets/{lang}/{n_label}_pos_word_counts_{n_scope}.json', result, overwrite=True)
             elif type == "pos_sequence_counts":
                 save_data(
-                    f'{output_dir}/datasets/{lang}/{n_label}_pos_sequence_counts_{n_scope}.json', result, write=True)
+                    f'{output_dir}/datasets/{lang}/{n_label}_pos_sequence_counts_{n_scope}.json', result, overwrite=True)
             elif type == "language_results":
                 save_data(
-                    f'{output_dir}/datasets/{lang}/{n_label}_language_results_{n_scope}.json', result, write=True)
+                    f'{output_dir}/datasets/{lang}/{n_label}_language_results_{n_scope}.json', result, overwrite=True)
