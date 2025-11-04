@@ -6,6 +6,7 @@ from typing import Literal
 from jet.code.markdown_types.markdown_parsed_types import MarkdownToken
 from jet.code.markdown_utils._converters import convert_html_to_markdown, convert_markdown_to_text
 from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
+from jet.scrapers.header_hierarchy import HtmlHeaderDoc, extract_header_hierarchy
 from jet.wordnet.text_chunker import chunk_texts, chunk_texts_with_data, truncate_texts
 from jet.file.utils import load_file
 from jet.logger import logger
@@ -146,13 +147,14 @@ def load_sample_md_doc() -> str:
     md_content = convert_html_to_markdown(html, ignore_links=True)
     return md_content
 
-def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32, truncate: bool = False, convert_plain_text: bool = False) -> List[str]:
+def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 512, chunk_overlap: int = 128, truncate: bool = False, convert_plain_text: bool = False) -> List[str]:
     """Load sample dataset from local for topic modeling."""
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
 
-    md_content = convert_html_to_markdown(html, ignore_links=True)
-    headers = derive_by_header_hierarchy(md_content, ignore_links=True)
-    header_md_contents = [f"{header['header']}\n\n{header['content']}".strip() for header in headers]
+    # md_content = convert_html_to_markdown(html, ignore_links=True)
+    # headers = derive_by_header_hierarchy(md_content, ignore_links=True)
+    headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html)
+    header_md_contents = [f"{header['header']}\n\n{header['content']}".strip() for header in headings]
     # header_contents = [convert_markdown_to_text(md_content) for md_content in header_md_contents]
     # sentences = [sentence for content in header_contents for sentence in extract_sentences(content, use_gpu=True)]
 
@@ -168,6 +170,7 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             model=model,
+            strict_sentences=True,
         )
     else:
         documents = truncate_texts(
@@ -224,6 +227,7 @@ def load_sample_data_with_info(
         chunk_overlap=chunk_overlap,
         model=model,
         ids=doc_ids,
+        strict_sentences=True,
     )
 
     # Attach section meta-data from the corresponding HeaderDoc to each chunk
