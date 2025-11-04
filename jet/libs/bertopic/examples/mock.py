@@ -8,7 +8,6 @@ from jet.code.extraction.sentence_extraction import extract_sentences
 from jet.code.markdown_utils._converters import convert_html_to_markdown, convert_markdown_to_text
 from jet.scrapers.header_hierarchy import HtmlHeaderDoc, extract_header_hierarchy
 from jet.wordnet.text_chunker import chunk_texts, truncate_texts
-from jet.wordnet.sentence import split_sentences
 from jet._token.token_utils import token_counter
 from jet.file.utils import load_file
 from jet.logger import logger
@@ -154,9 +153,9 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
     # md_content = convert_html_to_markdown(html, ignore_links=True)
     # headers = derive_by_header_hierarchy(md_content, ignore_links=True)
     headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html, includes=includes)
-    # header_md_contents = [f"{header['header']}\n{header['content']}".strip() for header in headings if header['content']]
-    header_sentences = [{"header": header, "sentence": sent} for header in headings for sent in split_sentences(header['content']) if header['content']]
-    texts = [hs["sentence"] for hs in header_sentences]
+    header_contents = [header["content"] for header in headings if header['content']]
+    header_sentences = extract_sentences(header_contents)
+    texts = header_sentences
 
     if convert_plain_text:
         # Preprocess markdown to plain text
@@ -165,13 +164,14 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
     #     texts = header_md_contents
 
     if not truncate:
-        documents = chunk_texts(
-            texts,
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            model=model,
-            strict_sentences=True,
-        )
+        # documents = chunk_texts(
+        #     texts,
+        #     chunk_size=chunk_size,
+        #     chunk_overlap=chunk_overlap,
+        #     model=model,
+        #     strict_sentences=True,
+        # )
+        documents = texts
     else:
         documents = truncate_texts(
             texts,
