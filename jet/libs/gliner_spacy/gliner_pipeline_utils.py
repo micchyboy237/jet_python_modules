@@ -2,6 +2,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, TypedDict, Any, Optional
 import spacy
+from spacy.tokens import Doc
+from PIL import Image
+from tqdm import tqdm
 
 
 # ---------- TypedDicts ----------
@@ -40,7 +43,7 @@ def build_label_set(cat_data: Dict[str, List[str]]) -> List[str]:
     return sorted(labels)
 
 
-def init_gliner_pipeline(cat_data: CategoryData) -> spacy.Language:
+def init_gliner_pipeline(cat_data: CategoryData) -> spacy.language.Language:
     """
     Initialize a spaCy pipeline configured for GliNER + GliNER Cat.
 
@@ -86,7 +89,7 @@ def load_text_from_file(file_path: str | Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def process_text(nlp: spacy.Language, text: str) -> spacy.tokens.Doc:
+def process_text(nlp: spacy.language.Language, text: str) -> Doc:
     """
     Run the GliNER pipeline on input text.
 
@@ -100,42 +103,41 @@ def process_text(nlp: spacy.Language, text: str) -> spacy.tokens.Doc:
     return nlp(text)
 
 
-def extract_sentence_themes(doc: spacy.tokens.Doc, index: int) -> Dict[str, Any]:
+def extract_sentence_themes(doc: Doc) -> List[Dict[str, Any]]:
     """
-    Extract theme scores and span details for a specific sentence.
+    Extract theme scores and span details for all sentences in the document.
 
     Args:
         doc: The processed spaCy document.
-        index: Sentence index to inspect.
 
     Returns:
-        Dictionary with sentence text, raw scores, and contributing spans.
+        List of dictionaries for each sentence, each with 
+        sentence text, raw scores, and contributing spans.
     """
-    sents = list(doc.sents)
-    if index >= len(sents):
-        raise IndexError("Sentence index out of range")
-
-    sent = sents[index]
-    details = [
-        {"text": ent.text, "label": ent.label_, "score": ent._.score}
-        for ent in getattr(sent._, "sent_spans", [])
-    ]
-    return {
-        "text": sent.text,
-        "raw_scores": getattr(sent._, "raw_scores", {}),
-        "spans": details,
-    }
+    results = []
+    for sent in tqdm(doc.sents, desc="Extracting sentence themes"):
+        details = [
+            {"text": ent.text, "label": ent.label_, "score": ent._.score}
+            for ent in getattr(sent._, "sent_spans", [])
+        ]
+        results.append({
+            "text": sent.text,
+            "raw_scores": getattr(sent._, "raw_scores", {}),
+            "spans": details,
+        })
+    return results
 
 
 def visualize_doc(
-    doc: spacy.tokens.Doc,
+    doc: Doc,
     sent_start: int = 0,
     sent_end: Optional[int] = None,
     chunk_size: int = 100,
     fig_h: int = 10,
-) -> None:
+    fig_w: int = 10,
+) -> Image.Image:
     """
-    Visualize GliNER Cat thematic data across sentences.
+    Visualize GliNER Cat thematic data across sentences and return the plot image.
 
     Args:
         doc: The processed spaCy document.
@@ -143,10 +145,23 @@ def visualize_doc(
         sent_end: End index of sentences to visualize.
         chunk_size: Number of sentences per chunk.
         fig_h: Figure height for visualization.
+        fig_w: Figure width for visualization.
+        return_image: If True, returns a PIL image of the plot instead of displaying it.
+
+    Returns:
+        A PIL Image of the visualization if `return_image=True`, else None.
     """
-    doc._.visualize(
+    if not hasattr(doc._, "visualize"):
+        raise AttributeError("The document does not have a visualization extension. "
+                             "Ensure the 'gliner_cat' component is in the pipeline.")
+    
+    result = doc._.visualize(
         sent_start=sent_start,
         sent_end=sent_end,
         chunk_size=chunk_size,
         fig_h=fig_h,
+        fig_w=fig_w,
+        return_image=True,
     )
+    
+    return result
