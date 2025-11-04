@@ -1,19 +1,15 @@
 from typing import Iterable, Tuple, Iterator
 from jet.logger import logger
-from jet.wordnet.pos_tagger_light import POSItem, POSTagEnum, POSTagType, POSTagger
+from jet.wordnet.pos_tagger_light import POSTagEnum, POSTagType, POSTagger
 from itertools import tee, islice
 from typing import List, Set
-from jet.wordnet.sentence import split_by_punctuations, split_sentences
-from nltk import word_tokenize, ngrams
-import string
+from jet.wordnet.sentence import split_by_punctuations
 from collections import Counter
-from typing import Optional, List, Tuple, Union, Dict
-from collections import defaultdict, Counter
+from typing import Optional, Union, Dict
 from collections import defaultdict
 import itertools
 from jet.wordnet.words import count_words
 from jet.wordnet.words import get_words
-from functools import lru_cache
 from tqdm import tqdm
 from jet.wordnet.stopwords import StopWords
 from jet.wordnet.similarity import filter_different_texts
@@ -339,18 +335,25 @@ def get_ngrams_by_range(
         if show_count:
             results.append({"ngram": ngram, "count": count})
         else:
-            results.append(ngram)
+            results.append((ngram, count))
+
     for ngram, n_count in ngram_counter.items():
         if isinstance(count, tuple):
-            count_min, count_max = (count[0], float(
-                'inf')) if len(count) == 1 else count
+            count_min, count_max = (count[0], float('inf')) if len(count) == 1 else count
             if count_min <= n_count <= count_max:
                 add_result(ngram, n_count)
         elif isinstance(count, int) and count <= n_count:
             add_result(ngram, n_count)
         elif count is None:
             add_result(ngram, n_count)
-    return results
+
+    # Sort results by count in descending order
+    if show_count:
+        results.sort(key=lambda x: x["count"], reverse=True)
+        return results
+    else:
+        results.sort(key=lambda x: x[1], reverse=True)
+        return [ngram for ngram, _ in results]
 
 
 def filter_texts_by_multi_ngram_count(

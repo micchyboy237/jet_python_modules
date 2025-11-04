@@ -34,8 +34,8 @@ def extract_header_hierarchy(
     """
     nodes = extract_text_nodes(source, excludes, timeout_ms)
 
-    # Filter only nodes with "p" and header tags
-    nodes = [node for node in nodes if node.tag in ["p", "h1", "h2", "h3", "h4", "h5", "h6"]]
+    # # Filter only nodes with "p" and header tags
+    # nodes = [node for node in nodes if node.tag in ["p", "h1", "h2", "h3", "h4", "h5", "h6"]]
 
     sections: List[HtmlHeaderDoc] = []
     current_section: Optional[HtmlHeaderDoc] = None

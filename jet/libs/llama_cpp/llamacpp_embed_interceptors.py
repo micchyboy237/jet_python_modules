@@ -163,6 +163,19 @@ class EmbedInterceptor:
         except json.JSONDecodeError:
             data = {}
 
+        error = data.get("error")
+        if error:
+            error_message = (
+                f"\n{'='*80}\n"
+                f"EMBED RESPONSE ERROR ←\n"
+                f"Error (code {error.get('code', 'N/A')}): {error.get('message', 'Unknown error')}\n"
+                f"Type: {error.get('type', 'N/A')}\n"
+                f"Example: {{'code': 500, 'message': 'input is too large to process. increase the physical batch size', 'type': 'server_error'}}\n"
+                f"{'='*80}"
+            )
+            logger.error(error_message)
+            raise ValueError(error_message)
+            
         # Handle both /v1/embeddings and /embeddings formats
         items = data.get("data") or data  # OpenAI: data[], non-OpenAI: direct list
 

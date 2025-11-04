@@ -38,7 +38,7 @@ if __name__ == "__main__":
     logger.info("We first need to run KeyBERT on our data and create our vocabulary")
     # Prepare documents
     # docs = fetch_20newsgroups(subset='all',  remove=('headers', 'footers', 'quotes'))['data']
-    docs = load_sample_data(model="embeddinggemma", convert_plain_text=True)
+    docs = load_sample_data(model=model)
     save_file(docs, f"{OUTPUT_DIR}/docs.json")
 
     # Extract keywords
