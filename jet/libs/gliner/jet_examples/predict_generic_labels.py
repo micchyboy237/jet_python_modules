@@ -1,6 +1,9 @@
 from gliner import GLiNER
 import torch
 
+from jet.logger import logger
+from jet.transformers.formatters import format_json
+
 if torch.backends.mps.is_available():
     device = torch.device("mps")
 elif torch.cuda.is_available():
@@ -20,8 +23,8 @@ texts = [
 generic_labels = ["entity"]  # open ontology mode
 
 # Predict entities
-entities = model.run(texts, generic_labels, threshold=0.1, multi_label=True)
+entities_lists = model.run(texts, generic_labels, threshold=0.1, multi_label=True)
+entities = [ent for ents in entities_lists for ent in ents]
 
-print(f"Entities: {len(entities)}")
-for ent in entities:
-    print(ent)
+logger.gray(f"RESULT ({len(entities)}):")
+logger.success(format_json(entities))

@@ -4,12 +4,17 @@ import gradio as gr
 import torch
 
 # Check if MPS is available
-device = "mps" if torch.backends.mps.is_available() else "cpu"
+if torch.backends.mps.is_available():
+    device = "mps"
+elif torch.cuda.is_available():
+    device = "cuda"
+else:
+    device = "cpu"
 print(f"Using device: {device}")
 
 # Load model with MPS support
 model = GLiNER.from_pretrained(
-    "urchade/gliner_medium-v2.1",
+    "urchade/gliner_large-v2.1",
     map_location=device  # Critical for M1/M2
 )
 
