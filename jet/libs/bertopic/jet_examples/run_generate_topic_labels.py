@@ -6,16 +6,11 @@ import shutil
 
 OUTPUT_DIR = os.path.join(
         os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-
-CHUNK_SIZE = 128
-CHUNK_OVERLAP = 32
-
-OUTPUT_DIR = f"{OUTPUT_DIR}/chunked_{CHUNK_SIZE}_{CHUNK_OVERLAP}"
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 # Prepare documents 
 # docs = fetch_20newsgroups(subset='all',  remove=('headers', 'footers', 'quotes'))['data']
-docs = load_sample_data(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+docs = load_sample_data()
 
 # Extract keywords
 kw_model = KeyBERT()
@@ -35,5 +30,5 @@ vectorizer_model= CountVectorizer(vocabulary=vocabulary)
 topic_model = BERTopic(vectorizer_model=vectorizer_model)
 topics, probs = topic_model.fit_transform(docs)
 
-labels = topic_model.generate_topic_labels(nr_words=1)
+labels = topic_model.generate_topic_labels(nr_words=3)
 save_file(labels, f"{OUTPUT_DIR}/labels.json")
