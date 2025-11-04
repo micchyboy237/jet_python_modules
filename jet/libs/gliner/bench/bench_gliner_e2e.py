@@ -252,6 +252,15 @@ def main() -> None:
     #     print(baseline_preds)
     #     print("===================="*10)
     #     print(packed_preds)
+    
+    from jet.file.utils import save_file
+    import os
+
+    OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+
+    save_file(baseline_preds, f"{OUTPUT_DIR}/baseline_preds.json")
+    save_file(packed_preds, f"{OUTPUT_DIR}/packed_preds.json")
 
 
 if __name__ == "__main__":
