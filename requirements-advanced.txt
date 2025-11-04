@@ -22,4 +22,5 @@ mlx
 pyppeteer # for rendering mermaid graph
 simsimd
 span-marker
+psycopg
 psycopg2
