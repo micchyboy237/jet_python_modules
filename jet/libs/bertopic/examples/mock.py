@@ -147,7 +147,7 @@ def load_sample_md_doc() -> str:
     md_content = convert_html_to_markdown(html, ignore_links=True)
     return md_content
 
-def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 32, truncate: bool = False, convert_plain_text: bool = False) -> List[str]:
+def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 0, truncate: bool = False, convert_plain_text: bool = False) -> List[str]:
     """Load sample dataset from local for topic modeling."""
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
 
