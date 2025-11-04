@@ -107,16 +107,16 @@ _initialize_lock = threading.Lock()
 
 
 def setup_events():
-    from jet.adapters.langchain.chat_agent_utils import reset_log_dir
-    from jet.libs.llama_cpp.llamacpp_llm_interceptors import reset_llm_log_dir, setup_llamacpp_llm_interceptors
-    from jet.libs.llama_cpp.llamacpp_embed_interceptors import reset_embed_log_dir, setup_llamacpp_embed_interceptors
+    # from jet.adapters.langchain.chat_agent_utils import reset_log_dir
+    # from jet.libs.llama_cpp.llamacpp_llm_interceptors import reset_llm_log_dir, setup_llamacpp_llm_interceptors
+    # from jet.libs.llama_cpp.llamacpp_embed_interceptors import reset_embed_log_dir, setup_llamacpp_embed_interceptors
 
-    reset_log_dir() # Reset logs
-    reset_embed_log_dir()
-    reset_llm_log_dir()
+    # reset_log_dir() # Reset logs
+    # reset_embed_log_dir()
+    # reset_llm_log_dir()
 
-    setup_llamacpp_llm_interceptors()
-    setup_llamacpp_embed_interceptors()
+    # setup_llamacpp_llm_interceptors()
+    # setup_llamacpp_embed_interceptors()
 
     global _initialized
     if _initialized:

@@ -162,7 +162,6 @@ def test_predict_with_packing(wrapper: GLiNERWrapper) -> None:
 # --------------------------------------------------------------------------- #
 # Optional speed-check (non-fatal)
 # --------------------------------------------------------------------------- #
-import pytest
 
 @pytest.mark.slow
 def test_packing_is_faster(wrapper: GLiNERWrapper) -> None:

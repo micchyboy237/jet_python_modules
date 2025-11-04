@@ -1,7 +1,7 @@
 # with_packing.py
 from gliner import GLiNER, InferencePackingConfig
 
-model = GLiNER.from_pretrained("urchade/gliner_small-v2.1")
+model = GLiNER.from_pretrained("urchade/gliner_large-v2.1")
 model.eval()
 
 texts = [

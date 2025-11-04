@@ -162,29 +162,41 @@ class LocalInterceptor:
         except Exception:
             pass
 
-        content = response.text
-        # Parse JSON only when the result content is a string (response)
-        data = content if isinstance(content, dict) else json.loads(content or "{}", strict=False)
-        if data["choices"]:
+        content = response.text.strip()
+
+        # ✅ FIX: handle empty or non-JSON responses safely
+        try:
+            data = json.loads(content, strict=False) if content else {}
+        except json.JSONDecodeError:
+            data = {"raw": content, "note": "Non-JSON or streamed response ignored"}
+
+        # Proceed only if it's a normal JSON LLM response
+        if isinstance(data, dict) and "choices" in data:
             content_tokens = count_tokens(data["choices"][0]["message"]["content"], data["model"])
-            tool_calls_tokens = count_tokens([
-                str(tc["function"])
-                for tc in data["choices"][0]["message"]["tool_calls"]
-            ], data["model"]) if data["choices"][0]["message"].get("tool_calls") else 0
+            tool_calls_tokens = count_tokens(
+                [str(tc["function"]) for tc in data["choices"][0]["message"].get("tool_calls", [])],
+                data["model"],
+            ) if data["choices"][0]["message"].get("tool_calls") else 0
 
             msg = (
                 f"\n{'='*80}\n"
                 f"LLM RESPONSE ← {response.status_code} {response.url}\n"
                 f"ID: {rid} | {duration:.1f}ms\n"
                 f"HEADERS:\n{self._format_headers(response.headers)}\n"
-                f"TOKENS: {json.dumps({
-                    "content": content_tokens,
-                    "tool_calls": tool_calls_tokens,
-                }, indent=2)}\n"
-                f"BODY:\n```json\n{self._sanitize(data) if content else "No content"}\n```\n"
+                f"TOKENS: {json.dumps({'content': content_tokens, 'tool_calls': tool_calls_tokens}, indent=2)}\n"
+                f"BODY:\n```json\n{self._sanitize(data)}\n```\n"
                 f"{'='*80}"
             )
             self.logger(msg)
+        else:
+            # ✅ Log raw info instead of crashing
+            self.logger(
+                f"\n{'='*80}\n"
+                f"LLM RESPONSE ← {response.status_code} {response.url}\n"
+                f"ID: {rid} | {duration:.1f}ms\n"
+                f"RAW BODY (non-JSON or empty):\n{content[:500]}\n"
+                f"{'='*80}"
+            )
 
 
 # === GLOBAL STATE ===

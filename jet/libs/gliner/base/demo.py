@@ -1,8 +1,17 @@
 from typing import Dict, Union
 from gliner import GLiNER
 import gradio as gr
+import torch
 
-model = GLiNER.from_pretrained("urchade/gliner_medium-v2.1")
+# Check if MPS is available
+device = "mps" if torch.backends.mps.is_available() else "cpu"
+print(f"Using device: {device}")
+
+# Load model with MPS support
+model = GLiNER.from_pretrained(
+    "urchade/gliner_medium-v2.1",
+    map_location=device  # Critical for M1/M2
+)
 
 examples = [
     [
@@ -230,4 +239,4 @@ European Championship => competitions
     )
 
 demo.queue()
-demo.launch(debug=True)
+demo.launch(debug=True, share=True)
