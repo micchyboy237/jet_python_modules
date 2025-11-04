@@ -1,7 +1,7 @@
 import json
 import re
 from collections import defaultdict
-from difflib import SequenceMatcher, get_close_matches, ndiff, unified_diff
+from difflib import SequenceMatcher, ndiff
 from typing import (
     Any,
     Callable,
@@ -19,29 +19,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from jet.data.utils import generate_key
-from jet.llm.utils.search_docs import search_docs
 from jet.llm.utils.transformer_embeddings import (
     SimilarityResult,
-    chunk_texts,
 )
 from jet.logger import logger, time_it
 from jet.models.embeddings.base import (
-    generate_embeddings,
     get_embedding_function,
-    load_embed_model,
 )
-from jet.models.model_registry.transformers.sentence_transformer_registry import (
-    SentenceTransformerRegistry,
-)
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.models.model_types import EmbedModelType
-from jet.models.tokenizer.base import get_max_token_count
 from jet.vectors.clusters.cluster_types import ClusteringMode
 from jet.vectors.document_types import HeaderDocument, HeaderDocumentWithScore
 from jet.wordnet.words import get_words
 from jet.wordnet.wordnet_types import FilterResult, SimilarityResult
-from matplotlib import pyplot as plt
 from scipy.spatial.distance import cosine
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
 from sklearn.cluster import AgglomerativeClustering, DBSCAN, KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
@@ -798,9 +790,9 @@ def preprocess_text(text: str) -> str:
 
 def group_similar_texts(
     texts: List[str],
-    threshold: float = 0.7,
-    model_name: str = "all-MiniLM-L6-v2",
-    embeddings: Optional[List[np.ndarray]] = None,
+    threshold: float = 0.8,
+    model_name: str = "embeddinggemma",
+    embeddings: Optional[np.ndarray] = None,
     ids: Optional[List[str]] = None,
     mode: ClusteringMode = "agglomerative"
 ) -> List[ClusterResult]:
@@ -809,9 +801,9 @@ def group_similar_texts(
 
     Args:
         texts (List[str]): List of input texts to be grouped.
-        threshold (float): Similarity threshold for clustering. Default is 0.7.
+        threshold (float): Similarity threshold for clustering. Default is 0.8.
         model_name (str): Sentence transformer model to use for embedding if embeddings not provided.
-        embeddings (Optional[List[np.ndarray]]): Precomputed embeddings as a list of NumPy arrays.
+        embeddings (Optional[np.ndarray]): Precomputed embeddings as a NumPy array.
         ids (Optional[List[str]]): Optional list of IDs corresponding to texts. If provided, these will replace the text in the output.
         mode (ClusteringMode): Clustering method to use. Default is "agglomerative".
 
@@ -841,18 +833,19 @@ def group_similar_texts(
 
     # Load the embedding model if embeddings are not provided
     if embeddings is None:
-        model = SentenceTransformerRegistry.load_model(model_name)
-        embeddings = model.encode(unique_texts, convert_to_numpy=True)
+        # model = SentenceTransformerRegistry.load_model(model_name)
+        model = LlamacppEmbedding(model=model_name)
+        embeddings = model.encode(unique_texts)
 
-    # Ensure embeddings is a 2D NumPy array (n_texts, embedding_dim)
-    embeddings_array = np.array(embeddings)
-    if embeddings_array.ndim != 2:
-        raise ValueError(
-            "Embeddings must be a list of 1D NumPy arrays with consistent dimensions")
+    # # Ensure embeddings is a 2D NumPy array (n_texts, embedding_dim)
+    # embeddings_array = np.array(embeddings)
+    # if embeddings_array.ndim != 2:
+    #     raise ValueError(
+    #         "Embeddings must be a list of 1D NumPy arrays with consistent dimensions")
 
     # Compute cosine similarity matrix using NumPy
-    norm = np.linalg.norm(embeddings_array, axis=1, keepdims=True)
-    normalized_embeddings = embeddings_array / \
+    norm = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    normalized_embeddings = embeddings / \
         np.maximum(norm, 1e-10)  # Avoid division by zero
     similarity_matrix = np.dot(normalized_embeddings, normalized_embeddings.T)
 

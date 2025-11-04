@@ -66,6 +66,26 @@ class LlamacppEmbedding:
             use_dynamic_batch_sizing=use_dynamic_batch_sizing if use_dynamic_batch_sizing is not None else self.use_dynamic_batch_sizing
         )
 
+    def encode(
+        self,
+        inputs: Union[str, List[str]],
+        return_format: Literal["numpy", "list"] = "numpy",
+        batch_size: int = 32,
+        show_progress: bool = True,
+        max_input_length: Optional[int] = None,
+        use_cache: Optional[bool] = None,
+        use_dynamic_batch_sizing: Optional[bool] = None
+    ) -> GenerateEmbeddingsReturnType:
+        return self.get_embeddings(
+            inputs,
+            return_format=return_format,
+            batch_size=batch_size,
+            show_progress=show_progress,
+            max_input_length=max_input_length,
+            use_cache=use_cache,
+            use_dynamic_batch_sizing=use_dynamic_batch_sizing,
+        )
+
     def get_embeddings(
         self,
         inputs: Union[str, List[str]],

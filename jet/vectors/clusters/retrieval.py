@@ -1,13 +1,12 @@
 import uuid
 import numpy as np
-from sentence_transformers import SentenceTransformer
 import hdbscan
 import faiss
-from typing import Dict, List, Tuple, Optional, Union, TypedDict
+from typing import Dict, List, Optional, Union, TypedDict
 from dataclasses import dataclass
 import pickle
 import os
-from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.models.model_types import EmbedModelType
 from jet.models.tokenizer.base import get_tokenizer_fn
 
@@ -65,13 +64,13 @@ class RetrievalConfigDict(TypedDict, total=False):
 @dataclass
 class RetrievalConfig:
     """Configuration for vector retrieval parameters."""
-    embed_model: EmbedModelType = 'mxbai-embed-large'
+    embed_model: EmbedModelType = 'embeddinggemma'
     min_cluster_size: int = 2
     k_clusters: int = 2
     top_k: Optional[int] = None
     cluster_threshold: int = 20
     cache_file: Optional[str] = None
-    threshold: Optional[float] = None
+    threshold: float = 0.5
 
 
 class VectorRetriever:
@@ -83,8 +82,7 @@ class VectorRetriever:
         else:
             self.config = config
         self.model_name: EmbedModelType = self.config.embed_model
-        self.model = SentenceTransformerRegistry.load_model(
-            self.config.embed_model)
+        self.model = LlamacppEmbedding(model=self.config.embed_model)
         self.tokenizer = get_tokenizer_fn(self.config.embed_model)
         self.embeddings: Optional[np.ndarray] = None
         self.corpus: Optional[List[str]] = None
@@ -112,7 +110,7 @@ class VectorRetriever:
             if self.embeddings.shape[0] != len(corpus):
                 raise ValueError("Cached embeddings do not match corpus size")
         else:
-            self.embeddings = self.model.encode(corpus, convert_to_numpy=True)
+            self.embeddings = self.model.encode(corpus)
             faiss.normalize_L2(self.embeddings)
             if active_cache_file:
                 with open(active_cache_file, 'wb') as ATS:
@@ -177,6 +175,35 @@ class VectorRetriever:
         ]
         return clusters
 
+    def get_cohesive_clusters(self, max_distance: float = 0.3) -> List[ClusterInfo]:
+        """Return only clusters where all pairwise distances ≤ max_distance."""
+        if self.embeddings is None or self.cluster_labels is None:
+            raise ValueError("Must run clustering first")
+
+        cohesive_clusters = []
+        for label in np.unique(self.cluster_labels):
+            if label == -1:
+                continue
+            mask = self.cluster_labels == label
+            cluster_emb = self.embeddings[mask]
+            if len(cluster_emb) < 2:
+                continue
+
+            # Compute pairwise cosine distances
+            similarities = np.dot(cluster_emb, cluster_emb.T)
+            distances = 1 - similarities  # cosine distance
+            np.fill_diagonal(distances, 0)
+
+            if np.max(distances) <= max_distance:
+                cluster_texts = [self.corpus[i] for i in np.where(mask)[0]]
+                cohesive_clusters.append({
+                    "id": str(uuid.uuid4()),
+                    "cluster_label": int(label),
+                    "texts": cluster_texts,
+                    "metadata": self.metadatas[np.where(mask)[0][0]]
+                })
+        return cohesive_clusters
+
     def get_centroids(self) -> List[CentroidInfo]:
         """Return a list of centroids with their labels, associated texts, and count of texts."""
         if self.cluster_centroids is None or self.cluster_labels is None or self.corpus is None:
@@ -207,7 +234,7 @@ class VectorRetriever:
             return []
 
         # Encode query and compute cosine similarities
-        query_embedding = self.model.encode([query], convert_to_numpy=True)
+        query_embedding = self.model.encode([query])
         faiss.normalize_L2(query_embedding)
         faiss.normalize_L2(self.cluster_centroids)
         similarities = np.dot(self.cluster_centroids,
@@ -284,7 +311,7 @@ class VectorRetriever:
             raise ValueError("Query cannot be empty")
         if self.embeddings is None or self.index is None:
             raise ValueError("Retriever not initialized with corpus")
-        query_embedding = self.model.encode([query], convert_to_numpy=True)
+        query_embedding = self.model.encode([query])
         faiss.normalize_L2(query_embedding)
         top_chunks: List[ChunkSearchResult] = []
         if len(self.corpus) >= active_cluster_threshold and self.cluster_centroids.shape[0] > 0:
