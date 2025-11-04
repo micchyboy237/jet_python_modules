@@ -4,13 +4,18 @@ import re
 from itertools import islice, tee, combinations
 from collections import defaultdict
 from tqdm import tqdm
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Set
 from jet.file.utils import save_data
 from jet.logger.timer import time_it
 from jet.wordnet.analyzers.helpers import text_lambda
 from jet.wordnet.words import get_words
 from jet.wordnet.pos_tagger import POSTagger
 
+try:
+    from nltk.corpus import stopwords
+    _STOPWORDS: Set[str] = set(stopwords.words('english'))
+except Exception:  # pragma: no cover
+    _STOPWORDS = set()  # fallback – no stop-word removal if NLTK not installed
 
 class LanguageDataProcessor:
     def __init__(self, data: List[Dict[str, Any]], n=1, from_start=None, format_lambda=text_lambda):
@@ -26,6 +31,11 @@ class LanguageDataProcessor:
         self.grouped_data = self.group_by_language(
             data, n, from_start, format_lambda)
         self.languages = list(self.grouped_data.keys())
+
+    @staticmethod
+    def _filter_stopwords(words: List[str]) -> List[str]:
+        """Remove English stop-words (lower-cased)."""
+        return [w for w in words if w.lower() not in _STOPWORDS]
 
     @time_it
     def group_by_language(self, tagged_data, n, from_start, format_lambda):
@@ -139,29 +149,23 @@ class LanguageDataProcessor:
             filtered_ngrams = []
 
             if includes_pos or excludes_pos:
-                # Map words to their POS in filtered df
                 word_pos_map = dict(zip(df['word'], df['pos']))
-                # Rebuild per-text POS alignment using original text order
                 for text in data['texts']:
                     words = text.split()
-                    pos_for_text = []
-                    for word in words:
-                        # Use mapped POS if available (from filtered df)
-                        pos = word_pos_map.get(word)
-                        if pos:  # Only include if word passed POS filter
-                            pos_for_text.append(pos)
-                    # Generate n-grams and check POS context
-                    for ngram in get_words(text, n):
+                    # ---- stop-word removal for the whole text ----
+                    words = self._filter_stopwords(words)
+
+                    for ngram in get_words(' '.join(words), n):
                         ngram_words = ngram.split()
                         if len(ngram_words) != n:
                             continue
-                        # Find start index in original text
-                        start_idx = text.find(ngram)
+
+                        # locate n-gram in (already stop-word-filtered) text
+                        start_idx = ' '.join(words).find(ngram)
                         if start_idx == -1:
                             continue
-                        # Approximate word indices
-                        prefix = text[:start_idx]
-                        word_start = len(prefix.split())
+                        word_start = len(' '.join(words)[:start_idx].split())
+
                         pos_tags = []
                         for i in range(n):
                             idx = word_start + i
@@ -169,20 +173,23 @@ class LanguageDataProcessor:
                                 pos = word_pos_map.get(words[idx])
                                 if pos:
                                     pos_tags.append(pos)
+
                         if len(pos_tags) != n:
                             continue
-                        # Apply filter
+
+                        # ---- strict POS inclusion ----
                         include = True
-                        if includes_pos and not any(p in pos_tags for p in includes_pos):
+                        if includes_pos and not all(p in includes_pos for p in pos_tags):
                             include = False
-                        if excludes_pos and any(p in pos_tags for p in excludes_pos):
+                        if excludes_pos and any(p in excludes_pos for p in pos_tags):
                             include = False
                         if include:
                             filtered_ngrams.append(ngram)
             else:
-                # No POS filtering → use raw text n-grams
+                # no POS filter → still remove stop-words
                 for text in data['texts']:
-                    filtered_ngrams.extend(get_words(text, n))
+                    cleaned = ' '.join(self._filter_stopwords(text.split()))
+                    filtered_ngrams.extend(get_words(cleaned, n))
 
             ngram_counts = pd.Series(filtered_ngrams).value_counts()
             top_most_common_ngrams = ngram_counts.head(top_n).to_dict()
@@ -199,32 +206,45 @@ class LanguageDataProcessor:
 
     @time_it
     def get_pos_word_counts(self, n=1, includes_pos=None, excludes_pos=None):
+        includes_pos = includes_pos or []
+        excludes_pos = excludes_pos or []
+
         def generate_pos_word_sequences(pos_list, n):
-            return [' '.join([f"{pos['word']}/{pos['pos']}" for pos in pos_seq])
-                    for pos_seq in self.nwise(pos_list, n)]
+            return [
+                ' '.join([f"{pos['word']}/{pos['pos']}" for pos in pos_seq])
+                for pos_seq in self.nwise(pos_list, n)
+            ]
 
         def filter_starting_sequences(sequences):
-            filtered_sequences = sequences
             if self.from_start:
-                filtered_sequences = [
-                    seq for seq in sequences if seq.startswith("[BOS]")]
-            return filtered_sequences
+                return [seq for seq in sequences if seq.startswith("[BOS]")]
+            return sequences
 
-        def filter_sequences(sequences, includes, excludes):
-            return [seq for seq in sequences if (not includes or any(pos in seq for pos in includes)) and
-                    (not excludes or not any(pos in seq for pos in excludes))]
+        def filter_by_pos_and_stopwords(seq: str) -> bool:
+            # POS filter
+            pos_tags = [part.split('/')[1] for part in seq.split() if '/' in part]
+            if includes_pos and not all(p in includes_pos for p in pos_tags):
+                return False
+            if excludes_pos and any(p in excludes_pos for p in pos_tags):
+                return False
+            # stop-word filter
+            words = [part.split('/')[0] for part in seq.split() if '/' in part]
+            if any(w.lower() in _STOPWORDS for w in words):
+                return False
+            return True
+
         sorted_pos_word_counts = {}
-        for lang, data in tqdm(self.grouped_data.items(), desc="Generating POS word counts"):
-            pos_word_n_sequences = generate_pos_word_sequences(
-                data['pos'], n)
-            pos_word_n_sequences = filter_starting_sequences(
-                pos_word_n_sequences)
-            filtered_sequences = filter_sequences(
-                pos_word_n_sequences, includes_pos, excludes_pos)
-            pos_word_sequence_counts = pd.Series(
-                filtered_sequences).value_counts()
-            sorted_pos_word_counts[lang] = {k: (v.item() if hasattr(v, 'item') else v)
-                                            for k, v in pos_word_sequence_counts.items()}
+        for lang, data in tqdm(self.grouped_data.items(),
+                               desc="Generating POS word counts"):
+            sequences = generate_pos_word_sequences(data['pos'], n)
+            sequences = filter_starting_sequences(sequences)
+            sequences = [s for s in sequences if filter_by_pos_and_stopwords(s)]
+
+            counts = pd.Series(sequences).value_counts()
+            sorted_pos_word_counts[lang] = {
+                k: (v.item() if hasattr(v, 'item') else v)
+                for k, v in counts.items()
+            }
         return sorted_pos_word_counts
 
     @time_it
