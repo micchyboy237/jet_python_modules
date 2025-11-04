@@ -1,13 +1,10 @@
-import os
-from jet.file.utils import save_data
 from jet.logger.timer import time_it
 from jet.wordnet.histogram import TextAnalysis
 # from jet.wordnet.similarity import filter_different_texts
 from jet.wordnet.similarity import filter_different_texts
 from tqdm import tqdm
 
-from difflib import SequenceMatcher
-from typing import Dict, List, Callable
+from typing import Dict, List
 
 
 @time_it
@@ -157,14 +154,14 @@ def generate_histograms(data):
         is_top=True,
         from_start=False,
         apply_tfidf=True,
-        ngram_ranges=[(2, 3), (4, 6)],
+        ngram_ranges=[(1, 3), (4, 6)],
         top_n=100,
     )
     least_any_results = ta.generate_histogram(
         is_top=False,
         from_start=False,
         apply_tfidf=True,
-        ngram_ranges=[(2, 3), (4, 6)],
+        ngram_ranges=[(1, 3), (4, 6)],
         top_n=100,
     )
 
