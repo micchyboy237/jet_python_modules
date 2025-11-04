@@ -59,6 +59,7 @@ class LanguageDataProcessor:
         "Returns all possible combinations of POS of length n"
         return combinations(pos_list, n)
 
+    @time_it
     def process_language_data(
         self,
         n: int = 2,
@@ -68,11 +69,10 @@ class LanguageDataProcessor:
         excludes_pos: List[str] | None = None
     ) -> Dict[str, Any]:
         """
-        Process grouped language data to compute:
-        - Average word length and count
-        - Top/least common POS tags
-        - Top/least common POS sequences
-        - Top/least common n-grams (filtered by POS if specified)
+        Process grouped language data with POS filtering:
+        - A POS tag or sequence passes if **at least one** tag in `includes_pos` is present.
+        - It is excluded if **any** tag in `excludes_pos` is present.
+        - N-grams follow the same logic based on their constituent POS tags.
         """
         results = {}
         includes_pos = includes_pos or []
@@ -84,14 +84,16 @@ class LanguageDataProcessor:
             if includes_pos or excludes_pos:
                 mask = pd.Series([True] * len(df), index=df.index)
                 if includes_pos:
+                    # Keep row if at least one POS in includes_pos
                     mask &= df['pos'].isin(includes_pos)
                 if excludes_pos:
+                    # Remove row if any POS in excludes_pos
                     mask &= ~df['pos'].isin(excludes_pos)
-                df = df[mask]  # Filter rows by POS
+                df = df[mask]  # Only rows with allowed POS
 
-            # === 2. Basic statistics ===
+            # === 2. Basic statistics (on filtered df) ===
             df['word_length'] = df['word'].apply(len)
-            average_word_length = df['word_length'].mean()
+            average_word_length = df['word_length'].mean() if not df.empty else 0.0
             word_counts = [len(text.split()) for text in data['texts']]
             average_word_count = sum(word_counts) / len(word_counts) if word_counts else 0
 
@@ -117,13 +119,15 @@ class LanguageDataProcessor:
             pos_sequence_counts = pd.Series(list(pos_seq_iter)).value_counts()
 
             if includes_pos or excludes_pos:
-                def seq_matches(seq):
+                def seq_passes(seq):
+                    # At least one POS in includes_pos
                     if includes_pos and not any(p in seq for p in includes_pos):
                         return False
+                    # No POS in excludes_pos
                     if excludes_pos and any(p in seq for p in excludes_pos):
                         return False
                     return True
-                pos_sequence_counts = pos_sequence_counts[pos_sequence_counts.index.map(seq_matches)]
+                pos_sequence_counts = pos_sequence_counts[pos_sequence_counts.index.map(seq_passes)]
 
             top_most_common_pos_sequences = pos_sequence_counts.head(top_n).to_dict()
             top_least_common_pos_sequences = pos_sequence_counts.tail(top_n).to_dict()
@@ -139,39 +143,29 @@ class LanguageDataProcessor:
             filtered_ngrams = []
 
             if includes_pos or excludes_pos:
-                # Map words to their POS in filtered df
+                # Build word → POS map from filtered df (only allowed words/POS)
                 word_pos_map = dict(zip(df['word'], df['pos']))
-                # Rebuild per-text POS alignment using original text order
+
                 for text in data['texts']:
                     words = text.split()
-                    pos_for_text = []
-                    for word in words:
-                        # Use mapped POS if available (from filtered df)
-                        pos = word_pos_map.get(word)
-                        if pos:  # Only include if word passed POS filter
-                            pos_for_text.append(pos)
-                    # Generate n-grams and check POS context
                     for ngram in get_words(text, n):
                         ngram_words = ngram.split()
                         if len(ngram_words) != n:
                             continue
-                        # Find start index in original text
-                        start_idx = text.find(ngram)
-                        if start_idx == -1:
-                            continue
-                        # Approximate word indices
-                        prefix = text[:start_idx]
-                        word_start = len(prefix.split())
+
+                        # Get POS tags for each word in n-gram (if available)
                         pos_tags = []
-                        for i in range(n):
-                            idx = word_start + i
-                            if idx < len(words) and words[idx] == ngram_words[i]:
-                                pos = word_pos_map.get(words[idx])
-                                if pos:
-                                    pos_tags.append(pos)
-                        if len(pos_tags) != n:
+                        valid = True
+                        for word in ngram_words:
+                            pos = word_pos_map.get(word)
+                            if pos is None:
+                                valid = False  # Word not in filtered df → skip
+                                break
+                            pos_tags.append(pos)
+                        if not valid or len(pos_tags) != n:
                             continue
-                        # Apply filter
+
+                        # Apply filter: at least one in includes_pos, none in excludes_pos
                         include = True
                         if includes_pos and not any(p in pos_tags for p in includes_pos):
                             include = False
@@ -180,7 +174,7 @@ class LanguageDataProcessor:
                         if include:
                             filtered_ngrams.append(ngram)
             else:
-                # No POS filtering → use raw text n-grams
+                # No filtering → use all n-grams
                 for text in data['texts']:
                     filtered_ngrams.extend(get_words(text, n))
 
