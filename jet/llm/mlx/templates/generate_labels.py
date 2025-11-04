@@ -1,14 +1,14 @@
 from typing import List, Dict
 from jet.adapters.llama_cpp.llm import LlamacppLLM
 
-model = "qwen3-instruct-2507:4b"
-client = LlamacppLLM(model=model, verbose=True)
 
-def generate_seed_entities(texts: List[str]) -> List[Dict[str, str]]:
+def generate_seed_entities(texts: List[str], model: str = "qwen3-instruct-2507:4b") -> List[Dict[str, str]]:
     """
     Use an LLM to auto-generate entity candidates and possible labels from text.
     """
-    joined_text = "\n".join(texts[:5])  # sample subset to limit cost
+    client = LlamacppLLM(model=model, verbose=True)
+
+    joined_text = "\n".join(texts)
 
     prompt = f"""
     Extract named entities from the following text.
