@@ -50,7 +50,7 @@ doc = nlp(text)
 
 logger.debug(f"RESULTS ({len(doc.ents)}):")
 for ent in doc.ents:
-    logger.success(ent.text, ent.label_)
+    logger.success(ent.text, ' => ', ent.label_, ' => ', ent._.score)
 
 from spacy import displacy
 import webbrowser
