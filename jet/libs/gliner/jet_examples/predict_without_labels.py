@@ -12,7 +12,11 @@ else:
     device = "cpu"
 
 nlp = spacy.load("en_core_web_md")
-nlp.add_pipe("gliner_spacy")
+nlp.add_pipe("gliner_spacy", config={
+    # "gliner_model": "urchade/gliner_large-v2.1",
+    # "threshold": 0.1,
+    "map_location": device,
+})
 
 texts = [
     "Elon Musk unveiled Tesla’s Cybertruck in Los Angeles in 2019.",
