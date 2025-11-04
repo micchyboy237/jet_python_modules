@@ -153,9 +153,9 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
     # md_content = convert_html_to_markdown(html, ignore_links=True)
     # headers = derive_by_header_hierarchy(md_content, ignore_links=True)
     headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html, includes=includes)
-    header_contents = [header["content"] for header in headings if header['content']]
-    header_sentences = extract_sentences(header_contents)
-    texts = header_sentences
+    header_contents = [f"{header["header"]}\n{header["content"]}" for header in headings if header['content']]
+    # header_contents = extract_sentences(header_contents)
+    texts = header_contents
 
     if convert_plain_text:
         # Preprocess markdown to plain text
