@@ -59,60 +59,142 @@ class LanguageDataProcessor:
         "Returns all possible combinations of POS of length n"
         return combinations(pos_list, n)
 
-    def process_language_data(self, n=2, top_n=5, all_combinations=False):
+    def process_language_data(
+        self,
+        n: int = 2,
+        top_n: int = 5,
+        all_combinations: bool = False,
+        includes_pos: List[str] | None = None,
+        excludes_pos: List[str] | None = None
+    ) -> Dict[str, Any]:
+        """
+        Process grouped language data to compute:
+        - Average word length and count
+        - Top/least common POS tags
+        - Top/least common POS sequences
+        - Top/least common n-grams (filtered by POS if specified)
+        """
         results = {}
+        includes_pos = includes_pos or []
+        excludes_pos = excludes_pos or []
+
         for lang, data in tqdm(self.grouped_data.items(), desc="Processing language data"):
+            # === 1. Build and filter POS DataFrame ===
             df = pd.DataFrame(data['pos'])
+            if includes_pos or excludes_pos:
+                mask = pd.Series([True] * len(df), index=df.index)
+                if includes_pos:
+                    mask &= df['pos'].isin(includes_pos)
+                if excludes_pos:
+                    mask &= ~df['pos'].isin(excludes_pos)
+                df = df[mask]  # Filter rows by POS
+
+            # === 2. Basic statistics ===
             df['word_length'] = df['word'].apply(len)
             average_word_length = df['word_length'].mean()
             word_counts = [len(text.split()) for text in data['texts']]
-            average_word_count = sum(word_counts) / len(word_counts)
+            average_word_count = sum(word_counts) / len(word_counts) if word_counts else 0
+
             pos_counts = df['pos'].value_counts()
             top_most_common_pos = pos_counts.head(top_n).to_dict()
             top_least_common_pos = pos_counts.tail(top_n).to_dict()
-            top_most_common_pos = {
-                str(k): v for k, v in top_most_common_pos.items()}
-            top_least_common_pos = {
-                str(k): v for k, v in top_least_common_pos.items()}
+            top_most_common_pos = {str(k): v for k, v in top_most_common_pos.items()}
+            top_least_common_pos = {str(k): v for k, v in top_least_common_pos.items()}
+
             results[lang] = {
                 "average_word_length": average_word_length,
                 "average_word_count": average_word_count,
                 "top_most_common_pos": top_most_common_pos,
                 "top_least_common_pos": top_least_common_pos
             }
-            pos_sequence_counts = None
-            if all_combinations:
-                pos_sequence_counts = pd.Series(
-                    list(self.pos_combinations(df['pos'], n))).value_counts()
-            else:
-                pos_sequence_counts = pd.Series(
-                    list(self.nwise(df['pos'], n))).value_counts()
-            top_most_common_pos_sequences = pos_sequence_counts.head(
-                top_n).to_dict()
-            top_least_common_pos_sequences = pos_sequence_counts.tail(
-                top_n).to_dict()
-            top_most_common_pos_sequences = {
-                str(k): v for k, v in top_most_common_pos_sequences.items()}
-            top_least_common_pos_sequences = {
-                str(k): v for k, v in top_least_common_pos_sequences.items()}
+
+            # === 3. POS sequence counts (with filtering) ===
+            pos_seq_iter = (
+                self.pos_combinations(df['pos'], n)
+                if all_combinations else
+                self.nwise(df['pos'], n)
+            )
+            pos_sequence_counts = pd.Series(list(pos_seq_iter)).value_counts()
+
+            if includes_pos or excludes_pos:
+                def seq_matches(seq):
+                    if includes_pos and not any(p in seq for p in includes_pos):
+                        return False
+                    if excludes_pos and any(p in seq for p in excludes_pos):
+                        return False
+                    return True
+                pos_sequence_counts = pos_sequence_counts[pos_sequence_counts.index.map(seq_matches)]
+
+            top_most_common_pos_sequences = pos_sequence_counts.head(top_n).to_dict()
+            top_least_common_pos_sequences = pos_sequence_counts.tail(top_n).to_dict()
+            top_most_common_pos_sequences = {str(k): v for k, v in top_most_common_pos_sequences.items()}
+            top_least_common_pos_sequences = {str(k): v for k, v in top_least_common_pos_sequences.items()}
+
             results[lang].update({
                 "top_most_common_pos_sequences": top_most_common_pos_sequences,
                 "top_least_common_pos_sequences": top_least_common_pos_sequences
             })
-            ngrams_list = []
-            for text in data['texts']:
-                ngrams_list.extend(get_words(text, n))
-            ngram_counts = pd.Series(ngrams_list).value_counts()
+
+            # === 4. N-gram counts with POS-aware filtering ===
+            filtered_ngrams = []
+
+            if includes_pos or excludes_pos:
+                # Map words to their POS in filtered df
+                word_pos_map = dict(zip(df['word'], df['pos']))
+                # Rebuild per-text POS alignment using original text order
+                for text in data['texts']:
+                    words = text.split()
+                    pos_for_text = []
+                    for word in words:
+                        # Use mapped POS if available (from filtered df)
+                        pos = word_pos_map.get(word)
+                        if pos:  # Only include if word passed POS filter
+                            pos_for_text.append(pos)
+                    # Generate n-grams and check POS context
+                    for ngram in get_words(text, n):
+                        ngram_words = ngram.split()
+                        if len(ngram_words) != n:
+                            continue
+                        # Find start index in original text
+                        start_idx = text.find(ngram)
+                        if start_idx == -1:
+                            continue
+                        # Approximate word indices
+                        prefix = text[:start_idx]
+                        word_start = len(prefix.split())
+                        pos_tags = []
+                        for i in range(n):
+                            idx = word_start + i
+                            if idx < len(words) and words[idx] == ngram_words[i]:
+                                pos = word_pos_map.get(words[idx])
+                                if pos:
+                                    pos_tags.append(pos)
+                        if len(pos_tags) != n:
+                            continue
+                        # Apply filter
+                        include = True
+                        if includes_pos and not any(p in pos_tags for p in includes_pos):
+                            include = False
+                        if excludes_pos and any(p in pos_tags for p in excludes_pos):
+                            include = False
+                        if include:
+                            filtered_ngrams.append(ngram)
+            else:
+                # No POS filtering → use raw text n-grams
+                for text in data['texts']:
+                    filtered_ngrams.extend(get_words(text, n))
+
+            ngram_counts = pd.Series(filtered_ngrams).value_counts()
             top_most_common_ngrams = ngram_counts.head(top_n).to_dict()
             top_least_common_ngrams = ngram_counts.tail(top_n).to_dict()
-            top_most_common_ngrams = {
-                str(k): v for k, v in top_most_common_ngrams.items()}
-            top_least_common_ngrams = {
-                str(k): v for k, v in top_least_common_ngrams.items()}
+            top_most_common_ngrams = {str(k): v for k, v in top_most_common_ngrams.items()}
+            top_least_common_ngrams = {str(k): v for k, v in top_least_common_ngrams.items()}
+
             results[lang].update({
                 "top_most_common_ngrams": top_most_common_ngrams,
                 "top_least_common_ngrams": top_least_common_ngrams
             })
+
         return results
 
     @time_it
@@ -346,7 +428,7 @@ class LanguageDataProcessor:
             }
         }
 
-    def generate_analysis(self, n=1, top_n=10, includes_pos=[], excludes_pos=[], words_only=False, word_texts=False, pos_text_count=None):
+    def generate_analysis(self, n=1, top_n=10, all_combinations=False, includes_pos=[], excludes_pos=[], words_only=False, word_texts=False, pos_text_count=None):
         languages = self.languages
         pos_word_counts = self.get_pos_word_counts(
             n, includes_pos, excludes_pos)
@@ -378,7 +460,7 @@ class LanguageDataProcessor:
                 "languages": languages,
                 "data": pos_sequence_counts
             }
-        language_results = self.process_language_data(n, top_n)
+        language_results = self.process_language_data(n, top_n, all_combinations, includes_pos, excludes_pos)
         yield {
             "type": "language_results",
             "languages": languages,
@@ -445,6 +527,7 @@ def analyze_pos_tags(
     result_stream = processor.generate_analysis(
         n=n,
         top_n=top_n,
+        all_combinations=all_combinations,
         includes_pos=includes_pos,
         excludes_pos=excludes_pos,
         words_only=words_only,

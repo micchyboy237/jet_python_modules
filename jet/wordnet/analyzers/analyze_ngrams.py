@@ -4,7 +4,7 @@ from jet.wordnet.histogram import TextAnalysis
 from jet.wordnet.similarity import filter_different_texts
 from tqdm import tqdm
 
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 
 @time_it
@@ -50,72 +50,81 @@ def limit_ngram_occurrences(high_ngram_tl_texts: List[Dict[str, float]], min_sco
     return [high_ngram_tl_texts_dict[text] for text in set(limited_texts)]
 
 
-def analyze_ngrams(texts, texts_dict, min_tfidf=0.05):
+def analyze_ngrams(
+    texts: List[str],
+    texts_dict: Optional[Dict[str, Dict[str, Any]]] = None,
+    min_tfidf: float = 0.05,
+    ngram_ranges: List[tuple[int, int]] = [(1, 3)],
+    stop_ngrams: Optional[set[str]] = None,
+    top_n: int = 100,
+    top_k_texts: int = 4,
+) -> List[Dict[str, Any]]:
+    """Generic n-gram analyzer with configurable TF-IDF and n-gram parameters."""
+    # Default fallback: if no dict, simulate neutral metadata
+    texts_dict = texts_dict or {text: {"rating": 0} for text in texts}
+
     ta = TextAnalysis(texts)
     most_any_results = ta.generate_histogram(
         is_top=True,
         from_start=False,
         apply_tfidf=True,
-        ngram_ranges=[(2, 3)],
-        top_n=100,
+        ngram_ranges=ngram_ranges,
+        top_n=top_n,
     )
-    most_any_results_text_dict = {}
-    stop_ngrams = {
-        "but the", "and a", "life and", "the battery", "battery life and",
-        "life and a", "but the battery", "battery life and a", "the phone",
-        "the camera", "during heavy", "is fast", "is stunning", "when recording",
-        "are slow", "with a", "battery", "phone", "camera", "processor",
-        "life", "display", "fast", "gaming", "heavy", "best", "frustrating"
-    }
+
+    stop_ngrams = stop_ngrams or set()
     results = [
         item for sublist in most_any_results for item in sublist['results']
         if 'tfidf' in item
     ]
-    print(f"Found {len(results)} n-grams (before min_tfidf filter):")
-    for result in results:
-        print(f"  {result['ngram']}: {result['tfidf']:.4f}")
 
-    max_score = max((result['tfidf'] for result in results), default=1)
-    results = [
-        item for item in results
-        if item['tfidf'] / max_score > min_tfidf and item['ngram'] not in stop_ngrams
-    ]
-    print(
-        f"Found {len(results)} n-grams close with normalized TF-IDF > {min_tfidf} after stopword filter:")
-    for result in results:
-        most_any_results_text_dict[result['ngram']] = result['tfidf']
-        print(f"  {result['ngram']}: {result['tfidf']:.4f}")
-
+    # ---- Filter results by normalized TF-IDF ----
     if not results:
-        print("No n-grams meet the TF-IDF and stopword criteria. Returning empty list.")
+        print("No n-grams found with TF-IDF values.")
         return []
 
+    max_score = max((result.get('tfidf', 0.0) for result in results), default=0.0)
+    if max_score <= 0:
+        print("All TF-IDF scores are zero. Skipping normalization and returning empty list.")
+        return []
+
+    results = [
+        item for item in results
+        if (item.get('tfidf', 0.0) / max_score) > min_tfidf
+        and item['ngram'] not in stop_ngrams
+    ]
+
+    if not results:
+        print("No n-grams meet TF-IDF and stopword criteria.")
+        return []
+
+    ngram_tfidf_dict = {r['ngram']: r['tfidf'] for r in results}
+
     high_ngram_tl_texts = []
-    pbar = tqdm(texts, desc="Processing texts")
+    pbar = tqdm(texts, desc="Scanning texts")
     for text in pbar:
-        matched_ngrams = []
-        max_tfidf = 0
-        for ngram, score in most_any_results_text_dict.items():
-            if ngram.lower() in text.lower():
-                matched_ngrams.append({"ngram": ngram, "tfidf": score})
-                max_tfidf = max(max_tfidf, score)
+        matched_ngrams = [
+            {"ngram": n, "tfidf": s}
+            for n, s in ngram_tfidf_dict.items()
+            if n.lower() in text.lower()
+        ]
         if matched_ngrams:
+            max_tfidf = max(m['tfidf'] for m in matched_ngrams)
             high_ngram_tl_texts.append({
                 "ngram": matched_ngrams[0]["ngram"],
                 "score": max_tfidf,
                 "text": text,
                 "matched_ngrams": matched_ngrams
             })
-            pbar.set_description(
-                f"High-ngram texts: {len(high_ngram_tl_texts)}")
 
-    print(f"Texts with high-scoring n-grams: {len(high_ngram_tl_texts)}")
     if not high_ngram_tl_texts:
-        print("No texts contain high-scoring n-grams. Returning empty list.")
+        print("No texts with matching n-grams.")
         return []
 
     limited_tl_texts = limit_ngram_occurrences(
-        high_ngram_tl_texts, min_score=min_tfidf, texts_dict=texts_dict)
+        high_ngram_tl_texts, min_score=min_tfidf, texts_dict=texts_dict
+    )
+
     filtered_tl_texts = [
         {
             **texts_dict[item['text']],
@@ -124,13 +133,12 @@ def analyze_ngrams(texts, texts_dict, min_tfidf=0.05):
             "max_tfidf": item['score']
         } for item in limited_tl_texts
     ]
-    print(f"Final filtered texts: {len(filtered_tl_texts)}")
 
     filtered_tl_texts = sorted(
         filtered_tl_texts,
-        key=lambda x: (x['max_tfidf'], x['rating'] * 0.2),
+        key=lambda x: (x['max_tfidf'], x.get('rating', 0) * 0.2),
         reverse=True
-    )[:4]  # Cap at 4 texts
+    )[:top_k_texts]
 
     return filtered_tl_texts
 
