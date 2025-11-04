@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import time
 import traceback
-from typing import List, Sequence, Dict, Any
+from typing import List, Optional, Sequence, Dict, Any
 
 import torch
 from gliner import GLiNER, InferencePackingConfig
@@ -39,7 +39,7 @@ class GLiNERWrapper:
 
     def __init__(
         self,
-        model_name: str = "urchade/gliner_small-v2.1",
+        model_name: str = "urchade/gliner_large-v2.1",
         device: str | torch.device | None = None,
         batch_size: int = 8,
         threshold: float = 0.5,
@@ -68,15 +68,17 @@ class GLiNERWrapper:
     def predict_no_packing(
         self,
         texts: Sequence[str],
-        labels: Sequence[str],
+        labels: Optional[Sequence[str]] = None,
     ) -> tuple[List[List[Dict[str, Any]]], float]:
         """Run GLiNER **without** packing."""
+        if labels is None:
+            labels = ["entity"]
         return self._run(packing_config=None, texts=texts, labels=labels)
 
     def predict_with_packing(
         self,
         texts: Sequence[str],
-        labels: Sequence[str],
+        labels: Optional[Sequence[str]] = None,
         *,
         max_length: int | None = None,
         streams_per_batch: int = 32,
@@ -91,6 +93,8 @@ class GLiNERWrapper:
         streams_per_batch
             How many short sequences to pack into one long sequence.
         """
+        if labels is None:
+            labels = ["entity"]
         if max_length is None:
             max_length = self._default_max_len
 
@@ -171,7 +175,7 @@ def _parse_cli() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default="urchade/gliner_small-v2.1",
+        default="urchade/gliner_large-v2.1",
         help="HuggingFace model name or local folder",
     )
     parser.add_argument(
@@ -204,7 +208,8 @@ def main() -> None:
         "Apple launched the Vision Pro at WWDC 2023 in Cupertino.",
         "NASA announced that the Artemis II mission will send astronauts around the Moon in 2025.",
     ]
-    labels: List[str] = ["Person", "Organization", "Location", "Event", "Date", "Money"]
+    # labels: List[str] = ["Person", "Organization", "Location", "Event", "Date", "Money"]
+    labels = None
 
     # -------------------------- No packing -------------------------- #
     print("Running **without** packing …")
