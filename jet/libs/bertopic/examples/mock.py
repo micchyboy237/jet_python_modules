@@ -1,13 +1,15 @@
 from typing import Optional, TypedDict, List
+import uuid
 from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
 # from jet.code.extraction.sentence_extraction import extract_sentences
-from jet.code.markdown_types.markdown_parsed_types import MarkdownToken
+from jet.code.extraction.sentence_extraction import extract_sentences
 from jet.code.markdown_utils._converters import convert_html_to_markdown, convert_markdown_to_text
-from jet.code.markdown_utils._markdown_parser import derive_by_header_hierarchy
 from jet.scrapers.header_hierarchy import HtmlHeaderDoc, extract_header_hierarchy
-from jet.wordnet.text_chunker import chunk_texts, chunk_texts_with_data, truncate_texts
+from jet.wordnet.text_chunker import chunk_texts, truncate_texts
+from jet.wordnet.sentence import split_sentences
+from jet._token.token_utils import token_counter
 from jet.file.utils import load_file
 from jet.logger import logger
 
@@ -37,7 +39,6 @@ class ChunkResultMeta(TypedDict):
         parent_header: Parent section header (e.g., '## Parent').
         parent_level: Parent header level (e.g., 2 → '##').
         source: File path, URL, or other source reference.
-        tokens: List of parsed markdown tokens for this chunk.
     """
 
     doc_id: str
@@ -47,7 +48,6 @@ class ChunkResultMeta(TypedDict):
     parent_header: Optional[str]
     parent_level: Optional[int]
     source: Optional[str]
-    tokens: List[MarkdownToken]
 
 class ChunkResult(TypedDict):
     """Core information for an individual chunk.
@@ -147,22 +147,22 @@ def load_sample_md_doc() -> str:
     md_content = convert_html_to_markdown(html, ignore_links=True)
     return md_content
 
-def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 0, truncate: bool = False, convert_plain_text: bool = False) -> List[str]:
+def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 0, truncate: bool = False, convert_plain_text: bool = False, includes: List[str] = []) -> List[str]:
     """Load sample dataset from local for topic modeling."""
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
 
     # md_content = convert_html_to_markdown(html, ignore_links=True)
     # headers = derive_by_header_hierarchy(md_content, ignore_links=True)
-    headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html)
-    header_md_contents = [f"{header['header']}\n\n{header['content']}".strip() for header in headings]
-    # header_contents = [convert_markdown_to_text(md_content) for md_content in header_md_contents]
-    # sentences = [sentence for content in header_contents for sentence in extract_sentences(content, use_gpu=True)]
+    headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html, includes=includes)
+    # header_md_contents = [f"{header['header']}\n{header['content']}".strip() for header in headings if header['content']]
+    header_sentences = [{"header": header, "sentence": sent} for header in headings for sent in split_sentences(header['content']) if header['content']]
+    texts = [hs["sentence"] for hs in header_sentences]
 
     if convert_plain_text:
         # Preprocess markdown to plain text
-        texts = [convert_markdown_to_text(md_content) for md_content in header_md_contents]
-    else:
-        texts = header_md_contents
+        texts = [convert_markdown_to_text(md_content) for md_content in texts]
+    # else:
+    #     texts = header_md_contents
 
     if not truncate:
         documents = chunk_texts(
@@ -185,9 +185,10 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
 def load_sample_data_with_info(
     model: str = EMBED_MODEL,
     chunk_size: int = 128,
-    chunk_overlap: int = 32,
+    chunk_overlap: int = 0,
     truncate: bool = False,
     convert_plain_text: bool = False,
+    includes: List[str] = [],
 ) -> List[ChunkResultWithMeta]:
     """
     Load sample dataset from local for topic modeling, returning chunk results with section meta information.
@@ -195,20 +196,23 @@ def load_sample_data_with_info(
     """
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
     # html = add_list_table_header_placeholders(html)
-    md_content = convert_html_to_markdown(html, ignore_links=True)
-    headers = derive_by_header_hierarchy(md_content, ignore_links=True)
-    header_md_contents = [f"{header['header']}\n{header['content']}".strip() for header in headers]
+    headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html, includes=includes)
+    # header_contents = [header['content'] for header in headings if header['content']]
+    # header_sentences = extract_sentences(header_contents)
+    header_sentences = [{"header": header, "sentence": sent} for header in headings for sent in extract_sentences(header['content']) if header['content']]
+    texts = [hs["sentence"] for hs in header_sentences]
 
     if convert_plain_text:
         # Preprocess markdown to plain text
-        texts = [convert_markdown_to_text(md_content) for md_content in header_md_contents]
-    else:
-        texts = header_md_contents
-    doc_ids = [header["id"] for header in headers]
+        texts = [convert_markdown_to_text(md_content) for md_content in texts]
+    # else:
+    #     texts = header_sentences
+    doc_ids = [header["header"]["id"] for header in header_sentences]
 
     # Map header id to header metadata (assuming doc_ids are unique and order-aligned)
     header_id_to_meta: dict[str, ChunkResultMeta] = {}
-    for header in headers:
+    for hs in header_sentences:
+        header = hs["header"]
         header_meta: ChunkResultMeta = {
             "doc_id": header["id"],
             "doc_index": header["doc_index"],
@@ -216,24 +220,27 @@ def load_sample_data_with_info(
             "level": header.get("level"),
             "parent_header": header.get("parent_header"),
             "parent_level": header.get("parent_level"),
-            "source": header.get("source"),
-            "tokens": header.get("tokens"),
+            "source": None
         }
         header_id_to_meta[header["id"]] = header_meta
 
-    base_chunks: List[ChunkResult] = chunk_texts_with_data(
-        texts,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        model=model,
-        ids=doc_ids,
-        strict_sentences=True,
-    )
+    # base_chunks: List[ChunkResult] = chunk_texts_with_data(
+    #     texts,
+    #     chunk_size=chunk_size,
+    #     chunk_overlap=chunk_overlap,
+    #     model=model,
+    #     ids=doc_ids,
+    #     strict_sentences=True,
+    # )
+
+    token_counts = token_counter(texts, model=model, prevent_total=True)
 
     # Attach section meta-data from the corresponding HeaderDoc to each chunk
     enriched_chunks: List[ChunkResultWithMeta] = []
-    for chunk in base_chunks:
-        doc_id = chunk["doc_id"]
+    for hs_idx, hs in enumerate(header_sentences):
+        sentence = hs["sentence"]
+        header = hs["header"]
+        doc_id = header["id"]
         if doc_id in header_id_to_meta:
             chunk_meta = header_id_to_meta[doc_id]
         else:
@@ -246,8 +253,20 @@ def load_sample_data_with_info(
                 "parent_header": None,
                 "parent_level": None,
                 "source": None,
-                "tokens": [],
             }
+        chunk = ChunkResult(
+            id=str(uuid.uuid4()),
+            doc_id=doc_id,
+            doc_index=header["doc_index"],
+            chunk_index=hs_idx,
+            num_tokens=token_counts[hs_idx],
+            content=sentence,
+            start_idx=0,
+            end_idx=0,
+            line_idx=0,
+            overlap_start_idx=0,
+            overlap_end_idx=0,
+        )
         chunk_with_meta: ChunkResultWithMeta = {**chunk, "meta": chunk_meta}
         enriched_chunks.append(chunk_with_meta)
 

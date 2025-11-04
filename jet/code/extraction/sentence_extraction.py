@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
 from wtpsplit import SaT
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from jet.wordnet.validators.sentence_validator import is_valid_sentence
 
@@ -28,7 +28,7 @@ def _load_model(model_name: str, style_or_domain: Optional[str], language: str) 
     return _model_cache["model"]
 
 def extract_sentences(
-    text: str, 
+    text: Union[str, List[str]], 
     model_name: str = "sat-12l-sm", 
     use_gpu: bool = True, 
     sentence_threshold: float = 0.5,
@@ -64,8 +64,8 @@ def extract_sentences(
         >>> extract_sentences(text)
         ['This is the first sentence. It has multiple parts. ', 'This is the second sentence without newlines.']
     """
-    if not text.strip():
-        raise ValueError("Input text cannot be empty.")
+    if not text.strip() if isinstance(text, str) else not "".join(text).strip():
+        return []
     
     sat = _load_model(model_name, style_or_domain, language)
     
@@ -82,8 +82,22 @@ def extract_sentences(
         if device == "cuda":
             sat.half()
     
-    segmented = sat.split(text, do_paragraph_segmentation=True, paragraph_threshold=sentence_threshold)
-    sentences = [' '.join(sent.strip() for sent in para) for para in segmented]
+    # Normalize input: if list of strings, join into one string for SaT
+    if isinstance(text, list):
+        input_text = "\n\n".join(text)  # Preserve paragraph structure
+    else:
+        input_text = text
+
+    segmented = sat.split(input_text, do_paragraph_segmentation=True, paragraph_threshold=sentence_threshold)
+
+    # Robust sentence joining: handle cases where para is str or list of str
+    def join_para(para):
+        if isinstance(para, str):
+            return para.strip()
+        else:
+            return ' '.join(s.strip() for s in para if isinstance(s, str))
+
+    sentences = [join_para(para) for para in segmented if join_para(para)]
     if valid_only:
         # Filter valid sentences
         sentences = [s for s in tqdm(sentences, desc="Filtering valid sentences") if is_valid_sentence(s)]

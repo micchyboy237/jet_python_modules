@@ -21,6 +21,7 @@ class HtmlHeaderDoc(TypedDict):
 
 def extract_header_hierarchy(
     source: str,
+    includes: List[str] = [],
     excludes: List[str] = ["nav", "footer", "script", "style"],
     timeout_ms: int = 10000
 ) -> List[HtmlHeaderDoc]:
@@ -32,10 +33,12 @@ def extract_header_hierarchy(
     :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
     :return: A list of HtmlHeaderDoc objects representing header-based sections.
     """
+    header_tags = {f'h{i}': i for i in range(1, 7)}
     nodes = extract_text_nodes(source, excludes, timeout_ms)
 
-    # # Filter only nodes with "p" and header tags
-    # nodes = [node for node in nodes if node.tag in ["p", "h1", "h2", "h3", "h4", "h5", "h6"]]
+    if includes:
+        # Filter only nodes with tags in includes
+        nodes = [node for node in nodes if node.tag in includes + list(header_tags.keys())]
 
     sections: List[HtmlHeaderDoc] = []
     current_section: Optional[HtmlHeaderDoc] = None
@@ -43,7 +46,7 @@ def extract_header_hierarchy(
     current_content: List[str] = []
     current_html_content: List[str] = []
     section_index = 0
-    header_tags = {f'h{i}': i for i in range(1, 7)}
+    
     base_depth: Optional[int] = None  # Store the raw_depth of the first header
 
     for node in nodes:
