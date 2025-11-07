@@ -48,16 +48,19 @@ def run_examples():
     save_file(sentences, f"{OUTPUT_DIR}/3_noisy_text_results.json")
     # Expected: ~['ThisisatextwithoutspacesorpunctuationItshouldbedetected ', 'SecondpartbeginsnowWithadifferentsemanticfocus.']
 
-    # Example 4: Batch Processing (Multiple Texts)
+    # Example 4.1: Batch Processing (Basic Usage)
     texts = [
         "Batch text one without newlines. Sentence two.",
         "Another document. Separate sentence."
     ]
+    batch_segmented = extract_sentences(texts, use_gpu=True)
+    print("\nExample 4.1 - Batch Processing:")
+    save_file(batch_segmented, f"{OUTPUT_DIR}/4_1_batch_processing_results.json")
+
+    # Example 4.2: Batch Processing (Paragraph Segmentation)
     batch_segmented = extract_sentences(texts, do_paragraph_segmentation=True, use_gpu=True)
-    batch_sentences = [[' '.join(sent.strip() for sent in para) for para in doc] for doc in batch_segmented]
-    print("\nExample 4 - Batch Processing:")
-    save_file(batch_sentences, f"{OUTPUT_DIR}/4_batch_processing_results.json")
-    # Expected: [['Batch text one without newlines. ', 'Sentence two.'], ['Another document. ', 'Separate sentence.']]
+    print("\nExample 4.2 - Batch Processing (Paragraph Segmentation):")
+    save_file(batch_segmented, f"{OUTPUT_DIR}/4_2_batch_processing_paragraph_results.json")
 
     # Example 5: Domain-Specific Text (e.g., Legal)
     legal_text = "Whereas the parties agree to terms. The agreement shall commence. Notwithstanding prior clauses."
