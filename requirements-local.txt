@@ -6,6 +6,7 @@
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/deepeval
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/KeyBERT
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/wtpsplit
 
 # Advanced
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/stanza
@@ -26,7 +27,6 @@ mdit-plain
 model2vec
 fastembed
 wordcloud
-wtpsplit
 # infinity_client
 
 # KeyBERT Peers

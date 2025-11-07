@@ -1,10 +1,11 @@
 from enum import Enum
+import threading
 import spacy
 import json
 from collections import defaultdict
 from jet.wordnet.sentence import split_sentences
 from jet.file.utils import load_data
-from typing import Literal, Optional, Set, TypedDict, Union
+from typing import Literal, TypedDict, Union
 
 
 POSTag = Literal[
@@ -58,29 +59,32 @@ class POSItem(TypedDict):
 
 class POSTagger:
     _instance = None
+    _instance_lock = threading.RLock()
 
     def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super(POSTagger, cls).__new__(cls)
+        # Ensure singleton instance creation is thread-safe
+        with cls._instance_lock:
+            if not cls._instance:
+                cls._instance = super(POSTagger, cls).__new__(cls)
         return cls._instance
 
     def __init__(self, dictionary_file=None, spacy_model_name="en_core_web_md"):
+        # Only initialize once, even under concurrent access
         if not hasattr(self, '_initialized'):
-            self.dictionary_file = dictionary_file
-            self.spacy_model_name = spacy_model_name
-            self.nlp_models = {}
-            # Cache for words
-            self.cache = load_data(
-                dictionary_file) if dictionary_file else defaultdict(dict)
-            self._initialized = True
+            with self._instance_lock:
+                if not hasattr(self, '_initialized'):
+                    self.dictionary_file = dictionary_file
+                    self.spacy_model_name = spacy_model_name
+                    self.nlp_models = {}
+                    self.cache = load_data(dictionary_file) if dictionary_file else defaultdict(dict)
+                    self._lock = threading.RLock()  # Protects cache & model
+                    self._initialized = True
 
     def load_model(self):
-        if 'en' not in self.nlp_models:
-            def nlp_lambda(): return spacy.load(self.spacy_model_name)
-            nlp_lambda.__name__ = "load_en_nlp_model"
-
-            self.nlp_models['en'] = nlp_lambda()
-        return self.nlp_models['en']
+        with self._lock:
+            if 'en' not in self.nlp_models:
+                self.nlp_models['en'] = spacy.load(self.spacy_model_name)
+            return self.nlp_models['en']
 
     def process_and_tag(self, text) -> list[POSItem]:
         # Split text into sentences
@@ -99,16 +103,17 @@ class POSTagger:
         return pos_results[0]['pos']
 
     def tag_string(self, string) -> list[POSItem]:
-        # Use cached results if available
-        if string in self.cache['en']:
-            pos_results = self.cache['en'][string]
-        else:
-            nlp = self.load_model()
-            doc = nlp(string)
-            pos_results = [{'word': token.text, 'pos': token.pos_}
-                           for token in doc]
+        # Safe cache read/write
+        with self._lock:
+            if string in self.cache['en']:
+                return self.cache['en'][string]
 
-            # Cache the pos_results
+        nlp = self.load_model()
+        doc = nlp(string)
+        pos_results = [{'word': token.text, 'pos': token.pos_} for token in doc]
+
+        # Write to cache under lock
+        with self._lock:
             self.cache['en'][string] = pos_results
 
         return pos_results

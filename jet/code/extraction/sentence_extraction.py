@@ -1,9 +1,7 @@
 import torch
-from tqdm import tqdm
 from wtpsplit import SaT
-from typing import List, Optional, Union
+from typing import List, Optional, Union, overload
 
-from jet.wordnet.validators.sentence_validator import is_valid_sentence
 
 # Global cache for a single SaT model instance
 _model_cache = {"model": None, "key": None}
@@ -27,15 +25,28 @@ def _load_model(model_name: str, style_or_domain: Optional[str], language: str) 
             raise ValueError(f"Failed to load model '{model_name}' with style_or_domain '{style_or_domain}': {e}")
     return _model_cache["model"]
 
+@overload
 def extract_sentences(
-    text: Union[str, List[str]], 
-    model_name: str = "sat-12l-sm", 
-    use_gpu: bool = True, 
-    sentence_threshold: float = 0.5,
+    text: str,
+    model_name: str = "sat-12l-sm",
+    use_gpu: bool = True,
+    do_paragraph_segmentation: bool = False,
+    paragraph_threshold: float = 0.5,
     style_or_domain: Optional[str] = None,
     language: str = "en",
     valid_only: bool = False
-) -> List[str]:
+) -> List[str]: ...
+
+def extract_sentences(
+    text: Union[str, List[str]],
+    model_name: str = "sat-12l-sm",
+    use_gpu: bool = True,
+    do_paragraph_segmentation: bool = False,
+    paragraph_threshold: float = 0.5,
+    style_or_domain: Optional[str] = None,
+    language: str = "en",
+    valid_only: bool = False
+) -> Union[List[str], List[List[str]]]:
     """
     Extracts sentences from unstructured text without relying on newline delimiters.
     This function uses the SaT model from wtpsplit to perform semantic segmentation.
@@ -43,12 +54,17 @@ def extract_sentences(
     making it suitable for noisy or concatenated text (e.g., from PDFs or web scrapes).
     Optimized for Mac M1 MPS, CUDA, or CPU.
     Args:
-        text (str): The input text to segment.
+        text (str or List[str]): The input text to segment. Either a single string, or a list of paragraph strings.
         model_name (str, optional): The SaT model to use (e.g., "sat-12l-sm" for high accuracy,
                                     "sat-3l-sm" for faster inference). Defaults to "sat-12l-sm".
         use_gpu (bool, optional): Whether to use GPU (MPS on M1, CUDA elsewhere) if available. Defaults to True.
-        sentence_threshold (float, optional): Threshold for sentence boundary detection
-                                             (higher = more conservative). Defaults to 0.5.
+        do_paragraph_segmentation (bool, optional): If True, attempts to split text into separate paragraphs
+            using a semantic paragraph boundary detector in addition to splitting into sentences.
+            When enabled, sentences are grouped according to detected paragraph blocks.
+            Defaults to False (only sentence boundaries are predicted).
+        paragraph_threshold (float, optional): Threshold for paragraph boundary detection when
+                                               ``do_paragraph_segmentation=True``. Higher values are more
+                                               conservative. Defaults to 0.5.
         style_or_domain (Optional[str], optional): LoRA adaptation style/domain (e.g., "ud" for Universal Dependencies).
                                                   Defaults to None (no adaptation).
         language (str, optional): Language for LoRA module (e.g., "en"). Defaults to "en".
@@ -56,7 +72,9 @@ def extract_sentences(
                                       (filters out e.g. fragments or very short/incomplete sentences).
                                       Defaults to False.
     Returns:
-        List[str]: A list of extracted sentences as strings.
+        Union[List[str], List[List[str]]]: 
+            - ``List[str]`` if ``text`` is ``str`` (sentences from a single document).
+            - ``List[List[str]]`` if ``text`` is ``List[str]`` (sentences per input paragraph/document).
     Raises:
         ValueError: If the model fails to load or text is empty.
     Example:
@@ -81,24 +99,13 @@ def extract_sentences(
         sat.to(device)
         if device == "cuda":
             sat.half()
-    
-    # Normalize input: if list of strings, join into one string for SaT
-    if isinstance(text, list):
-        input_text = "\n\n".join(text)  # Preserve paragraph structure
-    else:
-        input_text = text
 
-    segmented = sat.split(input_text, do_paragraph_segmentation=True, paragraph_threshold=sentence_threshold)
+    # SaT always returns List[List[str]] (one list of sentences per paragraph)
+    segmented: List[List[str]] = sat.split(
+        text,
+        do_paragraph_segmentation=do_paragraph_segmentation,
+        paragraph_threshold=paragraph_threshold,
+        verbose=True,
+    )
 
-    # Robust sentence joining: handle cases where para is str or list of str
-    def join_para(para):
-        if isinstance(para, str):
-            return para.strip()
-        else:
-            return ' '.join(s.strip() for s in para if isinstance(s, str))
-
-    sentences = [join_para(para) for para in segmented if join_para(para)]
-    if valid_only:
-        # Filter valid sentences
-        sentences = [s for s in tqdm(sentences, desc="Filtering valid sentences") if is_valid_sentence(s)]
-    return sentences
+    return segmented

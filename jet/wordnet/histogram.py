@@ -3,7 +3,6 @@ from typing import List, Dict, Optional, Union
 from jet.wordnet.words import get_words
 from jet.logger import time_it
 from sklearn.feature_extraction.text import TfidfVectorizer
-from nltk.probability import FreqDist
 from nltk.corpus import stopwords
 import nltk
 
@@ -52,29 +51,38 @@ class TextAnalysis:
         return all_tokens
 
     def tokenize_and_clean_for_tfidf(self) -> List[str]:
+        """Tokenize TF-IDF texts with respect to newline and EOS boundaries."""
         all_texts = []
         for item in self.data:
             if isinstance(item, str):
                 text = item
             else:
                 keys_to_use = self.include_keys if self.include_keys else item.keys()
-                text = "\n".join(str(item[key]) for key in keys_to_use
-                                 if key != "id" and key not in self.exclude_keys)
-            all_texts.append(text.lower())
+                text = "\n".join(
+                    str(item[key]) for key in keys_to_use
+                    if key != "id" and key not in self.exclude_keys
+                )
+
+            # Replace newline or EOS markers with sentence boundary token
+            text = re.sub(rf"({self.eos_token_str}|\n+)", " <eos> ", text.strip().lower())
+            all_texts.append(text)
         return all_texts
 
     @time_it
     def perform_tfidf_analysis(self, ngram_range):
+        """Perform TF-IDF respecting word and sentence boundaries."""
         tfidf_vectorizer = TfidfVectorizer(
             ngram_range=ngram_range,
             lowercase=True,
             token_pattern=r'(?u)\b\w+\b',
-            stop_words='english'
+            stop_words='english',
+            analyzer='word',
+            preprocessor=lambda x: re.sub(r'\s+', ' ', x.strip())  # collapse multiple spaces only
         )
         tfidf_matrix = tfidf_vectorizer.fit_transform(self.tokens_tfidf)
         feature_names = tfidf_vectorizer.get_feature_names_out()
         top_ngrams = sorted(
-            list(zip(feature_names, tfidf_matrix.sum(axis=0).tolist()[0])),
+            zip(feature_names, tfidf_matrix.sum(axis=0).A1),
             key=lambda x: x[1],
             reverse=True
         )
@@ -85,6 +93,7 @@ class TextAnalysis:
         return [seg.strip() for seg in re.split(r'\n+', text) if seg.strip()]
 
     def perform_dynamic_collocation_analysis(self, ngram_range, separated_texts):
+        """Perform collocation analysis with newline/EOS boundary awareness."""
         all_collocations = {}
         for text in self.data:
             if isinstance(text, str):
@@ -96,19 +105,42 @@ class TextAnalysis:
                     if key != "id" and key not in self.exclude_keys
                 )
 
-            # Split text into newline-separated segments
-            segments = self._split_on_newlines(text_content.replace(self.eos_token_str, ''))
+            # Split by newline and EOS tokens; treat each as a separate boundary
+            segments = self._split_on_newlines(
+                re.sub(rf"{self.eos_token_str}", "\n", text_content)
+            )
 
             for segment in segments:
                 tokens = get_words(segment)
+                if not tokens:
+                    continue
                 for n in range(ngram_range[0], ngram_range[1] + 1):
-                    ngram_collocations = nltk.ngrams(tokens, n)
-                    freq_dist = FreqDist(ngram_collocations)
-                    for ngram, freq in freq_dist.items():
+                    for ngram in nltk.ngrams(tokens, n):
                         ngram_text = ' '.join(ngram)
-                        all_collocations[ngram_text] = all_collocations.get(ngram_text, 0) + freq
+                        all_collocations[ngram_text] = all_collocations.get(ngram_text, 0) + 1
 
         return all_collocations
+
+    def _compute_ngram_doc_counts(self, ngrams: List[str]) -> Dict[str, int]:
+        """Count how many docs each ngram appears in (each doc counted once),
+        ignoring punctuation on word edges (e.g., 'Tech:' == 'Tech')."""
+        doc_counts: Dict[str, int] = {ngram: 0 for ngram in ngrams}
+        for doc in self.tokens_tfidf:
+            # Normalize: lowercase and remove excessive whitespace
+            doc_lower = re.sub(r'\s+', ' ', doc.lower())
+
+            for ngram in ngrams:
+                # Clean and normalize the ngram for safe regex use
+                clean_ngram = re.escape(ngram.lower())
+
+                # Allow optional punctuation before/after each token in the ngram
+                # Example: match "Tech:" or "(Tech)" for ngram "Tech"
+                pattern = r'(?<!\w)[^\w\s]*' + clean_ngram + r'[^\w\s]*(?!\w)'
+
+                if re.search(pattern, doc_lower):
+                    doc_counts[ngram] += 1
+
+        return doc_counts
 
     def format_results(
         self,
@@ -175,6 +207,12 @@ class TextAnalysis:
                     (x['tfidf'] for x in tfidf_results if x['ngram'] == ngram), 0
                 )
                 results['results'][i]['tfidf'] = tfidf_score
+
+        # --- Document counts ---
+        all_ngrams = [r['ngram'] for r in results['results']]
+        ngram_doc_counts = self._compute_ngram_doc_counts(all_ngrams)
+        for r in results['results']:
+            r['docs'] = ngram_doc_counts.get(r['ngram'], 0)
 
         return results
 

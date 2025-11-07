@@ -1,8 +1,9 @@
+import threading
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from tqdm import tqdm
-from typing import Literal, Optional, Set, TypedDict, Union, List
+from typing import Literal, TypedDict, Union, List
 from collections import defaultdict
 from jet.file.utils import load_data
 from jet.wordnet.sentence import split_sentences
@@ -52,6 +53,36 @@ class POSTagEnum(Enum):
     X = "X"
 
 
+# Mapping NLTK Penn Treebank tags to SpaCy-compatible tags
+NLTK_TO_SPACY = {
+    'NN': 'NOUN', 'NNS': 'NOUN', 'NNP': 'PROPN', 'NNPS': 'PROPN',
+    'VB': 'VERB', 'VBD': 'VERB', 'VBG': 'VERB', 'VBN': 'VERB', 'VBP': 'VERB', 'VBZ': 'VERB',
+    'JJ': 'ADJ', 'JJR': 'ADJ', 'JJS': 'ADJ',
+    'RB': 'ADV', 'RBR': 'ADV', 'RBS': 'ADV',
+    'PRP': 'PRON', 'PRP$': 'PRON',
+    'DT': 'DET',
+    'IN': 'ADP',
+    'MD': 'AUX',
+    'CC': 'CCONJ',
+    'CD': 'NUM',
+    'TO': 'PART',
+    'UH': 'INTJ',
+    '.': 'PUNCT', ',': 'PUNCT', ':': 'PUNCT', '``': 'PUNCT', "''": 'PUNCT',
+    '$': 'SYM', '#': 'SYM',
+    'FW': 'X', 'POS': 'X',
+    'EX': 'PRON',  # Existential "there" maps to pronoun
+    'LS': 'X',     # List item marker, no direct SpaCy equivalent
+    'PDT': 'DET',  # Predeterminer maps to determiner
+    'RP': 'PART',  # Particle maps to particle
+    'WDT': 'DET',  # Wh-determiner maps to determiner
+    'WP': 'PRON',  # Wh-pronoun maps to pronoun
+    'WP$': 'PRON',  # Possessive wh-pronoun maps to pronoun
+    'WRB': 'ADV',  # Wh-adverb maps to adverb
+    '-LRB-': 'PUNCT', '-RRB-': 'PUNCT',  # Parentheses map to punctuation
+    '"': 'PUNCT'   # Double quote maps to punctuation
+}
+
+
 POSTagType = Union[POSTag, POSTagEnum, str]
 
 
@@ -62,60 +93,38 @@ class POSItem(TypedDict):
 
 class POSTagger:
     _instance = None
-
-    # Mapping NLTK Penn Treebank tags to SpaCy-compatible tags
-    NLTK_TO_SPACY = {
-        'NN': 'NOUN', 'NNS': 'NOUN', 'NNP': 'PROPN', 'NNPS': 'PROPN',
-        'VB': 'VERB', 'VBD': 'VERB', 'VBG': 'VERB', 'VBN': 'VERB', 'VBP': 'VERB', 'VBZ': 'VERB',
-        'JJ': 'ADJ', 'JJR': 'ADJ', 'JJS': 'ADJ',
-        'RB': 'ADV', 'RBR': 'ADV', 'RBS': 'ADV',
-        'PRP': 'PRON', 'PRP$': 'PRON',
-        'DT': 'DET',
-        'IN': 'ADP',
-        'MD': 'AUX',
-        'CC': 'CCONJ',
-        'CD': 'NUM',
-        'TO': 'PART',
-        'UH': 'INTJ',
-        '.': 'PUNCT', ',': 'PUNCT', ':': 'PUNCT', '``': 'PUNCT', "''": 'PUNCT',
-        '$': 'SYM', '#': 'SYM',
-        'FW': 'X', 'POS': 'X',
-        'EX': 'PRON',  # Existential "there" maps to pronoun
-        'LS': 'X',     # List item marker, no direct SpaCy equivalent
-        'PDT': 'DET',  # Predeterminer maps to determiner
-        'RP': 'PART',  # Particle maps to particle
-        'WDT': 'DET',  # Wh-determiner maps to determiner
-        'WP': 'PRON',  # Wh-pronoun maps to pronoun
-        'WP$': 'PRON',  # Possessive wh-pronoun maps to pronoun
-        'WRB': 'ADV',  # Wh-adverb maps to adverb
-        '-LRB-': 'PUNCT', '-RRB-': 'PUNCT',  # Parentheses map to punctuation
-        '"': 'PUNCT'   # Double quote maps to punctuation
-    }
+    _instance_lock = threading.RLock()
 
     def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super(POSTagger, cls).__new__(cls)
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = super(POSTagger, cls).__new__(cls)
         return cls._instance
 
     def __init__(self, dictionary_file=None):
         if not hasattr(self, '_initialized'):
-            self.dictionary_file = dictionary_file
-            self.cache = load_data(
-                dictionary_file) if dictionary_file else defaultdict(dict)
-            self._initialized = True
+            with self._instance_lock:
+                if not hasattr(self, '_initialized'):
+                    self.dictionary_file = dictionary_file
+                    self.cache = load_data(dictionary_file) if dictionary_file else defaultdict(dict)
+                    self._cache_lock = threading.RLock()  # protect cache
+                    self._initialized = True
 
     def tag_string(self, string: str) -> List[POSItem]:
-        if string in self.cache.get('en', {}):
-            return self.cache['en'][string]
+        # Thread-safe cache lookup
+        with self._cache_lock:
+            if string in self.cache.get('en', {}):
+                return self.cache['en'][string]
 
+        # Perform tagging outside lock (expensive operation)
         tokens = word_tokenize(string)
         nltk_tags = nltk.pos_tag(tokens)
-        pos_results = [
-            {'word': word, 'pos': self.NLTK_TO_SPACY.get(tag, 'X')}
-            for word, tag in nltk_tags
-        ]
+        pos_results = [{'word': word, 'pos': NLTK_TO_SPACY.get(tag, 'X')} for word, tag in nltk_tags]
 
-        self.cache['en'][string] = pos_results
+        # Store back safely
+        with self._cache_lock:
+            self.cache['en'][string] = pos_results
+
         return pos_results
 
     def process_and_tag(self, text: str) -> List[POSItem]:

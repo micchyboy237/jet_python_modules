@@ -1,12 +1,14 @@
-from typing import List
+from typing import List, Union
 import numpy as np
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from keybert.backend import BaseEmbedder
 
+from jet.llm.models import OLLAMA_MODEL_NAMES
+
 class KeyBERTLlamacppEmbedder(BaseEmbedder):
     """KeyBERT embedder using LlamacppEmbedding for generating embeddings."""
     
-    def __init__(self, embedding_model: str = "embeddinggemma", base_url: str = "http://shawn-pc.local:8081/v1", use_cache: bool = False):
+    def __init__(self, embedding_model: Union[str, OLLAMA_MODEL_NAMES] = "embeddinggemma", base_url: str = "http://shawn-pc.local:8081/v1", use_cache: bool = False):
         """Initialize the embedder with LlamacppEmbedding model.
         
         Args:
