@@ -1,8 +1,9 @@
-from typing import List, Dict, Union
+from typing import List, Dict, Optional, Union
 from jet.wordnet.words import get_words
 from jet.logger import time_it
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.probability import FreqDist
+from nltk.corpus import stopwords
 import nltk
 
 
@@ -105,16 +106,37 @@ class TextAnalysis:
                     all_collocations[ngram_text] += freq
         return all_collocations
 
-    def format_results(self, scored_collocations, top_ngrams, is_top=True, apply_tfidf=True, from_start=False, top_n=None):
+    def format_results(
+        self,
+        scored_collocations,
+        top_ngrams,
+        is_top: bool = True,
+        apply_tfidf: bool = True,
+        from_start: bool = False,
+        top_n: Optional[int] = None,
+        remove_stopwords: bool = False
+    ):
+        stop_words = set(stopwords.words('english')) if remove_stopwords else set()
+
+        def has_stopword_at_edges(ngram: str) -> bool:
+            tokens = ngram.lower().split()
+            if not tokens:
+                return False
+            return tokens[0] in stop_words or tokens[-1] in stop_words
+
+        # --- Collocations ---
         collocations_results = sorted(
-            scored_collocations.items(), key=lambda x: x[1], reverse=is_top)
+            scored_collocations.items(), key=lambda x: x[1], reverse=is_top
+        )
         collocations_results = [
             {'ngram': ngram, 'collocations': score, 'n': len(ngram.split())}
             for ngram, score in collocations_results
+            if not (remove_stopwords and has_stopword_at_edges(ngram))
         ]
         if is_top:
             collocations_results = [
-                result for result in collocations_results if result['collocations'] > 1]
+                result for result in collocations_results if result['collocations'] > 1
+            ]
         if top_n:
             collocations_results = collocations_results[:top_n]
 
@@ -123,22 +145,31 @@ class TextAnalysis:
             'results': collocations_results,
         }
 
+        # --- TF-IDF ---
         if apply_tfidf:
             tfidf_results = sorted(
-                top_ngrams, key=lambda x: x[1], reverse=is_top)
-            tfidf_results = [{'ngram': ngram, 'tfidf': score,
-                              'n': len(ngram.split())} for ngram, score in tfidf_results]
+                top_ngrams, key=lambda x: x[1], reverse=is_top
+            )
+            tfidf_results = [
+                {'ngram': ngram, 'tfidf': score, 'n': len(ngram.split())}
+                for ngram, score in tfidf_results
+                if not (remove_stopwords and has_stopword_at_edges(ngram))
+            ]
+
             if top_n:
-                if top_n > 0 and top_n < 1:
+                if 0 < top_n < 1:
                     tfidf_results = [
-                        result for result in tfidf_results if result['tfidf'] > top_n]
+                        result for result in tfidf_results if result['tfidf'] > top_n
+                    ]
                 else:
                     tfidf_results = tfidf_results[:top_n]
 
+            # Merge TF-IDF scores
             for i, result in enumerate(results['results']):
                 ngram = result['ngram']
                 tfidf_score = next(
-                    (x['tfidf'] for x in tfidf_results if x['ngram'] == ngram), 0)
+                    (x['tfidf'] for x in tfidf_results if x['ngram'] == ngram), 0
+                )
                 results['results'][i]['tfidf'] = tfidf_score
 
         return results
@@ -156,7 +187,7 @@ class TextAnalysis:
                         seen_sub_ngrams.add(other['ngram'])
         return filtered_results
 
-    def generate_histogram(self, from_start=False, apply_tfidf=False, ngram_ranges=None, is_top=True, top_n=None):
+    def generate_histogram(self, from_start=False, apply_tfidf=False, ngram_ranges=None, is_top=True, top_n=None, remove_stopwords=False):
         ngram_ranges = ngram_ranges or [(1, 2)]
         all_results = []
         for ngram_range in ngram_ranges:
@@ -169,7 +200,7 @@ class TextAnalysis:
             top_ngrams = self.perform_tfidf_analysis(
                 ngram_range) if apply_tfidf else None
             results_dict = self.format_results(
-                collocation_results, top_ngrams, is_top=is_top, apply_tfidf=apply_tfidf, from_start=from_start, top_n=top_n)
+                collocation_results, top_ngrams, is_top=is_top, apply_tfidf=apply_tfidf, from_start=from_start, top_n=top_n, remove_stopwords=remove_stopwords)
             result_entry = {
                 'ngram_range': ngram_range_str,
                 **results_dict,
@@ -186,6 +217,7 @@ def generate_histograms(data):
         is_top=True,
         from_start=True,
         apply_tfidf=True,
+        remove_stopwords=True,
         ngram_ranges=[(1, 1), (2, 3)],
         top_n=100,
     )
@@ -193,6 +225,7 @@ def generate_histograms(data):
         is_top=False,
         from_start=True,
         apply_tfidf=True,
+        remove_stopwords=True,
         ngram_ranges=[(1, 1), (2, 3)],
         top_n=100,
     )
@@ -200,6 +233,7 @@ def generate_histograms(data):
         is_top=True,
         from_start=False,
         apply_tfidf=True,
+        remove_stopwords=True,
         ngram_ranges=[(1, 3), (4, 6)],
         top_n=100,
     )
@@ -207,6 +241,7 @@ def generate_histograms(data):
         is_top=False,
         from_start=False,
         apply_tfidf=True,
+        remove_stopwords=True,
         ngram_ranges=[(1, 3), (4, 6)],
         top_n=100,
     )
