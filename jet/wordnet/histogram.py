@@ -108,8 +108,10 @@ class TextAnalysis:
     def format_results(self, scored_collocations, top_ngrams, is_top=True, apply_tfidf=True, from_start=False, top_n=None):
         collocations_results = sorted(
             scored_collocations.items(), key=lambda x: x[1], reverse=is_top)
-        collocations_results = [{'ngram': ngram, 'collocations': score}
-                                for ngram, score in collocations_results]
+        collocations_results = [
+            {'ngram': ngram, 'collocations': score, 'n': len(ngram.split())}
+            for ngram, score in collocations_results
+        ]
         if is_top:
             collocations_results = [
                 result for result in collocations_results if result['collocations'] > 1]
@@ -124,8 +126,8 @@ class TextAnalysis:
         if apply_tfidf:
             tfidf_results = sorted(
                 top_ngrams, key=lambda x: x[1], reverse=is_top)
-            tfidf_results = [{'ngram': ngram, 'tfidf': score}
-                             for ngram, score in tfidf_results]
+            tfidf_results = [{'ngram': ngram, 'tfidf': score,
+                              'n': len(ngram.split())} for ngram, score in tfidf_results]
             if top_n:
                 if top_n > 0 and top_n < 1:
                     tfidf_results = [
@@ -154,8 +156,7 @@ class TextAnalysis:
                         seen_sub_ngrams.add(other['ngram'])
         return filtered_results
 
-    def generate_histogram(self, from_start, apply_tfidf=False, ngram_ranges=None, is_top=True, top_n=None):
-        apply_tfidf = not from_start
+    def generate_histogram(self, from_start=False, apply_tfidf=False, ngram_ranges=None, is_top=True, top_n=None):
         ngram_ranges = ngram_ranges or [(1, 2)]
         all_results = []
         for ngram_range in ngram_ranges:
@@ -184,12 +185,14 @@ def generate_histograms(data):
     most_start_results = ta.generate_histogram(
         is_top=True,
         from_start=True,
+        apply_tfidf=True,
         ngram_ranges=[(1, 1), (2, 3)],
         top_n=100,
     )
     least_start_results = ta.generate_histogram(
         is_top=False,
         from_start=True,
+        apply_tfidf=True,
         ngram_ranges=[(1, 1), (2, 3)],
         top_n=100,
     )
