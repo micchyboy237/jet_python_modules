@@ -37,6 +37,18 @@ def extract_sentences(
     valid_only: bool = False
 ) -> List[str]: ...
 
+@overload
+def extract_sentences(
+    text: List[str],
+    model_name: str = "sat-12l-sm",
+    use_gpu: bool = True,
+    do_paragraph_segmentation: bool = False,
+    paragraph_threshold: float = 0.5,
+    style_or_domain: Optional[str] = None,
+    language: str = "en",
+    valid_only: bool = False
+) -> List[List[str]]: ...
+
 def extract_sentences(
     text: Union[str, List[str]],
     model_name: str = "sat-12l-sm",
@@ -108,4 +120,4 @@ def extract_sentences(
         verbose=True,
     )
 
-    return segmented
+    return list(segmented)
