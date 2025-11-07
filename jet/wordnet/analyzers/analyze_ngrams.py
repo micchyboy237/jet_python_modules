@@ -1,6 +1,5 @@
 from jet.logger.timer import time_it
 from jet.wordnet.histogram import TextAnalysis
-# from jet.wordnet.similarity import filter_different_texts
 from jet.wordnet.similarity import filter_different_texts
 from tqdm import tqdm
 
@@ -144,38 +143,5 @@ def analyze_ngrams(
 
 
 def generate_histograms(data):
-    ta = TextAnalysis(data)
-
-    most_start_results = ta.generate_histogram(
-        is_top=True,
-        from_start=True,
-        ngram_ranges=[(1, 1), (2, 3)],
-        top_n=100,
-    )
-    least_start_results = ta.generate_histogram(
-        is_top=False,
-        from_start=True,
-        ngram_ranges=[(1, 1), (2, 3)],
-        top_n=100,
-    )
-    most_any_results = ta.generate_histogram(
-        is_top=True,
-        from_start=False,
-        apply_tfidf=True,
-        ngram_ranges=[(1, 3), (4, 6)],
-        top_n=100,
-    )
-    least_any_results = ta.generate_histogram(
-        is_top=False,
-        from_start=False,
-        apply_tfidf=True,
-        ngram_ranges=[(1, 3), (4, 6)],
-        top_n=100,
-    )
-
-    return {
-        'most_common_start': most_start_results,
-        'least_common_start': least_start_results,
-        'most_common_any': most_any_results,
-        'least_common_any': least_any_results,
-    }
+    from jet.wordnet.histogram import generate_histograms as base_generate_histograms
+    return base_generate_histograms(data)

@@ -275,6 +275,38 @@ def load_sample_data_with_info(
 
     return enriched_chunks
 
+def load_sample_jobs(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 0, truncate: bool = False, convert_plain_text: bool = False, includes: List[str] = []) -> List[str]:
+    """Load sample jobs from local for topic modeling."""
+    from shared.data_types.job import JobData
+
+    data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/saved/jobs.json"
+    data: list[JobData] = load_file(data_file)
+
+    sentences = [
+        "\n".join([
+            item["title"],
+            item["details"],
+            "\n".join([
+                f"Tech: {tech}"
+                for tech in sorted(
+                    item["entities"]["technology_stack"],
+                    key=str.lower
+                )
+            ]),
+            "\n".join([
+                f"Tag: {tech}"
+                for tech in sorted(
+                    item["tags"],
+                    key=str.lower
+                )
+            ]),
+        ])
+        for item in data
+    ]
+    logger.info(f"Number of sentences: {len(sentences)}")
+
+    return sentences
+
 def load_sample_text() -> str:
     """Load sample dataset from local for topic modeling."""
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")

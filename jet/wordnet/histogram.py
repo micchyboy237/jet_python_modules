@@ -1,12 +1,9 @@
 from typing import List, Dict, Union
 from jet.wordnet.words import get_words
-from jet.file.utils import load_data, load_data_from_directories
 from jet.logger import time_it
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.probability import FreqDist
 import nltk
-import os
-import json
 
 
 class TextAnalysis:
@@ -180,3 +177,40 @@ class TextAnalysis:
             print(
                 f"Processed {'start' if is_top else 'any'} ngram range {ngram_range_str}")
         return all_results
+
+def generate_histograms(data):
+    ta = TextAnalysis(data)
+
+    most_start_results = ta.generate_histogram(
+        is_top=True,
+        from_start=True,
+        ngram_ranges=[(1, 1), (2, 3)],
+        top_n=100,
+    )
+    least_start_results = ta.generate_histogram(
+        is_top=False,
+        from_start=True,
+        ngram_ranges=[(1, 1), (2, 3)],
+        top_n=100,
+    )
+    most_any_results = ta.generate_histogram(
+        is_top=True,
+        from_start=False,
+        apply_tfidf=True,
+        ngram_ranges=[(1, 3), (4, 6)],
+        top_n=100,
+    )
+    least_any_results = ta.generate_histogram(
+        is_top=False,
+        from_start=False,
+        apply_tfidf=True,
+        ngram_ranges=[(1, 3), (4, 6)],
+        top_n=100,
+    )
+
+    return {
+        'most_common_start': most_start_results,
+        'least_common_start': least_start_results,
+        'most_common_any': most_any_results,
+        'least_common_any': least_any_results,
+    }
