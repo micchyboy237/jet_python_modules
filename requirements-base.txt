@@ -17,6 +17,7 @@ numpy==1.26.4
 nltk
 openai
 optimum
+optimum[onnxruntime]
 pandas
 pipdeptree
 playwright

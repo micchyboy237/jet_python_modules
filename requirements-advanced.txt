@@ -1,6 +1,6 @@
 mlx
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-lm
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mlx-vlm
+mlx-lm
+mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/ollama-python
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner-spacy
@@ -22,4 +22,3 @@ mlx
 gradio
 pyppeteer # for rendering mermaid graph
 simsimd
-span-marker

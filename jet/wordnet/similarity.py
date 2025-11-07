@@ -19,9 +19,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from jet.data.utils import generate_key
-from jet.llm.utils.transformer_embeddings import (
-    SimilarityResult,
-)
 from jet.logger import logger, time_it
 from jet.models.embeddings.base import (
     get_embedding_function,
