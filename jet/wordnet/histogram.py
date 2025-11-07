@@ -1,3 +1,4 @@
+import re
 from typing import List, Dict, Optional, Union
 from jet.wordnet.words import get_words
 from jet.logger import time_it
@@ -79,11 +80,12 @@ class TextAnalysis:
         )
         return top_ngrams
 
-    @time_it
+    def _split_on_newlines(self, text: str) -> List[str]:
+        """Split text into segments by newlines, preserving boundaries."""
+        return [seg.strip() for seg in re.split(r'\n+', text) if seg.strip()]
+
     def perform_dynamic_collocation_analysis(self, ngram_range, separated_texts):
         all_collocations = {}
-        # Process each text separately to avoid n-grams spanning text boundaries
-        # Use self.data (original texts) instead of separated_texts
         for text in self.data:
             if isinstance(text, str):
                 text_content = text
@@ -93,17 +95,19 @@ class TextAnalysis:
                     str(text[key]) for key in keys_to_use
                     if key != "id" and key not in self.exclude_keys
                 )
-            # Tokenize the individual text
-            tokens = get_words(text_content.replace(self.eos_token_str, ''))
-            # Generate n-grams for this text
-            for n in range(ngram_range[0], ngram_range[1] + 1):
-                ngram_collocations = nltk.ngrams(tokens, n)
-                freq_dist = FreqDist(ngram_collocations)
-                for ngram, freq in freq_dist.items():
-                    ngram_text = ' '.join(ngram)
-                    if ngram_text not in all_collocations:
-                        all_collocations[ngram_text] = 0
-                    all_collocations[ngram_text] += freq
+
+            # Split text into newline-separated segments
+            segments = self._split_on_newlines(text_content.replace(self.eos_token_str, ''))
+
+            for segment in segments:
+                tokens = get_words(segment)
+                for n in range(ngram_range[0], ngram_range[1] + 1):
+                    ngram_collocations = nltk.ngrams(tokens, n)
+                    freq_dist = FreqDist(ngram_collocations)
+                    for ngram, freq in freq_dist.items():
+                        ngram_text = ' '.join(ngram)
+                        all_collocations[ngram_text] = all_collocations.get(ngram_text, 0) + freq
+
         return all_collocations
 
     def format_results(
