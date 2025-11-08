@@ -2,7 +2,7 @@ import unittest
 from jet.wordnet.histogram import TextAnalysis
 
 
-class TestTextAnalysis(unittest.TestCase):
+class TestFilterLongestNgrams(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ta = TextAnalysis(

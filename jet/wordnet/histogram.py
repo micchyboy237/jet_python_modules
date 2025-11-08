@@ -1,11 +1,19 @@
 import re
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, TypedDict, Union
+
+from tqdm import tqdm
 from jet.wordnet.words import get_words
 from jet.logger import time_it
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.corpus import stopwords
 import nltk
 
+class TopDocumentResult(TypedDict):
+    doc_idx: int
+    doc: str
+    score_tfidf: float
+    score_collocation: float
+    score_combined: float
 
 class TextAnalysis:
     def __init__(self, data, eos_token_str='<|eos|>', include_keys=[], exclude_keys=[]):
@@ -229,6 +237,79 @@ class TextAnalysis:
                         seen_sub_ngrams.add(other['ngram'])
         return filtered_results
 
+    def filter_top_documents_by_tfidf_and_collocations(
+        self,
+        ngram_range: tuple[int, int] = (1, 2),
+        weight_tfidf: float = 0.5,
+        weight_collocation: float = 0.5,
+        top_n: int = 10,
+        show_progress: bool = False,
+    ) -> List[TopDocumentResult]:
+        """
+        Rank and filter documents based on combined TF-IDF and collocation relevance.
+
+        Args:
+            ngram_range: Tuple defining n-gram range for analysis.
+            weight_tfidf: Weight for TF-IDF score contribution.
+            weight_collocation: Weight for collocation score contribution.
+            top_n: Number of top documents to return.
+            show_progress: Whether to display a tqdm progress bar.
+        """
+        # --- Early exit if no valid documents ---
+        if not self.tokens_tfidf or all(not str(t).strip() for t in self.tokens_tfidf):
+            return []
+
+        tfidf_vectorizer = TfidfVectorizer(
+            ngram_range=ngram_range,
+            lowercase=True,
+            token_pattern=r'(?u)\b\w+\b',
+            stop_words='english',
+            analyzer='word'
+        )
+
+        try:
+            tfidf_matrix = tfidf_vectorizer.fit_transform(self.tokens_tfidf)
+        except ValueError:
+            # Handle case: all docs are stopwords or empty
+            return []
+
+        tfidf_scores = tfidf_matrix.toarray()
+        collocations = self.perform_dynamic_collocation_analysis(ngram_range, None)
+
+        # Normalize collocation frequencies
+        max_colloc = max(collocations.values(), default=1)
+        colloc_scores_norm = {ng: sc / max_colloc for ng, sc in collocations.items()}
+
+        iterator = tqdm(
+            enumerate(self.tokens_tfidf),
+            total=len(self.tokens_tfidf),
+            disable=not show_progress,
+            desc="Scoring documents",
+            unit="doc",
+        )
+
+        results: List[TopDocumentResult] = []
+        for i, doc_clean in iterator:
+            original_doc = self.data[i] if isinstance(self.data[i], str) else str(self.data[i])
+
+            score_tfidf = float(tfidf_scores[i].sum())
+            score_collocation = sum(
+                colloc_scores_norm[ngram]
+                for ngram in colloc_scores_norm
+                if re.search(rf'\b{re.escape(ngram)}\b', doc_clean)
+            )
+            score_combined = (weight_tfidf * score_tfidf) + (weight_collocation * score_collocation)
+
+            results.append({
+                "doc_idx": i,
+                "doc": original_doc,
+                "score_tfidf": score_tfidf,
+                "score_collocation": score_collocation,
+                "score_combined": score_combined,
+            })
+
+        return sorted(results, key=lambda x: x["score_combined"], reverse=True)[:top_n]
+
     def generate_histogram(self, from_start=False, apply_tfidf=False, ngram_ranges=None, is_top=True, top_n=None, remove_stopwords=False):
         ngram_ranges = ngram_ranges or [(1, 2)]
         all_results = []
@@ -261,7 +342,7 @@ def generate_histograms(data):
         apply_tfidf=True,
         remove_stopwords=True,
         ngram_ranges=[(1, 1), (2, 3)],
-        top_n=100,
+        top_n=200,
     )
     least_start_results = ta.generate_histogram(
         is_top=False,
@@ -269,7 +350,7 @@ def generate_histograms(data):
         apply_tfidf=True,
         remove_stopwords=True,
         ngram_ranges=[(1, 1), (2, 3)],
-        top_n=100,
+        top_n=200,
     )
     most_any_results = ta.generate_histogram(
         is_top=True,
@@ -277,7 +358,7 @@ def generate_histograms(data):
         apply_tfidf=True,
         remove_stopwords=True,
         ngram_ranges=[(1, 3), (4, 6)],
-        top_n=100,
+        top_n=200,
     )
     least_any_results = ta.generate_histogram(
         is_top=False,
@@ -285,7 +366,7 @@ def generate_histograms(data):
         apply_tfidf=True,
         remove_stopwords=True,
         ngram_ranges=[(1, 3), (4, 6)],
-        top_n=100,
+        top_n=200,
     )
 
     return {
