@@ -242,7 +242,7 @@ class TextAnalysis:
         ngram_range: tuple[int, int] = (1, 2),
         weight_tfidf: float = 0.5,
         weight_collocation: float = 0.5,
-        top_n: int = 10,
+        top_n: Optional[int] = 10,
         show_progress: bool = False,
     ) -> List[TopDocumentResult]:
         """
@@ -252,7 +252,7 @@ class TextAnalysis:
             ngram_range: Tuple defining n-gram range for analysis.
             weight_tfidf: Weight for TF-IDF score contribution.
             weight_collocation: Weight for collocation score contribution.
-            top_n: Number of top documents to return.
+            top_n: Number of top documents to return. If None, returns all documents.
             show_progress: Whether to display a tqdm progress bar.
         """
         # --- Early exit if no valid documents ---
