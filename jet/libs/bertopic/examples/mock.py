@@ -6,7 +6,7 @@ from typing import Literal
 # from jet.code.extraction.sentence_extraction import extract_sentences
 from jet.code.markdown_utils import derive_by_header_hierarchy
 from jet.code.markdown_utils._converters import convert_html_to_markdown, convert_markdown_to_text
-from jet.code.html_utils import convert_dl_blocks_to_md
+from jet.code.html_utils import convert_dl_blocks_to_md, preprocess_html
 from jet.wordnet.text_chunker import chunk_texts, truncate_texts
 from jet._token.token_utils import token_counter
 from jet.file.utils import load_file
@@ -144,6 +144,7 @@ def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, 
 def load_sample_md_doc() -> str:
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
     html = convert_dl_blocks_to_md(html)
+    html = preprocess_html(html, excludes=["nav", "footer"])
     md_content = convert_html_to_markdown(html, ignore_links=True)
     return md_content
 
@@ -151,6 +152,7 @@ def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
     """Load sample dataset from local for topic modeling."""
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
     html = convert_dl_blocks_to_md(html)
+    html = preprocess_html(html, excludes=["nav", "footer"])
 
     md_content = convert_html_to_markdown(html, ignore_links=True)
     headings = derive_by_header_hierarchy(md_content, ignore_links=True)
@@ -204,6 +206,7 @@ def load_sample_data_with_info(
     """
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
     html = convert_dl_blocks_to_md(html)
+    html = preprocess_html(html, excludes=["nav", "footer"])
 
     md_content = convert_html_to_markdown(html, ignore_links=True)
     headings = derive_by_header_hierarchy(md_content, ignore_links=True)

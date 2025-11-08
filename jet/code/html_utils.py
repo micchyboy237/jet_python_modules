@@ -157,36 +157,26 @@ def preprocess_html(html: str, includes: list[str] | None = None, excludes: list
     html = re.sub(r'<!--[\s\S]*?-->', '', html, flags=re.DOTALL)
 
     # Apply includes/excludes filtering (after unwanted removal)
-    if includes:
-        # Keep only specified tags and their content
+    if includes or excludes:
         soup = BeautifulSoup(html, "html.parser")
-        for tag in soup.find_all(True):
-            if tag.name not in includes and tag.name not in {"html", "head", "title", "body", "h1"}:
+
+        # 1. EXCLUDES – always applied (case-insensitive)
+        if excludes:
+            excl_set = {t.lower() for t in excludes}
+            for tag in soup.find_all(lambda t: t.name and t.name.lower() in excl_set):
                 tag.decompose()
+
+        # 2. INCLUDES – keep ONLY the listed tags (plus mandatory structural tags)
+        if includes:
+            inc_set = {t.lower() for t in includes}
+            # always preserve <html>, <head>, <title>, <body>, <h1>
+            keep = inc_set | {"html", "head", "title", "body", "h1"}
+
+            for tag in soup.find_all(True):
+                if tag.name not in keep:
+                    tag.decompose()
+
         html = str(soup)
-    elif excludes:
-        # Remove specific tags
-        soup = BeautifulSoup(html, "html.parser")
-        for tag_name in excludes:
-            for tag in soup.find_all(tag_name):
-                tag.decompose()
-        html = str(soup)
-
-    # # Convert <dl><dt><dd> sections into Markdown definition lists
-    # html = convert_dl_blocks_to_md(html)
-
-    # # Add spaces between inline elements
-    # inline_elements = r'span|a|strong|em|b|i|code|small|sub|sup|mark|del|ins|q'
-    # html = re.sub(rf'</({inline_elements})><({inline_elements})', r'</\1> <\2', html)
-
-    # # Add <h1> if not already first
-    # body_match = re.search(r'(<body[^>]*>)\s*(<[^>]+>)', html, re.IGNORECASE)
-    # has_h1_first = False
-    # if body_match:
-    #     first_child = body_match.group(2)
-    #     has_h1_first = bool(re.match(r'<h1(?:\s+[^>]*)?>', first_child, re.IGNORECASE))
-    # if not has_h1_first:
-    #     html = re.sub(r'(<body[^>]*>)', rf'\1<h1>{title}</h1>', html, flags=re.IGNORECASE)
 
     html = fix_and_unidecode(html)
     return html
