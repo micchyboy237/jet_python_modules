@@ -90,6 +90,29 @@ def base_parse_markdown(input: Union[str, Path], ignore_links: bool = False) -> 
                         'meta': token.get('meta', {}),
                         'line': token.get('line', 1) + i
                     })
+        elif token.get("type") == "table":
+            table_meta = token.get("meta", {})
+            if isinstance(table_meta, dict):
+                header = table_meta.get("header", [])
+                rows = table_meta.get("rows", [])
+                # Build markdown table string
+                if header:
+                    header_row = "| " + " | ".join(str(cell) for cell in header) + " |"
+                    separator = "| " + " | ".join("---" for _ in header) + " |"
+                    body_rows = "\n".join(
+                        "| " + " | ".join(str(cell) for cell in row) + " |"
+                        for row in rows
+                    )
+                    content = "\n".join([header_row, separator, body_rows])
+                else:
+                    content = "\n".join(
+                        "| " + " | ".join(str(cell) for cell in row) + " |"
+                        for row in rows
+                    )
+                # Use copy to avoid mutating original
+                table_token = dict(token)
+                table_token["content"] = content
+                split_tokens.append(table_token)
         else:
             split_tokens.append(token)
 

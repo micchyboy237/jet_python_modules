@@ -419,6 +419,36 @@ def scrape_markdown(html_str: str) -> dict:
     }
 
 
+def split_markdown_by_headings(doc: str) -> list[str]:
+    """
+    Splits a markdown document into sections where each section starts with its
+    heading line and includes all following lines until the next heading.
+    """
+    if not doc.strip():
+        return []
+
+    # Build alternation of all supported heading patterns (space after # is required)
+    pattern = r'^(#{1,6}) .*$'
+    lines = doc.splitlines()
+
+    sections = []
+    current = []
+
+    for line in lines:
+        if re.fullmatch(pattern, line, flags=re.MULTILINE):
+            if current:
+                sections.append('\n'.join(current).rstrip())
+                current = []
+            current.append(line)
+        elif current:
+            current.append(line)
+
+    if current:
+        sections.append('\n'.join(current).rstrip())
+
+    return sections
+
+
 __all__ = [
     "remove_markdown_comments",
     "convert_html_to_markdown",
@@ -428,6 +458,7 @@ __all__ = [
     # "extract_header_contents",
     "html_to_markdown",
     "scrape_markdown",
+    "split_markdown_by_headings",
 ]
 
 if __name__ == '__main__':

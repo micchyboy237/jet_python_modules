@@ -4,9 +4,9 @@ from sklearn.datasets import fetch_20newsgroups
 from typing import Literal
 
 # from jet.code.extraction.sentence_extraction import extract_sentences
-from jet.code.extraction.sentence_extraction import extract_sentences
+from jet.code.markdown_utils import derive_by_header_hierarchy
 from jet.code.markdown_utils._converters import convert_html_to_markdown, convert_markdown_to_text
-from jet.scrapers.header_hierarchy import HtmlHeaderDoc, extract_header_hierarchy
+from jet.code.html_utils import convert_dl_blocks_to_md
 from jet.wordnet.text_chunker import chunk_texts, truncate_texts
 from jet._token.token_utils import token_counter
 from jet.file.utils import load_file
@@ -143,19 +143,27 @@ def get_unique_categories(samples: Optional[List[NewsGroupDocument]] = None, *, 
 
 def load_sample_md_doc() -> str:
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
+    html = convert_dl_blocks_to_md(html)
     md_content = convert_html_to_markdown(html, ignore_links=True)
     return md_content
 
 def load_sample_data(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_overlap: int = 0, truncate: bool = False, convert_plain_text: bool = False, includes: List[str] = []) -> List[str]:
     """Load sample dataset from local for topic modeling."""
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
+    html = convert_dl_blocks_to_md(html)
+
+    md_content = convert_html_to_markdown(html, ignore_links=True)
+    headings = derive_by_header_hierarchy(md_content, ignore_links=True)
+    header_contents = [f"{header["header"]}\n{header["content"]}" for header in headings if header['content']]
+    texts = header_contents
 
     # md_content = convert_html_to_markdown(html, ignore_links=True)
-    # headers = derive_by_header_hierarchy(md_content, ignore_links=True)
-    headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html, includes=includes)
-    header_contents = [f"{header["header"]}\n{header["content"]}" for header in headings if header['content']]
-    # header_contents = extract_sentences(header_contents)
-    texts = header_contents
+    # md_tokens = base_parse_markdown(md_content)
+    # texts = [token['content'] for token in md_tokens if token['content']]
+    
+    # headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html, includes=includes)
+    # header_contents = [f"{header["header"]}\n{header["content"]}" for header in headings if header['content']]
+    # texts = header_contents
 
     if convert_plain_text:
         # Preprocess markdown to plain text
@@ -195,12 +203,21 @@ def load_sample_data_with_info(
     If truncate is True, only keep chunks where chunk_index == 0.
     """
     html = load_file("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/search/playwright/generated/run_playwright_extract/top_isekai_anime_2025/https_gamerant_com_new_isekai_anime_2025/page.html")
-    # html = add_list_table_header_placeholders(html)
-    headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html, includes=includes)
-    # header_contents = [header['content'] for header in headings if header['content']]
-    # header_sentences = extract_sentences(header_contents)
-    header_sentences = [{"header": header, "sentence": sent} for header in headings for sent in extract_sentences(header['content']) if header['content']]
-    texts = [hs["sentence"] for hs in header_sentences]
+    html = convert_dl_blocks_to_md(html)
+
+    md_content = convert_html_to_markdown(html, ignore_links=True)
+    headings = derive_by_header_hierarchy(md_content, ignore_links=True)
+    header_contents = [f"{header["header"]}\n{header["content"]}" for header in headings if header['content']]
+    texts = header_contents
+
+    # md_content = convert_html_to_markdown(html, ignore_links=True)
+    # md_tokens = base_parse_markdown(md_content)
+    # texts = [token['content'] for token in md_tokens if token['content']]
+    
+    # headings: List[HtmlHeaderDoc] = extract_header_hierarchy(html, includes=includes)
+    # header_contents = [f"{header["header"]}\n{header["content"]}" for header in headings if header['content']]
+    # texts = header_contents
+
 
     if convert_plain_text:
         # Preprocess markdown to plain text
@@ -284,17 +301,19 @@ def load_sample_jobs(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
 
     sentences = [
         "\n".join([
-            item["title"],
+            f"## {item["title"]}\n",
             item["details"],
+            "\n\nTechnology Stack:\n",
             "\n".join([
-                f"Tech: {tech}"
+                f"- {tech}"
                 for tech in sorted(
                     item["entities"]["technology_stack"],
                     key=str.lower
                 )
             ]),
+            "\n\nTags:\n",
             "\n".join([
-                f"Tag: {tech}"
+                f"- {tech}"
                 for tech in sorted(
                     item["tags"],
                     key=str.lower
@@ -304,8 +323,11 @@ def load_sample_jobs(model: str = EMBED_MODEL, chunk_size: int = 128, chunk_over
         for item in data
     ]
     logger.info(f"Number of sentences: {len(sentences)}")
+    
+    # texts = [token['content'] for sentence in sentences for token in base_parse_markdown(sentence)]
+    texts = sentences
 
-    return sentences
+    return texts
 
 def load_sample_text() -> str:
     """Load sample dataset from local for topic modeling."""
