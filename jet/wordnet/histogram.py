@@ -1,5 +1,6 @@
+from collections import defaultdict
 import re
-from typing import List, Dict, Optional, TypedDict, Union
+from typing import List, Dict, Optional, Set, TypedDict, Union
 
 from tqdm import tqdm
 from jet.wordnet.words import get_words
@@ -237,6 +238,19 @@ class TextAnalysis:
                         seen_sub_ngrams.add(other['ngram'])
         return filtered_results
 
+    def _extract_ngrams_from_doc(self, text: str, ngram_range: tuple[int, int]) -> Set[str]:
+        """
+        Extract all n-grams from *text* using the **exact same tokenisation**
+        that ``perform_dynamic_collocation_analysis`` uses (``get_words``).
+        """
+        tokens = get_words(text)                     # <-- same token source
+        ngrams: Set[str] = set()
+        min_n, max_n = ngram_range
+        for n in range(min_n, max_n + 1):
+            for ngram in nltk.ngrams(tokens, n):
+                ngrams.add(" ".join(ngram))
+        return ngrams
+
     def filter_top_documents_by_tfidf_and_collocations(
         self,
         ngram_range: tuple[int, int] = (1, 2),
@@ -252,63 +266,90 @@ class TextAnalysis:
             ngram_range: Tuple defining n-gram range for analysis.
             weight_tfidf: Weight for TF-IDF score contribution.
             weight_collocation: Weight for collocation score contribution.
-            top_n: Number of top documents to return. If None, returns all documents.
-            show_progress: Whether to display a tqdm progress bar.
+            top_n: Number of top documents to return. ``None`` returns **all**.
+            show_progress: Show a tqdm progress bar.
         """
-        # --- Early exit if no valid documents ---
+        # ------------------------------------------------------------------
+        # Early exit – empty / all-stopword corpus
+        # ------------------------------------------------------------------
         if not self.tokens_tfidf or all(not str(t).strip() for t in self.tokens_tfidf):
             return []
 
+        # ------------------------------------------------------------------
+        # TF-IDF matrix (uses the pre-processed ``tokens_tfidf``)
+        # ------------------------------------------------------------------
         tfidf_vectorizer = TfidfVectorizer(
             ngram_range=ngram_range,
             lowercase=True,
-            token_pattern=r'(?u)\b\w+\b',
-            stop_words='english',
-            analyzer='word'
+            token_pattern=r"(?u)\b\w+\b",
+            stop_words="english",
+            analyzer="word",
         )
-
         try:
             tfidf_matrix = tfidf_vectorizer.fit_transform(self.tokens_tfidf)
-        except ValueError:
-            # Handle case: all docs are stopwords or empty
+        except ValueError:                     # all docs are stopwords / empty
             return []
 
-        tfidf_scores = tfidf_matrix.toarray()
+        # Vectorised per-document TF-IDF sum (much faster than .toarray())
+        tfidf_doc_sums = tfidf_matrix.sum(axis=1).A1   # shape (n_docs,)
+
+        # ------------------------------------------------------------------
+        # Collocation frequencies (global)
+        # ------------------------------------------------------------------
         collocations = self.perform_dynamic_collocation_analysis(ngram_range, None)
 
-        # Normalize collocation frequencies
         max_colloc = max(collocations.values(), default=1)
         colloc_scores_norm = {ng: sc / max_colloc for ng, sc in collocations.items()}
+        colloc_lookup = defaultdict(float, colloc_scores_norm)   # O(1) miss → 0.0
 
+        # ------------------------------------------------------------------
+        # Scoring loop
+        # ------------------------------------------------------------------
+        results: List[TopDocumentResult] = []
         iterator = tqdm(
-            enumerate(self.tokens_tfidf),
-            total=len(self.tokens_tfidf),
+            enumerate(self.data),
+            total=len(self.data),
             disable=not show_progress,
             desc="Scoring documents",
             unit="doc",
         )
 
-        results: List[TopDocumentResult] = []
-        for i, doc_clean in iterator:
-            original_doc = self.data[i] if isinstance(self.data[i], str) else str(self.data[i])
+        for i, item in iterator:
+            # ----- original document text (for return) -----
+            if isinstance(item, str):
+                original_doc = item
+            else:
+                keys = self.include_keys or item.keys()
+                original_doc = "\n".join(
+                    str(item[k])
+                    for k in keys
+                    if k != "id" and k not in self.exclude_keys
+                )
 
-            score_tfidf = float(tfidf_scores[i].sum())
-            score_collocation = sum(
-                colloc_scores_norm[ngram]
-                for ngram in colloc_scores_norm
-                if re.search(rf'\b{re.escape(ngram)}\b', doc_clean)
-            )
+            # ----- n-grams from the *original* text (same tokenisation as collocations) -----
+            doc_ngrams = self._extract_ngrams_from_doc(original_doc, ngram_range)
+
+            # ----- scores -----
+            score_tfidf = float(tfidf_doc_sums[i])
+            score_collocation = sum(colloc_lookup[ng] for ng in doc_ngrams)
             score_combined = (weight_tfidf * score_tfidf) + (weight_collocation * score_collocation)
 
-            results.append({
-                "doc_idx": i,
-                "doc": original_doc,
-                "score_tfidf": score_tfidf,
-                "score_collocation": score_collocation,
-                "score_combined": score_combined,
-            })
+            results.append(
+                {
+                    "doc_idx": i,
+                    "doc": original_doc,
+                    "score_tfidf": score_tfidf,
+                    "score_collocation": score_collocation,
+                    "score_combined": score_combined,
+                }
+            )
 
-        return sorted(results, key=lambda x: x["score_combined"], reverse=True)[:top_n]
+        # ------------------------------------------------------------------
+        # Return top-N (or all if top_n is None)
+        # ------------------------------------------------------------------
+        return sorted(
+            results, key=lambda x: x["score_combined"], reverse=True
+        )[: top_n or len(results)]
 
     def generate_histogram(self, from_start=False, apply_tfidf=False, ngram_ranges=None, is_top=True, top_n=None, remove_stopwords=False):
         ngram_ranges = ngram_ranges or [(1, 2)]
