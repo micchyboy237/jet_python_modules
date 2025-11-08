@@ -1045,6 +1045,16 @@ def performance_benchmark():
         
         print(f"{count:10d} | {greedy_time:15.2f} | {optimal_time:16.2f} | {greedy_score:11.3f} | {optimal_score:12.3f}")
 
+        save_file(constraints, f"{OUTPUT_DIR}/performance_benchmark/{count}/constraints.json")
+        save_file({
+            "greedy_time": greedy_time,
+            "optimal_time": optimal_time,
+        }, f"{OUTPUT_DIR}/performance_benchmark/{count}/performance.json")
+        save_file(greedy_result, f"{OUTPUT_DIR}/performance_benchmark/{count}/greedy_result.json")
+        save_file(optimal_result, f"{OUTPUT_DIR}/performance_benchmark/{count}/optimal_result.json")
+        save_file(greedy_score, f"{OUTPUT_DIR}/performance_benchmark/{count}/greedy_score.json")
+        save_file(optimal_score, f"{OUTPUT_DIR}/performance_benchmark/{count}/optimal_score.json")
+
 def advanced_field_integration_demo():
     """Demonstrate advanced field theory integration concepts"""
     print("\n" + "=" * 60)
@@ -1128,6 +1138,15 @@ def advanced_field_integration_demo():
         print("Moderate field emergence - balanced analytical and creative potential")
     else:
         print("Weak field emergence - primarily analytical processing")
+
+    save_file(constraints, f"{OUTPUT_DIR}/advanced_field_integration/constraints.json")
+    save_file(query, f"{OUTPUT_DIR}/advanced_field_integration/query.json")
+    save_file(result, f"{OUTPUT_DIR}/advanced_field_integration/result.json")
+    save_file({
+        "total_field_strength": total_field_strength,
+        "query_resonance": query_resonance,
+        "field_resonance": field_resonance,
+    }, f"{OUTPUT_DIR}/advanced_field_integration/summary.json")
 
 # ============================================================================
 # MAIN EXECUTION AND LAB RUNNER
