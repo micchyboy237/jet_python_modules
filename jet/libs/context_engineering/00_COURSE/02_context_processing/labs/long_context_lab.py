@@ -94,8 +94,14 @@ def measure_performance(func, *args, **kwargs) -> Tuple[Any, ProcessingStats]:
 # ATTENTION IMPLEMENTATIONS
 # ============================================================================
 
+def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
+    """Numerically stable softmax over the specified axis."""
+    max_vals = np.max(x, axis=axis, keepdims=True)
+    exp_x = np.exp(x - max_vals)
+    return exp_x / np.sum(exp_x, axis=axis, keepdims=True)
+
 class StandardAttention(AttentionMechanism):
-    """Standard O(n²) attention for comparison and small sequences."""
+    """Standard O(n²) multi-head attention for comparison and small sequences."""
     
     def __init__(self, d_model: int, num_heads: int = 8):
         self.d_model = d_model
@@ -111,37 +117,35 @@ class StandardAttention(AttentionMechanism):
         """Standard multi-head attention forward pass."""
         seq_len, d_model = x.shape
         
-        # Single projection for Q, K, V
-        qkv = x @ self.W_qkv  # (seq_len, 3 * d_model)
+        # Project to Q, K, V
+        qkv = x @ self.W_qkv
         qkv = qkv.reshape(seq_len, 3, self.num_heads, self.d_k)
-        q, k, v = qkv.transpose(1, 2, 0, 3)  # (3, num_heads, seq_len, d_k)
-        
-        # Attention computation
+        q, k, v = qkv.transpose(1, 2, 0, 3)  # (num_heads, seq_len, d_k)
+
+        # Attention scores: (num_heads, seq_len, seq_len)
         scores = np.matmul(q, k.transpose(0, 2, 1)) * self.scale
-        
-        # Causal mask for autoregressive attention
-        mask = np.tril(np.ones((seq_len, seq_len)))
-        scores = np.where(mask[None, None, :, :], scores, -1e9)
-        
-        # Softmax and weighted sum
-        attn_weights = self._softmax(scores)
-        out = np.matmul(attn_weights, v)  # (num_heads, seq_len, d_k)
-        
-        # Concatenate heads and final projection
+
+        # Apply causal mask — broadcasts naturally to (num_heads, seq_len, seq_len)
+        mask = np.tril(np.ones((seq_len, seq_len), dtype=bool))
+        scores = np.where(mask, scores, -1e9)
+
+        # Softmax over the key dimension (axis=2)
+        attn_weights = softmax(scores, axis=2)
+
+        # Weighted sum: (num_heads, seq_len, d_k)
+        out = np.matmul(attn_weights, v)
+
+        # Concatenate heads: (seq_len, num_heads, d_k) → (seq_len, d_model)
         out = out.transpose(1, 0, 2).reshape(seq_len, d_model)
+
+        # Final projection
         output = out @ self.W_o
-        
+
         return output, {
-            'attention_weights': attn_weights.mean(axis=0),  # Average across heads
+            'attention_weights': attn_weights.mean(axis=0),  # (seq_len, seq_len)
             'memory_usage': scores.nbytes + attn_weights.nbytes,
-            'sparsity': 1.0  # Full attention
+            'sparsity': 1.0
         }
-    
-    def _softmax(self, x: np.ndarray, axis: int = -1) -> np.ndarray:
-        """Numerically stable softmax."""
-        max_vals = np.max(x, axis=axis, keepdims=True)
-        exp_x = np.exp(x - max_vals)
-        return exp_x / np.sum(exp_x, axis=axis, keepdims=True)
 
 class SparseAttention(AttentionMechanism):
     """Efficient sparse attention with configurable patterns."""
@@ -185,34 +189,39 @@ class SparseAttention(AttentionMechanism):
     def forward(self, x: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Sparse attention forward pass."""
         seq_len, d_model = x.shape
-        
+
         # Create sparse mask
-        sparse_mask = self._create_sparse_mask(seq_len)
-        sparsity = np.sum(sparse_mask) / (seq_len * seq_len)
-        
+        sparse_mask = self._create_sparse_mask(seq_len)  # (N, N)
+
         # QKV projection
         qkv = x @ self.W_qkv
         qkv = qkv.reshape(seq_len, 3, self.num_heads, self.d_k)
-        q, k, v = qkv.transpose(1, 2, 0, 3)
-        
-        # Sparse attention computation
-        scores = np.matmul(q, k.transpose(0, 2, 1)) * self.scale
-        scores = np.where(sparse_mask[None, None, :, :], scores, -1e9)
-        
-        attn_weights = StandardAttention._softmax(self, scores)
-        out = np.matmul(attn_weights, v)
-        
-        # Output projection
+        q, k, v = qkv.transpose(1, 2, 0, 3)  # (H, N, D)
+
+        # Attention scores
+        scores = np.matmul(q, k.transpose(0, 2, 1)) * self.scale  # (H, N, N)
+
+        # Apply sparse mask: broadcast (N,N) → (H,N,N)
+        scores = np.where(sparse_mask, scores, -1e9)  # NO [None, None]!
+
+        # Softmax over key dimension
+        attn_weights = softmax(scores, axis=2)  # (H, N, N) → axis=2
+
+        # Weighted sum
+        out = np.matmul(attn_weights, v)  # (H, N, D)
+
+        # Concatenate heads
         out = out.transpose(1, 0, 2).reshape(seq_len, d_model)
+
         output = out @ self.W_o
-        
+
+        sparsity = np.mean(sparse_mask.astype(float))
         return output, {
             'attention_weights': attn_weights.mean(axis=0),
             'sparse_mask': sparse_mask,
             'sparsity': sparsity,
             'memory_usage': int(scores.nbytes * sparsity)
         }
-
 class StreamingAttention(AttentionMechanism):
     """Streaming attention for unlimited sequence length."""
     
@@ -236,59 +245,57 @@ class StreamingAttention(AttentionMechanism):
     
     def _update_cache(self, k: np.ndarray, v: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Update KV cache with attention sink strategy."""
+        # k, v: (H, N, D) → transpose to (H, D, N) for caching
+        k_t = k.transpose(0, 2, 1)  # (H, D, N)
+        v_t = v.transpose(0, 2, 1)  # (H, D, N)
+
         if self.k_cache is None:
-            self.k_cache, self.v_cache = k, v
-            return k, v
-        
-        # Append new tokens
-        self.k_cache = np.concatenate([self.k_cache, k], axis=2)
-        self.v_cache = np.concatenate([self.v_cache, v], axis=2)
-        
-        # Manage cache size
+            self.k_cache = k_t
+            self.v_cache = v_t
+        else:
+            self.k_cache = np.concatenate([self.k_cache, k_t], axis=2)
+            self.v_cache = np.concatenate([self.v_cache, v_t], axis=2)
+
         if self.k_cache.shape[2] > self.cache_size:
-            # Keep attention sinks (initial tokens) + recent window
             recent_size = self.cache_size - self.sink_size
-            
-            k_sinks = self.k_cache[:, :, :self.sink_size]
-            v_sinks = self.v_cache[:, :, :self.sink_size]
-            
-            k_recent = self.k_cache[:, :, -recent_size:]
-            v_recent = self.v_cache[:, :, -recent_size:]
-            
-            self.k_cache = np.concatenate([k_sinks, k_recent], axis=2)
-            self.v_cache = np.concatenate([v_sinks, v_recent], axis=2)
-        
+            self.k_cache = np.concatenate([
+                self.k_cache[:, :, :self.sink_size],
+                self.k_cache[:, :, -recent_size:]
+            ], axis=2)
+            self.v_cache = np.concatenate([
+                self.v_cache[:, :, :self.sink_size],
+                self.v_cache[:, :, -recent_size:]
+            ], axis=2)
+
         return self.k_cache, self.v_cache
-    
+
     def forward(self, x: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Streaming attention forward pass."""
         seq_len, d_model = x.shape
-        
-        # QKV projection
+
         qkv = x @ self.W_qkv
         qkv = qkv.reshape(seq_len, 3, self.num_heads, self.d_k)
-        q, k, v = qkv.transpose(1, 2, 0, 3)
-        
-        # Update cache
+        q, k, v = qkv.transpose(1, 2, 0, 3)  # (H, N, D)
+
+        # Cache k, v as (H, D, N)
         k_cached, v_cached = self._update_cache(k, v)
-        cache_len = k_cached.shape[2]
-        
-        # Attention with cached KV
-        scores = np.matmul(q, k_cached.transpose(0, 1, 3, 2)) * self.scale
-        
-        # Causal mask
-        causal_mask = np.tril(np.ones((seq_len, cache_len)))
-        scores = np.where(causal_mask[None, None, :, :], scores, -1e9)
-        
-        attn_weights = StandardAttention._softmax(self, scores)
-        out = np.matmul(attn_weights, v_cached)
-        
-        # Output projection
+        cache_len = k_cached.shape[2]  # C
+
+        # scores = q @ k_cached.T
+        # q: (H, N, D), k_cached: (H, D, C) → transpose to (H, C, D)
+        scores = np.matmul(q, k_cached.transpose(0, 2, 1)) * self.scale  # (H, N, C)
+
+        # causal mask: (N, C) → (1, N, C)
+        causal_mask = np.tril(np.ones((seq_len, cache_len), dtype=bool))
+        scores = np.where(causal_mask[None, :, :], scores, -1e9)
+
+        attn_weights = softmax(scores, axis=2)  # (H, N, C)
+        out = np.matmul(attn_weights, v_cached.transpose(0, 2, 1))  # (H, N, D)
+
         out = out.transpose(1, 0, 2).reshape(seq_len, d_model)
         output = out @ self.W_o
-        
         self.position += seq_len
-        
+
         return output, {
             'cache_size': cache_len,
             'position': self.position,
