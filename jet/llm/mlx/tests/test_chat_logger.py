@@ -1,10 +1,8 @@
 import pytest
-import os
 import shutil
 from unittest.mock import patch
-from typing import Literal
 
-from jet.llm.mlx.logger_utils import ChatLogger, get_next_file_counter
+from jet.llm.logger_utils import ChatLogger, get_next_file_counter
 
 
 @pytest.fixture

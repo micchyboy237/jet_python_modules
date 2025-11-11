@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_core.runnables import Runnable
 from ollama import Options
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.logger import logger
 from jet.transformers.formatters import format_json

@@ -1,5 +1,5 @@
 from autogen_ext.models.ollama import OllamaChatCompletionClient as BaseOllamaChatCompletionClient
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.logger import logger
 from jet.transformers.formatters import format_json

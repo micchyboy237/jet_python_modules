@@ -2,7 +2,7 @@ from loguru import logger
 import subprocess
 from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Union
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.transformers.formatters import format_json
 from jet.logger import logger as jet_logger

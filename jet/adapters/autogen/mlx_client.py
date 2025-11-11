@@ -1,33 +1,24 @@
 from jet.llm.mlx.remote.types import ChatCompletionResponse
-from typing import AsyncIterator, List, Optional, Sequence, Callable, Dict, TypedDict, Any
+from typing import AsyncIterator, List, Optional, Sequence, Dict, Any
 from autogen_ext.models.ollama import OllamaChatCompletionClient as BaseOllamaChatCompletionClient
 from autogen_core import (
-    EVENT_LOGGER_NAME,
-    TRACE_LOGGER_NAME,
-    CancellationToken,
-    Component,
     FunctionCall,
-    Image,
 )
 from autogen_core.models import (
     AssistantMessage,
-    ChatCompletionClient,
     CreateResult,
-    FinishReasons,
-    FunctionExecutionResult,
     FunctionExecutionResultMessage,
     LLMMessage,
-    ModelCapabilities,  # type: ignore
     ModelFamily,
     ModelInfo,
     RequestUsage,
     SystemMessage,
     UserMessage,
 )
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.llm.mlx.remote import generation as gen
-from jet.llm.mlx.remote.types import Message as MLXMessage, ToolCall as MLXToolCall
+from jet.llm.mlx.remote.types import ToolCall as MLXToolCall
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 

@@ -1,21 +1,17 @@
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
-from typing import Sequence, Dict, Any, Union, Optional
+from unittest.mock import MagicMock
+from typing import Sequence
 from autogen_ext.models.ollama._model_info import _MODEL_INFO
 from autogen_core import FunctionCall
 from autogen_core.models import (
     UserMessage,
-    AssistantMessage,
     SystemMessage,
     LLMMessage,
     CreateResult,
     RequestUsage,
     ModelInfo,
 )
-from autogen_core.tools import Tool, ToolSchema
-from jet.llm.mlx.logger_utils import ChatLogger
-from jet.transformers.formatters import format_json
+from autogen_core.tools import ToolSchema
 from jet.adapters.autogen.mlx_client import MLXChatCompletionClient, MODEL_MAPPING
 from pytest import MonkeyPatch
 

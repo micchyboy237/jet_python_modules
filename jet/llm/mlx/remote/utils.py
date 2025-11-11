@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, Literal, Iterator
 from pydantic.json_schema import JsonSchemaValue
 
 from jet.llm.mlx.config import DEFAULT_LOG_DIR
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.llm.mlx.remote.types import (
     Message,
     ChatCompletionRequest,
@@ -17,7 +17,7 @@ from jet.llm.mlx.chat_history import ChatHistory
 from jet.llm.mlx.mlx_utils import execute_tool_calls, has_tools, process_response_format
 from jet.models.utils import resolve_model
 from jet.utils.eval_utils import parse_and_evaluate
-from jet.utils.inspect_utils import get_entry_file_name, get_method_info
+from jet.utils.inspect_utils import get_method_info
 from jet.utils.object import remove_null_keys
 
 

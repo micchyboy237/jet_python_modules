@@ -14,7 +14,7 @@ from browser_use.llm.ollama.serializer import OllamaMessageSerializer
 from browser_use.llm.views import ChatInvokeCompletion
 
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.logger import logger
 from jet._token.token_utils import token_counter
 from jet.transformers.formatters import format_json

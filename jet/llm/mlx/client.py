@@ -1,30 +1,26 @@
 import argparse
-import os
 import uuid
 import json
 import time
 
 from pathlib import Path
 from pydantic.json_schema import JsonSchemaValue
-from jet.llm.mlx.helpers.detect_repetition import NgramRepeat, find_repeated_consecutive_ngrams
+from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
 from jet.llm.mlx.mlx_types import ChatTemplateArgs
 from jet.llm.mlx.mlx_utils import process_response_format
-import jet.llm.mlx.model_cache  # Activates cleanup listener
-from typing import Dict, List, Optional, Tuple, Union, Literal, TypedDict, Any, Iterator
+from typing import Dict, List, Optional, Tuple, Union, Literal, Any, Iterator
 from dataclasses import dataclass, field
 from huggingface_hub import scan_cache_dir
 from jet.llm.mlx.config import DEFAULT_LOG_DIR, DEFAULT_MODEL
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 import mlx.core as mx
-from mlx_lm.server import ModelProvider, PromptCache, get_system_fingerprint, sequence_overlap, stopping_criteria, convert_chat, process_message_content
+from mlx_lm.server import ModelProvider, get_system_fingerprint, convert_chat, process_message_content
 from mlx_lm.generate import stream_generate
-from mlx_lm.models.cache import KVCache, make_prompt_cache, trim_prompt_cache, can_trim_prompt_cache
+from mlx_lm.models.cache import KVCache, make_prompt_cache
 from mlx_lm.sample_utils import make_sampler, make_logits_processors
-from mlx_lm.utils import load
-from jet.llm.mlx.cache import calculate_prompt_cache_memory_size, calculate_prompt_cache_disk_size
 from jet.llm.mlx.utils.logit_bias import convert_logit_bias
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.models.model_types import (
     MLXTokenizer,
     Message,

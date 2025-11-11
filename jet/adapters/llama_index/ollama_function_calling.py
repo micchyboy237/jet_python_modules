@@ -45,7 +45,7 @@ from llama_index.core.types import PydanticProgramMode
 if TYPE_CHECKING:
     from llama_index.core.tools.types import BaseTool
 
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 
 DEFAULT_REQUEST_TIMEOUT = 300.0

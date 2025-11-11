@@ -3,11 +3,11 @@ import re
 import json
 import ollama
 
-from typing import List, Optional, Type, Iterator, Union
+from typing import List, Optional, Type, Union
 from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 
-from jet.llm.mlx.logger_utils import ChatLogger
+from jet.llm.logger_utils import ChatLogger
 from jet.llm.mlx.config import DEFAULT_OLLAMA_LOG_DIR
 from jet.transformers.formatters import format_json
 from jet.logger import logger
