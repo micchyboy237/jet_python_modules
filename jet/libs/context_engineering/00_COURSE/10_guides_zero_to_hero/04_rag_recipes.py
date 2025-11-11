@@ -758,19 +758,21 @@ class HybridRAG(ChunkedRAG):
         semantic_docs, semantic_scores = zip(*semantic_results) if semantic_results else ([], [])
         keyword_docs, keyword_scores = zip(*keyword_results) if keyword_results else ([], [])
 
-        semantic_scores_norm = normalize(semantic_scores)
-        keyword_scores_norm = normalize(keyword_scores)
+        semantic_scores_norm = normalize(list(semantic_scores))
+        keyword_scores_norm = normalize(list(keyword_scores))
 
         # 4. Combine using weighted sum
-        combined: Dict[Document, float] = {}
+        combined: Dict[str, Tuple[Document, float]] = {}
         for doc, score in zip(semantic_docs, semantic_scores_norm):
-            combined[doc] = combined.get(doc, 0.0) + self.embedding_weight * score
+            current = combined.get(doc.id, (doc, 0.0))
+            combined[doc.id] = (doc, current[1] + self.embedding_weight * score)
         for doc, score in zip(keyword_docs, keyword_scores_norm):
-            combined[doc] = combined.get(doc, 0.0) + self.keyword_weight * score
+            current = combined.get(doc.id, (doc, 0.0))
+            combined[doc.id] = (doc, current[1] + self.keyword_weight * score)
 
         # 5. Sort and return top_k
-        final_results = sorted(combined.items(), key=lambda x: x[1], reverse=True)[:top_k]
-        return final_results
+        final_results = sorted(combined.values(), key=lambda x: x[1], reverse=True)[:top_k]
+        return [(doc, score) for doc, score in final_results]
 
 # -----------------------------------------------------------------------------
 # Example Demonstrations (run when module is executed directly)
@@ -804,8 +806,8 @@ if __name__ == "__main__":
     rag1.add_texts(sample_texts)
     resp1, det1 = rag1.query("What is Python known for?")
     rag1.display_query_results(det1, show_context=True, example_dir=example_1_dir)
-    rag1.visualize_metrics(example_dir=example_1_dir)
     rag1._save_history(example_1_dir)
+    rag1.visualize_metrics(example_dir=example_1_dir)
 
     # Example 2: ChunkedRAG with larger document
     example_2_dir = BASE_OUTPUT_DIR / "example_2_chunked_rag"
@@ -819,8 +821,8 @@ if __name__ == "__main__":
     rag2.add_texts([long_doc], metadatas=[{"source": "ml_guide.txt"}])
     resp2, det2 = rag2.query("How do transformers work in NLP?")
     rag2.display_query_results(det2, show_context=True, example_dir=example_2_dir)
-    rag2.visualize_metrics(example_dir=example_2_dir)
     rag2._save_history(example_2_dir)
+    rag2.visualize_metrics(example_dir=example_2_dir)
 
     # Example 3: HybridRAG
     example_3_dir = BASE_OUTPUT_DIR / "example_3_hybrid_rag"
@@ -828,8 +830,8 @@ if __name__ == "__main__":
     rag3.add_texts(sample_texts + [long_doc])
     resp3, det3 = rag3.query("FAISS library")
     rag3.display_query_results(det3, show_context=True, example_dir=example_3_dir)
-    rag3.visualize_metrics(example_dir=example_3_dir)
     rag3._save_history(example_3_dir)
+    rag3.visualize_metrics(example_dir=example_3_dir)
 
     # Summary
     summary_path = BASE_OUTPUT_DIR / "SUMMARY.md"
