@@ -163,29 +163,52 @@ def example_01_atomic_prompt() -> None:
 
 def example_02_adding_constraints() -> None:
     example_name = "example_02_adding_constraints"
+    parent_dir = _ensure_example_dir(example_name)
     print(f"\n=== {example_name.replace('_', ' ').title()} ===")
+
     prompts = [
         "Write a short poem about programming.",
         "Write a short poem about programming in 4 lines.",
         "Write a short haiku about programming using only simple words.",
     ]
-    results = []
-    for i, p in enumerate(prompts, 1):
-        resp, meta = llm.generate(p)
-        results.append({"prompt": p, "response": resp, **meta})
-    # simple plot
+
+    run_results = []
+    for idx, prompt in enumerate(prompts, start=1):
+        run_name = f"run_{idx:03d}"
+        run_dir = parent_dir / run_name
+        print(f"  → Running {run_name} ...")
+
+        response, metadata = llm.generate(prompt)
+
+        # Save individual run
+        _save_result(f"{example_name}/{run_name}", prompt, response, metadata)
+
+        run_results.append(
+            {
+                "run": run_name,
+                "prompt_tokens": metadata["prompt_tokens"],
+                "response_tokens": metadata["response_tokens"],
+                "latency": metadata["latency"],
+            }
+        )
+        print(f"    Saved to {run_dir.resolve()}")
+
+    # ---- ROI plot (saved once in parent folder) ----
     fig, ax = plt.subplots(figsize=(8, 5))
-    tokens = [r["prompt_tokens"] for r in results]
-    quality = [3, 6, 8]  # manual quality scores
+    tokens = [r["prompt_tokens"] for r in run_results]
+    quality = [3, 6, 8]  # manual scores
     ax.plot(tokens, quality, "o-", color="teal")
     ax.set_xlabel("Prompt Tokens")
     ax.set_ylabel("Subjective Quality (1-10)")
     ax.set_title("Token-Quality ROI Curve")
     ax.grid(True)
     for i, (x, y) in enumerate(zip(tokens, quality)):
-        ax.annotate(f"P{i+1}", (x, y), xytext=(5, 5), textcoords="offset points")
-    _save_result(example_name, "\n---\n".join(prompts), "\n\n".join(r["response"] for r in results), results[0], fig)
-    print(f"Saved to {EXAMPLE_OUTPUT_ROOT / example_name}")
+        ax.annotate(f"run_{i+1:03d}", (x, y), xytext=(5, 5), textcoords="offset points")
+
+    plot_path = parent_dir / "roi_curve.png"
+    fig.savefig(plot_path, bbox_inches="tight", dpi=150)
+    plt.close(fig)
+    print(f"ROI plot saved to {plot_path}")
 
 def example_03_minimal_context_enhancement() -> None:
     example_name = "example_03_minimal_context_enhancement"
