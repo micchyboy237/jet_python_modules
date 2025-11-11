@@ -974,47 +974,52 @@ You carefully follow each step in the protocol, maintaining state across operati
 and producing outputs that adhere to the specified schema."""
     
     def _generate_shell_template(self) -> str:
-        """Generate the pareto-lang shell template for this protocol."""
-        # Format process steps
         steps_text = []
         for step in self.process_steps:
             step_name = step.get("name", "process_step")
             step_params = step.get("params", {})
-            
-            # Format parameters
+
             params_text = []
             for k, v in step_params.items():
                 if isinstance(v, str):
-                    params_text.append(f'{k}="{v}"')
+                    escaped_v = v.replace("{", "{{").replace("}", "}}")
+                    params_text.append(f'{k}="{escaped_v}"')
                 else:
                     params_text.append(f"{k}={v}")
-            
+
             params_str = ", ".join(params_text) if params_text else ""
-            steps_text.append(f"    /{step_name}{{{params_str}}}")
-        
+            # ← 5 opening + 5 closing braces → renders as literal {params}
+            steps_text.append(f"    /{step_name}{{{{{params_str}}}}}")  
+
         process_text = ",\n".join(steps_text)
-        
-        # Build shell template
-        shell_template = f"""/{self.shell_name}{{
-    intent="{self.intent}",
-    input={{
+
+        raw_template = """/{shell_name}{{{{
+    intent="{intent}",
+    input={{{{
         {{input_section}}
-    }},
+    }}}},
     process=[
 {process_text}
     ],
-    output={{
+    output={{{{
         {{output_section}}
-    }},
-    meta={{
-        version="{self.meta.get('version', '1.0.0')}",
-        agent_signature="{self.meta.get('agent_signature', 'Context-Engineering')}",
+    }}}},
+    meta={{{{
+        version="{version}",
+        agent_signature="{agent_signature}",
         timestamp={{timestamp}}
-    }}
-}}"""
-        
+    }}}}
+}}}}"""
+
+        shell_template = raw_template.format(
+            shell_name=self.shell_name,
+            intent=self.intent,
+            process_text=process_text,
+            version=self.meta.get('version', '1.0.0'),
+            agent_signature=self.meta.get('agent_signature', 'Context-Engineering')
+        )
         return shell_template
-    
+
     def _format_input_section(self, input_data: Any) -> str:
         """Format the input section of the shell template."""
         if isinstance(input_data, dict):
@@ -1041,22 +1046,20 @@ and producing outputs that adhere to the specified schema."""
     def _generate_prompt(self, **kwargs) -> str:
         """Generate the prompt for executing the field protocol shell."""
         input_data = kwargs.get("input")
-        
-        # Format shell template
+
         shell_template = self._generate_shell_template()
-        
-        # Fill in input and output sections
+
         input_section = self._format_input_section(input_data)
         output_section = self._format_output_section()
         timestamp = time.time()
-        
+
+        # Final fill – ONLY input_section, output_section, timestamp are fields
         filled_template = shell_template.format(
             input_section=input_section,
             output_section=output_section,
-            timestamp=timestamp
+            timestamp=str(timestamp)
         )
-        
-        # Create execution prompt
+
         prompt = f"""Execute the following field protocol shell with the provided input.
 For each process step, show your reasoning and the resulting state.
 Ensure your final output adheres to the output schema specified in the shell.
@@ -1065,9 +1068,8 @@ Ensure your final output adheres to the output schema specified in the shell.
 
 Protocol Execution:
 """
-        
         return prompt
-    
+
     def _process_response(self, response: str) -> Dict[str, Any]:
         """Process the shell execution response."""
         # Extract the final output section
@@ -1139,7 +1141,6 @@ to extend or refine your reasoning process."""
     
     def _add_recursive_capabilities(self) -> None:
         """Add recursive capabilities to the process steps."""
-        # Add self-prompting step if enabled
         if self.enable_self_prompting:
             self.process_steps.append({
                 "name": "self.prompt",
@@ -1149,8 +1150,7 @@ to extend or refine your reasoning process."""
                     "context": "field_state"
                 }
             })
-        
-        # Add attractor detection if enabled
+
         if self.attractor_detection:
             self.process_steps.insert(0, {
                 "name": "attractor.scan",
@@ -1160,8 +1160,7 @@ to extend or refine your reasoning process."""
                     "log_to_audit": True
                 }
             })
-        
-        # Add residue tracking if enabled
+
         if self.track_residue:
             self.process_steps.insert(1, {
                 "name": "residue.surface",
@@ -1171,16 +1170,16 @@ to extend or refine your reasoning process."""
                     "integrate_residue": True
                 }
             })
-            
-            # Add residue compression at the end
+
             self.process_steps.append({
                 "name": "residue.compress",
                 "params": {
                     "compress_residue": True,
-                    "resonance_score": "<compute_resonance(field_state)>"
+                    # Escape the expression so it appears literally
+                    "resonance_score": "{{compute_resonance(field_state)}}"
                 }
             })
-    
+
     def _generate_prompt(self, **kwargs) -> str:
         """Generate the prompt for executing the recursive field protocol shell."""
         prompt = super()._generate_prompt(**kwargs)
@@ -1523,67 +1522,67 @@ if __name__ == "__main__":
     print("Running Prompt Programs Demonstrations...")
     print(f"All outputs will be saved under: {BASE_OUTPUT_DIR.resolve()}\n")
 
-    # Example 1: Step-by-step mathematical reasoning
-    example_1_dir = BASE_OUTPUT_DIR / "example_1_math_reasoning"
-    program1 = StepByStepReasoning(
-        name="Cylindrical Tank Problem Solver",
-        description="Solves water tank volume and rate problems step-by-step",
-        verification_enabled=True,
-        verbose=True
-    )
-    problem1 = textwrap.dedent("""\
-        A cylindrical water tank has a radius of 4 meters and a height of 10 meters.
-        If water is flowing into the tank at a rate of 2 cubic meters per minute,
-        how long will it take for the water level to reach 7 meters?
-        """)
-    results1 = program1.execute(problem1)
-    display_program_output(
-        program_name=program1.name,
-        input_data=problem1,
-        output_data=results1,
-        state_history=program1.state_history,
-        metrics=program1.get_summary_metrics(),
-        output_dir=example_1_dir
-    )
-    program1.visualize_metrics(example_dir=example_1_dir)
-    program1._save_history(example_1_dir)
+    # # Example 1: Step-by-step mathematical reasoning
+    # example_1_dir = BASE_OUTPUT_DIR / "example_1_math_reasoning"
+    # program1 = StepByStepReasoning(
+    #     name="Cylindrical Tank Problem Solver",
+    #     description="Solves water tank volume and rate problems step-by-step",
+    #     verification_enabled=True,
+    #     verbose=True
+    # )
+    # problem1 = textwrap.dedent("""\
+    #     A cylindrical water tank has a radius of 4 meters and a height of 10 meters.
+    #     If water is flowing into the tank at a rate of 2 cubic meters per minute,
+    #     how long will it take for the water level to reach 7 meters?
+    #     """)
+    # results1 = program1.execute(problem1)
+    # display_program_output(
+    #     program_name=program1.name,
+    #     input_data=problem1,
+    #     output_data=results1,
+    #     state_history=program1.state_history,
+    #     metrics=program1.get_summary_metrics(),
+    #     output_dir=example_1_dir
+    # )
+    # program1.visualize_metrics(example_dir=example_1_dir)
+    # program1._save_history(example_1_dir)
 
-    # Example 2: Comparative technology analysis
-    example_2_dir = BASE_OUTPUT_DIR / "example_2_tech_comparison"
-    criteria = [
-        "Initial cost",
-        "Operational efficiency",
-        "Environmental impact",
-        "Scalability",
-        "Technological maturity"
-    ]
-    program2 = ComparativeAnalysis(
-        name="Renewable Energy Comparison",
-        description="Compares renewable energy options for a city grid",
-        criteria=criteria,
-        verification_enabled=True,
-        verbose=True
-    )
-    analysis_request = textwrap.dedent("""\
-        Compare the following renewable energy technologies for a mid-sized city's power grid:
-        1. Solar photovoltaic (PV) farms
-        2. Onshore wind farms
-        3. Hydroelectric power
-        4. Biomass energy plants
-        Consider their suitability for a region with moderate sunlight, consistent winds,
-        a major river, and significant agricultural activity.
-        """)
-    results2 = program2.execute(analysis_request)
-    display_program_output(
-        program_name=program2.name,
-        input_data=analysis_request,
-        output_data=results2,
-        state_history=program2.state_history,
-        metrics=program2.get_summary_metrics(),
-        output_dir=example_2_dir
-    )
-    program2.visualize_metrics(example_dir=example_2_dir)
-    program2._save_history(example_2_dir)
+    # # Example 2: Comparative technology analysis
+    # example_2_dir = BASE_OUTPUT_DIR / "example_2_tech_comparison"
+    # criteria = [
+    #     "Initial cost",
+    #     "Operational efficiency",
+    #     "Environmental impact",
+    #     "Scalability",
+    #     "Technological maturity"
+    # ]
+    # program2 = ComparativeAnalysis(
+    #     name="Renewable Energy Comparison",
+    #     description="Compares renewable energy options for a city grid",
+    #     criteria=criteria,
+    #     verification_enabled=True,
+    #     verbose=True
+    # )
+    # analysis_request = textwrap.dedent("""\
+    #     Compare the following renewable energy technologies for a mid-sized city's power grid:
+    #     1. Solar photovoltaic (PV) farms
+    #     2. Onshore wind farms
+    #     3. Hydroelectric power
+    #     4. Biomass energy plants
+    #     Consider their suitability for a region with moderate sunlight, consistent winds,
+    #     a major river, and significant agricultural activity.
+    #     """)
+    # results2 = program2.execute(analysis_request)
+    # display_program_output(
+    #     program_name=program2.name,
+    #     input_data=analysis_request,
+    #     output_data=results2,
+    #     state_history=program2.state_history,
+    #     metrics=program2.get_summary_metrics(),
+    #     output_dir=example_2_dir
+    # )
+    # program2.visualize_metrics(example_dir=example_2_dir)
+    # program2._save_history(example_2_dir)
 
     # Example 3: Field protocol shell for recommendation system design
     example_3_dir = BASE_OUTPUT_DIR / "example_3_recommendation_shell"
