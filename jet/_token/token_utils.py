@@ -62,43 +62,45 @@ def get_tokenizer(
         return tiktoken.get_encoding("cl100k_base")
 
 
-def get_tokenizer_fn(
-    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
-    add_special_tokens: bool = False
-) -> Callable[[Union[str, list[str]], bool], Union[list[int], list[list[int]]]]:
-    """
-    Returns a tokenizer function for the specified model that tokenizes input text.
+# ====================== TOKENIZE ======================
 
-    Args:
-        model_name (str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES | None): The name of the model to get the tokenizer for. If None, uses tiktoken's "cl100k_base" tokenizer.
-        add_special_tokens (bool, optional): Whether to add special tokens during tokenization. Defaults to False.
+@overload
+def tokenize(
+    text: str,
+    model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
+    add_special_tokens: bool = False,
+) -> list[int]: ...
 
-    Returns:
-        Callable: A function that tokenizes input text (str or list[str]) into tokens (list[int] or list[list[int]]).
+@overload
+def tokenize(
+    text: dict,
+    model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
+    add_special_tokens: bool = False,
+) -> list[int]: ...
 
-    Raises:
-        ValueError: If the model_name is invalid or tokenizer cannot be loaded.
-    """
-    tokenizer = get_tokenizer(model_name)
-
-    def tokenize_fn(text: Union[str, list[str]], add_special_tokens: bool = add_special_tokens) -> Union[list[int], list[list[int]]]:
-        if isinstance(text, list):
-            if isinstance(tokenizer, tiktoken.Encoding):
-                return tokenizer.encode_batch(text)
-            return tokenizer.batch_encode_plus(text, add_special_tokens=add_special_tokens, return_tensors=None)["input_ids"]
-        else:
-            if isinstance(tokenizer, tiktoken.Encoding):
-                return tokenizer.encode(text)
-            return tokenizer.encode(text, add_special_tokens=add_special_tokens)
-
-    return tokenize_fn
-
+@overload
+def tokenize(
+    text: list[str] | list[dict] | list[Message],
+    model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
+    add_special_tokens: bool = False,
+) -> list[list[int]]: ...
 
 def tokenize(
+    text: Union[str, dict, list[str], list[dict], list[Message]] = "",
     model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
-    text: str | dict | list[str] | list[dict] | list[Message] = "",
-    add_special_tokens: bool = False
-) -> list[int] | list[list[int]]:
+    add_special_tokens: bool = False,
+) -> Union[list[int], list[list[int]]]:
+    """
+    Tokenize text first — most natural usage: tokenize("hello", "llama3").
+
+    Args:
+        text: Single string/dict or list of them (Message objects supported via .get('content')).
+        model_name: Model identifier (falls back to tiktoken cl100k_base).
+        add_special_tokens: Whether to include special tokens.
+
+    Returns:
+        list[int] for single input, list[list[int]] for batch.
+    """
     tokenizer = get_tokenizer(model_name)
 
     if isinstance(text, list):
@@ -130,6 +132,91 @@ def tokenize(
             tokenized = tokenizer.encode(text_str, add_special_tokens=add_special_tokens)
         return tokenized
 
+# ====================== DETOKENIZE ======================
+
+@overload
+def detokenize(
+    tokens: list[int],
+    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
+    *,
+    skip_special_tokens: bool = True,
+) -> str: ...
+
+@overload
+def detokenize(
+    tokens: list[list[int]],
+    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
+    *,
+    skip_special_tokens: bool = True,
+) -> list[str]: ...
+
+def detokenize(
+    tokens: Union[list[int], list[list[int]]],
+    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
+    *,
+    skip_special_tokens: bool = True,
+) -> Union[str, list[str]]:
+    """
+    Detokenize tokens first — natural: detokenize(token_ids, "gemma2").
+
+    Args:
+        tokens: Single sequence or batch of token ids.
+        model_name: Model identifier (falls back to tiktoken cl100k_base).
+        skip_special_tokens: Remove <bos>, <eos>, etc. (default True).
+
+    Returns:
+        Reconstructed string or list of strings.
+    """
+    tokenizer = get_tokenizer(model_name)
+
+    is_batch = isinstance(tokens, list) and all(isinstance(t, list) for t in tokens)
+
+    if isinstance(tokenizer, tiktoken.Encoding):
+        if is_batch:
+            return [
+                tokenizer.decode(batch, skip_special_tokens=skip_special_tokens)
+                for batch in tokens
+            ]
+        return tokenizer.decode(tokens, skip_special_tokens=skip_special_tokens)
+
+    # HuggingFace tokenizer
+    if is_batch:
+        return tokenizer.batch_decode(
+            tokens,
+            skip_special_tokens=skip_special_tokens,
+            clean_up_tokenization_spaces=True,
+        )
+    return tokenizer.decode(
+        tokens,
+        skip_special_tokens=skip_special_tokens,
+        clean_up_tokenization_spaces=True,
+    )
+
+# ====================== FACTORY FUNCTIONS (updated order) ======================
+
+def get_tokenizer_fn(
+    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
+    add_special_tokens: bool = False,
+) -> Callable[[Union[str, list[str]]], Union[list[int], list[list[int]]]]:
+    tokenizer = get_tokenizer(model_name)
+
+    def _fn(text: Union[str, list[str]]) -> Union[list[int], list[list[int]]]:
+        return tokenize(text, model_name=None, add_special_tokens=add_special_tokens)
+
+    return _fn
+
+
+def get_detokenizer_fn(
+    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
+    skip_special_tokens: bool = True,
+) -> Callable[[Union[list[int], list[list[int]]]], Union[str, list[str]]]:
+    tokenizer = get_tokenizer(model_name)
+
+    def _fn(tokens: Union[list[int], list[list[int]]]) -> Union[str, list[str]]:
+        return detokenize(tokens, model_name=None, skip_special_tokens=skip_special_tokens)
+
+    return _fn
+
 
 TokenizableInput = str | dict | list[str] | list[dict] | list[Message]
 
@@ -158,7 +245,7 @@ def token_counter(
     if not text:
         return 0
 
-    tokenized = tokenize(model, text, add_special_tokens)
+    tokenized = tokenize(text, model, add_special_tokens)
     if isinstance(text, (str, dict)):
         return len(tokenized)
     else:
@@ -174,7 +261,7 @@ def count_tokens(
     if not text:
         return 0
 
-    tokenized = tokenize(model, text, add_special_tokens)
+    tokenized = tokenize(text, model, add_special_tokens)
     if isinstance(text, (str, dict)):
         return len(tokenized)
     else:
@@ -245,7 +332,7 @@ def filter_texts(
             return [text]
 
         # Split into manageable chunks
-        tokens = tokenize(OLLAMA_HF_MODELS[model], text)
+        tokens = tokenize(text, OLLAMA_HF_MODELS[model])
         return tokenizer.decode(tokens[0:max_tokens], skip_special_tokens=False)
     else:
         if isinstance(text[0], str):
@@ -294,7 +381,7 @@ def group_texts(
         max_tokens = max_tokens or get_model_max_tokens(model)
 
     if isinstance(text, str):
-        tokens = tokenize(OLLAMA_HF_MODELS[model], text)
+        tokens = tokenize(text, OLLAMA_HF_MODELS[model])
         grouped_texts = []
 
         for i in range(0, len(tokens), max_tokens):
@@ -558,7 +645,7 @@ def get_subtext_indices(text: str, subtext: str) -> tuple[int, int] | None:
 #             tokenizer_fn = tokenizer
 #         elif model:
 #             def _tokenizer(input):
-#                 return tokenize(model, input)
+#                 return tokenize(input, model)
 #             tokenizer_fn = _tokenizer
 #         else:
 #             tokenizer_fn = get_words
@@ -667,7 +754,7 @@ def get_subtext_indices(text: str, subtext: str) -> tuple[int, int] | None:
 #             tokenizer_fn = tokenizer
 #         elif model:
 #             def _tokenizer(input):
-#                 return tokenize(model, input)
+#                 return tokenize(input, model)
 #             tokenizer_fn = _tokenizer
 #         else:
 #             tokenizer_fn = get_words
