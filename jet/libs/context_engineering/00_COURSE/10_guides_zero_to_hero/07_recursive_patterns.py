@@ -236,9 +236,8 @@ def save_recursive_pattern(
 
     print(f"Saved recursive pattern '{pattern_name}' to: {example_dir}")
 
-# =========================
-# UPDATED BASE AND SUBCLASSES
-# =========================
+# Base Classes for Recursive Patterns
+# =================================
 
 class RecursivePattern:
     """
@@ -445,7 +444,8 @@ class RecursivePattern:
         plt.show()
 
 
-# --- SelfReflection using Pydantic model output ---
+# Recursive Pattern Implementations
+# ===============================
 
 class SelfReflection(RecursivePattern):
     """
@@ -521,8 +521,6 @@ class SelfReflection(RecursivePattern):
         )
         return final_output, self.iterations
 
-# --- RecursiveBootstrapping using Pydantic model output ---
-
 class RecursiveBootstrapping(RecursivePattern):
     """
     A recursive pattern that bootstraps its own capabilities
@@ -583,8 +581,6 @@ class RecursiveBootstrapping(RecursivePattern):
             metrics=self.get_summary_metrics()
         )
         return final_output, self.iterations
-
-# --- SymbolicResidue using Pydantic model output ---
 
 class SymbolicResidue(RecursivePattern):
     """
