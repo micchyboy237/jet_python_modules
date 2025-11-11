@@ -1384,4 +1384,46 @@ def example_external_validation():
 # Main execution (when run as a script)
 if __name__ == "__main__":
     print("Control Loops for Multi-Step LLM Interactions")
-    print("Run examples individually or import classes for your own use.")
+    print("Running all examples...\n")
+
+    # Example 1: Sequential Chain
+    print("="*60)
+    print("EXAMPLE 1: Sequential Chain (Entity → Relationships → Report)")
+    print("="*60)
+    final_output, all_outputs = example_sequential_chain()
+    print(f"\nFinal Report:\n{final_output}\n")
+
+    # Example 2: Iterative Refiner
+    print("="*60)
+    print("EXAMPLE 2: Iterative Refiner (Essay on AI Future)")
+    print("="*60)
+    final_response, refinement_history = example_iterative_refiner()
+    print(f"\nFinal Essay:\n{final_response}\n")
+
+    # Example 3: Conditional Brancher
+    print("="*60)
+    print("EXAMPLE 3: Conditional Brancher (Query Routing)")
+    print("="*60)
+    results = example_conditional_brancher()
+    for query, response, _ in results:
+        print(f"\nQuery: {query}")
+        print(f"Response: {response[:200]}{'...' if len(response) > 200 else ''}\n")
+
+    # Example 4: Self-Critique
+    print("="*60)
+    print("EXAMPLE 4: Self-Critique (WW1 Causes)")
+    print("="*60)
+    final_response, run_details = example_self_critique()
+    print(f"\nFinal Answer:\n{final_response}\n")
+
+    # Example 5: External Validation
+    print("="*60)
+    print("EXAMPLE 5: External Validation (Palindrome Function)")
+    print("="*60)
+    final_response, run_details = example_external_validation()
+    print(f"\nFinal Code:\n{final_response}\n")
+
+    print("="*60)
+    print("ALL EXAMPLES COMPLETED SUCCESSFULLY!")
+    print("You can now explore the visualizations, metrics, and full outputs above.")
+    print("="*60)
