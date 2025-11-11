@@ -36,20 +36,21 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Any, Optional, Union, Callable, TypeVar
 from IPython.display import display, Markdown, HTML
 
+from jet._token.token_utils import token_counter
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+import shutil
+import pathlib
+
+BASE_OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Check for required libraries
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-    logger.warning("OpenAI package not found. Install with: pip install openai")
 
 try:
     import dotenv
@@ -60,7 +61,7 @@ except ImportError:
     logger.warning("python-dotenv not found. Install with: pip install python-dotenv")
 
 # Constants
-DEFAULT_MODEL = "gpt-3.5-turbo"
+DEFAULT_MODEL = "qwen3-instruct-2507:4b"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1000
 
@@ -69,48 +70,12 @@ DEFAULT_MAX_TOKENS = 1000
 # ===============
 
 def setup_client(api_key=None, model=DEFAULT_MODEL):
-    """
-    Set up the API client for LLM interactions.
-
-    Args:
-        api_key: API key (if None, will look for OPENAI_API_KEY in env)
-        model: Model name to use
-
-    Returns:
-        tuple: (client, model_name)
-    """
-    if api_key is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key is None and not ENV_LOADED:
-            logger.warning("No API key found. Set OPENAI_API_KEY env var or pass api_key param.")
-    
-    if OPENAI_AVAILABLE:
-        client = OpenAI(api_key=api_key)
-        return client, model
-    else:
-        logger.error("OpenAI package required. Install with: pip install openai")
-        return None, model
+    client = LlamacppLLM(model=model, verbose=True)
+    return client, model
 
 
 def count_tokens(text: str, model: str = DEFAULT_MODEL) -> int:
-    """
-    Count tokens in text string using the appropriate tokenizer.
-
-    Args:
-        text: Text to tokenize
-        model: Model name to use for tokenization
-
-    Returns:
-        int: Token count
-    """
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-        return len(encoding.encode(text))
-    except Exception as e:
-        # Fallback for when tiktoken doesn't support the model
-        logger.warning(f"Could not use tiktoken for {model}: {e}")
-        # Rough approximation: 1 token ≈ 4 chars in English
-        return len(text) // 4
+    return token_counter(text, model=model)
 
 
 def generate_response(
@@ -121,28 +86,14 @@ def generate_response(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     system_message: str = "You are a helpful assistant."
 ) -> Tuple[str, Dict[str, Any]]:
-    """
-    Generate a response from the LLM and return with metadata.
-
-    Args:
-        prompt: The prompt to send
-        client: API client (if None, will create one)
-        model: Model name
-        temperature: Temperature parameter
-        max_tokens: Maximum tokens to generate
-        system_message: System message to use
-
-    Returns:
-        tuple: (response_text, metadata)
-    """
     if client is None:
         client, model = setup_client(model=model)
         if client is None:
             return "ERROR: No API client available", {"error": "No API client"}
-    
+
     prompt_tokens = count_tokens(prompt, model)
     system_tokens = count_tokens(system_message, model)
-    
+
     metadata = {
         "prompt_tokens": prompt_tokens,
         "system_tokens": system_tokens,
@@ -151,23 +102,23 @@ def generate_response(
         "max_tokens": max_tokens,
         "timestamp": time.time()
     }
-    
+
     try:
         start_time = time.time()
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens
+        response_stream = client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=500,
+            stream=True
         )
+
+        response = ""
+        for chunk in response_stream:
+            response += chunk
         latency = time.time() - start_time
-        
-        response_text = response.choices[0].message.content
+
+        response_text = response
         response_tokens = count_tokens(response_text, model)
-        
         metadata.update({
             "latency": latency,
             "response_tokens": response_tokens,
@@ -175,9 +126,9 @@ def generate_response(
             "token_efficiency": response_tokens / (prompt_tokens + system_tokens) if (prompt_tokens + system_tokens) > 0 else 0,
             "tokens_per_second": response_tokens / latency if latency > 0 else 0
         })
-        
+
         return response_text, metadata
-    
+
     except Exception as e:
         logger.error(f"Error generating response: {e}")
         metadata["error"] = str(e)
