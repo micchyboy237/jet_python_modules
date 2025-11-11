@@ -324,15 +324,15 @@ class PatternMatchEvaluator(EvaluationFunction):
 class ModelEvaluator(EvaluationFunction):
     """Uses a model to evaluate another model's response."""
     
-    def __init__(self, model_interface: ModelInterface, evaluation_prompt_template: str):
+    def __init__(self, model_name: str, evaluation_prompt_template: str):
         """
         Initialize the model evaluator.
         
         Args:
-            model_interface: ModelInterface instance for evaluation
+            model_name: ModelInterface instance for evaluation
             evaluation_prompt_template: Template for evaluation prompt
         """
-        self.model = model_interface
+        self.model = LlamacppLLM(model=model_name, verbose=True)
         self.evaluation_prompt_template = evaluation_prompt_template
     
     def evaluate(self, response: str, context: Dict[str, Any]) -> Tuple[bool, float, str]:
@@ -350,7 +350,8 @@ class ModelEvaluator(EvaluationFunction):
         
         # Get evaluation from model
         try:
-            eval_response = self.model.generate(eval_prompt)
+            chunks = list(self.model.generate(eval_prompt, stream=True))
+            eval_response = "".join(chunks)
             
             # Try to parse structured response (JSON)
             try:
@@ -473,7 +474,8 @@ class ControlLoop:
             
             # Generate response from model
             try:
-                response = self.model.generate(context_str)
+                chunks = list(self.model.generate(context_str, stream=True))
+                response = "".join(chunks)
                 logger.info(f"Received response ({len(response)} chars)")
             except Exception as e:
                 logger.error(f"Model generation failed: {e}")
@@ -878,7 +880,8 @@ class NeuralFieldControlLoop(ControlLoop):
             
             # Generate response from model
             try:
-                response = self.model.generate(context_str)
+                chunks = list(self.model.generate(context_str, stream=True))
+                response = "".join(chunks)
                 logger.info(f"Received response ({len(response)} chars)")
             except Exception as e:
                 logger.error(f"Model generation failed: {e}")
@@ -1244,7 +1247,8 @@ Please execute the protocol now:
             
             # Generate response from model
             try:
-                response = self.model.generate(context_str)
+                chunks = list(self.model.generate(context_str, stream=True))
+                response = "".join(chunks)
                 logger.info(f"Received response ({len(response)} chars)")
             except Exception as e:
                 logger.error(f"Model generation failed: {e}")
@@ -1534,7 +1538,8 @@ Please execute the protocol now:
             
             # Generate response from model
             try:
-                response = self.model.generate(context_str)
+                chunks = list(self.model.generate(context_str, stream=True))
+                response = "".join(chunks)
                 logger.info(f"Received response ({len(response)} chars)")
             except Exception as e:
                 logger.error(f"Model generation failed: {e}")
@@ -1741,7 +1746,8 @@ Generate an improved response that will score higher on all evaluation metrics.
         
         # Generate improved response
         try:
-            improved_response = self.model.generate(improvement_prompt)
+            chunks = list(self.model.generate(improvement_prompt, stream=True))
+            improved_response = "".join(chunks)
             logger.info(f"Generated recursive improvement at level {self.recursion_level}")
             
             # Extract improved response from model output (removing meta-commentary)
