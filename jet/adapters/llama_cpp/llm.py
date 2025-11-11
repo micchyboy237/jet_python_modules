@@ -61,7 +61,7 @@ class LlamacppLLM:
     def chat(
         self,
         messages: List[ChatMessage],
-        temperature: float = 0.7,
+        temperature: float = 0.0,
         max_tokens: Optional[int] = None,
         stream: bool = False,
         stop: Optional[List[str]] = None,
@@ -112,7 +112,7 @@ class LlamacppLLM:
     def chat_stream(
         self,
         messages: List[ChatMessage],
-        temperature: float = 0.7,
+        temperature: float = 0.0,
         max_tokens: Optional[int] = None,
     ) -> Iterator[ChatCompletion]:
         response = self.sync_client.chat.completions.create(
@@ -142,7 +142,7 @@ class LlamacppLLM:
     async def achat_stream(
         self,
         messages: List[ChatMessage],
-        temperature: float = 0.7,
+        temperature: float = 0.0,
         max_tokens: Optional[int] = None,
     ) -> AsyncIterator[ChatCompletion]:
         response = await self.async_client.chat.completions.create(
@@ -172,7 +172,7 @@ class LlamacppLLM:
     def generate(
         self,
         prompt: str,
-        temperature: float = 0.7,
+        temperature: float = 0.0,
         max_tokens: Optional[int] = None,
         stream: bool = False,
     ) -> Union[str, Iterator[str]]:
@@ -222,7 +222,7 @@ class LlamacppLLM:
         messages: List[ChatMessage],
         tools: List[Dict[str, Any]],
         available_functions: Dict[str, Callable[..., Any]],
-        temperature: float = 0.7,
+        temperature: float = 0.0,
         max_tokens: Optional[int] = None,        # ← Control response length
         **kwargs: Any,                           # ← Accept any extra OpenAI params (e.g. stop, metadata)
     ) -> str:
@@ -484,7 +484,7 @@ class LlamacppLLM:
     async def achat(
         self,
         messages: List[ChatMessage],
-        temperature: float = 0.7,
+        temperature: float = 0.0,
         max_tokens: Optional[int] = None,
         stream: bool = False,
         stop: Optional[List[str]] = None,
@@ -527,7 +527,7 @@ class LlamacppLLM:
     async def agenerate(
         self,
         prompt: str,
-        temperature: float = 0.7,
+        temperature: float = 0.0,
         max_tokens: Optional[int] = None,
         stream: bool = False,
     ) -> Union[str, AsyncIterator[str]]:
@@ -573,7 +573,7 @@ class LlamacppLLM:
         messages: List[ChatMessage],
         tools: List[Dict[str, Any]],
         available_functions: Dict[str, Callable[..., Any]],
-        temperature: float = 0.7,
+        temperature: float = 0.0,
     ) -> str:
         """Async tool calling with final response and optional verbose logging."""
         response = await self.async_client.chat.completions.create(
