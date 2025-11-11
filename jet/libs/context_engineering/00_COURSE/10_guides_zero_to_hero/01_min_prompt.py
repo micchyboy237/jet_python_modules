@@ -277,7 +277,7 @@ def example_5_consistency():
     """Experiment 5: Measuring output consistency."""
     example_dir = OUTPUT_DIR / "example_5_consistency"
 
-    def measure_consistency(prompt: str, n_samples: int = 3, output_dir: pathlib.Path) -> List[Dict]:
+    def measure_consistency(prompt: str, n_samples: int = 3, output_dir: pathlib.Path = example_dir) -> List[Dict]:
         responses = []
         for i in range(n_samples):
             response, metadata = llm.generate_response(prompt)
