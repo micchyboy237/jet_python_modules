@@ -272,30 +272,27 @@ class StreamingAttention(AttentionMechanism):
     def forward(self, x: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Streaming attention forward pass."""
         seq_len, d_model = x.shape
-
         qkv = x @ self.W_qkv
         qkv = qkv.reshape(seq_len, 3, self.num_heads, self.d_k)
-        q, k, v = qkv.transpose(1, 2, 0, 3)  # (H, N, D)
-
-        # Cache k, v as (H, D, N)
+        q, k, v = qkv.transpose(1, 2, 0, 3)
+        # Update cache (k_cache has shape (num_heads, d_k, cache_len))
         k_cached, v_cached = self._update_cache(k, v)
-        cache_len = k_cached.shape[2]  # C
+        cache_len = k_cached.shape[2]
 
-        # scores = q @ k_cached.T
-        # q: (H, N, D), k_cached: (H, D, C) → transpose to (H, C, D)
-        scores = np.matmul(q, k_cached.transpose(0, 2, 1)) * self.scale  # (H, N, C)
+        # NOTE: k_cached is stored with shape (num_heads, d_k, cache_len),
+        # so we should NOT transpose it here. Multiplication:
+        # (num_heads, seq_len, d_k) @ (num_heads, d_k, cache_len) -> (num_heads, seq_len, cache_len)
+        scores = np.matmul(q, k_cached) * self.scale
 
-        # causal mask: (N, C) → (1, N, C)
         causal_mask = np.tril(np.ones((seq_len, cache_len), dtype=bool))
         scores = np.where(causal_mask[None, :, :], scores, -1e9)
+        attn_weights = softmax(scores, axis=2)
 
-        attn_weights = softmax(scores, axis=2)  # (H, N, C)
-        out = np.matmul(attn_weights, v_cached.transpose(0, 2, 1))  # (H, N, D)
-
+        # v_cached currently (num_heads, d_k, cache_len) -> transpose to (num_heads, cache_len, d_k)
+        out = np.matmul(attn_weights, v_cached.transpose(0, 2, 1))
         out = out.transpose(1, 0, 2).reshape(seq_len, d_model)
         output = out @ self.W_o
         self.position += seq_len
-
         return output, {
             'cache_size': cache_len,
             'position': self.position,
