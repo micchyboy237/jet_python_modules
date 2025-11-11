@@ -1,3 +1,30 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Context Expansion Techniques: From Prompts to Layered Context
+=============================================================
+
+This notebook presents hands-on strategies for evolving basic prompts into layered, information-rich contexts that enhance LLM performance. The focus is on practical context engineering: how to strategically add and structure context layers, and systematically measure the effects on both token usage and output quality.
+
+Key concepts covered:
+1. Transforming minimal prompts into expanded, context-rich structures
+2. Principles of context layering and compositional prompt engineering
+3. Quantitative measurement of token usage as context grows
+4. Qualitative assessment of model output improvements
+5. Iterative approaches to context refinement and optimization
+
+Usage:
+    # In Jupyter or Colab:
+    %run 02_context_expansion.py
+    # or
+    # Step through notebook cells, modifying context layers and observing effects
+
+Notes:
+    - Each section is modular—experiment by editing and running different context layers.
+    - Track how additional context alters both cost (token count) and performance (output quality).
+    - Use as a practical foundation for developing advanced context engineering protocols.
+"""
+
 import os
 import json
 import time
