@@ -37,6 +37,15 @@ from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Tuple, Any, Optional, Union, Callable, TypeVar, Set
 from IPython.display import display, Markdown, HTML, JSON
 
+from jet._token.token_utils import token_counter
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+import shutil
+import pathlib
+
+OUTPUT_ROOT = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
+shutil.rmtree(OUTPUT_ROOT, ignore_errors=True)
+OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -61,7 +70,7 @@ except ImportError:
     logger.warning("python-dotenv not found. Install with: pip install python-dotenv")
 
 # Constants
-DEFAULT_MODEL = "gpt-3.5-turbo"
+DEFAULT_MODEL = "qwen3-instruct-2507:4b"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1000
 
@@ -70,48 +79,12 @@ DEFAULT_MAX_TOKENS = 1000
 # ===============
 
 def setup_client(api_key=None, model=DEFAULT_MODEL):
-    """
-    Set up the API client for LLM interactions.
-
-    Args:
-        api_key: API key (if None, will look for OPENAI_API_KEY in env)
-        model: Model name to use
-
-    Returns:
-        tuple: (client, model_name)
-    """
-    if api_key is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key is None and not ENV_LOADED:
-            logger.warning("No API key found. Set OPENAI_API_KEY env var or pass api_key param.")
-    
-    if OPENAI_AVAILABLE:
-        client = OpenAI(api_key=api_key)
-        return client, model
-    else:
-        logger.error("OpenAI package required. Install with: pip install openai")
-        return None, model
+    client = LlamacppLLM(model=model, verbose=True)
+    return client, model
 
 
 def count_tokens(text: str, model: str = DEFAULT_MODEL) -> int:
-    """
-    Count tokens in text string using the appropriate tokenizer.
-
-    Args:
-        text: Text to tokenize
-        model: Model name to use for tokenization
-
-    Returns:
-        int: Token count
-    """
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-        return len(encoding.encode(text))
-    except Exception as e:
-        # Fallback for when tiktoken doesn't support the model
-        logger.warning(f"Could not use tiktoken for {model}: {e}")
-        # Rough approximation: 1 token ≈ 4 chars in English
-        return len(text) // 4
+    return token_counter(text, model=model)
 
 
 def generate_response(
@@ -122,28 +95,14 @@ def generate_response(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     system_message: str = "You are a helpful assistant."
 ) -> Tuple[str, Dict[str, Any]]:
-    """
-    Generate a response from the LLM and return with metadata.
-
-    Args:
-        prompt: The prompt to send
-        client: API client (if None, will create one)
-        model: Model name
-        temperature: Temperature parameter
-        max_tokens: Maximum tokens to generate
-        system_message: System message to use
-
-    Returns:
-        tuple: (response_text, metadata)
-    """
     if client is None:
         client, model = setup_client(model=model)
         if client is None:
             return "ERROR: No API client available", {"error": "No API client"}
-    
+
     prompt_tokens = count_tokens(prompt, model)
     system_tokens = count_tokens(system_message, model)
-    
+
     metadata = {
         "prompt_tokens": prompt_tokens,
         "system_tokens": system_tokens,
@@ -152,23 +111,23 @@ def generate_response(
         "max_tokens": max_tokens,
         "timestamp": time.time()
     }
-    
+
     try:
         start_time = time.time()
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens
+        response_stream = client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=500,
+            stream=True
         )
+
+        response = ""
+        for chunk in response_stream:
+            response += chunk
         latency = time.time() - start_time
-        
-        response_text = response.choices[0].message.content
+
+        response_text = response
         response_tokens = count_tokens(response_text, model)
-        
         metadata.update({
             "latency": latency,
             "response_tokens": response_tokens,
@@ -176,9 +135,9 @@ def generate_response(
             "token_efficiency": response_tokens / (prompt_tokens + system_tokens) if (prompt_tokens + system_tokens) > 0 else 0,
             "tokens_per_second": response_tokens / latency if latency > 0 else 0
         })
-        
+
         return response_text, metadata
-    
+
     except Exception as e:
         logger.error(f"Error generating response: {e}")
         metadata["error"] = str(e)
@@ -207,7 +166,8 @@ def format_metrics(metrics: Dict[str, Any]) -> str:
     return " | ".join([f"{k}: {v}" for k, v in key_metrics.items()])
 
 
-def display_recursive_pattern(
+def save_recursive_pattern(
+    example_dir: pathlib.Path,
     pattern_name: str,
     input_data: Any,
     iterations: List[Dict[str, Any]],
@@ -215,8 +175,8 @@ def display_recursive_pattern(
     metrics: Dict[str, Any] = None
 ) -> None:
     """
-    Display a recursive pattern's execution in a notebook.
-    
+    Save full recursive pattern execution to `example_dir` as HTML + JSON.
+
     Args:
         pattern_name: Name of the recursive pattern
         input_data: Initial input data
@@ -224,56 +184,77 @@ def display_recursive_pattern(
         final_output: Final output data
         metrics: Optional metrics dictionary
     """
-    display(HTML(f"<h2>Recursive Pattern: {pattern_name}</h2>"))
-    
-    # Display input
-    display(HTML("<h3>Initial Input</h3>"))
-    if isinstance(input_data, str):
-        display(Markdown(input_data))
-    else:
-        display(Markdown(f"```json\n{json.dumps(input_data, indent=2)}\n```"))
-    
-    # Display iterations
-    display(HTML("<h3>Recursive Iterations</h3>"))
-    
-    for i, iteration in enumerate(iterations):
-        display(HTML(f"<h4>Iteration {i+1}</h4>"))
-        
-        # Display prompt if available
-        if "prompt" in iteration:
-            display(HTML("<p><em>Prompt:</em></p>"))
-            display(Markdown(f"```\n{iteration['prompt']}\n```"))
-        
-        # Display response if available
-        if "response" in iteration:
-            display(HTML("<p><em>Response:</em></p>"))
-            display(Markdown(iteration["response"]))
-        
-        # Display state if available
-        if "state" in iteration:
-            display(HTML("<p><em>State:</em></p>"))
-            if isinstance(iteration["state"], str):
-                display(Markdown(iteration["state"]))
-            else:
-                display(Markdown(f"```json\n{json.dumps(iteration['state'], indent=2)}\n```"))
-        
-        # Display metrics if available
-        if "metrics" in iteration:
-            display(HTML("<p><em>Metrics:</em></p>"))
-            display(Markdown(f"```\n{format_metrics(iteration['metrics'])}\n```"))
-    
-    # Display final output
-    display(HTML("<h3>Final Output</h3>"))
-    if isinstance(final_output, str):
-        display(Markdown(final_output))
-    else:
-        display(Markdown(f"```json\n{json.dumps(final_output, indent=2)}\n```"))
-    
-    # Display overall metrics
-    if metrics:
-        display(HTML("<h3>Overall Metrics</h3>"))
-        display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
+    example_dir.mkdir(parents=True, exist_ok=True)
 
+    # Save raw JSONs
+    (example_dir / "input.json").write_text(json.dumps(input_data, indent=2) if not isinstance(input_data, str) else input_data)
+    (example_dir / "final_output.json").write_text(json.dumps(final_output, indent=2) if not isinstance(final_output, str) else final_output)
+    if metrics:
+        (example_dir / "metrics_summary.json").write_text(json.dumps(metrics, indent=2))
+
+    # Build HTML
+    html_lines = [f"<h2>Recursive Pattern: {pattern_name}</h2>"]
+    html_lines += ["<h3>Initial Input</h3>", "<pre><code>"]
+    if isinstance(input_data, str):
+        html_lines.append(input_data)
+    else:
+        html_lines.append(json.dumps(input_data, indent=2))
+    html_lines += ["</code></pre>", "<h3>Recursive Iterations</h3>"]
+
+    for i, it in enumerate(iterations):
+        html_lines.append(f"<h4>Iteration {i+1}</h4>")
+        if "prompt" in it:
+            html_lines += ["<p><strong>Prompt:</strong></p>", "<pre><code>"]
+            html_lines.append(it["prompt"])
+            html_lines += ["</code></pre>"]
+        if "response" in it:
+            html_lines += ["<p><strong>Response:</strong></p>", "<pre><code>"]
+            html_lines.append(it["response"])
+            html_lines += ["</code></pre>"]
+        if "state" in it:
+            html_lines += ["<p><strong>State:</strong></p>", "<pre><code class='language-json'>"]
+            state_json = json.dumps(it["state"], indent=2) if not isinstance(it["state"], str) else it["state"]
+            html_lines.append(state_json)
+            html_lines += ["</code></pre>"]
+        if "metrics" in it:
+            html_lines += ["<p><strong>Metrics:</strong></p>", "<pre><code>"]
+            html_lines.append(format_metrics(it["metrics"]))
+            html_lines += ["</code></pre>"]
+
+    html_lines += ["<h3>Final Output</h3>", "<pre><code>"]
+    if isinstance(final_output, str):
+        html_lines.append(final_output)
+    else:
+        html_lines.append(json.dumps(final_output, indent=2))
+    html_lines += ["</code></pre>"]
+
+    if metrics:
+        html_lines += ["<h3>Overall Metrics</h3>", "<pre><code>"]
+        html_lines.append(format_metrics(metrics))
+        html_lines += ["</code></pre>"]
+
+    full_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{pattern_name}</title>
+<style>pre{{background:#f4f4f4;padding:1em;overflow:auto;}} code{{font-family:monospace;}}</style>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
+</head><body>{''.join(html_lines)}</body></html>"""
+    (example_dir / "report.html").write_text(full_html)
+
+    # Save per-iteration JSONs
+    for i, it in enumerate(iterations):
+        it_dir = example_dir / f"iteration_{i+1}"
+        it_dir.mkdir(exist_ok=True)
+        if "prompt" in it:
+            (it_dir / "prompt.txt").write_text(it["prompt"])
+        if "response" in it:
+            (it_dir / "response.txt").write_text(it["response"])
+        if "state" in it:
+            (it_dir / "state.json").write_text(json.dumps(it["state"], indent=2))
+        if "metrics" in it:
+            (it_dir / "metrics.json").write_text(json.dumps(it["metrics"], indent=2))
+
+    print(f"Saved recursive pattern '{pattern_name}' to: {example_dir}")
 
 # Base Classes for Recursive Patterns
 # =================================
@@ -482,13 +463,12 @@ class RecursivePattern:
             iteration += 1
             self._log(f"Iteration {iteration}/{self.max_iterations}")
             
-            # Generate prompt for current iteration
-            prompt = self._generate_recursive_prompt(
-                iteration=iteration,
-                input=input_data,
-                current_output=current_output,
-                **self.state
-            )
+            # Build kwargs for prompt generation, avoiding duplicate 'input'
+            prompt_kwargs = {"iteration": iteration, "current_output": current_output}
+            prompt_kwargs.update(self.state)
+            if "input" not in prompt_kwargs:
+                prompt_kwargs["input"] = input_data
+            prompt = self._generate_recursive_prompt(**prompt_kwargs)
             
             # Call LLM
             response, metrics = self._call_llm(prompt)
@@ -506,9 +486,12 @@ class RecursivePattern:
             if not self._should_continue(iteration, current_output):
                 self._log(f"Stopping at iteration {iteration}")
                 break
-        
+
+        # Save outputs automatically after run for each case.
+        # Must use the correct subdirectory (handled by subclasses/derived functions).
+        # So just return here; caller should handle saving for each example.
         return current_output, self.iterations
-    
+
     def get_summary_metrics(self) -> Dict[str, Any]:
         """
         Get summary metrics for all iterations.
@@ -520,24 +503,18 @@ class RecursivePattern:
         
         # Add derived metrics
         if summary["iterations"] > 0:
-            summary["avg_latency_per_iteration"] = summary["total_latency"] / summary["iterations"]
+            # Explicitly cast to float for computed values (mypy compatibility)
+            summary["avg_latency_per_iteration"] = float(summary["total_latency"]) / float(summary["iterations"])
             
         if summary["total_prompt_tokens"] > 0:
-            summary["overall_efficiency"] = (
-                summary["total_response_tokens"] / summary["total_prompt_tokens"]
-            )
+            summary["overall_efficiency"] = float(summary["total_response_tokens"]) / float(summary["total_prompt_tokens"])
         
         return summary
-    
+
     def display_execution(self) -> None:
         """Display the recursive pattern execution in a notebook."""
-        display_recursive_pattern(
-            pattern_name=self.name,
-            input_data=self.state.get("input"),
-            iterations=self.iterations,
-            final_output=self.state.get("last_output"),
-            metrics=self.get_summary_metrics()
-        )
+        # No longer used; replaced with saving pattern.
+        pass
     
     def visualize_metrics(self) -> None:
         """
@@ -723,6 +700,22 @@ class SelfReflection(RecursivePattern):
         
         return True
 
+    def run(self, input_data: Any) -> Tuple[Any, List[Dict[str, Any]]]:
+        """
+        Run the self-reflection pattern and save results.
+        """
+        final_output, iterations = super().run(input_data)
+        example_dir = OUTPUT_ROOT / "example_self_reflection"
+        save_recursive_pattern(
+            example_dir=example_dir,
+            pattern_name=self.name,
+            input_data=self.state.get("input"),
+            iterations=self.iterations,
+            final_output=self.state.get("last_output"),
+            metrics=self.get_summary_metrics()
+        )
+        return final_output, self.iterations
+
 
 class RecursiveBootstrapping(RecursivePattern):
     """
@@ -749,8 +742,9 @@ class RecursiveBootstrapping(RecursivePattern):
         
         super().__init__(name=name, description=description, **kwargs)
         
+        # Fix: Provide empty list for default to address typing lint
         self.bootstrap_template = bootstrap_template
-        self.sophistication_levels = sophistication_levels or [
+        self.sophistication_levels = sophistication_levels if sophistication_levels is not None else [
             "basic", "intermediate", "advanced", "expert", "innovative"
         ]
         
@@ -828,6 +822,22 @@ Your new approach should be more sophisticated, nuanced, and effective."""
         self.state["sophistication_level"] = level_idx
         
         return processed
+
+    def run(self, input_data: Any) -> Tuple[Any, List[Dict[str, Any]]]:
+        """
+        Run the recursive bootstrapping pattern and save results.
+        """
+        final_output, iterations = super().run(input_data)
+        example_dir = OUTPUT_ROOT / "example_recursive_bootstrapping"
+        save_recursive_pattern(
+            example_dir=example_dir,
+            pattern_name=self.name,
+            input_data=self.state.get("input"),
+            iterations=self.iterations,
+            final_output=self.state.get("last_output"),
+            metrics=self.get_summary_metrics()
+        )
+        return final_output, self.iterations
 
 
 class SymbolicResidue(RecursivePattern):
@@ -968,21 +978,59 @@ Your response should include:
         }
         
         return processed
-    
-    def _should_continue(self, iteration: int, current_output: Any) -> bool:
+
+    def run(self, input_data: Any) -> Tuple[Any, List[Dict[str, Any]]]:
         """
-        Determine whether to continue the residue processing.
-        
-        Args:
-            iteration: Current iteration number
-            current_output: Current iteration output
-            
-        Returns:
-            bool: True if the pattern should continue, False otherwise
+        Run the symbolic residue pattern and save results.
         """
-        # Stop if we've reached max iterations
-        if iteration >= self.max_iterations:
-            return False
-        
-        # Check resonance score
-        resonance_score = current_output.get("resonance_score", 0.0)
+        final_output, iterations = super().run(input_data)
+        example_dir = OUTPUT_ROOT / "example_symbolic_residue"
+        save_recursive_pattern(
+            example_dir=example_dir,
+            pattern_name=self.name,
+            input_data=self.state.get("input"),
+            iterations=self.iterations,
+            final_output=self.state.get("last_output"),
+            metrics=self.get_summary_metrics()
+        )
+        return final_output, self.iterations
+
+def example_self_reflection() -> Tuple[Any, List[Dict[str, Any]]]:
+    """Demonstrate self-reflection recursive pattern."""
+
+    input_question = (
+        "How can AI language models be used effectively for structured context engineering in technical projects?"
+    )
+    pattern = SelfReflection(verbose=True, max_iterations=3)
+    final_output, _ = pattern.run(input_question)
+    # Already saved inside run()
+    return final_output, pattern.iterations
+
+def example_recursive_bootstrapping() -> Tuple[Any, List[Dict[str, Any]]]:
+    """Demonstrate recursive bootstrapping pattern."""
+
+    input_problem = "Design a workflow for iterative schema evolution in a knowledge graph."
+    pattern = RecursiveBootstrapping(verbose=True, max_iterations=4)
+    final_output, _ = pattern.run(input_problem)
+    # Already saved inside run()
+    return final_output, pattern.iterations
+
+def example_symbolic_residue() -> Tuple[Any, List[Dict[str, Any]]]:
+    """Demonstrate symbolic residue tracking pattern."""
+
+    input_note = (
+        "Document the recurring motifs in user interaction data collected from three different applications."
+    )
+    pattern = SymbolicResidue(verbose=True, max_iterations=3)
+    final_output, _ = pattern.run(input_note)
+    # Already saved inside run()
+    return final_output, pattern.iterations
+
+if __name__ == "__main__":
+    print("Running all recursive pattern examples and saving outputs...")
+
+    example_self_reflection()
+    example_recursive_bootstrapping()
+    example_symbolic_residue()
+
+    print(f"\nAll outputs saved under: {OUTPUT_ROOT}")

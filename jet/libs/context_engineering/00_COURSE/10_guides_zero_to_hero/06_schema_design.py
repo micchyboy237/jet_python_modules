@@ -37,6 +37,15 @@ from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Tuple, Any, Optional, Union, Callable, TypeVar, Set
 from IPython.display import display, Markdown, HTML, JSON
 
+from jet._token.token_utils import token_counter
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+import shutil
+import pathlib
+
+OUTPUT_ROOT = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
+shutil.rmtree(OUTPUT_ROOT, ignore_errors=True)
+OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -68,7 +77,7 @@ except ImportError:
     logger.warning("python-dotenv not found. Install with: pip install python-dotenv")
 
 # Constants
-DEFAULT_MODEL = "gpt-3.5-turbo"
+DEFAULT_MODEL = "qwen3-instruct-2507:4b"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1000
 
@@ -77,48 +86,12 @@ DEFAULT_MAX_TOKENS = 1000
 # ===============
 
 def setup_client(api_key=None, model=DEFAULT_MODEL):
-    """
-    Set up the API client for LLM interactions.
-
-    Args:
-        api_key: API key (if None, will look for OPENAI_API_KEY in env)
-        model: Model name to use
-
-    Returns:
-        tuple: (client, model_name)
-    """
-    if api_key is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key is None and not ENV_LOADED:
-            logger.warning("No API key found. Set OPENAI_API_KEY env var or pass api_key param.")
-    
-    if OPENAI_AVAILABLE:
-        client = OpenAI(api_key=api_key)
-        return client, model
-    else:
-        logger.error("OpenAI package required. Install with: pip install openai")
-        return None, model
+    client = LlamacppLLM(model=model, verbose=True)
+    return client, model
 
 
 def count_tokens(text: str, model: str = DEFAULT_MODEL) -> int:
-    """
-    Count tokens in text string using the appropriate tokenizer.
-
-    Args:
-        text: Text to tokenize
-        model: Model name to use for tokenization
-
-    Returns:
-        int: Token count
-    """
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-        return len(encoding.encode(text))
-    except Exception as e:
-        # Fallback for when tiktoken doesn't support the model
-        logger.warning(f"Could not use tiktoken for {model}: {e}")
-        # Rough approximation: 1 token ≈ 4 chars in English
-        return len(text) // 4
+    return token_counter(text, model=model)
 
 
 def generate_response(
@@ -129,28 +102,14 @@ def generate_response(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     system_message: str = "You are a helpful assistant."
 ) -> Tuple[str, Dict[str, Any]]:
-    """
-    Generate a response from the LLM and return with metadata.
-
-    Args:
-        prompt: The prompt to send
-        client: API client (if None, will create one)
-        model: Model name
-        temperature: Temperature parameter
-        max_tokens: Maximum tokens to generate
-        system_message: System message to use
-
-    Returns:
-        tuple: (response_text, metadata)
-    """
     if client is None:
         client, model = setup_client(model=model)
         if client is None:
             return "ERROR: No API client available", {"error": "No API client"}
-    
+
     prompt_tokens = count_tokens(prompt, model)
     system_tokens = count_tokens(system_message, model)
-    
+
     metadata = {
         "prompt_tokens": prompt_tokens,
         "system_tokens": system_tokens,
@@ -159,23 +118,23 @@ def generate_response(
         "max_tokens": max_tokens,
         "timestamp": time.time()
     }
-    
+
     try:
         start_time = time.time()
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens
+        response_stream = client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=500,
+            stream=True
         )
+
+        response = ""
+        for chunk in response_stream:
+            response += chunk
         latency = time.time() - start_time
-        
-        response_text = response.choices[0].message.content
+
+        response_text = response
         response_tokens = count_tokens(response_text, model)
-        
         metadata.update({
             "latency": latency,
             "response_tokens": response_tokens,
@@ -183,9 +142,9 @@ def generate_response(
             "token_efficiency": response_tokens / (prompt_tokens + system_tokens) if (prompt_tokens + system_tokens) > 0 else 0,
             "tokens_per_second": response_tokens / latency if latency > 0 else 0
         })
-        
+
         return response_text, metadata
-    
+
     except Exception as e:
         logger.error(f"Error generating response: {e}")
         metadata["error"] = str(e)
@@ -214,35 +173,59 @@ def format_metrics(metrics: Dict[str, Any]) -> str:
     return " | ".join([f"{k}: {v}" for k, v in key_metrics.items()])
 
 
-def display_schema_example(
+def save_display_output(
+    example_dir: pathlib.Path,
     title: str,
     schema: Dict[str, Any],
     instance: Dict[str, Any],
     metrics: Optional[Dict[str, Any]] = None
 ) -> None:
     """
-    Display a schema and an instance that conforms to it.
-    
+    Save HTML/markdown/images for a schema example into `example_dir`.
     Args:
         title: Title for the display
         schema: JSON Schema
         instance: Instance conforming to the schema
         metrics: Optional metrics to display
     """
-    display(HTML(f"<h2>{title}</h2>"))
-    
-    # Display schema
-    display(HTML("<h3>Schema</h3>"))
-    display(JSON(schema))
-    
-    # Display instance
-    display(HTML("<h3>Instance</h3>"))
-    display(JSON(instance))
-    
-    # Display metrics if provided
+    example_dir.mkdir(parents=True, exist_ok=True)
+
+    html_lines = [f"<h2>{title}</h2>"]
+    html_lines += ["<h3>Schema</h3>", "<pre><code class='language-json'>"]
+    html_lines.append(json.dumps(schema, indent=2))
+    html_lines += ["</code></pre>", "<h3>Instance</h3>", "<pre><code class='language-json'>"]
+    html_lines.append(json.dumps(instance, indent=2))
+    html_lines += ["</code></pre>"]
+
     if metrics:
-        display(HTML("<h3>Metrics</h3>"))
-        display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
+        html_lines += ["<h3>Metrics</h3>", "<pre><code>"]
+        html_lines.append(format_metrics(metrics))
+        html_lines += ["</code></pre>"]
+
+    html_content = "\n".join(html_lines)
+    (example_dir / "index.html").write_text(f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<style>pre{{background:#f4f4f4;padding:1em;overflow:auto;}}
+code{{font-family:monospace;}}</style>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
+</head><body>{html_content}</body></html>""")
+
+    # Save raw JSON files
+
+    (example_dir / "schema.json").write_text(json.dumps(schema, indent=2))
+    (example_dir / "instance.json").write_text(json.dumps(instance, indent=2))
+    if metrics:
+        (example_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+
+    # Save markdown summary
+
+    md_content = f"# {title}\n\n## Schema\n```json\n{json.dumps(schema, indent=2)}\n```\n\n## Instance\n```json\n{json.dumps(instance, indent=2)}\n```"
+    if metrics:
+        md_content += f"\n\n## Metrics\n```\n{format_metrics(metrics)}\n```"
+    (example_dir / "README.md").write_text(md_content)
+
+    print(f"Saved example output to: {example_dir}")
 
 
 # Basic Schema Classes
@@ -1042,7 +1025,6 @@ Do not include explanations or comments, just return the JSON object.
         plt.subplots_adjust(top=0.9)
         plt.show()
 
-
 # Example Schema Definitions
 # =========================
 
@@ -1499,8 +1481,10 @@ def example_basic_schema():
     # Generate an example instance
     example, metrics = schema.generate_example()
     
-    # Display schema and example
-    display_schema_example(
+    # Save schema and example outputs
+    example_dir = OUTPUT_ROOT / "example_basic"
+    save_display_output(
+        example_dir=example_dir,
         title="Basic Task Schema",
         schema=task_schema,
         instance=example,
@@ -1571,8 +1555,10 @@ def example_recursive_schema():
     # Generate an example with specified recursion depth
     example, metrics = schema.generate_example(recursion_depth=2)
     
-    # Display schema and example
-    display_schema_example(
+    # Save schema and example outputs
+    example_dir = OUTPUT_ROOT / "example_recursive"
+    save_display_output(
+        example_dir=example_dir,
         title="Recursive File System Schema",
         schema=file_system_schema,
         instance=example,
@@ -1585,7 +1571,7 @@ def example_recursive_schema():
     return schema, example
 
 
-def example_schema_context():
+def example_schema_context() -> Tuple[SchemaContext, Dict[str, Any], Dict[str, Any]]:
     """Example of using SchemaContext for structured LLM interactions."""
     # Define a schema for a research paper summary
     paper_summary_schema = {
@@ -1632,9 +1618,51 @@ def example_schema_context():
     # Execute query
     result, details = context.query(paper_description, retry_on_validation_failure=True)
     
-    # Display results
-    context.display_query_results(details)
-    
+    # Save query results
+    query_dir = OUTPUT_ROOT / "example_schema_context"
+    query_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save schema
+    (query_dir / "schema.json").write_text(json.dumps(paper_summary_schema, indent=2))
+
+    # Save prompt & response
+    (query_dir / "prompt.txt").write_text(paper_description)
+    (query_dir / "schema_prompt.txt").write_text(details["schema_prompt"])
+    (query_dir / "response.json").write_text(json.dumps(result, indent=2))
+
+    # Save validation attempts
+    for i, vr in enumerate(details["validation_results"]):
+        attempt_dir = query_dir / f"attempt_{i+1}"
+        attempt_dir.mkdir(exist_ok=True)
+        (attempt_dir / "response.json").write_text(json.dumps(vr["response"], indent=2))
+        (attempt_dir / "metrics.json").write_text(json.dumps(vr["metrics"], indent=2))
+        if vr["error_message"]:
+            (attempt_dir / "error.txt").write_text(vr["error_message"])
+
+    # Generate HTML report
+    html_parts = [f"<h2>Schema-Structured Query: Research Paper Summary</h2>"]
+    html_parts += ["<h3>Schema</h3>", "<pre><code class='language-json'>"]
+    html_parts.append(json.dumps(paper_summary_schema, indent=2))
+    html_parts += ["</code></pre>", "<h3>Input Prompt</h3>", "<pre>"]
+    html_parts.append(paper_description)
+    html_parts += ["</pre>", "<h3>Final Response</h3>", "<pre><code class='language-json'>"]
+    html_parts.append(json.dumps(result, indent=2))
+    html_parts += ["</code></pre>", "<h3>Validation Summary</h3>", "<ul>"]
+    for i, vr in enumerate(details["validation_results"]):
+        status = "✓ Valid" if vr["is_valid"] else "✗ Invalid"
+        color = "green" if vr["is_valid"] else "red"
+        html_parts.append(f"<li><span style='color:{color};font-weight:bold'>{status}</span> – Attempt {i+1}</li>")
+    html_parts += ["</ul>"]
+
+    full_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Paper Summary Query</title>
+<style>pre{{background:#f4f4f4;padding:1em;overflow:auto;}} code{{font-family:monospace;}}</style>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
+</head><body>{''.join(html_parts)}</body></html>"""
+    (query_dir / "report.html").write_text(full_html)
+
+    print(f"Saved query results to: {query_dir}")
+
     return context, result, details
 
 
@@ -1652,8 +1680,10 @@ def example_fractal_repo_schema():
     # Generate an example instance
     example, metrics = schema.generate_example(recursion_depth=2)
     
-    # Display schema and example
-    display_schema_example(
+    # Save schema and example outputs
+    example_dir = OUTPUT_ROOT / "example_fractal_repo"
+    save_display_output(
+        example_dir=example_dir,
         title="Context-Engineering Repository Schema",
         schema=CONTEXT_ENGINEERING_SCHEMA,
         instance=example,
@@ -1669,7 +1699,7 @@ def example_fractal_repo_schema():
     return schema, example
 
 
-def example_protocol_shell_schema():
+def example_protocol_shell_schema() -> Tuple[SchemaContext, Dict[str, Any], Dict[str, Any]]:
     """Example of using the Protocol Shell schema."""
     # Create JSONSchema instance
     schema = JSONSchema(
@@ -1681,8 +1711,10 @@ def example_protocol_shell_schema():
     # Generate an example instance
     example, metrics = schema.generate_example()
     
-    # Display schema and example
-    display_schema_example(
+    # Save schema and example outputs
+    example_dir = OUTPUT_ROOT / "example_protocol_shell"
+    save_display_output(
+        example_dir=example_dir,
         title="Protocol Shell Schema",
         schema=PROTOCOL_SHELL_SCHEMA,
         instance=example,
@@ -1711,13 +1743,44 @@ def example_protocol_shell_schema():
     # Execute query
     result, details = context.query(protocol_request, retry_on_validation_failure=True)
     
-    # Display results
-    context.display_query_results(details)
-    
+    # Save protocol shell results
+    proto_dir = OUTPUT_ROOT / "example_protocol_shell_query"
+    proto_dir.mkdir(parents=True, exist_ok=True)
+
+    (proto_dir / "schema.json").write_text(json.dumps(PROTOCOL_SHELL_SCHEMA, indent=2))
+    (proto_dir / "request.txt").write_text(protocol_request)
+    (proto_dir / "response.json").write_text(json.dumps(result, indent=2))
+
+    for i, vr in enumerate(details["validation_results"]):
+        attempt_dir = proto_dir / f"attempt_{i+1}"
+        attempt_dir.mkdir(exist_ok=True)
+        (attempt_dir / "response.json").write_text(json.dumps(vr["response"], indent=2))
+        (attempt_dir / "metrics.json").write_text(json.dumps(vr["metrics"], indent=2))
+        if vr["error_message"]:
+            (attempt_dir / "error.txt").write_text(vr["error_message"])
+
+    # Summary HTML
+    summary_html = f"<h2>Protocol Shell Query Result</h2><h3>Final Output</h3><pre><code class='language-json'>{json.dumps(result, indent=2)}</code></pre>"
+    full_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><title>Protocol Shell</title>
+<style>pre{{background:#f4f4f4;padding:1em;overflow:auto;}} code{{font-family:monospace;}}</style>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
+</head><body>{summary_html}</body></html>"""
+    (proto_dir / "report.html").write_text(full_html)
+
+    print(f"Saved protocol shell query to: {proto_dir}")
+
     return context, result, details
 
 
 # Main execution (when run as a script)
 if __name__ == "__main__":
-    print("Schema Design for Structured Context")
-    print("Run examples individually or import classes for your own use.")
+    print("Running all schema design examples and saving outputs...")
+
+    example_basic_schema()
+    example_recursive_schema()
+    example_schema_context()
+    example_fractal_repo_schema()
+    example_protocol_shell_schema()
+
+    print(f"\nAll outputs saved under: {OUTPUT_ROOT}")
