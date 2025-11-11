@@ -868,11 +868,14 @@ class ComparativeAnalysis(ReasoningProtocol):
     def __init__(self, criteria: List[str] = None, **kwargs):
         """
         Initialize the comparative analysis protocol.
-        
         Args:
             criteria: List of evaluation criteria (optional)
             **kwargs: Additional args passed to ReasoningProtocol
         """
+
+        # Store comparison criteria
+        self.criteria = criteria or []
+
         # Define specialized reasoning steps
         reasoning_steps = [
             "Define the entities/options to be compared",
@@ -882,18 +885,15 @@ class ComparativeAnalysis(ReasoningProtocol):
             "Evaluate relative strengths and weaknesses",
             "Synthesize insights and draw conclusions"
         ]
-        
+
         # Initialize with specialized reasoning steps
         super().__init__(reasoning_steps=reasoning_steps, **kwargs)
-        
-        # Store comparison criteria
-        self.criteria = criteria or []
-        
+
         # Use a more specific system message
         self.system_message = """You are an expert analyst who specializes in comparative analysis.
 You methodically evaluate multiple entities, options, or approaches against clear criteria,
 identifying patterns of similarity and difference, and drawing insightful conclusions."""
-    
+
     def _create_reasoning_template(self) -> str:
         """Create a specialized template for comparative analysis."""
         steps_text = "\n".join([f"{i+1}. {step}" for i, step in enumerate(self.reasoning_steps)])
