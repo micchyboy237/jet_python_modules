@@ -40,6 +40,7 @@ from jet._token.token_utils import token_counter
 from jet.adapters.llama_cpp.llm import LlamacppLLM
 import shutil
 import pathlib
+import logging
 
 BASE_OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
 shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
@@ -51,6 +52,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Check for required libraries
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+    logger.warning("OpenAI package not found. Install with: pip install openai")
 
 try:
     import dotenv
@@ -1474,3 +1483,8 @@ def example_emergence_shell():
 if __name__ == "__main__":
     print("Prompt Programs for Structured Reasoning")
     print("Run examples individually or import classes for your own use.")
+
+    example_step_by_step_reasoning()
+    example_comparative_analysis()
+    example_field_shell()
+    example_emergence_shell()
