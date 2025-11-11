@@ -22,12 +22,10 @@ Usage:
     # or
     from prompt_programs import PromptProgram, ReasoningProtocol, FieldShell
 """
-
 import os
 import re
 import json
 import time
-import logging
 import hashlib
 import tiktoken
 import numpy as np
@@ -46,20 +44,8 @@ BASE_OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__f
 shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
 BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
-
-# Check for required libraries
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-    logger.warning("OpenAI package not found. Install with: pip install openai")
+logging.basicConfig(level=logging.INFO)
 
 try:
     import dotenv
@@ -171,61 +157,78 @@ def display_program_output(
     input_data: Any,
     output_data: Any,
     state_history: Optional[List[Dict[str, Any]]] = None,
-    metrics: Optional[Dict[str, Any]] = None
+    metrics: Optional[Dict[str, Any]] = None,
+    output_dir: Union[str, pathlib.Path] = BASE_OUTPUT_DIR
 ) -> None:
     """
-    Display a prompt program's execution results in a notebook.
-    
+    Save a prompt program's execution results to files under output_dir.
+
     Args:
         program_name: Name of the prompt program
         input_data: Input data
         output_data: Output data
         state_history: Program execution state history (optional)
         metrics: Metrics dictionary (optional)
+        output_dir: Directory to save execution files
     """
-    display(HTML(f"<h2>Prompt Program: {program_name}</h2>"))
-    
-    # Display input
-    display(HTML("<h3>Input</h3>"))
-    if isinstance(input_data, str):
-        display(Markdown(input_data))
-    else:
-        display(Markdown(f"```json\n{json.dumps(input_data, indent=2)}\n```"))
-    
-    # Display execution state history
-    if state_history:
-        display(HTML("<h3>Execution History</h3>"))
-        
-        for i, state in enumerate(state_history):
-            display(HTML(f"<h4>Step {i+1}: {state.get('operation', 'Execution')}</h4>"))
-            
-            # Display prompt if available
-            if "prompt" in state:
-                display(HTML("<p><em>Prompt:</em></p>"))
-                display(Markdown(f"```\n{state['prompt']}\n```"))
-            
-            # Display response if available
-            if "response" in state:
-                display(HTML("<p><em>Response:</em></p>"))
-                display(Markdown(state["response"]))
-            
-            # Display state metrics if available
-            if "metrics" in state:
-                display(HTML("<p><em>Metrics:</em></p>"))
-                display(Markdown(f"```\n{format_metrics(state['metrics'])}\n```"))
-    
-    # Display output
-    display(HTML("<h3>Output</h3>"))
-    if isinstance(output_data, str):
-        display(Markdown(output_data))
-    else:
-        display(Markdown(f"```json\n{json.dumps(output_data, indent=2)}\n```"))
-    
-    # Display metrics
-    if metrics:
-        display(HTML("<h3>Overall Metrics</h3>"))
-        display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
+    output_dir = pathlib.Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Program header
+    (output_dir / "program.md").write_text(f"# Prompt Program: {program_name}\n\n")
+
+    # Input
+    input_path = output_dir / "input.md"
+    if isinstance(input_data, str):
+        input_path.write_text(f"## Input\n\n{input_data}")
+    else:
+        input_path.write_text(f"## Input\n\n```json\n{json.dumps(input_data, indent=2)}\n```")
+
+    # State history
+    if state_history:
+        history_dir = output_dir / "execution_history"
+        history_dir.mkdir(exist_ok=True)
+        (output_dir / "execution_history.md").write_text("## Execution History\n\n")
+        for i, state in enumerate(state_history):
+            step_dir = history_dir / f"step_{i+1:02d}_{state.get('operation', 'execution').replace(' ', '_')}"
+            step_dir.mkdir(exist_ok=True)
+            step_md = [f"### Step {i+1}: {state.get('operation', 'Execution')}"]
+            if "prompt" in state:
+                (step_dir / "prompt.md").write_text(state["prompt"])
+                step_md.append(f"**Prompt:** [prompt.md](prompt.md)")
+            if "response" in state:
+                (step_dir / "response.md").write_text(state["response"])
+                step_md.append(f"**Response:** [response.md](response.md)")
+            if "metrics" in state:
+                metrics_str = format_metrics(state["metrics"])
+                (step_dir / "metrics.txt").write_text(metrics_str)
+                step_md.append(f"**Metrics:**\n```\n{metrics_str}\n```")
+            (step_dir / "README.md").write_text("\n\n".join(step_md))
+            (output_dir / "execution_history.md").write_text(
+                (output_dir / "execution_history.md").read_text() + f"\n- [Step {i+1}](execution_history/step_{i+1:02d}_{state.get('operation', 'execution').replace(' ', '_')}/README.md)\n"
+            )
+
+    # Output
+    output_path = output_dir / "output.md"
+    if isinstance(output_data, str):
+        output_path.write_text(f"## Output\n\n{output_data}")
+    else:
+        output_path.write_text(f"## Output\n\n```json\n{json.dumps(output_data, indent=2)}\n```")
+
+    # Overall metrics
+    if metrics:
+        metrics_str = format_metrics(metrics)
+        (output_dir / "overall_metrics.txt").write_text(metrics_str)
+        (output_dir / "program.md").write_text(
+            (output_dir / "program.md").read_text() + f"\n## Overall Metrics\n\n```\n{metrics_str}\n```"
+        )
+
+def save_visualization(fig: plt.Figure, output_dir: pathlib.Path, name: str = "metrics_plot") -> None:
+    """Save matplotlib figure to PNG and SVG."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_dir / f"{name}.png", bbox_inches="tight", dpi=150)
+    fig.savefig(output_dir / f"{name}.svg", bbox_inches="tight")
+    plt.close(fig)
 
 # Base Classes for Prompt Programs
 # ===============================
@@ -476,33 +479,31 @@ class PromptProgram:
     
     def display_execution(self) -> None:
         """Display the program execution results in a notebook."""
-        display_program_output(
+        display_program_output(  # type: ignore
             program_name=self.name,
             input_data=self.state.get("input"),
             output_data=self.state.get("last_output"),
             state_history=self.state_history,
             metrics=self.get_summary_metrics()
         )
-    
-    def visualize_metrics(self) -> None:
-        """
-        Create visualization of metrics across execution steps.
-        """
+
+    def visualize_metrics(self, example_dir: pathlib.Path = BASE_OUTPUT_DIR) -> None:
+        """Create visualization of metrics across execution steps."""
         if not self.state_history:
             logger.warning("No execution history to visualize")
             return
-        
+
         # Extract data for plotting
         steps = list(range(1, len(self.state_history) + 1))
         prompt_tokens = [h["metrics"].get("prompt_tokens", 0) for h in self.state_history]
         response_tokens = [h["metrics"].get("response_tokens", 0) for h in self.state_history]
         latencies = [h["metrics"].get("latency", 0) for h in self.state_history]
         efficiencies = [h["metrics"].get("token_efficiency", 0) for h in self.state_history]
-        
+
         # Create figure
         fig, axes = plt.subplots(2, 2, figsize=(12, 8))
         fig.suptitle(f"Prompt Program Metrics: {self.name}", fontsize=16)
-        
+
         # Plot 1: Token usage
         axes[0, 0].bar(steps, prompt_tokens, label="Prompt Tokens", color="blue", alpha=0.7)
         axes[0, 0].bar(steps, response_tokens, bottom=prompt_tokens, label="Response Tokens", 
@@ -512,21 +513,21 @@ class PromptProgram:
         axes[0, 0].set_ylabel("Tokens")
         axes[0, 0].legend()
         axes[0, 0].grid(alpha=0.3)
-        
+
         # Plot 2: Latency
         axes[0, 1].plot(steps, latencies, marker='o', color="red", alpha=0.7)
         axes[0, 1].set_title("Latency")
         axes[0, 1].set_xlabel("Step")
         axes[0, 1].set_ylabel("Seconds")
         axes[0, 1].grid(alpha=0.3)
-        
+
         # Plot 3: Token Efficiency
         axes[1, 0].plot(steps, efficiencies, marker='s', color="purple", alpha=0.7)
         axes[1, 0].set_title("Token Efficiency (Response/Prompt)")
         axes[1, 0].set_xlabel("Step")
         axes[1, 0].set_ylabel("Ratio")
         axes[1, 0].grid(alpha=0.3)
-        
+
         # Plot 4: Cumulative Tokens
         cumulative_tokens = np.cumsum([h["metrics"].get("total_tokens", 0) for h in self.state_history])
         axes[1, 1].plot(steps, cumulative_tokens, marker='^', color="orange", alpha=0.7)
@@ -534,32 +535,36 @@ class PromptProgram:
         axes[1, 1].set_xlabel("Step")
         axes[1, 1].set_ylabel("Total Tokens")
         axes[1, 1].grid(alpha=0.3)
-        
+
         plt.tight_layout()
         plt.subplots_adjust(top=0.9)
-        plt.show()
+        example_dir = pathlib.Path(example_dir)
+        save_visualization(fig, example_dir, name="metrics_visualization")
+
+    def _save_history(self, example_dir: pathlib.Path) -> None:
+        (example_dir / "execution_history.json").write_text(json.dumps(self.state_history, indent=2, default=str))
 
 
 class MultiStepProgram(PromptProgram):
     """
     A prompt program that executes multiple operations in sequence.
     """
-    
+
     def __init__(
         self,
-        operations: List[Dict[str, Any]] = None,
+        operations: Optional[List[Dict[str, Any]]] = None,
         **kwargs
     ):
         """
         Initialize the multi-step prompt program.
-        
+
         Args:
             operations: List of operation configurations
             **kwargs: Additional args passed to PromptProgram
         """
         super().__init__(**kwargs)
-        self.operations = operations or []
-    
+        self.operations: List[Dict[str, Any]] = operations if operations is not None else []
+
     def add_operation(
         self,
         name: str,
@@ -569,7 +574,7 @@ class MultiStepProgram(PromptProgram):
     ) -> None:
         """
         Add an operation to the program.
-        
+
         Args:
             name: Operation name
             prompt_template: Template for operation prompt
@@ -582,56 +587,72 @@ class MultiStepProgram(PromptProgram):
             "system_message": system_message,
             "output_processor": output_processor
         }
-        
         self.operations.append(operation)
-    
+
     def execute(self, input_data: Any) -> Any:
         """
         Execute all operations in sequence.
-        
+
         Args:
             input_data: Input data for the program
-            
+
         Returns:
             Any: Final program output
         """
         # Initialize state with input
         self.state = {"input": input_data}
         self.state_history = []
-        
+
         self._log(f"Executing multi-step program: {self.name}")
-        
+
         # Process each operation in sequence
         current_input = input_data
-        
+
         for i, operation in enumerate(self.operations):
             operation_name = operation["name"]
             self._log(f"Executing operation {i+1}/{len(self.operations)}: {operation_name}")
-            
+
             # Generate prompt
             prompt_template = operation["prompt_template"]
-            prompt_vars = {"input": current_input, **self.state}
+            prompt_vars = {"input": current_input, "state": self.state}
+            # Expand nested state for template access (e.g., state.reasoning.output)
+            prompt_vars = self._expand_state_for_template(prompt_vars)
             prompt = prompt_template.format(**prompt_vars)
-            
+
             # Call LLM
             system_message = operation.get("system_message")
             response, metrics = self._call_llm(prompt, system_message)
-            
+
             # Process response
             output_processor = operation.get("output_processor")
             if output_processor:
                 output = output_processor(response)
             else:
                 output = response
-            
+
             # Update state
             self._update_state(operation_name, prompt, response, metrics, output)
-            
+
             # Update input for next operation
             current_input = output
-        
+
         return current_input
-    
+
+    def _expand_state_for_template(self, prompt_vars: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Expand nested state dictionary into flat keys for template formatting.
+        Converts state['reasoning']['output'] -> state.reasoning.output
+        """
+        expanded = prompt_vars.copy()
+        if 'state' in expanded:
+            for op_name, op_data in expanded['state'].items():
+                if isinstance(op_data, dict):
+                    for k, v in op_data.items():
+                        expanded[f"state.{op_name}.{k}"] = v
+                else:
+                    expanded[f"state.{op_name}"] = op_data
+        return expanded
+
     def _generate_prompt(self, **kwargs) -> str:
         """Not directly used in MultiStepProgram."""
         raise NotImplementedError("MultiStepProgram uses operation-specific prompts")
@@ -729,9 +750,9 @@ Your step-by-step solution:
     def _create_verification_template(self) -> str:
         """Create the template for the verification operation."""
         return """Review the following solution for any errors in reasoning or calculation.
-Identify specific issues, if any, or confirm that the solution is correct.
+Identify specific issues, if any, or confirm that the solution is correct. Be thorough.
 
-Problem: {state[input]}
+Problem: {{state.input}}
 
 Solution:
 {input}
@@ -741,12 +762,12 @@ Your verification:
     
     def _create_correction_template(self) -> str:
         """Create the template for the correction operation."""
-        return """Provide a corrected solution to this problem, addressing the issues identified.
+        return """Provide a corrected solution to this problem, addressing the issues identified in the verification.
 
-Problem: {state[input]}
+Problem: {{state.input}}
 
 Original solution:
-{state[reasoning][output]}
+{{state.reasoning.output}}
 
 Verification findings:
 {input}
@@ -754,6 +775,20 @@ Verification findings:
 Your corrected solution:
 """
     
+    def _update_state(
+        self,
+        operation: str,
+        prompt: str,
+        response: str,
+        metrics: Dict[str, Any],
+        processed_output: Any
+    ) -> None:
+        super()._update_state(operation, prompt, response, metrics, processed_output)
+        # Ensure nested state access works for templates
+        if operation not in self.state:
+            self.state[operation] = {}
+        self.state[operation]["output"] = processed_output
+
     def execute(self, problem: str) -> Dict[str, Any]:
         """
         Execute the reasoning protocol on a problem.
@@ -1479,12 +1514,135 @@ def example_emergence_shell():
     return results
 
 
-# Main execution (when run as a script)
+# -----------------------------------------------------------------------------
+# Example Demonstrations (run when module is executed directly)
+# -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    print("Prompt Programs for Structured Reasoning")
-    print("Run examples individually or import classes for your own use.")
+    import textwrap
 
-    example_step_by_step_reasoning()
-    example_comparative_analysis()
-    example_field_shell()
-    example_emergence_shell()
+    print("Running Prompt Programs Demonstrations...")
+    print(f"All outputs will be saved under: {BASE_OUTPUT_DIR.resolve()}\n")
+
+    # Example 1: Step-by-step mathematical reasoning
+    example_1_dir = BASE_OUTPUT_DIR / "example_1_math_reasoning"
+    program1 = StepByStepReasoning(
+        name="Cylindrical Tank Problem Solver",
+        description="Solves water tank volume and rate problems step-by-step",
+        verification_enabled=True,
+        verbose=True
+    )
+    problem1 = textwrap.dedent("""\
+        A cylindrical water tank has a radius of 4 meters and a height of 10 meters.
+        If water is flowing into the tank at a rate of 2 cubic meters per minute,
+        how long will it take for the water level to reach 7 meters?
+        """)
+    results1 = program1.execute(problem1)
+    display_program_output(
+        program_name=program1.name,
+        input_data=problem1,
+        output_data=results1,
+        state_history=program1.state_history,
+        metrics=program1.get_summary_metrics(),
+        output_dir=example_1_dir
+    )
+    program1.visualize_metrics(example_dir=example_1_dir)
+    program1._save_history(example_1_dir)
+
+    # Example 2: Comparative technology analysis
+    example_2_dir = BASE_OUTPUT_DIR / "example_2_tech_comparison"
+    criteria = [
+        "Initial cost",
+        "Operational efficiency",
+        "Environmental impact",
+        "Scalability",
+        "Technological maturity"
+    ]
+    program2 = ComparativeAnalysis(
+        name="Renewable Energy Comparison",
+        description="Compares renewable energy options for a city grid",
+        criteria=criteria,
+        verification_enabled=True,
+        verbose=True
+    )
+    analysis_request = textwrap.dedent("""\
+        Compare the following renewable energy technologies for a mid-sized city's power grid:
+        1. Solar photovoltaic (PV) farms
+        2. Onshore wind farms
+        3. Hydroelectric power
+        4. Biomass energy plants
+        Consider their suitability for a region with moderate sunlight, consistent winds,
+        a major river, and significant agricultural activity.
+        """)
+    results2 = program2.execute(analysis_request)
+    display_program_output(
+        program_name=program2.name,
+        input_data=analysis_request,
+        output_data=results2,
+        state_history=program2.state_history,
+        metrics=program2.get_summary_metrics(),
+        output_dir=example_2_dir
+    )
+    program2.visualize_metrics(example_dir=example_2_dir)
+    program2._save_history(example_2_dir)
+
+    # Example 3: Field protocol shell for recommendation system design
+    example_3_dir = BASE_OUTPUT_DIR / "example_3_recommendation_shell"
+    shell3 = create_reasoning_shell()
+    problem_input = {
+        "problem": "Design a recommendation system for an online bookstore that balances user preferences with introducing new authors and genres.",
+        "context": "The bookstore has 50,000 titles across fiction and non-fiction categories. User data includes purchase history, browsing behavior, and ratings.",
+        "constraints": "The solution should be implementable with Python and standard libraries, balance exploration with exploitation, and respect user privacy."
+    }
+    results3 = shell3.execute(problem_input)
+    display_program_output(
+        program_name=shell3.name,
+        input_data=problem_input,
+        output_data=results3,
+        state_history=shell3.state_history,
+        metrics=shell3.get_summary_metrics(),
+        output_dir=example_3_dir
+    )
+    shell3.visualize_metrics(example_dir=example_3_dir)
+    shell3._save_history(example_3_dir)
+
+    # Example 4: Recursive emergence protocol shell
+    example_4_dir = BASE_OUTPUT_DIR / "example_4_recursive_emergence"
+    shell4 = create_emergence_shell()
+    initial_state = {
+        "initial_field_state": {
+            "attractors": ["coherence", "agency", "emergent insight"],
+            "residue": ["latent assumptions", "unresolved contradictions", "symbolic drift"],
+            "coherence_score": 0.68,
+            "resonance_level": 0.45,
+            "drift_rate": 0.12
+        },
+        "prior_audit_log": "Field initialized with baseline reasoning attractors. Monitoring for recursive self-prompting triggers."
+    }
+    results4 = shell4.execute(initial_state)
+    display_program_output(
+        program_name=shell4.name,
+        input_data=initial_state,
+        output_data=results4,
+        state_history=shell4.state_history,
+        metrics=shell4.get_summary_metrics(),
+        output_dir=example_4_dir
+    )
+    shell4.visualize_metrics(example_dir=example_4_dir)
+    shell4._save_history(example_4_dir)
+
+    # Summary
+    summary_path = BASE_OUTPUT_DIR / "SUMMARY.md"
+    summary_path.write_text(textwrap.dedent(f"""\
+        # Prompt Programs Demonstrations
+
+        All examples saved under `{BASE_OUTPUT_DIR.resolve()}`
+
+        - **example_1_math_reasoning/** – Step-by-step mathematical problem solving
+        - **example_2_tech_comparison/** – Comparative analysis of renewable energy
+        - **example_3_recommendation_shell/** – Field protocol for system design
+        - **example_4_recursive_emergence/** – Autonomous recursive field emergence with self-prompting
+
+        Each folder contains structured output with input, execution steps, output, metrics, and visualizations.
+        """))
+
+    print("All examples completed and saved!")
