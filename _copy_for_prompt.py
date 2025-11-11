@@ -13,35 +13,45 @@ from _copy_file_structure import (
 from jet.logger import logger
 
 exclude_files = [
-    ".git",
-    ".gitignore",
-    ".DS_Store",
-    "_copy*.py",
-    "__pycache__",
-    ".pytest_cache",
-    "node_modules",
-    "*lock.json",
-    "*.lock",
-    "public",
-    "mocks",
-    ".venv",
-    "dream",
-    "jupyter",
-    ".*",
-    "_*",
-    # "generated",
+    "**/.git/",
+    "**/.gitignore",
+    "**/.DS_Store",
+    "**/_copy*.py",
+    "**/__pycache__/",
+    "**/.pytest_cache/",
+    "**/node_modules/",
+    "**/*lock.json",
+    "**/*.lock",
+    "**/public/",
+    "**/mocks/",
+    "**/.venv/",
+    "**/dream/",
+    "**/jupyter/",
+    "**/*.png",
+    # "**/_*",
+    # "**/.cache/",
+    "**/_git_stats.json",
+    "**/stats_results/",
+    # "**/.*",
+
     # Custom
-    "*response*",
-    "*.sh"
+    # "**/generated/",
+    # "**/*.sh"
+    # "**/__init__.py",
+    # "*.md",
 ]
 include_files = [
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/vectors/semantic_search/file_vector_search.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/vectors/semantic_search/text_vector_search.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/servers/mcp/mcp_server.py",
+    # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/pyrightconfig.json",
+
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/context_engineering/00_COURSE/10_guides_zero_to_hero/07_recursive_patterns.py",
+
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/context_engineering/00_COURSE/10_guides_zero_to_hero/01_min_prompt.py",
 ]
+
 structure_include = [
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/llm/mlx/tasks/*.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/data/jet-resume/data",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/protobuf/examples/basic_sample/",
 ]
 structure_exclude = []
 
@@ -53,7 +63,10 @@ SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = """
-Now update mcp_server to add a new tool search_texts using text_vector_search.
+Now update this code so that it saves all results under separate OUTPUT_DIR/<example_*> folder instead of just displaying images, html, markdown, etc.
+Write individual example_* functions demonstrating all possible use cases.
+Add a main block if not yet added.
+Write step by step analysis before providing me with the diff changes
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
@@ -61,7 +74,6 @@ DEFAULT_INSTRUCTIONS_MESSAGE = """
 
 DEFAULT_SYSTEM_MESSAGE = """
 Dont use prior artifact knowledge and memory.
-Only provide updated parts.
 """.strip()
 
 # For existing projects

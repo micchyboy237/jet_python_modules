@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 from typing import Any, AsyncIterator, Callable, Dict, Iterator, List, Optional, Union, Literal, TypedDict
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
@@ -55,8 +54,6 @@ class LlamacppLLM:
 
         if agent_name:
             log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
-
-        shutil.rmtree(log_dir, ignore_errors=True)
 
         self._chat_logger = ChatLogger(log_dir)
 

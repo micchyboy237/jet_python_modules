@@ -27,11 +27,26 @@ Notes:
 """
 
 
-import os
 import time
-import json
-from typing import Dict, List, Any, Tuple, Optional
+import logging
+from typing import Dict, Any, Tuple
 import matplotlib.pyplot as plt
+
+from jet._token.token_utils import token_counter
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+import shutil
+import pathlib
+
+OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
+# Constants
+DEFAULT_MODEL = "qwen3-instruct-2507:4b"
+DEFAULT_TEMPERATURE = 0.7
+DEFAULT_MAX_TOKENS = 1000
 
 # If you're using OpenAI's API, uncomment these lines and add your API key
 # import openai
@@ -45,8 +60,7 @@ class SimpleLLM:
     def __init__(self, model_name: str = "dummy-model"):
         """Initialize LLM interface."""
         self.model_name = model_name
-        self.total_tokens_used = 0
-        self.total_requests = 0
+        self.metadata = {}
         
     def count_tokens(self, text: str) -> int:
         """
@@ -56,32 +70,65 @@ class SimpleLLM:
         # This is an extremely rough approximation, use a proper tokenizer in practice
         return len(text.split())
     
-    def generate(self, prompt: str) -> str:
-        """
-        Generate text from a prompt (dummy implementation).
-        In a real notebook, this would call an actual LLM API.
-        """
-        # In a real implementation, this would call the API
-        # response = openai.ChatCompletion.create(
-        #     model="gpt-4",
-        #     messages=[{"role": "user", "content": prompt}]
-        # )
-        # return response.choices[0].message.content
-        
-        # For demo purposes, we'll just acknowledge the prompt
-        tokens = self.count_tokens(prompt)
-        self.total_tokens_used += tokens
-        self.total_requests += 1
-        
-        return f"[This is where the LLM response would appear. Your prompt used approximately {tokens} tokens.]"
-    
+    def generate_response(
+        self,
+        prompt: str,
+        # client=None,
+        model: str = DEFAULT_MODEL,
+        temperature: float = DEFAULT_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        # system_message: str = "You are a helpful assistant."
+    ) -> Tuple[str, Dict[str, Any]]:
+        client = LlamacppLLM(model=model, verbose=True)
+
+        prompt_tokens = token_counter(prompt, model=model)
+        system_tokens = token_counter(prompt, model=model)
+
+        metadata = {
+            "prompt_tokens": prompt_tokens,
+            "system_tokens": system_tokens,
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "timestamp": time.time()
+        }
+
+        try:
+            start_time = time.time()
+            response_stream = client.chat(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=500,
+                stream=True
+            )
+
+            response = ""
+            for chunk in response_stream:
+                response += chunk
+            latency = time.time() - start_time
+
+            response_text = response
+            response_tokens = token_counter(response_text, model=model)
+            metadata.update({
+                "latency": latency,
+                "response_tokens": response_tokens,
+                "total_tokens": prompt_tokens + system_tokens + response_tokens,
+                "token_efficiency": response_tokens / (prompt_tokens + system_tokens) if (prompt_tokens + system_tokens) > 0 else 0,
+                "tokens_per_second": response_tokens / latency if latency > 0 else 0
+            })
+
+            self.metadata = metadata
+
+            return response_text, metadata
+
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            metadata["error"] = str(e)
+            return f"ERROR: {str(e)}", metadata
+
     def get_stats(self) -> Dict[str, Any]:
         """Return usage statistics."""
-        return {
-            "total_tokens": self.total_tokens_used,
-            "total_requests": self.total_requests,
-            "avg_tokens_per_request": self.total_tokens_used / max(1, self.total_requests)
-        }
+        return self.metadata
 
 # Initialize our LLM interface
 llm = SimpleLLM()
@@ -96,7 +143,7 @@ tokens = llm.count_tokens(atomic_prompt)
 print(f"\nAtomic Prompt: '{atomic_prompt}'")
 print(f"Token Count: {tokens}")
 print("\nGenerating response...")
-response = llm.generate(atomic_prompt)
+response, metadata = llm.generate_response(atomic_prompt)
 print(f"\nResponse:\n{response}")
 
 # ----- EXPERIMENT 2: ADDING CONSTRAINTS -----
@@ -118,7 +165,7 @@ for i, prompt in enumerate(prompts):
     print(f"Token Count: {tokens}")
     
     start_time = time.time()
-    response = llm.generate(prompt)
+    response, metadata = llm.generate_response(prompt)
     end_time = time.time()
     
     results.append({
@@ -171,7 +218,7 @@ tokens = llm.count_tokens(enhanced_prompt)
 print(f"\nEnhanced Prompt:\n'{enhanced_prompt}'")
 print(f"Token Count: {tokens}")
 
-response = llm.generate(enhanced_prompt)
+response, metadata = llm.generate_response(enhanced_prompt)
 print(f"\nResponse:\n{response}")
 
 # ----- EXPERIMENT 5: MEASURING CONSISTENCY -----
@@ -185,7 +232,7 @@ def measure_consistency(prompt: str, n_samples: int = 3) -> Dict[str, Any]:
     total_tokens = 0
     
     for _ in range(n_samples):
-        response = llm.generate(prompt)
+        response, metadata = llm.generate_response(prompt)
         responses.append(response)
         total_tokens += llm.count_tokens(prompt)
     
@@ -215,7 +262,9 @@ print("2. There's an ROI curve where token count and quality find an optimal bal
 print("3. Adding minimal but strategic context improves consistency")
 print("4. The best prompts are clear, concise, and provide just enough context")
 
-print("\nTotal tokens used in this notebook:", llm.get_stats()["total_tokens"])
+print("\nTotal tokens used:", llm.get_stats()["total_tokens"])
+print("\nToken efficiency:", llm.get_stats()["token_efficiency"])
+print("\nTokens per second:", llm.get_stats()["tokens_per_second"])
 
 # ----- NEXT STEPS -----
 print("\n----- NEXT STEPS -----")
