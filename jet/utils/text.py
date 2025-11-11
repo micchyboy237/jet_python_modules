@@ -136,6 +136,36 @@ def format_sub_source_dir(source: str) -> str:
     return formatted.strip('_')
 
 
+def format_double_single_braces(text: str) -> str:
+    """
+    Convert every standalone '{' or '}' in ``text`` to doubled form ``{{`` or ``}}``.
+
+    Consecutive braces like ``{{`` or ``}}`` (including triples, etc.) are left untouched
+    as long as they form runs of the same brace.
+
+    Args:
+        text: Input string that may contain braces.
+
+    Returns:
+        String with only isolated single braces doubled.
+
+    Examples:
+        >>> double_single_braces("a { b } c")
+        'a {{ b }} c'
+        >>> double_single_braces("{{already}} doubled")
+        '{{already}} doubled'
+        >>> double_single_braces("{{{}}}")
+        '{{{}}}'
+    """
+    # Pattern matches a single '{' or '}' that is NOT part of any consecutive pair
+    # - For '{': not preceded by '{' and not followed by '{'
+    # - For '}': not preceded by '}' and not followed by '}'
+    _SINGLE_BRACE_PATTERN: re.Pattern[str] = re.compile(
+        r'(?<!\{)\{(?!\{)|(?<!\})\}(?!\})'
+    )
+    return _SINGLE_BRACE_PATTERN.sub(lambda m: m.group(0) * 2, text)
+
+
 __all__ = [
     "fix_and_unidecode",
     "has_non_ascii",
@@ -146,4 +176,5 @@ __all__ = [
     "remove_substring",
     "format_sub_dir",
     "format_sub_source_dir",
+    "format_double_single_braces",
 ]

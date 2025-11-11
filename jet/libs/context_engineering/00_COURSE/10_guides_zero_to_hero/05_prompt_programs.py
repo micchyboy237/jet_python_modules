@@ -40,6 +40,8 @@ import shutil
 import pathlib
 import logging
 
+from jet.utils.text import format_double_single_braces
+
 BASE_OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
 shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
 BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -988,8 +990,7 @@ and producing outputs that adhere to the specified schema."""
                     params_text.append(f"{k}={v}")
 
             params_str = ", ".join(params_text) if params_text else ""
-            # ← 5 opening + 5 closing braces → renders as literal {params}
-            steps_text.append(f"    /{step_name}{{{{{params_str}}}}}")  
+            steps_text.append(f"    /{step_name}{{{{{params_str}}}}}")  # Escaped for literal braces
 
         process_text = ",\n".join(steps_text)
 
@@ -1014,7 +1015,7 @@ and producing outputs that adhere to the specified schema."""
         shell_template = raw_template.format(
             shell_name=self.shell_name,
             intent=self.intent,
-            process_text=process_text,
+            process_text=format_double_single_braces(process_text),
             version=self.meta.get('version', '1.0.0'),
             agent_signature=self.meta.get('agent_signature', 'Context-Engineering')
         )
