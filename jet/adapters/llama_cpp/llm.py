@@ -374,7 +374,74 @@ class LlamacppLLM:
         raw_json = response.choices[0].message.content or ""
         if self.verbose:
             logger.teal(raw_json)
+
+        self._chat_logger.log_interaction(**{
+            "messages": messages,
+            "response": raw_json,
+            "model": self.model,
+            "response_format": {"type": "json_object", "schema": response_model.model_json_schema()},
+            "method": "chat",
+            "temperature": temperature,
+        })
+
         return response_model.model_validate_json(raw_json)
+
+    # === Sync Structured Stream ===
+    def chat_structured_stream(
+        self,
+        messages: List[ChatMessage],
+        response_model: type[BaseModel],
+        temperature: float = 0.0,
+    ) -> Iterator[BaseModel]:
+        """
+        Stream structured JSON objects using Pydantic model.
+        Yields partial model instances as valid JSON accumulates.
+        """
+        response = self.sync_client.chat.completions.create(
+            model=self.model,
+            messages=messages,  # type: ignore[arg-type]
+            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
+            temperature=temperature,
+            stream=True,
+        )
+        buffer = ""
+        for chunk in response:
+            if not chunk.choices or chunk.choices[0].delta.content is None:
+                continue
+            content: str = chunk.choices[0].delta.content
+            if self.verbose:
+                logger.teal(content, flush=True)
+            buffer += content
+
+            # Try to parse complete JSON objects
+            while "}" in buffer:
+                try:
+                    obj, rest = buffer.split("}", 1)
+                    obj += "}"
+                    if "{" in obj:
+                        yield response_model.model_validate_json(obj)
+                        buffer = rest.lstrip()
+                    else:
+                        buffer = obj + rest
+                        break
+                except Exception:
+                    break
+
+        # Final parse for remaining buffer
+        if buffer.strip().startswith("{") and buffer.strip().endswith("}"):
+            try:
+                yield response_model.model_validate_json(buffer)
+            except Exception:
+                pass
+
+        self._chat_logger.log_interaction(
+            messages=messages,
+            response=buffer,
+            model=self.model,
+            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
+            method="stream_chat",
+            temperature=temperature,
+        )
 
     # === Async Chat ===
     async def achat(
@@ -538,4 +605,69 @@ class LlamacppLLM:
         raw_json = response.choices[0].message.content or ""
         if self.verbose:
             logger.teal(raw_json)
+
+        self._chat_logger.log_interaction(**{
+            "messages": messages,
+            "response": raw_json,
+            "model": self.model,
+            "response_format": {"type": "json_object", "schema": response_model.model_json_schema()},
+            "method": "chat",
+            "temperature": temperature,
+        })
+
         return response_model.model_validate_json(raw_json)
+
+    # === Async Structured Stream ===
+    async def achat_structured_stream(
+        self,
+        messages: List[ChatMessage],
+        response_model: type[BaseModel],
+        temperature: float = 0.0,
+    ) -> AsyncIterator[BaseModel]:
+        """
+        Async version of structured streaming.
+        Yields partial Pydantic models as JSON chunks form valid objects.
+        """
+        response = await self.async_client.chat.completions.create(
+            model=self.model,
+            messages=messages,  # type: ignore[arg-type]
+            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
+            temperature=temperature,
+            stream=True,
+        )
+        buffer = ""
+        async for chunk in response:
+            if not chunk.choices or chunk.choices[0].delta.content is None:
+                continue
+            content: str = chunk.choices[0].delta.content
+            if self.verbose:
+                logger.teal(content, flush=True)
+            buffer += content
+
+            while "}" in buffer:
+                try:
+                    obj, rest = buffer.split("}", 1)
+                    obj += "}"
+                    if "{" in obj:
+                        yield response_model.model_validate_json(obj)
+                        buffer = rest.lstrip()
+                    else:
+                        buffer = obj + rest
+                        break
+                except Exception:
+                    break
+
+        if buffer.strip().startswith("{") and buffer.strip().endswith("}"):
+            try:
+                yield response_model.model_validate_json(buffer)
+            except Exception:
+                pass
+
+        self._chat_logger.log_interaction(
+            messages=messages,
+            response=buffer,
+            model=self.model,
+            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
+            method="stream_chat",
+            temperature=temperature,
+        )
