@@ -45,8 +45,8 @@ include_files = [
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/pyrightconfig.json",
 
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/context_engineering/00_COURSE/10_guides_zero_to_hero/07_recursive_patterns.py",
 
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm.py",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/context_engineering/00_COURSE/10_guides_zero_to_hero/01_min_prompt.py",
 ]
 
@@ -63,7 +63,9 @@ SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = """
-Now update this code so that it saves all results under separate OUTPUT_DIR/<example_*> folder instead of just displaying images, html, markdown, etc.
+Update this code so that it saves all results under separate OUTPUT_DIR/<example_*> folder.
+Save results with appropriate extension such as json, images (.png), html (.html), markdown (.md), etc.
+You may improve llm response by using the best llm methods in LlamacppLLM (use stream methods so I can see verbosed chunk logs). For ex. if the response needs to be structured, use chat_structured_stream and create the models.
 Write individual example_* functions demonstrating all possible use cases.
 Add a main block if not yet added.
 Write step by step analysis before providing me with the diff changes
