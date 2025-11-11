@@ -30,6 +30,8 @@ import re
 import json
 import time
 import tiktoken
+import pathlib
+from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional, Union, Callable, TypeVar
 
 # Type variables for better type hinting
@@ -40,10 +42,21 @@ Response = Union[str, Dict[str, Any]]
 import logging
 import numpy as np
 import matplotlib.pyplot as plt
-from IPython.display import display, Markdown, HTML
+from IPython.display import display, Markdown, HTML  # Keep for notebook compatibility
 
 from jet._token.token_utils import token_counter
 from jet.adapters.llama_cpp.llm import LlamacppLLM
+import shutil
+
+OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+# Results directory with timestamped run
+RESULTS_DIR = OUTPUT_DIR / "results"
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
+RUN_DIR = RESULTS_DIR / f"run_{RUN_ID}"
+RUN_DIR.mkdir(parents=True, exist_ok=True)
 
 # Configure logging
 logging.basicConfig(
@@ -234,28 +247,36 @@ def format_metrics(metrics: Dict[str, Any]) -> str:
     return " | ".join([f"{k}: {v}" for k, v in key_metrics.items()])
 
 
+# --- Helper: Save text content ---
+def _save_text(content: str, filepath: pathlib.Path) -> None:
+    """Save string content to a file."""
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    filepath.write_text(content, encoding="utf-8")
+
+
+# --- Helper: Save plot ---
+def _save_plot(fig: plt.Figure, filepath: pathlib.Path) -> None:
+    """Save matplotlib figure to PNG and close."""
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(filepath, bbox_inches="tight", dpi=150)
+    plt.close(fig)
+
+
+# Keep original display_response for notebook use (optional)
 def display_response(
     prompt: str,
     response: str,
     metrics: Dict[str, Any],
     show_prompt: bool = True
 ) -> None:
-    """
-    Display a prompt-response pair with metrics in a notebook.
-    
-    Args:
-        prompt: The prompt text
-        response: The response text
-        metrics: Metrics dictionary
-        show_prompt: Whether to show the prompt text
-    """
+    """Display in notebook (no-op in script mode)."""
+    if "IPython" not in globals():
+        return
     if show_prompt:
         display(HTML("<h4>Prompt:</h4>"))
         display(Markdown(f"```\n{prompt}\n```"))
-    
     display(HTML("<h4>Response:</h4>"))
     display(Markdown(response))
-    
     display(HTML("<h4>Metrics:</h4>"))
     display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
 
@@ -380,59 +401,58 @@ class ControlLoop:
         return summary
     
     def visualize_metrics(self) -> None:
-        """
-        Create visualization of metrics across steps.
-        """
+        """Save metrics visualization to PNG in results directory."""
         if not self.history:
             logger.warning("No history to visualize")
             return
-        
-        # Extract data for plotting
+
         steps = list(range(1, len(self.history) + 1))
         prompt_tokens = [h["metrics"].get("prompt_tokens", 0) for h in self.history]
         response_tokens = [h["metrics"].get("response_tokens", 0) for h in self.history]
         latencies = [h["metrics"].get("latency", 0) for h in self.history]
         efficiencies = [h["metrics"].get("token_efficiency", 0) for h in self.history]
-        
-        # Create figure
+
         fig, axes = plt.subplots(2, 2, figsize=(12, 8))
         fig.suptitle("Control Loop Metrics by Step", fontsize=16)
-        
-        # Plot 1: Token usage
+
+        # Plot 1
         axes[0, 0].bar(steps, prompt_tokens, label="Prompt Tokens", color="blue", alpha=0.7)
-        axes[0, 0].bar(steps, response_tokens, bottom=prompt_tokens, label="Response Tokens", 
-                       color="green", alpha=0.7)
+        axes[0, 0].bar(steps, response_tokens, bottom=prompt_tokens, label="Response Tokens", color="green", alpha=0.7)
         axes[0, 0].set_title("Token Usage")
         axes[0, 0].set_xlabel("Step")
         axes[0, 0].set_ylabel("Tokens")
         axes[0, 0].legend()
         axes[0, 0].grid(alpha=0.3)
-        
-        # Plot 2: Latency
+
+        # Plot 2
         axes[0, 1].plot(steps, latencies, marker='o', color="red", alpha=0.7)
         axes[0, 1].set_title("Latency")
         axes[0, 1].set_xlabel("Step")
         axes[0, 1].set_ylabel("Seconds")
         axes[0, 1].grid(alpha=0.3)
-        
-        # Plot 3: Token Efficiency
+
+        # Plot 3
         axes[1, 0].plot(steps, efficiencies, marker='s', color="purple", alpha=0.7)
         axes[1, 0].set_title("Token Efficiency (Response/Prompt)")
         axes[1, 0].set_xlabel("Step")
         axes[1, 0].set_ylabel("Ratio")
         axes[1, 0].grid(alpha=0.3)
-        
-        # Plot 4: Cumulative Tokens
+
+        # Plot 4
         cumulative_tokens = np.cumsum([h["metrics"].get("total_tokens", 0) for h in self.history])
         axes[1, 1].plot(steps, cumulative_tokens, marker='^', color="orange", alpha=0.7)
         axes[1, 1].set_title("Cumulative Token Usage")
         axes[1, 1].set_xlabel("Step")
         axes[1, 1].set_ylabel("Total Tokens")
         axes[1, 1].grid(alpha=0.3)
-        
+
         plt.tight_layout()
         plt.subplots_adjust(top=0.9)
-        plt.show()
+
+        plot_path = RUN_DIR / f"metrics_{self.__class__.__name__.lower()}.png"
+        _save_plot(fig, plot_path)
+        logger.info(f"Metrics plot saved: {plot_path}")
+
 
 
 class SequentialChain(ControlLoop):
@@ -501,50 +521,40 @@ class SequentialChain(ControlLoop):
             current_input = response
         
         return current_input, all_outputs
-    
-    def display_chain_results(self, all_outputs: Dict[str, Any]) -> None:
-        """
-        Display the results of each step in the chain.
-        
-        Args:
-            all_outputs: Output dictionary from run()
-        """
-        display(HTML("<h2>Sequential Chain Results</h2>"))
-        
-        # Display initial input
-        display(HTML("<h3>Initial Input</h3>"))
-        display(Markdown(all_outputs["initial_input"]))
-        
-        # Display each step
+
+    def save_chain_results(self, all_outputs: Dict[str, Any], example_name: str) -> None:
+        """Save all chain results to disk."""
+        base = RUN_DIR / example_name / "sequential_chain"
+        base.mkdir(parents=True, exist_ok=True)
+
+        # Initial input
+        _save_text(all_outputs["initial_input"], base / "00_initial_input.txt")
+
+        # Each step
         for i, step in enumerate(self.steps):
             step_name = step["name"]
-            if step_name in all_outputs:
-                step_output = all_outputs[step_name]
-                
-                display(HTML(f"<h3>Step {i+1}: {step_name}</h3>"))
-                
-                # Display prompt
-                display(HTML("<h4>Prompt:</h4>"))
-                display(Markdown(f"```\n{step_output['prompt']}\n```"))
-                
-                # Display response
-                display(HTML("<h4>Response:</h4>"))
-                display(Markdown(step_output["response"]))
-                
-                # Display metrics
-                display(HTML("<h4>Metrics:</h4>"))
-                display(Markdown(f"```\n{format_metrics(step_output['metrics'])}\n```"))
-        
-        # Display summary metrics
-        display(HTML("<h3>Summary Metrics</h3>"))
+            data = all_outputs[step_name]
+            step_dir = base / f"{i+1:02d}_{step_name}"
+            step_dir.mkdir(exist_ok=True)
+            _save_text(data["prompt"], step_dir / "prompt.txt")
+            _save_text(data["response"], step_dir / "response.txt")
+            _save_text(format_metrics(data["metrics"]), step_dir / "metrics.txt")
+
+        # Summary
         summary = self.get_summary_metrics()
-        display(Markdown(f"""
-        - Total Steps: {summary['steps']}
-        - Total Tokens: {summary['total_tokens']}
-        - Total Latency: {summary['total_latency']:.2f}s
-        - Avg. Latency per Step: {summary.get('avg_latency_per_step', 0):.2f}s
-        - Overall Efficiency: {summary.get('overall_efficiency', 0):.2f}
-        """))
+        summary_text = f"""
+
+Total Steps: {summary['steps']}
+Total Tokens: {summary['total_tokens']}
+Total Latency: {summary['total_latency']:.2f}s
+Avg. Latency per Step: {summary.get('avg_latency_per_step', 0):.2f}s
+Overall Efficiency: {summary.get('overall_efficiency', 0):.2f}
+"""
+        _save_text(summary_text.strip(), base / "summary.txt")
+
+        # Full JSON
+        with open(base / "full_results.json", "w", encoding="utf-8") as f:
+            json.dump(all_outputs, f, indent=2, ensure_ascii=False)
 
 
 class IterativeRefiner(ControlLoop):
@@ -686,51 +696,41 @@ class IterativeRefiner(ControlLoop):
                 should_continue = not self.stopping_condition(current_response, refine_metadata)
         
         return current_response, refinement_history
-    
-    def display_refinement_history(self, refinement_history: Dict[str, Any]) -> None:
-        """
-        Display the refinement history in a notebook.
-        
-        Args:
-            refinement_history: Refinement history from run()
-        """
-        display(HTML("<h2>Iterative Refinement Results</h2>"))
-        
-        # Display initial prompt and response
-        display(HTML("<h3>Initial Prompt</h3>"))
-        display(Markdown(f"```\n{refinement_history['initial']['prompt']}\n```"))
-        
-        display(HTML("<h3>Initial Response</h3>"))
-        display(Markdown(refinement_history['initial']['response']))
-        
-        # Display refinement iterations
-        for iteration in refinement_history["iterations"]:
-            iteration_num = iteration["iteration"]
-            
-            display(HTML(f"<h3>Iteration {iteration_num}</h3>"))
-            
-            # Display feedback
-            display(HTML("<h4>Feedback:</h4>"))
-            display(Markdown(iteration["feedback"]))
-            
-            # Display refined response
-            display(HTML("<h4>Refined Response:</h4>"))
-            display(Markdown(iteration["refined_response"]))
-            
-            # Display metrics
-            display(HTML("<h4>Metrics:</h4>"))
-            metrics = iteration["refinement_metrics"]
-            display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
-        
-        # Display summary
-        display(HTML("<h3>Refinement Summary</h3>"))
-        total_iterations = len(refinement_history["iterations"])
-        display(Markdown(f"""
-        - Initial prompt tokens: {refinement_history['initial']['metrics']['prompt_tokens']}
-        - Initial response tokens: {refinement_history['initial']['metrics']['response_tokens']}
-        - Total refinement iterations: {total_iterations}
-        - Final response tokens: {refinement_history['iterations'][-1]['refinement_metrics']['response_tokens'] if total_iterations > 0 else refinement_history['initial']['metrics']['response_tokens']}
-        """))
+
+    def save_refinement_history(self, refinement_history: Dict[str, Any], example_name: str) -> None:
+        """Save refinement history to disk."""
+        base = RUN_DIR / example_name / "iterative_refiner"
+        base.mkdir(parents=True, exist_ok=True)
+
+        init = refinement_history["initial"]
+        _save_text(init["prompt"], base / "00_initial_prompt.txt")
+        _save_text(init["response"], base / "00_initial_response.txt")
+        _save_text(format_metrics(init["metrics"]), base / "00_initial_metrics.txt")
+
+        for it in refinement_history["iterations"]:
+            it_dir = base / f"iteration_{it['iteration']:02d}"
+            it_dir.mkdir(exist_ok=True)
+            _save_text(it["feedback"], it_dir / "feedback.txt")
+            _save_text(it["refined_response"], it_dir / "response.txt")
+            _save_text(format_metrics(it["refinement_metrics"]), it_dir / "metrics.txt")
+
+        total_iters = len(refinement_history["iterations"])
+        final_tokens = (
+            refinement_history["iterations"][-1]["refinement_metrics"]["response_tokens"]
+            if total_iters > 0 else init["metrics"]["response_tokens"]
+        )
+        summary_text = f"""
+
+Initial prompt tokens: {init['metrics']['prompt_tokens']}
+Initial response tokens: {init['metrics']['response_tokens']}
+Total refinement iterations: {total_iters}
+Final response tokens: {final_tokens}
+"""
+        _save_text(summary_text.strip(), base / "summary.txt")
+
+        with open(base / "full_history.json", "w", encoding="utf-8") as f:
+            json.dump(refinement_history, f, indent=2, ensure_ascii=False)
+
 
 
 class ConditionalBrancher(ControlLoop):
@@ -882,42 +882,27 @@ class ConditionalBrancher(ControlLoop):
         }
         
         return response, run_details
-    
-    def display_branching_results(self, run_details: Dict[str, Any]) -> None:
-        """
-        Display the results of conditional branching in a notebook.
-        
-        Args:
-            run_details: Run details from run()
-        """
-        display(HTML("<h2>Conditional Branching Results</h2>"))
-        
-        # Display input
-        display(HTML("<h3>Input</h3>"))
-        display(Markdown(run_details["input"]))
-        
-        # Display classification if available
+
+    def save_branching_results(self, run_details: Dict[str, Any], query: str, example_name: str) -> None:
+        """Save branching results per query."""
+        safe_query = re.sub(r"[^\w\-_.]", "_", query)[:50]
+        base = RUN_DIR / example_name / "conditional_brancher" / safe_query
+        base.mkdir(parents=True, exist_ok=True)
+
+        _save_text(run_details["input"], base / "input.txt")
+
         if "classification" in run_details:
-            display(HTML("<h3>Classification</h3>"))
-            branch = run_details["classification"]["branch"]
-            display(Markdown(f"Selected branch: **{branch}**"))
-            
-            # Display classification metrics
-            display(HTML("<h4>Classification Metrics:</h4>"))
-            metrics = run_details["classification"]["metrics"]
-            display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
-        
-        # Display execution results
-        display(HTML("<h3>Execution Results</h3>"))
-        display(HTML("<h4>Branch:</h4>"))
-        display(Markdown(f"**{run_details['execution']['branch']}**"))
-        
-        display(HTML("<h4>Response:</h4>"))
-        display(Markdown(run_details["execution"]["response"]))
-        
-        display(HTML("<h4>Execution Metrics:</h4>"))
-        metrics = run_details["execution"]["metrics"]
-        display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
+            cls = run_details["classification"]
+            _save_text(cls["branch"], base / "classified_branch.txt")
+            _save_text(format_metrics(cls["metrics"]), base / "classification_metrics.txt")
+
+        exec_data = run_details["execution"]
+        _save_text(exec_data["branch"], base / "executed_branch.txt")
+        _save_text(exec_data["response"], base / "response.txt")
+        _save_text(format_metrics(exec_data["metrics"]), base / "execution_metrics.txt")
+
+        with open(base / "full_details.json", "w", encoding="utf-8") as f:
+            json.dump(run_details, f, indent=2, ensure_ascii=False)
 
 
 class SelfCritique(ControlLoop):
@@ -991,45 +976,29 @@ class SelfCritique(ControlLoop):
         # Return final response (or full response if parsing failed)
         final_response = sections.get("final_response", response)
         return final_response, run_details
-    
-    def display_results(self, run_details: Dict[str, Any]) -> None:
-        """
-        Display the self-critique results in a notebook.
-        
-        Args:
-            run_details: Run details from run()
-        """
-        display(HTML("<h2>Self-Critique Results</h2>"))
-        
-        # Display input
-        display(HTML("<h3>Input</h3>"))
-        display(Markdown(run_details["input"]))
-        
-        # Display parsed sections if available
-        if "sections" in run_details and run_details["sections"]:
-            sections = run_details["sections"]
-            
-            if "initial_response" in sections:
-                display(HTML("<h3>Initial Response</h3>"))
-                display(Markdown(sections["initial_response"]))
-            
-            if "critique" in sections:
-                display(HTML("<h3>Self-Critique</h3>"))
-                display(Markdown(sections["critique"]))
-            
-            if "final_response" in sections:
-                display(HTML("<h3>Final Response</h3>"))
-                display(Markdown(sections["final_response"]))
-        
-        # Display full response if no sections
-        elif "full_response" in run_details:
-            display(HTML("<h3>Full Response</h3>"))
-            display(Markdown(run_details["full_response"]))
-        
-        # Display metrics
-        display(HTML("<h3>Metrics</h3>"))
-        metrics = run_details["metrics"]
-        display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
+
+    def save_results(self, run_details: Dict[str, Any], example_name: str) -> None:
+        """Save self-critique results."""
+        base = RUN_DIR / example_name / "self_critique"
+        base.mkdir(parents=True, exist_ok=True)
+
+        _save_text(run_details["input"], base / "input.txt")
+        _save_text(run_details["full_response"], base / "full_response.txt")
+
+        sections = run_details.get("sections", {})
+        if "initial_response" in sections:
+            _save_text(sections["initial_response"], base / "initial_response.txt")
+        if "critique" in sections:
+            _save_text(sections["critique"], base / "critique.txt")
+        if "final_response" in sections:
+            _save_text(sections["final_response"], base / "final_response.txt")
+        elif "full_response" in sections:
+            _save_text(sections["full_response"], base / "final_response.txt")
+
+        _save_text(format_metrics(run_details["metrics"]), base / "metrics.txt")
+
+        with open(base / "full_details.json", "w", encoding="utf-8") as f:
+            json.dump(run_details, f, indent=2, ensure_ascii=False)
 
 
 class ExternalValidation(ControlLoop):
@@ -1143,56 +1112,38 @@ class ExternalValidation(ControlLoop):
         }
         
         return current_response, run_details
-    
-    def display_results(self, run_details: Dict[str, Any]) -> None:
-        """
-        Display the external validation results in a notebook.
-        
-        Args:
-            run_details: Run details from run()
-        """
-        display(HTML("<h2>External Validation Results</h2>"))
-        
-        # Display input
-        display(HTML("<h3>Input</h3>"))
-        display(Markdown(run_details["input"]))
-        
-        # Display attempts
-        for attempt_data in run_details["attempts"]:
-            attempt_num = attempt_data["attempt"]
-            display(HTML(f"<h3>Attempt {attempt_num}</h3>"))
-            
-            # Display response
-            display(HTML("<h4>Response:</h4>"))
-            display(Markdown(attempt_data["response"]))
-            
-            # Display validation results
-            if not attempt_data["validation"]["pending"]:
-                is_valid = attempt_data["validation"]["is_valid"]
-                display(HTML("<h4>Validation:</h4>"))
-                
-                if is_valid:
-                    display(HTML("<p style='color: green; font-weight: bold;'>✓ Valid</p>"))
-                else:
-                    display(HTML("<p style='color: red; font-weight: bold;'>✗ Invalid</p>"))
-                    display(HTML("<h4>Feedback:</h4>"))
-                    display(Markdown(attempt_data["validation"]["feedback"]))
-            
-            # Display metrics
-            display(HTML("<h4>Metrics:</h4>"))
-            metrics = attempt_data["metrics"]
-            display(Markdown(f"```\n{format_metrics(metrics)}\n```"))
-        
-        # Display summary
-        display(HTML("<h3>Summary</h3>"))
-        is_valid = run_details["is_valid"]
-        status = "✓ Valid" if is_valid else "✗ Invalid"
-        display(Markdown(f"""
-        - Final status: **{status}**
-        - Total attempts: {run_details['attempts_count']}
-        - Total tokens: {self.metrics['total_tokens']}
-        - Total latency: {self.metrics['total_latency']:.2f}s
-        """))
+
+    def save_results(self, run_details: Dict[str, Any], example_name: str) -> None:
+        """Save validation loop results."""
+        base = RUN_DIR / example_name / "external_validation"
+        base.mkdir(parents=True, exist_ok=True)
+
+        _save_text(run_details["input"], base / "input.txt")
+
+        for attempt in run_details["attempts"]:
+            a_dir = base / f"attempt_{attempt['attempt']:02d}"
+            a_dir.mkdir(exist_ok=True)
+            _save_text(attempt["response"], a_dir / "response.txt")
+            _save_text(format_metrics(attempt["metrics"]), a_dir / "metrics.txt")
+
+            val = attempt["validation"]
+            if not val["pending"]:
+                status = "VALID" if val["is_valid"] else "INVALID"
+                _save_text(status, a_dir / "validation_status.txt")
+                if not val["is_valid"]:
+                    _save_text(val["feedback"], a_dir / "validation_feedback.txt")
+
+        summary_text = f"""
+
+Final status: {'VALID' if run_details['is_valid'] else 'INVALID'}
+Total attempts: {run_details['attempts_count']}
+Total tokens: {self.metrics['total_tokens']}
+Total latency: {self.metrics['total_latency']:.2f}s
+"""
+        _save_text(summary_text.strip(), base / "summary.txt")
+
+        with open(base / "full_details.json", "w", encoding="utf-8") as f:
+            json.dump(run_details, f, indent=2, ensure_ascii=False)
 
 
 # Example Usage
@@ -1231,13 +1182,8 @@ def example_sequential_chain():
     """
     
     final_output, all_outputs = chain.run(sample_text)
-    
-    # Display results
-    chain.display_chain_results(all_outputs)
-    
-    # Visualize metrics
+    chain.save_chain_results(all_outputs, "example_01_sequential")
     chain.visualize_metrics()
-    
     return final_output, all_outputs
 
 
@@ -1259,13 +1205,8 @@ def example_iterative_refiner():
     prompt = "Write a short essay on the future of artificial intelligence."
     
     final_response, refinement_history = refiner.run(prompt)
-    
-    # Display results
-    refiner.display_refinement_history(refinement_history)
-    
-    # Visualize metrics
+    refiner.save_refinement_history(refinement_history, "example_02_refiner")
     refiner.visualize_metrics()
-    
     return final_response, refinement_history
 
 
@@ -1295,16 +1236,11 @@ def example_conditional_brancher():
     ]
     
     results = []
-    for query in queries:
+    for i, query in enumerate(queries):
         response, run_details = brancher.run(query)
+        brancher.save_branching_results(run_details, query, f"example_03_brancher/query_{i+1:02d}")
         results.append((query, response, run_details))
-        
-        # Display results
-        brancher.display_branching_results(run_details)
-    
-    # Visualize metrics
     brancher.visualize_metrics()
-    
     return results
 
 
@@ -1332,13 +1268,8 @@ def example_self_critique():
     query = "What were the major causes of World War I and how did they lead to the conflict?"
     
     final_response, run_details = critique.run(query)
-    
-    # Display results
-    critique.display_results(run_details)
-    
-    # Visualize metrics
+    critique.save_results(run_details, "example_04_selfcritique")
     critique.visualize_metrics()
-    
     return final_response, run_details
 
 
@@ -1371,59 +1302,53 @@ def example_external_validation():
     prompt = "Write a Python function to check if a string is a palindrome."
     
     final_response, run_details = validator.run(prompt)
-    
-    # Display results
-    validator.display_results(run_details)
-    
-    # Visualize metrics
+    validator.save_results(run_details, "example_05_validation")
     validator.visualize_metrics()
-    
     return final_response, run_details
 
 
 # Main execution (when run as a script)
 if __name__ == "__main__":
-    print("Control Loops for Multi-Step LLM Interactions")
-    print("Running all examples...\n")
+    print(f"Running all examples → {RUN_DIR}")
+    print("="*60)
 
     # Example 1: Sequential Chain
     print("="*60)
     print("EXAMPLE 1: Sequential Chain (Entity → Relationships → Report)")
     print("="*60)
-    final_output, all_outputs = example_sequential_chain()
-    print(f"\nFinal Report:\n{final_output}\n")
+    example_sequential_chain()
 
     # Example 2: Iterative Refiner
     print("="*60)
     print("EXAMPLE 2: Iterative Refiner (Essay on AI Future)")
     print("="*60)
-    final_response, refinement_history = example_iterative_refiner()
-    print(f"\nFinal Essay:\n{final_response}\n")
+    example_iterative_refiner()
 
     # Example 3: Conditional Brancher
     print("="*60)
     print("EXAMPLE 3: Conditional Brancher (Query Routing)")
     print("="*60)
-    results = example_conditional_brancher()
-    for query, response, _ in results:
-        print(f"\nQuery: {query}")
-        print(f"Response: {response[:200]}{'...' if len(response) > 200 else ''}\n")
+    example_conditional_brancher()
 
     # Example 4: Self-Critique
     print("="*60)
     print("EXAMPLE 4: Self-Critique (WW1 Causes)")
     print("="*60)
-    final_response, run_details = example_self_critique()
-    print(f"\nFinal Answer:\n{final_response}\n")
+    example_self_critique()
 
     # Example 5: External Validation
     print("="*60)
     print("EXAMPLE 5: External Validation (Palindrome Function)")
     print("="*60)
-    final_response, run_details = example_external_validation()
-    print(f"\nFinal Code:\n{final_response}\n")
+    example_external_validation()
 
     print("="*60)
-    print("ALL EXAMPLES COMPLETED SUCCESSFULLY!")
-    print("You can now explore the visualizations, metrics, and full outputs above.")
+    print(f"ALL RESULTS SAVED TO: {RUN_DIR}")
+    print("Structure:")
+    print("  ├── example_01_sequential/")
+    print("  ├── example_02_refiner/")
+    print("  ├── example_03_brancher/query_01_.../")
+    print("  ├── example_04_selfcritique/")
+    print("  ├── example_05_validation/")
+    print("  └── metrics_*.png")
     print("="*60)

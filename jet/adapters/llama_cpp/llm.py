@@ -1,10 +1,14 @@
 import json
+import os
 from typing import Any, AsyncIterator, Callable, Dict, Iterator, List, Optional, Union, Literal, TypedDict
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 from jet.adapters.llama_cpp.utils import resolve_model_value
+from jet.llm.config import DEFAULT_LOG_DIR
+from jet.llm.logger_utils import ChatLogger
 from jet.logger import logger
+from jet.utils.text import format_sub_dir
 
 
 # === Strict TypedDict for OpenAI-compatible messages ===
@@ -39,12 +43,18 @@ class LlamacppLLM:
         api_key: str = "sk-1234",
         max_retries: int = 3,
         verbose: bool = False,
+        agent_name: Optional[str] = None,
+        log_dir: str = DEFAULT_LOG_DIR,
     ):
         """Initialize sync and async clients with model resolution."""
         self.model = resolve_model_value(model)
         self.sync_client = OpenAI(base_url=base_url, api_key=api_key, max_retries=max_retries)
         self.async_client = AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=max_retries)
         self.verbose = verbose
+
+        if agent_name:
+            log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
+        self._chat_logger = ChatLogger(log_dir)
 
     # === Sync Chat ===
     def chat(
@@ -66,17 +76,35 @@ class LlamacppLLM:
         )
         if stream:
             def stream_generator() -> Iterator[str]:
+                response_text = ""
                 for chunk in response:
                     if chunk.choices and chunk.choices[0].delta.content is not None:
                         content: str = chunk.choices[0].delta.content
                         if self.verbose:
                             logger.teal(content, flush=True)
                         yield content
+                        response_text += content
+
+                self._chat_logger.log_interaction(
+                    messages=messages,
+                    response=response_text,
+                    model=self.model,
+                    method="stream_chat",
+                )
+
             return stream_generator()
 
         content = response.choices[0].message.content
         if self.verbose:
             logger.teal(content)
+
+        self._chat_logger.log_interaction(
+            messages=messages,
+            response=content,
+            model=self.model,
+            method="chat",
+        )
+
         return content
 
     # === Sync Chat Stream ===
@@ -93,12 +121,21 @@ class LlamacppLLM:
             max_tokens=max_tokens,
             stream=True,
         )
+        response_text = ""
         for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content is not None:
                 content: str = chunk.choices[0].delta.content
                 if self.verbose:
                     logger.teal(content, flush=True)
                 yield chunk
+                response_text += content
+
+        self._chat_logger.log_interaction(
+            messages=messages,
+            response=response_text,
+            model=self.model,
+            method="stream_chat",
+        )
 
     # === Async Chat Stream ===
     async def achat_stream(
@@ -114,12 +151,21 @@ class LlamacppLLM:
             max_tokens=max_tokens,
             stream=True,
         )
+        response_text = ""
         async for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content is not None:
                 content: str = chunk.choices[0].delta.content
                 if self.verbose:
                     logger.teal(content, flush=True)
                 yield chunk
+                response_text += content
+
+        self._chat_logger.log_interaction(
+            messages=messages,
+            response=response_text,
+            model=self.model,
+            method="stream_chat",
+        )
 
     # === Sync Completions ===
     def generate(
@@ -139,16 +185,34 @@ class LlamacppLLM:
         )
         if stream:
             def stream_generator() -> Iterator[str]:
+                response_text = ""
                 for chunk in response:
                     if chunk.choices and chunk.choices[0].text is not None:
                         content = chunk.choices[0].text
                         if self.verbose:
                             logger.teal(content, flush=True)
                         yield content
+                        response_text += content
+
+                self._chat_logger.log_interaction(
+                    messages=prompt,
+                    response=response_text,
+                    model=self.model,
+                    method="stream_generate",
+                )
+
             return stream_generator()
         content = response.choices[0].text
         if self.verbose:
             logger.teal(content)
+
+        self._chat_logger.log_interaction(
+            messages=prompt,
+            response=content,
+            model=self.model,
+            method="generate",
+        )
+
         return content
 
     # === Tools (Sync) ===
@@ -203,6 +267,13 @@ class LlamacppLLM:
             content = message.content or ""
             if self.verbose:
                 logger.teal(content)
+
+            self._chat_logger.log_interaction(**{
+                **create_kwargs,
+                "response": content,
+                "method": "chat",
+            })
+
             return content
 
         # Step 2: Build updated message history with assistant intent
@@ -277,6 +348,13 @@ class LlamacppLLM:
         final_content = final_response.choices[0].message.content or ""
         if self.verbose:
             logger.teal(final_content)
+
+        self._chat_logger.log_interaction(**{
+            **create_kwargs,
+            "response": final_content,
+            "method": "chat",
+        })
+
         return final_content
 
     # === Structured Outputs (Sync) ===
@@ -318,12 +396,22 @@ class LlamacppLLM:
         )
         if stream:
             async def stream_generator() -> AsyncIterator[str]:
+                response_text = ""
                 async for chunk in response:
                     if chunk.choices and chunk.choices[0].delta.content is not None:
                         content: str = chunk.choices[0].delta.content
                         if self.verbose:
                             logger.teal(content, flush=True)
                         yield content
+                        response_text += content
+
+                self._chat_logger.log_interaction(
+                    messages=messages,
+                    response=response_text,
+                    model=self.model,
+                    method="stream_chat",
+                )
+
             return stream_generator()
 
         content = response.choices[0].message.content
@@ -349,12 +437,22 @@ class LlamacppLLM:
         )
         if stream:
             async def stream_generator() -> AsyncIterator[str]:
+                response_text = ""
                 async for chunk in response:
                     if chunk.choices and chunk.choices[0].text is not None:
                         content: str = chunk.choices[0].text
                         if self.verbose:
                             logger.teal(content, flush=True)
                         yield content
+                        response_text += content
+
+                self._chat_logger.log_interaction(
+                    messages=prompt,
+                    response=response_text,
+                    model=self.model,
+                    method="stream_generate",
+                )
+
             return stream_generator()
 
         content = response.choices[0].text

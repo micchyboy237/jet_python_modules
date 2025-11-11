@@ -11,6 +11,8 @@ from jet._token.token_utils import token_counter
 from shared.setup.events import EventSettings
 
 
+ChatLoggerMethod = Literal["chat", "stream_chat", "generate", "stream_generate"]
+
 ALLOWED_METHODS = {"chat", "stream_chat", "generate", "stream_generate"}
 
 
@@ -25,7 +27,7 @@ class ChatLogger:
     def __init__(
         self,
         log_dir: str,
-        method: Literal["chat", "stream_chat", "generate", "stream_generate"] = "chat",
+        method: ChatLoggerMethod = "chat",
         limit: Optional[int] = None
     ):
         if method not in ALLOWED_METHODS:
@@ -48,10 +50,10 @@ class ChatLogger:
 
     def log_interaction(
         self,
-        messages: Union[str, List[Message]],
+        messages: Union[str, List[dict], List[Message]],
         response: Union[str, CompletionResponse, List[CompletionResponse]],
         model: str,
-        method: Optional[str] = None,
+        method: Optional[ChatLoggerMethod] = None,
         **kwargs: Any
     ) -> None:
         """Log prompt or messages and response to a timestamped file with additional metadata."""
