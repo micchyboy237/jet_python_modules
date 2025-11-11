@@ -202,6 +202,8 @@ def save_recursive_pattern(
     html_lines += ["<h3>Final Output</h3>", "<pre><code>"]
     if isinstance(final_output, str):
         html_lines.append(final_output)
+    elif isinstance(final_output, BaseModel):
+        html_lines.append(json.dumps(final_output.model_json_schema(), indent=2))
     else:
         html_lines.append(json.dumps(final_output, indent=2))
     html_lines += ["</code></pre>"]
