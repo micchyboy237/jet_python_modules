@@ -1522,67 +1522,67 @@ if __name__ == "__main__":
     print("Running Prompt Programs Demonstrations...")
     print(f"All outputs will be saved under: {BASE_OUTPUT_DIR.resolve()}\n")
 
-    # # Example 1: Step-by-step mathematical reasoning
-    # example_1_dir = BASE_OUTPUT_DIR / "example_1_math_reasoning"
-    # program1 = StepByStepReasoning(
-    #     name="Cylindrical Tank Problem Solver",
-    #     description="Solves water tank volume and rate problems step-by-step",
-    #     verification_enabled=True,
-    #     verbose=True
-    # )
-    # problem1 = textwrap.dedent("""\
-    #     A cylindrical water tank has a radius of 4 meters and a height of 10 meters.
-    #     If water is flowing into the tank at a rate of 2 cubic meters per minute,
-    #     how long will it take for the water level to reach 7 meters?
-    #     """)
-    # results1 = program1.execute(problem1)
-    # display_program_output(
-    #     program_name=program1.name,
-    #     input_data=problem1,
-    #     output_data=results1,
-    #     state_history=program1.state_history,
-    #     metrics=program1.get_summary_metrics(),
-    #     output_dir=example_1_dir
-    # )
-    # program1.visualize_metrics(example_dir=example_1_dir)
-    # program1._save_history(example_1_dir)
+    # Example 1: Step-by-step mathematical reasoning
+    example_1_dir = BASE_OUTPUT_DIR / "example_1_math_reasoning"
+    program1 = StepByStepReasoning(
+        name="Cylindrical Tank Problem Solver",
+        description="Solves water tank volume and rate problems step-by-step",
+        verification_enabled=True,
+        verbose=True
+    )
+    problem1 = textwrap.dedent("""\
+        A cylindrical water tank has a radius of 4 meters and a height of 10 meters.
+        If water is flowing into the tank at a rate of 2 cubic meters per minute,
+        how long will it take for the water level to reach 7 meters?
+        """)
+    results1 = program1.execute(problem1)
+    display_program_output(
+        program_name=program1.name,
+        input_data=problem1,
+        output_data=results1,
+        state_history=program1.state_history,
+        metrics=program1.get_summary_metrics(),
+        output_dir=example_1_dir
+    )
+    program1.visualize_metrics(example_dir=example_1_dir)
+    program1._save_history(example_1_dir)
 
-    # # Example 2: Comparative technology analysis
-    # example_2_dir = BASE_OUTPUT_DIR / "example_2_tech_comparison"
-    # criteria = [
-    #     "Initial cost",
-    #     "Operational efficiency",
-    #     "Environmental impact",
-    #     "Scalability",
-    #     "Technological maturity"
-    # ]
-    # program2 = ComparativeAnalysis(
-    #     name="Renewable Energy Comparison",
-    #     description="Compares renewable energy options for a city grid",
-    #     criteria=criteria,
-    #     verification_enabled=True,
-    #     verbose=True
-    # )
-    # analysis_request = textwrap.dedent("""\
-    #     Compare the following renewable energy technologies for a mid-sized city's power grid:
-    #     1. Solar photovoltaic (PV) farms
-    #     2. Onshore wind farms
-    #     3. Hydroelectric power
-    #     4. Biomass energy plants
-    #     Consider their suitability for a region with moderate sunlight, consistent winds,
-    #     a major river, and significant agricultural activity.
-    #     """)
-    # results2 = program2.execute(analysis_request)
-    # display_program_output(
-    #     program_name=program2.name,
-    #     input_data=analysis_request,
-    #     output_data=results2,
-    #     state_history=program2.state_history,
-    #     metrics=program2.get_summary_metrics(),
-    #     output_dir=example_2_dir
-    # )
-    # program2.visualize_metrics(example_dir=example_2_dir)
-    # program2._save_history(example_2_dir)
+    # Example 2: Comparative technology analysis
+    example_2_dir = BASE_OUTPUT_DIR / "example_2_tech_comparison"
+    criteria = [
+        "Initial cost",
+        "Operational efficiency",
+        "Environmental impact",
+        "Scalability",
+        "Technological maturity"
+    ]
+    program2 = ComparativeAnalysis(
+        name="Renewable Energy Comparison",
+        description="Compares renewable energy options for a city grid",
+        criteria=criteria,
+        verification_enabled=True,
+        verbose=True
+    )
+    analysis_request = textwrap.dedent("""\
+        Compare the following renewable energy technologies for a mid-sized city's power grid:
+        1. Solar photovoltaic (PV) farms
+        2. Onshore wind farms
+        3. Hydroelectric power
+        4. Biomass energy plants
+        Consider their suitability for a region with moderate sunlight, consistent winds,
+        a major river, and significant agricultural activity.
+        """)
+    results2 = program2.execute(analysis_request)
+    display_program_output(
+        program_name=program2.name,
+        input_data=analysis_request,
+        output_data=results2,
+        state_history=program2.state_history,
+        metrics=program2.get_summary_metrics(),
+        output_dir=example_2_dir
+    )
+    program2.visualize_metrics(example_dir=example_2_dir)
+    program2._save_history(example_2_dir)
 
     # Example 3: Field protocol shell for recommendation system design
     example_3_dir = BASE_OUTPUT_DIR / "example_3_recommendation_shell"
