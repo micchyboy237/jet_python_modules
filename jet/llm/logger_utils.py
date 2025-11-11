@@ -1,10 +1,12 @@
 import os
 from datetime import datetime, UTC
 from typing import Any, Literal, Optional, Union, List
+from pydantic import BaseModel
 
 from jet.file.utils import save_file
 from jet.models.model_types import CompletionResponse, Message
 from jet.transformers.formatters import format_json
+from jet.transformers.object import make_serializable
 from jet.utils.inspect_utils import get_method_info
 from jet._token.token_utils import token_counter
 
@@ -123,6 +125,8 @@ class ChatLogger:
                 choices = resp_copy.pop("choices")
                 resp_copy["choices"] = choices
             log_data["response"] = format_json(resp_copy, indent=2)
+        elif isinstance(response, BaseModel):
+            log_data["response"] = make_serializable(response)
         else:
             log_data["response"] = str(response)
 

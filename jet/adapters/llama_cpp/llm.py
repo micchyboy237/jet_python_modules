@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 from typing import Any, AsyncIterator, Callable, Dict, Iterator, List, Optional, Union, Literal, TypedDict
 from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletion
@@ -54,6 +55,9 @@ class LlamacppLLM:
 
         if agent_name:
             log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
+
+        shutil.rmtree(log_dir, ignore_errors=True)
+
         self._chat_logger = ChatLogger(log_dir)
 
     # === Sync Chat ===
@@ -390,22 +394,35 @@ class LlamacppLLM:
     def chat_structured_stream(
         self,
         messages: List[ChatMessage],
-        response_model: type[BaseModel],
+        response_model: Any,  # BaseModel or TypeAdapter(List[T])
         temperature: float = 0.0,
-    ) -> Iterator[BaseModel]:
+    ) -> Iterator[Any]:
         """
-        Stream structured JSON objects using Pydantic model.
-        Yields partial model instances as valid JSON accumulates.
+        Stream structured output with NO duplicates.
+        - Single object → yields once
+        - List[T] → yields only NEW items as they complete
         """
+        # Determine schema and validator
+        if hasattr(response_model, "model_json_schema"):  # single BaseModel
+            schema = response_model.model_json_schema()
+            validate_fn = response_model.model_validate_json
+            is_list = False
+        else:  # TypeAdapter(List[...])
+            schema = response_model.json_schema()
+            validate_fn = response_model.validate_json
+            is_list = True
+
         response = self.sync_client.chat.completions.create(
             model=self.model,
-            messages=messages,  # type: ignore[arg-type]
-            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
+            messages=messages,
+            response_format={"type": "json_object", "schema": schema},
             temperature=temperature,
             stream=True,
         )
+
         buffer = ""
-        response_objects = []
+        seen_items: list[Any] = []  # Track yielded items (for lists only)
+
         for chunk in response:
             if not chunk.choices or chunk.choices[0].delta.content is None:
                 continue
@@ -414,38 +431,56 @@ class LlamacppLLM:
                 logger.teal(content, flush=True)
             buffer += content
 
-            # Try to parse complete JSON objects
-            while "}" in buffer:
-                try:
-                    obj, rest = buffer.split("}", 1)
-                    obj += "}"
-                    if "{" in obj:
-                        response_obj = response_model.model_validate_json(obj)
-                        yield response_obj
-                        response_objects.append(response_obj)
-                        buffer = rest.lstrip()
-                    else:
-                        buffer = obj + rest
-                        break
-                except Exception:
-                    break
+            stripped = buffer.strip()
+            if not (stripped.startswith("{") or stripped.startswith("[")):
+                continue
 
-        # Final parse for remaining buffer
-        if buffer.strip().startswith("{") and buffer.strip().endswith("}"):
             try:
-                response_obj = response_model.model_validate_json(buffer)
-                yield response_obj
-                response_objects.append(response_obj)
+                parsed = validate_fn(stripped)
+
+                if not is_list:
+                    # Single object: yield once and done
+                    seen_items.append(parsed)
+                    yield parsed
+                    buffer = ""  # prevent re-yielding
+                    continue
+
+                # List mode: yield only NEW items
+                new_items = parsed[len(seen_items):]
+                for item in new_items:
+                    seen_items.append(item)
+                    yield item
+
             except Exception:
+                # Not complete yet
                 pass
+
+        # Final parse
+        if buffer.strip():
+            try:
+                final_parsed = validate_fn(buffer.strip())
+
+                if not is_list:
+                    if final_parsed not in seen_items:
+                        seen_items.append(final_parsed)
+                        yield final_parsed
+                else:
+                    new_items = final_parsed[len(seen_items):]
+                    for item in new_items:
+                        seen_items.append(item)
+                        yield item
+
+            except Exception as e:
+                if self.verbose:
+                    logger.warning(f"Final parse failed: {e}")
 
         self._chat_logger.log_interaction(
             messages=messages,
-            response=response_objects,
+            response=seen_items if is_list else (seen_items[0] if seen_items else None),
             model=self.model,
-            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
             method="stream_chat",
             temperature=temperature,
+            response_format={"type": "json_object", "schema": schema},
         )
 
     # === Async Chat ===
@@ -626,53 +661,76 @@ class LlamacppLLM:
     async def achat_structured_stream(
         self,
         messages: List[ChatMessage],
-        response_model: type[BaseModel],
+        response_model: Any,
         temperature: float = 0.0,
-    ) -> AsyncIterator[BaseModel]:
+    ) -> AsyncIterator[Any]:
         """
-        Async version of structured streaming.
-        Yields partial Pydantic models as JSON chunks form valid objects.
+        Async structured streaming output with NO duplicates.
+        - Single object → yields once when complete
+        - List[T] → yields only NEW items as they become valid
         """
+        if hasattr(response_model, "model_json_schema"):
+            schema = response_model.model_json_schema()
+            validate_fn = response_model.model_validate_json
+            is_list = False
+        else:
+            schema = response_model.json_schema()
+            validate_fn = response_model.validate_json
+            is_list = True
         response = await self.async_client.chat.completions.create(
             model=self.model,
-            messages=messages,  # type: ignore[arg-type]
-            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
+            messages=messages,
+            response_format={"type": "json_object", "schema": schema},
             temperature=temperature,
             stream=True,
         )
         buffer = ""
-        async for chunk in response:
-            if not chunk.choices or chunk.choices[0].delta.content is None:
-                continue
-            content: str = chunk.choices[0].delta.content
-            if self.verbose:
-                logger.teal(content, flush=True)
-            buffer += content
-
-            while "}" in buffer:
+        seen_items: list[Any] = []
+        try:
+            async for chunk in response:
+                if not chunk.choices or chunk.choices[0].delta.content is None:
+                    continue
+                content: str = chunk.choices[0].delta.content
+                if self.verbose:
+                    logger.teal(content, flush=True)
+                buffer += content
+                stripped = buffer.strip()
+                if not (stripped.startswith("{") or stripped.startswith("[")):
+                    continue
                 try:
-                    obj, rest = buffer.split("}", 1)
-                    obj += "}"
-                    if "{" in obj:
-                        yield response_model.model_validate_json(obj)
-                        buffer = rest.lstrip()
-                    else:
-                        buffer = obj + rest
-                        break
+                    parsed = validate_fn(stripped)
+                    if not is_list:
+                        seen_items.append(parsed)
+                        yield parsed
+                        buffer = ""
+                        continue
+                    new_items = parsed[len(seen_items):]
+                    for item in new_items:
+                        seen_items.append(item)
+                        yield item
                 except Exception:
-                    break
-
-        if buffer.strip().startswith("{") and buffer.strip().endswith("}"):
-            try:
-                yield response_model.model_validate_json(buffer)
-            except Exception:
-                pass
-
-        self._chat_logger.log_interaction(
-            messages=messages,
-            response=buffer,
-            model=self.model,
-            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
-            method="stream_chat",
-            temperature=temperature,
-        )
+                    pass
+            if buffer.strip():
+                try:
+                    final_parsed = validate_fn(buffer.strip())
+                    if not is_list:
+                        if final_parsed not in seen_items:
+                            seen_items.append(final_parsed)
+                            yield final_parsed
+                    else:
+                        new_items = final_parsed[len(seen_items):]
+                        for item in new_items:
+                            seen_items.append(item)
+                            yield item
+                except Exception as e:
+                    if self.verbose:
+                        logger.warning(f"Final parse failed: {e}")
+        finally:
+            self._chat_logger.log_interaction(
+                messages=messages,
+                response=seen_items if is_list else (seen_items[0] if seen_items else None),
+                model=self.model,
+                method="stream_chat",
+                temperature=temperature,
+                response_format={"type": "json_object", "schema": schema},
+            )
