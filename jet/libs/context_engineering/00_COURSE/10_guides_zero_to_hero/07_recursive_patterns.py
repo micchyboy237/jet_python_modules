@@ -74,8 +74,8 @@ except ImportError:
 
 # Constants
 DEFAULT_MODEL = "qwen3-instruct-2507:4b"
-DEFAULT_TEMPERATURE = 0.7
-DEFAULT_MAX_TOKENS = 1000
+DEFAULT_TEMPERATURE = 0.3
+DEFAULT_MAX_TOKENS = None
 
 # --- Add structured response models ---
 
