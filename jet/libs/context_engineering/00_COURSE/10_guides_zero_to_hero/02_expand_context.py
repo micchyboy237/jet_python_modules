@@ -25,46 +25,33 @@ Notes:
     - Use as a practical foundation for developing advanced context engineering protocols.
 """
 
-## Setup and Prerequisites
-
-Let's first import the necessary libraries:
-
-
-```python
-import os
 import json
 import time
-import tiktoken  # OpenAI's tokenizer
-import numpy as np
 import matplotlib.pyplot as plt
-from typing import Dict, List, Tuple, Any, Optional, Union
+from typing import Dict, List, Tuple, Any, Optional
+from datetime import datetime
 
 # Load environment variables (you'll need to add your API key in a .env file)
-# For OpenAI API key
 import dotenv
+
 dotenv.load_dotenv()
 
-# Define API clients (choose one based on your preference)
-USE_OPENAI = True  # Set to False to use another provider
+from jet._token.token_utils import token_counter
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+import shutil
+import pathlib
 
-if USE_OPENAI:
-    from openai import OpenAI
-    client = OpenAI()
-    MODEL = "gpt-3.5-turbo"  # You can change to gpt-4 or other models
-else:
-    # Add alternative API client setup here
-    # e.g., Anthropic, Cohere, etc.
-    pass
 
-# Token counter setup
-tokenizer = tiktoken.encoding_for_model(MODEL) if USE_OPENAI else None
+OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+MODEL = "qwen3-instruct-2507:4b"
+client = LlamacppLLM(model=MODEL, verbose=True)
 
 def count_tokens(text: str) -> int:
     """Count tokens in a string using the appropriate tokenizer."""
-    if tokenizer:
-        return len(tokenizer.encode(text))
-    # Fallback for non-OpenAI models (rough approximation)
-    return len(text.split()) * 1.3  # Rough approximation
+    return token_counter(text, model=MODEL)
 
 def measure_latency(func, *args, **kwargs) -> Tuple[Any, float]:
     """Measure execution time of a function."""
@@ -72,27 +59,13 @@ def measure_latency(func, *args, **kwargs) -> Tuple[Any, float]:
     result = func(*args, **kwargs)
     end_time = time.time()
     return result, end_time - start_time
-```
 
-## 1. Understanding Context Expansion
-
-In the previous notebook (`01_min_prompt.ipynb`), we explored the basics of atomic prompts. Now we'll see how to strategically expand these atoms into molecules (richer context structures).
-
-Let's define some utility functions for measuring context effectiveness:
-
-
-```python
 def calculate_metrics(prompt: str, response: str, latency: float) -> Dict[str, float]:
     """Calculate key metrics for a prompt-response pair."""
     prompt_tokens = count_tokens(prompt)
     response_tokens = count_tokens(response)
-    
-    # Simple token efficiency (response tokens / prompt tokens)
     token_efficiency = response_tokens / prompt_tokens if prompt_tokens > 0 else 0
-    
-    # Latency per 1k tokens
     latency_per_1k = (latency / prompt_tokens) * 1000 if prompt_tokens > 0 else 0
-    
     return {
         "prompt_tokens": prompt_tokens,
         "response_tokens": response_tokens,
@@ -103,159 +76,156 @@ def calculate_metrics(prompt: str, response: str, latency: float) -> Dict[str, f
 
 def generate_response(prompt: str) -> Tuple[str, float]:
     """Generate a response from the LLM and measure latency."""
-    if USE_OPENAI:
-        start_time = time.time()
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=500
-        )
-        latency = time.time() - start_time
-        return response.choices[0].message.content, latency
-    else:
-        # Add your alternative API call here
-        pass
-```
+    start_time = time.time()
+    response_stream = client.chat(
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+        max_tokens=500,
+        stream=True
+    )
+    response = ""
+    for chunk in response_stream:
+        response += chunk
+    latency = time.time() - start_time
+    return response, latency
 
-## 2. Experiment: Context Expansion Techniques
+def save_example_artifacts(example_dir: pathlib.Path, data: Dict[str, Any]):
+    """Save all artifacts for an example."""
+    example_dir.mkdir(parents=True, exist_ok=True)
 
-Let's examine different techniques to expand a basic prompt, measuring the impact of each expansion:
+    # Save prompt
+    if "prompt" in data:
+        (example_dir / "prompt.md").write_text(data["prompt"], encoding="utf-8")
 
+    # Save response
+    if "response" in data:
+        (example_dir / "response.md").write_text(data["response"], encoding="utf-8")
 
-```python
-# Base prompt (atom)
-base_prompt = "Write a paragraph about climate change."
+    # Save metrics
+    if "metrics" in data:
+        (example_dir / "metrics.json").write_text(json.dumps(data["metrics"], indent=2), encoding="utf-8")
 
-# Expanded prompt variations (molecules)
-expanded_prompts = {
-    "base": base_prompt,
-    
-    "with_role": """You are an environmental scientist with expertise in climate systems. 
+    # Save plot
+    if "plot_path" in data:
+        plt.savefig(data["plot_path"], bbox_inches="tight", dpi=150)
+        plt.close()
+
+    # Save extra files
+    for key, content in data.get("extra_files", {}).items():
+        path = example_dir / key
+        if isinstance(content, dict):
+            path.write_text(json.dumps(content, indent=2), encoding="utf-8")
+        else:
+            path.write_text(content, encoding="utf-8")
+
+    # Save summary
+    summary_lines = []
+    if "title" in data:
+        summary_lines.append(f"# {data['title']}\n")
+    if "description" in data:
+        summary_lines.append(data["description"] + "\n")
+    if "results" in data:
+        summary_lines.append("## Results\n")
+        for r in data["results"]:
+            summary_lines.append(f"- {r.get('name', 'Variant')}: {r.get('prompt_tokens', 0)} prompt tokens")
+    (example_dir / "SUMMARY.md").write_text("\n".join(summary_lines), encoding="utf-8")
+
+def example_1_prompt_variants():
+    """Experiment 1: Base vs expanded prompts."""
+    example_dir = OUTPUT_DIR / "example_1_prompt_variants"
+    base_prompt = "Write a paragraph about climate change."
+    expanded_prompts = {
+        "base": base_prompt,
+        "with_role": """You are an environmental scientist with expertise in climate systems.
 Write a paragraph about climate change.""",
-    
-    "with_examples": """Write a paragraph about climate change.
-
+        "with_examples": """Write a paragraph about climate change.
 Example 1:
 Climate change refers to long-term shifts in temperatures and weather patterns. Human activities have been the main driver of climate change since the 1800s, primarily due to the burning of fossil fuels like coal, oil, and gas, which produces heat-trapping gases.
-
 Example 2:
 Global climate change is evident in the increasing frequency of extreme weather events, rising sea levels, and shifting wildlife populations. Scientific consensus points to human activity as the primary cause.""",
-    
-    "with_constraints": """Write a paragraph about climate change.
+        "with_constraints": """Write a paragraph about climate change.
 - Include at least one scientific fact with numbers
 - Mention both causes and effects
 - End with a call to action
 - Keep the tone informative but accessible""",
-    
-    "with_audience": """Write a paragraph about climate change for high school students who are
-just beginning to learn about environmental science. Use clear explanations 
+        "with_audience": """Write a paragraph about climate change for high school students who are
+just beginning to learn about environmental science. Use clear explanations
 and relatable examples.""",
-    
-    "comprehensive": """You are an environmental scientist with expertise in climate systems.
-
+        "comprehensive": """You are an environmental scientist with expertise in climate systems.
 Write a paragraph about climate change for high school students who are
-just beginning to learn about environmental science. Use clear explanations 
+just beginning to learn about environmental science. Use clear explanations
 and relatable examples.
-
 Guidelines:
 - Include at least one scientific fact with numbers
 - Mention both causes and effects
 - End with a call to action
 - Keep the tone informative but accessible
-
 Example of tone and structure:
 "Ocean acidification occurs when seawater absorbs CO2 from the atmosphere, causing pH levels to drop. Since the Industrial Revolution, ocean pH has decreased by 0.1 units, representing a 30% increase in acidity. This affects marine life, particularly shellfish and coral reefs, as it impairs their ability to form shells and skeletons. Scientists predict that if emissions continue at current rates, ocean acidity could increase by 150% by 2100, devastating marine ecosystems. By reducing our carbon footprint through simple actions like using public transportation, we can help protect these vital ocean habitats."
 """
-}
+    }
 
-# Run experiments
-results = {}
-responses = {}
+    results = {}
+    responses = {}
+    for name, prompt in expanded_prompts.items():
+        response, latency = generate_response(prompt)
+        responses[name] = response
+        metrics = calculate_metrics(prompt, response, latency)
+        results[name] = metrics
 
-for name, prompt in expanded_prompts.items():
-    print(f"Testing prompt: {name}")
-    response, latency = generate_response(prompt)
-    responses[name] = response
-    metrics = calculate_metrics(prompt, response, latency)
-    results[name] = metrics
-    print(f"  Prompt tokens: {metrics['prompt_tokens']}")
-    print(f"  Response tokens: {metrics['response_tokens']}")
-    print(f"  Latency: {metrics['latency']:.2f}s")
-    print("-" * 40)
-```
+    # Save individual variants
+    for name in expanded_prompts:
+        sub_dir = example_dir / name
+        save_example_artifacts(sub_dir, {
+            "prompt": expanded_prompts[name],
+            "response": responses[name],
+            "metrics": results[name]
+        })
 
-## 3. Visualizing and Analyzing Results
+    # Generate and save plot
+    prompt_types = list(results.keys())
+    prompt_tokens = [results[k]['prompt_tokens'] for k in prompt_types]
+    response_tokens = [results[k]['response_tokens'] for k in prompt_types]
+    token_efficiency = [results[k]['token_efficiency'] for k in prompt_types]
+    latencies = [results[k]['latency'] for k in prompt_types]
 
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    axes[0, 0].bar(prompt_types, prompt_tokens, label='Prompt Tokens', alpha=0.7, color='blue')
+    axes[0, 0].bar(prompt_types, response_tokens, bottom=prompt_tokens, label='Response Tokens', alpha=0.7, color='green')
+    axes[0, 0].set_title('Token Usage by Prompt Type')
+    axes[0, 0].set_ylabel('Number of Tokens')
+    axes[0, 0].legend()
+    plt.setp(axes[0, 0].get_xticklabels(), rotation=45, ha='right')
 
-```python
-# Prepare data for visualization
-prompt_types = list(results.keys())
-prompt_tokens = [results[k]['prompt_tokens'] for k in prompt_types]
-response_tokens = [results[k]['response_tokens'] for k in prompt_types]
-latencies = [results[k]['latency'] for k in prompt_types]
+    axes[0, 1].bar(prompt_types, token_efficiency, color='purple', alpha=0.7)
+    axes[0, 1].set_title('Token Efficiency (Response/Prompt)')
+    axes[0, 1].set_ylabel('Efficiency Ratio')
+    plt.setp(axes[0, 1].get_xticklabels(), rotation=45, ha='right')
 
-# Create figure with multiple subplots
-fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    axes[1, 0].bar(prompt_types, latencies, color='red', alpha=0.7)
+    axes[1, 0].set_title('Response Latency')
+    axes[1, 0].set_ylabel('Seconds')
+    plt.setp(axes[1, 0].get_xticklabels(), rotation=45, ha='right')
 
-# Plot 1: Token Usage
-axes[0, 0].bar(prompt_types, prompt_tokens, label='Prompt Tokens', alpha=0.7, color='blue')
-axes[0, 0].bar(prompt_types, response_tokens, bottom=prompt_tokens, label='Response Tokens', alpha=0.7, color='green')
-axes[0, 0].set_title('Token Usage by Prompt Type')
-axes[0, 0].set_ylabel('Number of Tokens')
-axes[0, 0].legend()
-plt.setp(axes[0, 0].get_xticklabels(), rotation=45, ha='right')
+    latency_per_1k = [results[k]['latency_per_1k'] for k in prompt_types]
+    axes[1, 1].bar(prompt_types, latency_per_1k, color='orange', alpha=0.7)
+    axes[1, 1].set_title('Latency per 1k Tokens')
+    axes[1, 1].set_ylabel('Seconds per 1k Tokens')
+    plt.setp(axes[1, 1].get_xticklabels(), rotation=45, ha='right')
 
-# Plot 2: Token Efficiency (Response Tokens / Prompt Tokens)
-token_efficiency = [results[k]['token_efficiency'] for k in prompt_types]
-axes[0, 1].bar(prompt_types, token_efficiency, color='purple', alpha=0.7)
-axes[0, 1].set_title('Token Efficiency (Response/Prompt)')
-axes[0, 1].set_ylabel('Efficiency Ratio')
-plt.setp(axes[0, 1].get_xticklabels(), rotation=45, ha='right')
+    plt.tight_layout()
+    plot_path = example_dir / "token_analysis.png"
 
-# Plot 3: Latency
-axes[1, 0].bar(prompt_types, latencies, color='red', alpha=0.7)
-axes[1, 0].set_title('Response Latency')
-axes[1, 0].set_ylabel('Seconds')
-plt.setp(axes[1, 0].get_xticklabels(), rotation=45, ha='right')
+    save_example_artifacts(example_dir, {
+        "title": "Experiment 1: Prompt Variants",
+        "description": "Comparing base prompt with role, examples, constraints, audience, and comprehensive versions.",
+        "plot_path": str(plot_path),
+        "results": [{"name": k, **v} for k, v in results.items()],
+        "extra_files": {
+            "all_responses.txt": "\n\n".join([f"=== {k.upper()} ===\n\n{v}" for k, v in responses.items()])
+        }
+    })
 
-# Plot 4: Latency per 1k tokens
-latency_per_1k = [results[k]['latency_per_1k'] for k in prompt_types]
-axes[1, 1].bar(prompt_types, latency_per_1k, color='orange', alpha=0.7)
-axes[1, 1].set_title('Latency per 1k Tokens')
-axes[1, 1].set_ylabel('Seconds per 1k Tokens')
-plt.setp(axes[1, 1].get_xticklabels(), rotation=45, ha='right')
-
-plt.tight_layout()
-plt.show()
-```
-
-## 4. Qualitative Analysis
-
-Let's examine the actual responses to assess quality differences:
-
-
-```python
-for name, response in responses.items():
-    print(f"=== Response for {name} prompt ===")
-    print(response)
-    print("\n" + "=" * 80 + "\n")
-```
-
-## 5. Context Expansion Patterns
-
-Based on our experiments, we can identify several effective context expansion patterns:
-
-1. **Role Assignment**: Defining who the model should act as
-2. **Few-Shot Examples**: Providing sample outputs to guide response format and quality
-3. **Constraint Definition**: Setting boundaries and requirements for the response
-4. **Audience Specification**: Clarifying who the response is intended for
-5. **Comprehensive Context**: Combining multiple context elements strategically
-
-Let's formalize these patterns into a reusable template:
-
-
-```python
 def create_expanded_context(
     base_prompt: str, 
     role: Optional[str] = None,
@@ -267,170 +237,107 @@ def create_expanded_context(
 ) -> str:
     """
     Create an expanded context from a base prompt with optional components.
-    
-    Args:
-        base_prompt: The core instruction or question
-        role: Who the model should act as
-        examples: List of example outputs to guide the model
-        constraints: List of requirements or boundaries
-        audience: Who the output is intended for
-        tone: Desired tone of the response
-        output_format: Specific format requirements
-        
-    Returns:
-        Expanded context as a string
     """
     context_parts = []
-    
-    # Add role if provided
     if role:
         context_parts.append(f"You are {role}.")
-    
-    # Add base prompt
     context_parts.append(base_prompt)
-    
-    # Add audience if provided
     if audience:
         context_parts.append(f"Your response should be suitable for {audience}.")
-    
-    # Add tone if provided
     if tone:
         context_parts.append(f"Use a {tone} tone in your response.")
-    
-    # Add output format if provided
     if output_format:
         context_parts.append(f"Format your response as {output_format}.")
-    
-    # Add constraints if provided
     if constraints and len(constraints) > 0:
         context_parts.append("Requirements:")
         for constraint in constraints:
             context_parts.append(f"- {constraint}")
-    
-    # Add examples if provided
     if examples and len(examples) > 0:
         context_parts.append("Examples:")
         for i, example in enumerate(examples, 1):
             context_parts.append(f"Example {i}:\n{example}")
-    
-    # Join all parts with appropriate spacing
     expanded_context = "\n\n".join(context_parts)
-    
     return expanded_context
-```
 
-Let's test our template with a new prompt:
+def example_2_template_builder():
+    """Experiment 2: Dynamic context builder."""
+    example_dir = OUTPUT_DIR / "example_2_template_builder"
 
+    new_base_prompt = "Explain how photosynthesis works."
+    new_expanded_context = create_expanded_context(
+        base_prompt=new_base_prompt,
+        role="a biology teacher with 15 years of experience",
+        audience="middle school students",
+        tone="enthusiastic and educational",
+        constraints=[
+            "Use a plant-to-factory analogy",
+            "Mention the role of chlorophyll",
+            "Explain the importance for Earth's ecosystem",
+            "Keep it under 200 words"
+        ],
+        examples=[
+            "Photosynthesis is like a tiny factory inside plants. Just as a factory needs raw materials, energy, and workers to make products, plants need carbon dioxide, water, sunlight, and chlorophyll to make glucose (sugar) and oxygen. The sunlight is the energy source, chlorophyll molecules are the workers that capture this energy, while carbon dioxide and water are the raw materials. The factory's products are glucose, which the plant uses for growth and energy storage, and oxygen, which is released into the air for animals like us to breathe. This process is essential for life on Earth because it provides the oxygen we need and removes carbon dioxide from the atmosphere."
+        ]
+    )
 
-```python
-# Test our template
-new_base_prompt = "Explain how photosynthesis works."
+    response, latency = generate_response(new_expanded_context)
+    metrics = calculate_metrics(new_expanded_context, response, latency)
 
-new_expanded_context = create_expanded_context(
-    base_prompt=new_base_prompt,
-    role="a biology teacher with 15 years of experience",
-    audience="middle school students",
-    tone="enthusiastic and educational",
-    constraints=[
-        "Use a plant-to-factory analogy",
-        "Mention the role of chlorophyll",
-        "Explain the importance for Earth's ecosystem",
-        "Keep it under 200 words"
-    ],
-    examples=[
-        "Photosynthesis is like a tiny factory inside plants. Just as a factory needs raw materials, energy, and workers to make products, plants need carbon dioxide, water, sunlight, and chlorophyll to make glucose (sugar) and oxygen. The sunlight is the energy source, chlorophyll molecules are the workers that capture this energy, while carbon dioxide and water are the raw materials. The factory's products are glucose, which the plant uses for growth and energy storage, and oxygen, which is released into the air for animals like us to breathe. This process is essential for life on Earth because it provides the oxygen we need and removes carbon dioxide from the atmosphere."
-    ]
-)
+    save_example_artifacts(example_dir, {
+        "title": "Experiment 2: Template Context Builder",
+        "description": "Dynamically constructing context using role, audience, tone, constraints, and examples.",
+        "prompt": new_expanded_context,
+        "response": response,
+        "metrics": metrics
+    })
 
-print("Template-generated expanded context:")
-print("-" * 80)
-print(new_expanded_context)
-print("-" * 80)
-print(f"Token count: {count_tokens(new_expanded_context)}")
-
-# Generate a response using our expanded context
-response, latency = generate_response(new_expanded_context)
-metrics = calculate_metrics(new_expanded_context, response, latency)
-
-print("\nResponse:")
-print("-" * 80)
-print(response)
-print("-" * 80)
-print(f"Response tokens: {metrics['response_tokens']}")
-print(f"Latency: {metrics['latency']:.2f}s")
-```
-
-## 6. Advanced Context Expansion: Layer Optimization
-
-In real-world applications, we need to find the optimal balance between context richness and token efficiency. Let's experiment with a systematic approach to context layer optimization:
-
-
-```python
 def test_layered_contexts(base_prompt: str, context_layers: Dict[str, str]) -> Dict[str, Dict]:
     """
     Test different combinations of context layers to find optimal configurations.
-    
-    Args:
-        base_prompt: Core instruction
-        context_layers: Dictionary of layer name -> layer content
-        
-    Returns:
-        Results dictionary with metrics for each tested configuration
     """
     layer_results = {}
-    
-    # Test base prompt alone
-    print("Testing base prompt...")
     base_response, base_latency = generate_response(base_prompt)
     layer_results["base"] = {
         "prompt": base_prompt,
         "response": base_response,
         **calculate_metrics(base_prompt, base_response, base_latency)
     }
-    
-    # Test each layer individually added to base
     for layer_name, layer_content in context_layers.items():
         combined_prompt = f"{base_prompt}\n\n{layer_content}"
-        print(f"Testing base + {layer_name}...")
         response, latency = generate_response(combined_prompt)
         layer_results[f"base+{layer_name}"] = {
             "prompt": combined_prompt,
             "response": response,
             **calculate_metrics(combined_prompt, response, latency)
         }
-    
-    # Test all layers combined
     all_layers = "\n\n".join(context_layers.values())
     full_prompt = f"{base_prompt}\n\n{all_layers}"
-    print("Testing all layers combined...")
     full_response, full_latency = generate_response(full_prompt)
     layer_results["all_layers"] = {
         "prompt": full_prompt,
         "response": full_response,
         **calculate_metrics(full_prompt, full_response, full_latency)
     }
-    
     return layer_results
 
-# Define a base prompt and separate context layers
-layer_test_prompt = "Write code to implement a simple weather app."
+def example_3_layered_contexts():
+    """Experiment 3: Layer combination analysis."""
+    example_dir = OUTPUT_DIR / "example_3_layered_contexts"
 
-context_layers = {
-    "role": "You are a senior software engineer with expertise in full-stack development and UI/UX design.",
-    
-    "requirements": """Requirements:
+    layer_test_prompt = "Write code to implement a simple weather app."
+    context_layers = {
+        "role": "You are a senior software engineer with expertise in full-stack development and UI/UX design.",
+        "requirements": """Requirements:
 - The app should show current temperature, conditions, and forecast for the next 3 days
 - It should allow users to search for weather by city name
 - It should have a clean, responsive interface
 - The app should handle error states gracefully""",
-    
-    "tech_stack": """Technical specifications:
+        "tech_stack": """Technical specifications:
 - Use HTML, CSS, and vanilla JavaScript (no frameworks)
 - Use the OpenWeatherMap API for weather data
 - All code should be well-commented and follow best practices
 - Include both the HTML structure and JavaScript functionality""",
-    
-    "example": """Example structure (but improve upon this):
+        "example": """Example structure (but improve upon this):
 ```html
 <!DOCTYPE html>
 <html>
@@ -453,76 +360,71 @@ context_layers = {
 </body>
 </html>
 ```"""
-}
+    }
 
-# Run the layer optimization test
-layer_test_results = test_layered_contexts(layer_test_prompt, context_layers)
-```
+    layer_test_results = test_layered_contexts(layer_test_prompt, context_layers)
 
-Let's visualize the results of our layer optimization test:
+    # Save individual configs
+    for name, data in layer_test_results.items():
+        sub_dir = example_dir / name
+        save_example_artifacts(sub_dir, {
+            "prompt": data["prompt"],
+            "response": data["response"],
+            "metrics": {k: v for k, v in data.items() if k not in ["prompt", "response"]}
+        })
 
+    # Generate plot
+    config_names = list(layer_test_results.keys())
+    prompt_sizes = [layer_test_results[k]['prompt_tokens'] for k in config_names]
+    response_sizes = [layer_test_results[k]['response_tokens'] for k in config_names]
+    efficiencies = [layer_test_results[k]['token_efficiency'] for k in config_names]
 
-```python
-# Extract data for visualization
-config_names = list(layer_test_results.keys())
-prompt_sizes = [layer_test_results[k]['prompt_tokens'] for k in config_names]
-response_sizes = [layer_test_results[k]['response_tokens'] for k in config_names]
-efficiencies = [layer_test_results[k]['token_efficiency'] for k in config_names]
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+    axes[0].bar(config_names, prompt_sizes, label='Prompt Tokens', alpha=0.7, color='blue')
+    axes[0].bar(config_names, response_sizes, label='Response Tokens', alpha=0.7, color='green')
+    axes[0].set_title('Token Usage by Context Configuration')
+    axes[0].set_ylabel('Number of Tokens')
+    axes[0].legend()
+    plt.setp(axes[0].get_xticklabels(), rotation=45, ha='right')
 
-# Create visualization
-fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+    axes[1].bar(config_names, efficiencies, color='purple', alpha=0.7)
+    axes[1].set_title('Token Efficiency by Context Configuration')
+    axes[1].set_ylabel('Efficiency Ratio (Response/Prompt)')
+    plt.setp(axes[1].get_xticklabels(), rotation=45, ha='right')
 
-# Plot 1: Token usage by configuration
-axes[0].bar(config_names, prompt_sizes, label='Prompt Tokens', alpha=0.7, color='blue')
-axes[0].bar(config_names, response_sizes, label='Response Tokens', alpha=0.7, color='green')
-axes[0].set_title('Token Usage by Context Configuration')
-axes[0].set_ylabel('Number of Tokens')
-axes[0].legend()
-plt.setp(axes[0].get_xticklabels(), rotation=45, ha='right')
+    plt.tight_layout()
+    plot_path = example_dir / "layer_analysis.png"
 
-# Plot 2: Token efficiency by configuration
-axes[1].bar(config_names, efficiencies, color='purple', alpha=0.7)
-axes[1].set_title('Token Efficiency by Context Configuration')
-axes[1].set_ylabel('Efficiency Ratio (Response/Prompt)')
-plt.setp(axes[1].get_xticklabels(), rotation=45, ha='right')
+    most_efficient = max(config_names, key=lambda x: layer_test_results[x]['token_efficiency'])
 
-plt.tight_layout()
-plt.show()
+    save_example_artifacts(example_dir, {
+        "title": "Experiment 3: Layered Contexts",
+        "description": "Testing combinations of role, requirements, tech stack, and examples.",
+        "plot_path": str(plot_path),
+        "results": [{"name": k, **v} for k, v in layer_test_results.items()],
+        "extra_files": {
+            "summary.txt": f"Most token-efficient: {most_efficient}\n"
+                          f"Efficiency ratio: {layer_test_results[most_efficient]['token_efficiency']:.2f}\n\n"
+                          "All configurations:\n" + "\n".join([
+                              f"- {k}: {v['token_efficiency']:.3f} efficiency, {v['prompt_tokens']} prompt tokens"
+                              for k, v in layer_test_results.items()
+                          ]),
+            "full_results.json": layer_test_results
+        }
+    })
 
-# Identify the most efficient configuration
-most_efficient = max(config_names, key=lambda x: layer_test_results[x]['token_efficiency'])
-print(f"Most token-efficient configuration: {most_efficient}")
-print(f"Efficiency ratio: {layer_test_results[most_efficient]['token_efficiency']:.2f}")
-```
-
-## 7. Context Compression Techniques
-
-As we expand context, we often need to optimize for token usage. Let's explore some techniques for context compression:
-
-
-```python
 def compress_context(context: str, technique: str = 'summarize') -> str:
     """
     Apply different compression techniques to reduce token usage while preserving meaning.
-    
-    Args:
-        context: The context to compress
-        technique: Compression technique to use (summarize, keywords, bullet)
-        
-    Returns:
-        Compressed context
     """
     if technique == 'summarize':
-        # Use the LLM to summarize the context
         prompt = f"""Summarize the following context in a concise way that preserves all key information
 but uses fewer words. Focus on essential instructions and details:
 
 {context}"""
         compressed, _ = generate_response(prompt)
         return compressed
-    
     elif technique == 'keywords':
-        # Extract key terms and phrases
         prompt = f"""Extract the most important keywords, phrases, and instructions from this context:
 
 {context}
@@ -530,240 +432,70 @@ but uses fewer words. Focus on essential instructions and details:
 Format your response as a comma-separated list of essential terms and short phrases."""
         keywords, _ = generate_response(prompt)
         return keywords
-    
     elif technique == 'bullet':
-        # Convert to bullet points
         prompt = f"""Convert this context into a concise, structured list of bullet points that
 captures all essential information with minimal words:
 
 {context}"""
         bullets, _ = generate_response(prompt)
         return bullets
-    
     else:
         return context  # No compression
 
-# Test compression on our comprehensive example
-original_context = expanded_prompts["comprehensive"]
-print(f"Original context token count: {count_tokens(original_context)}")
-
-for technique in ['summarize', 'keywords', 'bullet']:
-    compressed = compress_context(original_context, technique)
-    compression_ratio = count_tokens(compressed) / count_tokens(original_context)
-    print(f"\n{technique.upper()} COMPRESSION:")
-    print("-" * 80)
-    print(compressed)
-    print("-" * 80)
-    print(f"Compressed token count: {count_tokens(compressed)}")
-    print(f"Compression ratio: {compression_ratio:.2f} (lower is better)")
-```
-
-## 8. Context Pruning: Deleting What Doesn't Help
-
-Sometimes adding context layers doesn't improve performance. Let's implement a method to measure and prune unnecessary context:
-
-
-```python
-def evaluate_response_quality(prompt: str, response: str, criteria: List[str]) -> float:
-    """
-    Use the LLM to evaluate the quality of a response based on specific criteria.
-    
-    Args:
-        prompt: The prompt that generated the response
-        response: The response to evaluate
-        criteria: List of criteria to evaluate against
-        
-    Returns:
-        Quality score from 0.0 to 1.0
-    """
-    criteria_list = "\n".join([f"- {c}" for c in criteria])
-    eval_prompt = f"""Rate the quality of the following response to a prompt. 
-    
-Prompt: 
-{prompt}
-
-Response:
-{response}
-
-Please evaluate based on these criteria:
-{criteria_list}
-
-For each criterion, rate from 0-10, then provide an overall score from 0.0 to 1.0 where 
-1.0 is perfect and 0.0 is completely inadequate. Format your response as:
-
-Criterion 1: [score] - [brief comment]
-Criterion 2: [score] - [brief comment]
-...
-Overall Score: [0.0-1.0]
+def example_4_compression_techniques():
+    """Experiment 4: Context compression."""
+    example_dir = OUTPUT_DIR / "example_4_compression_techniques"
+    # Fix: expanded_prompts is defined in example_1 — make local copy
+    original_context = """You are an environmental scientist with expertise in climate systems.
+Write a paragraph about climate change for high school students who are
+just beginning to learn about environmental science. Use clear explanations
+and relatable examples.
+Guidelines:
+- Include at least one scientific fact with numbers
+- Mention both causes and effects
+- End with a call to action
+- Keep the tone informative but accessible
+Example of tone and structure:
+"Ocean acidification occurs when seawater absorbs CO2 from the atmosphere, causing pH levels to drop. Since the Industrial Revolution, ocean pH has decreased by 0.1 units, representing a 30% increase in acidity. This affects marine life, particularly shellfish and coral reefs, as it impairs their ability to form shells and skeletons. Scientists predict that if emissions continue at current rates, ocean acidity could increase by 150% by 2100, devastating marine ecosystems. By reducing our carbon footprint through simple actions like using public transportation, we can help protect these vital ocean habitats."
 """
-    
-    evaluation, _ = generate_response(eval_prompt)
-    
-    # Extract overall score
-    try:
-        # Find the last occurrence of a decimal number following "Overall Score:"
-        import re
-        score_match = re.findall(r"Overall Score:\s*([0-9]*\.?[0-9]+)", evaluation)
-        if score_match:
-            return float(score_match[-1])
-        else:
-            return 0.5  # Default if parsing fails
-    except:
-        return 0.5  # Default if parsing fails
+    original_tokens = count_tokens(original_context)
 
-def prune_context_layers(base_prompt: str, layers: Dict[str, str], criteria: List[str]) -> Tuple[str, Dict]:
-    """
-    Systematically test and prune context layers that don't improve response quality.
-    
-    Args:
-        base_prompt: Core instruction
-        layers: Dictionary of context layer name -> content
-        criteria: Evaluation criteria for responses
-        
-    Returns:
-        Tuple of (optimized prompt, results dictionary)
-    """
-    print("Testing baseline...")
-    base_response, base_latency = generate_response(base_prompt)
-    base_quality = evaluate_response_quality(base_prompt, base_response, criteria)
-    
-    results = {
-        "base": {
-            "prompt": base_prompt,
-            "response": base_response,
-            "quality": base_quality,
-            "tokens": count_tokens(base_prompt),
-            "latency": base_latency
-        }
-    }
-    
-    # Add all layers
-    all_layers_text = "\n\n".join(layers.values())
-    full_prompt = f"{base_prompt}\n\n{all_layers_text}"
-    print("Testing all layers...")
-    full_response, full_latency = generate_response(full_prompt)
-    full_quality = evaluate_response_quality(full_prompt, full_response, criteria)
-    
-    results["all_layers"] = {
-        "prompt": full_prompt,
-        "response": full_response,
-        "quality": full_quality,
-        "tokens": count_tokens(full_prompt),
-        "latency": full_latency
-    }
-    
-    # Test removing one layer at a time
-    best_quality = full_quality
-    best_config = "all_layers"
-    
-    for layer_to_remove in layers.keys():
-        remaining_layers = {k: v for k, v in layers.items() if k != layer_to_remove}
-        remaining_text = "\n\n".join(remaining_layers.values())
-        test_prompt = f"{base_prompt}\n\n{remaining_text}"
-        
-        print(f"Testing without '{layer_to_remove}'...")
-        test_response, test_latency = generate_response(test_prompt)
-        test_quality = evaluate_response_quality(test_prompt, test_response, criteria)
-        
-        config_name = f"without_{layer_to_remove}"
-        results[config_name] = {
-            "prompt": test_prompt,
-            "response": test_response,
-            "quality": test_quality,
-            "tokens": count_tokens(test_prompt),
-            "latency": test_latency
-        }
-        
-        # If removing a layer improves or maintains quality, update best config
-        if test_quality >= best_quality:
-            best_quality = test_quality
-            best_config = config_name
-    
-    # If the best config is "all_layers", return the full prompt
-    if best_config == "all_layers":
-        return full_prompt, results
-    
-    # If removing a layer improved quality, recursively prune more
-    if best_config.startswith("without_"):
-        removed_layer = best_config.replace("without_", "")
-        remaining_layers = {k: v for k, v in layers.items() if k != removed_layer}
-        print(f"Layer '{removed_layer}' can be removed. Testing further pruning...")
-        return prune_context_layers(base_prompt, remaining_layers, criteria)
-    
-    return results[best_config]["prompt"], results
+    for technique in ['summarize', 'keywords', 'bullet']:
+        compressed = compress_context(original_context, technique)
+        compressed_tokens = count_tokens(compressed)
+        ratio = compressed_tokens / original_tokens if original_tokens > 0 else 0
 
-# Test context pruning
-pruning_test_prompt = "Write a tutorial on how to use pandas for data analysis."
+        tech_dir = example_dir / technique
+        save_example_artifacts(tech_dir, {
+            "prompt": original_context,
+            "response": compressed,
+            "extra_files": {
+                "stats.txt": f"Original tokens: {original_tokens}\n"
+                            f"Compressed tokens: {compressed_tokens}\n"
+                            f"Compression ratio: {ratio:.3f}\n",
+                "original_context.txt": original_context  # ← Save here instead
+            }
+        })
 
-pruning_layers = {
-    "role": "You are a data science instructor with 10+ years of experience teaching Python libraries.",
-    
-    "audience": "Your audience consists of beginner Python programmers who understand basic programming concepts but have no prior experience with data analysis.",
-    
-    "structure": "Structure the tutorial with these sections: Introduction, Installation, Loading Data, Basic Operations, Data Cleaning, Data Visualization, and a Practical Example.",
-    
-    "style": "Use a friendly, conversational tone. Include code snippets with comments explaining each line. Break down complex concepts into simple explanations.",
-    
-    "unnecessary": "Include details about the history of pandas and its development team. Mention that pandas was created by Wes McKinney in 2008 while he was at AQR Capital Management."
-}
+    save_example_artifacts(example_dir, {
+        "title": "Experiment 4: Compression Techniques",
+        "description": "Comparing summarization, keyword extraction, and bullet formatting."
+    })
 
-evaluation_criteria = [
-    "Completeness - covers all essential concepts",
-    "Clarity - explains concepts in an easy-to-understand way",
-    "Code quality - provides useful, correct code examples",
-    "Beginner-friendliness - assumes no prior knowledge of pandas",
-    "Practicality - includes real-world applications"
-]
-
-# Uncomment to run the pruning test (takes time to run)
-# optimized_prompt, pruning_results = prune_context_layers(pruning_test_prompt, pruning_layers, evaluation_criteria)
-# 
-# print("\nOPTIMIZED PROMPT:")
-# print("-" * 80)
-# print(optimized_prompt)
-# print("-" * 80)
-# 
-# # Show quality scores for each configuration
-# for config, data in pruning_results.items():
-#     print(f"{config}: Quality = {data['quality']:.2f}, Tokens = {data['tokens']}")
-```
-
-## 9. Context Expansion with Retrieval
-
-For real-world applications, we often need to expand context with relevant information retrieved from external sources. Let's implement a simple retrieval-augmented context expansion:
-
-
-```python
 def retrieve_relevant_info(query: str, knowledge_base: List[Dict[str, str]]) -> List[str]:
     """
     Retrieve relevant information from a knowledge base based on a query.
-    
-    Args:
-        query: The search query
-        knowledge_base: List of dictionaries with 'title' and 'content' keys
-        
-    Returns:
-        List of relevant information snippets
     """
-    # In a real application, you would use vector embeddings and similarity search
-    # For this example, we'll use simple keyword matching
     relevant_info = []
-    
     query_terms = set(query.lower().split())
-    
     for item in knowledge_base:
         content = item['content'].lower()
         title = item['title'].lower()
-        
-        # Count matching terms
         matches = sum(1 for term in query_terms if term in content or term in title)
-        
         if matches > 0:
             relevant_info.append(item['content'])
-    
-    return relevant_info[:3]  # Return top 3 matches
+    return relevant_info[:3]
 
-# Example knowledge base (in a real application, this would be much larger)
 sample_knowledge_base = [
     {
         "title": "Pandas Introduction",
@@ -790,93 +522,64 @@ sample_knowledge_base = [
 def create_rag_context(base_prompt: str, query: str, knowledge_base: List[Dict[str, str]]) -> str:
     """
     Create a retrieval-augmented context by combining a base prompt with relevant information.
-    
-    Args:
-        base_prompt: Core instruction
-        query: The query to search for relevant information
-        knowledge_base: Knowledge base to search
-        
-    Returns:
-        Expanded context with retrieved information
     """
     relevant_info = retrieve_relevant_info(query, knowledge_base)
-    
     if not relevant_info:
         return base_prompt
-    
-    # Add retrieved information as context
     context_block = "Relevant information:\n\n" + "\n\n".join(relevant_info)
-    
-    # Combine with base prompt
     rag_context = f"{base_prompt}\n\n{context_block}"
-    
     return rag_context
 
-# Test retrieval-augmented context expansion
-rag_test_prompt = "Write a brief tutorial on how to load data in pandas and handle missing values."
-rag_context = create_rag_context(rag_test_prompt, "pandas loading data cleaning", sample_knowledge_base)
+def example_5_rag_example():
+    """Experiment 5: Retrieval-Augmented Generation."""
+    example_dir = OUTPUT_DIR / "example_5_rag_example"
 
-print("RETRIEVAL-AUGMENTED CONTEXT:")
-print("-" * 80)
-print(rag_context)
-print("-" * 80)
-print(f"Token count: {count_tokens(rag_context)}")
+    rag_test_prompt = "Write a brief tutorial on how to load data in pandas and handle missing values."
+    rag_context = create_rag_context(rag_test_prompt, "pandas loading data cleaning", sample_knowledge_base)
+    response, latency = generate_response(rag_context)
 
-# Generate response with RAG context
-rag_response, rag_latency = generate_response(rag_context)
-print("\nRAG RESPONSE:")
-print("-" * 80)
-print(rag_response)
-print("-" * 80)
-```
+    save_example_artifacts(example_dir, {
+        "title": "Experiment 5: RAG Example",
+        "description": "Using retrieved knowledge to enhance prompt.",
+        "prompt": rag_context,
+        "response": response,
+        "metrics": calculate_metrics(rag_context, response, latency),
+        "extra_files": {
+            "knowledge_base.json": json.dumps(sample_knowledge_base, indent=2, ensure_ascii=False)
+        }
+    })
 
-## 10. Conclusion: Context Expansion Best Practices
+def generate_run_summary():
+    """Generate final RUN_SUMMARY.md."""
+    summary_path = OUTPUT_DIR / "RUN_SUMMARY.md"
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    summary = f"""# Context Expansion Experiments Summary
 
-Based on our experiments, here are the key best practices for effective context expansion:
+**Run Time**: {now}
+**Model**: {MODEL}
+**Total Examples**: 5
 
-1. **Start minimal**: Begin with the simplest prompt that might work
-2. **Measure impact**: Track token usage, latency, and quality metrics for each expansion
-3. **Layer strategically**: Add context in distinct, modular layers that can be individually tested
-4. **Compress when possible**: Use summarization, bullet points, or keywords to reduce token usage
-5. **Prune ruthlessly**: Remove context layers that don't improve response quality
-6. **Use templates**: Create reusable templates for different context expansion patterns
-7. **Consider retrieval**: For large knowledge bases, use retrieval to dynamically expand context
-8. **Balance specificity vs. generality**: More specific context reduces hallucination but may constrain creativity
+## Experiments
 
-### Template for Context Expansion Decision-Making
+- `example_1_prompt_variants/` - Base vs expanded prompts
+- `example_2_template_builder/` - Dynamic context assembly
+- `example_3_layered_contexts/` - Layer combination analysis
+- `example_4_compression_techniques/` - Summarize/keywords/bullet
+- `example_5_rag_example/` - Retrieval-augmented generation
 
-```
-1. Define core objective
-   ↓
-2. Create minimal prompt
-   ↓
-3. Measure baseline performance
-   ↓
-4. Identify potential context layers
-   │  - Role assignment
-   │  - Few-shot examples
-   │  - Constraints/requirements
-   │  - Audience specification
-   │  - Tone/style guidance
-   ↓
-5. Test each layer individually
-   ↓
-6. Combine promising layers
-   ↓
-7. Measure impact on:
-   │  - Token usage
-   │  - Response quality
-   │  - Latency
-   ↓
-8. Prune unnecessary layers
-   ↓
-9. Compress remaining context
-   ↓
-10. Final optimization (token efficiency)
-```
+All outputs saved in: `{OUTPUT_DIR}`
+"""
+    summary_path.write_text(summary, encoding="utf-8")
 
-Remember: The goal is not to create the largest context possible, but the most effective one that optimizes for both quality and efficiency.
+if __name__ == "__main__":
+    print("Starting context expansion experiments...")
+    print(f"Results will be saved to: {OUTPUT_DIR}\n")
 
-## Next Steps
+    example_1_prompt_variants()
+    example_2_template_builder()
+    example_3_layered_contexts()
+    example_4_compression_techniques()
+    example_5_rag_example()
+    generate_run_summary()
 
-In the next notebook (`03_control_loops.ipynb`), we'll explore how to build on these context expansion techniques to create more sophisticated control flow mechanisms for multi-step LLM interactions.
+    print("All examples completed and saved.")
