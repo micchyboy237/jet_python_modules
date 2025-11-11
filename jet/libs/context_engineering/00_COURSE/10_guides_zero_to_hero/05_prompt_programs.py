@@ -42,9 +42,9 @@ import logging
 
 from jet.utils.text import format_double_single_braces
 
-BASE_OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
-shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
-BASE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR = pathlib.Path(__file__).parent / "generated" / pathlib.Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -160,7 +160,7 @@ def display_program_output(
     output_data: Any,
     state_history: Optional[List[Dict[str, Any]]] = None,
     metrics: Optional[Dict[str, Any]] = None,
-    output_dir: Union[str, pathlib.Path] = BASE_OUTPUT_DIR
+    output_dir: Union[str, pathlib.Path] = OUTPUT_DIR
 ) -> None:
     """
     Save a prompt program's execution results to files under output_dir.
@@ -489,7 +489,7 @@ class PromptProgram:
             metrics=self.get_summary_metrics()
         )
 
-    def visualize_metrics(self, example_dir: pathlib.Path = BASE_OUTPUT_DIR) -> None:
+    def visualize_metrics(self, example_dir: pathlib.Path = OUTPUT_DIR) -> None:
         """Create visualization of metrics across execution steps."""
         if not self.state_history:
             logger.warning("No execution history to visualize")
@@ -1521,10 +1521,10 @@ if __name__ == "__main__":
     import textwrap
 
     print("Running Prompt Programs Demonstrations...")
-    print(f"All outputs will be saved under: {BASE_OUTPUT_DIR.resolve()}\n")
+    print(f"All outputs will be saved under: {OUTPUT_DIR.resolve()}\n")
 
     # Example 1: Step-by-step mathematical reasoning
-    example_1_dir = BASE_OUTPUT_DIR / "example_1_math_reasoning"
+    example_1_dir = OUTPUT_DIR / "example_1_math_reasoning"
     program1 = StepByStepReasoning(
         name="Cylindrical Tank Problem Solver",
         description="Solves water tank volume and rate problems step-by-step",
@@ -1549,7 +1549,7 @@ if __name__ == "__main__":
     program1._save_history(example_1_dir)
 
     # Example 2: Comparative technology analysis
-    example_2_dir = BASE_OUTPUT_DIR / "example_2_tech_comparison"
+    example_2_dir = OUTPUT_DIR / "example_2_tech_comparison"
     criteria = [
         "Initial cost",
         "Operational efficiency",
@@ -1586,7 +1586,7 @@ if __name__ == "__main__":
     program2._save_history(example_2_dir)
 
     # Example 3: Field protocol shell for recommendation system design
-    example_3_dir = BASE_OUTPUT_DIR / "example_3_recommendation_shell"
+    example_3_dir = OUTPUT_DIR / "example_3_recommendation_shell"
     shell3 = create_reasoning_shell()
     problem_input = {
         "problem": "Design a recommendation system for an online bookstore that balances user preferences with introducing new authors and genres.",
@@ -1606,7 +1606,7 @@ if __name__ == "__main__":
     shell3._save_history(example_3_dir)
 
     # Example 4: Recursive emergence protocol shell
-    example_4_dir = BASE_OUTPUT_DIR / "example_4_recursive_emergence"
+    example_4_dir = OUTPUT_DIR / "example_4_recursive_emergence"
     shell4 = create_emergence_shell()
     initial_state = {
         "initial_field_state": {
@@ -1631,11 +1631,11 @@ if __name__ == "__main__":
     shell4._save_history(example_4_dir)
 
     # Summary
-    summary_path = BASE_OUTPUT_DIR / "SUMMARY.md"
+    summary_path = OUTPUT_DIR / "SUMMARY.md"
     summary_path.write_text(textwrap.dedent(f"""\
         # Prompt Programs Demonstrations
 
-        All examples saved under `{BASE_OUTPUT_DIR.resolve()}`
+        All examples saved under `{OUTPUT_DIR.resolve()}`
 
         - **example_1_math_reasoning/** – Step-by-step mathematical problem solving
         - **example_2_tech_comparison/** – Comparative analysis of renewable energy

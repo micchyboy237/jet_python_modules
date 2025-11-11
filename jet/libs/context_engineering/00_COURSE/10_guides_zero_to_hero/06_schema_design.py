@@ -178,48 +178,65 @@ def save_display_output(
     title: str,
     schema: Dict[str, Any],
     instance: Dict[str, Any],
-    metrics: Optional[Dict[str, Any]] = None
+    metrics: Optional[Dict[str, Any]] = None,
+    *,
+    figures: Optional[List[plt.Figure]] = None,          # NEW
+    extra_html: Optional[str] = None,                  # NEW
 ) -> None:
     """
     Save HTML/markdown/images for a schema example into `example_dir`.
-    Args:
-        title: Title for the display
-        schema: JSON Schema
-        instance: Instance conforming to the schema
-        metrics: Optional metrics to display
+    New optional arguments:
+        figures    – list of Matplotlib Figure objects to save as PNG
+        extra_html – additional HTML fragment to append before </body>
     """
     example_dir.mkdir(parents=True, exist_ok=True)
 
+    # ---- existing HTML construction -------------------------------------------------
     html_lines = [f"<h2>{title}</h2>"]
     html_lines += ["<h3>Schema</h3>", "<pre><code class='language-json'>"]
     html_lines.append(json.dumps(schema, indent=2))
     html_lines += ["</code></pre>", "<h3>Instance</h3>", "<pre><code class='language-json'>"]
     html_lines.append(json.dumps(instance, indent=2))
     html_lines += ["</code></pre>"]
-
     if metrics:
         html_lines += ["<h3>Metrics</h3>", "<pre><code>"]
         html_lines.append(format_metrics(metrics))
         html_lines += ["</code></pre>"]
 
+    # ---- NEW: embed saved figures ---------------------------------------------------
+    figure_html: List[str] = []
+    if figures:
+        for i, fig in enumerate(figures):
+            img_path = example_dir / f"figure_{i+1}.png"
+            fig.savefig(img_path, bbox_inches="tight", dpi=150)
+            plt.close(fig)                     # free memory
+            rel = pathlib.Path(img_path).name
+            figure_html.append(f'<h3>Figure {i+1}</h3><img src="{rel}" alt="figure {i+1}" style="max-width:100%;">')
+    html_lines.extend(figure_html)
+
+    # ---- NEW: append extra HTML ----------------------------------------------------
+    if extra_html:
+        html_lines.append(extra_html)
+
     html_content = "\n".join(html_lines)
-    (example_dir / "index.html").write_text(f"""<!DOCTYPE html>
+
+    # ---- write index.html (unchanged except for possible extra_html) ----------------
+    (example_dir / "index.html").write_text(
+        f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{title}</title>
-<style>pre{{background:#f4f4f4;padding:1em;overflow:auto;}}
-code{{font-family:monospace;}}</style>
+<style>pre{{background:#f4f4f4;padding:1em;border:1px solid #ddd;}} code{{font-family:monospace;}}</style>
 <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
 <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
-</head><body>{html_content}</body></html>""")
+</head><body>{html_content}</body></html>"""
+    )
 
-    # Save raw JSON files
-
+    # ---- existing JSON files -------------------------------------------------------
     (example_dir / "schema.json").write_text(json.dumps(schema, indent=2))
     (example_dir / "instance.json").write_text(json.dumps(instance, indent=2))
     if metrics:
         (example_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
 
-    # Save markdown summary
-
+    # ---- README.md (unchanged) ----------------------------------------------------
     md_content = f"# {title}\n\n## Schema\n```json\n{json.dumps(schema, indent=2)}\n```\n\n## Instance\n```json\n{json.dumps(instance, indent=2)}\n```"
     if metrics:
         md_content += f"\n\n## Metrics\n```\n{format_metrics(metrics)}\n```"
@@ -1482,7 +1499,7 @@ def example_basic_schema():
     example, metrics = schema.generate_example()
     
     # Save schema and example outputs
-    example_dir = OUTPUT_ROOT / "example_basic"
+    example_dir = OUTPUT_ROOT / "example_basic_schema"
     save_display_output(
         example_dir=example_dir,
         title="Basic Task Schema",
@@ -1555,19 +1572,19 @@ def example_recursive_schema():
     # Generate an example with specified recursion depth
     example, metrics = schema.generate_example(recursion_depth=2)
     
-    # Save schema and example outputs
-    example_dir = OUTPUT_ROOT / "example_recursive"
+    # Visualize recursion metrics
+    schema.visualize_recursion_metrics()        # creates a figure
+    fig = plt.gcf()                             # capture it
+    example_dir = OUTPUT_ROOT / "example_recursive_schema"
     save_display_output(
         example_dir=example_dir,
         title="Recursive File System Schema",
         schema=file_system_schema,
         instance=example,
-        metrics=metrics
+        metrics=metrics,
+        figures=[fig]                           # <-- NEW
     )
-    
-    # Visualize recursion metrics
-    schema.visualize_recursion_metrics()
-    
+    plt.close(fig)
     return schema, example
 
 
@@ -1660,6 +1677,15 @@ def example_schema_context() -> Tuple[SchemaContext, Dict[str, Any], Dict[str, A
 <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
 </head><body>{''.join(html_parts)}</body></html>"""
     (query_dir / "report.html").write_text(full_html)
+
+    save_display_output(
+        example_dir=query_dir,
+        title="Schema-Structured Query: Research Paper Summary",
+        schema=paper_summary_schema,
+        instance=result,
+        metrics=details["validation_results"][-1]["metrics"],
+        extra_html=full_html
+    )
 
     print(f"Saved query results to: {query_dir}")
 
@@ -1767,6 +1793,15 @@ def example_protocol_shell_schema() -> Tuple[SchemaContext, Dict[str, Any], Dict
 <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet"/>
 </head><body>{summary_html}</body></html>"""
     (proto_dir / "report.html").write_text(full_html)
+
+    save_display_output(
+        example_dir=proto_dir,
+        title="Protocol Shell Query Result",
+        schema=PROTOCOL_SHELL_SCHEMA,
+        instance=result,
+        metrics=details["validation_results"][-1]["metrics"],
+        extra_html=full_html
+    )
 
     print(f"Saved protocol shell query to: {proto_dir}")
 
