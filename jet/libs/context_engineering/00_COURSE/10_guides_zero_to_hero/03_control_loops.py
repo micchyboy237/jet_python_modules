@@ -42,6 +42,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from IPython.display import display, Markdown, HTML
 
+from jet._token.token_utils import token_counter
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -49,13 +52,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Setup for API clients
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-    logger.warning("OpenAI package not found. Install with: pip install openai")
+# # Setup for API clients
+# try:
+#     from openai import OpenAI
+#     OPENAI_AVAILABLE = True
+# except ImportError:
+#     OPENAI_AVAILABLE = False
+#     logger.warning("OpenAI package not found. Install with: pip install openai")
 
 try:
     import dotenv
@@ -66,7 +69,8 @@ except ImportError:
     logger.warning("python-dotenv not found. Install with: pip install python-dotenv")
 
 # Constants
-DEFAULT_MODEL = "gpt-3.5-turbo"
+# DEFAULT_MODEL = "gpt-3.5-turbo"
+DEFAULT_MODEL = "qwen3-instruct-2507:4b"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 500
 
@@ -85,17 +89,19 @@ def setup_client(api_key=None, model=DEFAULT_MODEL):
     Returns:
         tuple: (client, model_name)
     """
-    if api_key is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key is None and not ENV_LOADED:
-            logger.warning("No API key found. Set OPENAI_API_KEY env var or pass api_key param.")
+    # if api_key is None:
+    #     api_key = os.environ.get("OPENAI_API_KEY")
+    #     if api_key is None and not ENV_LOADED:
+    #         logger.warning("No API key found. Set OPENAI_API_KEY env var or pass api_key param.")
     
-    if OPENAI_AVAILABLE:
-        client = OpenAI(api_key=api_key)
-        return client, model
-    else:
-        logger.error("OpenAI package required. Install with: pip install openai")
-        return None, model
+    # if OPENAI_AVAILABLE:
+    #     client = OpenAI(api_key=api_key)
+    #     return client, model
+    # else:
+    #     logger.error("OpenAI package required. Install with: pip install openai")
+    #     return None, model
+    client = LlamacppLLM(model=model, verbose=True)
+    return client, model
 
 
 def count_tokens(text: str, model: str = DEFAULT_MODEL) -> int:
@@ -109,14 +115,15 @@ def count_tokens(text: str, model: str = DEFAULT_MODEL) -> int:
     Returns:
         int: Token count
     """
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-        return len(encoding.encode(text))
-    except Exception as e:
-        # Fallback for when tiktoken doesn't support the model
-        logger.warning(f"Could not use tiktoken for {model}: {e}")
-        # Rough approximation: 1 token ≈ 4 chars in English
-        return len(text) // 4
+    # try:
+    #     encoding = tiktoken.encoding_for_model(model)
+    #     return len(encoding.encode(text))
+    # except Exception as e:
+    #     # Fallback for when tiktoken doesn't support the model
+    #     logger.warning(f"Could not use tiktoken for {model}: {e}")
+    #     # Rough approximation: 1 token ≈ 4 chars in English
+    #     return len(text) // 4
+    return token_counter(text, model=model)
 
 
 def generate_response(
@@ -159,19 +166,34 @@ def generate_response(
     }
     
     try:
-        start_time = time.time()
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        latency = time.time() - start_time
+        # start_time = time.time()
+        # response = client.chat.completions.create(
+        #     model=model,
+        #     messages=[
+        #         {"role": "system", "content": system_message},
+        #         {"role": "user", "content": prompt}
+        #     ],
+        #     temperature=temperature,
+        #     max_tokens=max_tokens
+        # )
+        # latency = time.time() - start_time
         
-        response_text = response.choices[0].message.content
+        # response_text = response.choices[0].message.content
+
+        start_time = time.time()
+        response_stream = client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=500,
+            stream=True
+        )
+
+        response = ""
+        for chunk in response_stream:
+            response += chunk
+        latency = time.time() - start_time
+
+        response_text = response
         response_tokens = count_tokens(response_text, model)
         
         metadata.update({
