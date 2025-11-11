@@ -405,6 +405,7 @@ class LlamacppLLM:
             stream=True,
         )
         buffer = ""
+        response_objects = []
         for chunk in response:
             if not chunk.choices or chunk.choices[0].delta.content is None:
                 continue
@@ -419,7 +420,9 @@ class LlamacppLLM:
                     obj, rest = buffer.split("}", 1)
                     obj += "}"
                     if "{" in obj:
-                        yield response_model.model_validate_json(obj)
+                        response_obj = response_model.model_validate_json(obj)
+                        yield response_obj
+                        response_objects.append(response_obj)
                         buffer = rest.lstrip()
                     else:
                         buffer = obj + rest
@@ -430,13 +433,15 @@ class LlamacppLLM:
         # Final parse for remaining buffer
         if buffer.strip().startswith("{") and buffer.strip().endswith("}"):
             try:
-                yield response_model.model_validate_json(buffer)
+                response_obj = response_model.model_validate_json(buffer)
+                yield response_obj
+                response_objects.append(response_obj)
             except Exception:
                 pass
 
         self._chat_logger.log_interaction(
             messages=messages,
-            response=buffer,
+            response=response_objects,
             model=self.model,
             response_format={"type": "json_object", "schema": response_model.model_json_schema()},
             method="stream_chat",
