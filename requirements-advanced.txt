@@ -18,6 +18,7 @@ mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph-supervisor-py
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph-supervisor-py/langchain-sandbox/libs/sandbox-py
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mcp-agent
 
 gradio
 pyppeteer # for rendering mermaid graph
