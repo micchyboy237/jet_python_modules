@@ -68,14 +68,14 @@ Save all results and with appropriate extension such as json (for config, genera
 Write individual descriptive example_<num>_* functions demonstrating all possible use cases.
 Add a main block if not yet added.
 Apply safe refactoring and do not change imports.
-Write step by step analysis before providing me with the diff changes
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """
-Dont use prior artifact knowledge and memory.
+You don't use prior artifact knowledge and memory.
+You write step by step analysis before providing with the diff changes.
 """.strip()
 
 # For existing projects
