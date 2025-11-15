@@ -2,11 +2,13 @@
 LangChain Agent Example (create_agent + AgentState)
 ✅ Fixed for LangChain 0.3+ / LangGraph runtime
 """
+import os
 from typing import List, Optional
 from typing import Callable, Awaitable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from jet.adapters.llama_cpp.tokens import count_tokens
+from jet.llm.config import DEFAULT_LOG_DIR
 from jet.transformers.formatters import format_json
 from langchain.agents.factory import create_agent
 from langchain_core.tools import BaseTool
@@ -15,7 +17,7 @@ from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, Mod
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
-from jet.logger import CustomLogger
+from jet.logger import logger, CustomLogger
 
 from jet.wordnet.text_chunker import truncate_texts_fast
 
@@ -49,21 +51,7 @@ from jet.wordnet.text_chunker import truncate_texts_fast
 # log_dir = f"{DEFAULT_LOG_DIR}/output"
 # reset_log_dir(log_dir)
 
-# agent_log_file = f"{log_dir}/agent.log"
-# agent_logger = CustomLogger("agent", filename=agent_log_file)
-# logger.orange(f"Agent logs: {agent_log_file}")
 
-# model_log_file = f"{log_dir}/model.log"
-# model_logger = CustomLogger("model", filename=model_log_file)
-# logger.orange(f"Model logs: {model_log_file}")
-
-# tool_log_file = f"{log_dir}/tool.log"
-# tool_logger = CustomLogger("tool", filename=tool_log_file)
-# logger.orange(f"Tool logs: {tool_log_file}")
-
-# token_log_file = f"{log_dir}/token.log"
-# token_logger = CustomLogger("token", filename=token_log_file)
-# logger.orange(f"Token logs: {token_log_file}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  TOOL-CALL LOGGING MIDDLEWARE
@@ -74,15 +62,33 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
     def __init__(self) -> None:
         super().__init__()
 
+        os.makedirs(DEFAULT_LOG_DIR, exist_ok=True)
+
+        agent_log_file = f"{DEFAULT_LOG_DIR}/agent.log"
+        self.agent_logger = CustomLogger("agent", filename=agent_log_file)
+        logger.orange(f"Agent logs: {agent_log_file}")
+
+        model_log_file = f"{DEFAULT_LOG_DIR}/model.log"
+        self.model_logger = CustomLogger("model", filename=model_log_file)
+        logger.orange(f"Model logs: {model_log_file}")
+
+        tool_log_file = f"{DEFAULT_LOG_DIR}/tool.log"
+        self.tool_logger = CustomLogger("tool", filename=tool_log_file)
+        logger.orange(f"Tool logs: {tool_log_file}")
+
+        token_log_file = f"{DEFAULT_LOG_DIR}/token.log"
+        self.token_logger = CustomLogger("token", filename=token_log_file)
+        logger.orange(f"Token logs: {token_log_file}")
+
     # ── SYNC ─────────────────────────────────────────────────────────────────
 
     def before_agent(self, state, runtime):
-        agent_logger.info(
+        self.agent_logger.info(
             "[BEFORE AGENT] (State=%s)", format_json(state)
         )
 
     def after_agent(self, state, runtime):
-        agent_logger.teal(
+        self.agent_logger.teal(
             "[AFTER AGENT] (State=%s)", format_json(state)
         )
 
@@ -95,11 +101,11 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         tool_id = request.tool_call.get("id", "unknown")
         args = request.tool_call.get("args", {})
 
-        tool_logger.info(
+        self.tool_logger.info(
             "[TOOL START] %s\nid: %s\nargs: %s", tool_name, tool_id, format_json(args)
         )
         result = handler(request)
-        tool_logger.teal(
+        self.tool_logger.teal(
             "[TOOL END] %s\nid: %s\nresult: %s", tool_name, tool_id, format_json(result)
         )
         return result
@@ -116,15 +122,15 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         tools = request.tools
         agent_state = request.state
 
-        model_logger.info("[MODEL START]")
-        model_logger.log("\nModel Settings: ", format_json(model_settings), colors=["GRAY", "DEBUG"])
-        model_logger.log("\nSystem Prompt: ", format_json(system_prompt), colors=["GRAY", "DEBUG"])
-        model_logger.log("\nMessages: ", format_json(messages), colors=["GRAY", "DEBUG"])
-        model_logger.log("\nTool Choice: ", format_json(tool_choice), colors=["GRAY", "DEBUG"])
-        model_logger.log("\nTools: ", format_json(tools), colors=["GRAY", "DEBUG"])
-        model_logger.log("\nAgent State: ", format_json(agent_state), colors=["GRAY", "DEBUG"])
+        self.model_logger.info("[MODEL START]")
+        self.model_logger.log("\nModel Settings: ", format_json(model_settings), colors=["GRAY", "DEBUG"])
+        self.model_logger.log("\nSystem Prompt: ", format_json(system_prompt), colors=["GRAY", "DEBUG"])
+        self.model_logger.log("\nMessages: ", format_json(messages), colors=["GRAY", "DEBUG"])
+        self.model_logger.log("\nTool Choice: ", format_json(tool_choice), colors=["GRAY", "DEBUG"])
+        self.model_logger.log("\nTools: ", format_json(tools), colors=["GRAY", "DEBUG"])
+        self.model_logger.log("\nAgent State: ", format_json(agent_state), colors=["GRAY", "DEBUG"])
         result = handler(request)
-        model_logger.teal(
+        self.model_logger.teal(
             "[MODEL END] result=%s", result
         )
         return result
@@ -132,12 +138,12 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
     # ── ASYNC ───────────────────────────────────────────────────────────────
 
     async def abefore_agent(self, state, runtime):
-        agent_logger.info(
+        self.agent_logger.info(
             "[BEFORE AGENT] (State=%s)", format_json(state)
         )
 
     async def aafter_agent(self, state, runtime):
-        agent_logger.teal(
+        self.agent_logger.teal(
             "[AFTER AGENT] (State=%s)", format_json(state)
         )
 
@@ -150,11 +156,11 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         tool_id = request.tool_call.get("id", "unknown")
         args = request.tool_call.get("args", {})
 
-        tool_logger.info(
+        self.tool_logger.info(
             "[TOOL START] %s (id=%s) args=%s", tool_name, tool_id, args
         )
         result = await handler(request)
-        tool_logger.teal(
+        self.tool_logger.teal(
             "[TOOL END] %s (id=%s) result=%s", tool_name, tool_id, result
         )
         return result
@@ -171,7 +177,7 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         tools = request.tools
         agent_state = request.state
 
-        model_logger.info(
+        self.model_logger.info(
             "[MODEL START]\n%s", format_json({
                 "model_settings": model_settings,
                 "system_prompt": system_prompt,
@@ -182,7 +188,7 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
             })
         )
         result = await handler(request)
-        model_logger.teal(
+        self.model_logger.teal(
             "[MODEL END] result=%s", result
         )
         return result
