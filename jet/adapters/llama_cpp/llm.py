@@ -12,13 +12,6 @@ from jet.utils.text import format_sub_dir
 
 
 # === Strict TypedDict for OpenAI-compatible messages ===
-class ChatMessage(TypedDict, total=False):
-    """OpenAI chat message with optional tool_call_id only for role='tool'."""
-    role: Literal["system", "user", "assistant", "tool"]
-    content: str
-    tool_call_id: str  # Required only when role == "tool"
-
-
 class ToolFunction(TypedDict):
     name: str
     arguments: str
@@ -29,6 +22,12 @@ class ToolCall(TypedDict):
     type: Literal["function"]
     function: ToolFunction
 
+class ChatMessage(TypedDict, total=False):
+    """OpenAI chat message with optional tool_call_id only for role='tool'."""
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str
+    tool_call_id: str  # Required only when role == "tool"
+    tool_calls: List[ToolCall]
 
 class LlamacppLLM:
     """
@@ -223,30 +222,14 @@ class LlamacppLLM:
         tools: List[Dict[str, Any]],
         available_functions: Dict[str, Callable[..., Any]],
         temperature: float = 0.0,
-        max_tokens: Optional[int] = None,        # ← Control response length
-        **kwargs: Any,                           # ← Accept any extra OpenAI params (e.g. stop, metadata)
-    ) -> str:
+        max_tokens: Optional[int] = None,
+        stream: bool = False,
+        **kwargs: Any,
+    ) -> Union[str, Iterator[str]]:
         """
-        Execute a complete tool-calling loop in one synchronous call:
-        1. Send user messages + tools → LLM decides to call tools or respond
-        2. If tool calls → execute via `available_functions`
-        3. Append tool results as `role: tool` messages
-        4. Final LLM call → generate natural language response
-
-        Fully compatible with LangChain's `bind_tools` and `langgraph_bigtool`.
-
-        Args:
-            messages: Conversation history in OpenAI format
-            tools: List of tool definitions (from `convert_to_openai_tool`)
-            available_functions: Mapping of tool name → actual callable
-            temperature: Sampling temperature
-            max_tokens: Limit output length (optional)
-            **kwargs: Extra args passed to OpenAI API (e.g. stop, presence_penalty)
-
-        Returns:
-            Final assistant response as string
+        Execute tool-calling loop with optional streaming.
+        When stream=True, yields partial updates including tool calls and final response.
         """
-        # Build shared kwargs for both LLM calls
         tool_choice = kwargs.get("tool_choice") or "auto"
         create_kwargs = {
             "model": self.model,
@@ -254,109 +237,183 @@ class LlamacppLLM:
             "tools": tools,
             "temperature": temperature,
             "tool_choice": tool_choice,
+            "stream": stream,
             **({ "max_tokens": max_tokens } if max_tokens is not None else {}),
             **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
 
-        # Step 1: Initial LLM call — may return tool_calls
-        response = self.sync_client.chat.completions.create(**create_kwargs)
-        message = response.choices[0].message
-        tool_calls: List[ToolCall] = getattr(message, "tool_calls", []) or []
-
-        # If no tool calls → return direct response
-        if not tool_calls:
-            content = message.content or ""
-            if self.verbose:
-                logger.teal(content)
-
-            self._chat_logger.log_interaction(**{
-                **create_kwargs,
-                "response": content,
-                "method": "chat",
-            })
-
-            return content
-
-        # Step 2: Build updated message history with assistant intent
-        updated_messages: List[ChatMessage] = messages.copy()
-        assistant_msg: ChatMessage = {
-            "role": "assistant",
-            "content": message.content or "",
-        }
-        # Preserve structured tool_calls for LangChain parsing
-        if tool_calls:
-            assistant_msg["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": tc.type,
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments
-                    }
-                }
-                for tc in tool_calls
-            ]
-        updated_messages.append(assistant_msg)
-
-        # Step 3: Execute each tool call
-        for tool_call in tool_calls:
-            func_name = tool_call.function.name
-            if self.verbose:
-                logger.info(f"Executing tool: {func_name}")
-
-            func = available_functions.get(func_name)
-            if not func:
-                logger.warning(f"Tool '{func_name}' not found in available_functions. Skipping.")
-                continue
-
-            try:
-                # Parse arguments from JSON string
-                args = json.loads(tool_call.function.arguments)
+        if not stream:
+            # Existing non-streaming path
+            response = self.sync_client.chat.completions.create(**create_kwargs)
+            message = response.choices[0].message
+            tool_calls: List[ToolCall] = getattr(message, "tool_calls", []) or []
+            if not tool_calls:
+                content = message.content or ""
                 if self.verbose:
-                    logger.debug(f"Tool {func_name} input: {args}")
+                    logger.teal(content)
+                self._chat_logger.log_interaction(**{
+                    **create_kwargs,
+                    "response": content,
+                    "method": "chat",
+                })
+                return content
 
-                # Execute tool
+            updated_messages: List[ChatMessage] = messages.copy()
+            assistant_msg: ChatMessage = {
+                "role": "assistant",
+                "content": message.content or "",
+            }
+            if tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
+                        }
+                    }
+                    for tc in tool_calls
+                ]
+            updated_messages.append(assistant_msg)
+
+            for tool_call in tool_calls:
+                func_name = tool_call.function.name
+                if self.verbose:
+                    logger.info(f"[TOOL EXEC] {func_name}")
+                func = available_functions.get(func_name)
+                if not func:
+                    logger.warning(f"Tool '{func_name}' not found. Skipping.")
+                    continue
+
+                args = json.loads(tool_call.function.arguments)
                 result = func(**args)
 
-                # Serialize result
-                result_str = json.dumps({"result": result}, ensure_ascii=False)
-
-                # Truncate long outputs in logs
-                ellipsis = "..." if len(result_str) > 200 else ""
                 if self.verbose:
-                    logger.debug(f"Tool {func_name} output: {result_str[:200]}{ellipsis}")
+                    logger.debug(f"[TOOL OUT] {result}")
 
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse arguments for {func_name}: {e}")
-                result_str = json.dumps({"error": "Invalid JSON in tool arguments"})
-            except Exception as e:
-                logger.error(f"Tool {func_name} execution failed: {e}")
-                result_str = json.dumps({"error": str(e)})
+                tool_response: ChatMessage = {
+                    "role": "tool",
+                    "content": str(result),
+                    "tool_call_id": tool_call.id,
+                }
+                updated_messages.append(tool_response)
 
-            # Append tool response to history
-            tool_response: ChatMessage = {
-                "role": "tool",
-                "content": result_str,
-                "tool_call_id": tool_call.id,
+            final_kwargs = {
+                k: v for k, v in create_kwargs.items()
+                if k not in ["messages", "tools", "tool_choice"]
             }
-            updated_messages.append(tool_response)
+            final_kwargs["messages"] = updated_messages
+            final_kwargs["stream"] = False
 
-        # Step 4: Final LLM call with tool results
-        final_response = self.sync_client.chat.completions.create(
-            **{k: v for k, v in create_kwargs.items() if k != "messages"},
-            messages=updated_messages
-        )
-        final_content = final_response.choices[0].message.content or ""
-        if self.verbose:
-            logger.teal(final_content)
+            final_response = self.sync_client.chat.completions.create(**final_kwargs)
+            final_content = final_response.choices[0].message.content
+            if self.verbose:
+                logger.teal(final_content)
+            self._chat_logger.log_interaction(**{
+                **create_kwargs,
+                "response": final_content,
+                "method": "chat",
+            })
+            return final_content
 
-        self._chat_logger.log_interaction(**{
-            **create_kwargs,
-            "response": final_content,
-            "method": "chat",
-        })
+        # === STREAMING PATH ===
+        def stream_generator() -> Iterator[str]:
+            response_text = ""
+            updated_messages: List[ChatMessage] = messages.copy()
 
-        return final_content
+            # First call: detect tool calls (stream content + tool_calls)
+            response = self.sync_client.chat.completions.create(**create_kwargs)
+            message_content = ""
+            tool_calls: List[ToolCall] = []
+
+            for chunk in response:
+                if not chunk.choices or not chunk.choices[0].delta:
+                    continue
+                delta = chunk.choices[0].delta
+
+                # Stream assistant content
+                if delta.content is not None:
+                    message_content += delta.content
+                    response_text += delta.content
+                    if self.verbose:
+                        logger.teal(delta.content, flush=True)
+                    yield delta.content
+
+                # Accumulate tool calls
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        while len(tool_calls) <= idx:
+                            tool_calls.append({
+                                "id": "", "type": "function",
+                                "function": {"name": "", "arguments": ""}
+                            })
+                        tc = tool_calls[idx]
+                        if tc_delta.id:
+                            tc["id"] = tc_delta.id
+                        if tc_delta.function and tc_delta.function.name:
+                            tc["function"]["name"] += tc_delta.function.name
+                        if tc_delta.function and tc_delta.function.arguments:
+                            tc["function"]["arguments"] += tc_delta.function.arguments
+
+            # === EXECUTE TOOLS (NO YIELD) ===
+            if tool_calls:
+                assistant_msg: ChatMessage = {
+                    "role": "assistant",
+                    "content": message_content or None,
+                    "tool_calls": tool_calls
+                }
+                updated_messages.append(assistant_msg)
+
+                for tool_call in tool_calls:
+                    func_name = tool_call["function"]["name"]
+                    if self.verbose:
+                        logger.info(f"[TOOL EXEC] {func_name}")
+
+                    func = available_functions.get(func_name)
+                    if not func:
+                        logger.warning(f"Tool '{func_name}' not found. Skipping.")
+                        continue
+                    else:
+                        args = json.loads(tool_call["function"]["arguments"])
+                        result = func(**args)
+
+                    if self.verbose:
+                        logger.debug(f"[TOOL OUT] {result}")
+
+                    updated_messages.append({
+                        "role": "tool",
+                        "content": str(result),
+                        "tool_call_id": tool_call["id"],
+                    })
+
+            # === FINAL LLM CALL (STREAM ONLY CONTENT) ===
+            final_kwargs = {
+                k: v for k, v in create_kwargs.items()
+                if k not in ["messages", "tools", "tool_choice"]
+            }
+            final_kwargs["messages"] = updated_messages
+            final_kwargs["stream"] = True
+
+            final_response = self.sync_client.chat.completions.create(**final_kwargs)
+            final_content = ""
+            for chunk in final_response:
+                if chunk.choices and chunk.choices[0].delta.content is not None:
+                    content = chunk.choices[0].delta.content
+                    final_content += content
+                    if self.verbose:
+                        logger.teal(content, flush=True)
+                    yield content
+
+            # === FINAL LOG ===
+            self._chat_logger.log_interaction(**{
+                **create_kwargs,
+                "response": final_content,
+                "method": "stream_chat",
+            })
+
+        return stream_generator()
 
     # === Structured Outputs (Sync) ===
     def chat_structured(
@@ -566,64 +623,158 @@ class LlamacppLLM:
 
     # === Async Tools ===
     async def achat_with_tools(
-        ################################################################################
-        # NOTE: The sync version already exists above; this replaces the incomplete stub #
-        ################################################################################
         self,
         messages: List[ChatMessage],
         tools: List[Dict[str, Any]],
         available_functions: Dict[str, Callable[..., Any]],
         temperature: float = 0.0,
-    ) -> str:
-        """Async tool calling with final response and optional verbose logging."""
-        response = await self.async_client.chat.completions.create(
-            model=self.model,
-            messages=messages,  # type: ignore[arg-type]
-            tools=tools,
-            tool_choice="auto",
-            temperature=temperature,
-        )
-        message = response.choices[0].message
-        tool_calls: List[ToolCall] = getattr(message, "tool_calls", []) or []
-
-        if not tool_calls:
-            content = message.content or ""
-            if self.verbose:
-                logger.teal(content)
-            return content
-
-        updated_messages: List[ChatMessage] = messages.copy()
-        assistant_msg: ChatMessage = {
-            "role": "assistant",
-            "content": message.content or "",
+        max_tokens: Optional[int] = None,
+        stream: bool = False,
+        **kwargs: Any,
+    ) -> Union[str, AsyncIterator[str]]:
+        tool_choice = kwargs.get("tool_choice") or "auto"
+        create_kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "temperature": temperature,
+            "tool_choice": tool_choice,
+            "stream": stream,
+            **({ "max_tokens": max_tokens } if max_tokens is not None else {}),
+            **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
-        updated_messages.append(assistant_msg)  # type: ignore[arg-type]
 
-        for tool_call in tool_calls:
-            func_name = tool_call.function.name
+        if not stream:
+            # Existing non-stream path (unchanged)
+            response = await self.async_client.chat.completions.create(**create_kwargs)
+            message = response.choices[0].message
+            tool_calls: List[ToolCall] = getattr(message, "tool_calls", []) or []
+            if not tool_calls:
+                content = message.content or ""
+                if self.verbose:
+                    logger.teal(content)
+                return content
+
+            updated_messages = messages.copy()
+            assistant_msg: ChatMessage = {"role": "assistant", "content": message.content or ""}
+            updated_messages.append(assistant_msg)
+
+            for tool_call in tool_calls:
+                func_name = tool_call.function.name
+                if func := available_functions.get(func_name):
+                    args = json.loads(tool_call.function.arguments)
+                    result = func(**args)
+                    updated_messages.append({
+                        "role": "tool",
+                        "content": json.dumps({"result": result}),
+                        "tool_call_id": tool_call.id,
+                    })
+
+            final_response = await self.async_client.chat.completions.create(
+                model=self.model,
+                messages=updated_messages,
+                temperature=temperature,
+            )
+            final_content = final_response.choices[0].message.content or ""
             if self.verbose:
-                logger.info(f"Calling tool: {func_name}")
-            if func := available_functions.get(func_name):
-                args = json.loads(tool_call.function.arguments)
-                result = func(**args)
-                tool_response: ChatMessage = {
-                    "role": "tool",
-                    "content": json.dumps({"result": result}),
-                    "tool_call_id": tool_call.id,
-                }
-                updated_messages.append(tool_response)
-            else:
-                logger.warning(f"Function {func_name} not found")
+                logger.teal(final_content)
+            return final_content
 
-        final_response = await self.async_client.chat.completions.create(
-            model=self.model,
-            messages=updated_messages,  # type: ignore[arg-type]
-            temperature=temperature,
-        )
-        final_content = final_response.choices[0].message.content or ""
-        if self.verbose:
-            logger.teal(final_content)
-        return final_content
+        # === ASYNC STREAMING PATH ===
+        async def stream_generator() -> AsyncIterator[str]:
+            response_text = ""
+            tool_results = []
+
+            response = await self.async_client.chat.completions.create(**create_kwargs)
+            message_content = ""
+            tool_calls: List[ToolCall] = []
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        message_content += delta.content
+                        if self.verbose:
+                            logger.teal(delta.content, flush=True)
+                        yield delta.content
+                        response_text += delta.content
+                    if delta.tool_calls:
+                        for tc_delta in delta.tool_calls:
+                            idx = tc_delta.index
+                            while len(tool_calls) <= idx:
+                                tool_calls.append({"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                            tc = tool_calls[idx]
+                            if tc_delta.id:
+                                tc["id"] = tc_delta.id
+                            if tc_delta.function.name:
+                                tc["function"]["name"] += tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tc["function"]["arguments"] += tc_delta.function.arguments
+
+            if not tool_calls:
+                self._chat_logger.log_interaction(
+                    messages=messages,
+                    response=response_text,
+                    model=self.model,
+                    method="stream_chat",
+                )
+                return
+
+            assistant_msg: ChatMessage = {
+                "role": "assistant",
+                "content": message_content,
+                "tool_calls": tool_calls,
+            }
+            updated_messages = messages.copy()
+            updated_messages.append(assistant_msg)
+
+            for tool_call in tool_calls:
+                func_name = tool_call["function"]["name"]
+                yield f"\n[TOOL CALL] {func_name}\n"
+                response_text += f"\n[TOOL CALL] {func_name}\n"
+                func = available_functions.get(func_name)
+                if not func:
+                    result_str = json.dumps({"error": f"Tool {func_name} not found"})
+                else:
+                    try:
+                        args = json.loads(tool_call["function"]["arguments"])
+                        result = func(**args)
+                        result_str = json.dumps({"result": result}, ensure_ascii=False)
+                    except Exception as e:
+                        result_str = json.dumps({"error": str(e)})
+                tool_results.append(result_str)
+                yield f"[TOOL RESULT] {result_str}\n"
+                response_text += f"[TOOL RESULT] {result_str}\n"
+                updated_messages.append({
+                    "role": "tool",
+                    "content": result_str,
+                    "tool_call_id": tool_call["id"],
+                })
+
+            final_create_kwargs = {
+                k: v for k, v in create_kwargs.items() if k not in ["messages", "tools", "tool_choice"]
+            }
+            final_create_kwargs["messages"] = updated_messages
+            final_create_kwargs["stream"] = True
+
+            final_response = await self.async_client.chat.completions.create(**final_create_kwargs)
+            final_content = ""
+            async for chunk in final_response:
+                if chunk.choices and chunk.choices[0].delta.content is not None:
+                    content = chunk.choices[0].delta.content
+                    final_content += content
+                    response_text += content
+                    if self.verbose:
+                        logger.teal(content, flush=True)
+                    yield content
+
+            self._chat_logger.log_interaction(
+                messages=messages,
+                response=response_text,
+                model=self.model,
+                method="stream_chat",
+            )
+
+        return stream_generator()
 
     # === Async Structured Outputs ===
     async def achat_structured(

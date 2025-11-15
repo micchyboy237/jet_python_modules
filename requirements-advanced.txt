@@ -1,6 +1,7 @@
 mlx
 mlx-lm
 mlx-vlm
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/openai-python
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/ollama-python
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner-spacy
