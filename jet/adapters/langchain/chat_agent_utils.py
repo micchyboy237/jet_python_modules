@@ -40,17 +40,19 @@ def get_log_dir() -> str:
                 os.makedirs(_log_dir, exist_ok=True)
     return _log_dir
 
-def reset_log_dir() -> None:
+def reset_log_dir(dir_path: str) -> None:
     """
     Explicit clean-up – removes the whole log directory and recreates it.
     Call this only when you intentionally want a fresh log folder.
     """
-    dir_path = get_log_dir()
+    # dir_path = get_log_dir()
     if os.path.exists(dir_path):
         shutil.rmtree(dir_path, ignore_errors=True)
     os.makedirs(dir_path, exist_ok=True)
 
-log_dir = get_log_dir() # safe – never deletes on import
+# log_dir = get_log_dir() # safe – never deletes on import
+log_dir = f"{DEFAULT_LOG_DIR}/output"
+reset_log_dir(log_dir)
 
 agent_log_file = f"{log_dir}/agent.log"
 agent_logger = CustomLogger("agent", filename=agent_log_file)
