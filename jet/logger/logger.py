@@ -506,6 +506,12 @@ def logger_examples(logger: CustomLogger):
     logger.cyan()  # Added
     logger.cyan("This is a cyan message.")
     logger.cyan("This is a bright cyan message.", bright=True)
+    logger.blue()  # Added
+    logger.blue("This is a blue message.")
+    logger.blue("This is a bright blue message.", bright=True)
+    logger.pink()  # Added
+    logger.pink("This is a pink message.")
+    logger.pink("This is a bright pink message.", bright=True)
     logger.purple()  # Added
     logger.purple("This is a purple message.")
     logger.purple("This is a bright purple message.", bright=True)
