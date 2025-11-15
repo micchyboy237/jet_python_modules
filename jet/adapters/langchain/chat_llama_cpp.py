@@ -9,6 +9,7 @@ from langchain_core.callbacks import CallbackManagerForLLMRun, AsyncCallbackMana
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.llm.logger_utils import ChatLogger
 from jet.logger import CustomLogger
+from jet.logger.config import DEFAULT_LOGGER
 from jet.transformers.formatters import format_json
 from jet.utils.text import format_sub_dir
 
@@ -43,7 +44,7 @@ class ChatLlamaCpp(ChatOpenAI):
         self._log_dir: str = log_dir
         self._verbose: bool = verbose
 
-        self._logger = logger or CustomLogger()
+        self._logger = logger or CustomLogger(DEFAULT_LOGGER, filename=f"{log_dir}/main.log")
         self._chat_logger: Optional[ChatLogger] = (
             ChatLogger(log_dir=self._log_dir) if self._verbose else None
         )
