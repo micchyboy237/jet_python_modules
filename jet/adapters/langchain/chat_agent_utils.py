@@ -6,11 +6,11 @@ import math
 from typing import List, Optional
 from typing import Callable, Awaitable
 
-from langchain.chat_models import BaseChatModel
+from langchain_core.language_models.chat_models import BaseChatModel
 from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.transformers.formatters import format_json
-from langchain.agents import create_agent
+from langchain.agents.factory import create_agent
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
