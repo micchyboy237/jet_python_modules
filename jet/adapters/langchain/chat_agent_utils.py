@@ -196,12 +196,12 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         return result
 
 
-def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instruct-2507:4b", system_prompt: Optional[str] = None, temperature: float = 0.0, name: Optional[str] = None, log_dir: str = DEFAULT_LOG_DIR, **kwargs):
+def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instruct-2507:4b", system_prompt: Optional[str] = None, temperature: float = 0.0, name: Optional[str] = None, log_dir: str = DEFAULT_LOG_DIR, logger: Optional[CustomLogger] = None, **kwargs):
     """Create a LangChain agent that can perform basic arithmetic."""
     name = "agent" if not name else name
     if isinstance(model, str):
         os.makedirs(log_dir, exist_ok=True)
-        logger_local = CustomLogger(name, filename=f"{log_dir}/{format_sub_dir(name)}.log")
+        logger_local = logger or CustomLogger(name, filename=f"{log_dir}/{format_sub_dir(name)}.log")
         llm = ChatLlamaCpp(
             model=model,
             temperature=temperature,
