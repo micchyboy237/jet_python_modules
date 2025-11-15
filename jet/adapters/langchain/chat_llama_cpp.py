@@ -9,6 +9,7 @@ from langchain_core.callbacks import CallbackManagerForLLMRun, AsyncCallbackMana
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.llm.logger_utils import ChatLogger
 from jet.logger import logger
+from jet.transformers.formatters import format_json
 from jet.utils.text import format_sub_dir
 
 
@@ -45,6 +46,15 @@ class ChatLlamaCpp(ChatOpenAI):
             ChatLogger(log_dir=self._custom_log_dir) if self._custom_verbose else None
         )
 
+        # Log each init argument
+        self._log("Initialized ChatLlamaCpp:\n%s", format_json({
+            "model": model,
+            "temperature": temperature,
+            "agent_name": agent_name,
+        }))
+        if kwargs:
+            self._log("additional kwargs: %s", kwargs)
+
     # --------------------------------------------------------------------- #
     # Helper
     # --------------------------------------------------------------------- #
@@ -64,7 +74,13 @@ class ChatLlamaCpp(ChatOpenAI):
         **kwargs: Any,
     ) -> ChatResult:
         """Generate full response using streaming; log exactly once."""
-        self._log("Starting _generate for %s messages", len(messages))
+        logger.info("Starting _generate")
+        logger.gray(f"\nMessages ({len(messages)}):")
+        logger.debug(format_json(messages))
+        
+        if kwargs.get("tools"):
+            logger.gray("\nTools:")
+            logger.debug(format_json(kwargs["tools"]))
 
         text_content = ""
         chunks: List[ChatGenerationChunk] = []
@@ -169,7 +185,13 @@ class ChatLlamaCpp(ChatOpenAI):
         **kwargs: Any,
     ) -> ChatResult:
         """Async generate using streaming; log exactly once."""
-        self._log("Starting _agenerate for %s messages", len(messages))
+        logger.info("Starting _agenerate")
+        logger.gray(f"\nMessages ({len(messages)}):")
+        logger.debug(format_json(messages))
+        
+        if kwargs.get("tools"):
+            logger.gray("\nTools:")
+            logger.debug(format_json(kwargs["tools"]))
 
         text_content = ""
         chunks: List[ChatGenerationChunk] = []

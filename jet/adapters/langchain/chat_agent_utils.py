@@ -2,13 +2,11 @@
 LangChain Agent Example (create_agent + AgentState)
 ✅ Fixed for LangChain 0.3+ / LangGraph runtime
 """
-import math
 from typing import List, Optional
 from typing import Callable, Awaitable
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from jet.adapters.llama_cpp.tokens import count_tokens
-from jet.llm.config import DEFAULT_LOG_DIR
 from jet.transformers.formatters import format_json
 from langchain.agents.factory import create_agent
 from langchain_core.tools import BaseTool
@@ -17,62 +15,55 @@ from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, Mod
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
-from jet.logger import logger, CustomLogger
-import os
-import shutil
-import threading
+from jet.logger import CustomLogger
 
 from jet.wordnet.text_chunker import truncate_texts_fast
 
-# ----------------------------------------------------------------------
-# Log-directory management (import-safe)
-# ----------------------------------------------------------------------
-_log_dir: Optional[str] = None
-_log_dir_lock = threading.Lock()
+# # ----------------------------------------------------------------------
+# # Log-directory management (import-safe)
+# # ----------------------------------------------------------------------
+# _log_dir: Optional[str] = None
+# _log_dir_lock = threading.Lock()
 
-def get_log_dir() -> str:
-    """Return the agent log directory, creating it if necessary (no deletion)."""
-    global _log_dir
-    if _log_dir is None:
-        with _log_dir_lock:
-            if _log_dir is None:   # double-check inside lock
-                _log_dir = f"{DEFAULT_LOG_DIR}/output"
-                os.makedirs(_log_dir, exist_ok=True)
-    return _log_dir
+# def get_log_dir() -> str:
+#     """Return the agent log directory, creating it if necessary (no deletion)."""
+#     global _log_dir
+#     if _log_dir is None:
+#         with _log_dir_lock:
+#             if _log_dir is None:   # double-check inside lock
+#                 _log_dir = f"{DEFAULT_LOG_DIR}/output"
+#                 os.makedirs(_log_dir, exist_ok=True)
+#     return _log_dir
 
-def reset_log_dir(dir_path: str) -> None:
-    """
-    Explicit clean-up – removes the whole log directory and recreates it.
-    Call this only when you intentionally want a fresh log folder.
-    """
-    # dir_path = get_log_dir()
-    if os.path.exists(dir_path):
-        shutil.rmtree(dir_path, ignore_errors=True)
-    os.makedirs(dir_path, exist_ok=True)
+# def reset_log_dir(dir_path: str) -> None:
+#     """
+#     Explicit clean-up – removes the whole log directory and recreates it.
+#     Call this only when you intentionally want a fresh log folder.
+#     """
+#     # dir_path = get_log_dir()
+#     if os.path.exists(dir_path):
+#         shutil.rmtree(dir_path, ignore_errors=True)
+#     os.makedirs(dir_path, exist_ok=True)
 
-# log_dir = get_log_dir() # safe – never deletes on import
-log_dir = f"{DEFAULT_LOG_DIR}/output"
-reset_log_dir(log_dir)
+# # log_dir = get_log_dir() # safe – never deletes on import
+# log_dir = f"{DEFAULT_LOG_DIR}/output"
+# reset_log_dir(log_dir)
 
-agent_log_file = f"{log_dir}/agent.log"
-agent_logger = CustomLogger("agent", filename=agent_log_file)
-logger.orange(f"Agent logs: {agent_log_file}")
+# agent_log_file = f"{log_dir}/agent.log"
+# agent_logger = CustomLogger("agent", filename=agent_log_file)
+# logger.orange(f"Agent logs: {agent_log_file}")
 
-model_log_file = f"{log_dir}/model.log"
-model_logger = CustomLogger("model", filename=model_log_file)
-logger.orange(f"Model logs: {model_log_file}")
+# model_log_file = f"{log_dir}/model.log"
+# model_logger = CustomLogger("model", filename=model_log_file)
+# logger.orange(f"Model logs: {model_log_file}")
 
-tool_log_file = f"{log_dir}/tool.log"
-tool_logger = CustomLogger("tool", filename=tool_log_file)
-logger.orange(f"Tool logs: {tool_log_file}")
-
-token_log_file = f"{log_dir}/token.log"
-token_logger = CustomLogger("token", filename=token_log_file)
-logger.orange(f"Token logs: {token_log_file}")
-
-# tool_log_file = f"{log_dir}/tools.log"
-# tool_logger = CustomLogger("tools", filename=tool_log_file, level=logging.DEBUG)
+# tool_log_file = f"{log_dir}/tool.log"
+# tool_logger = CustomLogger("tool", filename=tool_log_file)
 # logger.orange(f"Tool logs: {tool_log_file}")
+
+# token_log_file = f"{log_dir}/token.log"
+# token_logger = CustomLogger("token", filename=token_log_file)
+# logger.orange(f"Token logs: {token_log_file}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  TOOL-CALL LOGGING MIDDLEWARE
@@ -221,8 +212,9 @@ def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instr
 def compress_context(
     messages: List[BaseMessage],
     retriever_results: str,
-    max_tokens: int = 3500,
-    llm: Optional[BaseChatModel] = None
+    max_tokens: int = 4096,
+    llm: Optional[BaseChatModel] = None,
+    logger: Optional[CustomLogger] = None
 ) -> str:
     """
     Compress retrieved docs + conversation history into a concise summary
@@ -285,12 +277,11 @@ def compress_context(
     )
 
     # Budget for documents (leave room for summary prompt + safety)
-    SAFETY_BUFFER = 600
+    SAFETY_BUFFER = 100
     non_doc_tokens = static_tokens + summary_prompt_template_token_count + SAFETY_BUFFER
     available_output_tokens = max_tokens - non_doc_tokens
 
-    max_context_tokens = math.ceil(max_tokens * 0.5)
-    max_context_tokens = max_context_tokens if max_context_tokens < available_output_tokens else available_output_tokens
+    max_context_tokens = max_tokens if max_tokens < available_output_tokens else available_output_tokens
     full_context = filter_full_context(max_context_tokens)
     # Token-count - Full context
     full_context_token_count = count_tokens(
@@ -308,19 +299,26 @@ def compress_context(
     # Token-count - Available remaining
     remaining_tokens = max_tokens - summary_prompt_token_count
 
-    token_logger.info("Input Tokens: %s", format_json({
-        "static_tokens": static_tokens,
-        "template_tokens": summary_prompt_template_token_count,
-        "safety_buffer": SAFETY_BUFFER,
-    }))
-    token_logger.green("Max Tokens: %d", max_tokens)
-    token_logger.green("Max Context Tokens: %d", max_context_tokens)
-    token_logger.info("Original Tokens: %d", doc_token_count)
-    token_logger.info("Selected Tokens: %d", full_context_token_count)
-    token_logger.info("Prompt Tokens: %d", summary_prompt_token_count)
-    token_logger.info("Used Tokens: %d", non_doc_tokens)
-    token_logger.debug("Available Output Tokens: %d", available_output_tokens)
-    token_logger.debug("Remaining Tokens: %d", remaining_tokens)
+    if logger:
+        logger.gray(f"\nfull_context ({full_context_token_count}):")
+        logger.debug(full_context)
+
+        logger.gray(f"\nsummary_prompt ({summary_prompt_token_count}):")
+        logger.debug(summary_prompt)
+
+        logger.info("\nInput Tokens: %s", format_json({
+            "static_tokens": static_tokens,
+            "template_tokens": summary_prompt_template_token_count,
+            "safety_buffer": SAFETY_BUFFER,
+        }))
+        logger.green("\nMax Tokens: %d", max_tokens)
+        logger.green("Max Context Tokens: %d", max_context_tokens)
+        logger.info("\nOriginal Tokens: %d", doc_token_count)
+        logger.info("Selected Tokens: %d", full_context_token_count)
+        logger.info("Prompt Tokens: %d", summary_prompt_token_count)
+        logger.info("Used Tokens: %d", non_doc_tokens)
+        logger.debug("\nAvailable Output Tokens: %d", available_output_tokens)
+        logger.debug("Remaining Tokens: %d", remaining_tokens)
 
     summary_msg = _llm.invoke(summary_prompt)
     return summary_msg.content
