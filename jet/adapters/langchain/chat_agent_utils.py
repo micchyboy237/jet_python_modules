@@ -321,4 +321,8 @@ def compress_context(
         logger.debug("Remaining Tokens: %d", remaining_tokens)
 
     summary_msg = _llm.invoke(summary_prompt)
+
+    logger.info("\nSummary message:", doc_token_count)
+    logger.success(format_json(summary_msg))
+
     return summary_msg.content

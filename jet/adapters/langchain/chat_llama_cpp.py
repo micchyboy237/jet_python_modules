@@ -8,7 +8,7 @@ from langchain_core.callbacks import CallbackManagerForLLMRun, AsyncCallbackMana
 
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.llm.logger_utils import ChatLogger
-from jet.logger import logger
+from jet.logger import CustomLogger
 from jet.transformers.formatters import format_json
 from jet.utils.text import format_sub_dir
 
@@ -24,6 +24,7 @@ class ChatLlamaCpp(ChatOpenAI):
         verbose: bool = True,
         agent_name: Optional[str] = None,
         log_dir: str = DEFAULT_LOG_DIR,
+        logger: Optional[CustomLogger] = None,
         **kwargs,
     ):
         super().__init__(
@@ -37,13 +38,14 @@ class ChatLlamaCpp(ChatOpenAI):
         if agent_name:
             log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
 
-        self._custom_model: str = model
-        self._custom_agent_name: Optional[str] = agent_name
-        self._custom_log_dir: str = log_dir
-        self._custom_verbose: bool = verbose
+        self._model: str = model
+        self._agent_name: Optional[str] = agent_name
+        self._log_dir: str = log_dir
+        self._verbose: bool = verbose
 
-        self._logger: Optional[ChatLogger] = (
-            ChatLogger(log_dir=self._custom_log_dir) if self._custom_verbose else None
+        self._logger = logger or CustomLogger()
+        self._chat_logger: Optional[ChatLogger] = (
+            ChatLogger(log_dir=self._log_dir) if self._verbose else None
         )
 
         # Log each init argument
@@ -60,8 +62,8 @@ class ChatLlamaCpp(ChatOpenAI):
     # --------------------------------------------------------------------- #
     def _log(self, message: str, *args: Any) -> None:
         """Log only when verbose is enabled."""
-        if self._custom_verbose:
-            logger.info(message, *args)
+        if self._verbose:
+            self._logger.info(message, *args)
 
     # --------------------------------------------------------------------- #
     # Sync generation (invoke)
@@ -74,13 +76,13 @@ class ChatLlamaCpp(ChatOpenAI):
         **kwargs: Any,
     ) -> ChatResult:
         """Generate full response using streaming; log exactly once."""
-        logger.info("Starting _generate")
-        logger.gray(f"\nMessages ({len(messages)}):")
-        logger.debug(format_json(messages))
+        self._logger.info("Starting _generate")
+        self._logger.gray(f"\nMessages ({len(messages)}):")
+        self._logger.debug(format_json(messages))
         
         if kwargs.get("tools"):
-            logger.gray("\nTools:")
-            logger.debug(format_json(kwargs["tools"]))
+            self._logger.gray("\nTools:")
+            self._logger.debug(format_json(kwargs["tools"]))
 
         text_content = ""
         chunks: List[ChatGenerationChunk] = []
@@ -133,7 +135,7 @@ class ChatLlamaCpp(ChatOpenAI):
 
         # Build final message: content is always str (empty if no text)
         final_message_kwargs = {
-            "content": ""
+            "content": "" if tool_call_chunks else text_content
         }
 
         if tool_call_chunks:
@@ -157,16 +159,16 @@ class ChatLlamaCpp(ChatOpenAI):
         )
 
         # ---- single log_interaction call -------------------------------- #
-        if self._custom_verbose and self._logger is not None:
+        if self._verbose and self._chat_logger is not None:
             self._log("Logging interaction (sync generate)")
             invocation_params = self._get_invocation_params(stop=stop, **kwargs)
             metadata = {
-                "model": self._custom_model,
-                "agent_name": self._custom_agent_name,
+                "model": self._model,
+                "agent_name": self._agent_name,
                 "method": "chat",
                 "invocation": invocation_params,
             }
-            self._logger.log_interaction(
+            self._chat_logger.log_interaction(
                 messages=messages,
                 response=text_content,
                 **metadata,
@@ -185,13 +187,13 @@ class ChatLlamaCpp(ChatOpenAI):
         **kwargs: Any,
     ) -> ChatResult:
         """Async generate using streaming; log exactly once."""
-        logger.info("Starting _agenerate")
-        logger.gray(f"\nMessages ({len(messages)}):")
-        logger.debug(format_json(messages))
+        self._logger.info("Starting _agenerate")
+        self._logger.gray(f"\nMessages ({len(messages)}):")
+        self._logger.debug(format_json(messages))
         
         if kwargs.get("tools"):
-            logger.gray("\nTools:")
-            logger.debug(format_json(kwargs["tools"]))
+            self._logger.gray("\nTools:")
+            self._logger.debug(format_json(kwargs["tools"]))
 
         text_content = ""
         chunks: List[ChatGenerationChunk] = []
@@ -246,7 +248,7 @@ class ChatLlamaCpp(ChatOpenAI):
 
         # Build final message: content is always str (empty if no text)
         final_message_kwargs = {
-            "content": ""
+            "content": "" if tool_call_chunks else text_content
         }
 
         if tool_call_chunks:
@@ -270,24 +272,24 @@ class ChatLlamaCpp(ChatOpenAI):
         )
 
         # ---- single log_interaction call -------------------------------- #
-        if self._custom_verbose and self._logger is not None:
+        if self._verbose and self._chat_logger is not None:
             self._log("Logging interaction (async generate)")
             invocation_params = self._get_invocation_params(stop=stop, **kwargs)
             metadata = {
-                "model": self._custom_model,
-                "agent_name": self._custom_agent_name,
+                "model": self._model,
+                "agent_name": self._agent_name,
                 "method": "achat",
                 "invocation": invocation_params,
             }
             if run_manager and hasattr(run_manager, "get_sync") and callable(run_manager.get_sync):
                 run_manager.get_sync()(
-                    self._logger.log_interaction,
+                    self._chat_logger.log_interaction,
                     messages,
                     response=text_content,
                     **metadata,
                 )
             else:
-                self._logger.log_interaction(
+                self._chat_logger.log_interaction(
                     messages=messages,
                     response=text_content,
                     **metadata,
@@ -311,26 +313,26 @@ class ChatLlamaCpp(ChatOpenAI):
         for chunk in super()._stream(
             messages, stop=stop, run_manager=run_manager, **kwargs
         ):
-            if self._custom_verbose:
+            if self._verbose:
                 content_blocks = getattr(chunk.message, "content_blocks", None)
                 if content_blocks:
                     for block in content_blocks:
                         block_type = block.get("type")
                         if block_type == "tool_call_chunk":
                             args = block.get("args", "")
-                            logger.teal(args, flush=True)
+                            self._logger.teal(args, flush=True)
                         elif block_type == "text":
                             text = block.get("text", "")
-                            logger.teal(text, flush=True)
+                            self._logger.teal(text, flush=True)
                         elif block_type == "reasoning":
                             reasoning = block.get("reasoning", "")
-                            logger.teal(f"[Reasoning] {reasoning}", flush=True)
+                            self._logger.teal(f"[Reasoning] {reasoning}", flush=True)
                         elif block_type == "invalid_tool_call":
                             name = block.get("name", "unknown")
                             error = block.get("error", "unknown error")
-                            logger.teal(f"[Invalid Tool Call] {name}: {error}", flush=True)
+                            self._logger.teal(f"[Invalid Tool Call] {name}: {error}", flush=True)
                 elif chunk.message.content:
-                    logger.teal(chunk.message.content, flush=True)
+                    self._logger.teal(chunk.message.content, flush=True)
             yield chunk
 
         self._log("Finished _stream")
@@ -351,26 +353,26 @@ class ChatLlamaCpp(ChatOpenAI):
         async for chunk in super()._astream(
             messages, stop=stop, run_manager=run_manager, **kwargs
         ):
-            if self._custom_verbose:
+            if self._verbose:
                 content_blocks = getattr(chunk.message, "content_blocks", None)
                 if content_blocks:
                     for block in content_blocks:
                         block_type = block.get("type")
                         if block_type == "tool_call_chunk":
                             args = block.get("args", "")
-                            logger.teal(args, flush=True)
+                            self._logger.teal(args, flush=True)
                         elif block_type == "text":
                             text = block.get("text", "")
-                            logger.teal(text, flush=True)
+                            self._logger.teal(text, flush=True)
                         elif block_type == "reasoning":
                             reasoning = block.get("reasoning", "")
-                            logger.teal(f"[Reasoning] {reasoning}", flush=True)
+                            self._logger.teal(f"[Reasoning] {reasoning}", flush=True)
                         elif block_type == "invalid_tool_call":
                             name = block.get("name", "unknown")
                             error = block.get("error", "unknown error")
-                            logger.teal(f"[Invalid Tool Call] {name}: {error}", flush=True)
+                            self._logger.teal(f"[Invalid Tool Call] {name}: {error}", flush=True)
                 elif chunk.message.content:
-                    logger.teal(chunk.message.content, flush=True)
+                    self._logger.teal(chunk.message.content, flush=True)
             yield chunk
 
         self._log("Finished _astream")
