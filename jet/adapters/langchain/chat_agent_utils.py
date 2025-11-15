@@ -7,6 +7,7 @@ from typing import List, Optional
 from typing import Callable, Awaitable
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from jet.adapters.langchain.chat_llama_cpp import ChatLlamaCpp
 from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.transformers.formatters import format_json
@@ -19,6 +20,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 from jet.logger import logger, CustomLogger
 
+from jet.utils.text import format_sub_dir
 from jet.wordnet.text_chunker import truncate_texts_fast
 
 # # ----------------------------------------------------------------------
@@ -194,17 +196,22 @@ class ToolCallLoggingMiddleware(AgentMiddleware):
         return result
 
 
-def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instruct-2507:4b", system_prompt: Optional[str] = None, temperature: float = 0.0, name: Optional[str] = None, **kwargs):
+def build_agent(tools: List[BaseTool], model: str | BaseChatModel = "qwen3-instruct-2507:4b", system_prompt: Optional[str] = None, temperature: float = 0.0, name: Optional[str] = None, log_dir: str = DEFAULT_LOG_DIR, **kwargs):
     """Create a LangChain agent that can perform basic arithmetic."""
-    model = ChatOpenAI(
-        model=model,
-        temperature=temperature,
-        base_url="http://shawn-pc.local:8080/v1",
-        verbosity="high",
-    ) if isinstance(model, str) else model
-    
+    name = "agent" if not name else name
+    if isinstance(model, str):
+        os.makedirs(log_dir, exist_ok=True)
+        logger_local = CustomLogger(name, filename=f"{log_dir}/{format_sub_dir(name)}.log")
+        llm = ChatLlamaCpp(
+            model=model,
+            temperature=temperature,
+            logger=logger_local
+        )
+    else:
+        llm = model
+        
     agent = create_agent(
-        model=model,
+        model=llm,
         tools=tools,
         system_prompt=system_prompt,
         middleware=[ToolCallLoggingMiddleware()],

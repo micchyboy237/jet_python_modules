@@ -35,7 +35,7 @@ class ChatLlamaCpp(ChatOpenAI):
             **kwargs,
         )
 
-        if agent_name:
+        if agent_name and (not logger or not logger.log_file):
             log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
 
         self._model: str = model
