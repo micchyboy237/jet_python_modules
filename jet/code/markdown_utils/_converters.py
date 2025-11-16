@@ -17,23 +17,22 @@ from jet.file.utils import load_file
 
 def base_convert_html_to_markdown(html_input: Union[str, Path], ignore_links: bool = False) -> str:
     html_content = read_html_content(html_input)
-
     converter = html2text.HTML2Text()
     converter.ignore_images = True
     converter.ignore_emphasis = True
     converter.ignore_links = False
     converter.ignore_mailto_links = ignore_links
     converter.skip_internal_links = ignore_links
+    converter.mark_code = True
+    converter.body_width = 0
     # converter.protect_links = not ignore_links
     # converter.links_each_paragraph = not ignore_links
-    # converter.mark_code = True
-    converter.body_width = 0
-
     md_content = converter.handle(html_content)
     if ignore_links:
         md_content = remove_markdown_links(md_content)
     md_content = preprocess_markdown(md_content)
-
+    md_content = re.sub(r'\[code\]\n', '```code\n', md_content)
+    md_content = re.sub(r'\n\[/code\]', '\n```', md_content)
     return md_content.strip()
 
 
