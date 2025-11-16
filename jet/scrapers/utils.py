@@ -1740,11 +1740,30 @@ def extract_tree_with_text(
                 for item in child_pq.contents():
                     if isinstance(item, str):
                         text_parts.append(item.strip())
+                    elif hasattr(item, "tag") and item.tag == "br":
+                        text_parts.append('\n')
                     else:
                         text_parts.append(decode_text_with_unidecode(pq(item).text().strip()))
                 text = " ".join(part for part in text_parts if part)
+                # Remove whitespace surrounding newlines
+                text = re.sub(r'[ \t\r\f\v]*\n[ \t\r\f\v]*', '\n', text)
             else:
-                text = decode_text_with_unidecode(child_pq.text().strip())
+                direct_text_parts: List[str] = []
+                tail_text_parts: List[str] = []
+
+                # Collect direct text (element.text) and tail text from descendants
+                current = child
+                while current is not None:
+                    if current.text:
+                        direct_text_parts.append(current.text)
+                    if current.tail:
+                        tail_text_parts.append(current.tail)
+                    # Only immediate children contribute to tail aggregation for this node
+                    current = current.getnext()
+
+                # For non-text elements: only direct text (element.text), preserve newlines via <br>
+                direct_text = "".join(part for part in direct_text_parts if part.strip())
+                text = decode_text_with_unidecode(direct_text.strip()) if direct_text else None
 
             # --- Line number ---
             line_number = getattr(child, "sourceline", None)

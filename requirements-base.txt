@@ -43,3 +43,4 @@ tqdm
 transformers
 umap-learn
 unidecode
+uv
