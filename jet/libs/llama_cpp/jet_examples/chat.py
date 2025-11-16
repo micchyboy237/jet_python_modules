@@ -1,3 +1,4 @@
+from jet.logger import logger
 from openai import OpenAI
 
 def main():
@@ -12,7 +13,7 @@ def main():
         model="qwen3-instruct-2507:4b",
         messages=messages,
     )
-    print(response.choices[0].message.content)
+    logger.teal(response.choices[0].message.content)
 
 if __name__ == "__main__":
     main()
