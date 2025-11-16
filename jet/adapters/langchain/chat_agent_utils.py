@@ -23,38 +23,6 @@ from jet.logger import logger, CustomLogger
 from jet.utils.text import format_sub_dir
 from jet.wordnet.text_chunker import truncate_texts_fast
 
-# # ----------------------------------------------------------------------
-# # Log-directory management (import-safe)
-# # ----------------------------------------------------------------------
-# _log_dir: Optional[str] = None
-# _log_dir_lock = threading.Lock()
-
-# def get_log_dir() -> str:
-#     """Return the agent log directory, creating it if necessary (no deletion)."""
-#     global _log_dir
-#     if _log_dir is None:
-#         with _log_dir_lock:
-#             if _log_dir is None:   # double-check inside lock
-#                 _log_dir = f"{DEFAULT_LOG_DIR}/output"
-#                 os.makedirs(_log_dir, exist_ok=True)
-#     return _log_dir
-
-# def reset_log_dir(dir_path: str) -> None:
-#     """
-#     Explicit clean-up – removes the whole log directory and recreates it.
-#     Call this only when you intentionally want a fresh log folder.
-#     """
-#     # dir_path = get_log_dir()
-#     if os.path.exists(dir_path):
-#         shutil.rmtree(dir_path, ignore_errors=True)
-#     os.makedirs(dir_path, exist_ok=True)
-
-# # log_dir = get_log_dir() # safe – never deletes on import
-# log_dir = f"{DEFAULT_LOG_DIR}/output"
-# reset_log_dir(log_dir)
-
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 #  TOOL-CALL LOGGING MIDDLEWARE
 # ─────────────────────────────────────────────────────────────────────────────
