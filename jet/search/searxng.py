@@ -1,18 +1,17 @@
 import time
-from urllib.parse import urlparse
 from datetime import datetime
 import json
 import requests
 from typing import Optional, TypedDict
 from urllib.parse import urlencode
-from pydantic import BaseModel
 from jet.logger import logger
-from .filters import filter_relevant, filter_by_date, deduplicate_results, sort_by_score
+from .filters import filter_relevant, deduplicate_results, sort_by_score
 from .formatters import decode_encoded_characters
 from jet.cache.redis import RedisConfigParams, RedisCache
 from jet.data.utils import generate_key
 
 DEFAULT_REDIS_PORT = 3101
+DEFAULT_QUERY_URL = "http://jethros-macbook-air.local:3000"
 
 
 class SearchResult(TypedDict):
@@ -68,7 +67,7 @@ def remove_empty_attributes(data):
         return data
 
 
-def fetch_search_results(query_url: str, headers: dict, params: dict) -> QueryResponse:
+def fetch_search_results(headers: dict, params: dict, query_url: str = DEFAULT_QUERY_URL) -> QueryResponse:
     """Fetches search results from SearXNG."""
 
     logger.log("Requesting URL:", query_url, colors=["LOG", "DEBUG"])
@@ -94,7 +93,7 @@ def format_min_date(min_date: datetime) -> datetime:
     return result
 
 
-def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_score: float = 0.1, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, max_retries: int = 3, **kwargs) -> list[SearchResult]:
+def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Optional[int] = None, min_score: float = 0.1, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, max_retries: int = 3, **kwargs) -> list[SearchResult]:
     query = decode_encoded_characters(query)
     try:
         # Add the include_sites filter if provided
@@ -144,7 +143,7 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
             if cached_result and cached_result.get("results", []):
                 cached_count = len(cached_result["results"])
                 if count is None or cached_count >= count:
-                    logger.log(f"search_searxng: Cache hit for ",
+                    logger.log("search_searxng: Cache hit for ",
                                cache_key, colors=["SUCCESS", "BRIGHT_SUCCESS"])
                 else:
                     logger.warning(
@@ -162,7 +161,7 @@ def search_searxng(query_url: str, query: str, count: Optional[int] = None, min_
                 break
 
             try:
-                result = fetch_search_results(query_url, headers, params)
+                result = fetch_search_results(headers, params, query_url)
                 if not result.get("results", []):
                     if retries < max_retries:
                         delay = 2 ** retries  # Exponential backoff: 1s, 2s, 4s

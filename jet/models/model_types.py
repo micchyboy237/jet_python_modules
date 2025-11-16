@@ -2,11 +2,12 @@ from typing import Literal, Union, Dict, List, Optional, TypedDict, Any, get_arg
 from enum import Enum
 from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
 from transformers import PreTrainedTokenizer
-from mlx_lm.tokenizer_utils import TokenizerWrapper
+# from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 # Type definitions
 
-MLXTokenizer = Union[TokenizerWrapper, PreTrainedTokenizer]
+# MLXTokenizer = Union[TokenizerWrapper, PreTrainedTokenizer]
+MLXTokenizer = Union[PreTrainedTokenizer]
 
 
 ChatRole = Literal["system", "user", "assistant", "tool"]
