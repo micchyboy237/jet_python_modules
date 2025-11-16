@@ -1,16 +1,33 @@
-
-
-from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+import numpy as np
+from openai import OpenAI
+from tqdm import tqdm
+from jet.logger import logger
 
 def main():
     """Example usage of EmbeddingClient."""
-    model = "embeddinggemma"
-    client = LlamacppEmbedding(model=model)
+    client = OpenAI(base_url="http://shawn-pc.local:8081/v1", api_key="no-key-required", max_retries=3)
     
     # Example inputs
     texts = ["This is a sample text to generate embeddings.", "Another text for embedding."]
-    embeddings_list = client.get_embeddings(texts, return_format="list", show_progress=True)
-    embeddings_numpy = client.get_embeddings(texts, return_format="numpy", show_progress=True)
+
+    model = "embeddinggemma"
+    batch_size = 32
+    embeddings_list = []
+    embeddings_numpy = []
+    progress_bar = tqdm(range(0, len(texts), batch_size), desc="Processing batches")
+    
+    for i in progress_bar:
+        batch = texts[i:i + batch_size]
+        try:
+            response = client.embeddings.create(model=model, input=batch)
+            batch_embeddings = [d.embedding for d in response.data]
+            batch_numpy_embeddings = [np.array(emb) for emb in batch_embeddings]
+
+            embeddings_list.extend(batch_embeddings)
+            embeddings_numpy.extend(batch_numpy_embeddings)
+        except Exception as e:
+            logger.error(f"Error generating embeddings for batch {i // batch_size + 1}: {e}")
+            raise
     
     for text, emb_list, emb_np in zip(texts, embeddings_list, embeddings_numpy):
         print(f"Text: {text}")
