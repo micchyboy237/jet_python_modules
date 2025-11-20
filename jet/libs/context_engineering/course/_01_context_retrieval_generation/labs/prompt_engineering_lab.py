@@ -43,17 +43,53 @@ import numpy as np
 from datetime import datetime, timedelta
 
 from jet.file.utils import save_file
-from jet.logger import logger
+from jet.logger import CustomLogger
 import os
 import shutil
 
-OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-log_file = os.path.join(OUTPUT_DIR, "main.log")
-logger.basicConfig(filename=log_file)
-logger.orange(f"Logs: {log_file}")
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="math_foundations_lab",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+main_logger.info("=" * 80)
+main_logger.info("MATHEMATICAL FOUNDATIONS LAB STARTED")
+main_logger.info("=" * 80)
+
+
+def create_example_dir(example_name: str) -> str:
+    example_dir = os.path.join(BASE_OUTPUT_DIR, example_name)
+    os.makedirs(example_dir, exist_ok=True)
+    return example_dir
+
+
+def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
+    log_file = os.path.join(example_dir, "run.log")
+    log = CustomLogger(
+        name=example_name,
+        filename=log_file,
+        console_level="INFO",
+        level="DEBUG",
+        fmt="%(asctime)s | %(message)s",
+        overwrite=True
+    )
+    log.info("")
+    log.info("=" * 80)
+    log.info(f"EXAMPLE: {example_name}")
+    log.info("=" * 80)
+    return log
 
 class PromptingTechnique(Enum):
     """Enumeration of prompt engineering techniques."""
@@ -108,7 +144,7 @@ class BasePromptFramework(ABC):
     def log_experiment(self, result: ExperimentResult):
         """Log an experiment result."""
         self.experiment_history.append(result)
-        logger.info(f"{self.name} experiment completed: {result.success}")
+        print(f"{self.name} experiment completed: {result.success}")
 
 class ChainOfThoughtFramework(BasePromptFramework):
     """
@@ -860,7 +896,7 @@ class PromptEngineeringLab:
         self.experiment_results: List[ExperimentResult] = []
         self.test_cases = self._initialize_test_cases()
         
-        logger.info("Prompt Engineering Laboratory initialized with 6 frameworks")
+        print("Prompt Engineering Laboratory initialized with 6 frameworks")
     
     def _initialize_test_cases(self) -> Dict[str, Dict]:
         """Initialize standardized test cases for systematic evaluation."""
@@ -920,12 +956,12 @@ class PromptEngineeringLab:
         
         results = {}
         
-        logger.info(f"Starting systematic experiment: {test_case_name}")
-        logger.info(f"Testing techniques: {[t.value for t in techniques]}")
+        print(f"Starting systematic experiment: {test_case_name}")
+        print(f"Testing techniques: {[t.value for t in techniques]}")
         
         for technique in techniques:
             if technique not in self.frameworks:
-                logger.warning(f"Unknown technique: {technique}")
+                print(f"Unknown technique: {technique}")
                 continue
             
             try:
@@ -943,10 +979,10 @@ class PromptEngineeringLab:
                 results[technique.value] = result
                 self.experiment_results.append(result)
                 
-                logger.info(f"Completed {technique.value}: Success={result.success}")
+                print(f"Completed {technique.value}: Success={result.success}")
                 
             except Exception as e:
-                logger.error(f"Experiment failed for {technique.value}: {e}")
+                print(f"Experiment failed for {technique.value}: {e}")
                 results[technique.value] = ExperimentResult(
                     experiment=PromptExperiment(
                         technique=technique,
@@ -1417,11 +1453,11 @@ The improvement process helped me recognize that I initially focused too heavily
             }
         }
         
-        logger.info(f"Starting comparative study with {len(techniques)} techniques across {len(self.test_cases)} test cases")
+        print(f"Starting comparative study with {len(techniques)} techniques across {len(self.test_cases)} test cases")
         
         # Run experiments for each test case
         for test_case_name in self.test_cases:
-            logger.info(f"Running test case: {test_case_name}")
+            print(f"Running test case: {test_case_name}")
             
             case_results = self.run_systematic_experiment(
                 test_case_name=test_case_name,
@@ -1474,7 +1510,7 @@ The improvement process helped me recognize that I initially focused too heavily
             study_results['study_metadata']['start_time']
         ).total_seconds()
         
-        logger.info(f"Comparative study completed in {study_results['study_metadata']['duration']:.2f} seconds")
+        print(f"Comparative study completed in {study_results['study_metadata']['duration']:.2f} seconds")
         
         return study_results
     
@@ -1537,129 +1573,6 @@ The improvement process helped me recognize that I initially focused too heavily
         
         return analysis
 
-# Main execution and demo functions
-def demo_individual_techniques():
-    """Demonstrate individual prompting techniques."""
-    lab = PromptEngineeringLab()
-    
-    print("=== PROMPT ENGINEERING TECHNIQUES DEMONSTRATION ===\n")
-    
-    # Demo query
-    demo_query = "How can artificial intelligence be used to improve education while addressing ethical concerns?"
-    
-    techniques_to_demo = [
-        PromptingTechnique.CHAIN_OF_THOUGHT,
-        PromptingTechnique.TREE_OF_THOUGHT,
-        PromptingTechnique.REACT,
-        PromptingTechnique.SELF_CONSISTENCY,
-        PromptingTechnique.ROLE_BASED,
-        PromptingTechnique.META_COGNITIVE,
-    ]
-    
-    for technique in techniques_to_demo:
-        print(f"\n{'='*60}")
-        print(f"TECHNIQUE: {technique.value.upper()}")
-        print(f"{'='*60}")
-        
-        framework = lab.frameworks[technique]
-        
-        # Generate prompt
-        prompt = framework.generate_prompt(
-            demo_query, 
-            {'domain': 'analytical', 'complexity': 'high'}
-        )
-        
-        print("GENERATED PROMPT:")
-        print("-" * 40)
-        print(prompt)
-        print("\n" + "="*60)
-
-        save_file(f"## Query\n\n{demo_query}\n\n## Generated Prompt\n\n{prompt}", f"{OUTPUT_DIR}/individual_techniques/prompt_{technique.value.lower()}.md")
-
-def demo_systematic_experiment():
-    """Demonstrate systematic experimental methodology."""
-    lab = PromptEngineeringLab()
-    
-    print("=== SYSTEMATIC EXPERIMENT DEMONSTRATION ===\n")
-    
-    # Run experiment on mathematical reasoning
-    print("Running experiment: Mathematical Reasoning")
-    print("-" * 50)
-    
-    results = lab.run_systematic_experiment(
-        test_case_name='mathematical_reasoning',
-        techniques=[
-            PromptingTechnique.CHAIN_OF_THOUGHT,
-            PromptingTechnique.TREE_OF_THOUGHT,
-            PromptingTechnique.SELF_CONSISTENCY
-        ]
-    )
-    
-    # Analyze results
-    analysis = lab.analyze_experiment_results(results)
-    
-    # Generate report
-    report = lab.generate_experiment_report(
-        'mathematical_reasoning', 
-        results, 
-        analysis
-    )
-    
-    print(report)
-
-    save_file(report, f"{OUTPUT_DIR}/systematic_experiment/report.md")
-
-def demo_comparative_study():
-    """Demonstrate comprehensive comparative study."""
-    lab = PromptEngineeringLab()
-    
-    print("=== COMPREHENSIVE COMPARATIVE STUDY ===\n")
-    
-    # Run comparative study
-    study_results = lab.run_comparative_study(
-        techniques=[
-            PromptingTechnique.CHAIN_OF_THOUGHT,
-            PromptingTechnique.TREE_OF_THOUGHT,
-            PromptingTechnique.REACT,
-            PromptingTechnique.SELF_CONSISTENCY
-        ]
-    )
-    
-    # Display summary results
-    print("OVERALL TECHNIQUE RANKINGS:")
-    print("-" * 40)
-    for i, (technique, stats) in enumerate(study_results['overall_rankings'], 1):
-        mean_score = stats['mean_score']
-        consistency = stats['consistency_score']
-        print(f"{i}. {technique}")
-        print(f"   Mean Score: {mean_score:.3f}")
-        print(f"   Consistency: {consistency:.3f}")
-        print(f"   Test Cases: {stats['test_cases_completed']}")
-        print()
-    
-    # Domain-specific insights
-    print("DOMAIN-SPECIFIC PERFORMANCE:")
-    print("-" * 40)
-    cross_analysis = study_results['cross_case_analysis']
-    
-    for domain, data in cross_analysis['domain_preferences'].items():
-        best_technique = data['best_technique']
-        best_score = data['best_score']
-        print(f"{domain.title()}: {best_technique} ({best_score:.3f})")
-    
-    print()
-    
-    # Complexity analysis
-    print("COMPLEXITY-BASED PERFORMANCE:")
-    print("-" * 40)
-    for complexity, scores in cross_analysis['complexity_performance'].items():
-        best_technique = max(scores.keys(), key=lambda k: scores[k])
-        best_score = scores[best_technique]
-        print(f"{complexity.title()} complexity: {best_technique} ({best_score:.3f})")
-
-    for key, value in study_results.items():
-        save_file(value, f"{OUTPUT_DIR}/comparative_study/{key}.json")
-
 class PromptOptimizer:
     """
     Advanced prompt optimization utilities for research and development.
@@ -1702,7 +1615,7 @@ class PromptOptimizer:
         current_score = self._evaluate_prompt_performance(current_prompt, test_query)
         optimization_log['best_score'] = current_score
         
-        logger.info(f"Starting prompt optimization - Initial score: {current_score:.3f}")
+        print(f"Starting prompt optimization - Initial score: {current_score:.3f}")
         
         for round_num in range(optimization_rounds):
             round_data = {
@@ -1763,16 +1676,16 @@ class PromptOptimizer:
                     optimization_log['best_prompt'] = current_prompt
                     optimization_log['best_score'] = current_score
                 
-                logger.info(f"Round {round_num + 1}: Improvement of {improvement:.3f} with {best_candidate}")
+                print(f"Round {round_num + 1}: Improvement of {improvement:.3f} with {best_candidate}")
             else:
-                logger.info(f"Round {round_num + 1}: No significant improvement found")
+                print(f"Round {round_num + 1}: No significant improvement found")
                 round_data['improvement'] = 0.0
             
             optimization_log['rounds'].append(round_data)
             
             # Early stopping if no improvement
             if improvement <= improvement_threshold:
-                logger.info("Optimization converged - stopping early")
+                print("Optimization converged - stopping early")
                 break
         
         optimization_log['total_improvement'] = (
@@ -1888,7 +1801,7 @@ class ExperimentTracker:
         }
         
         self.experiments_database.append(experiment_record)
-        logger.info(f"Tracked experiment {experiment_record['experiment_id']}")
+        print(f"Tracked experiment {experiment_record['experiment_id']}")
     
     def analyze_longitudinal_trends(self, 
                                   time_window_days: int = 30) -> Dict[str, Any]:
@@ -2015,50 +1928,6 @@ class ExperimentTracker:
         
         return "Unsupported format"
 
-# Utility functions for easy lab usage
-def quick_technique_comparison(query: str, 
-                             techniques: Optional[List[PromptingTechnique]] = None) -> None:
-    """Quick comparison of techniques for a given query."""
-    lab = PromptEngineeringLab()
-    
-    if techniques is None:
-        techniques = [
-            PromptingTechnique.CHAIN_OF_THOUGHT,
-            PromptingTechnique.TREE_OF_THOUGHT,
-            PromptingTechnique.REACT
-        ]
-    
-    print("QUICK TECHNIQUE COMPARISON")
-    print(f"Query: {query}")
-    print("=" * 80)
-    
-    for technique in techniques:
-        framework = lab.frameworks[technique]
-        prompt = framework.generate_prompt(query)
-        
-        print(f"\n{technique.value.upper()}:")
-        print("-" * 40)
-        print(prompt[:300] + "..." if len(prompt) > 300 else prompt)
-
-        save_file(f"## Query\n\n{query}\n\n## Generated Prompt\n\n{prompt}", f"{OUTPUT_DIR}/quick_technique_comparison/prompt_{technique.value.lower()}.md")
-
-def benchmark_technique_performance() -> None:
-    """Run standardized benchmark across all techniques."""
-    lab = PromptEngineeringLab()
-    
-    print("RUNNING STANDARDIZED BENCHMARK...")
-    print("=" * 50)
-    
-    study_results = lab.run_comparative_study()
-    
-    print("\nBENCHMARK RESULTS:")
-    print("-" * 30)
-    
-    for i, (technique, stats) in enumerate(study_results['overall_rankings'], 1):
-        print(f"{i}. {technique}")
-        print(f"   Score: {stats['mean_score']:.3f} ± {stats['std_score']:.3f}")
-        print(f"   Consistency: {stats['consistency_score']:.3f}")
-
 # Research and academic utilities
 class ResearchUtilities:
     """
@@ -2148,60 +2017,272 @@ class ResearchUtilities:
         
         return "\n".join(report_sections)
 
+# Main execution and demo functions
+def example_01_individual_techniques():
+    """Demonstrate individual prompting techniques."""
+    example_dir = create_example_dir("example_01_individual_techniques")
+    log = get_example_logger("example_01_individual_techniques", example_dir)
+
+    lab = PromptEngineeringLab()
+    
+    log.info("=== PROMPT ENGINEERING TECHNIQUES DEMONSTRATION ===\n")
+    
+    # Demo query
+    demo_query = "How can artificial intelligence be used to improve education while addressing ethical concerns?"
+    
+    techniques_to_demo = [
+        PromptingTechnique.CHAIN_OF_THOUGHT,
+        PromptingTechnique.TREE_OF_THOUGHT,
+        PromptingTechnique.REACT,
+        PromptingTechnique.SELF_CONSISTENCY,
+        PromptingTechnique.ROLE_BASED,
+        PromptingTechnique.META_COGNITIVE,
+    ]
+    
+    for technique in techniques_to_demo:
+        log.info(f"\n{'='*60}")
+        log.info(f"TECHNIQUE: {technique.value.upper()}")
+        log.info(f"{'='*60}")
+        
+        framework = lab.frameworks[technique]
+        
+        # Generate prompt
+        prompt = framework.generate_prompt(
+            demo_query, 
+            {'domain': 'analytical', 'complexity': 'high'}
+        )
+        
+        log.info("GENERATED PROMPT:")
+        log.info("-" * 40)
+        log.info(prompt)
+        log.info("\n" + "="*60)
+
+        save_file(prompt, os.path.join(example_dir, f"{technique.value}_prompt.md"))
+
+def example_02_systematic_experiment():
+    """Demonstrate systematic experimental methodology."""
+    example_dir = create_example_dir("example_02_systematic_experiment")
+    log = get_example_logger("example_02_systematic_experiment", example_dir)
+
+    lab = PromptEngineeringLab()
+    
+    log.info("=== SYSTEMATIC EXPERIMENT DEMONSTRATION ===\n")
+    log.info("Running experiment: Mathematical Reasoning")
+    log.info("-" * 50)
+    
+    # Run experiment on mathematical reasoning
+    results = lab.run_systematic_experiment(
+        test_case_name='mathematical_reasoning',
+        techniques=[
+            PromptingTechnique.CHAIN_OF_THOUGHT,
+            PromptingTechnique.TREE_OF_THOUGHT,
+            PromptingTechnique.REACT,
+            PromptingTechnique.SELF_CONSISTENCY,
+            PromptingTechnique.ROLE_BASED,
+            PromptingTechnique.META_COGNITIVE,
+        ]
+    )
+    log.info("Experiment results collected.")
+
+    # Analyze results
+    analysis = lab.analyze_experiment_results(results)
+    log.info("Analysis complete.")
+
+    # Generate report
+    report = lab.generate_experiment_report(
+        'mathematical_reasoning', 
+        results, 
+        analysis
+    )
+    
+    log.info("EXPERIMENT REPORT:")
+    log.info("-" * 40)
+    log.info("\n" + report)
+
+    save_file(report, os.path.join(example_dir, "systematic_experiment_report.md"))
+    save_file(results, os.path.join(example_dir, "systematic_experiment_results.json"))
+    save_file(analysis, os.path.join(example_dir, "systematic_experiment_analysis.json"))
+
+def example_03_comparative_study():
+    """Demonstrate comprehensive comparative study."""
+    example_dir = create_example_dir("example_03_comparative_study")
+    log = get_example_logger("example_03_comparative_study", example_dir)
+
+    lab = PromptEngineeringLab()
+    
+    log.info("=== COMPREHENSIVE COMPARATIVE STUDY ===\n")
+    
+    # Run comparative study
+    study_results = lab.run_comparative_study(
+        techniques=[
+            PromptingTechnique.CHAIN_OF_THOUGHT,
+            PromptingTechnique.TREE_OF_THOUGHT,
+            PromptingTechnique.REACT,
+            PromptingTechnique.SELF_CONSISTENCY,
+            PromptingTechnique.ROLE_BASED,
+            PromptingTechnique.META_COGNITIVE,
+        ]
+    )
+    log.info("Comparative study results collected.")
+
+    # Display summary results
+    log.info("OVERALL TECHNIQUE RANKINGS:")
+    log.info("-" * 40)
+    for i, (technique, stats) in enumerate(study_results['overall_rankings'], 1):
+        mean_score = stats['mean_score']
+        consistency = stats['consistency_score']
+        log.info(f"{i}. {technique}")
+        log.info(f"   Mean Score: {mean_score:.3f}")
+        log.info(f"   Consistency: {consistency:.3f}")
+        log.info(f"   Test Cases: {stats['test_cases_completed']}")
+        log.info("")
+
+    # Domain-specific insights
+    log.info("DOMAIN-SPECIFIC PERFORMANCE:")
+    log.info("-" * 40)
+    cross_analysis = study_results['cross_case_analysis']
+    for domain, data in cross_analysis['domain_preferences'].items():
+        best_technique = data['best_technique']
+        best_score = data['best_score']
+        log.info(f"{domain.title()}: {best_technique} ({best_score:.3f})")
+    log.info("")
+
+    # Complexity analysis
+    log.info("COMPLEXITY-BASED PERFORMANCE:")
+    log.info("-" * 40)
+    for complexity, scores in cross_analysis['complexity_performance'].items():
+        best_technique = max(scores.keys(), key=lambda k: scores[k])
+        best_score = scores[best_technique]
+        log.info(f"{complexity.title()} complexity: {best_technique} ({best_score:.3f})")
+
+    # Save all study result keys as files, pick extension appropriately
+    for key, value in study_results.items():
+        if key.endswith("_analysis") or key.endswith("_results") or isinstance(value, dict) or isinstance(value, list):
+            fname = os.path.join(example_dir, f"{key}.json")
+            save_file(value, fname)
+        elif key == "overall_rankings":
+            fname = os.path.join(example_dir, f"{key}.json")
+            save_file(value, fname)
+        else:
+            fname = os.path.join(example_dir, f"{key}.txt")
+            save_file(str(value), fname)
+
+def example_04_quick_technique_comparison(query: str, 
+                             techniques: Optional[List[PromptingTechnique]] = None) -> None:
+    """Quick comparison of techniques for a given query."""
+    example_dir = create_example_dir("example_04_quick_technique_comparison")
+    log = get_example_logger("example_04_quick_technique_comparison", example_dir)
+
+    lab = PromptEngineeringLab()
+    
+    if techniques is None:
+        techniques = [
+            PromptingTechnique.CHAIN_OF_THOUGHT,
+            PromptingTechnique.TREE_OF_THOUGHT,
+            PromptingTechnique.REACT,
+            PromptingTechnique.SELF_CONSISTENCY,
+            PromptingTechnique.ROLE_BASED,
+            PromptingTechnique.META_COGNITIVE,
+        ]
+    
+    log.info("QUICK TECHNIQUE COMPARISON")
+    log.info(f"Query: {query}")
+    log.info("=" * 80)
+    
+    for technique in techniques:
+        framework = lab.frameworks[technique]
+        prompt = framework.generate_prompt(query)
+        
+        log.info(f"\n{technique.value.upper()}:")
+        log.info("-" * 40)
+        if len(prompt) > 300:
+            log.info(prompt[:300] + "...")
+        else:
+            log.info(prompt)
+        save_file(
+            f"## Query\n\n{query}\n\n## Generated Prompt\n\n{prompt}",
+            os.path.join(example_dir, f"prompt_{technique.value.lower()}.md")
+        )
+
+def example_05_benchmark_technique_performance() -> None:
+    """Run standardized benchmark across all techniques."""
+    example_dir = create_example_dir("example_05_benchmark_performance")
+    log = get_example_logger("example_05_benchmark_performance", example_dir)
+
+    lab = PromptEngineeringLab()
+    
+    log.info("RUNNING STANDARDIZED BENCHMARK...")
+    log.info("=" * 50)
+    
+    study_results = lab.run_comparative_study()
+    
+    log.info("\nBENCHMARK RESULTS:")
+    log.info("-" * 30)
+    
+    for i, (technique, stats) in enumerate(study_results['overall_rankings'], 1):
+        log.info(f"{i}. {technique}")
+        log.info(f"   Score: {stats['mean_score']:.3f} ± {stats['std_score']:.3f}")
+        log.info(f"   Consistency: {stats['consistency_score']:.3f}")
+    save_file(study_results, os.path.join(example_dir, "benchmark_results.json"))
+
 # Main execution block
 if __name__ == "__main__":
-    print("Context Engineering Course - Prompt Engineering Laboratory")
-    print("=" * 60)
-    print()
+    main_logger.info("Context Engineering Course - Prompt Engineering Laboratory")
+    main_logger.info("=" * 60)
+    main_logger.info()
     
     # Initialize lab
     lab = PromptEngineeringLab()
     optimizer = PromptOptimizer(lab)
     tracker = ExperimentTracker()
     
-    print("Available demonstrations:")
-    print("1. Individual Techniques Demo")
-    print("2. Systematic Experiment Demo") 
-    print("3. Comparative Study Demo")
-    print("4. Quick Technique Comparison")
-    print("5. Benchmark Performance Test")
-    print()
+    main_logger.info("Available demonstrations:")
+    main_logger.info("1. Individual Techniques Demo")
+    main_logger.info("2. Systematic Experiment Demo") 
+    main_logger.info("3. Comparative Study Demo")
+    main_logger.info("4. Quick Technique Comparison")
+    main_logger.info("5. Benchmark Performance Test")
+    main_logger.info()
     
     # Example usage
     try:
-        # Demo individual techniques
-        print("Running Individual Techniques Demo...")
-        demo_individual_techniques()
-        print("\n" + "="*80 + "\n")
+        # Individual techniques example
+        main_logger.info("Running Individual Techniques Example...")
+        example_01_individual_techniques()
+        main_logger.info("\n" + "="*80 + "\n")
         
-        # Demo systematic experiment
-        print("Running Systematic Experiment Demo...")
-        demo_systematic_experiment()
-        print("\n" + "="*80 + "\n")
+        # Systematic experiment example
+        main_logger.info("Running Systematic Experiment Example...")
+        example_02_systematic_experiment()
+        main_logger.info("\n" + "="*80 + "\n")
 
-        # Demo comparative study
-        print("Running Comparative Study Demo...")
-        demo_comparative_study()
-        print("\n" + "="*80 + "\n")
+        # Comparative study example
+        main_logger.info("Running Comparative Study Example...")
+        example_03_comparative_study()
+        main_logger.info("\n" + "="*80 + "\n")
         
         # Quick comparison example
-        print("Running Quick Comparison Demo...")
-        quick_technique_comparison(
+        main_logger.info("Running Quick Comparison Example...")
+        example_04_quick_technique_comparison(
             "Explain the potential impacts of artificial intelligence on future employment.",
             [PromptingTechnique.CHAIN_OF_THOUGHT, PromptingTechnique.TREE_OF_THOUGHT]
         )
+
+        # Benchmark technique performance example
+        main_logger.info("Running Benchmark Technique Performance Example...")
+        example_05_benchmark_technique_performance()
         
     except Exception as e:
-        logger.error(f"Demo execution failed: {e}")
-        print(f"Error during demonstration: {e}")
+        main_logger.error(f"Demo execution failed: {e}")
+        main_logger.info(f"Error during demonstration: {e}")
     
-    print("\nLaboratory session complete. Use the provided classes and functions")
-    print("to conduct your own prompt engineering research and experiments.")
-    print("\nFor research-grade usage:")
-    print("- Use PromptEngineeringLab for systematic experiments")
-    print("- Use PromptOptimizer for iterative prompt improvement")
-    print("- Use ExperimentTracker for longitudinal studies")
-    print("- Extend BasePromptFramework for custom techniques")
+    main_logger.info("\nLaboratory session complete. Use the provided classes and functions")
+    main_logger.info("to conduct your own prompt engineering research and experiments.")
+    main_logger.info("\nFor research-grade usage:")
+    main_logger.info("- Use PromptEngineeringLab for systematic experiments")
+    main_logger.info("- Use PromptOptimizer for iterative prompt improvement")
+    main_logger.info("- Use ExperimentTracker for longitudinal studies")
+    main_logger.info("- Extend BasePromptFramework for custom techniques")
 
 # Export all main classes and functions for easy importing
 __all__ = [
@@ -2219,9 +2300,9 @@ __all__ = [
     'PromptOptimizer',
     'ExperimentTracker',
     'ResearchUtilities',
-    'demo_individual_techniques',
-    'demo_systematic_experiment',
-    'demo_comparative_study',
-    'quick_technique_comparison',
-    'benchmark_technique_performance'
+    'example_01_individual_techniques',
+    'example_02_systematic_experiment',
+    'example_03_comparative_study',
+    'example_04_quick_technique_comparison',
+    'example_05_benchmark_technique_performance'
 ]
