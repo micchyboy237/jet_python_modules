@@ -186,7 +186,7 @@ class SemanticCoherenceAssessor(ContextAssessor):
         """Assess local semantic coherence."""
         if context.shape[0] < 2:
             return 1.0
-        
+
         # Compute pairwise similarities between adjacent segments
         similarities = []
         for i in range(0, context.shape[0] - self.window_size, self.window_size // 2):
@@ -209,7 +209,7 @@ class SemanticCoherenceAssessor(ContextAssessor):
         """Assess relevance to query."""
         context_repr = np.mean(context, axis=0)
         query_repr = np.mean(query, axis=0)
-        
+
         # Enhanced relevance with learned weights
         combined = np.concatenate([context_repr, query_repr])
         relevance_raw = np.sigmoid(combined @ self.relevance_net.flatten())
@@ -217,25 +217,19 @@ class SemanticCoherenceAssessor(ContextAssessor):
         return float(relevance_raw)
     
     def _assess_completeness(self, context: np.ndarray) -> float:
-        """Assess information completeness using diversity metrics."""
         if context.shape[0] < 2:
             return 0.5
-        
-        # Information diversity via eigenvalue spread
         cov_matrix = np.cov(context.T)
+        if cov_matrix.size == 0 or np.isnan(cov_matrix).all():
+            return 0.5
         eigenvals = np.linalg.eigvals(cov_matrix)
-        eigenvals = np.real(eigenvals[eigenvals > 0])  # Keep positive eigenvalues
-        
-        if len(eigenvals) > 1:
-            # Normalized entropy of eigenvalue distribution  
-            eigenvals_norm = eigenvals / np.sum(eigenvals)
-            entropy = -np.sum(eigenvals_norm * np.log(eigenvals_norm + 1e-10))
-            max_entropy = np.log(len(eigenvals))
-            completeness = entropy / max_entropy if max_entropy > 0 else 0.5
-        else:
-            completeness = 0.5
-            
-        return min(1.0, completeness)
+        eigenvals = np.real(eigenvals[eigenvals > 1e-8])
+        if len(eigenvals) <= 1:
+            return 0.5
+        eigenvals_norm = eigenvals / np.sum(eigenvals)
+        entropy = -np.sum(eigenvals_norm * np.log(eigenvals_norm + 1e-10))
+        max_entropy = np.log(len(eigenvals))
+        return min(1.0, entropy / max_entropy if max_entropy > 0 else 0.5)
     
     def _assess_clarity(self, context: np.ndarray) -> float:
         """Assess structural clarity and organization."""
@@ -259,17 +253,23 @@ class SemanticCoherenceAssessor(ContextAssessor):
     
     def _assess_factuality(self, context: np.ndarray) -> float:
         """Assess internal factual consistency (simplified)."""
-        # Simplified: Check for embedding magnitude consistency as proxy for factual coherence
         magnitudes = np.linalg.norm(context, axis=1)
-        
-        # Consistent magnitude indicates consistent "confidence" in information
-        magnitude_consistency = 1.0 - min(1.0, np.std(magnitudes) / (np.mean(magnitudes) + 1e-8))
-        
-        # Check for contradictory patterns (very dissimilar embeddings)
+        mean_mag = np.mean(magnitudes)
+        if mean_mag == 0:
+            return 0.7
+        magnitude_consistency = 1.0 - min(1.0, np.std(magnitudes) / (mean_mag + 1e-8))
+
+        if context.shape[0] <= 1:
+            return max(0.1, magnitude_consistency)
+
         pairwise_sims = np.corrcoef(context)
-        negative_correlations = np.sum(pairwise_sims < -0.3) / (pairwise_sims.shape[0] ** 2)
-        contradiction_penalty = min(1.0, negative_correlations * 5)  # Scale penalty
-        
+        if pairwise_sims.ndim == 0:  # scalar → single vector
+            contradiction_penalty = 0.0
+        else:
+            n = pairwise_sims.shape[0]
+            negative_count = np.sum(pairwise_sims < -0.3)
+            contradiction_penalty = min(1.0, (negative_count / (n * n)) * 5)
+
         factuality = magnitude_consistency - contradiction_penalty
         return max(0.1, min(1.0, factuality))
 
