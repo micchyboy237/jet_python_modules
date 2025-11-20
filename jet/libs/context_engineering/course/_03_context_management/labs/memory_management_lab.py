@@ -17,18 +17,65 @@ License: MIT
 
 import json
 import time
-import hashlib
 import threading
 from abc import ABC, abstractmethod
 from collections import defaultdict, OrderedDict
 from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Tuple, Any, Union, Callable
+from typing import Dict, List, Optional, Tuple, Any, Callable
 from datetime import datetime, timedelta
 import heapq
-import pickle
 import gzip
 import sys
 from contextlib import contextmanager
+
+from jet.file.utils import save_file
+from jet.logger import CustomLogger
+import os
+import shutil
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="math_foundations_lab",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+main_logger.info("=" * 80)
+main_logger.info("MATHEMATICAL FOUNDATIONS LAB STARTED")
+main_logger.info("=" * 80)
+
+
+def create_example_dir(example_name: str) -> str:
+    example_dir = os.path.join(BASE_OUTPUT_DIR, example_name)
+    os.makedirs(example_dir, exist_ok=True)
+    return example_dir
+
+
+def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
+    log_file = os.path.join(example_dir, "run.log")
+    log = CustomLogger(
+        name=example_name,
+        filename=log_file,
+        console_level="INFO",
+        level="DEBUG",
+        fmt="%(asctime)s | %(message)s",
+        overwrite=True
+    )
+    log.info("")
+    log.info("=" * 80)
+    log.info(f"EXAMPLE: {example_name}")
+    log.info("=" * 80)
+    return log
 
 
 # =============================================================================
@@ -959,108 +1006,208 @@ Operation Performance:"""
 # Educational Demonstrations and Examples
 # =============================================================================
 
-def demo_basic_memory_hierarchy():
-    """Demonstrate basic memory hierarchy functionality."""
-    print("=== Memory Hierarchy Demonstration ===")
-    
-    # Create memory system
+def example_01_basic_memory_hierarchy():
+    """Example 1: Demonstrate basic memory hierarchy with promotion/demotion."""
+    example_name = "example_01_basic_memory_hierarchy"
+    example_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, example_dir)
+
+    log.info("Initializing HierarchicalMemorySystem with small capacities for demo")
     memory_system = HierarchicalMemorySystem(
-        working_memory_size=1000,  # Small for demo
+        working_memory_size=1000,
         long_term_memory_size=5000
     )
-    
-    # Store some content
-    memory_system.store("concept1", "Context engineering is the optimization of information payloads", 
-                       tags=["context", "engineering"], priority=0.9)
-    memory_system.store("concept2", "Memory hierarchies manage different types of information", 
-                       tags=["memory", "hierarchy"], priority=0.7)
-    memory_system.store("temp_note", "Temporary working note", priority=0.1)
-    
-    print(f"Initial stats: {memory_system.get_statistics()}")
-    
-    # Retrieve content
+
+    log.info("Storing high-priority concept")
+    memory_system.store(
+        key="concept1",
+        content="Context engineering is the optimization of information payloads for LLMs.",
+        tags=["context", "engineering", "core"],
+        priority=0.9
+    )
+
+    memory_system.store(
+        key="concept2",
+        content="Memory hierarchies manage different types of information with varying access speeds.",
+        tags=["memory", "hierarchy"],
+        priority=0.7
+    )
+
+    memory_system.store(
+        key="temp_note",
+        content="This is a temporary working note that should be evicted soon.",
+        priority=0.1
+    )
+
+    initial_stats = memory_system.get_statistics()
+    save_file(initial_stats, os.path.join(example_dir, "initial_statistics.json"))
+    log.info(f"Initial memory stats saved: {initial_stats}")
+
+    log.info("Retrieving 'concept1' → should promote to working memory")
     result = memory_system.retrieve("concept1")
-    print(f"Retrieved concept1: {result.content[:50]}...")
-    
-    # Search functionality
-    search_results = memory_system.search("memory hierarchy")
-    print(f"Search results for 'memory hierarchy': {len(search_results)} found")
-    
-    # Optimization
+    if result:
+        log.success(f"Retrieved: {result.content[:70]}...")
+        save_file(
+            {"key": "concept1", "content": result.content, "metadata": asdict(result)},
+            os.path.join(example_dir, "retrieved_concept1.json"),
+            verbose=False
+        )
+
+    log.info("Searching for 'memory hierarchy'")
+    search_results = memory_system.search("memory hierarchy", limit=5)
+    search_summary = [
+        {"key": key, "score": entry.compute_score(), "preview": entry.content[:100]}
+        for key, entry in search_results
+    ]
+    save_file(search_summary, os.path.join(example_dir, "search_results_memory_hierarchy.json"))
+    log.info(f"Search returned {len(search_results)} results")
+
+    log.info("Running optimization (cleanup + demotion)")
     optimization_stats = memory_system.optimize()
-    print(f"Optimization results: {optimization_stats}")
+    save_file(optimization_stats, os.path.join(example_dir, "optimization_results.json"))
+    log.success(f"Optimization complete: {optimization_stats}")
+
+    final_stats = memory_system.get_statistics()
+    save_file(final_stats, os.path.join(example_dir, "final_statistics.json"))
+
+    # Summary markdown
+    summary_md = f"""
+# Example 01: Basic Memory Hierarchy
+
+**Objective**: Demonstrate storage, retrieval, search, and automatic promotion/demotion.
+
+## Key Behaviors Shown
+- High-priority items stored in both working and long-term memory
+- Retrieval promotes frequently accessed items
+- Low-priority/temporary items get demoted or evicted
+- Search combines recency, frequency, and priority
+
+## Results
+- Initial entries: 3
+- Final working memory utilization: {final_stats.get('working_memory_utilization', 0):.1%}
+- Promotions: {final_stats.get('promotions', 0)}
+- Search effectiveness: {len(search_results)} relevant results found
+
+See JSON files for detailed traces.
+"""
+    save_file(summary_md, os.path.join(example_dir, "README.md"))
+    log.info("Example 01 completed and fully documented")
 
 
-def demo_context_window_management():
-    """Demonstrate context window management and optimization."""
-    print("\n=== Context Window Management Demonstration ===")
-    
-    # Create context manager with small window for demo
+def example_02_context_window_management():
+    """Example 2: Intelligent context assembly under token constraints."""
+    example_name = "example_02_context_window_management"
+    example_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, example_dir)
+
+    log.info("Setting up ContextWindowManager with 200-token limit")
     context_manager = ContextWindowManager(max_tokens=200)
-    
-    # Store some context in memory
+
+    # Pre-populate memory
     context_manager.memory_system.store(
         "background_info",
-        "Large language models require careful context management to operate within token limits while maintaining coherence.",
-        tags=["llm", "context"], priority=0.8
+        "Large language models have fixed context windows. Effective management requires prioritization, "
+        "truncation, and relevance-based retrieval to maximize usefulness per token.",
+        tags=["llm", "context", "optimization"],
+        priority=0.8
     )
-    
-    # Assemble context
-    result = context_manager.assemble_context(
-        system_instructions="You are a helpful assistant focused on context engineering.",
-        user_query="How can I optimize context windows for better performance?",
+
+    log.info("Assembling first context with full instructions")
+    result1 = context_manager.assemble_context(
+        system_instructions="You are a helpful assistant specializing in context engineering and memory optimization.",
+        user_query="How can I optimize context windows for better LLM performance?",
         memory_query="context optimization"
     )
-    
-    print(f"Final context length: {result['total_tokens']} tokens")
-    print(f"Efficiency: {result['efficiency']:.1%}")
-    print(f"Token usage: {result['token_usage']}")
-    
-    # Show optimization over time
+
+    save_file(result1, os.path.join(example_dir, "assembly_01_full.json"))
+    log.info(f"First assembly: {result1['total_tokens']} tokens, efficiency: {result1['efficiency']:.1%}")
+
+    log.info("Running 5 consecutive queries to trigger allocation optimization")
     for i in range(5):
         result = context_manager.assemble_context(
-            system_instructions="Brief instructions",
-            user_query=f"Query number {i+1} about context engineering",
-            memory_query="context"
+            system_instructions="Be concise.",
+            user_query=f"What is context engineering? (query #{i+1})",
+            memory_query="context engineering"
         )
-    
-    optimized_allocations = context_manager.optimize_allocations()
-    print(f"Optimized allocations: {optimized_allocations}")
+        if i == 4:  # save last one
+            save_file(result, os.path.join(example_dir, f"assembly_repeated_{i+1}.json"))
+
+    optimized = context_manager.optimize_allocations()
+    save_file(optimized, os.path.join(example_dir, "optimized_token_allocations.json"))
+    log.success(f"Token allocations auto-optimized: {optimized}")
+
+    metrics = context_manager.get_performance_metrics()
+    save_file(metrics, os.path.join(example_dir, "performance_metrics.json"))
+
+    summary_md = f"""
+# Example 02: Context Window Management
+
+**Objective**: Show dynamic token allocation and context assembly under constraint.
+
+## Key Features Demonstrated
+- Token budgeting across components
+- Intelligent truncation and retrieval
+- Adaptive allocation based on usage history
+
+## Results
+- Average efficiency: {metrics.get('average_efficiency', 0):.1%}
+- Final allocations: {optimized}
+- Memory was used effectively within 200-token limit
+
+All assembly traces and metrics saved as JSON.
+"""
+    save_file(summary_md, os.path.join(example_dir, "README.md"))
+    log.info("Example 02 completed")
 
 
-def benchmark_memory_performance():
-    """Benchmark memory system performance."""
-    print("\n=== Memory Performance Benchmark ===")
-    
+def example_03_performance_benchmark():
+    """Example 3: Large-scale performance benchmarking with monitoring."""
+    example_name = "example_03_performance_benchmark"
+    example_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, example_dir)
+
+    log.info("Starting large-scale benchmark with 100 entries")
     memory_system = HierarchicalMemorySystem()
     monitor = MemoryPerformanceMonitor()
-    
-    # Benchmark storage
-    print("Benchmarking storage operations...")
-    with monitor.measure_operation("bulk_storage"):
+
+    with monitor.measure_operation("bulk_storage_100"):
         for i in range(100):
             memory_system.store(
-                f"entry_{i}",
-                f"This is test content number {i} for benchmarking memory performance.",
-                tags=[f"test_{i%10}", "benchmark"],
+                f"entry_{i:03d}",
+                f"Benchmark content #{i}: Testing memory performance, retrieval speed, and eviction policy.",
+                tags=[f"bench_{i%10}", "performance"],
                 priority=i / 100.0
             )
-    
-    # Benchmark retrieval
-    print("Benchmarking retrieval operations...")
-    with monitor.measure_operation("bulk_retrieval"):
+
+    with monitor.measure_operation("retrieval_50"):
         for i in range(50):
-            memory_system.retrieve(f"entry_{i}")
-    
-    # Benchmark search
-    print("Benchmarking search operations...")
-    with monitor.measure_operation("bulk_search"):
+            memory_system.retrieve(f"entry_{i:03d}")
+
+    with monitor.measure_operation("search_20"):
         for i in range(20):
-            memory_system.search(f"test content {i}")
-    
-    # Generate performance report
+            memory_system.search(f"performance {i}")
+
     report = monitor.generate_report()
-    print(report)
+    save_file(report, os.path.join(example_dir, "performance_report.md"))
+    save_file(monitor.metrics_history, os.path.join(example_dir, "raw_metrics.json"))
+
+    final_stats = memory_system.get_statistics()
+    save_file(final_stats, os.path.join(example_dir, "final_memory_stats.json"))
+
+    log.success(f"Benchmark complete. Hit rate: {final_stats.get('hit_rate', 0):.1%}")
+    log.info("Full performance report and raw metrics saved")
+
+    summary_md = f"""
+# Example 03: Performance Benchmark
+
+100 entries stored, 50 retrieved, 20 searches performed under monitoring.
+
+**Hit Rate**: {final_stats.get('hit_rate', 0):.1%}
+**Working Memory Utilization**: {final_stats.get('working_memory_utilization', 0):.1%}
+
+See `performance_report.md` for detailed analysis.
+"""
+    save_file(summary_md, os.path.join(example_dir, "README.md"))
 
 
 # =============================================================================
@@ -1068,23 +1215,31 @@ def benchmark_memory_performance():
 # =============================================================================
 
 if __name__ == "__main__":
-    """
-    Run demonstrations and tests when script is executed directly.
-    This makes the module both importable and executable.
-    """
-    
-    print("Context Engineering Memory Management Lab")
-    print("=" * 50)
-    
-    # Run demonstrations
-    demo_basic_memory_hierarchy()
-    demo_context_window_management()
-    benchmark_memory_performance()
-    
-    print("\n=== Lab Complete ===")
-    print("This module can be imported in Jupyter/Colab with:")
-    print("from memory_management_lab import HierarchicalMemorySystem, ContextWindowManager")
+    main_logger.info("Starting Memory Management Lab Examples")
 
+    example_01_basic_memory_hierarchy()
+    example_02_context_window_management()
+    example_03_performance_benchmark()
+
+    main_logger.success("All examples completed successfully!")
+    main_logger.info(f"All outputs saved in: {BASE_OUTPUT_DIR}")
+
+    # Final index
+    index_md = f"""
+# Memory Management Lab - All Examples
+
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Completed Examples
+
+- [example_01_basic_memory_hierarchy](example_01_basic_memory_hierarchy/README.md) – Basic hierarchy & promotion
+- [example_02_context_window_management](example_02_context_window_management/README.md) – Token-aware context assembly
+- [example_03_performance_benchmark](example_03_performance_benchmark/README.md) – Scale & monitoring
+
+Each folder contains logs, JSON traces, and human-readable summaries.
+"""
+    save_file(index_md, os.path.join(BASE_OUTPUT_DIR, "INDEX.md"))
+    main_logger.info("Lab complete. See INDEX.md for navigation.")
 
 # =============================================================================
 # Quick Start Functions for Jupyter/Colab
