@@ -21,6 +21,71 @@ from abc import ABC, abstractmethod
 __all__ = ['Attention', 'StandardAttention', 'SparseAttention', 'StreamingAttention', 'CrossModalAttention']
 
 # ============================================================================
+# OUTPUT & LOGGING SETUP (User-provided — inserted here)
+# ============================================================================
+from jet.logger import CustomLogger
+import os
+import shutil
+import json
+import matplotlib.pyplot as plt
+from pathlib import Path
+import numpy as np
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="math_foundations_lab",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+main_logger.info("=" * 80)
+main_logger.info("MATHEMATICAL FOUNDATIONS LAB STARTED")
+main_logger.info("=" * 80)
+
+def create_example_dir(example_name: str) -> str:
+    example_dir = os.path.join(BASE_OUTPUT_DIR, example_name)
+    os.makedirs(example_dir, exist_ok=True)
+    return example_dir
+
+def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
+    log_file = os.path.join(example_dir, "run.log")
+    log = CustomLogger(
+        name=example_name,
+        filename=log_file,
+        console_level="INFO",
+        level="DEBUG",
+        fmt="%(asctime)s | %(message)s",
+        overwrite=True
+    )
+    log.info("")
+    log.info("=" * 80)
+    log.info(f"EXAMPLE: {example_name}")
+    log.info("=" * 80)
+    return log
+
+# Helper: Save attention heatmap
+def save_attention_heatmap(weights: np.ndarray, path: str, title: str = "Attention Weights"):
+    plt.figure(figsize=(10, 8))
+    im = plt.imshow(weights, cmap='viridis', aspect='auto')
+    plt.colorbar(im, fraction=0.046, pad=0.04)
+    plt.title(title)
+    plt.xlabel("Key Position")
+    plt.ylabel("Query Position")
+    plt.tight_layout()
+    plt.savefig(path, dpi=150)
+    plt.close()
+
+# Helper: Save JSON safely
+def save_json(data: dict, path: str):
+    Path(path).write_text(json.dumps(data, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x)))
+
+# ============================================================================
 # BASE ATTENTION INTERFACE
 # ============================================================================
 
@@ -488,53 +553,170 @@ def benchmark_attention(attention_class, seq_lengths: list = [128, 256, 512, 102
     return results
 
 # ============================================================================
-# EXAMPLE USAGE
+# INDIVIDUAL EXAMPLE FUNCTIONS
+# ============================================================================
+
+def example_01_standard_attention():
+    example_name = "example_01_standard_attention"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    seq_len, d_model = 256, 512
+    log.info(f"Running StandardAttention | seq_len={seq_len}, d_model={d_model}")
+
+    attn = StandardAttention(d_model=d_model, num_heads=8)
+    x = np.random.randn(seq_len, d_model).astype(np.float32) * 0.1
+
+    output, info = attn(x)
+
+    # Save artifacts
+    save_json({"seq_len": seq_len, "d_model": d_model, "num_heads": 8}, os.path.join(ex_dir, "config.json"))
+    save_json(info, os.path.join(ex_dir, "info.json"))
+    np.save(os.path.join(ex_dir, "output.npy"), output)
+
+    weights = info["attention_weights"]
+    save_attention_heatmap(weights, os.path.join(ex_dir, "attention_weights.png"), "Standard Attention Weights (Causal)")
+
+    entropy = attention_entropy(weights).mean()
+    log.info(f"Output shape: {output.shape}")
+    log.info(f"Memory complexity: O(n²) = {info['memory_complexity']}")
+    log.info(f"Mean attention entropy: {entropy:.4f}")
+
+    # Generate report
+    report = f"""# Example 01: Standard Scaled Dot-Product Attention
+
+- Sequence length: {seq_len}
+- Model dimension: {d_model}
+- Heads: 8
+- Masking: Causal (lower triangular)
+- Memory: O(n²) → {info['memory_complexity']:,} operations
+- Mean entropy: {entropy:.4f} (lower = more focused)
+
+See `attention_weights.png` for visualization.
+"""
+    Path(os.path.join(ex_dir, "report.md")).write_text(report)
+
+def example_02_sparse_attention():
+    example_name = "example_02_sparse_attention"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    seq_len, d_model = 512, 512
+    log.info(f"Running SparseAttention | seq_len={seq_len}")
+
+    attn = SparseAttention(
+        d_model=d_model,
+        num_heads=8,
+        window_size=128,
+        stride=64,
+        global_size=16
+    )
+    x = np.random.randn(seq_len, d_model).astype(np.float32) * 0.1
+
+    output, info = attn(x)
+
+    save_json({"seq_len": seq_len, "window_size": 128, "stride": 64, "global_size": 16}, os.path.join(ex_dir, "config.json"))
+    save_json(info, os.path.join(ex_dir, "info.json"))
+    np.save(os.path.join(ex_dir, "output.npy"), output)
+    np.save(os.path.join(ex_dir, "sparse_mask.npy"), info["sparse_mask"])
+
+    weights = info["attention_weights"]
+    save_attention_heatmap(weights, os.path.join(ex_dir, "attention_weights.png"))
+    save_attention_heatmap(info["sparse_mask"], os.path.join(ex_dir, "sparse_mask.png"), "Sparse Attention Mask")
+
+    log.info(f"Sparsity: {info['sparsity']:.4f} → {info['memory_complexity']:,} operations")
+    log.info(f"Effective memory reduction: {1/info['sparsity']:.1f}x")
+
+def example_03_streaming_attention():
+    example_name = "example_03_streaming_attention"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    d_model = 512
+    attn = StreamingAttention(d_model=d_model, num_heads=8, cache_size=1024, sink_size=64)
+    log.info("Running StreamingAttention with incremental tokens")
+
+    cache_states = []
+    for step in range(1, 6):
+        tokens = 64 if step < 5 else 200  # simulate variable chunk sizes
+        x = np.random.randn(tokens, d_model).astype(np.float32) * 0.1
+        output, info = attn(x)
+        cache_states.append({
+            "step": step,
+            "new_tokens": tokens,
+            "cache_used": info["cache_size"],
+            "hit_ratio": info["cache_hit_ratio"]
+        })
+        if step == 5:
+            final_weights = info["attention_weights"]
+
+    save_json({"cache_size": 1024, "sink_size": 64, "steps": cache_states}, os.path.join(ex_dir, "cache_evolution.json"))
+    save_attention_heatmap(final_weights, os.path.join(ex_dir, "final_attention.png"), "Streaming Attention (After 5 Chunks)")
+
+    log.info(f"Final cache usage: {cache_states[-1]['cache_used']} / 1024")
+    attn.reset_cache()
+
+def example_04_flash_attention():
+    example_name = "example_04_flash_attention"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    seq_len, d_model = 1024, 512
+    attn = FlashAttention(d_model=d_model, num_heads=8, block_size=64)
+    x = np.random.randn(seq_len, d_model).astype(np.float32) * 0.1
+
+    output, info = attn(x)
+
+    save_json({"seq_len": seq_len, "block_size": 64}, os.path.join(ex_dir, "config.json"))
+    save_json(info, os.path.join(ex_dir, "info.json"))
+    log.info(f"Peak memory per block: {info['memory_complexity'] / 1e6:.2f} MB")
+    log.info(f"Memory efficiency gain: {info['memory_efficiency']:.1f}x vs standard")
+
+def example_05_cross_modal_attention():
+    example_name = "example_05_cross_modal_attention"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    d_model = 512
+    attn = CrossModalAttention(d_model=d_model, num_heads=8, num_modalities=3)
+
+    text = np.random.randn(100, d_model).astype(np.float32) * 0.1
+    image = np.random.randn(64, d_model).astype(np.float32) * 0.1
+    audio = None  # missing modality
+
+    output, info = attn([text, image, audio])
+
+    save_json({
+        "modalities": ["text", "image", "audio"],
+        "lengths": [100, 64, 0],
+        "modality_weights": info["modality_weights"].tolist()
+    }, os.path.join(ex_dir, "config.json"))
+    save_json(info, os.path.join(ex_dir, "info.json"))
+    save_attention_heatmap(info["attention_weights"], os.path.join(ex_dir, "cross_modal_attention.png"))
+
+    log.info(f"Modality weights → Text: {info['modality_weights'][0]:.3f}, Image: {info['modality_weights'][1]:.3f}, Audio: {info['modality_weights'][2]:.3f}")
+
+# ============================================================================
+# MAIN EXECUTION BLOCK
 # ============================================================================
 
 if __name__ == "__main__":
-    # Example usage of different attention mechanisms
-    seq_len = 256
-    d_model = 512
-    x = np.random.randn(seq_len, d_model) * 0.1
-    
-    print("Attention Mechanisms Comparison")
-    print("=" * 50)
-    
-    # Test each attention mechanism
-    mechanisms = [
-        ("Standard", StandardAttention),
-        ("Sparse", SparseAttention), 
-        ("Streaming", StreamingAttention),
-        ("Flash", FlashAttention)
+    examples = [
+        example_01_standard_attention,
+        example_02_sparse_attention,
+        example_03_streaming_attention,
+        example_04_flash_attention,
+        example_05_cross_modal_attention,
     ]
-    
-    for name, attention_class in mechanisms:
-        attention = attention_class(d_model, num_heads=8)
-        output, info = attention(x)
-        
-        print(f"\n{name} Attention:")
-        print(f"  Output shape: {output.shape}")
-        print(f"  Memory complexity: {info.get('memory_complexity', 'N/A')}")
-        # print(f"  Sparsity: {info.get('sparsity', 'N/A'):.3f}")
-        sparsity = info.get('sparsity', None)
-        sparsity_str = f"{sparsity:.3f}" if isinstance(sparsity, (int, float)) else 'N/A'
-        print(f"  Sparsity: {sparsity_str}")
-        
-        if 'attention_weights' in info:
-            entropy = attention_entropy(info['attention_weights'])
-            print(f"  Attention entropy: {np.mean(entropy):.3f}")
-    
-    # Cross-modal attention example
-    print(f"\nCross-Modal Attention:")
-    cross_attention = CrossModalAttention(d_model, num_heads=8, num_modalities=3)
-    
-    # Three modalities with different lengths
-    text_input = np.random.randn(100, d_model) * 0.1
-    image_input = np.random.randn(64, d_model) * 0.1  
-    audio_input = np.random.randn(80, d_model) * 0.1
-    
-    cross_output, cross_info = cross_attention([text_input, image_input, audio_input])
-    print(f"  Cross-modal output shape: {cross_output.shape}")
-    print(f"  Valid modalities: {cross_info['valid_modalities']}")
-    
-    print(f"\nBenchmarking Complete!")
+
+    main_logger.info(f"Running {len(examples)} attention mechanism examples...")
+    for example_fn in examples:
+        try:
+            example_fn()
+            main_logger.info(f"Completed: {example_fn.__name__}")
+        except Exception as e:
+            main_logger.error(f"Failed {example_fn.__name__}: {e}", exc_info=True)
+
+    main_logger.info("All examples completed. Outputs saved in:")
+    main_logger.info(f"   {BASE_OUTPUT_DIR}")
+    main_logger.info("=" * 80)
