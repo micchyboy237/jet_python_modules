@@ -1241,6 +1241,9 @@ Each folder contains logs, JSON traces, and human-readable summaries.
     save_file(index_md, os.path.join(BASE_OUTPUT_DIR, "INDEX.md"))
     main_logger.info("Lab complete. See INDEX.md for navigation.")
 
+    main_logger.info("\nThis module can be imported in Jupyter/Colab with:")
+    main_logger.info("from memory_management_lab import HierarchicalMemorySystem, ContextWindowManager")
+
 # =============================================================================
 # Quick Start Functions for Jupyter/Colab
 # =============================================================================
