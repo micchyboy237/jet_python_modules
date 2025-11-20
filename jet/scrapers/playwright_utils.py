@@ -127,7 +127,7 @@ async def scrape_urls(
                 if pbar:
                     pbar.update(1)
                     active_tasks = min(num_parallel, len(urls)) - semaphore._value
-                    pbar.set_description(f"Scraping URLs ({active_tasks} active)")
+                    pbar.set_description(f"Scraping URLs ({active_tasks - 1} active)")
                 results.append(result)
             except asyncio.CancelledError:
                 logger.info(f"Task for {url} was cancelled")
@@ -153,7 +153,7 @@ async def scrape_urls(
             context = await browser.new_context(user_agent=ua.random)
             # Create tasks directly, handling progress bar if enabled
             if show_progress:
-                with tqdm_asyncio(total=len(urls), desc=f"Scraping URLs ({min(num_parallel, len(urls))} active)", file=sys.stdout, mininterval=0.1) as pbar:
+                with tqdm_asyncio(total=len(urls), desc=f"Scraping URLs ({min(num_parallel, len(urls)) - 1} active)", file=sys.stdout, mininterval=0.1) as pbar:
                     tasks = [asyncio.create_task(sem_fetch_and_yield(url, context, pbar)) for url in urls]
                     for task in asyncio.as_completed(tasks):
                         try:
