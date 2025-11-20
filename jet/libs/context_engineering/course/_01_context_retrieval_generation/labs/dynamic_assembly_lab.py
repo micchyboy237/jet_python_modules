@@ -47,19 +47,58 @@ import numpy as np
 from collections import defaultdict
 
 from jet.file.utils import save_file
-from jet.logger import logger
+from jet.logger import CustomLogger
+from jet.utils.text import format_file_path
 import os
 import shutil
 
-from jet.utils.text import format_file_path
+# ============================================================================
+# CONFIGURATION & OUTPUT MANAGEMENT
+# ============================================================================
 
 OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-log_file = os.path.join(OUTPUT_DIR, "main.log")
-logger.basicConfig(filename=log_file)
-logger.orange(f"Logs: {log_file}")
+
+main_logger = CustomLogger(
+    name="dynamic_assembly_lab",
+    filename=os.path.join(OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+main_logger.info("=" * 80)
+main_logger.info("DYNAMIC CONTEXT ASSEMBLY LAB STARTED")
+main_logger.info("=" * 80)
+
+
+def create_example_dir(example_name: str) -> str:
+    """Create and return path to a dedicated example output directory."""
+    example_dir = os.path.join(OUTPUT_DIR, example_name)
+    os.makedirs(example_dir, exist_ok=True)
+    return example_dir
+
+
+def get_example_logger(example_name: str, example_dir: str):
+    """Create a dedicated logger for each example that writes to its own run.log + console."""
+    from jet.logger import CustomLogger
+    
+    log_file = os.path.join(example_dir, "run.log")
+    # Create a clean, dedicated logger per example
+    ex_logger = CustomLogger(
+        name=f"example_{example_name.lower().replace(' ', '_').replace(':', '')}",
+        filename=log_file,
+        console_level="INFO",        # Show in console
+        level="DEBUG",          # Save everything to file
+        overwrite=True
+    )
+    # Add a nice header
+    ex_logger.info("=" * 80)
+    ex_logger.info(f"RUNNING: {example_name}")
+    ex_logger.info("=" * 80)
+    return ex_logger
 
 # ============================================================================
 # PART 1: MATHEMATICAL FOUNDATIONS
@@ -1152,60 +1191,209 @@ def advanced_field_integration_demo():
 # MAIN EXECUTION AND LAB RUNNER
 # ============================================================================
 
-def run_dynamic_assembly_lab():
-    """Run the complete dynamic assembly laboratory"""
-    print("CONTEXT ENGINEERING - DYNAMIC ASSEMBLY LABORATORY")
-    print("Module 01: Context Retrieval & Generation")
-    print("=" * 60)
-    print("Mathematical Foundation: C = A(c₁, c₂, ..., cₙ)")
-    print("Optimization Objective: A* = arg max_A E[Reward(LLM(C), target)]")
-    print("=" * 60)
-    
-    try:
-        # Run all demonstrations
-        demonstrate_basic_assembly()
-        demonstrate_assembly_patterns()
-        demonstrate_optimization_comparison()
-        performance_benchmark()
-        advanced_field_integration_demo()
-        
-        print("\n" + "=" * 60)
-        print("LABORATORY COMPLETED SUCCESSFULLY")
-        print("=" * 60)
-        
-        print("\nKey Learning Outcomes Achieved:")
-        print("✓ Mathematical formalization of context assembly")
-        print("✓ Practical implementation of assembly algorithms")
-        print("✓ Component integration patterns for different use cases")
-        print("✓ Evaluation and optimization strategies")
-        print("✓ Performance benchmarking and analysis")
-        print("✓ Advanced field theory integration concepts")
-        
-        print("\nNext Steps:")
-        print("- Experiment with custom assembly patterns")
-        print("- Implement domain-specific optimization strategies")
-        print("- Explore multi-objective optimization approaches")
-        print("- Study the relationship between context structure and model performance")
-        
-    except Exception as e:
-        print(f"\nLaboratory Error: {e}")
-        print("Please review the implementation and try again.")
+def example_01_basic_assembly() -> Dict[str, Any]:
+    example_dir = create_example_dir("example_01_basic_assembly")
+    log = get_example_logger("Example 01: Basic Assembly", example_dir)
+    log.info("="*80)
+    log.info("Example 01: Basic Context Assembly (Greedy vs Optimal)")
+    log.info("="*80)
+
+    constraints = AssemblyConstraints(max_tokens=1000, min_relevance=0.3)
+    assembler = ContextAssembler(constraints)
+    components = create_sample_components()
+
+    query = ContextComponent(
+        component_type=ComponentType.QUERY,
+        content="Explain the principles of dynamic context assembly in AI systems.",
+        priority=1.0, relevance_score=1.0, source="user"
+    )
+    assembler.add_components(components + [query])
+
+    greedy_result = assembler.greedy_assembly()
+    optimal_result = assembler.optimal_assembly_dp()
+    evaluator = AssemblyEvaluator()
+
+    greedy_metrics = evaluator.comprehensive_evaluation(greedy_result)
+    optimal_metrics = evaluator.comprehensive_evaluation(optimal_result)
+
+    results = {
+        "greedy": {"result": greedy_result, "metrics": greedy_metrics},
+        "optimal": {"result": optimal_result, "metrics": optimal_metrics},
+        "constraints": constraints.__dict__
+    }
+
+    # Save everything
+    save_file(greedy_result, os.path.join(example_dir, "greedy_result.json"))
+    save_file(optimal_result, os.path.join(example_dir, "optimal_result.json"))
+    save_file(greedy_metrics, os.path.join(example_dir, "greedy_metrics.json"))
+    save_file(optimal_metrics, os.path.join(example_dir, "optimal_metrics.json"))
+    save_file(results, os.path.join(example_dir, "summary.json"))
+
+    log.info(f"Greedy → components: {len(greedy_result['components'])}, tokens: {greedy_result['total_tokens']}")
+    log.info(f"Optimal → components: {len(optimal_result['components'])}, tokens: {optimal_result['total_tokens']}")
+    log.info("Example 01 completed")
+
+    return results
+
+
+def example_02_rag_pipeline_pattern() -> Dict[str, Any]:
+    example_dir = create_example_dir("example_02_rag_pipeline")
+    log = get_example_logger("Example 02: RAG Pipeline Pattern", example_dir)
+    log.info("="*80)
+    log.info("Example 02: RAG Pipeline Assembly Pattern")
+    log.info("="*80)
+
+    orchestrator = ContextOrchestrator()
+    constraints = AssemblyConstraints(max_tokens=1200, min_relevance=0.2)
+
+    result = orchestrator.assemble_with_pattern(
+        pattern_name="rag_pipeline",
+        strategy=AssemblyStrategy.GREEDY,
+        constraints=constraints,
+        query="What are the latest developments in transformer architectures?",
+        knowledge_docs=[
+            "Transformers use self-attention mechanisms for sequence modeling.",
+            "Recent variants include GPT, BERT, and T5 with different training objectives.",
+            "Efficient transformers like Linformer and Performer reduce computational complexity.",
+            "Vision transformers adapt the architecture for image processing tasks."
+        ],
+        instructions="Provide a comprehensive overview based on the available documents."
+    )
+
+    evaluator = AssemblyEvaluator()
+    metrics = evaluator.comprehensive_evaluation(result)
+
+    final = {"assembly": result, "evaluation": metrics}
+    save_file(final, os.path.join(example_dir, "rag_assembly_result.json"))
+    save_file(metrics, os.path.join(example_dir, "evaluation.json"))
+
+    log.info(f"RAG Pipeline → {len(result['components'])} components, "
+             f"token utilization: {result['token_utilization']:.1%}")
+    log.info("Example 02 completed")
+    return final
+
+
+def example_03_agent_workflow_pattern() -> Dict[str, Any]:
+    example_dir = create_example_dir("example_03_agent_workflow")
+    log = get_example_logger("Example 03: Agent Workflow Pattern", example_dir)
+    log.info("="*80)
+    log.info("Example 03: Agent Workflow with Tools & Memory")
+    log.info("="*80)
+
+    orchestrator = ContextOrchestrator()
+    constraints = AssemblyConstraints(max_tokens=1500)
+
+    result = orchestrator.assemble_with_pattern(
+        pattern_name="agent_workflow",
+        strategy=AssemblyStrategy.GREEDY,
+        constraints=constraints,
+        task="Research and summarize papers on context engineering",
+        available_tools=[
+            {"name": "PaperSearch", "description": "Search academic papers"},
+            {"name": "PDFReader", "description": "Extract text from PDF documents"},
+            {"name": "Summarizer", "description": "Generate summaries of long text"}
+        ],
+        agent_state={"current_step": "planning", "papers_found": 0},
+        memory=["Previous search: 'context engineering'", "Found 15 relevant papers"]
+    )
+
+    save_file(result, os.path.join(example_dir, "agent_context.json"))
+    log.info(f"Agent context assembled → {len(result['components'])} components")
+    log.info("Example 03 completed")
+    return result
+
+
+def example_04_research_assistant_pattern() -> Dict[str, Any]:
+    example_dir = create_example_dir("example_04_research_assistant")
+    log = get_example_logger("Example 04: Research Assistant Pattern", example_dir)
+    log.info("="*80)
+    log.info("Example 04: Research Assistant with Papers")
+    log.info("="*80)
+
+    orchestrator = ContextOrchestrator()
+    result = orchestrator.assemble_with_pattern(
+        pattern_name="research_assistant",
+        strategy=AssemblyStrategy.OPTIMAL_DP,
+        research_query="Impact of context length on language model performance",
+        papers=[
+            {"title": "Scaling Laws for Context Length", "abstract": "...", "key_findings": "Longer = better but diminishing returns."},
+            {"title": "Efficient Long Context Processing", "abstract": "...", "key_findings": "Sparse attention helps."}
+        ],
+        research_context="PhD thesis literature review"
+    )
+
+    save_file(result, os.path.join(example_dir, "research_context.json"))
+    log.info("Example 04 completed")
+    return result
+
+
+def example_05_performance_benchmark() -> Dict[str, Any]:
+    example_dir = create_example_dir("example_05_performance_benchmark")
+    log = get_example_logger("Example 05: Performance Benchmark", example_dir)
+    log.info("="*80)
+    log.info("Example 05: Greedy vs Optimal Scaling")
+    log.info("="*80)
+
+    sizes = [10, 50, 100, 200]
+    benchmark_results = []
+
+    for n in sizes:
+        components = [
+            ContextComponent(
+                component_type=list(ComponentType)[i % 6],
+                content=f"Sample content {i}" * (5 + i % 10),
+                relevance_score=0.3 + (i % 7)*0.1,
+                priority=0.6
+            ) for i in range(n)
+        ]
+        assembler = ContextAssembler(AssemblyConstraints(max_tokens=1500))
+        assembler.add_components(components)
+
+        t0 = time.time()
+        greedy = assembler.greedy_assembly()
+        greedy_time = (time.time() - t0) * 1000
+
+        t0 = time.time()
+        optimal = assembler.optimal_assembly_dp()
+        optimal_time = (time.time() - t0) * 1000
+
+        benchmark_results.append({
+            "n_components": n,
+            "greedy_ms": greedy_time,
+            "optimal_ms": optimal_time,
+            "greedy_components": len(greedy["components"]),
+            "optimal_components": len(optimal["components"])
+        })
+
+        subdir = os.path.join(example_dir, f"scale_{n}")
+        os.makedirs(subdir, exist_ok=True)
+        save_file(benchmark_results[-1], os.path.join(subdir, "timing.json"))
+
+    save_file(benchmark_results, os.path.join(example_dir, "full_benchmark.json"))
+    log.info("Example 05 completed")
+    return {"benchmark": benchmark_results}
+
+
+# ============================================================================
+# MAIN ORCHESTRATION
+# ============================================================================
+
+def main():
+    main_logger.info("\n" + "="*80)
+    main_logger.info("DYNAMIC CONTEXT ASSEMBLY LAB - FULL RUN")
+    main_logger.info("="*80)
+
+    example_01_basic_assembly()
+    example_02_rag_pipeline_pattern()
+    example_03_agent_workflow_pattern()
+    example_04_research_assistant_pattern()
+    example_05_performance_benchmark()
+
+    main_logger.info("="*80)
+    main_logger.info("ALL EXAMPLES COMPLETED SUCCESSFULLY")
+    main_logger.info(f"Outputs saved to: {OUTPUT_DIR}")
+    main_logger.info("="*80)
+
 
 if __name__ == "__main__":
-    # Run the laboratory
-    run_dynamic_assembly_lab()
-    
-    print("\n" + "=" * 60)
-    print("ADDITIONAL EXERCISES FOR STUDENTS")
-    print("=" * 60)
-    
-    print("""
-1. Implement a custom assembly pattern for your domain of interest
-2. Experiment with different constraint configurations
-3. Develop a multi-objective optimization approach considering both relevance and diversity
-4. Create a real-time assembly system with streaming components
-5. Build an adaptive assembler that learns from user feedback
-6. Explore the integration of field theory concepts in practical applications
-7. Design evaluation metrics specific to your use case
-8. Implement cross-modal context assembly for multimodal applications
-    """)
+    main()

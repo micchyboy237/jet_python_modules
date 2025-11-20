@@ -31,10 +31,10 @@ Estimated Time: 2-3 hours for complete exploration
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from typing import Dict, List, Tuple, Optional, Callable
+from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 import seaborn as sns
-from scipy import optimize, stats
+from scipy import optimize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import warnings
@@ -43,6 +43,55 @@ warnings.filterwarnings('ignore')
 # Set up plotting style
 plt.style.use('default')
 sns.set_palette("husl")
+
+from jet.file.utils import save_file
+from jet.logger import CustomLogger
+import os
+import shutil
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="math_foundations_lab",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+main_logger.info("=" * 80)
+main_logger.info("MATHEMATICAL FOUNDATIONS LAB STARTED")
+main_logger.info("=" * 80)
+
+
+def create_example_dir(example_name: str) -> str:
+    example_dir = os.path.join(BASE_OUTPUT_DIR, example_name)
+    os.makedirs(example_dir, exist_ok=True)
+    return example_dir
+
+
+def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
+    log_file = os.path.join(example_dir, "run.log")
+    log = CustomLogger(
+        name=f"ex_{example_name.lower().replace(' ', '_').replace(':', '')}",
+        filename=log_file,
+        console_level="INFO",
+        level="DEBUG",
+        fmt="%(asctime)s | %(message)s",
+        overwrite=True
+    )
+    log.info("")
+    log.info("=" * 80)
+    log.info(f"EXAMPLE: {example_name}")
+    log.info("=" * 80)
+    return log
 
 # ==============================================================================
 # SECTION 1: CONTEXT FORMALIZATION - From Intuition to Mathematics
@@ -418,7 +467,7 @@ def create_optimization_landscape():
     plt.tight_layout()
     plt.show()
     
-    print(f"Optimal parameters found:")
+    print("Optimal parameters found:")
     print(f"  Relevance weight: {optimal_r:.3f}")
     print(f"  Completeness weight: {optimal_c:.3f}")
     print(f"  Maximum quality: {optimal_quality:.3f}")
@@ -669,7 +718,7 @@ def demonstrate_optimization_methods():
         results[method] = result
         
         params = result['optimal_parameters']
-        print(f"  Optimal parameters:")
+        print("  Optimal parameters:")
         print(f"    Relevance weight: {params['relevance_weight']:.3f}")
         print(f"    Completeness weight: {params['completeness_weight']:.3f}")
         print(f"    Efficiency weight: {params['efficiency_weight']:.3f}")
@@ -789,7 +838,7 @@ def demonstrate_information_theory_basics():
     ax1.scatter(event_probs, event_info, color='red', s=50, zorder=5)
     
     # Entropy calculation example
-    print(f"\nEntropy Calculation Example:")
+    print("\nEntropy Calculation Example:")
     print("H(X) = -Σ P(x) × log₂(P(x))")
     
     # Simple distribution: coin flips
@@ -1087,13 +1136,13 @@ def demonstrate_context_information_analysis():
     # Redundancy analysis
     redundancy = analysis_results['redundancy_analysis']
     
-    print(f"\nRedundancy Analysis:")
+    print("\nRedundancy Analysis:")
     print("-" * 20)
     print(f"Average redundancy: {redundancy['average_redundancy']:.3f}")
     print(f"Maximum redundancy: {redundancy['max_redundancy']:.3f}")
     
     if redundancy['high_redundancy_pairs']:
-        print(f"\nHigh redundancy pairs:")
+        print("\nHigh redundancy pairs:")
         for pair in redundancy['high_redundancy_pairs']:
             print(f"  {pair['component1']} ↔ {pair['component2']}: {pair['redundancy_score']:.3f}")
     else:
@@ -1168,7 +1217,7 @@ def demonstrate_bayes_theorem():
         posterior = (likelihoods[strategy] * priors[strategy]) / evidence
         posteriors[strategy] = posterior
     
-    print(f"\nPosteriors (after observing positive feedback):")
+    print("\nPosteriors (after observing positive feedback):")
     for strategy, posterior in posteriors.items():
         print(f"  P({strategy:25} | positive_feedback) = {posterior:.3f}")
     
@@ -1449,7 +1498,7 @@ def demonstrate_bayesian_learning():
                 f'{value:.3f}', ha='center', va='bottom')
     
     # 4. Component relevance learning demo
-    print(f"\nComponent Relevance Learning Demo:")
+    print("\nComponent Relevance Learning Demo:")
     
     components = ['technical_details', 'code_examples', 'conceptual_explanation', 'performance_tips']
     
@@ -1487,7 +1536,7 @@ def demonstrate_bayesian_learning():
     best_strategy, confidence = learner.select_best_strategy()
     uncertainty = learner.get_strategy_uncertainty()
     
-    print(f"\nFinal Recommendations:")
+    print("\nFinal Recommendations:")
     print(f"Best strategy: {best_strategy} (confidence: {confidence:.3f})")
     print(f"Overall uncertainty: {uncertainty:.3f}")
     
@@ -1549,7 +1598,7 @@ class IntegratedContextEngineer:
             Engineered context with mathematical analysis
         """
         
-        print(f"\nIntegrated Context Engineering Pipeline")
+        print("\nIntegrated Context Engineering Pipeline")
         print("-" * 44)
         
         # Step 1: Context Formalization
@@ -1827,22 +1876,270 @@ def generate_lab_summary():
     
     return True
 
-# Generate final summary
-lab_summary = generate_lab_summary()
+def example_01_restaurant_analogy() -> Dict:
+    example_dir = create_example_dir("example_01_restaurant_analogy")
+    log = get_example_logger("Example 01: Restaurant → Context Analogy", example_dir)
 
-print("\n" + "="*80)
-print("MATHEMATICAL FOUNDATIONS LAB COMPLETE")
-print("You have successfully mastered the mathematical heart of Context Engineering!")
-print("="*80)
+    restaurant = {
+        'ambiance': ['cozy', 'elegant', 'casual', 'romantic'],
+        'menu_variety': [0.3, 0.7, 0.9, 1.0],
+        'chef_skill': [0.6, 0.8, 0.9, 0.95],
+        'service_quality': [0.4, 0.7, 0.8, 0.9],
+        'price_point': ['budget', 'moderate', 'upscale', 'luxury']
+    }
+    context = {
+        'instructions': ['basic', 'detailed', 'expert', 'adaptive'],
+        'knowledge_depth': [0.3, 0.7, 0.9, 1.0],
+        'tool_availability': [0.6, 0.8, 0.9, 0.95],
+        'memory_relevance': [0.4, 0.7, 0.8, 0.9],
+        'query_complexity': ['simple', 'moderate', 'complex', 'expert']
+    }
 
-# Export key results for further use
-lab_results = {
-    'formalization_demo': formalization_demo,
-    'optimization_results': optimization_results,
-    'information_analysis': context_info_analysis,
-    'bayesian_learning': bayesian_learning_results,
-    'integrated_framework': integrated_results
-}
+    mapping = [
+        ("Ambiance", "Instructions"),
+        ("Menu Variety", "Knowledge Depth"),
+        ("Chef Skill", "Tool Availability"),
+        ("Service Quality", "Memory Relevance"),
+        ("Customer Craving", "Query Complexity"),
+    ]
 
-# Note: This notebook can be converted to .py format by removing the triple quotes
-# and adjusting the structure for standalone execution
+    log.info("Restaurant → Context Engineering Analogy Established")
+    for r, c in mapping:
+        log.info(f"  {r:18} → {c}")
+
+    result = {"restaurant": restaurant, "context": context, "mapping": mapping}
+    save_file(result, os.path.join(example_dir, "analogy_mapping.json"))
+    save_file("\n".join([f"{r} → {c}" for r, c in mapping]),
+              os.path.join(example_dir, "analogy.txt"))
+
+    log.info("Example 01 completed")
+    return result
+
+
+def example_02_context_formalization() -> Dict:
+    example_dir = create_example_dir("example_02_context_formalization")
+    log = get_example_logger("Example 02: C = A(c₁,…,c₆) Assembly", example_dir)
+
+    components = [
+        ContextComponent("instructions", "You are a helpful AI assistant specializing in data analysis.", 0.9, 50, {}),
+        ContextComponent("knowledge", "Python pandas library provides powerful data manipulation...", 0.85, 80, {}),
+        ContextComponent("tools", "Available functions: analyze_data(), create_visualization()...", 0.75, 40, {}),
+        ContextComponent("memory", "User previously asked about data cleaning...", 0.7, 60, {}),
+        ContextComponent("state", "User is working on a dataset with 10,000 rows...", 0.8, 45, {}),
+        ContextComponent("query", "How can I optimize my pandas operations...?", 1.0, 35, {})
+    ]
+
+    assembler = ContextAssemblyFunction(max_tokens=250)
+    results = {}
+    for strategy in ['linear', 'weighted', 'hierarchical']:
+        result = assembler.assemble_context(components, strategy)
+        results[strategy] = result
+        log.info(f"{strategy.capitalize()} → {result['included_components']} components, "
+                 f"{result['total_tokens']} tokens ({result['utilization_rate']:.1%})")
+
+    save_file(results, os.path.join(example_dir, "assembly_results.json"))
+    for strat, res in results.items():
+        with open(os.path.join(example_dir, f"context_{strat}.md"), "w") as f:
+            f.write(f"# {strat.capitalize()} Assembly\n\n")
+            f.write(res['assembled_context'])
+
+    log.info("Example 02 completed – all assembly strategies tested")
+    return {"components": components, "results": results}
+
+
+def example_03_optimization_landscape() -> Dict:
+    example_dir = create_example_dir("example_03_optimization_landscape")
+    log = get_example_logger("Example 03: Optimization Landscape", example_dir)
+
+    R = np.linspace(0, 1, 50)
+    C = np.linspace(0, 1, 50)
+    R, C = np.meshgrid(R, C)
+
+    def quality(r, c):
+        return r*(1-abs(r-0.6)) + c*(1-abs(c-0.4)) + 0.3*r*c + 0.05*np.sin(10*r)*np.cos(10*c)
+
+    Quality = quality(R, C)
+    max_idx = np.unravel_index(np.argmax(Quality), Quality.shape)
+    opt_r, opt_c = R[max_idx], C[max_idx]
+    opt_q = Quality[max_idx]
+
+    fig = plt.figure(figsize=(12, 5))
+    ax1 = fig.add_subplot(121, projection='3d')
+    ax1.plot_surface(R, C, Quality, cmap='viridis', alpha=0.8)
+    ax1.scatter([opt_r], [opt_c], [opt_q], color='red', s=100)
+    ax1.set_xlabel('Relevance Weight')
+    ax1.set_ylabel('Completeness Weight')
+    ax1.set_zlabel('Quality')
+    ax1.set_title('Context Optimization Landscape')
+
+    ax2 = fig.add_subplot(122)
+    contour = ax2.contour(R, C, Quality, levels=20)
+    ax2.clabel(contour, inline=True, fontsize=8)
+    ax2.scatter([opt_r], [opt_c], color='red', s=100)
+    ax2.set_xlabel('Relevance Weight')
+    ax2.set_ylabel('Completeness Weight')
+    ax2.set_title('Quality Contours')
+
+    plt.tight_layout()
+    fig.savefig(os.path.join(example_dir, "optimization_landscape.png"), dpi=150)
+    plt.close(fig)
+
+    result = {"optimal_relevance": float(opt_r), "optimal_completeness": float(opt_c), "max_quality": float(opt_q)}
+    save_file(result, os.path.join(example_dir, "optimal_params.json"))
+
+    log.info(f"Optimal found → relevance={opt_r:.3f}, completeness={opt_c:.3f}, quality={opt_q:.3f}")
+    log.info("Example 03 completed – landscape visualized")
+    return result
+
+
+def example_04_optimization_comparison() -> Dict:
+    example_dir = create_example_dir("example_04_optimization_methods")
+    log = get_example_logger("Example 04: SciPy vs Grid Search vs GD", example_dir)
+
+    # CORRECT WAY: Get the actual list of ContextComponent objects
+    components = example_02_context_formalization()["components"]  # ← This is the real list
+
+    optimizer = ContextOptimizer()
+    results = {}
+    for method in ['scipy', 'grid_search', 'gradient_descent']:
+        res = optimizer.optimize_assembly_strategy(components, method)
+        results[method] = res
+        params = res['optimal_parameters']
+        log.info(f"{method:15} → R:{params['relevance_weight']:.3f} "
+                 f"C:{params['completeness_weight']:.3f} E:{params['efficiency_weight']:.3f} "
+                 f"Quality:{res['optimal_quality']:.3f}")
+
+    df = pd.DataFrame([{
+        "method": k,
+        **v['optimal_parameters'],
+        "quality": v['optimal_quality']
+    } for k, v in results.items()])
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    df.plot(x="method", y=["relevance_weight", "completeness_weight", "efficiency_weight"],
+            kind="bar", ax=ax1, title="Parameter Weights")
+    df.plot(x="method", y="quality", kind="bar", ax=ax2, color="salmon", title="Final Quality")
+    plt.tight_layout()
+    fig.savefig(os.path.join(example_dir, "optimization_comparison.png"), dpi=150)
+    plt.close(fig)
+
+    save_file(results, os.path.join(example_dir, "optimization_results.json"))
+    log.info("Example 04 completed – methods compared")
+    return results
+
+
+def example_05_information_theory_basics() -> Dict:
+    example_dir = create_example_dir("example_05_information_theory")
+    log = get_example_logger("Example 05: Entropy & Mutual Information", example_dir)
+
+    events = [
+        ("Sun rises tomorrow", 0.9999, -np.log2(0.9999)),
+        ("It rains today", 0.3, -np.log2(0.3)),
+        ("Coin flip heads", 0.5, 1.0),
+        ("Win lottery", 1e-7, -np.log2(1e-7))
+    ]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    probs = [e[1] for e in events]
+    infos = [e[2] for e in events]
+    ax.loglog(probs, infos, 'o-', linewidth=2)
+    for name, p, i in events:
+        ax.annotate(name, (p, i), xytext=(5, 5), textcoords='offset points', fontsize=9)
+    ax.set_xlabel('Probability')
+    ax.set_ylabel('Information Content (bits)')
+    ax.set_title('Information Content vs Probability')
+    ax.grid(True, alpha=0.3)
+    fig.savefig(os.path.join(example_dir, "information_curve.png"), dpi=150)
+    plt.close(fig)
+
+    result = {"events": events}
+    save_file(result, os.path.join(example_dir, "information_examples.json"))
+    log.info("Example 05 completed – information theory visualized")
+    return result
+
+
+def example_06_bayesian_learning() -> Dict:
+    example_dir = create_example_dir("example_06_bayesian_strategy_learning")
+    log = get_example_logger("Example 06: Bayesian Strategy Adaptation", example_dir)
+
+    learner = BayesianContextLearner([
+        'technical_detailed', 'practical_concise', 'balanced_comprehensive', 'user_adapted'
+    ])
+
+    feedback = [
+        ('practical_concise', 0.9),
+        ('technical_detailed', 0.3),
+        ('practical_concise', 0.8),
+        ('user_adapted', 0.95),
+    ]
+
+    history = []
+    for strat, score in feedback:
+        learner.update_strategy_beliefs(strat, score)
+        history.append(learner.strategy_beliefs.copy())
+        log.info(f"Feedback {strat}={score:.1f} → best: {learner.select_best_strategy()[0]}")
+
+    df = pd.DataFrame(history)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    df.plot(ax=ax, marker='o')
+    ax.set_title('Bayesian Belief Evolution Over Feedback')
+    ax.set_ylabel('Belief Probability')
+    ax.grid(True, alpha=0.3)
+    fig.savefig(os.path.join(example_dir, "belief_evolution.png"), dpi=150)
+    plt.close(fig)
+
+    final = learner.select_best_strategy()
+    result = {"final_strategy": final[0], "confidence": final[1], "history": history}
+    save_file(result, os.path.join(example_dir, "bayesian_results.json"))
+
+    log.info(f"Example 06 completed – learned strategy: {final[0]} ({final[1]:.3f} confidence)")
+    return result
+
+
+def example_07_integrated_framework() -> Dict:
+    example_dir = create_example_dir("example_07_integrated_mathematical_system")
+    log = get_example_logger("Example 07: Full Integrated Context Engineer", example_dir)
+
+    engineer = IntegratedContextEngineer(max_tokens=300)
+    components = example_02_context_formalization()["components"]
+    query = "How can I optimize my pandas operations to handle large datasets more efficiently?"
+
+    log.info("Running first pass (no feedback)")
+    result1 = engineer.engineer_context(components, query)
+
+    log.info("Running second pass (with positive feedback)")
+    result2 = engineer.engineer_context(components, query, user_feedback=0.85)
+
+    improvement = result2['mathematical_quality_score'] - result1['mathematical_quality_score']
+    log.info(f"Quality improved by {improvement:+.3f} after learning")
+
+    save_file({"iteration_1": result1, "iteration_2": result2},
+              os.path.join(example_dir, "integrated_results.json"))
+
+    log.info("Example 07 completed – all four pillars integrated")
+    return {"results": [result1, result2], "improvement": improvement}
+
+
+# ============================================================================
+# MAIN ORCHESTRATION
+# ============================================================================
+
+def main():
+    main_logger.info("Starting Mathematical Foundations Lab – Full Run")
+
+    example_01_restaurant_analogy()
+    example_02_context_formalization()
+    example_03_optimization_landscape()
+    example_04_optimization_comparison()
+    example_05_information_theory_basics()
+    example_06_bayesian_learning()
+    example_07_integrated_framework()
+
+    main_logger.info("=" * 80)
+    main_logger.info("LAB COMPLETED – All 7 examples saved")
+    main_logger.info(f"Results: {BASE_OUTPUT_DIR}")
+    main_logger.info("=" * 80)
+
+
+if __name__ == "__main__":
+    main()

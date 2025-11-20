@@ -36,19 +36,6 @@ import pickle
 import warnings
 warnings.filterwarnings('ignore')
 
-from jet.file.utils import save_file
-from jet.logger import logger
-import os
-import shutil
-
-OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-log_file = os.path.join(OUTPUT_DIR, "main.log")
-logger.basicConfig(filename=log_file)
-logger.orange(f"Logs: {log_file}")
-
 # Core imports for embeddings and vector operations
 try:
     from sentence_transformers import SentenceTransformer
@@ -71,6 +58,55 @@ try:
 except ImportError:
     print("Warning: scikit-learn not available. Install with: pip install scikit-learn")
     SKLEARN_AVAILABLE = False
+
+from jet.file.utils import save_file
+from jet.logger import CustomLogger
+import os
+import shutil
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="knowledge_retrieval_lab",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+main_logger.info("=" * 80)
+main_logger.info("KNOWLEDGE RETRIEVAL LAB STARTED")
+main_logger.info("=" * 80)
+
+
+def create_example_dir(example_name: str) -> str:
+    example_dir = os.path.join(BASE_OUTPUT_DIR, example_name)
+    os.makedirs(example_dir, exist_ok=True)
+    return example_dir
+
+
+def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
+    log_file = os.path.join(example_dir, "run.log")
+    log = CustomLogger(
+        name=f"ex_{example_name.lower().replace(' ', '_').replace(':', '')}",
+        filename=log_file,
+        console_level="INFO",
+        level="DEBUG",
+        fmt="%(asctime)s | %(message)s",
+        overwrite=True
+    )
+    log.info("")
+    log.info("=" * 80)
+    log.info(f"EXAMPLE: {example_name}")
+    log.info("=" * 80)
+    return log
 
 # =============================================================================
 # SECTION 1: FOUNDATIONAL CONCEPTS
@@ -1257,24 +1293,269 @@ def interactive_search_demo(vector_db, embedding_model):
     
     print("Interactive demo ended.")
 
-# Entry point for direct execution
-if __name__ == "__main__":
-    # Run the complete lab
-    lab_results = run_complete_lab()
-    
-    # Optional: Start interactive demo
-    print("\nWould you like to try the interactive search demo? (y/n)")
-    try:
-        response = input().strip().lower()
-        if response == 'y':
-            interactive_search_demo(
-                lab_results['vector_db'], 
-                lab_results['embedding_model']
-            )
-    except:
-        print("Interactive demo skipped.")
-    
-    print("\nLab completed successfully!")
+def example_01_vector_similarity_concepts() -> Dict:
+    example_dir = create_example_dir("example_01_vector_similarity")
+    log = get_example_logger("Example 01: Vector Similarity Concepts", example_dir)
 
-    for key, value in lab_results.items():
-        save_file(value, f"{OUTPUT_DIR}/{key}.json")
+    word_vectors = {
+        'king': np.array([0.8, 0.2, 0.9, 0.1]),
+        'queen': np.array([0.7, 0.3, 0.8, 0.2]),
+        'man': np.array([0.9, 0.1, 0.3, 0.7]),
+        'woman': np.array([0.8, 0.2, 0.2, 0.8]),
+        'car': np.array([0.1, 0.9, 0.1, 0.1]),
+        'vehicle': np.array([0.2, 0.8, 0.2, 0.1])
+    }
+
+    def cosine(a, b): return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+    results = {}
+    for w1, w2 in [('king', 'queen'), ('man', 'woman'), ('car', 'vehicle'), ('king', 'car')]:
+        sim = cosine(word_vectors[w1], word_vectors[w2])
+        results[f"{w1}_vs_{w2}"] = round(sim, 4)
+        log.info(f"{w1:8} ↔ {w2:8} → similarity: {sim:.4f}")
+
+    save_file(word_vectors, os.path.join(example_dir, "word_vectors.json"))
+    save_file(results, os.path.join(example_dir, "similarity_results.json"))
+
+    log.info("Example 01 completed – semantic proximity demonstrated")
+    return {"vectors": word_vectors, "similarities": results}
+
+
+def example_02_basic_vector_db() -> Dict:
+    example_dir = create_example_dir("example_02_basic_vector_db")
+    log = get_example_logger("Example 02: Basic Vector Database", example_dir)
+
+    docs = [
+        Document("doc1", "Machine learning is a subset of artificial intelligence that enables computers to learn without being explicitly programmed.", "ML Introduction"),
+        Document("doc2", "Deep learning uses neural networks with multiple layers to model and understand complex patterns in data.", "Deep Learning Basics"),
+        Document("doc3", "Natural language processing helps computers understand and interpret human language using computational linguistics.", "NLP Overview"),
+        Document("doc4", "Computer vision enables machines to interpret and understand visual information from the world.", "Computer Vision"),
+        Document("doc5", "Reinforcement learning teaches agents to make decisions through interaction with an environment.", "Reinforcement Learning"),
+        Document("doc6", "Data science combines statistics, programming, and domain knowledge to extract insights from data.", "Data Science"),
+        Document("doc7", "Neural networks are computing systems inspired by biological neural networks that constitute animal brains.", "Neural Networks"),
+        Document("doc8", "Supervised learning uses labeled training data to learn a mapping from inputs to outputs.", "Supervised Learning")
+    ]
+    model = SimpleEmbeddingModel(max_features=500)
+    texts = [d.content for d in docs]
+    model.fit(texts)
+    embeddings = model.encode(texts)
+
+    db = BasicVectorDatabase(embedding_dim=embeddings.shape[1])
+    for doc, emb in zip(docs, embeddings):
+        db.add_document(doc, emb)
+
+    query = "How do neural networks work?"
+    q_emb = model.encode([query])[0]
+    results = db.search(q_emb, top_k=3)
+
+    result_list = [{"rank": i+1, "title": doc.title, "similarity": float(sim)} for i, (doc, sim) in enumerate(results)]
+    save_file(result_list, os.path.join(example_dir, "search_results.json"))
+    save_file(db.get_statistics(), os.path.join(example_dir, "db_stats.json"))
+
+    log.info(f"Basic vector DB created → {len(docs)} docs, dim: {embeddings.shape[1]}")
+    log.info(f"Top result for '{query}': {results[0][0].title} ({results[0][1]:.3f})")
+    log.info("Example 02 completed")
+
+    return {"db": db, "model": model, "results": result_list}
+
+
+def example_03_professional_embeddings() -> Optional[Dict]:
+    if not SENTENCE_TRANSFORMERS_AVAILABLE:
+        main_logger.warning("sentence-transformers not available → skipping example 03")
+        return None
+
+    example_dir = create_example_dir("example_03_professional_embeddings")
+    log = get_example_logger("Example 03: Professional Embeddings + FAISS", example_dir)
+
+    model = ProfessionalEmbeddingModel("all-MiniLM-L6-v2")
+    documents_data = [
+        {"id": "ml_001", "title": "Introduction to Machine Learning", 
+         "content": "Machine learning is a method of data analysis that automates analytical model building. It is a branch of artificial intelligence based on the idea that systems can learn from data, identify patterns and make decisions with minimal human intervention.", 
+         "category": "machine_learning", "difficulty": "beginner"},
+        
+        {"id": "dl_001", "title": "Deep Learning Fundamentals",
+         "content": "Deep learning is part of a broader family of machine learning methods based on artificial neural networks with representation learning. Learning can be supervised, semi-supervised or unsupervised. Deep learning architectures such as deep neural networks, deep belief networks, recurrent neural networks and convolutional neural networks have been applied to fields including computer vision, speech recognition, natural language processing, machine translation, bioinformatics and drug design.",
+         "category": "deep_learning", "difficulty": "intermediate"},
+        
+        {"id": "nlp_001", "title": "Natural Language Processing Overview",
+         "content": "Natural language processing is a subfield of linguistics, computer science, and artificial intelligence concerned with the interactions between computers and human language, in particular how to program computers to process and analyze large amounts of natural language data. The goal is a computer capable of understanding the contents of documents, including the contextual nuances of the language within them.",
+         "category": "nlp", "difficulty": "intermediate"},
+        
+        {"id": "cv_001", "title": "Computer Vision Applications",
+         "content": "Computer vision is an interdisciplinary scientific field that deals with how computers can gain high-level understanding from digital images or videos. From the perspective of engineering, it seeks to understand and automate tasks that the human visual system can do. Computer vision tasks include methods for acquiring, processing, analyzing and understanding digital images.",
+         "category": "computer_vision", "difficulty": "intermediate"},
+        
+        {"id": "rl_001", "title": "Reinforcement Learning Concepts",
+         "content": "Reinforcement learning is an area of machine learning concerned with how intelligent agents ought to take actions in an environment in order to maximize the notion of cumulative reward. Reinforcement learning is one of three basic machine learning paradigms, alongside supervised learning and unsupervised learning.",
+         "category": "reinforcement_learning", "difficulty": "advanced"},
+        
+        {"id": "ethics_001", "title": "AI Ethics and Fairness",
+         "content": "AI ethics is a set of values, principles, and techniques that employ widely accepted standards of right and wrong to guide moral conduct in the development and use of AI technologies. As AI becomes more prevalent in society, ensuring fairness, accountability, transparency, and human-centered design becomes increasingly important.",
+         "category": "ethics", "difficulty": "intermediate"},
+        
+        {"id": "transformers_001", "title": "Transformer Architecture",
+         "content": "The Transformer is a deep learning model introduced in 2017 that uses self-attention mechanisms to process sequential data. It has become the foundation for many state-of-the-art language models including BERT, GPT, and T5. The key innovation is the self-attention mechanism that allows the model to weigh the importance of different parts of the input sequence.",
+         "category": "deep_learning", "difficulty": "advanced"},
+        
+        {"id": "gpt_001", "title": "Generative Pre-trained Transformers",
+         "content": "GPT models are a family of neural network models that use the Transformer architecture for natural language processing tasks. They are trained on large amounts of text data to predict the next word in a sequence, which enables them to generate human-like text. GPT models have shown remarkable capabilities in text generation, completion, and various language understanding tasks.",
+         "category": "nlp", "difficulty": "advanced"},
+        
+        {"id": "cnn_001", "title": "Convolutional Neural Networks",
+         "content": "Convolutional Neural Networks are a class of deep neural networks most commonly applied to analyzing visual imagery. CNNs use a mathematical operation called convolution in place of general matrix multiplication in at least one of their layers. They are specifically designed to process pixel data and are used in image recognition, medical image analysis, and computer vision applications.",
+         "category": "computer_vision", "difficulty": "intermediate"},
+        
+        {"id": "clustering_001", "title": "Unsupervised Learning and Clustering",
+         "content": "Unsupervised learning is a type of machine learning that looks for previously undetected patterns in a data set with no pre-existing labels. Clustering is a common unsupervised learning technique that groups similar data points together. Popular clustering algorithms include K-means, hierarchical clustering, and DBSCAN.",
+         "category": "machine_learning", "difficulty": "beginner"}
+    ]
+
+    # Create documents
+    documents = [
+        Document(
+            id=doc["id"],
+            content=doc["content"],
+            title=doc["title"],
+            metadata={"category": doc["category"], "difficulty": doc["difficulty"]}
+        ) for doc in documents_data
+    ]
+
+    embeddings = model.encode([d.content for d in documents])
+    db = AdvancedVectorDatabase(embedding_dim=model.embedding_dim, index_type="HNSW")
+    db.add_documents(documents, embeddings)
+
+    queries = [
+        "What are neural networks and how do they work?",
+        "Explain computer vision and image processing",
+        "How does natural language understanding work?",
+        "What is unsupervised machine learning?",
+        "Tell me about transformer models and attention mechanisms",
+        "What are the ethical considerations in AI development?",
+        "How do reinforcement learning agents learn from rewards?"
+    ]
+    all_results = []
+    for q in queries:
+        q_emb = model.encode_single(q)
+        hits = db.search(q_emb, top_k=3)
+        all_results.append({"query": q, "hits": [{"title": d.title, "score": float(s)} for d, s in hits]})
+
+    save_file(all_results, os.path.join(example_dir, "search_results.json"))
+    db.save_index(os.path.join(example_dir, "vector_index"))
+
+    log.info(f"Professional DB ready → {len(documents)} docs, HNSW index")
+    log.info("Example 03 completed – ready for real-world use")
+    return {"db": db, "model": model, "results": all_results}
+
+
+def example_04_retrieval_evaluation(db, model) -> Dict:
+    example_dir = create_example_dir("example_04_retrieval_evaluation")
+    log = get_example_logger("Example 04: Retrieval Metrics (MAP, MRR, NDCG)", example_dir)
+
+    evaluator = RetrievalEvaluator()
+    test_cases = create_evaluation_dataset()
+
+    for case in test_cases:
+        q_emb = model.encode_single(case['query'])
+        hits = db.search(q_emb, top_k=10)
+        docs = [doc for doc, _ in hits]
+        evaluator.evaluate_retrieval(case['query'], docs, case['relevant_docs'])
+
+    summary = evaluator.get_summary_statistics()
+    save_file(summary, os.path.join(example_dir, "evaluation_summary.json"))
+    save_file(evaluator.evaluation_results, os.path.join(example_dir, "per_query_metrics.json"))
+
+    log.info(f"MAP: {summary['MAP']:.3f} | MRR: {summary['MRR']:.3f} | P@3: {summary.get('mean_precision@3', 0):.3f}")
+    log.info("Example 04 completed – full IR evaluation done")
+    return summary
+
+
+def example_05_performance_benchmark(model) -> Dict:
+    example_dir = create_example_dir("example_05_performance_benchmark")
+    log = get_example_logger("Example 05: Latency & Scalability", example_dir)
+
+    benchmark = PerformanceBenchmark()
+    perf = benchmark.benchmark_search_performance(
+        vector_db=example_03_professional_embeddings()["db"],
+        embedding_model=model,
+        num_queries=100
+    )
+    scalability = benchmark.benchmark_scalability(model, doc_counts=[100, 500, 1000])
+
+    fig = benchmark.plot_performance_results(scalability)
+    if fig:
+        fig.savefig(os.path.join(example_dir, "scalability_plots.png"))
+
+    save_file(perf, os.path.join(example_dir, "latency_results.json"))
+    save_file(scalability, os.path.join(example_dir, "scalability_results.json"))
+
+    log.info(f"Mean latency: {perf['mean_search_time']*1000:.2f}ms → {perf['queries_per_second']:.1f} QPS")
+    log.info("Example 05 completed – performance characterized")
+    return {"latency": perf, "scalability": scalability}
+
+
+def example_06_persistence_and_loading() -> Dict:
+    example_dir = create_example_dir("example_06_persistence")
+    log = get_example_logger("Example 06: Save & Load Vector DB", example_dir)
+
+    # Re-use DB from example 03
+    orig = example_03_professional_embeddings()
+    path = os.path.join(example_dir, "my_knowledge_base")
+    orig["db"].save_index(path)
+
+    # Load fresh
+    new_db = AdvancedVectorDatabase(embedding_dim=384, index_type="HNSW")
+    new_db.load_index(path)
+
+    log.info(f"Saved to {path}.faiss + .pkl")
+    log.info(f"Reloaded → {len(new_db.documents)} documents restored")
+    log.info("Example 06 completed – persistence verified")
+    return {"saved_path": path}
+
+
+def example_07_interactive_demo(db, model):
+    example_dir = create_example_dir("example_07_interactive")
+    log = get_example_logger("Example 07: Interactive Search", example_dir)
+
+    log.info("Interactive demo ready – type queries below (or Ctrl+C to exit)")
+    try:
+        while True:
+            query = input("\nQuery → ").strip()
+            if query.lower() in {"quit", "exit", ""}:
+                break
+            q_emb = model.encode_single(query)
+            hits = db.search(q_emb, top_k=5)
+            log.info(f"\nResults for: '{query}'")
+            for i, (doc, score) in enumerate(hits, 1):
+                log.info(f"  {i}. [{score:.3f}] {doc.title}")
+    except KeyboardInterrupt:
+        log.info("\nInteractive demo ended by user")
+
+
+# ============================================================================
+# MAIN ORCHESTRATION
+# ============================================================================
+
+def main():
+    main_logger.info("Starting full Knowledge Retrieval Lab")
+
+    example_01_vector_similarity_concepts()
+    example_02_basic_vector_db()
+
+    prof = example_03_professional_embeddings()
+    if prof:
+        db, model = prof["db"], prof["model"]
+        example_04_retrieval_evaluation(db, model)
+        example_05_performance_benchmark(model)
+        example_06_persistence_and_loading()
+        # Interactive demo is optional
+        # example_07_interactive_demo(db, model)
+    else:
+        main_logger.warning("Professional examples skipped – install sentence-transformers + faiss")
+
+    main_logger.info("=" * 80)
+    main_logger.info("LAB COMPLETED – All results in ./generated/knowledge_retrieval_lab/")
+    main_logger.info("=" * 80)
+
+
+if __name__ == "__main__":
+    main()
