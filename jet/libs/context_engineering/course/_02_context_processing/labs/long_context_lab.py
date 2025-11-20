@@ -24,27 +24,36 @@ from typing import Dict, List, Tuple, Any
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
-from jet.logger import CustomLogger
-import os
-import shutil
-
-OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-log_file = os.path.join(OUTPUT_DIR, "base.log")
-base_logger = CustomLogger(name="base", filename=log_file, overwrite=True)
-base_logger.debug(f"Base logs: {log_file}")
-
 # Configure for clean output
 import warnings
 warnings.filterwarnings('ignore')
 plt.style.use('default')
 
 import json
+
 from pathlib import Path
 
+from jet.logger import CustomLogger
+import os
+import shutil
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+base_logger = CustomLogger(
+    name="base",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
 def create_example_dir(example_name: str) -> Path:
     """Create isolated output directory for each example."""
     base_dir = Path(__file__).parent / "generated" / Path(__file__).stem

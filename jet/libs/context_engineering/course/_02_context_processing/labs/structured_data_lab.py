@@ -30,16 +30,29 @@ from collections import defaultdict, deque
 import warnings
 warnings.filterwarnings('ignore')
 
-import shutil
 from pathlib import Path
 
-try:
-    from jet.logger import CustomLogger
-    base_logger = CustomLogger(name="structured_data_lab", filename="structured_data_lab.log", overwrite=True)
-except ImportError:
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    base_logger = logging.getLogger("structured_data_lab")
+from jet.logger import CustomLogger
+import os
+import shutil
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+base_logger = CustomLogger(
+    name="base",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
 
 def create_example_dir(example_name: str) -> Path:
     base_dir = Path(__file__).parent / "generated" / Path(__file__).stem

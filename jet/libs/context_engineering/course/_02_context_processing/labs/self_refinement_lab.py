@@ -29,18 +29,29 @@ from enum import Enum
 import warnings
 warnings.filterwarnings('ignore')
 
-import shutil
 from pathlib import Path
 
-# === GLOBAL BASE LOGGER (already exists in your file, keep it) ===
-# We'll reuse the existing base_logger from jet.logger if available
-try:
-    from jet.logger import CustomLogger
-    base_logger = CustomLogger(name="self_refinement_lab", filename="self_refinement_lab.log", overwrite=True)
-except ImportError:
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    base_logger = logging.getLogger("self_refinement_lab")
+from jet.logger import CustomLogger
+import os
+import shutil
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+base_logger = CustomLogger(
+    name="base",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
 
 def create_example_dir(example_name: str) -> Path:
     base_dir = Path(__file__).parent / "generated" / Path(__file__).stem
