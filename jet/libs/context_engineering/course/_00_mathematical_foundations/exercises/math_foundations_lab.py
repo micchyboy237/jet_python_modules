@@ -1651,37 +1651,144 @@ def example_08_bayesian_strategy_learning() -> Dict:
     example_dir = create_example_dir("example_08_bayesian_strategy_learning")
     log = get_example_logger("Example 08: Bayesian Strategy Adaptation", example_dir)
 
-    learner = BayesianContextLearner([
-        'technical_detailed', 'practical_concise', 'balanced_comprehensive', 'user_adapted'
-    ])
-
-    feedback = [
-        ('practical_concise', 0.9),
-        ('technical_detailed', 0.3),
-        ('practical_concise', 0.8),
-        ('user_adapted', 0.95),
+    # Initialize Bayesian learner
+    strategies = ['technical_detailed', 'practical_concise', 'balanced_comprehensive', 'user_adapted']
+    learner = BayesianContextLearner(strategies)
+    
+    print("Initial strategy beliefs (uniform prior):")
+    for strategy, belief in learner.strategy_beliefs.items():
+        print(f"  {strategy:25}: {belief:.3f}")
+    
+    # Simulate learning from feedback
+    feedback_scenarios = [
+        ('practical_concise', 0.9),      # Positive feedback
+        ('technical_detailed', 0.3),    # Negative feedback
+        ('practical_concise', 0.8),     # Positive feedback
+        ('balanced_comprehensive', 0.7), # Positive feedback
+        ('user_adapted', 0.95),         # Very positive feedback
+        ('technical_detailed', 0.4),    # Negative feedback
+        ('user_adapted', 0.9),          # Positive feedback
+        ('practical_concise', 0.85),    # Positive feedback
     ]
+    
+    print(f"\nSimulating learning from {len(feedback_scenarios)} feedback instances...")
+    
+    # Track belief evolution
+    belief_evolution = []
+    uncertainties = []
+    
+    for i, (strategy, feedback) in enumerate(feedback_scenarios):
+        learner.update_strategy_beliefs(strategy, feedback)
+        belief_evolution.append(learner.strategy_beliefs.copy())
+        uncertainties.append(learner.get_strategy_uncertainty())
+        
+        print(f"\nStep {i+1}: Used {strategy}, feedback = {feedback:.1f}")
+        print("Updated beliefs:")
+        for strat, belief in learner.strategy_beliefs.items():
+            print(f"  {strat:25}: {belief:.3f}")
+        print(f"Uncertainty (entropy): {uncertainties[-1]:.3f}")
+    
+    # Visualize learning evolution
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+    
+    # 1. Belief evolution over time
+    steps = range(len(belief_evolution))
+    for strategy in strategies:
+        beliefs = [beliefs_dict[strategy] for beliefs_dict in belief_evolution]
+        ax1.plot(steps, beliefs, 'o-', label=strategy.replace('_', ' ').title(), linewidth=2)
+    
+    ax1.set_xlabel('Learning Step')
+    ax1.set_ylabel('Belief Probability')
+    ax1.set_title('Strategy Belief Evolution')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # 2. Uncertainty reduction over time
+    ax2.plot(steps, uncertainties, 'ro-', linewidth=2, markersize=6)
+    ax2.set_xlabel('Learning Step')
+    ax2.set_ylabel('Uncertainty (Entropy)')
+    ax2.set_title('Learning Reduces Uncertainty')
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Final strategy beliefs
+    final_beliefs = learner.strategy_beliefs
+    strategy_names = [s.replace('_', '\n') for s in strategies]
+    belief_values = list(final_beliefs.values())
+    
+    bars = ax3.bar(strategy_names, belief_values, alpha=0.7, 
+                   color=['skyblue', 'lightgreen', 'salmon', 'gold'])
+    ax3.set_ylabel('Final Belief Probability')
+    ax3.set_title('Learned Strategy Preferences')
+    ax3.grid(True, alpha=0.3)
+    
+    # Add value labels
+    for bar, value in zip(bars, belief_values):
+        height = bar.get_height()
+        ax3.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{value:.3f}', ha='center', va='bottom')
+    
+    # 4. Component relevance learning demo
+    print("\nComponent Relevance Learning Demo:")
+    
+    components = ['technical_details', 'code_examples', 'conceptual_explanation', 'performance_tips']
+    
+    # Simulate relevance evidence
+    relevance_evidence = [0.8, 0.9, 0.6, 0.95]  # Different evidence strengths
+    
+    relevance_estimates = []
+    confidence_widths = []
+    
+    for component, evidence in zip(components, relevance_evidence):
+        learner.update_component_relevance(component, evidence)
+        estimate, width = learner.get_component_relevance_estimate(component)
+        relevance_estimates.append(estimate)
+        confidence_widths.append(width)
+        
+        print(f"  {component:20}: estimate = {estimate:.3f}, confidence width = {width:.3f}")
+    
+    # Plot component relevance estimates with confidence intervals
+    x_pos = np.arange(len(components))
+    ax4.bar(x_pos, relevance_estimates, alpha=0.7, color='lightblue')
+    ax4.errorbar(x_pos, relevance_estimates, yerr=confidence_widths, 
+                fmt='none', color='black', capsize=5)
+    
+    ax4.set_xlabel('Component')
+    ax4.set_ylabel('Relevance Estimate')
+    ax4.set_title('Component Relevance with Uncertainty')
+    ax4.set_xticks(x_pos)
+    ax4.set_xticklabels([c.replace('_', '\n') for c in components])
+    ax4.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    fig.savefig(os.path.join(example_dir, "belief_evolution.png"), dpi=150)
+    plt.close(fig)
 
     history = []
-    for strat, score in feedback:
+    for strat, score in feedback_scenarios:
         learner.update_strategy_beliefs(strat, score)
         history.append(learner.strategy_beliefs.copy())
         log.info(f"Feedback {strat}={score:.1f} → best: {learner.select_best_strategy()[0]}")
 
-    df = pd.DataFrame(history)
-    fig, ax = plt.subplots(figsize=(10, 6))
-    df.plot(ax=ax, marker='o')
-    ax.set_title('Bayesian Belief Evolution Over Feedback')
-    ax.set_ylabel('Belief Probability')
-    ax.grid(True, alpha=0.3)
-    fig.savefig(os.path.join(example_dir, "belief_evolution.png"), dpi=150)
-    plt.close(fig)
+    best_strategy, confidence = learner.select_best_strategy()
+    uncertainty = learner.get_strategy_uncertainty()
+    uncertainty_desc = ""
+    if uncertainty < 1.0:
+        uncertainty_desc = "Low uncertainty: Confident in strategy selection"
+    elif uncertainty < 2.0:
+        uncertainty_desc = "Medium uncertainty: Some confidence in strategy selection"
+    else:
+        uncertainty_desc = "High uncertainty: Need more evidence for confident selection"
 
-    final = learner.select_best_strategy()
-    result = {"final_strategy": final[0], "confidence": final[1], "history": history}
+    result = {
+        "best_strategy": best_strategy,
+        "confidence": confidence,
+        "uncertainty": uncertainty,
+        "uncertainty_desc": uncertainty_desc,
+        "history": history,
+    }
     save_file(result, os.path.join(example_dir, "bayesian_results.json"))
 
-    log.info(f"Example 06 completed – learned strategy: {final[0]} ({final[1]:.3f} confidence)")
+    log.info(f"Example 06 completed – learned strategy: {best_strategy} ({confidence:.3f} confidence)")
     return result
 
 
