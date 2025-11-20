@@ -11,7 +11,19 @@ from jet.cache.redis import RedisConfigParams, RedisCache
 from jet.data.utils import generate_key
 
 DEFAULT_REDIS_PORT = 3101
-DEFAULT_QUERY_URL = "http://jethros-macbook-air.local:3000"
+DEFAULT_QUERY_URL = "http://jethros-macbook-air.local:8888"
+DEFAULT_ENGINES = [
+    # "google",
+    # "brave",
+    # "yahoo",
+    # "mojeek",        # Fully independent crawler
+    # "brave",         # Brave Search – own index + high reliability
+    # "startpage",     # Anonymous Google proxy, very stable
+    # "kagi",          # Premium paid engine, excellent quality & uptime
+    # "duckduckgo",    # Widely trusted metasearch with great coverage
+    # "qwant",         # Strong European privacy-focused engine
+    # "swisscows",     # Privacy-first, family-safe, reliable Bing backend
+]
 
 
 class SearchResult(TypedDict):
@@ -70,7 +82,7 @@ def remove_empty_attributes(data):
 def fetch_search_results(headers: dict, params: dict, query_url: str = DEFAULT_QUERY_URL) -> QueryResponse:
     """Fetches search results from SearXNG."""
 
-    logger.log("Requesting URL:", query_url, colors=["LOG", "DEBUG"])
+    logger.log("Requesting URL: ", query_url, colors=["LOG", "DEBUG"])
     logger.log("Headers:")
     logger.info(json.dumps(headers, indent=2))
     logger.log("Params:")
@@ -93,7 +105,7 @@ def format_min_date(min_date: datetime) -> datetime:
     return result
 
 
-def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Optional[int] = None, min_score: float = 0.1, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, max_retries: int = 3, **kwargs) -> list[SearchResult]:
+def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Optional[int] = None, min_score: float = 0.1, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, engines: Optional[list[str]] = DEFAULT_ENGINES, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, max_retries: int = 3, **kwargs) -> list[SearchResult]:
     query = decode_encoded_characters(query)
     try:
         # Add the include_sites filter if provided
@@ -112,12 +124,18 @@ def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Option
         params = {
             "q": query,
             "format": "json",
-            "pageno": kwargs.get("pageno", 1),
-            "safesearch": kwargs.get("safesearch", 2),
             "language": kwargs.get("language", "en"),
             "categories": ",".join(kwargs.get("categories", ["general"])),
-            "engines": ",".join(kwargs.get("engines", ["google", "brave", "duckduckgo", "yahoo"])),
         }
+
+        if "pageno" in kwargs:
+            params["pageno"] = kwargs["pageno"]
+        
+        if "safesearch" in kwargs:
+            params["safesearch"] = kwargs["safesearch"]
+
+        if engines:
+            params["engines"] = ",".join(engines),
 
         # Handling min_date (optional)
         if not min_date:
