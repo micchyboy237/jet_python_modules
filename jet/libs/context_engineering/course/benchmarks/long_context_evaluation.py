@@ -1028,7 +1028,7 @@ if __name__ == "__main__":
     main_logger.info("Starting long context evaluation with REAL attention mechanisms...")
 
     example_01_full_mechanisms_benchmark()
-    example_02_streaming_long_context()
+    # example_02_streaming_long_context()
     example_03_quality_preservation_real()
     example_04_scalability_with_real_data()
 
