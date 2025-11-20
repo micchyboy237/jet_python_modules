@@ -31,13 +31,16 @@ __all__ = [
     'AttentionAnalyzer', 'ComparativeEvaluator', 'QualityMonitor', 'MetricsReport'
 ]
 
-from jet.logger import CustomLogger
-import os
-import shutil
-
 # ============================================================================
 # OUTPUT & LOGGING SETUP
 # ============================================================================
+
+from jet.logger import CustomLogger
+import os
+import shutil
+import json
+from datetime import datetime
+
 BASE_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
 )
@@ -45,14 +48,15 @@ shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
 os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
 
 main_logger = CustomLogger(
-    name="processing_metrics_lab",
+    name="math_foundations_lab",
     filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
     console_level="INFO",
     level="DEBUG",
     overwrite=True
 )
 main_logger.info("=" * 80)
-main_logger.info("PROCESSING METRICS LAB STARTED")
+main_logger.info("PROCESSING QUALITY METRICS LAB STARTED")
+main_logger.info(f"Timestamp: {datetime.now().isoformat()}")
 main_logger.info("=" * 80)
 
 
@@ -74,9 +78,15 @@ def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
     )
     log.info("")
     log.info("=" * 80)
-    log.info(f"EXAMPLE: {example_name}")
+    log.info(f"EXAMPLE: {example_name.upper()}")
     log.info("=" * 80)
     return log
+
+
+def save_json(data: Any, filepath: str) -> None:
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=lambda o: str(o))
+
 
 # ============================================================================
 # CORE INTERFACES & DATA STRUCTURES
@@ -928,208 +938,197 @@ def batch_quality_evaluation(contexts: List[np.ndarray],
     
     return MetricsReport.generate_quality_report(quality_scores, mechanism_name)
 
-# --------------------------------------------------------------
-# NEW EXAMPLE FUNCTIONS (replace the old __main__ demo)
-# --------------------------------------------------------------
+# <<< NEW EXAMPLE FUNCTIONS >>>
 
 def example_01_coherence_evaluation():
-    """Demonstrate CoherenceEvaluator on high / medium / low quality contexts."""
-    example_name = "example_01_coherence_evaluation"
-    example_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, example_dir)
+    name = "example_01_coherence_evaluation"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
+    log.info("Testing CoherenceEvaluator on high/medium/low quality contexts")
     np.random.seed(42)
-    high   = np.random.randn(100, 256) * 0.1
+    high = np.random.randn(100, 256) * 0.1
     medium = np.random.randn(100, 256) * 0.3
-    low    = np.random.randn(100, 256) * 0.8
+    low = np.random.randn(100, 256) * 0.8
 
-    evaluator = CoherenceEvaluator()
-    scores = {
-        "high_quality":   evaluator.evaluate(high),
+    evaluator = CoherenceEvaluator(window_size=32, stride=16)
+    results = {
+        "high_quality": evaluator.evaluate(high),
         "medium_quality": evaluator.evaluate(medium),
-        "low_quality":    evaluator.evaluate(low),
+        "low_quality": evaluator.evaluate(low)
     }
 
-    from jet.file.utils import save_file
-    save_file(scores, os.path.join(example_dir, "coherence_scores.json"), verbose=False)
-    log.success(f"Coherence scores → high:{scores['high_quality']:.3f}  medium:{scores['medium_quality']:.3f}  low:{scores['low_quality']:.3f}")
+    log.info(f"High quality coherence   : {results['high_quality']:.4f}")
+    log.info(f"Medium quality coherence : {results['medium_quality']:.4f}")
+    log.info(f"Low quality coherence    : {results['low_quality']:.4f}")
 
-    md = f"""# Example 01 – Coherence Evaluation
-CoherenceEvaluator correctly distinguishes high-quality (tight embeddings) from noisy ones.
-
-**Results** (higher = better)
-- High quality  : {scores['high_quality']:.3f}
-- Medium quality: {scores['medium_quality']:.3f}
-- Low quality   : {scores['low_quality']:.3f}
-"""
-    save_file(md, os.path.join(example_dir, "README.md"), verbose=False)
+    save_json(results, os.path.join(ex_dir, "coherence_scores.json"))
+    log.info("Coherence evaluation results saved")
 
 
 def example_02_information_preservation():
-    """Show InformationPreservation metric with perfect, noisy and compressed cases."""
-    example_name = "example_02_information_preservation"
-    example_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, example_dir)
+    name = "example_02_information_preservation"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
+    log.info("Testing InformationPreservation metric")
     np.random.seed(42)
-    original = np.random.randn(200, 256) * 0.1
-    perfect  = original.copy()
-    noisy    = original + np.random.randn(*original.shape) * 0.2
-    compressed = original[::2]                                 # 50% compression
+    original = np.random.randn(100, 256) * 0.1
+    noisy = original + np.random.randn(100, 256) * 0.1
+    compressed = original[:50]  # simulate compression
 
-    pres = InformationPreservation()
+    evaluator = InformationPreservation()
+    perfect = evaluator.measure_preservation(original, original)
+    noisy_res = evaluator.measure_preservation(original, noisy)
+    compressed_res = evaluator.measure_preservation(original, compressed)
+
     results = {
-        "perfect":   pres.evaluate(original, perfect),
-        "noisy":     pres.evaluate(original, noisy),
-        "compressed": pres.evaluate(original, compressed),
-        "detailed_compressed": pres.measure_preservation(original, compressed),
+        "perfect_preservation": perfect,
+        "noisy_degradation": noisy_res,
+        "compressed": compressed_res
     }
 
-    from jet.file.utils import save_file
-    save_file(results, os.path.join(example_dir, "preservation_results.json"), verbose=False)
-    log.success(f"Preservation → perfect:{results['perfect']:.3f}  noisy:{results['noisy']:.3f}  compressed:{results['compressed']:.3f}")
+    log.info(f"Perfect preservation      : {perfect['overall_preservation']:.4f}")
+    log.info(f"Noisy context fidelity    : {noisy_res['overall_preservation']:.4f}")
+    log.info(f"Compressed context ratio  : {compressed_res['compression_ratio']:.2f}")
 
-    md = f"""# Example 02 – Information Preservation
-- Perfect copy      : {results['perfect']:.3f}
-- With noise        : {results['noisy']:.3f}
-- 50% compression   : {results['compressed']:.3f}
-"""
-    save_file(md, os.path.join(example_dir, "README.md"), verbose=False)
+    save_json(results, os.path.join(ex_dir, "preservation_analysis.json"))
+    log.info("Preservation analysis saved")
 
 
 def example_03_attention_analysis():
-    """AttentionAnalyzer on a realistic local-attention pattern."""
-    example_name = "example_03_attention_analysis"
-    example_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, example_dir)
+    name = "example_03_attention_analysis"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
+    log.info("Testing AttentionAnalyzer on synthetic local attention")
     seq_len = 100
     attn = np.zeros((seq_len, seq_len))
     for i in range(seq_len):
         for j in range(max(0, i-10), min(seq_len, i+11)):
-            attn[i, j] = np.exp(-0.1 * abs(i - j))
-        attn[i] /= attn[i].sum() or 1
+            attn[i, j] = np.exp(-0.1 * abs(i - j)) + np.random.random() * 0.1
+        attn[i] /= np.sum(attn[i])
 
     analyzer = AttentionAnalyzer()
     focus = analyzer.attention_focus(attn)
     diversity = analyzer.attention_diversity(attn)
-    meaningful = analyzer.attention_meaningfulness(attn)
+    meaningfulness = analyzer.attention_meaningfulness(attn)
     overall = analyzer.evaluate(attn)
 
-    results = {"focus": focus, "diversity": diversity, "meaningful": meaningful, "overall": overall}
-    from jet.file.utils import save_file
-    save_file(results, os.path.join(example_dir, "attention_quality.json"), verbose=False)
-    log.success(f"Attention quality → overall:{overall:.3f}  focus:{focus:.3f}  diversity:{diversity:.3f}")
+    results = {
+        "focus": float(focus),
+        "diversity": float(diversity),
+        "meaningfulness": float(meaningfulness),
+        "overall_attention_quality": float(overall)
+    }
 
-    md = f"""# Example 03 – Attention Quality
-Local-attention pattern (window ±10)
+    log.info(f"Attention focus         : {focus:.4f}")
+    log.info(f"Attention diversity     : {diversity:.4f}")
+    log.info(f"Attention meaningfulness: {meaningfulness:.4f}")
+    log.info(f"Overall attention score : {overall:.4f}")
 
-**Scores**
-- Overall quality : {overall:.3f}
-- Focus           : {focus:.3f}
-- Diversity       : {diversity:.3f}
-"""
-    save_file(md, os.path.join(example_dir, "README.md"), verbose=False)
+    np.save(os.path.join(ex_dir, "attention_weights.npy"), attn)
+    save_json(results, os.path.join(ex_dir, "attention_quality.json"))
+    log.info("Attention analysis saved")
 
 
 def example_04_quality_monitoring():
-    """Full QualityMonitor with alerts and trend detection."""
-    example_name = "example_04_quality_monitoring"
-    example_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, example_dir)
+    name = "example_04_quality_monitoring"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
-    monitor = QualityMonitor(alert_threshold=0.75)
+    log.info("Testing QualityMonitor with progressive degradation")
+    monitor = QualityMonitor(alert_threshold=0.7, degradation_threshold=0.1)
     np.random.seed(42)
-    base = np.random.randn(100, 256) * 0.1
+    original = np.random.randn(100, 256) * 0.1
+    seq_len = 100
+    attn = np.eye(seq_len) * 0.8 + np.random.random((seq_len, seq_len)) * 0.2
+    attn /= attn.sum(axis=-1, keepdims=True)
 
     reports = []
-    for i in range(15):
-        noise_level = 0.05 + i * 0.03
-        ctx = base + np.random.randn(*base.shape) * noise_level
+    for i in range(10):
+        noise_level = i * 0.05
+        degraded = original + np.random.randn(*original.shape) * noise_level
         report = monitor.monitor_processing_quality(
-            processed_context=ctx,
-            original_context=base,
-            context_id=f"ctx_{i+1:02d}"
+            processed_context=degraded,
+            original_context=original,
+            attention_weights=attn,
+            context_id=f"degradation_step_{i:02d}"
         )
-        reports.append(report)
+        reports.append({
+            "step": i,
+            "noise_level": noise_level,
+            "overall_quality": report["quality_score"].overall,
+            "alerts": len(report["alerts"]),
+            "trend": report["trends"]["trend"]
+        })
+        log.info(f"Step {i:02d} | noise={noise_level:.2f} | quality={report['quality_score'].overall:.4f} | alerts={len(report['alerts'])}")
 
-    from jet.file.utils import save_file
-    save_file(reports, os.path.join(example_dir, "monitoring_reports.json"), verbose=False)
-    final_trend = reports[-1]["trends"]
-    log.success(f"Monitoring finished – trend: {final_trend['trend']}  alerts: {len([a for r in reports for a in r['alerts']])}")
-
-    md = f"""# Example 04 – Quality Monitoring
-15 progressively noisier contexts → trend **{final_trend['trend']}**.
-
-Total alerts generated: {len([a for r in reports for a in r['alerts']])}.
-"""
-    save_file(md, os.path.join(example_dir, "README.md"), verbose=False)
+    save_json(reports, os.path.join(ex_dir, "monitoring_progression.json"))
+    log.info("Quality monitoring progression saved")
 
 
 def example_05_comparative_evaluation():
-    """ComparativeEvaluator – baseline vs efficient processing."""
-    example_name = "example_05_comparative_evaluation"
-    example_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, example_dir)
+    name = "example_05_comparative_evaluation"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
+    log.info("ComparativeEvaluator: baseline vs efficient processing")
     np.random.seed(42)
-    original = np.random.randn(150, 256) * 0.1
-    baseline = original.copy()
-    efficient = original + np.random.randn(*original.shape) * 0.25   # noisier but faster
+    original = np.random.randn(100, 256) * 0.1
+    baseline = original + np.random.randn(*original.shape) * 0.05
+    efficient = original + np.random.randn(*original.shape) * 0.15
+
+    baseline_attn = np.tril(np.ones((100, 100)))  # strong causal
+    efficient_attn = np.eye(100) * 0.6 + np.random.random((100, 100)) * 0.4
+    baseline_attn /= baseline_attn.sum(axis=-1, keepdims=True)
+    efficient_attn /= efficient_attn.sum(axis=-1, keepdims=True)
 
     comparator = ComparativeEvaluator()
     comparison = comparator.compare_processing_quality(
-        baseline_results={"name": "HighQuality", "processed_context": baseline},
-        efficient_results={"name": "FastNoisy", "processed_context": efficient},
+        baseline_results={"name": "HighQualityBaseline", "processed_context": baseline, "attention_weights": baseline_attn},
+        efficient_results={"name": "EfficientFast", "processed_context": efficient, "attention_weights": efficient_attn},
         original_context=original
     )
 
-    from jet.file.utils import save_file, format_html
-    save_file(comparison, os.path.join(example_dir, "comparison.json"), verbose=False)
-    report_md = MetricsReport.generate_comparison_report(comparison)
-    save_file(report_md, os.path.join(example_dir, "comparison_report.md"), verbose=False)
+    log.info(f"Baseline coherence : {comparison['quality_metrics']['coherence']['baseline']:.4f}")
+    log.info(f"Efficient coherence: {comparison['quality_metrics']['coherence']['efficient']:.4f}")
+    log.info(f"Recommendation     : {comparison['overall_assessment']['recommendation']}")
 
-    assessment = comparison["overall_assessment"]
-    log.success(f"Recommendation: {assessment['recommendation'].replace('_', ' ').title()}")
-
-    md = f"""# Example 05 – Comparative Evaluation
-**Recommendation**: {assessment['recommendation'].replace('_', ' ').title()}
-
-See `comparison_report.md` for full details.
-"""
-    save_file(md, os.path.join(example_dir, "README.md"), verbose=False)
+    save_json(comparison, os.path.join(ex_dir, "comparison_report.json"))
+    with open(os.path.join(ex_dir, "comparison_summary.md"), "w") as f:
+        f.write(MetricsReport.generate_comparison_report(comparison))
+    log.info("Comparative evaluation completed & saved")
 
 
-# --------------------------------------------------------------
-# NEW CLEAN __main__ BLOCK
-# --------------------------------------------------------------
+def example_06_batch_report():
+    name = "example_06_batch_report"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
+    log.info("Generating batch quality report for 50 contexts")
+    np.random.seed(42)
+    contexts = [np.random.randn(100, 256) * (0.05 + i*0.02) for i in range(50)]
+    report_md = batch_quality_evaluation(contexts, mechanism_name="SyntheticGradientTest")
+
+    with open(os.path.join(ex_dir, "batch_quality_report.md"), "w", encoding="utf-8") as f:
+        f.write(report_md)
+
+    log.info("Batch quality report generated (50 samples)")
+    log.info(f"Report saved to {os.path.join(ex_dir, 'batch_quality_report.md')}")
+
+
+# <<< REPLACE THE OLD __main__ BLOCK WITH THIS >>>
 if __name__ == "__main__":
-    main_logger.info("Starting Processing Metrics Lab – all examples")
+    main_logger.info("Starting processing quality metrics examples...")
 
     example_01_coherence_evaluation()
     example_02_information_preservation()
     example_03_attention_analysis()
     example_04_quality_monitoring()
     example_05_comparative_evaluation()
+    example_06_batch_report()
 
-    # ------------------------------------------------------------------
-    # Generate top-level index
-    # ------------------------------------------------------------------
-    index_md = f"""# Processing Metrics Lab – All Examples
-Generated on {time.strftime('%Y-%m-%d %H:%M:%S')}
-
-| Example | Description |
-|---------|-------------|
-| [example_01_coherence_evaluation](example_01_coherence_evaluation/README.md)     | CoherenceEvaluator on different noise levels |
-| [example_02_information_preservation](example_02_information_preservation/README.md) | InformationPreservation (perfect / noisy / compressed) |
-| [example_03_attention_analysis](example_03_attention_analysis/README.md)       | AttentionAnalyzer on local-attention patterns |
-| [example_04_quality_monitoring](example_04_quality_monitoring/README.md)      | Real-time QualityMonitor with alerts & trends |
-| [example_05_comparative_evaluation](example_05_comparative_evaluation/README.md) | ComparativeEvaluator – baseline vs efficient |
-
-All raw data (JSON) and human-readable reports are inside each folder.
-"""
-    from jet.file.utils import save_file
-    save_file(index_md, os.path.join(BASE_OUTPUT_DIR, "INDEX.md"), verbose=False)
-
-    main_logger.success("All examples completed – results saved under ./generated/processing_metrics/")
+    main_logger.info("All quality metrics examples completed!")
+    main_logger.info(f"Outputs saved in: {BASE_OUTPUT_DIR}")
+    main_logger.info("=" * 80)

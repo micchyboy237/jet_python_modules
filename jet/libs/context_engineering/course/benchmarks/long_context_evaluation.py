@@ -31,13 +31,20 @@ __all__ = [
     'ScalabilityAnalyzer', 'QualityEvaluator', 'ComparisonReport'
 ]
 
-from jet.logger import CustomLogger
-import os
-import shutil
+from jet.libs.context_engineering.course.implementations.attention_mechanisms import (
+    StandardAttention, SparseAttention, StreamingAttention, FlashAttention, CrossModalAttention
+)
 
 # ============================================================================
 # OUTPUT & LOGGING SETUP
 # ============================================================================
+
+from jet.logger import CustomLogger
+import os
+import shutil
+import json
+from datetime import datetime
+
 BASE_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
 )
@@ -45,14 +52,15 @@ shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
 os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
 
 main_logger = CustomLogger(
-    name="long_context_evaluation",
+    name="math_foundations_lab",
     filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
     console_level="INFO",
     level="DEBUG",
     overwrite=True
 )
 main_logger.info("=" * 80)
-main_logger.info("LONG CONTEXT EVALUATION LAB STARTED")
+main_logger.info("PROCESSING QUALITY METRICS LAB STARTED")
+main_logger.info(f"Timestamp: {datetime.now().isoformat()}")
 main_logger.info("=" * 80)
 
 
@@ -74,9 +82,15 @@ def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
     )
     log.info("")
     log.info("=" * 80)
-    log.info(f"EXAMPLE: {example_name}")
+    log.info(f"EXAMPLE: {example_name.upper()}")
     log.info("=" * 80)
     return log
+
+
+def save_json(data: Any, filepath: str) -> None:
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=lambda o: str(o))
+
 
 # ============================================================================
 # CORE DATA STRUCTURES
@@ -836,190 +850,138 @@ def load_benchmark_results(filename: str) -> Dict[str, BenchmarkResult]:
     
     return results
 
-# --------------------------------------------------------------
-# NEW DESCRIPTIVE EXAMPLE FUNCTIONS (replace old __main__ demo)
-# --------------------------------------------------------------
+def example_01_full_mechanisms_benchmark():
+    name = "example_01_full_mechanisms_benchmark"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
-def example_01_mock_benchmark():
-    """Run benchmark with mock data (no real attention classes needed)."""
-    example_name = "example_01_mock_benchmark"
-    example_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, example_dir)
+    log.info("Benchmarking all real attention mechanisms: Standard, Sparse, Streaming, Flash")
+    seq_lengths = [128, 256, 512, 1024, 2048]
 
-    log.info("Generating realistic mock benchmark results")
-    mock_results = {}
-    mechanisms = ["StandardAttention", "SparseAttention", "StreamingAttention"]
-    seq_lengths = [256, 512, 1024, 2048]
+    benchmark = PerformanceBenchmark(d_model=512, num_heads=8, warmup_runs=3)
+    mechanisms_config = {
+        "Standard":  {"class": StandardAttention, "kwargs": {}},
+        "Sparse":    {"class": SparseAttention,   "kwargs": {"window_size": 256, "stride": 128}},
+        "Streaming": {"class": StreamingAttention,"kwargs": {"cache_size": 2048, "sink_size": 64}},
+        "Flash":     {"class": FlashAttention,    "kwargs": {"block_size": 64}},
+    }
 
-    for mech in mechanisms:
-        metrics = []
-        for seq_len in seq_lengths:
-            base_time = seq_len * 0.001
-            if mech == "StandardAttention":
-                time_ms = base_time * seq_len
-                memory_mb = seq_len * seq_len * 0.000004
-            elif mech == "SparseAttention":
-                time_ms = base_time * np.sqrt(seq_len) * 10
-                memory_mb = seq_len * np.sqrt(seq_len) * 0.000004
-            else:  # Streaming
-                time_ms = base_time * 8
-                memory_mb = 80 + seq_len * 0.0001
-
-            metrics.append(PerformanceMetrics(
-                mechanism_name=mech,
-                sequence_length=seq_len,
-                forward_time_ms=time_ms,
-                memory_peak_mb=memory_mb,
-                memory_allocated_mb=memory_mb * 0.85,
-                operations_count=int(seq_len * seq_len),
-                memory_complexity="O(n²)" if "Standard" in mech else "O(n√n)" if "Sparse" in mech else "O(1)",
-                theoretical_ops=seq_len * seq_len * 512,
-                throughput_tokens_per_sec=(seq_len * 1000) / time_ms,
-                memory_efficiency=1.0,
-                computational_efficiency=1.0
-            ))
-        mock_results[mech] = BenchmarkResult(
-            mechanism_name=mech,
-            metrics=metrics,
-            configuration={'d_model': 512, 'num_heads': 8},
-            timestamp=time.time()
-        )
-
-    # Save raw results
-    from jet.file.utils import save_file
-    save_file(mock_results, os.path.join(example_dir, "mock_results.json"), verbose=False)
+    results = benchmark.evaluate_multiple_mechanisms(mechanisms_config, seq_lengths, num_trials=5)
+    save_benchmark_results(results, os.path.join(ex_dir, "all_mechanisms_results.json"))
 
     # Generate reports
-    perf_report = ComparisonReport.generate_performance_report(mock_results)
-    scalability_report = ScalabilityAnalyzer().analyze_scaling_behavior(mock_results)
-    scalability_md = ComparisonReport.generate_scalability_report(scalability_report)
-    table_md = ComparisonReport.generate_comparison_table(mock_results)
+    perf_md = ComparisonReport.generate_performance_report(results)
+    table_md = ComparisonReport.generate_comparison_table(results)
+    with open(os.path.join(ex_dir, "performance_report.md"), "w", encoding="utf-8") as f:
+        f.write(perf_md)
+    with open(os.path.join(ex_dir, "comparison_table.md"), "w", encoding="utf-8") as f:
+        f.write(table_md)
 
-    save_file(perf_report, os.path.join(example_dir, "performance_report.md"), verbose=False)
-    save_file(scalability_md, os.path.join(example_dir, "scalability_report.md"), verbose=False)
-    save_file(table_md, os.path.join(example_dir, "comparison_table.md"), verbose=False)
-
-    log.success(f"Mock benchmark complete – {len(mock_results)} mechanisms evaluated")
-    log.info(f"Peak throughput: {max(m.throughput_tokens_per_sec for r in mock_results.values() for m in r.metrics):,.0f} tokens/sec")
-
-    summary_md = f"""# Example 01 – Mock Long-Context Benchmark
-Fully synthetic but realistic performance data.
-
-**Key Findings**
-- StandardAttention: O(n²) → collapses after ~1k tokens
-- SparseAttention: O(n√n) → scales much better
-- StreamingAttention: near O(1) memory
-
-See `performance_report.md`, `scalability_report.md`, and `comparison_table.md`.
-"""
-    save_file(summary_md, os.path.join(example_dir, "README.md"), verbose=False)
+    log.info("Benchmark summary:")
+    for mech_name, res in results.items():
+        if res.metrics:
+            max_tput = max(m.throughput_tokens_per_sec for m in res.metrics)
+            max_len = max(m.sequence_length for m in res.metrics)
+            log.info(f"  {mech_name:10s} → {max_len:>5} tokens @ {max_tput:>7.0f} t/s")
+    log.info("All mechanisms benchmark completed")
 
 
-def example_02_real_benchmark_if_available():
-    """Run real benchmark only if attention_mechanisms are importable."""
-    example_name = "example_02_real_benchmark"
-    example_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, example_dir)
+def example_02_streaming_long_context():
+    name = "example_02_streaming_long_context"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
-    try:
-        from jet.libs.context_engineering.course.implementations.attention_mechanisms import StandardAttention, SparseAttention, StreamingAttention
-        log.info("Real attention mechanisms found – running live benchmark")
+    log.info("StreamingAttention: 32K context with fixed KV cache")
+    seq_lengths = [8192, 16384, 32768]
 
-        attention_classes = [StandardAttention, SparseAttention, StreamingAttention]
-        seq_lengths = [128, 256, 512, 1024]
+    benchmark = PerformanceBenchmark(d_model=512, warmup_runs=2)
+    results = benchmark.evaluate_attention_mechanism(
+        attention_class=StreamingAttention,
+        sequence_lengths=seq_lengths,
+        num_trials=3,
+        cache_size=4096,
+        sink_size=128
+    )
 
-        results = quick_benchmark(attention_classes, seq_lengths, d_model=512)
+    save_benchmark_results({"StreamingAttention": results}, os.path.join(ex_dir, "streaming_32k_results.json"))
 
-        from jet.file.utils import save_file
-        save_file(results, os.path.join(example_dir, "real_results.json"), verbose=False)
+    log.info("StreamingAttention long context results:")
+    for m in results.metrics:
+        log.info(f"  {m.sequence_length:>6,} tokens → {m.forward_time_ms:>6.1f}ms | "
+                f"Memory: {m.memory_peak_mb:>6.1f}MB | Cache used: {m.attention_entropy:.1f}")
 
-        perf_md = ComparisonReport.generate_performance_report(results)
-        table_md = ComparisonReport.generate_comparison_table(results)
-        analyzer = ScalabilityAnalyzer()
-        scaling = analyzer.analyze_scaling_behavior(results)
-        scaling_md = ComparisonReport.generate_scalability_report(scaling)
-
-        save_file(perf_md, os.path.join(example_dir, "performance_report.md"), verbose=False)
-        save_file(table_md, os.path.join(example_dir, "comparison_table.md"), verbose=False)
-        save_file(scaling_md, os.path.join(example_dir, "scalability_report.md"), verbose=False)
-
-        log.success("Real benchmark completed successfully")
-    except Exception as e:
-        log.warning(f"Real attention classes not available: {e}")
-        log.info("Skipping real benchmark – see example_01_mock_benchmark instead")
-
-    summary_md = f"""# Example 02 – Real Benchmark (if available)
-Attempts to run actual attention implementations.
-
-If the module is missing, this example is skipped gracefully.
-"""
-    from jet.file.utils import save_file
-    save_file(summary_md, os.path.join(example_dir, "README.md"), verbose=False)
+    log.info("Streaming long context test completed")
 
 
-def example_03_quality_preservation():
-    """QualityEvaluator comparison between Standard and Sparse attention."""
-    example_name = "example_03_quality_preservation"
-    example_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, example_dir)
+def example_03_quality_preservation_real():
+    name = "example_03_quality_preservation_real"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
-    try:
-        from jet.libs.context_engineering.course.implementations.attention_mechanisms import StandardAttention, SparseAttention
-        evaluator = QualityEvaluator(d_model=512)
-        seq_lengths = [256, 512, 1024]
+    log.info("Real quality preservation: Standard vs Sparse vs Flash")
+    evaluator = QualityEvaluator(d_model=512)
+    seq_lengths = [512, 1024, 2048]
 
-        log.info("Comparing output quality: Standard vs Sparse")
-        quality_results = evaluator.compare_attention_quality(
-            baseline_class=StandardAttention,
-            efficient_class=SparseAttention,
-            sequence_lengths=seq_lengths,
-            num_samples=5
-        )
+    # Standard vs Sparse
+    sparse_quality = evaluator.compare_attention_quality(
+        StandardAttention, SparseAttention, seq_lengths, num_samples=8
+    )
+    # Standard vs Flash
+    flash_quality = evaluator.compare_attention_quality(
+        StandardAttention, FlashAttention, seq_lengths, num_samples=8
+    )
 
-        from jet.file.utils import save_file
-        save_file(quality_results, os.path.join(example_dir, "quality_comparison.json"), verbose=False)
+    all_quality = {"sparse_vs_standard": sparse_quality, "flash_vs_standard": flash_quality}
+    save_json(all_quality, os.path.join(ex_dir, "quality_preservation_real.json"))
 
-        overall = quality_results['overall_quality_preservation']
-        log.success(f"Overall quality preservation: {overall:.3f}")
+    log.info(f"Sparse  preservation: {sparse_quality['overall_quality_preservation']:.3f}")
+    log.info(f"Flash   preservation: {flash_quality['overall_quality_preservation']:.3f}")
 
-        md = f"""# Example 03 – Quality Preservation
-StandardAttention vs SparseAttention
+    log.info("Quality preservation analysis completed")
 
-**Overall Quality Preservation**: {overall:.3f}
 
-Higher = less degradation when using efficient mechanism.
-"""
-        save_file(md, os.path.join(example_dir, "README.md"), verbose=False)
-    except Exception as e:
-        log.warning(f"Cannot run quality evaluation: {e}")
-        md = "# Example 03 – Quality Preservation\nSkipped – attention_mechanisms not available"
-        from jet.file.utils import save_file
-        save_file(md, os.path.join(example_dir, "README.md"), verbose=False)
+def example_04_scalability_with_real_data():
+    name = "example_04_scalability_with_real_data"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
-# --------------------------------------------------------------
-# CLEAN MAIN BLOCK
-# --------------------------------------------------------------
+    log.info("Full scalability analysis using real implementations")
+    seq_lengths = [256, 512, 1024, 2048, 4096]
 
+    benchmark = PerformanceBenchmark(d_model=512)
+    config = {
+        "Standard": {"class": StandardAttention, "kwargs": {}},
+        "Sparse":   {"class": SparseAttention, "kwargs": {"window_size": 512}},
+        "Streaming":{"class": StreamingAttention, "kwargs": {"cache_size": 4096}},
+        "Flash":    {"class": FlashAttention, "kwargs": {"block_size": 128}},
+    }
+    results = benchmark.evaluate_multiple_mechanisms(config, seq_lengths, num_trials=4)
+
+    analyzer = ScalabilityAnalyzer()
+    analysis = analyzer.analyze_scaling_behavior(results)
+
+    save_json(analysis, os.path.join(ex_dir, "scalability_analysis_real.json"))
+    report_md = ComparisonReport.generate_scalability_report(analysis)
+    with open(os.path.join(ex_dir, "scalability_report.md"), "w", encoding="utf-8") as f:
+        f.write(report_md)
+
+    log.info("Scalability scores (higher = better):")
+    for mech, data in analysis.items():
+        log.info(f"  {mech:12s} → {data['scalability_score']:5.1f}/100 | "
+                f"Time: {data['time_scaling']['best_fit']} (R²={data['time_scaling']['r_squared']:.3f})")
+
+    log.info("Full scalability analysis completed")
+
+
+# <<< REPLACE THE FINAL if __name__ == "__main__" BLOCK >>>
 if __name__ == "__main__":
-    main_logger.info("Starting Long Context Evaluation Lab – all examples")
+    main_logger.info("Starting long context evaluation with REAL attention mechanisms...")
 
-    example_01_mock_benchmark()          # always works
-    example_02_real_benchmark_if_available()
-    example_03_quality_preservation()
+    example_01_full_mechanisms_benchmark()
+    example_02_streaming_long_context()
+    example_03_quality_preservation_real()
+    example_04_scalability_with_real_data()
 
-    # Final index
-    index_md = f"""# Long Context Evaluation Lab
-Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}
-
-| Example | Description |
-|--------|-------------|
-| [example_01_mock_benchmark](example_01_mock_benchmark/README.md)         | Synthetic but realistic benchmark |
-| [example_02_real_benchmark](example_02_real_benchmark/README.md)       | Live benchmark (if attention_mechanisms available) |
-| [example_03_quality_preservation](example_03_quality_preservation/README.md) | Output quality comparison |
-
-All raw data (JSON) + human-readable reports saved in each folder.
-"""
-    from jet.file.utils import save_file
-    save_file(index_md, os.path.join(BASE_OUTPUT_DIR, "INDEX.md"), verbose=False)
-
-    main_logger.success("Long Context Evaluation Lab completed – results in ./generated/long_context_evaluation/")
+    main_logger.info("All examples completed successfully!")
+    main_logger.info(f"Results saved in: {BASE_OUTPUT_DIR}")
+    main_logger.info("=" * 80)
