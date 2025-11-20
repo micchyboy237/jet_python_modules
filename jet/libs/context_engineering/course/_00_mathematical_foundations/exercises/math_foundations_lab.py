@@ -301,87 +301,6 @@ class ContextAssemblyFunction:
             'hierarchy_coverage': len(set(c.component_type for c in included_components))
         }
 
-# 1.3 Interactive Formalization Demonstration
-
-def demonstrate_context_formalization():
-    """Interactive demonstration of context formalization mathematics"""
-    
-    print("\n1.3 Context Formalization Demonstration")
-    print("-" * 45)
-    
-    # Create sample context components
-    sample_components = [
-        ContextComponent(
-            component_type='instructions',
-            content='You are a helpful AI assistant specializing in data analysis.',
-            relevance_score=0.9,
-            token_count=50,
-            quality_metrics={'clarity': 0.8, 'specificity': 0.7}
-        ),
-        ContextComponent(
-            component_type='knowledge',
-            content='Python pandas library provides powerful data manipulation tools including DataFrame operations, groupby functionality, and statistical analysis methods.',
-            relevance_score=0.85,
-            token_count=80,
-            quality_metrics={'accuracy': 0.95, 'completeness': 0.8}
-        ),
-        ContextComponent(
-            component_type='tools',
-            content='Available functions: analyze_data(), create_visualization(), statistical_summary()',
-            relevance_score=0.75,
-            token_count=40,
-            quality_metrics={'utility': 0.9, 'accessibility': 0.85}
-        ),
-        ContextComponent(
-            component_type='memory',
-            content='User previously asked about data cleaning techniques and expressed preference for visual explanations.',
-            relevance_score=0.7,
-            token_count=60,
-            quality_metrics={'relevance': 0.8, 'recency': 0.9}
-        ),
-        ContextComponent(
-            component_type='state',
-            content='User is working on a dataset with 10,000 rows and experiencing performance issues.',
-            relevance_score=0.8,
-            token_count=45,
-            quality_metrics={'accuracy': 0.9, 'timeliness': 0.95}
-        ),
-        ContextComponent(
-            component_type='query',
-            content='How can I optimize my pandas operations to handle large datasets more efficiently?',
-            relevance_score=1.0,
-            token_count=35,
-            quality_metrics={'clarity': 0.9, 'specificity': 0.85}
-        )
-    ]
-    
-    # Initialize assembly function
-    assembler = ContextAssemblyFunction(max_tokens=250)
-    
-    # Test different assembly strategies
-    strategies = ['linear', 'weighted', 'hierarchical']
-    results = {}
-    
-    for strategy in strategies:
-        result = assembler.assemble_context(sample_components, strategy)
-        results[strategy] = result
-        
-        print(f"\n{strategy.upper()} ASSEMBLY RESULTS:")
-        print(f"  Components included: {result['included_components']}")
-        print(f"  Total tokens: {result['total_tokens']}")
-        print(f"  Token utilization: {result['utilization_rate']:.1%}")
-        
-        if 'average_relevance' in result:
-            print(f"  Average relevance: {result['average_relevance']:.2f}")
-        if 'hierarchy_coverage' in result:
-            print(f"  Hierarchy coverage: {result['hierarchy_coverage']} types")
-    
-    return results, sample_components
-
-# Run demonstrations
-restaurant_demo = restaurant_experience_simulation()
-formalization_demo = demonstrate_context_formalization()
-
 # ==============================================================================
 # SECTION 2: OPTIMIZATION THEORY - Finding the Best Assembly Function
 # ==============================================================================
@@ -690,90 +609,6 @@ class ContextOptimizer:
         
         return gradient
 
-# 2.3 Optimization Comparison Demonstration
-
-def demonstrate_optimization_methods():
-    """Compare different optimization methods for context assembly"""
-    
-    print("\n2.3 Optimization Methods Comparison")
-    print("-" * 38)
-    
-    # Use components from previous demonstration
-    _, sample_components = formalization_demo
-    
-    # Initialize optimizer
-    optimizer = ContextOptimizer()
-    
-    # Test different optimization methods
-    methods = ['scipy', 'grid_search', 'gradient_descent']
-    results = {}
-    
-    print("Optimizing context assembly parameters...")
-    print("Objective: Maximize weighted combination of relevance, completeness, and efficiency")
-    
-    for method in methods:
-        print(f"\nTesting {method.upper()} optimization:")
-        
-        result = optimizer.optimize_assembly_strategy(sample_components, method)
-        results[method] = result
-        
-        params = result['optimal_parameters']
-        print("  Optimal parameters:")
-        print(f"    Relevance weight: {params['relevance_weight']:.3f}")
-        print(f"    Completeness weight: {params['completeness_weight']:.3f}")
-        print(f"    Efficiency weight: {params['efficiency_weight']:.3f}")
-        print(f"  Optimal quality: {result['optimal_quality']:.3f}")
-        print(f"  Function evaluations: {result.get('function_evaluations', 'N/A')}")
-    
-    # Visualize optimization comparison
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Parameter comparison
-    methods_list = list(results.keys())
-    relevance_weights = [results[m]['optimal_parameters']['relevance_weight'] for m in methods_list]
-    completeness_weights = [results[m]['optimal_parameters']['completeness_weight'] for m in methods_list]
-    efficiency_weights = [results[m]['optimal_parameters']['efficiency_weight'] for m in methods_list]
-    
-    x = np.arange(len(methods_list))
-    width = 0.25
-    
-    ax1.bar(x - width, relevance_weights, width, label='Relevance', alpha=0.8)
-    ax1.bar(x, completeness_weights, width, label='Completeness', alpha=0.8)
-    ax1.bar(x + width, efficiency_weights, width, label='Efficiency', alpha=0.8)
-    
-    ax1.set_xlabel('Optimization Method')
-    ax1.set_ylabel('Weight Value')
-    ax1.set_title('Optimal Parameter Weights by Method')
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(methods_list)
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # Quality comparison
-    qualities = [results[m]['optimal_quality'] for m in methods_list]
-    colors = ['skyblue', 'lightgreen', 'salmon']
-    
-    bars = ax2.bar(methods_list, qualities, color=colors, alpha=0.8)
-    ax2.set_xlabel('Optimization Method')
-    ax2.set_ylabel('Optimal Quality Score')
-    ax2.set_title('Optimization Quality Comparison')
-    ax2.grid(True, alpha=0.3)
-    
-    # Add value labels on bars
-    for bar, quality in zip(bars, qualities):
-        height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.005,
-                f'{quality:.3f}', ha='center', va='bottom')
-    
-    plt.tight_layout()
-    plt.show()
-    
-    return results
-
-# Run optimization demonstrations
-landscape_data = create_optimization_landscape()
-optimization_results = demonstrate_optimization_methods()
-
 # ==============================================================================
 # SECTION 3: INFORMATION THEORY - Quantifying Context Value
 # ==============================================================================
@@ -784,95 +619,6 @@ print("From Intuitive Relevance to Mathematical Precision")
 print("="*80)
 
 # 3.1 Information Content and Entropy
-
-def demonstrate_information_theory_basics():
-    """
-    Demonstrate core information theory concepts:
-    - Information content: I(x) = -log₂(P(x))
-    - Entropy: H(X) = -Σ P(x) × log₂(P(x))
-    - Mutual information: I(X;Y) = H(X) + H(Y) - H(X,Y)
-    """
-    
-    print("\n3.1 Information Theory Fundamentals")
-    print("-" * 38)
-    
-    # Example: Information content of different events
-    events = [
-        ("Sun rises tomorrow", 0.9999),
-        ("It rains today", 0.3),
-        ("Coin flip is heads", 0.5),
-        ("Win lottery", 0.0000001),
-        ("AI becomes sentient", 0.001)
-    ]
-    
-    print("Information Content Examples:")
-    print("I(x) = -log₂(P(x)) [measured in bits]")
-    print()
-    
-    information_contents = []
-    
-    for event, probability in events:
-        if probability > 0:
-            info_content = -np.log2(probability)
-            information_contents.append(info_content)
-            print(f"  {event:25} P={probability:8.1e} → I={info_content:6.2f} bits")
-        else:
-            print(f"  {event:25} P={probability:8.1e} → I=∞ bits")
-    
-    # Visualize information content vs probability
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # Information content curve
-    probabilities = np.logspace(-6, 0, 1000)
-    info_contents = -np.log2(probabilities)
-    
-    ax1.loglog(probabilities, info_contents)
-    ax1.set_xlabel('Probability P(x)')
-    ax1.set_ylabel('Information Content -log₂(P(x)) [bits]')
-    ax1.set_title('Information Content vs Probability')
-    ax1.grid(True, alpha=0.3)
-    
-    # Mark example events
-    event_probs = [p for _, p in events if p > 0]
-    event_info = [-np.log2(p) for p in event_probs]
-    ax1.scatter(event_probs, event_info, color='red', s=50, zorder=5)
-    
-    # Entropy calculation example
-    print("\nEntropy Calculation Example:")
-    print("H(X) = -Σ P(x) × log₂(P(x))")
-    
-    # Simple distribution: coin flips
-    fair_coin = [0.5, 0.5]
-    biased_coin = [0.9, 0.1]
-    certain_outcome = [1.0, 0.0]
-    
-    distributions = {
-        'Fair coin': fair_coin,
-        'Biased coin': biased_coin,
-        'Certain outcome': certain_outcome
-    }
-    
-    entropies = []
-    
-    for name, dist in distributions.items():
-        entropy = -sum(p * np.log2(p) if p > 0 else 0 for p in dist)
-        entropies.append(entropy)
-        print(f"  {name:15}: H = {entropy:.3f} bits")
-    
-    # Visualize entropy for different distributions
-    ax2.bar(distributions.keys(), entropies, alpha=0.7, color=['blue', 'orange', 'green'])
-    ax2.set_ylabel('Entropy H(X) [bits]')
-    ax2.set_title('Entropy of Different Distributions')
-    ax2.grid(True, alpha=0.3)
-    
-    # Add value labels
-    for i, entropy in enumerate(entropies):
-        ax2.text(i, entropy + 0.05, f'{entropy:.3f}', ha='center', va='bottom')
-    
-    plt.tight_layout()
-    plt.show()
-    
-    return distributions, entropies
 
 # 3.2 Mutual Information for Context Relevance
 
@@ -1036,124 +782,6 @@ class InformationAnalyzer:
         
         return results
 
-# 3.3 Information Theory Demonstration
-
-def demonstrate_context_information_analysis():
-    """Demonstrate information theory analysis of context components"""
-    
-    print("\n3.3 Context Information Analysis")
-    print("-" * 35)
-    
-    # Use sample components from previous demonstrations
-    _, sample_components = formalization_demo
-    
-    # Sample query
-    query = "How can I optimize my pandas operations to handle large datasets more efficiently?"
-    
-    # Initialize information analyzer
-    analyzer = InformationAnalyzer()
-    
-    # Perform analysis
-    analysis_results = analyzer.analyze_context_information(sample_components, query)
-    
-    print("Information Theory Analysis Results:")
-    print("=" * 45)
-    
-    # Component analysis
-    print("\nComponent Information Content:")
-    print("-" * 30)
-    
-    for analysis in analysis_results['component_analysis']:
-        print(f"\n{analysis['component_type'].upper()}:")
-        print(f"  Word entropy: {analysis['word_entropy']:.2f} bits")
-        print(f"  Character entropy: {analysis['char_entropy']:.2f} bits")
-        print(f"  MI with query: {analysis['mutual_information_with_query']:.3f}")
-        print(f"  Information density: {analysis['information_density']:.3f} bits/token")
-    
-    # Visualization
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-    
-    # 1. Information content comparison
-    component_types = [a['component_type'] for a in analysis_results['component_analysis']]
-    word_entropies = [a['word_entropy'] for a in analysis_results['component_analysis']]
-    
-    ax1.bar(component_types, word_entropies, alpha=0.7)
-    ax1.set_title('Information Content (Word Entropy)')
-    ax1.set_ylabel('Entropy [bits]')
-    ax1.tick_params(axis='x', rotation=45)
-    ax1.grid(True, alpha=0.3)
-    
-    # 2. Query relevance (mutual information)
-    query_relevance = analysis_results['query_relevance']
-    
-    bars = ax2.bar(component_types, query_relevance, alpha=0.7, color='orange')
-    ax2.set_title('Relevance to Query (Mutual Information)')
-    ax2.set_ylabel('MI with Query')
-    ax2.tick_params(axis='x', rotation=45)
-    ax2.grid(True, alpha=0.3)
-    
-    # Add value labels
-    for bar, relevance in zip(bars, query_relevance):
-        height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                f'{relevance:.2f}', ha='center', va='bottom')
-    
-    # 3. Mutual information matrix (redundancy)
-    mi_matrix = analysis_results['mutual_information_matrix']
-    
-    im = ax3.imshow(mi_matrix, cmap='Blues', interpolation='nearest')
-    ax3.set_title('Component Redundancy Matrix')
-    ax3.set_xticks(range(len(component_types)))
-    ax3.set_yticks(range(len(component_types)))
-    ax3.set_xticklabels(component_types, rotation=45)
-    ax3.set_yticklabels(component_types)
-    
-    # Add text annotations
-    for i in range(len(component_types)):
-        for j in range(len(component_types)):
-            text = ax3.text(j, i, f'{mi_matrix[i, j]:.2f}',
-                           ha="center", va="center", color="black" if mi_matrix[i, j] < 1 else "white")
-    
-    plt.colorbar(im, ax=ax3, label='Mutual Information')
-    
-    # 4. Information efficiency
-    info_densities = [a['information_density'] for a in analysis_results['component_analysis']]
-    
-    ax4.scatter(word_entropies, query_relevance, s=[d*1000 for d in info_densities], alpha=0.6)
-    
-    for i, comp_type in enumerate(component_types):
-        ax4.annotate(comp_type, (word_entropies[i], query_relevance[i]), 
-                    xytext=(5, 5), textcoords='offset points', fontsize=8)
-    
-    ax4.set_xlabel('Information Content (Word Entropy)')
-    ax4.set_ylabel('Query Relevance (MI)')
-    ax4.set_title('Information Content vs Relevance\n(Bubble size = Information Density)')
-    ax4.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    # Redundancy analysis
-    redundancy = analysis_results['redundancy_analysis']
-    
-    print("\nRedundancy Analysis:")
-    print("-" * 20)
-    print(f"Average redundancy: {redundancy['average_redundancy']:.3f}")
-    print(f"Maximum redundancy: {redundancy['max_redundancy']:.3f}")
-    
-    if redundancy['high_redundancy_pairs']:
-        print("\nHigh redundancy pairs:")
-        for pair in redundancy['high_redundancy_pairs']:
-            print(f"  {pair['component1']} ↔ {pair['component2']}: {pair['redundancy_score']:.3f}")
-    else:
-        print("No high redundancy pairs detected.")
-    
-    return analysis_results
-
-# Run information theory demonstrations
-info_theory_basics = demonstrate_information_theory_basics()
-context_info_analysis = demonstrate_context_information_analysis()
-
 # ==============================================================================
 # SECTION 4: BAYESIAN INFERENCE - Learning Under Uncertainty
 # ==============================================================================
@@ -1164,99 +792,6 @@ print("From Fixed Rules to Probabilistic Learning")
 print("="*80)
 
 # 4.1 Bayes' Theorem Fundamentals
-
-def demonstrate_bayes_theorem():
-    """
-    Demonstrate Bayes' theorem fundamentals:
-    P(H|E) = P(E|H) × P(H) / P(E)
-    """
-    
-    print("\n4.1 Bayes' Theorem Fundamentals")
-    print("-" * 32)
-    
-    print("Bayes' Theorem: P(H|E) = P(E|H) × P(H) / P(E)")
-    print()
-    print("Context Engineering Application:")
-    print("P(Strategy|Feedback) = P(Feedback|Strategy) × P(Strategy) / P(Feedback)")
-    print()
-    
-    # Example: Context strategy selection
-    strategies = ['technical_detailed', 'practical_concise', 'balanced_comprehensive']
-    
-    # Prior beliefs (initial confidence in each strategy)
-    priors = {
-        'technical_detailed': 0.3,
-        'practical_concise': 0.4,
-        'balanced_comprehensive': 0.3
-    }
-    
-    # Likelihood: P(positive_feedback | strategy)
-    likelihoods = {
-        'technical_detailed': 0.7,
-        'practical_concise': 0.9,
-        'balanced_comprehensive': 0.8
-    }
-    
-    print("Example: Context Strategy Selection")
-    print("Prior Beliefs (before observing feedback):")
-    for strategy, prior in priors.items():
-        print(f"  P({strategy:25}) = {prior:.1f}")
-    
-    print("\nLikelihoods (probability of positive feedback given strategy):")
-    for strategy, likelihood in likelihoods.items():
-        print(f"  P(positive_feedback | {strategy:15}) = {likelihood:.1f}")
-    
-    # Calculate evidence: P(positive_feedback)
-    evidence = sum(priors[s] * likelihoods[s] for s in strategies)
-    
-    print(f"\nEvidence: P(positive_feedback) = {evidence:.3f}")
-    
-    # Calculate posteriors using Bayes' theorem
-    posteriors = {}
-    for strategy in strategies:
-        posterior = (likelihoods[strategy] * priors[strategy]) / evidence
-        posteriors[strategy] = posterior
-    
-    print("\nPosteriors (after observing positive feedback):")
-    for strategy, posterior in posteriors.items():
-        print(f"  P({strategy:25} | positive_feedback) = {posterior:.3f}")
-    
-    # Visualize Bayesian updating
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    strategy_names = list(strategies)
-    prior_values = [priors[s] for s in strategy_names]
-    posterior_values = [posteriors[s] for s in strategy_names]
-    
-    x = np.arange(len(strategy_names))
-    width = 0.35
-    
-    ax1.bar(x - width/2, prior_values, width, label='Prior', alpha=0.7)
-    ax1.bar(x + width/2, posterior_values, width, label='Posterior', alpha=0.7)
-    
-    ax1.set_xlabel('Strategy')
-    ax1.set_ylabel('Probability')
-    ax1.set_title('Bayesian Updating: Prior → Posterior')
-    ax1.set_xticks(x)
-    ax1.set_xticklabels([s.replace('_', '\n') for s in strategy_names])
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # Show the updating process
-    strategies_short = ['Technical', 'Practical', 'Balanced']
-    
-    ax2.plot([0, 1], [prior_values, posterior_values], 'o-', linewidth=2, markersize=8)
-    ax2.set_xticks([0, 1])
-    ax2.set_xticklabels(['Prior', 'Posterior'])
-    ax2.set_ylabel('Probability')
-    ax2.set_title('Belief Evolution')
-    ax2.legend(strategies_short)
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    return priors, likelihoods, posteriors
 
 # 4.2 Bayesian Context Strategy Learning
 
@@ -1413,146 +948,6 @@ class BayesianContextLearner:
         
         return mean, confidence_width
 
-# 4.3 Bayesian Learning Demonstration
-
-def demonstrate_bayesian_learning():
-    """Demonstrate Bayesian learning for context strategy optimization"""
-    
-    print("\n4.3 Bayesian Context Strategy Learning")
-    print("-" * 40)
-    
-    # Initialize Bayesian learner
-    strategies = ['technical_detailed', 'practical_concise', 'balanced_comprehensive', 'user_adapted']
-    learner = BayesianContextLearner(strategies)
-    
-    print("Initial strategy beliefs (uniform prior):")
-    for strategy, belief in learner.strategy_beliefs.items():
-        print(f"  {strategy:25}: {belief:.3f}")
-    
-    # Simulate learning from feedback
-    feedback_scenarios = [
-        ('practical_concise', 0.9),      # Positive feedback
-        ('technical_detailed', 0.3),    # Negative feedback
-        ('practical_concise', 0.8),     # Positive feedback
-        ('balanced_comprehensive', 0.7), # Positive feedback
-        ('user_adapted', 0.95),         # Very positive feedback
-        ('technical_detailed', 0.4),    # Negative feedback
-        ('user_adapted', 0.9),          # Positive feedback
-        ('practical_concise', 0.85),    # Positive feedback
-    ]
-    
-    print(f"\nSimulating learning from {len(feedback_scenarios)} feedback instances...")
-    
-    # Track belief evolution
-    belief_evolution = []
-    uncertainties = []
-    
-    for i, (strategy, feedback) in enumerate(feedback_scenarios):
-        learner.update_strategy_beliefs(strategy, feedback)
-        belief_evolution.append(learner.strategy_beliefs.copy())
-        uncertainties.append(learner.get_strategy_uncertainty())
-        
-        print(f"\nStep {i+1}: Used {strategy}, feedback = {feedback:.1f}")
-        print("Updated beliefs:")
-        for strat, belief in learner.strategy_beliefs.items():
-            print(f"  {strat:25}: {belief:.3f}")
-        print(f"Uncertainty (entropy): {uncertainties[-1]:.3f}")
-    
-    # Visualize learning evolution
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-    
-    # 1. Belief evolution over time
-    steps = range(len(belief_evolution))
-    for strategy in strategies:
-        beliefs = [beliefs_dict[strategy] for beliefs_dict in belief_evolution]
-        ax1.plot(steps, beliefs, 'o-', label=strategy.replace('_', ' ').title(), linewidth=2)
-    
-    ax1.set_xlabel('Learning Step')
-    ax1.set_ylabel('Belief Probability')
-    ax1.set_title('Strategy Belief Evolution')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # 2. Uncertainty reduction over time
-    ax2.plot(steps, uncertainties, 'ro-', linewidth=2, markersize=6)
-    ax2.set_xlabel('Learning Step')
-    ax2.set_ylabel('Uncertainty (Entropy)')
-    ax2.set_title('Learning Reduces Uncertainty')
-    ax2.grid(True, alpha=0.3)
-    
-    # 3. Final strategy beliefs
-    final_beliefs = learner.strategy_beliefs
-    strategy_names = [s.replace('_', '\n') for s in strategies]
-    belief_values = list(final_beliefs.values())
-    
-    bars = ax3.bar(strategy_names, belief_values, alpha=0.7, 
-                   color=['skyblue', 'lightgreen', 'salmon', 'gold'])
-    ax3.set_ylabel('Final Belief Probability')
-    ax3.set_title('Learned Strategy Preferences')
-    ax3.grid(True, alpha=0.3)
-    
-    # Add value labels
-    for bar, value in zip(bars, belief_values):
-        height = bar.get_height()
-        ax3.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                f'{value:.3f}', ha='center', va='bottom')
-    
-    # 4. Component relevance learning demo
-    print("\nComponent Relevance Learning Demo:")
-    
-    components = ['technical_details', 'code_examples', 'conceptual_explanation', 'performance_tips']
-    
-    # Simulate relevance evidence
-    relevance_evidence = [0.8, 0.9, 0.6, 0.95]  # Different evidence strengths
-    
-    relevance_estimates = []
-    confidence_widths = []
-    
-    for component, evidence in zip(components, relevance_evidence):
-        learner.update_component_relevance(component, evidence)
-        estimate, width = learner.get_component_relevance_estimate(component)
-        relevance_estimates.append(estimate)
-        confidence_widths.append(width)
-        
-        print(f"  {component:20}: estimate = {estimate:.3f}, confidence width = {width:.3f}")
-    
-    # Plot component relevance estimates with confidence intervals
-    x_pos = np.arange(len(components))
-    ax4.bar(x_pos, relevance_estimates, alpha=0.7, color='lightblue')
-    ax4.errorbar(x_pos, relevance_estimates, yerr=confidence_widths, 
-                fmt='none', color='black', capsize=5)
-    
-    ax4.set_xlabel('Component')
-    ax4.set_ylabel('Relevance Estimate')
-    ax4.set_title('Component Relevance with Uncertainty')
-    ax4.set_xticks(x_pos)
-    ax4.set_xticklabels([c.replace('_', '\n') for c in components])
-    ax4.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    # Final recommendations
-    best_strategy, confidence = learner.select_best_strategy()
-    uncertainty = learner.get_strategy_uncertainty()
-    
-    print("\nFinal Recommendations:")
-    print(f"Best strategy: {best_strategy} (confidence: {confidence:.3f})")
-    print(f"Overall uncertainty: {uncertainty:.3f}")
-    
-    if uncertainty < 1.0:
-        print("→ Low uncertainty: Confident in strategy selection")
-    elif uncertainty < 2.0:
-        print("→ Medium uncertainty: Some confidence in strategy selection")
-    else:
-        print("→ High uncertainty: Need more evidence for confident selection")
-    
-    return learner, belief_evolution
-
-# Run Bayesian demonstrations
-bayes_basics = demonstrate_bayes_theorem()
-bayesian_learning_results = demonstrate_bayesian_learning()
-
 # ==============================================================================
 # SECTION 5: INTEGRATED MATHEMATICAL FRAMEWORK
 # ==============================================================================
@@ -1704,118 +1099,6 @@ class IntegratedContextEngineer:
         )
         
         return integrated_quality
-
-def demonstrate_integrated_framework():
-    """Demonstrate the complete integrated mathematical framework"""
-    
-    print("\n5.1 Complete Mathematical Integration Demonstration")
-    print("-" * 52)
-    
-    # Initialize integrated system
-    engineer = IntegratedContextEngineer(max_tokens=300)
-    
-    # Use sample components and query from previous demonstrations
-    _, sample_components = formalization_demo
-    query = "How can I optimize my pandas operations to handle large datasets more efficiently?"
-    
-    # First iteration - no feedback
-    print("=== FIRST ITERATION (No Prior Feedback) ===")
-    result1 = engineer.engineer_context(sample_components, query)
-    
-    print(f"\nIntegrated Quality Score: {result1['mathematical_quality_score']:.3f}")
-    
-    # Simulate user feedback and second iteration
-    print("\n=== SECOND ITERATION (With User Feedback) ===")
-    simulated_feedback = 0.8  # Positive feedback
-    result2 = engineer.engineer_context(sample_components, query, simulated_feedback)
-    
-    print(f"\nIntegrated Quality Score: {result2['mathematical_quality_score']:.3f}")
-    print(f"Quality Improvement: {result2['mathematical_quality_score'] - result1['mathematical_quality_score']:.3f}")
-    
-    # Visualize integrated results
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-    
-    # 1. Quality evolution
-    quality_scores = [result1['mathematical_quality_score'], result2['mathematical_quality_score']]
-    iterations = [1, 2]
-    
-    ax1.plot(iterations, quality_scores, 'bo-', linewidth=3, markersize=8)
-    ax1.set_xlabel('Iteration')
-    ax1.set_ylabel('Integrated Quality Score')
-    ax1.set_title('Mathematical Quality Evolution')
-    ax1.grid(True, alpha=0.3)
-    ax1.set_ylim(0, max(quality_scores) * 1.1)
-    
-    # 2. Component contributions
-    frameworks = ['Assembly', 'Information', 'Optimization']
-    
-    # Extract individual contributions for visualization
-    assembly_scores = [0.4, 0.5]  # Simulated improvement
-    info_scores = [0.6, 0.7]
-    opt_scores = [0.5, 0.6]
-    
-    x = np.arange(len(frameworks))
-    width = 0.35
-    
-    ax2.bar(x - width/2, [assembly_scores[0], info_scores[0], opt_scores[0]], 
-           width, label='Iteration 1', alpha=0.7)
-    ax2.bar(x + width/2, [assembly_scores[1], info_scores[1], opt_scores[1]], 
-           width, label='Iteration 2', alpha=0.7)
-    
-    ax2.set_xlabel('Mathematical Framework')
-    ax2.set_ylabel('Component Score')
-    ax2.set_title('Framework Contribution Analysis')
-    ax2.set_xticks(x)
-    ax2.set_xticklabels(frameworks)
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
-    # 3. Bayesian learning progress
-    strategy_beliefs = result2['bayesian_insights']
-    
-    # Show uncertainty reduction
-    uncertainty_values = [2.0, strategy_beliefs['uncertainty']]  # Initial vs final
-    
-    ax3.bar(['Initial', 'After Learning'], uncertainty_values, 
-           color=['red', 'green'], alpha=0.7)
-    ax3.set_ylabel('Strategy Uncertainty (Entropy)')
-    ax3.set_title('Bayesian Learning: Uncertainty Reduction')
-    ax3.grid(True, alpha=0.3)
-    
-    # 4. Optimization landscape projection
-    # Create a simple 2D projection of the optimization space
-    x_vals = np.linspace(0, 1, 50)
-    y_vals = np.linspace(0, 1, 50)
-    X, Y = np.meshgrid(x_vals, y_vals)
-    
-    # Simulated quality function
-    Z = np.sin(np.pi * X) * np.cos(np.pi * Y) * 0.5 + 0.5
-    
-    contour = ax4.contour(X, Y, Z, levels=10, alpha=0.6)
-    ax4.clabel(contour, inline=True, fontsize=8)
-    
-    # Mark optimization results
-    opt_params1 = result1['optimization_results']['optimal_parameters']
-    opt_params2 = result2['optimization_results']['optimal_parameters']
-    
-    ax4.scatter([opt_params1['relevance_weight']], [opt_params1['completeness_weight']], 
-               color='red', s=100, label='Iteration 1', marker='o')
-    ax4.scatter([opt_params2['relevance_weight']], [opt_params2['completeness_weight']], 
-               color='blue', s=100, label='Iteration 2', marker='s')
-    
-    ax4.set_xlabel('Relevance Weight')
-    ax4.set_ylabel('Completeness Weight')
-    ax4.set_title('Optimization Trajectory')
-    ax4.legend()
-    ax4.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    return engineer, [result1, result2]
-
-# Run integrated framework demonstration
-integrated_results = demonstrate_integrated_framework()
 
 # ==============================================================================
 # FINAL SUMMARY AND ASSESSMENT
@@ -2113,12 +1396,59 @@ def example_07_integrated_framework() -> Dict:
     improvement = result2['mathematical_quality_score'] - result1['mathematical_quality_score']
     log.info(f"Quality improved by {improvement:+.3f} after learning")
 
+    # === NEW: Visualize the integrated results ===
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+
+    # 1. Quality evolution
+    ax1.plot([1, 2], [result1['mathematical_quality_score'], result2['mathematical_quality_score']],
+             'bo-', linewidth=3, markersize=10)
+    ax1.set_title('Integrated Quality Improvement')
+    ax1.set_xlabel('Iteration')
+    ax1.set_ylabel('Mathematical Quality Score')
+    ax1.grid(True, alpha=0.3)
+    ax1.set_xticks([1, 2])
+
+    # 2. Strategy confidence
+    conf1 = result1['bayesian_insights']['strategy_confidence']
+    conf2 = result2['bayesian_insights']['strategy_confidence']
+    ax2.bar(['Iteration 1', 'Iteration 2'], [conf1, conf2], color=['lightcoral', 'lightgreen'], alpha=0.8)
+    ax2.set_title('Strategy Selection Confidence')
+    ax2.set_ylabel('Confidence')
+    ax2.grid(True, alpha=0.3)
+
+    # 3. Uncertainty reduction
+    unc1 = result1['bayesian_insights']['uncertainty']
+    unc2 = result2['bayesian_insights']['uncertainty']
+    ax3.plot([1, 2], [unc1, unc2], 'ro-', linewidth=3, markersize=10)
+    ax3.set_title('Bayesian Uncertainty Reduction')
+    ax3.set_ylabel('Strategy Entropy')
+    ax3.grid(True, alpha=0.3)
+    ax3.set_xticks([1, 2])
+
+    # 4. Optimization parameters trajectory
+    p1 = result1['optimization_results']['optimal_parameters']
+    p2 = result2['optimization_results']['optimal_parameters']
+    ax4.plot([p1['relevance_weight'], p2['relevance_weight']],
+             [p1['completeness_weight'], p2['completeness_weight']],
+             's-', color='purple', linewidth=3, markersize=10, label='Trajectory')
+    ax4.scatter([p1['relevance_weight']], [p1['completeness_weight']], color='red', s=120, label='Start')
+    ax4.scatter([p2['relevance_weight']], [p2['completeness_weight']], color='green', s=120, label='After Learning')
+    ax4.set_xlabel('Relevance Weight')
+    ax4.set_ylabel('Completeness Weight')
+    ax4.set_title('Optimization Trajectory in Parameter Space')
+    ax4.legend()
+    ax4.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    fig.savefig(os.path.join(example_dir, "integrated_framework_results.png"), dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    log.info("Visualization saved: integrated_framework_results.png")
+
     save_file({"iteration_1": result1, "iteration_2": result2},
               os.path.join(example_dir, "integrated_results.json"))
 
-    log.info("Example 07 completed – all four pillars integrated")
+    log.info("Example 07 completed – all four pillars integrated + visualized")
     return {"results": [result1, result2], "improvement": improvement}
-
 
 # ============================================================================
 # MAIN ORCHESTRATION
