@@ -2175,15 +2175,14 @@ def example_04_quick_technique_comparison(query: str,
 
     lab = PromptEngineeringLab()
     
-    if techniques is None:
-        techniques = [
-            PromptingTechnique.CHAIN_OF_THOUGHT,
-            PromptingTechnique.TREE_OF_THOUGHT,
-            PromptingTechnique.REACT,
-            PromptingTechnique.SELF_CONSISTENCY,
-            PromptingTechnique.ROLE_BASED,
-            PromptingTechnique.META_COGNITIVE,
-        ]
+    techniques = [
+        PromptingTechnique.CHAIN_OF_THOUGHT,
+        PromptingTechnique.TREE_OF_THOUGHT,
+        PromptingTechnique.REACT,
+        PromptingTechnique.SELF_CONSISTENCY,
+        PromptingTechnique.ROLE_BASED,
+        PromptingTechnique.META_COGNITIVE,
+    ]
     
     log.info("QUICK TECHNIQUE COMPARISON")
     log.info(f"Query: {query}")
