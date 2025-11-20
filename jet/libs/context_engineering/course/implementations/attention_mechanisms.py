@@ -20,16 +20,16 @@ from abc import ABC, abstractmethod
 
 __all__ = ['Attention', 'StandardAttention', 'SparseAttention', 'StreamingAttention', 'CrossModalAttention']
 
+
 # ============================================================================
-# OUTPUT & LOGGING SETUP (User-provided — inserted here)
+# OUTPUT & LOGGING SETUP
 # ============================================================================
+
 from jet.logger import CustomLogger
 import os
 import shutil
 import json
-import matplotlib.pyplot as plt
-from pathlib import Path
-import numpy as np
+from datetime import datetime
 
 BASE_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
@@ -45,13 +45,16 @@ main_logger = CustomLogger(
     overwrite=True
 )
 main_logger.info("=" * 80)
-main_logger.info("MATHEMATICAL FOUNDATIONS LAB STARTED")
+main_logger.info("ATTENTION MECHANISMS LAB STARTED")
+main_logger.info(f"Timestamp: {datetime.now().isoformat()}")
 main_logger.info("=" * 80)
+
 
 def create_example_dir(example_name: str) -> str:
     example_dir = os.path.join(BASE_OUTPUT_DIR, example_name)
     os.makedirs(example_dir, exist_ok=True)
     return example_dir
+
 
 def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
     log_file = os.path.join(example_dir, "run.log")
@@ -65,25 +68,15 @@ def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
     )
     log.info("")
     log.info("=" * 80)
-    log.info(f"EXAMPLE: {example_name}")
+    log.info(f"EXAMPLE: {example_name.upper()}")
     log.info("=" * 80)
     return log
 
-# Helper: Save attention heatmap
-def save_attention_heatmap(weights: np.ndarray, path: str, title: str = "Attention Weights"):
-    plt.figure(figsize=(10, 8))
-    im = plt.imshow(weights, cmap='viridis', aspect='auto')
-    plt.colorbar(im, fraction=0.046, pad=0.04)
-    plt.title(title)
-    plt.xlabel("Key Position")
-    plt.ylabel("Query Position")
-    plt.tight_layout()
-    plt.savefig(path, dpi=150)
-    plt.close()
 
-# Helper: Save JSON safely
-def save_json(data: dict, path: str):
-    Path(path).write_text(json.dumps(data, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x)))
+def save_json(data: Any, filepath: str) -> None:
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=lambda o: str(o))
+
 
 # ============================================================================
 # BASE ATTENTION INTERFACE
@@ -294,29 +287,52 @@ class StreamingAttention(Attention):
         self.cache_len = 0
     
     def _update_cache(self, k: np.ndarray, v: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Update cache with attention sink strategy."""
-        new_len = k.shape[1]  # ← FIXED: use seq_len dimension
-        
+        """Update cache with attention sink strategy – fixed overflow handling."""
+        new_len = k.shape[1]                                    # (num_heads, new_tokens, d_k)
+
+        # Case 1: cache has room → simple append
         if self.cache_len + new_len <= self.cache_size:
-            self.k_cache[:, self.cache_len:self.cache_len + new_len] = k
-            self.v_cache[:, self.cache_len:self.cache_len + new_len] = v
-            self.cache_len += new_len
+            start = self.cache_len
+            end   = self.cache_len + new_len
+            self.k_cache[:, start:end] = k
+            self.v_cache[:, start:end] = v
+            self.cache_len = end
         else:
-            recent_size = self.cache_size - self.sink_size - new_len
-            if recent_size > 0:
-                src_start = self.cache_len - recent_size
-                self.k_cache[:, self.sink_size:self.sink_size + recent_size] = \
-                    self.k_cache[:, src_start:self.cache_len]
-                self.v_cache[:, self.sink_size:self.sink_size + recent_size] = \
-                    self.v_cache[:, src_start:self.cache_len]
-            
-            start_idx = self.sink_size + max(0, recent_size)
-            self.k_cache[:, start_idx:start_idx + new_len] = k
-            self.v_cache[:, start_idx:start_idx + new_len] = v
-            self.cache_len = self.sink_size + max(0, recent_size) + new_len
-        
+            # Case 2: cache full → keep sink tokens + most recent tokens
+            keep_recent = self.cache_size - self.sink_size          # how many recent tokens we can keep
+            if keep_recent <= 0:
+                # extreme case – cache is tiny, just overwrite recent part
+                start = self.sink_size
+                end   = self.cache_size
+                self.k_cache[:, start:end] = k[:, :end-start]
+                self.v_cache[:, start:end] = v[:, :end-start]
+                self.cache_len = self.cache_size
+            else:
+                # Normal sink + sliding recent window
+                # 1. Move the most recent `keep_recent` tokens from old cache
+                src_start = max(0, self.cache_len - keep_recent)
+                dst_start = self.sink_size
+                move_len  = self.cache_len - src_start
+
+                if move_len > 0:
+                    self.k_cache[:, dst_start:dst_start + move_len] = \
+                        self.k_cache[:, src_start:self.cache_len]
+                    self.v_cache[:, dst_start:dst_start + move_len] = \
+                        self.v_cache[:, src_start:self.cache_len]
+
+                # 2. Append new chunk (may be truncated if still too big)
+                remaining_slots = self.cache_size - (dst_start + move_len)
+                new_to_add = min(new_len, max(0, remaining_slots))
+
+                if new_to_add > 0:
+                    append_start = dst_start + move_len
+                    self.k_cache[:, append_start:append_start + new_to_add] = k[:, :new_to_add]
+                    self.v_cache[:, append_start:append_start + new_to_add] = v[:, :new_to_add]
+
+                self.cache_len = dst_start + move_len + new_to_add
+
         return self.k_cache[:, :self.cache_len], self.v_cache[:, :self.cache_len]
-    
+
     def reset_cache(self):
         """Reset the KV cache."""
         self.k_cache = None
@@ -552,171 +568,172 @@ def benchmark_attention(attention_class, seq_lengths: list = [128, 256, 512, 102
     
     return results
 
-# ============================================================================
-# INDIVIDUAL EXAMPLE FUNCTIONS
-# ============================================================================
+# <<< NEW EXAMPLE FUNCTIONS >>>
 
 def example_01_standard_attention():
-    example_name = "example_01_standard_attention"
-    ex_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, ex_dir)
+    name = "example_01_standard_attention"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
+    log.info("Standard full-attention (quadratic) demo")
     seq_len, d_model = 256, 512
-    log.info(f"Running StandardAttention | seq_len={seq_len}, d_model={d_model}")
+    x = np.random.randn(seq_len, d_model) * 0.1
 
     attn = StandardAttention(d_model=d_model, num_heads=8)
-    x = np.random.randn(seq_len, d_model).astype(np.float32) * 0.1
-
     output, info = attn(x)
 
-    # Save artifacts
-    save_json({"seq_len": seq_len, "d_model": d_model, "num_heads": 8}, os.path.join(ex_dir, "config.json"))
-    save_json(info, os.path.join(ex_dir, "info.json"))
-    np.save(os.path.join(ex_dir, "output.npy"), output)
+    entropy = attention_entropy(info["attention_weights"]).mean()
+    log.info(f"Output shape      : {output.shape}")
+    log.info(f"Memory complexity : {info['memory_complexity']}")
+    log.info(f"Attention entropy : {entropy:.4f}")
 
-    weights = info["attention_weights"]
-    save_attention_heatmap(weights, os.path.join(ex_dir, "attention_weights.png"), "Standard Attention Weights (Causal)")
+    save_json(info, os.path.join(ex_dir, "attention_info.json"))
+    np.save(os.path.join(ex_dir, "attention_weights.npy"), info["attention_weights"])
+    log.info("Results saved (json + npy)")
 
-    entropy = attention_entropy(weights).mean()
-    log.info(f"Output shape: {output.shape}")
-    log.info(f"Memory complexity: O(n²) = {info['memory_complexity']}")
-    log.info(f"Mean attention entropy: {entropy:.4f}")
-
-    # Generate report
-    report = f"""# Example 01: Standard Scaled Dot-Product Attention
-
-- Sequence length: {seq_len}
-- Model dimension: {d_model}
-- Heads: 8
-- Masking: Causal (lower triangular)
-- Memory: O(n²) → {info['memory_complexity']:,} operations
-- Mean entropy: {entropy:.4f} (lower = more focused)
-
-See `attention_weights.png` for visualization.
-"""
-    Path(os.path.join(ex_dir, "report.md")).write_text(report)
 
 def example_02_sparse_attention():
-    example_name = "example_02_sparse_attention"
-    ex_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, ex_dir)
+    name = "example_02_sparse_attention"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
-    seq_len, d_model = 512, 512
-    log.info(f"Running SparseAttention | seq_len={seq_len}")
+    log.info("Sparse attention with local+global+strided pattern")
+    seq_len, d_model = 1024, 512
+    x = np.random.randn(seq_len, d_model) * 0.1
 
-    attn = SparseAttention(
-        d_model=d_model,
-        num_heads=8,
-        window_size=128,
-        stride=64,
-        global_size=16
-    )
-    x = np.random.randn(seq_len, d_model).astype(np.float32) * 0.1
-
+    attn = SparseAttention(d_model=d_model, num_heads=8,
+                           window_size=256, stride=128, global_size=32)
     output, info = attn(x)
 
-    save_json({"seq_len": seq_len, "window_size": 128, "stride": 64, "global_size": 16}, os.path.join(ex_dir, "config.json"))
-    save_json(info, os.path.join(ex_dir, "info.json"))
-    np.save(os.path.join(ex_dir, "output.npy"), output)
+    sparsity = info["sparsity"]
+    log.info(f"Sparsity          : {sparsity:.4f} ({sparsity*100:.1f}%)")
+    log.info(f"Effective memory  : {info['memory_complexity']:,} entries")
+    log.info(f"Output shape      : {output.shape}")
+
+    save_json(info, os.path.join(ex_dir, "sparse_info.json"))
     np.save(os.path.join(ex_dir, "sparse_mask.npy"), info["sparse_mask"])
+    log.info("Sparse mask & info saved")
 
-    weights = info["attention_weights"]
-    save_attention_heatmap(weights, os.path.join(ex_dir, "attention_weights.png"))
-    save_attention_heatmap(info["sparse_mask"], os.path.join(ex_dir, "sparse_mask.png"), "Sparse Attention Mask")
-
-    log.info(f"Sparsity: {info['sparsity']:.4f} → {info['memory_complexity']:,} operations")
-    log.info(f"Effective memory reduction: {1/info['sparsity']:.1f}x")
 
 def example_03_streaming_attention():
-    example_name = "example_03_streaming_attention"
-    ex_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, ex_dir)
+    name = "example_03_streaming_attention"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
-    d_model = 512
-    attn = StreamingAttention(d_model=d_model, num_heads=8, cache_size=1024, sink_size=64)
-    log.info("Running StreamingAttention with incremental tokens")
+    log.info("Streaming attention with KV cache (inference-friendly)")
+    attn = StreamingAttention(d_model=512, num_heads=8, cache_size=2048, sink_size=64)
 
-    cache_states = []
-    for step in range(1, 6):
-        tokens = 64 if step < 5 else 200  # simulate variable chunk sizes
-        x = np.random.randn(tokens, d_model).astype(np.float32) * 0.1
-        output, info = attn(x)
-        cache_states.append({
-            "step": step,
-            "new_tokens": tokens,
-            "cache_used": info["cache_size"],
-            "hit_ratio": info["cache_hit_ratio"]
+    chunks = [np.random.randn(64, 512) * 0.1 for _ in range(10)]
+    cache_stats = []
+
+    for i, chunk in enumerate(chunks, 1):
+        _, info = attn(chunk)
+        cache_stats.append({
+            "step": i,
+            "cache_len": info["cache_size"],
+            "cache_hit_ratio": info["cache_hit_ratio"]
         })
-        if step == 5:
-            final_weights = info["attention_weights"]
+        log.info(f"Step {i:02d} → cache_len={info['cache_size']:,}  hit_ratio={info['cache_hit_ratio']:.3f}")
 
-    save_json({"cache_size": 1024, "sink_size": 64, "steps": cache_states}, os.path.join(ex_dir, "cache_evolution.json"))
-    save_attention_heatmap(final_weights, os.path.join(ex_dir, "final_attention.png"), "Streaming Attention (After 5 Chunks)")
-
-    log.info(f"Final cache usage: {cache_states[-1]['cache_used']} / 1024")
     attn.reset_cache()
+    save_json(cache_stats, os.path.join(ex_dir, "streaming_cache_evolution.json"))
+    log.info("Streaming cache evolution saved")
 
-def example_04_flash_attention():
-    example_name = "example_04_flash_attention"
-    ex_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, ex_dir)
 
-    seq_len, d_model = 1024, 512
-    attn = FlashAttention(d_model=d_model, num_heads=8, block_size=64)
-    x = np.random.randn(seq_len, d_model).astype(np.float32) * 0.1
+def example_04_cross_modal_attention():
+    name = "example_04_cross_modal_attention"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
+
+    log.info("Cross-modal attention (text + image + audio)")
+    cross_attn = CrossModalAttention(d_model=512, num_heads=8, num_modalities=3)
+
+    text  = np.random.randn(120, 512) * 0.1
+    image = np.random.randn(64, 512) * 0.1
+    audio = np.random.randn(80, 512) * 0.1
+
+    output, info = cross_attn([text, image, audio])
+
+    log.info(f"Output shape      : {output.shape}")
+    log.info(f"Modality weights  : {dict(zip(['text','image','audio'], info['modality_weights'][:3]))}")
+    log.info(f"Valid modalities  : {info['valid_modalities']}")
+
+    save_json(info, os.path.join(ex_dir, "cross_modal_info.json"))
+    log.info("Cross-modal results saved")
+
+
+def example_05_flash_attention():
+    name = "example_05_flash_attention"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
+
+    log.info("Flash-style block-wise memory-efficient attention")
+    attn = FlashAttention(d_model=512, num_heads=8, block_size=128)
+    x = np.random.randn(2048, 512) * 0.1
 
     output, info = attn(x)
 
-    save_json({"seq_len": seq_len, "block_size": 64}, os.path.join(ex_dir, "config.json"))
-    save_json(info, os.path.join(ex_dir, "info.json"))
-    log.info(f"Peak memory per block: {info['memory_complexity'] / 1e6:.2f} MB")
-    log.info(f"Memory efficiency gain: {info['memory_efficiency']:.1f}x vs standard")
+    log.info(f"Blocks processed  : {info['blocks_processed']}")
+    log.info(f"Peak block memory : {info['memory_complexity'] / 1e6:.2f} MB")
+    log.info(f"Memory efficiency : {info['memory_efficiency']:.1f}x vs dense")
 
-def example_05_cross_modal_attention():
-    example_name = "example_05_cross_modal_attention"
-    ex_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, ex_dir)
+    save_json(info, os.path.join(ex_dir, "flash_info.json"))
+    log.info("Flash attention metrics saved")
 
-    d_model = 512
-    attn = CrossModalAttention(d_model=d_model, num_heads=8, num_modalities=3)
 
-    text = np.random.randn(100, d_model).astype(np.float32) * 0.1
-    image = np.random.randn(64, d_model).astype(np.float32) * 0.1
-    audio = None  # missing modality
+def example_06_benchmark_all():
+    name = "example_06_benchmark_all"
+    ex_dir = create_example_dir(name)
+    log = get_example_logger(name, ex_dir)
 
-    output, info = attn([text, image, audio])
+    log.info("Comprehensive benchmark across mechanisms")
+    seq_lengths = [128, 256, 512, 1024, 2048]
 
-    save_json({
-        "modalities": ["text", "image", "audio"],
-        "lengths": [100, 64, 0],
-        "modality_weights": info["modality_weights"].tolist()
-    }, os.path.join(ex_dir, "config.json"))
-    save_json(info, os.path.join(ex_dir, "info.json"))
-    save_attention_heatmap(info["attention_weights"], os.path.join(ex_dir, "cross_modal_attention.png"))
-
-    log.info(f"Modality weights → Text: {info['modality_weights'][0]:.3f}, Image: {info['modality_weights'][1]:.3f}, Audio: {info['modality_weights'][2]:.3f}")
-
-# ============================================================================
-# MAIN EXECUTION BLOCK
-# ============================================================================
-
-if __name__ == "__main__":
-    examples = [
-        example_01_standard_attention,
-        example_02_sparse_attention,
-        example_03_streaming_attention,
-        example_04_flash_attention,
-        example_05_cross_modal_attention,
-    ]
-
-    main_logger.info(f"Running {len(examples)} attention mechanism examples...")
-    for example_fn in examples:
+    results = {}
+    for mech_name, cls in [
+        ("Standard", StandardAttention),
+        ("Sparse", SparseAttention),
+        ("Streaming", StreamingAttention),
+        ("Flash", FlashAttention),
+    ]:
+        log.info(f"Benchmarking {mech_name} …")
         try:
-            example_fn()
-            main_logger.info(f"Completed: {example_fn.__name__}")
+            bench = benchmark_attention(cls, seq_lengths=seq_lengths, d_model=512)
+            results[mech_name] = bench
         except Exception as e:
-            main_logger.error(f"Failed {example_fn.__name__}: {e}", exc_info=True)
+            log.error(f"{mech_name} failed: {e}")
+            results[mech_name] = {"error": str(e)}
 
-    main_logger.info("All examples completed. Outputs saved in:")
-    main_logger.info(f"   {BASE_OUTPUT_DIR}")
+    save_json(results, os.path.join(ex_dir, "benchmark_all.json"))
+
+    # Simple markdown summary
+    with open(os.path.join(ex_dir, "benchmark_summary.md"), "w", encoding="utf-8") as f:
+        f.write("# Attention Mechanisms Benchmark\n\n")
+        f.write("| Mechanism | 128   | 256   | 512   | 1024  | 2048  |\n")
+        f.write("|-----------|-------|-------|-------|-------|-------|\n")
+        for mech, data in results.items():
+            row = f"| {mech.ljust(9)} "
+            for L in seq_lengths:
+                if str(L) in data and "time_ms" in data[str(L)]:
+                    row += f"| {data[str(L)]['time_ms']:.1f} "
+                else:
+                    row += "| –     "
+            f.write(row + "|\n")
+
+    log.info("Full benchmark completed & saved")
+
+
+# <<< REPLACE THE OLD __main__ BLOCK WITH THIS >>>
+if __name__ == "__main__":
+    main_logger.info("Starting attention mechanisms examples...")
+
+    example_01_standard_attention()
+    example_02_sparse_attention()
+    example_03_streaming_attention()
+    example_04_cross_modal_attention()
+    example_05_flash_attention()
+    example_06_benchmark_all()
+
+    main_logger.info("All examples finished!")
+    main_logger.info(f"Outputs stored in: {BASE_OUTPUT_DIR}")
     main_logger.info("=" * 80)
