@@ -2057,7 +2057,7 @@ def example_01_individual_techniques():
         log.info(prompt)
         log.info("\n" + "="*60)
 
-        save_file(prompt, os.path.join(example_dir, f"{technique.value}_prompt.md"))
+        save_file(prompt, os.path.join(example_dir, f"prompt_{technique.value}.md"))
 
 def example_02_systematic_experiment():
     """Demonstrate systematic experimental methodology."""
@@ -2069,18 +2069,20 @@ def example_02_systematic_experiment():
     log.info("=== SYSTEMATIC EXPERIMENT DEMONSTRATION ===\n")
     log.info("Running experiment: Mathematical Reasoning")
     log.info("-" * 50)
+
+    techniques = [
+        PromptingTechnique.CHAIN_OF_THOUGHT,
+        PromptingTechnique.TREE_OF_THOUGHT,
+        PromptingTechnique.REACT,
+        PromptingTechnique.SELF_CONSISTENCY,
+        PromptingTechnique.ROLE_BASED,
+        PromptingTechnique.META_COGNITIVE,
+    ]
     
     # Run experiment on mathematical reasoning
     results = lab.run_systematic_experiment(
         test_case_name='mathematical_reasoning',
-        techniques=[
-            PromptingTechnique.CHAIN_OF_THOUGHT,
-            PromptingTechnique.TREE_OF_THOUGHT,
-            PromptingTechnique.REACT,
-            PromptingTechnique.SELF_CONSISTENCY,
-            PromptingTechnique.ROLE_BASED,
-            PromptingTechnique.META_COGNITIVE,
-        ]
+        techniques=techniques
     )
     log.info("Experiment results collected.")
 
@@ -2100,8 +2102,10 @@ def example_02_systematic_experiment():
     log.info("\n" + report)
 
     save_file(report, os.path.join(example_dir, "systematic_experiment_report.md"))
-    save_file(results, os.path.join(example_dir, "systematic_experiment_results.json"))
     save_file(analysis, os.path.join(example_dir, "systematic_experiment_analysis.json"))
+
+    for technique in techniques:
+        save_file(results[technique.value], os.path.join(example_dir, "results", f"result_{technique.value}.json"))
 
 def example_03_comparative_study():
     """Demonstrate comprehensive comparative study."""
