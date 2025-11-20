@@ -97,58 +97,6 @@ def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
 # SECTION 1: CONTEXT FORMALIZATION - From Intuition to Mathematics
 # ==============================================================================
 
-print("="*80)
-print("SECTION 1: CONTEXT FORMALIZATION")
-print("From Intuitive Context to Mathematical Precision")
-print("="*80)
-
-# 1.1 The Restaurant Analogy - Building Mathematical Intuition
-
-def restaurant_experience_simulation():
-    """
-    Simulate the restaurant experience to build intuition for context formalization
-    
-    Restaurant Experience = Function(Ambiance, Menu, Chef, Preferences, Situation, Craving)
-    Context Engineering = Function(Instructions, Knowledge, Tools, Memory, State, Query)
-    """
-    
-    print("\n1.1 Restaurant Experience Simulation")
-    print("-" * 40)
-    
-    # Define restaurant components (analogous to context components)
-    restaurant_components = {
-        'ambiance': ['cozy', 'elegant', 'casual', 'romantic'],
-        'menu_variety': [0.3, 0.7, 0.9, 1.0],  # 0-1 scale
-        'chef_skill': [0.6, 0.8, 0.9, 0.95],
-        'service_quality': [0.4, 0.7, 0.8, 0.9],
-        'price_point': ['budget', 'moderate', 'upscale', 'luxury']
-    }
-    
-    # Context components (analogous structure)
-    context_components = {
-        'instructions': ['basic', 'detailed', 'expert', 'adaptive'],
-        'knowledge_depth': [0.3, 0.7, 0.9, 1.0],
-        'tool_availability': [0.6, 0.8, 0.9, 0.95],
-        'memory_relevance': [0.4, 0.7, 0.8, 0.9],
-        'query_complexity': ['simple', 'moderate', 'complex', 'expert']
-    }
-    
-    print("Restaurant Components → Context Components Mapping:")
-    mappings = [
-        ('Ambiance', 'Instructions'),
-        ('Menu Variety', 'Knowledge Depth'),
-        ('Chef Skill', 'Tool Availability'),
-        ('Service Quality', 'Memory Relevance'),
-        ('Customer Craving', 'Query Complexity')
-    ]
-    
-    for restaurant_comp, context_comp in mappings:
-        print(f"  {restaurant_comp:15} → {context_comp}")
-    
-    return restaurant_components, context_components
-
-# 1.2 Mathematical Context Formalization
-
 @dataclass
 class ContextComponent:
     """Mathematical representation of a context component"""
@@ -305,13 +253,6 @@ class ContextAssemblyFunction:
 # SECTION 2: OPTIMIZATION THEORY - Finding the Best Assembly Function
 # ==============================================================================
 
-print("\n" + "="*80)
-print("SECTION 2: OPTIMIZATION THEORY")
-print("From Manual Tuning to Mathematical Optimization")
-print("="*80)
-
-# 2.1 Optimization Landscape Visualization
-
 def create_optimization_landscape():
     """
     Visualize context optimization as a mathematical landscape
@@ -319,8 +260,8 @@ def create_optimization_landscape():
     Shows how different assembly parameters affect context quality
     """
     
-    print("\n2.1 Context Optimization Landscape")
-    print("-" * 38)
+    log.info("\n2.1 Context Optimization Landscape")
+    log.info("-" * 38)
     
     # Define parameter space
     relevance_weights = np.linspace(0, 1, 50)
@@ -386,10 +327,10 @@ def create_optimization_landscape():
     plt.tight_layout()
     plt.show()
     
-    print("Optimal parameters found:")
-    print(f"  Relevance weight: {optimal_r:.3f}")
-    print(f"  Completeness weight: {optimal_c:.3f}")
-    print(f"  Maximum quality: {optimal_quality:.3f}")
+    log.info("Optimal parameters found:")
+    log.info(f"  Relevance weight: {optimal_r:.3f}")
+    log.info(f"  Completeness weight: {optimal_c:.3f}")
+    log.info(f"  Maximum quality: {optimal_quality:.3f}")
     
     return R, C, Quality, (optimal_r, optimal_c, optimal_quality)
 
@@ -613,15 +554,6 @@ class ContextOptimizer:
 # SECTION 3: INFORMATION THEORY - Quantifying Context Value
 # ==============================================================================
 
-print("\n" + "="*80)
-print("SECTION 3: INFORMATION THEORY")
-print("From Intuitive Relevance to Mathematical Precision")
-print("="*80)
-
-# 3.1 Information Content and Entropy
-
-# 3.2 Mutual Information for Context Relevance
-
 class InformationAnalyzer:
     """Analyze information content and mutual information in context components"""
     
@@ -786,15 +718,6 @@ class InformationAnalyzer:
 # SECTION 4: BAYESIAN INFERENCE - Learning Under Uncertainty
 # ==============================================================================
 
-print("\n" + "="*80)
-print("SECTION 4: BAYESIAN INFERENCE")
-print("From Fixed Rules to Probabilistic Learning")
-print("="*80)
-
-# 4.1 Bayes' Theorem Fundamentals
-
-# 4.2 Bayesian Context Strategy Learning
-
 class BayesianContextLearner:
     """
     Bayesian learning system for context strategy optimization
@@ -952,11 +875,6 @@ class BayesianContextLearner:
 # SECTION 5: INTEGRATED MATHEMATICAL FRAMEWORK
 # ==============================================================================
 
-print("\n" + "="*80)
-print("SECTION 5: INTEGRATED MATHEMATICAL FRAMEWORK")
-print("Bringing All Four Pillars Together")
-print("="*80)
-
 class IntegratedContextEngineer:
     """
     Complete mathematical context engineering system integrating:
@@ -1100,64 +1018,6 @@ class IntegratedContextEngineer:
         
         return integrated_quality
 
-# ==============================================================================
-# FINAL SUMMARY AND ASSESSMENT
-# ==============================================================================
-
-print("\n" + "="*80)
-print("MATHEMATICAL FOUNDATIONS LAB SUMMARY")
-print("="*80)
-
-def generate_lab_summary():
-    """Generate comprehensive summary of mathematical learning"""
-    
-    print("\nCONCEPTS MASTERED:")
-    print("-" * 20)
-    
-    concepts = [
-        ("Context Formalization", "C = A(c₁, c₂, c₃, c₄, c₅, c₆)", "Systematic component assembly"),
-        ("Optimization Theory", "F* = arg max E[Reward(C)]", "Finding optimal assembly strategies"),
-        ("Information Theory", "I(Context; Query)", "Quantifying relevance and redundancy"),
-        ("Bayesian Inference", "P(Strategy|Evidence)", "Learning under uncertainty")
-    ]
-    
-    for i, (concept, formula, description) in enumerate(concepts, 1):
-        print(f"{i}. {concept}")
-        print(f"   Mathematical Form: {formula}")
-        print(f"   Application: {description}")
-        print()
-    
-    print("INTEGRATION ACHIEVED:")
-    print("-" * 20)
-    print("✓ All four mathematical frameworks working together")
-    print("✓ Real-time optimization with Bayesian learning")
-    print("✓ Information-theoretic quality measurement")
-    print("✓ Systematic assembly with mathematical precision")
-    print()
-    
-    print("PRACTICAL SKILLS DEVELOPED:")
-    print("-" * 27)
-    skills = [
-        "Formalize context engineering problems mathematically",
-        "Implement optimization algorithms for context assembly",
-        "Calculate information content and mutual information",
-        "Build Bayesian learning systems for strategy adaptation",
-        "Integrate multiple mathematical frameworks systematically"
-    ]
-    
-    for skill in skills:
-        print(f"✓ {skill}")
-    
-    print()
-    
-    print("NEXT STEPS:")
-    print("-" * 12)
-    print("1. Apply these mathematical foundations to real context engineering projects")
-    print("2. Explore advanced optimization techniques (genetic algorithms, neural optimization)")
-    print("3. Investigate domain-specific applications of mathematical context engineering")
-    print("4. Contribute to research advancing mathematical foundations of context engineering")
-    
-    return True
 
 def example_01_restaurant_analogy() -> Dict:
     example_dir = create_example_dir("example_01_restaurant_analogy")
@@ -1397,9 +1257,9 @@ def example_05_information_theory_basics() -> Dict:
         ("AI becomes sentient", 0.001)
     ]
     
-    print("Information Content Examples:")
-    print("I(x) = -log₂(P(x)) [measured in bits]")
-    print()
+    log.info("Information Content Examples:")
+    log.info("I(x) = -log₂(P(x)) [measured in bits]")
+    log.info()
     
     information_contents = []
     
@@ -1407,9 +1267,9 @@ def example_05_information_theory_basics() -> Dict:
         if probability > 0:
             info_content = -np.log2(probability)
             information_contents.append(info_content)
-            print(f"  {event:25} P={probability:8.1e} → I={info_content:6.2f} bits")
+            log.info(f"  {event:25} P={probability:8.1e} → I={info_content:6.2f} bits")
         else:
-            print(f"  {event:25} P={probability:8.1e} → I=∞ bits")
+            log.info(f"  {event:25} P={probability:8.1e} → I=∞ bits")
     
     # Visualize information content vs probability
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
@@ -1430,8 +1290,8 @@ def example_05_information_theory_basics() -> Dict:
     ax1.scatter(event_probs, event_info, color='red', s=50, zorder=5)
     
     # Entropy calculation example
-    print("\nEntropy Calculation Example:")
-    print("H(X) = -Σ P(x) × log₂(P(x))")
+    log.info("\nEntropy Calculation Example:")
+    log.info("H(X) = -Σ P(x) × log₂(P(x))")
     
     # Simple distribution: coin flips
     fair_coin = [0.5, 0.5]
@@ -1449,7 +1309,7 @@ def example_05_information_theory_basics() -> Dict:
     for name, dist in distributions.items():
         entropy = -sum(p * np.log2(p) if p > 0 else 0 for p in dist)
         entropies.append(entropy)
-        print(f"  {name:15}: H = {entropy:.3f} bits")
+        log.info(f"  {name:15}: H = {entropy:.3f} bits")
     
     # Visualize entropy for different distributions
     ax2.bar(distributions.keys(), entropies, alpha=0.7, color=['blue', 'orange', 'green'])
@@ -1655,9 +1515,9 @@ def example_08_bayesian_strategy_learning() -> Dict:
     strategies = ['technical_detailed', 'practical_concise', 'balanced_comprehensive', 'user_adapted']
     learner = BayesianContextLearner(strategies)
     
-    print("Initial strategy beliefs (uniform prior):")
+    log.info("Initial strategy beliefs (uniform prior):")
     for strategy, belief in learner.strategy_beliefs.items():
-        print(f"  {strategy:25}: {belief:.3f}")
+        log.info(f"  {strategy:25}: {belief:.3f}")
     
     # Simulate learning from feedback
     feedback_scenarios = [
@@ -1671,7 +1531,7 @@ def example_08_bayesian_strategy_learning() -> Dict:
         ('practical_concise', 0.85),    # Positive feedback
     ]
     
-    print(f"\nSimulating learning from {len(feedback_scenarios)} feedback instances...")
+    log.info(f"\nSimulating learning from {len(feedback_scenarios)} feedback instances...")
     
     # Track belief evolution
     belief_evolution = []
@@ -1682,11 +1542,11 @@ def example_08_bayesian_strategy_learning() -> Dict:
         belief_evolution.append(learner.strategy_beliefs.copy())
         uncertainties.append(learner.get_strategy_uncertainty())
         
-        print(f"\nStep {i+1}: Used {strategy}, feedback = {feedback:.1f}")
-        print("Updated beliefs:")
+        log.info(f"\nStep {i+1}: Used {strategy}, feedback = {feedback:.1f}")
+        log.info("Updated beliefs:")
         for strat, belief in learner.strategy_beliefs.items():
-            print(f"  {strat:25}: {belief:.3f}")
-        print(f"Uncertainty (entropy): {uncertainties[-1]:.3f}")
+            log.info(f"  {strat:25}: {belief:.3f}")
+        log.info(f"Uncertainty (entropy): {uncertainties[-1]:.3f}")
     
     # Visualize learning evolution
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
@@ -1728,7 +1588,7 @@ def example_08_bayesian_strategy_learning() -> Dict:
                 f'{value:.3f}', ha='center', va='bottom')
     
     # 4. Component relevance learning demo
-    print("\nComponent Relevance Learning Demo:")
+    log.info("\nComponent Relevance Learning Demo:")
     
     components = ['technical_details', 'code_examples', 'conceptual_explanation', 'performance_tips']
     
@@ -1744,7 +1604,7 @@ def example_08_bayesian_strategy_learning() -> Dict:
         relevance_estimates.append(estimate)
         confidence_widths.append(width)
         
-        print(f"  {component:20}: estimate = {estimate:.3f}, confidence width = {width:.3f}")
+        log.info(f"  {component:20}: estimate = {estimate:.3f}, confidence width = {width:.3f}")
     
     # Plot component relevance estimates with confidence intervals
     x_pos = np.arange(len(components))
@@ -1796,62 +1656,106 @@ def example_09_integrated_mathematical_system() -> Dict:
     example_dir = create_example_dir("example_09_integrated_mathematical_system")
     log = get_example_logger("Example 07: Full Integrated Context Engineer", example_dir)
 
+    # Initialize integrated system
     engineer = IntegratedContextEngineer(max_tokens=300)
+    
+    # Use sample components and query from previous demonstrations
     components = example_02_context_formalization()["components"]
     query = "How can I optimize my pandas operations to handle large datasets more efficiently?"
-
-    log.info("Running first pass (no feedback)")
+    
+    # First iteration - no feedback
+    log.info("=== FIRST ITERATION (No Prior Feedback) ===")
     result1 = engineer.engineer_context(components, query)
-
-    log.info("Running second pass (with positive feedback)")
-    result2 = engineer.engineer_context(components, query, user_feedback=0.85)
+    
+    log.info(f"\nIntegrated Quality Score: {result1['mathematical_quality_score']:.3f}")
+    
+    # Simulate user feedback and second iteration
+    log.info("\n=== SECOND ITERATION (With User Feedback) ===")
+    simulated_feedback = 0.8  # Positive feedback
+    result2 = engineer.engineer_context(components, query, simulated_feedback)
+    
+    log.info(f"\nIntegrated Quality Score: {result2['mathematical_quality_score']:.3f}")
 
     improvement = result2['mathematical_quality_score'] - result1['mathematical_quality_score']
     log.info(f"Quality improved by {improvement:+.3f} after learning")
-
-    # === NEW: Visualize the integrated results ===
+    
+    # Visualize integrated results
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
-
+    
     # 1. Quality evolution
-    ax1.plot([1, 2], [result1['mathematical_quality_score'], result2['mathematical_quality_score']],
-             'bo-', linewidth=3, markersize=10)
-    ax1.set_title('Integrated Quality Improvement')
+    quality_scores = [result1['mathematical_quality_score'], result2['mathematical_quality_score']]
+    iterations = [1, 2]
+    
+    ax1.plot(iterations, quality_scores, 'bo-', linewidth=3, markersize=8)
     ax1.set_xlabel('Iteration')
-    ax1.set_ylabel('Mathematical Quality Score')
+    ax1.set_ylabel('Integrated Quality Score')
+    ax1.set_title('Mathematical Quality Evolution')
     ax1.grid(True, alpha=0.3)
-    ax1.set_xticks([1, 2])
-
-    # 2. Strategy confidence
-    conf1 = result1['bayesian_insights']['strategy_confidence']
-    conf2 = result2['bayesian_insights']['strategy_confidence']
-    ax2.bar(['Iteration 1', 'Iteration 2'], [conf1, conf2], color=['lightcoral', 'lightgreen'], alpha=0.8)
-    ax2.set_title('Strategy Selection Confidence')
-    ax2.set_ylabel('Confidence')
+    ax1.set_ylim(0, max(quality_scores) * 1.1)
+    
+    # 2. Component contributions
+    frameworks = ['Assembly', 'Information', 'Optimization']
+    
+    # Extract individual contributions for visualization
+    assembly_scores = [0.4, 0.5]  # Simulated improvement
+    info_scores = [0.6, 0.7]
+    opt_scores = [0.5, 0.6]
+    
+    x = np.arange(len(frameworks))
+    width = 0.35
+    
+    ax2.bar(x - width/2, [assembly_scores[0], info_scores[0], opt_scores[0]], 
+           width, label='Iteration 1', alpha=0.7)
+    ax2.bar(x + width/2, [assembly_scores[1], info_scores[1], opt_scores[1]], 
+           width, label='Iteration 2', alpha=0.7)
+    
+    ax2.set_xlabel('Mathematical Framework')
+    ax2.set_ylabel('Component Score')
+    ax2.set_title('Framework Contribution Analysis')
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(frameworks)
+    ax2.legend()
     ax2.grid(True, alpha=0.3)
-
-    # 3. Uncertainty reduction
-    unc1 = result1['bayesian_insights']['uncertainty']
-    unc2 = result2['bayesian_insights']['uncertainty']
-    ax3.plot([1, 2], [unc1, unc2], 'ro-', linewidth=3, markersize=10)
-    ax3.set_title('Bayesian Uncertainty Reduction')
-    ax3.set_ylabel('Strategy Entropy')
+    
+    # 3. Bayesian learning progress
+    strategy_beliefs = result2['bayesian_insights']
+    
+    # Show uncertainty reduction
+    uncertainty_values = [2.0, strategy_beliefs['uncertainty']]  # Initial vs final
+    
+    ax3.bar(['Initial', 'After Learning'], uncertainty_values, 
+           color=['red', 'green'], alpha=0.7)
+    ax3.set_ylabel('Strategy Uncertainty (Entropy)')
+    ax3.set_title('Bayesian Learning: Uncertainty Reduction')
     ax3.grid(True, alpha=0.3)
-    ax3.set_xticks([1, 2])
-
-    # 4. Optimization parameters trajectory
-    p1 = result1['optimization_results']['optimal_parameters']
-    p2 = result2['optimization_results']['optimal_parameters']
-    ax4.plot([p1['relevance_weight'], p2['relevance_weight']],
-             [p1['completeness_weight'], p2['completeness_weight']],
-             's-', color='purple', linewidth=3, markersize=10, label='Trajectory')
-    ax4.scatter([p1['relevance_weight']], [p1['completeness_weight']], color='red', s=120, label='Start')
-    ax4.scatter([p2['relevance_weight']], [p2['completeness_weight']], color='green', s=120, label='After Learning')
+    
+    # 4. Optimization landscape projection
+    # Create a simple 2D projection of the optimization space
+    x_vals = np.linspace(0, 1, 50)
+    y_vals = np.linspace(0, 1, 50)
+    X, Y = np.meshgrid(x_vals, y_vals)
+    
+    # Simulated quality function
+    Z = np.sin(np.pi * X) * np.cos(np.pi * Y) * 0.5 + 0.5
+    
+    contour = ax4.contour(X, Y, Z, levels=10, alpha=0.6)
+    ax4.clabel(contour, inline=True, fontsize=8)
+    
+    # Mark optimization results
+    opt_params1 = result1['optimization_results']['optimal_parameters']
+    opt_params2 = result2['optimization_results']['optimal_parameters']
+    
+    ax4.scatter([opt_params1['relevance_weight']], [opt_params1['completeness_weight']], 
+               color='red', s=100, label='Iteration 1', marker='o')
+    ax4.scatter([opt_params2['relevance_weight']], [opt_params2['completeness_weight']], 
+               color='blue', s=100, label='Iteration 2', marker='s')
+    
     ax4.set_xlabel('Relevance Weight')
     ax4.set_ylabel('Completeness Weight')
-    ax4.set_title('Optimization Trajectory in Parameter Space')
+    ax4.set_title('Optimization Trajectory')
     ax4.legend()
     ax4.grid(True, alpha=0.3)
-
+    
     plt.tight_layout()
     fig.savefig(os.path.join(example_dir, "integrated_framework_results.png"), dpi=150, bbox_inches='tight')
     plt.close(fig)
