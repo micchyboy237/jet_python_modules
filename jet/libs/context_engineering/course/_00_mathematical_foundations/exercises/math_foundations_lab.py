@@ -1204,12 +1204,48 @@ def example_02_context_formalization() -> Dict:
     log = get_example_logger("Example 02: C = A(c₁,…,c₆) Assembly", example_dir)
 
     components = [
-        ContextComponent("instructions", "You are a helpful AI assistant specializing in data analysis.", 0.9, 50, {}),
-        ContextComponent("knowledge", "Python pandas library provides powerful data manipulation...", 0.85, 80, {}),
-        ContextComponent("tools", "Available functions: analyze_data(), create_visualization()...", 0.75, 40, {}),
-        ContextComponent("memory", "User previously asked about data cleaning...", 0.7, 60, {}),
-        ContextComponent("state", "User is working on a dataset with 10,000 rows...", 0.8, 45, {}),
-        ContextComponent("query", "How can I optimize my pandas operations...?", 1.0, 35, {})
+        ContextComponent(
+            component_type='instructions',
+            content='You are a helpful AI assistant specializing in data analysis.',
+            relevance_score=0.9,
+            token_count=50,
+            quality_metrics={'clarity': 0.8, 'specificity': 0.7}
+        ),
+        ContextComponent(
+            component_type='knowledge',
+            content='Python pandas library provides powerful data manipulation tools including DataFrame operations, groupby functionality, and statistical analysis methods.',
+            relevance_score=0.85,
+            token_count=80,
+            quality_metrics={'accuracy': 0.95, 'completeness': 0.8}
+        ),
+        ContextComponent(
+            component_type='tools',
+            content='Available functions: analyze_data(), create_visualization(), statistical_summary()',
+            relevance_score=0.75,
+            token_count=40,
+            quality_metrics={'utility': 0.9, 'accessibility': 0.85}
+        ),
+        ContextComponent(
+            component_type='memory',
+            content='User previously asked about data cleaning techniques and expressed preference for visual explanations.',
+            relevance_score=0.7,
+            token_count=60,
+            quality_metrics={'relevance': 0.8, 'recency': 0.9}
+        ),
+        ContextComponent(
+            component_type='state',
+            content='User is working on a dataset with 10,000 rows and experiencing performance issues.',
+            relevance_score=0.8,
+            token_count=45,
+            quality_metrics={'accuracy': 0.9, 'timeliness': 0.95}
+        ),
+        ContextComponent(
+            component_type='query',
+            content='How can I optimize my pandas operations to handle large datasets more efficiently?',
+            relevance_score=1.0,
+            token_count=35,
+            quality_metrics={'clarity': 0.9, 'specificity': 0.85}
+        )
     ]
 
     assembler = ContextAssemblyFunction(max_tokens=250)
@@ -1275,7 +1311,7 @@ def example_03_optimization_landscape() -> Dict:
     return result
 
 
-def example_04_optimization_comparison() -> Dict:
+def example_04_optimization_methods() -> Dict:
     example_dir = create_example_dir("example_04_optimization_methods")
     log = get_example_logger("Example 04: SciPy vs Grid Search vs GD", example_dir)
 
@@ -1298,40 +1334,134 @@ def example_04_optimization_comparison() -> Dict:
         "quality": v['optimal_quality']
     } for k, v in results.items()])
 
+    # Visualize optimization comparison
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    df.plot(x="method", y=["relevance_weight", "completeness_weight", "efficiency_weight"],
-            kind="bar", ax=ax1, title="Parameter Weights")
-    df.plot(x="method", y="quality", kind="bar", ax=ax2, color="salmon", title="Final Quality")
+    
+    # Parameter comparison
+    methods_list = list(results.keys())
+    relevance_weights = [results[m]['optimal_parameters']['relevance_weight'] for m in methods_list]
+    completeness_weights = [results[m]['optimal_parameters']['completeness_weight'] for m in methods_list]
+    efficiency_weights = [results[m]['optimal_parameters']['efficiency_weight'] for m in methods_list]
+    
+    x = np.arange(len(methods_list))
+    width = 0.25
+    
+    ax1.bar(x - width, relevance_weights, width, label='Relevance', alpha=0.8)
+    ax1.bar(x, completeness_weights, width, label='Completeness', alpha=0.8)
+    ax1.bar(x + width, efficiency_weights, width, label='Efficiency', alpha=0.8)
+    
+    ax1.set_xlabel('Optimization Method')
+    ax1.set_ylabel('Weight Value')
+    ax1.set_title('Optimal Parameter Weights by Method')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(methods_list)
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # Quality comparison
+    qualities = [results[m]['optimal_quality'] for m in methods_list]
+    colors = ['skyblue', 'lightgreen', 'salmon']
+    
+    bars = ax2.bar(methods_list, qualities, color=colors, alpha=0.8)
+    ax2.set_xlabel('Optimization Method')
+    ax2.set_ylabel('Optimal Quality Score')
+    ax2.set_title('Optimization Quality Comparison')
+    ax2.grid(True, alpha=0.3)
+    
+    # Add value labels on bars
+    for bar, quality in zip(bars, qualities):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.005,
+                f'{quality:.3f}', ha='center', va='bottom')
+    
     plt.tight_layout()
     fig.savefig(os.path.join(example_dir, "optimization_comparison.png"), dpi=150)
     plt.close(fig)
 
     save_file(results, os.path.join(example_dir, "optimization_results.json"))
     log.info("Example 04 completed – methods compared")
+    
     return results
 
 
 def example_05_information_theory_basics() -> Dict:
-    example_dir = create_example_dir("example_05_information_theory")
+    example_dir = create_example_dir("example_05_information_theory_basics")
     log = get_example_logger("Example 05: Entropy & Mutual Information", example_dir)
 
+    # Example: Information content of different events
     events = [
-        ("Sun rises tomorrow", 0.9999, -np.log2(0.9999)),
-        ("It rains today", 0.3, -np.log2(0.3)),
-        ("Coin flip heads", 0.5, 1.0),
-        ("Win lottery", 1e-7, -np.log2(1e-7))
+        ("Sun rises tomorrow", 0.9999),
+        ("It rains today", 0.3),
+        ("Coin flip is heads", 0.5),
+        ("Win lottery", 0.0000001),
+        ("AI becomes sentient", 0.001)
     ]
-
-    fig, ax = plt.subplots(figsize=(8, 5))
-    probs = [e[1] for e in events]
-    infos = [e[2] for e in events]
-    ax.loglog(probs, infos, 'o-', linewidth=2)
-    for name, p, i in events:
-        ax.annotate(name, (p, i), xytext=(5, 5), textcoords='offset points', fontsize=9)
-    ax.set_xlabel('Probability')
-    ax.set_ylabel('Information Content (bits)')
-    ax.set_title('Information Content vs Probability')
-    ax.grid(True, alpha=0.3)
+    
+    print("Information Content Examples:")
+    print("I(x) = -log₂(P(x)) [measured in bits]")
+    print()
+    
+    information_contents = []
+    
+    for event, probability in events:
+        if probability > 0:
+            info_content = -np.log2(probability)
+            information_contents.append(info_content)
+            print(f"  {event:25} P={probability:8.1e} → I={info_content:6.2f} bits")
+        else:
+            print(f"  {event:25} P={probability:8.1e} → I=∞ bits")
+    
+    # Visualize information content vs probability
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Information content curve
+    probabilities = np.logspace(-6, 0, 1000)
+    info_contents = -np.log2(probabilities)
+    
+    ax1.loglog(probabilities, info_contents)
+    ax1.set_xlabel('Probability P(x)')
+    ax1.set_ylabel('Information Content -log₂(P(x)) [bits]')
+    ax1.set_title('Information Content vs Probability')
+    ax1.grid(True, alpha=0.3)
+    
+    # Mark example events
+    event_probs = [p for _, p in events if p > 0]
+    event_info = [-np.log2(p) for p in event_probs]
+    ax1.scatter(event_probs, event_info, color='red', s=50, zorder=5)
+    
+    # Entropy calculation example
+    print("\nEntropy Calculation Example:")
+    print("H(X) = -Σ P(x) × log₂(P(x))")
+    
+    # Simple distribution: coin flips
+    fair_coin = [0.5, 0.5]
+    biased_coin = [0.9, 0.1]
+    certain_outcome = [1.0, 0.0]
+    
+    distributions = {
+        'Fair coin': fair_coin,
+        'Biased coin': biased_coin,
+        'Certain outcome': certain_outcome
+    }
+    
+    entropies = []
+    
+    for name, dist in distributions.items():
+        entropy = -sum(p * np.log2(p) if p > 0 else 0 for p in dist)
+        entropies.append(entropy)
+        print(f"  {name:15}: H = {entropy:.3f} bits")
+    
+    # Visualize entropy for different distributions
+    ax2.bar(distributions.keys(), entropies, alpha=0.7, color=['blue', 'orange', 'green'])
+    ax2.set_ylabel('Entropy H(X) [bits]')
+    ax2.set_title('Entropy of Different Distributions')
+    ax2.grid(True, alpha=0.3)
+    
+    # Add value labels
+    for i, entropy in enumerate(entropies):
+        ax2.text(i, entropy + 0.05, f'{entropy:.3f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
     fig.savefig(os.path.join(example_dir, "information_curve.png"), dpi=150)
     plt.close(fig)
 
@@ -1341,9 +1471,185 @@ def example_05_information_theory_basics() -> Dict:
     return result
 
 
-def example_06_bayesian_learning() -> Dict:
-    example_dir = create_example_dir("example_06_bayesian_strategy_learning")
-    log = get_example_logger("Example 06: Bayesian Strategy Adaptation", example_dir)
+def example_06_context_information_analysis() -> Dict:
+    """Demonstrate Information Theory analysis on real context components"""
+    example_dir = create_example_dir("example_06_context_information_analysis")
+    log = get_example_logger("Example 06: Context Information Theory Analysis", example_dir)
+
+    # Reuse components from example_02
+    components = example_02_context_formalization()["components"]
+    query = "How can I optimize my pandas operations to handle large datasets more efficiently?"
+
+    analyzer = InformationAnalyzer()
+    analysis_results = analyzer.analyze_context_information(components, query)
+
+    log.info("Information theory analysis completed")
+    log.info(f"Components analyzed: {len(components)}")
+    for item in analysis_results['component_analysis']:
+        log.info(
+            f"{item['component_type']:15} | "
+            f"Entropy: {item['word_entropy']:.2f} | "
+            f"MI(query): {item['mutual_information_with_query']:.3f} | "
+            f"Density: {item['information_density']:.3f}"
+        )
+
+    # === Visualization (identical to the demonstration snippet) ===
+    import matplotlib.pyplot as plt
+
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+
+    component_types = [a['component_type'] for a in analysis_results['component_analysis']]
+    word_entropies = [a['word_entropy'] for a in analysis_results['component_analysis']]
+    query_relevance = analysis_results['query_relevance']
+    info_densities = [a['information_density'] for a in analysis_results['component_analysis']]
+    mi_matrix = analysis_results['mutual_information_matrix']
+
+    # 1. Word entropy
+    ax1.bar(component_types, word_entropies, alpha=0.7, color='skyblue')
+    ax1.set_title('Information Content (Word Entropy)')
+    ax1.set_ylabel('Entropy [bits]')
+    ax1.tick_params(axis='x', rotation=45)
+    ax1.grid(True, alpha=0.3)
+
+    # 2. Query relevance
+    bars = ax2.bar(component_types, query_relevance, alpha=0.7, color='orange')
+    ax2.set_title('Relevance to Query (Mutual Information)')
+    ax2.set_ylabel('MI with Query')
+    ax2.tick_params(axis='x', rotation=45)
+    ax2.grid(True, alpha=0.3)
+    for bar, rel in zip(bars, query_relevance):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{rel:.2f}', ha='center', va='bottom')
+
+    # 3. Redundancy matrix
+    im = ax3.imshow(mi_matrix, cmap='Blues')
+    ax3.set_title('Component Redundancy Matrix')
+    ax3.set_xticks(range(len(component_types)))
+    ax3.set_yticks(range(len(component_types)))
+    ax3.set_xticklabels(component_types, rotation=45)
+    ax3.set_yticklabels(component_types)
+    for i in range(len(component_types)):
+        for j in range(len(component_types)):
+            ax3.text(j, i, f'{mi_matrix[i,j]:.2f}',
+                     ha="center", va="center",
+                     color="black" if mi_matrix[i,j] < 1 else "white")
+    plt.colorbar(im, ax=ax3, label='Mutual Information')
+
+    # 4. Density scatter
+    ax4.scatter(word_entropies, query_relevance,
+                s=[d*1000 for d in info_densities], alpha=0.6, color='green')
+    for i, ctype in enumerate(component_types):
+        ax4.annotate(ctype, (word_entropies[i], query_relevance[i]),
+                     xytext=(5, 5), textcoords='offset points', fontsize=9)
+    ax4.set_xlabel('Information Content (Word Entropy)')
+    ax4.set_ylabel('Query Relevance (MI)')
+    ax4.set_title('Content vs Relevance\n(Bubble size = Information Density)')
+    ax4.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    fig_path = os.path.join(example_dir, "information_analysis_visualization.png")
+    fig.savefig(fig_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    log.info(f"Visualization saved: {fig_path}")
+
+    # Save raw results
+    result = {
+        "query": query,
+        "component_analysis": analysis_results['component_analysis'],
+        "redundancy_analysis": analysis_results['redundancy_analysis'],
+        "total_mutual_information_with_query": float(sum(query_relevance))
+    }
+    save_file(result, os.path.join(example_dir, "information_analysis_results.json"))
+
+    log.info("Example 06 completed – Information Theory analysis with visualization")
+    return result
+
+
+def example_07_bayes_theorem_fundamentals() -> Dict:
+    """Demonstrate Bayes' theorem fundamentals with context strategy selection"""
+    example_dir = create_example_dir("example_07_bayes_theorem_fundamentals")
+    log = get_example_logger("Example 07: Bayes' Theorem Fundamentals", example_dir)
+
+    strategies = ['technical_detailed', 'practical_concise', 'balanced_comprehensive']
+
+    priors = {
+        'technical_detailed': 0.30,
+        'practical_concise': 0.40,
+        'balanced_comprehensive': 0.30
+    }
+
+    likelihoods = {  # P(positive_feedback | strategy)
+        'technical_detailed': 0.70,
+        'practical_concise': 0.90,
+        'balanced_comprehensive': 0.80
+    }
+
+    evidence = sum(priors[s] * likelihoods[s] for s in strategies)
+
+    posteriors = {
+        s: (likelihoods[s] * priors[s]) / evidence
+        for s in strategies
+    }
+
+    log.info("Bayes' Theorem applied to context strategy selection")
+    log.info(f"Evidence P(positive_feedback) = {evidence:.4f}")
+    for s in strategies:
+        log.info(f"P({s} | positive) = {posteriors[s]:.4f}  (prior {priors[s]:.2f} → posterior)")
+
+    # === Visualization ===
+    import matplotlib.pyplot as plt
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+
+    short_names = ['Technical', 'Practical', 'Balanced']
+    x = np.arange(len(strategies))
+    width = 0.35
+
+    ax1.bar(x - width/2, [priors[s] for s in strategies], width, label='Prior', alpha=0.8)
+    ax1.bar(x + width/2, [posteriors[s] for s in strategies], width, label='Posterior', alpha=0.8)
+    ax1.set_xlabel('Strategy')
+    ax1.set_ylabel('Probability')
+    ax1.set_title('Bayesian Updating: Prior → Posterior')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(short_names, rotation=15)
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    prior_vals = [priors[s] for s in strategies]
+    post_vals = [posteriors[s] for s in strategies]
+    for i in range(len(strategies)):
+        ax2.plot([0, 1], [prior_vals[i], post_vals[i]], 'o-', linewidth=2, markersize=8)
+    ax2.set_xticks([0, 1])
+    ax2.set_xticklabels(['Prior', 'Posterior'])
+    ax2.set_ylabel('Probability')
+    ax2.set_title('Belief Evolution After Positive Feedback')
+    ax2.legend(short_names, loc='upper left')
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    fig_path = os.path.join(example_dir, "bayes_theorem_visualization.png")
+    fig.savefig(fig_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    log.info(f"Visualization saved: {fig_path}")
+
+    result = {
+        "strategies": strategies,
+        "priors": priors,
+        "likelihoods": likelihoods,
+        "evidence": float(evidence),
+        "posteriors": posteriors,
+        "most_likely_strategy": max(posteriors, key=posteriors.get)
+    }
+    save_file(result, os.path.join(example_dir, "bayes_theorem_results.json"))
+
+    log.info("Example 07 completed – Bayes' theorem fundamentals with visualization")
+    return result
+
+
+def example_08_bayesian_strategy_learning() -> Dict:
+    example_dir = create_example_dir("example_08_bayesian_strategy_learning")
+    log = get_example_logger("Example 08: Bayesian Strategy Adaptation", example_dir)
 
     learner = BayesianContextLearner([
         'technical_detailed', 'practical_concise', 'balanced_comprehensive', 'user_adapted'
@@ -1379,8 +1685,8 @@ def example_06_bayesian_learning() -> Dict:
     return result
 
 
-def example_07_integrated_framework() -> Dict:
-    example_dir = create_example_dir("example_07_integrated_mathematical_system")
+def example_09_integrated_mathematical_system() -> Dict:
+    example_dir = create_example_dir("example_09_integrated_mathematical_system")
     log = get_example_logger("Example 07: Full Integrated Context Engineer", example_dir)
 
     engineer = IntegratedContextEngineer(max_tokens=300)
@@ -1460,13 +1766,15 @@ def main():
     example_01_restaurant_analogy()
     example_02_context_formalization()
     example_03_optimization_landscape()
-    example_04_optimization_comparison()
+    example_04_optimization_methods()
     example_05_information_theory_basics()
-    example_06_bayesian_learning()
-    example_07_integrated_framework()
+    example_06_context_information_analysis()
+    example_07_bayes_theorem_fundamentals()
+    example_08_bayesian_strategy_learning()
+    example_09_integrated_mathematical_system()
 
     main_logger.info("=" * 80)
-    main_logger.info("LAB COMPLETED – All 7 examples saved")
+    main_logger.info("LAB COMPLETED – All 9 examples saved")
     main_logger.info(f"Results: {BASE_OUTPUT_DIR}")
     main_logger.info("=" * 80)
 
