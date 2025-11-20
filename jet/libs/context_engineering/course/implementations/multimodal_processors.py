@@ -29,6 +29,81 @@ __all__ = [
 ]
 
 # ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+from jet.logger import CustomLogger
+import os
+import shutil
+
+BASE_OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="long_context_evaluation",
+    filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+main_logger.info("=" * 80)
+main_logger.info("LONG CONTEXT EVALUATION LAB STARTED")
+main_logger.info("=" * 80)
+
+
+def create_example_dir(example_name: str) -> str:
+    example_dir = os.path.join(BASE_OUTPUT_DIR, example_name)
+    os.makedirs(example_dir, exist_ok=True)
+    return example_dir
+
+
+def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
+    log_file = os.path.join(example_dir, "run.log")
+    log = CustomLogger(
+        name=example_name,
+        filename=log_file,
+        console_level="INFO",
+        level="DEBUG",
+        fmt="%(asctime)s | %(message)s",
+        overwrite=True
+    )
+    log.info("")
+    log.info("=" * 80)
+    log.info(f"EXAMPLE: {example_name}")
+    log.info("=" * 80)
+    return log
+
+import json
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+# Helper utilities used by every example
+def save_json(data: Any, path: str):
+    Path(path).write_text(json.dumps(data, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x)))
+
+def save_npy(arr: np.ndarray, path: str):
+    np.save(path, arr)
+
+def plot_similarity_matrix(matrix: np.ndarray, labels: List[str], path: str):
+    plt.figure(figsize=(6, 5))
+    im = plt.imshow(matrix, cmap="viridis", vmin=0, vmax=1)
+    plt.colorbar(im, fraction=0.046, pad=0.04)
+    plt.xticks(range(len(labels)), labels, rotation=45)
+    plt.yticks(range(len(labels)), labels)
+    plt.title("Modality Similarity Matrix")
+    for i in range(len(labels)):
+        for j in range(len(labels)):
+            plt.text(j, i, f"{matrix[i, j]:.3f}", ha="center", va="center",
+                     color="white" if matrix[i, j] < 0.5 else "black")
+    plt.tight_layout()
+    plt.savefig(path, dpi=150)
+    plt.close()
+
+
+# ============================================================================
 # CORE INTERFACES & DATA STRUCTURES
 # ============================================================================
 
@@ -846,155 +921,179 @@ def visualize_modality_similarities(similarity_matrix: np.ndarray,
     
     return result
 
-# ============================================================================
-# EXAMPLE USAGE
-# ============================================================================
+# ----------------------------------------------------------------------
+# INDIVIDUAL EXAMPLE FUNCTIONS
+# ----------------------------------------------------------------------
 
-if __name__ == "__main__":
-    # Example usage of multimodal processors
-    import time
-    
-    print("Multimodal Processors Demonstration")
-    print("=" * 50)
-    
-    # Create sample data
-    sample_data = create_sample_data()
-    
-    # Test individual encoders
-    print("\n1. Individual Modality Encoders:")
-    print("-" * 30)
-    
+def example_01_individual_encoders():
+    example_name = "example_01_individual_encoders"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    sample = create_sample_data(d_model=512)
     encoders = {
-        "Text": (TextEncoder, sample_data[Modality.TEXT]),
-        "Image": (ImageEncoder, sample_data[Modality.IMAGE]),
-        "Audio": (AudioEncoder, sample_data[Modality.AUDIO])
+        "text":  (TextEncoder(d_model=512),  sample[Modality.TEXT]),
+        "image": (ImageEncoder(d_model=512), sample[Modality.IMAGE]),
+        "audio": (AudioEncoder(d_model=512), sample[Modality.AUDIO]),
     }
-    
-    individual_embeddings = {}
-    
-    for name, (encoder_class, data) in encoders.items():
-        encoder = encoder_class(d_model=512)
-        
-        start_time = time.time()
-        embedding = encoder.encode(data)
-        processing_time = time.time() - start_time
-        
-        individual_embeddings[name] = embedding
-        
-        print(f"{name} Encoder:")
-        print(f"  Output shape: {embedding.shape}")
-        print(f"  Processing time: {processing_time*1000:.2f}ms")
-        print(f"  Embedding norm: {np.linalg.norm(embedding):.3f}")
-    
-    # Test fusion strategies
-    print("\n2. Fusion Strategies:")
-    print("-" * 30)
-    
-    fusion_strategies = [
-        ("Attention", AttentionFusion),
-        ("Concatenation", ConcatenationFusion),
-        ("Gated", GatedFusion)
-    ]
-    
-    embeddings_list = list(individual_embeddings.values())
-    
-    for name, fusion_class in fusion_strategies:
-        fusion = fusion_class(d_model=512)
-        
-        start_time = time.time()
-        fused = fusion.fuse(embeddings_list)
-        fusion_time = time.time() - start_time
-        
-        print(f"{name} Fusion:")
-        print(f"  Output shape: {fused.shape}")
-        print(f"  Fusion time: {fusion_time*1000:.2f}ms")
-        print(f"  Fused norm: {np.linalg.norm(fused):.3f}")
-    
-    # Test complete multimodal processor
-    print("\n3. Complete Multimodal Processor:")
-    print("-" * 30)
-    
+
+    results = {}
+    for name, (enc, data) in encoders.items():
+        import time
+        t0 = time.time()
+        emb = enc.encode(data)
+        elapsed = (time.time() - t0) * 1000
+        results[name] = {
+            "embedding": emb,
+            "norm": float(np.linalg.norm(emb)),
+            "processing_time_ms": elapsed
+        }
+        log.info(f"{name.capitalize()} encoder → norm {results[name]['norm']:.3f} | time {elapsed:.2f}ms")
+
+    # Save everything
+    save_json({"d_model": 512}, os.path.join(ex_dir, "config.json"))
+    for name, info in results.items():
+        save_npy(info["embedding"], os.path.join(ex_dir, f"{name}_embedding.npy"))
+    save_json({k: {"norm": v["norm"], "time_ms": v["processing_time_ms"]} for k, v in results.items()},
+              os.path.join(ex_dir, "summary.json"))
+
+    # Markdown report
+    Path(os.path.join(ex_dir, "report.md")).write_text(
+f"""# Example 01 – Individual Modality Encoders
+
+All encoders produce 512-dim embeddings.
+
+| Modality | Norm    | Time (ms) |
+|----------|---------|-----------|
+| Text     | {results['text']['norm']:.3f} | {results['text']['processing_time_ms']:.2f} |
+| Image    | {results['image']['norm']:.3f} | {results['image']['processing_time_ms']:.2f} |
+| Audio    | {results['audio']['norm']:.3f} | {results['audio']['processing_time_ms']:.2f} |
+
+Raw embeddings saved as `*_embedding.npy`.
+""")
+
+def example_02_fusion_strategies_comparison():
+    example_name = "example_02_fusion_strategies_comparison"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    # Encode once
+    sample = create_sample_data()
+    text_emb  = TextEncoder(d_model=512).encode(sample[Modality.TEXT])
+    img_emb   = ImageEncoder(d_model=512).encode(sample[Modality.IMAGE])
+    audio_emb = AudioEncoder(d_model=512).encode(sample[Modality.AUDIO])
+    embeddings = [text_emb, img_emb, audio_emb]
+
+    strategies = {
+        "attention":      AttentionFusion(d_model=512),
+        "concatenation": ConcatenationFusion(d_model=512, num_modalities=3),
+        "gated":          GatedFusion(d_model=512, num_modalities=3),
+    }
+
+    results = {}
+    for name, fusion in strategies.items():
+        import time
+        t0 = time.time()
+        fused = fusion.fuse(embeddings)
+        elapsed = (time.time() - t0) * 1000
+        results[name] = {"fused": fused, "norm": float(np.linalg.norm(fused)), "time_ms": elapsed}
+        log.info(f"{name.capitalize()} fusion → norm {results[name]['norm']:.3f} | time {elapsed:.2f}ms")
+
+    save_json({"strategies": list(strategies.keys())}, os.path.join(ex_dir, "config.json"))
+    for name, info in results.items():
+        save_npy(info["fused"], os.path.join(ex_dir, f"fused_{name}.npy"))
+    save_json({k: {"norm": v["norm"], "time_ms": v["time_ms"]} for k, v in results.items()},
+              os.path.join(ex_dir, "summary.json"))
+
+def example_03_complete_multimodal_processor():
+    example_name = "example_03_complete_multimodal_processor"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
     processor = MultimodalProcessor(d_model=512, fusion_strategy="attention")
-    
-    start_time = time.time()
-    result = processor.process(sample_data)
-    total_time = time.time() - start_time
-    
-    print(f"Multimodal Processing:")
-    print(f"  Processed modalities: {result['processed_modalities']}")
-    print(f"  Fused embedding shape: {result['fused_embedding'].shape}")
-    print(f"  Total processing time: {total_time*1000:.2f}ms")
-    print(f"  Fusion strategy: {result['fusion_strategy']}")
-    
-    # Test modality alignment
-    print("\n4. Modality Alignment:")
-    print("-" * 30)
-    
+    sample = create_sample_data()
+
+    result = processor.process(sample, cache_key="demo")
+
+    save_json(result, os.path.join(ex_dir, "full_result.json"))
+    save_npy(result["fused_embedding"], os.path.join(ex_dir, "fused_embedding.npy"))
+    for mod, emb in result["individual_embeddings"].items():
+        save_npy(emb, os.path.join(ex_dir, f"individual_{mod}.npy"))
+
+    log.info(f"Fusion strategy: {result['fusion_strategy']}")
+    log.info(f"Processed modalities: {result['processed_modalities']}")
+    log.info(f"Fused norm: {np.linalg.norm(result['fused_embedding']):.3f}")
+
+def example_04_modality_alignment():
+    example_name = "example_04_modality_alignment"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    sample = create_sample_data()
+    encoders = {Modality.TEXT: TextEncoder, Modality.IMAGE: ImageEncoder, Modality.AUDIO: AudioEncoder}
+    raw_embs = {mod: encoders[mod](d_model=512).encode(sample[mod]) for mod in encoders}
+
     alignment = ModalityAlignment(d_model=512)
-    
-    modality_embeddings = {
-        Modality.TEXT: individual_embeddings["Text"],
-        Modality.IMAGE: individual_embeddings["Image"],
-        Modality.AUDIO: individual_embeddings["Audio"]
-    }
-    
-    aligned = alignment.align_embeddings(modality_embeddings)
-    similarity_matrix = alignment.compute_similarity_matrix(aligned)
-    
-    print("Aligned Embedding Norms:")
-    for modality, embedding in aligned.items():
-        print(f"  {modality.value}: {np.linalg.norm(embedding):.3f}")
-    
-    print(visualize_modality_similarities(
-        similarity_matrix, 
-        [mod.value for mod in aligned.keys()]
-    ))
-    
-    # Test multimodal RAG
-    print("\n5. Multimodal RAG System:")
-    print("-" * 30)
-    
+    aligned = alignment.align_embeddings(raw_embs)
+    sim_matrix = alignment.compute_similarity_matrix(aligned)
+
+    labels = [mod.value for mod in aligned.keys()]
+    plot_similarity_matrix(sim_matrix, labels, os.path.join(ex_dir, "similarity_matrix.png"))
+    save_json({"matrix": sim_matrix.tolist(), "labels": labels}, os.path.join(ex_dir, "similarity.json"))
+
+    log.info("Similarity matrix saved + visualized")
+
+def example_05_multimodal_rag():
+    example_name = "example_05_multimodal_rag"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
     rag = MultimodalRAG(d_model=512)
-    
-    # Add sample documents
-    doc_data = [
-        create_sample_data() for _ in range(3)
-    ]
-    
-    for i, data in enumerate(doc_data):
-        doc_id = rag.add_multimodal_document(
-            doc_id=f"doc_{i}",
+
+    # Add 5 documents
+    for i in range(5):
+        data = create_sample_data()
+        rag.add_multimodal_document(
+            doc_id=f"doc_{i:02d}",
             text=data[Modality.TEXT],
             image=data[Modality.IMAGE],
             audio=data[Modality.AUDIO],
-            metadata={"category": f"category_{i}"}
+            metadata={"source": f"sample_{i}"}
         )
-        print(f"Added document {i} at index {doc_id}")
-    
-    # Query the system
-    query_data = create_sample_data()
-    results = rag.retrieve(
-        query_text=query_data[Modality.TEXT],
-        query_image=query_data[Modality.IMAGE],
-        top_k=2
+
+    # Query with text+image
+    query = create_sample_data()
+    retrieved = rag.retrieve(
+        query_text=query[Modality.TEXT],
+        query_image=query[Modality.IMAGE],
+        top_k=3
     )
-    
-    print(f"\nQuery Results:")
-    for i, result in enumerate(results):
-        print(f"  Result {i+1}: {result['doc_id']} (similarity: {result['similarity']:.3f})")
-    
-    # Benchmark performance
-    print("\n6. Performance Benchmark:")
-    print("-" * 30)
-    
-    benchmark_result = benchmark_multimodal_processing(
-        lambda: MultimodalProcessor(d_model=512), 
-        num_trials=5
-    )
-    
-    print(f"Benchmark Results (5 trials):")
-    print(f"  Mean processing time: {benchmark_result['mean_processing_time']*1000:.2f}ms")
-    print(f"  Mean modalities processed: {benchmark_result['mean_modalities_processed']:.1f}")
-    print(f"  Success rate: {benchmark_result['success_rate']*100:.1f}%")
-    
-    print(f"\nDemonstration Complete!")
+
+    retrieval_results = [
+        {"doc_id": r["doc_id"], "similarity": float(r["similarity"])} for r in retrieved
+    ]
+    save_json(retrieval_results, os.path.join(ex_dir, "retrieval_results.json"))
+    log.info(f"Top-3 retrieved: {[r['doc_id'] for r in retrieved]}")
+
+# ----------------------------------------------------------------------
+# MAIN EXECUTION BLOCK
+# ----------------------------------------------------------------------
+if __name__ == "__main__":
+    examples = [
+        example_01_individual_encoders,
+        example_02_fusion_strategies_comparison,
+        example_03_complete_multimodal_processor,
+        example_04_modality_alignment,
+        example_05_multimodal_rag,
+    ]
+
+    main_logger.info(f"Running {len(examples)} multimodal processor examples …")
+    for fn in examples:
+        try:
+            fn()
+            main_logger.info(f"Completed {fn.__name__}")
+        except Exception as e:
+            main_logger.error(f"Failed {fn.__name__}: {e}", exc_info=True)
+
+    main_logger.info(f"All examples finished – see {BASE_OUTPUT_DIR}")
+    main_logger.info("=" * 80)
