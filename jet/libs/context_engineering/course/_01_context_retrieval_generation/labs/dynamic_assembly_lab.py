@@ -1394,6 +1394,21 @@ def main():
     main_logger.info(f"Outputs saved to: {OUTPUT_DIR}")
     main_logger.info("="*80)
 
+    main_logger.info("\n" + "=" * 60)
+    main_logger.info("ADDITIONAL EXERCISES FOR STUDENTS")
+    main_logger.info("=" * 60)
+    
+    main_logger.info("""
+1. Implement a custom assembly pattern for your domain of interest
+2. Experiment with different constraint configurations
+3. Develop a multi-objective optimization approach considering both relevance and diversity
+4. Create a real-time assembly system with streaming components
+5. Build an adaptive assembler that learns from user feedback
+6. Explore the integration of field theory concepts in practical applications
+7. Design evaluation metrics specific to your use case
+8. Implement cross-modal context assembly for multimodal applications
+    """)
+
 
 if __name__ == "__main__":
     main()

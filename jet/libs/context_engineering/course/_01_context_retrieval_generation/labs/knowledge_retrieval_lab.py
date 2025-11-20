@@ -1070,8 +1070,6 @@ class PerformanceBenchmark:
         axes[1, 1].grid(True)
         
         plt.tight_layout()
-        plt.show()
-        
         return fig
 
 def demonstrate_performance_optimization(vector_db, embedding_model):
@@ -1490,7 +1488,7 @@ def example_05_performance_benchmark(model) -> Dict:
 
     log.info(f"Mean latency: {perf['mean_search_time']*1000:.2f}ms → {perf['queries_per_second']:.1f} QPS")
     log.info("Example 05 completed – performance characterized")
-    return {"latency": perf, "scalability": scalability}
+    return {"latency": perf, "scalability": scalability, "benchmark_results": benchmark.benchmark_results}
 
 
 def example_06_persistence_and_loading() -> Dict:
@@ -1537,24 +1535,53 @@ def example_07_interactive_demo(db, model):
 
 def main():
     main_logger.info("Starting full Knowledge Retrieval Lab")
-
     example_01_vector_similarity_concepts()
     example_02_basic_vector_db()
-
     prof = example_03_professional_embeddings()
     if prof:
         db, model = prof["db"], prof["model"]
-        example_04_retrieval_evaluation(db, model)
-        example_05_performance_benchmark(model)
+        eval_summary = example_04_retrieval_evaluation(db, model)
+        
+        # Fixed: capture the performance dictionary properly
+        perf_data = example_05_performance_benchmark(model)
+        latest_perf = perf_data["latency"]           # <-- this is the dict with mean_search_time
+        benchmark_results = perf_data["benchmark_results"]
+        
         example_06_persistence_and_loading()
         # Interactive demo is optional
         # example_07_interactive_demo(db, model)
     else:
         main_logger.warning("Professional examples skipped – install sentence-transformers + faiss")
+        eval_summary = None
+        latest_perf = None
 
     main_logger.info("=" * 80)
     main_logger.info("LAB COMPLETED – All results in ./generated/knowledge_retrieval_lab/")
     main_logger.info("=" * 80)
+
+    main_logger.info("Concepts Covered:")
+    main_logger.info("• Vector embeddings and semantic similarity")
+    main_logger.info("• Basic vector database implementation")
+    main_logger.info("• Professional-grade semantic search systems")
+    main_logger.info("• Retrieval evaluation and metrics")
+    main_logger.info("• Performance optimization and scalability")
+    
+    if eval_summary:
+        main_logger.info(f"\nSystem Performance:")
+        main_logger.info(f"• Mean Average Precision (MAP): {eval_summary['MAP']:.3f}")
+        main_logger.info(f"• Mean Reciprocal Rank (MRR): {eval_summary['MRR']:.3f}")
+        main_logger.info(f"• Mean Precision@3: {eval_summary['mean_precision@3']:.3f}")
+    
+    if 'latest_perf' in locals() and latest_perf is not None:
+        main_logger.info(f"• Average search latency: {latest_perf['mean_search_time']*1000:.1f}ms")
+        main_logger.info(f"• Throughput: {latest_perf['queries_per_second']:.1f} queries/second")
+
+    main_logger.info("\nNext Steps:")
+    main_logger.info("• Experiment with different embedding models")
+    main_logger.info("• Try different FAISS index types for your use case")
+    main_logger.info("• Implement custom similarity metrics")
+    main_logger.info("• Integrate with real-world document collections")
+    main_logger.info("• Explore hybrid search combining dense and sparse retrieval")
 
 
 if __name__ == "__main__":

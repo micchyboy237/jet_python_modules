@@ -1236,8 +1236,22 @@ def main():
 
     base_logger.info("="*80)
     base_logger.info("ALL EXAMPLES COMPLETED")
-    base_logger.info("Check  JSON, PNG, NPY, and logs saved per example")
+    base_logger.info("Check JSON, PNG, NPY, and logs saved per example")
     base_logger.info("="*80)
+
+    base_logger.info("\nKey Takeaways:")
+    base_logger.info("• Knowledge graphs provide rich structured context")
+    base_logger.info("• GNN embeddings capture relational information effectively")
+    base_logger.info("• Graph-enhanced RAG improves retrieval quality")
+    base_logger.info("• Schema validation ensures data consistency")
+    base_logger.info("• Graph reasoning enables logical inference")
+    
+    base_logger.info("\nPractical Applications:")
+    base_logger.info("• Enterprise knowledge management systems")
+    base_logger.info("• Intelligent search with relationship understanding")
+    base_logger.info("• Automated fact-checking and verification")
+    base_logger.info("• Recommendation systems with graph-based features")
+    base_logger.info("• Legal and regulatory compliance systems")
 
 if __name__ == "__main__":
     main()
