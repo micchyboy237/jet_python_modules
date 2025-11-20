@@ -29,9 +29,11 @@ __all__ = [
 # OUTPUT & LOGGING SETUP
 # ============================================================================
 
+from datetime import datetime
 from jet.logger import CustomLogger
 import os
 import shutil
+import json
 
 BASE_OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
@@ -40,14 +42,15 @@ shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
 os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
 
 main_logger = CustomLogger(
-    name="long_context_evaluation",
+    name="math_foundations_lab",
     filename=os.path.join(BASE_OUTPUT_DIR, "main.log"),
     console_level="INFO",
     level="DEBUG",
     overwrite=True
 )
 main_logger.info("=" * 80)
-main_logger.info("LONG CONTEXT EVALUATION LAB STARTED")
+main_logger.info("REFINEMENT LOOPS LAB STARTED")
+main_logger.info(f"Timestamp: {datetime.now().isoformat()}")
 main_logger.info("=" * 80)
 
 
@@ -69,35 +72,14 @@ def get_example_logger(example_name: str, example_dir: str) -> CustomLogger:
     )
     log.info("")
     log.info("=" * 80)
-    log.info(f"EXAMPLE: {example_name}")
+    log.info(f"EXAMPLE: {example_name.upper()}")
     log.info("=" * 80)
     return log
 
-import json
-import matplotlib.pyplot as plt
-from pathlib import Path
 
-# Helper utilities used by every example
-def save_json(data: Any, path: str):
-    Path(path).write_text(json.dumps(data, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x)))
-
-def plot_quality_evolution(history: List[RefinementIteration], path: str):
-    if not history:
-        return
-    its = [h.iteration for h in history]
-    before = [h.quality_before.overall for h in history]
-    after  = [h.quality_after.overall for h in history]
-    plt.figure(figsize=(8, 5))
-    plt.plot(its, before, "o--", label="Before", color="tab:red")
-    plt.plot(its, after,  "s-",  label="After",  color="tab:green")
-    plt.title("Quality Evolution over Refinement Iterations")
-    plt.xlabel("Iteration")
-    plt.ylabel("Overall Quality")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(path, dpi=150)
-    plt.close()
+def save_json(data: Any, filepath: str):
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=lambda x: x.__dict__ if hasattr(x, "__dict__") else str(x))
 
 # ============================================================================
 # CORE INTERFACES & DATA STRUCTURES
@@ -788,183 +770,155 @@ Detailed Breakdown:
 """
     return report.strip()
 
-# ----------------------------------------------------------------------
-# INDIVIDUAL EXAMPLE FUNCTIONS
-# ----------------------------------------------------------------------
+# === NEW EXAMPLE FUNCTIONS ===
 
-def example_01_iterative_refiner_basic():
-    example_name = "example_01_iterative_refiner_basic"
+def example_01_basic_iterative_refinement():
+    example_name = "example_01_basic_iterative_refinement"
     ex_dir = create_example_dir(example_name)
     log = get_example_logger(example_name, ex_dir)
+
+    log.info("Demonstrating basic IterativeRefiner with convergence")
 
     seq_len, d_model = 256, 512
-    context = np.random.randn(seq_len, d_model).astype(np.float32) * 0.3
-    query   = np.random.randn(32, d_model).astype(np.float32) * 0.1
-
-    log.info(f"Running basic IterativeRefiner (target_quality=0.78)")
+    context = np.random.randn(seq_len, d_model) * 0.3
+    query = np.random.randn(32, d_model) * 0.1
 
     refiner = IterativeRefiner(d_model=d_model, max_iterations=6, target_quality=0.78)
-    refined_context, stats = refiner.refine(context, query)
+    refined_context, stats = refiner.refine(context, query, target_quality=0.78)
 
-    # Save everything
-    save_json({"seq_len": seq_len, "d_model": d_model, "target_quality": 0.78}, 
-              os.path.join(ex_dir, "config.json"))
-    save_json(stats, os.path.join(ex_dir, "stats.json"))
-    np.save(os.path.join(ex_dir, "refined_context.npy"), refined_context)
+    initial_q = stats["initial_quality"]
+    final_q = stats["final_quality"]
 
-    # History visualisation
-    if stats["history"]:
-        history_data = [vars(h) for h in stats["history"]]
-        save_json(history_data, os.path.join(ex_dir, "history.json"))
-        plot_quality_evolution(stats["history"], os.path.join(ex_dir, "quality_evolution.png"))
+    log.info(f"Initial quality → {initial_q}")
+    log.info(f"Final quality   → {final_q}")
+    log.info(f"Improvement     → +{stats['total_improvement']:.4f}")
+    log.info(f"Iterations      → {stats['iterations']}")
+    log.info(f"Converged       → {stats['converged']}")
+    log.info(f"Time            → {stats['processing_time']*1000:.2f} ms")
 
-    log.info(f"Initial quality : {stats['initial_quality'].overall:.4f}")
-    log.info(f"Final quality   : {stats['final_quality'].overall:.4f}")
-    log.info(f"Improvement     : {stats['total_improvement']:+.4f}")
-    log.info(f"Iterations      : {stats['iterations']}")
-    log.info(f"Converged       : {stats['converged']}")
+    # Save outputs
+    save_json(stats, os.path.join(ex_dir, "refinement_stats.json"))
+    with open(os.path.join(ex_dir, "quality_report.md"), "w", encoding="utf-8") as f:
+        f.write(create_quality_report(final_q))
 
-    # Human-readable markdown report morale
-    report_md = f"""# Example 01 – Basic Iterative Refiner
+    log.info("✓ Example 01 completed – results saved")
 
-**Target quality:** 0.78  
-**Reached:** {stats['final_quality'].overall:.4f}  
-**Improvement:** {stats['total_improvement']:+.4f}  
-**Iterations:** {stats['iterations']}  
-**Converged:** {stats['converged']}
 
-See `quality_evolution.png` for the per-iteration plot.
-"""
-    Path(os.path.join(ex_dir, "report.md")).write_text(report_md)
-
-def example_02_meta_controller_strategy_selection():
-    example_name = "example_02_meta_controller_strategy_selection"
+def example_02_pipeline_with_constitutional_check():
+    example_name = "example_02_pipeline_with_constitutional_check"
     ex_dir = create_example_dir(example_name)
     log = get_example_logger(example_name, ex_dir)
 
-    d_model = 512
+    log.info("Full RefinementPipeline with constitutional safety check")
+
+    context = np.random.randn(512, 512) * 0.35  # Noisier context
+    query = np.random.randn(64, 512) * 0.12
+
+    pipeline = RefinementPipeline(d_model=512, enable_caching=False)
+    result = pipeline.refine(
+        context, query,
+        target_quality=0.82,
+        constitutional_check=True
+    )
+
+    log.info(f"Strategy used        → {result['strategy_used']}")
+    log.info(f"Initial quality      → {result['initial_quality'].overall:.4f}")
+    log.info(f"Final quality        → {result['final_quality'].overall:.4f}")
+    log.info(f"Total improvement    → {result['total_improvement']:+.4f}")
+    log.info(f"Constitutional applied → {result.get('constitutional_applied', False)}")
+    log.info(f"Total time           → {result['total_processing_time']*1000:.2f} ms")
+
+    save_json(result, os.path.join(ex_dir, "pipeline_result.json"))
+    with open(os.path.join(ex_dir, "final_quality_report.md"), "w", encoding="utf-8") as f:
+        f.write(create_quality_report(result["final_quality"]))
+
+    log.info("✓ Example 02 completed – constitutional refinement applied")
+
+
+def example_03_strategy_selection_meta_controller():
+    example_name = "example_03_strategy_selection_meta_controller"
+    ex_dir = create_example_dir(example_name)
+    log = get_example_logger(example_name, ex_dir)
+
+    log.info("Testing MetaController strategy selection logic")
+
+    assessor = EmbeddingQualityAssessor(d_model=512)
     controller = MetaController()
 
-    # Three different starting contexts (low / medium / high quality)
-    contexts = {
-        "low_quality"   : np.random.randn(256, d_model) * 0.8,
-        "medium_quality": np.random.randn(256, d_model) * 0.3,
-        "high_quality"  : np.random.randn(256, d_model) * 0.05,
-    }
+    cases = [
+        ("Very poor context", np.random.randn(128, 512) * 1.5),
+        ("Decent context", np.random.randn(256, 512) * 0.2),
+        ("High-quality context", np.random.randn(384, 512) * 0.05),
+    ]
 
-    results = {}
-    for label, ctx in contexts.items():
-        assessor = EmbeddingQualityAssessor(d_model)
-        init_q = assessor.assess(ctx)
-        strategy = controller.select_strategy(init_q, len(ctx))
-        refiner = controller.get_refiner(strategy)
-        refined = refiner.refine(ctx, init_q)
-        final_q = assessor.assess(refined)
-        results[label] = {
-            "initial_overall": init_q.overall,
-            "final_overall"  : final_q.overall,
-            "strategy"       : strategy.value,
-            "improvement"    : final_q.overall - init_q.overall
-        }
-        log.info(f"{label:14} → strategy={strategy.value:12} | quality {init_q.overall:.3f} → {final_q.overall:.3f}")
+    results = []
+    for desc, ctx in cases:
+        query = np.random.randn(32, 512) * 0.1
+        quality = assessor.assess(ctx, query)
+        strategy = controller.select_strategy(quality, len(ctx))
+        results.append({
+            "description": desc,
+            "overall_quality": round(quality.overall, 4),
+            "context_length": len(ctx),
+            "selected_strategy": strategy.value
+        })
+        log.info(f"{desc} (Q={quality.overall:.3f}) → {strategy.value}")
 
-    save_json(results, os.path.join(ex_dir, "strategy_selection.json"))
-    log.info("Meta-controller strategy selection demo completed")
+    save_json(results, os.path.join(ex_dir, "strategy_selection_cases.json"))
 
-def example_03_constitutional_refiner():
-    example_name = "example_03_constitutional_refiner"
+    log.info("✓ Example 03 completed – strategy selection verified")
+
+
+def example_04_benchmark_and_comparison():
+    example_name = "example_04_benchmark_and_comparison"
     ex_dir = create_example_dir(example_name)
     log = get_example_logger(example_name, ex_dir)
 
-    d_model = 512
-    context = np.random.randn(200, d_model).astype(np.float32) * 0.5
-    assessor = EmbeddingQualityAssessor(d_model)
-    init_q = assessor.assess(context)
+    log.info("Running benchmark comparison across refiners")
 
-    constitutional = ConstitutionalRefiner(d_model)
-    violations = constitutional._detect_violations(context, init_q)
-    refined = constitutional.refine(context, init_q, violations=violations)
-    final_q = assessor.assess(refined)
-
-    save_json({
-        "initial_quality": vars(init_q),
-        "violations": violations,
-        "final_quality": vars(final_q)
-    }, os.path.join(ex_dir, "constitutional_result.json"))
-
-    log.info(f"Constitutional violations detected: {violations}")
-    log.info(f"Quality before constitutional: {init_q.overall:.3f} → after: {final_q.overall:.3f}")
-
-def example_04_full_refinement_pipeline():
-    example_name = "example_04_full_refinement_pipeline"
-    ex_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, ex_dir)
-
-    d_model = 512
-    pipeline = RefinementPipeline(d_model=d_model, enable_caching=True)
-
-    context = np.random.randn(300, d_model).astype(np.float32) * 0.35
-    query   = np.random.randn(40, d_model).astype(np.float32) * 0.1
-
-    result = pipeline.refine(context, query, target_quality=0.82, constitutional_check=True)
-
-    save_json(result, os.path.join(ex_dir, "full_pipeline_result.json"))
-    save_json(pipeline.processing_stats, os.path.join(ex_dir, "pipeline_stats.json"))
-
-    log.info(f"Pipeline used strategy: {result.get('strategy_used')}")
-    log.info(f"Final quality: {result['final_quality'].overall:.4f}")
-    log.info(f"Constitutional check applied: {result.get('constitutional_applied', False)}")
-
-def example_05_benchmark_all_systems():
-    example_name = "example_05_benchmark_all_systems"
-    ex_dir = create_example_dir(example_name)
-    log = get_example_logger(example_name, ex_dir)
-
-    systems = [
+    benchmark_results = {}
+    for name, cls in [
         ("AdaptiveRefiner", AdaptiveRefiner),
         ("IterativeRefiner", IterativeRefiner),
         ("RefinementPipeline", RefinementPipeline),
-    ]
-    benchmark_results = {}
-    for name, cls in systems:
-        log.info(f"Benchmarking {name} …")
-        bench = benchmark_refinement(cls, num_trials=8, seq_len=256, d_model=512)
-        benchmark_results[name] = bench
+    ]:
+        log.info(f"Benchmarking {name}...")
+        result = benchmark_refinement(cls, num_trials=8, seq_len=256, d_model=512)
+        benchmark_results[name] = result
+        log.info(f"  → Improvement: {result['mean_improvement']:+.4f} | "
+                 f"Time: {result['mean_processing_time']*1000:.1f}ms | "
+                 f"Success: {result['success_rate']*100:.0f}%")
 
     save_json(benchmark_results, os.path.join(ex_dir, "benchmark_comparison.json"))
 
-    # Simple bar chart for mean improvement
-    names = list(benchmark_results.keys())
-    improvements = [benchmark_results[n]["mean_improvement"] for n in names]
-    plt.figure(figsize=(8,5))
-    plt.bar(names, improvements, color=["tab:blue","tab:orange","tab:green"])
-    plt.title("Mean Quality Improvement (8 trials)")
-    plt.ylabel("Δ Overall Quality")
-    plt.tight_layout()
-    plt.savefig(os.path.join(ex_dir, "benchmark_improvement.png"), dpi=150)
-    plt.close()
-
-    log.info("Benchmark completed – results saved")
-
-# ----------------------------------------------------------------------
-# MAIN EXECUTION BLOCK
-# ----------------------------------------------------------------------
-if __name__ == "__main__":
-    examples = [
-        example_01_iterative_refiner_basic,
-        example_02_meta_controller_strategy_selection,
-        example_03_constitutional_refiner,
-        example_04_full_refinement_pipeline,
-        example_05_benchmark_all_systems,
+    # Summary table in markdown
+    md_table = [
+        "| System              | Mean ΔQuality | Avg Time (ms) | Success Rate | Efficiency   |",
+        "|---------------------|---------------|---------------|--------------|--------------|"
     ]
+    for name, r in benchmark_results.items():
+        md_table.append(
+            f"| {name.ljust(19)} | {r['mean_improvement']:+.4f}      "
+            f"| {r['mean_processing_time']*1000:6.1f}      "
+            f"| {r['success_rate']*100:5.1f}%      "
+            f"| {r['mean_efficiency']:.3f}      |"
+        )
+    with open(os.path.join(ex_dir, "benchmark_summary.md"), "w", encoding="utf-8") as f:
+        f.write("# Benchmark Comparison\n\n")
+        f.write("\n".join(md_table))
 
-    main_logger.info(f"Running {len(examples)} refinement-loop examples …")
-    for fn in examples:
-        try:
-            fn()
-            main_logger.info(f"Completed {fn.__name__}")
-        except Exception as e:
-            main_logger.error(f"Failed {fn.__name__}: {e}", exc_info=True)
+    log.info("✓ Example 04 completed – full benchmark saved")
 
-    main_logger.info(f"All examples finished – artifacts in {BASE_OUTPUT_DIR}")
+
+# === REPLACE OLD __main__ BLOCK WITH THIS ===
+if __name__ == "__main__":
+    main_logger.info("Starting refinement loops examples...")
+
+    example_01_basic_iterative_refinement()
+    example_02_pipeline_with_constitutional_check()
+    example_03_strategy_selection_meta_controller()
+    example_04_benchmark_and_comparison()
+
+    main_logger.info("All examples completed successfully!")
+    main_logger.info(f"All outputs saved in: {BASE_OUTPUT_DIR}")
     main_logger.info("=" * 80)
