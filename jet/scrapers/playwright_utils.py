@@ -221,7 +221,7 @@ def scrape_urls_sync(
     num_parallel: int = 10,
     limit: Optional[int] = None,
     show_progress: bool = False,
-    timeout: Optional[float] = 5000,
+    timeout: Optional[float] = 10000,
     max_retries: int = 1,
     with_screenshot: bool = True,
     headless: bool = True,
