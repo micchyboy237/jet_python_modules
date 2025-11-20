@@ -23,12 +23,45 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import json
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from enum import Enum
 import warnings
 warnings.filterwarnings('ignore')
+
+import shutil
+from pathlib import Path
+
+try:
+    from jet.logger import CustomLogger
+    base_logger = CustomLogger(name="multimodal_lab", filename="multimodal_lab.log", overwrite=True)
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    base_logger = logging.getLogger("multimodal_lab")
+
+def create_example_dir(example_name: str) -> Path:
+    base_dir = Path(__file__).parent / "generated" / Path(__file__).stem
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def get_logger(name: str, output_dir: Path):
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=log_file, overwrite=True)
+
+def save_json(data: Any, path: Path, name: str = "data") -> None:
+    with open(path / f"{name}.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x))
+
+def save_plot(fig: plt.Figure, path: Path, name: str = "plot") -> None:
+    fig.savefig(path / f"{name}.png", dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+def save_numpy(arr: np.ndarray, path: Path, name: str) -> None:
+    np.save(path / f"{name}.npy", arr)
 
 # ============================================================================
 # CORE INTERFACES & UTILITIES
@@ -955,9 +988,9 @@ def create_sample_data():
 def benchmark_multimodal_processing():
     """Benchmark multimodal processing performance."""
     
-    print("="*60)
-    print("MULTIMODAL PROCESSING BENCHMARK")
-    print("="*60)
+    base_logger.info("="*60)
+    base_logger.info("MULTIMODAL PROCESSING BENCHMARK")
+    base_logger.info("="*60)
     
     # Test different configurations
     fusion_strategies = ['cross_attention', 'hierarchical']
@@ -977,7 +1010,7 @@ def benchmark_multimodal_processing():
         results[strategy] = {}
         processor = MultimodalProcessor(fusion_strategy=strategy)
         
-        print(f"\nTesting {strategy} fusion:")
+        base_logger.info(f"Testing {strategy} fusion")
         
         for combo_name, (use_text, use_image, use_audio) in modality_combinations:
             # Create sample data
@@ -1003,12 +1036,12 @@ def benchmark_multimodal_processing():
                 'output_available': context.fused is not None
             }
             
-            print(f"  {combo_name:15s}: {processing_time*1000:6.2f}ms, "
-                  f"modalities: {len(context.available_modalities)}")
+            base_logger.info(f"  {combo_name:15s}: {processing_time*1000:6.2f}ms, "
+                             f"modalities: {len(context.available_modalities)}")
     
     return results
 
-def visualize_multimodal_results(benchmark_results: Dict):
+def visualize_multimodal_results(benchmark_results: Dict) -> plt.Figure:
     """Visualize multimodal processing benchmark results."""
     
     strategies = list(benchmark_results.keys())
@@ -1101,158 +1134,221 @@ def visualize_multimodal_results(benchmark_results: Dict):
                f'{pct:.0f}%', ha='center', va='bottom')
     
     plt.tight_layout()
-    plt.show()
+    return fig
 
 # ============================================================================
 # MAIN DEMONSTRATION
 # ============================================================================
 
-def main():
-    """Main demonstration of multimodal context processing."""
-    
-    print("="*80)
-    print("MULTIMODAL CONTEXT PROCESSING LAB")
-    print("Context Engineering Course - Module 02")
-    print("="*80)
-    print()
-    
-    # 1. Basic multimodal processing demonstration
-    print("1. Basic Multimodal Processing")
-    print("-" * 50)
-    
-    # Create sample data
+from typing import Any
+
+def to_list(obj: Any) -> list:
+    """Safely convert .shape (tuple or ndarray attribute) to list."""
+    if hasattr(obj, "shape"):
+        return list(obj.shape)
+    return list(obj) if isinstance(obj, (tuple, list)) else [obj]
+
+def example_01_individual_modality_encoding():
+    example_dir = create_example_dir("example_01_individual_encoding")
+    logger = get_logger("ex01", example_dir)
+    logger.info("="*80)
+    logger.info("Example 01: Individual Modality Encoding")
+    logger.info("="*80)
+
     text_tokens, image_data, audio_data = create_sample_data()
-    
-    # Initialize processor
     processor = MultimodalProcessor(fusion_strategy='cross_attention')
-    
-    # Process individual modalities
-    print("Processing individual modalities:")
-    
-    text_context = processor.process_multimodal_context(text_data=text_tokens)
-    print(f"  Text embedding shape: {text_context.text.shape}")
-    
-    image_context = processor.process_multimodal_context(image_data=image_data)
-    print(f"  Image embedding shape: {image_context.image.shape}")
-    
-    audio_context = processor.process_multimodal_context(audio_data=audio_data)
-    print(f"  Audio embedding shape: {audio_context.audio.shape}")
-    
-    # Process multimodal combination
-    multimodal_context = processor.process_multimodal_context(
+
+    modality_cases = {
+        "text":  (Modality.TEXT,  text_tokens),
+        "image": (Modality.IMAGE, image_data),
+        "audio": (Modality.AUDIO, audio_data),
+    }
+
+    results = {}
+    for name, (modality_enum, data) in modality_cases.items():
+        context = processor.process_multimodal_context(
+            text_data=text_tokens if modality_enum == Modality.TEXT else None,
+            image_data=image_data if modality_enum == Modality.IMAGE else None,
+            audio_data=audio_data if modality_enum == Modality.AUDIO else None,
+        )
+
+        embedding = context.get_modality_data(modality_enum)
+        
+        # SAFE handling: convert tuple shape to list
+        shape_list = list(embedding.shape) if hasattr(embedding, 'shape') else [embedding.shape]
+        
+        results[name] = {
+            "embedding_shape": shape_list,
+            "norm": float(np.linalg.norm(embedding)),
+            "processing_time_ms": context.metadata["processing_time"] * 1000
+        }
+        save_numpy(embedding, example_dir, f"{name}_embedding")
+        logger.info(f"{name.title()} → shape: {shape_list}, "
+                    f"time: {context.metadata['processing_time']*1000:.2f}ms")
+
+    save_json(results, example_dir, "individual_results")
+    logger.info("Example 01 completed")
+
+
+def example_02_cross_modal_fusion():
+    example_dir = create_example_dir("example_02_cross_modal_fusion")
+    logger = get_logger("ex02", example_dir)
+    logger.info("="*80)
+    logger.info("Example 02: Cross-Modal Attention Fusion")
+    logger.info("="*80)
+
+    text_tokens, image_data, audio_data = create_sample_data()
+    processor = MultimodalProcessor(fusion_strategy='cross_attention')
+
+    context = processor.process_multimodal_context(
         text_data=text_tokens,
         image_data=image_data,
         audio_data=audio_data
     )
-    
-    print(f"\nMultimodal fusion:")
-    print(f"  Available modalities: {[m.value for m in multimodal_context.available_modalities]}")
-    print(f"  Fused embedding shape: {multimodal_context.fused.shape}")
-    print(f"  Processing time: {multimodal_context.metadata['processing_time']*1000:.2f}ms")
-    
-    # 2. Multimodal RAG demonstration
-    print("\n2. Multimodal RAG System")
-    print("-" * 50)
-    
-    rag_system = MultimodalRAG()
-    
-    # Add some sample content to knowledge base
-    print("Building knowledge base...")
-    
-    # Add text-only content
-    sample_texts = [
-        np.random.randint(0, 1000, 30),  # Document 1
-        np.random.randint(0, 1000, 25),  # Document 2
-        np.random.randint(0, 1000, 40),  # Document 3
-    ]
-    
-    for i, text in enumerate(sample_texts):
-        idx = rag_system.add_to_knowledge_base(
-            text_data=text,
-            metadata={'type': 'text_document', 'id': f'doc_{i}'}
-        )
-        print(f"  Added document {i} at index {idx}")
-    
-    # Add multimodal content
+
+    result = {
+        "available_modalities": [m.value for m in context.available_modalities],
+        "fused_shape": to_list(context.fused),
+        "fused_norm": float(np.linalg.norm(context.fused)),
+        "processing_time_ms": context.metadata["processing_time"] * 1000,
+        "fusion_strategy": context.metadata["fusion_strategy"]
+    }
+    save_json(result, example_dir, "fusion_result")
+    save_numpy(context.fused, example_dir, "fused_embedding")
+    save_numpy(context.text, example_dir, "text_embedding")
+    save_numpy(context.image, example_dir, "image_embedding")
+    save_numpy(context.audio, example_dir, "audio_embedding")
+
+    logger.info(f"Fusion complete → modalities: {len(context.available_modalities)}, "
+                f"time: {context.metadata['processing_time']*1000:.2f}ms")
+    logger.info("Example 02 completed")
+
+
+def example_03_multimodal_rag():
+    example_dir = create_example_dir("example_03_multimodal_rag")
+    logger = get_logger("ex03", example_dir)
+    logger.info("="*80)
+    logger.info("Example 03: Multimodal RAG System")
+    logger.info("="*80)
+
+    rag = MultimodalRAG()
+    texts = [np.random.randint(0, 1000, size=np.random.randint(20, 60)) for _ in range(3)]
+    for i, t in enumerate(texts):
+        rag.add_to_knowledge_base(text_data=t, metadata={"type": "text", "doc_id": f"text_{i}"})
     for i in range(2):
-        text_data, img_data, aud_data = create_sample_data()
-        idx = rag_system.add_to_knowledge_base(
-            text_data=text_data,
-            image_data=img_data,
-            audio_data=aud_data,
-            metadata={'type': 'multimodal', 'id': f'mm_{i}'}
-        )
-        print(f"  Added multimodal content {i} at index {idx}")
-    
-    # Query the system
-    print("\nQuerying knowledge base:")
+        t, img, aud = create_sample_data()
+        rag.add_to_knowledge_base(text_data=t, image_data=img, audio_data=aud,
+                                  metadata={"type": "multimodal", "doc_id": f"mm_{i}"})
+
     query_text = np.random.randint(0, 1000, 20)
-    results = rag_system.retrieve_relevant_context(query_text=query_text, top_k=3)
-    
-    for i, result in enumerate(results):
-        print(f"  Result {i+1}: similarity={result['similarity']:.3f}, "
-              f"type={result['metadata'].get('type', 'unknown')}")
-    
-    # 3. Content analysis demonstration
-    print("\n3. Multimodal Content Analysis")
-    print("-" * 50)
-    
+    results = rag.retrieve_relevant_context(query_text=query_text, top_k=4)
+
+    retrieval_output = []
+    for r in results:
+        entry = {
+            "rank": len(retrieval_output) + 1,
+            "similarity": round(float(r["similarity"]), 4),
+            "metadata": r["metadata"],
+            "modalities": [m.value for m in r["context"].available_modalities]
+        }
+        retrieval_output.append(entry)
+        logger.info(f"Rank {entry['rank']}: sim={entry['similarity']:.4f}, type={entry['metadata']['type']}")
+
+    save_json(retrieval_output, example_dir, "retrieval_results")
+    logger.info("Example 03 completed")
+
+
+def example_04_content_analysis():
+    example_dir = create_example_dir("example_04_content_analysis")
+    logger = get_logger("ex04", example_dir)
+    logger.info("="*80)
+    logger.info("Example 04: Multimodal Content Analysis")
+    logger.info("="*80)
+
     analyzer = MultimodalContentAnalyzer()
-    
-    # Analyze different content types
-    content_types = [
-        ("Text only", text_tokens, None, None),
-        ("Image only", None, image_data, None),
-        ("Audio only", None, None, audio_data),
-        ("Multimodal", text_tokens, image_data, audio_data)
+    text_tokens, image_data, audio_data = create_sample_data()
+
+    cases = [
+        ("text_only", text_tokens, None, None),
+        ("image_only", None, image_data, None),
+        ("audio_only", None, None, audio_data),
+        ("all_modalities", text_tokens, image_data, audio_data)
     ]
-    
-    for name, text, image, audio in content_types:
-        analysis = analyzer.analyze_content(
-            text_data=text,
-            image_data=image,
-            audio_data=audio
-        )
-        
-        print(f"\n{name} Analysis:")
-        if 'error' not in analysis:
-            print(f"  Sentiment: {analysis['sentiment']['predicted']} "
-                  f"({analysis['sentiment'][analysis['sentiment']['predicted']]:.3f})")
-            print(f"  Safety: {analysis['safety']['classification']} "
-                  f"({analysis['safety']['safe_score']:.3f})")
-            print(f"  Quality - Confidence: {analysis['quality_metrics']['confidence']:.3f}")
-            print(f"  Modalities: {', '.join(analysis['modalities_used'])}")
-        else:
-            print(f"  Error: {analysis['error']}")
-    
-    # 4. Performance benchmark
-    print("\n4. Performance Benchmark")
-    print("-" * 50)
-    
-    benchmark_results = benchmark_multimodal_processing()
-    
-    # 5. Visualizations
-    print("\n5. Generating Visualizations...")
-    print("-" * 50)
-    
-    visualize_multimodal_results(benchmark_results)
-    
-    print("\n" + "="*80)
-    print("MULTIMODAL CONTEXT PROCESSING LAB COMPLETE")
-    print("="*80)
-    print("\nKey Takeaways:")
-    print("• Unified representation enables cross-modal understanding")
-    print("• Cross-modal attention captures modality interactions")
-    print("• Hierarchical fusion handles missing modalities gracefully")
-    print("• Production systems need caching and efficient encoding")
-    print("• Content analysis benefits from multimodal context")
-    
-    print("\nPractical Applications:")
-    print("• Multimodal search and retrieval systems")
-    print("• Content moderation across text, image, and audio")
-    print("• Enhanced chatbots with multimodal understanding")
-    print("• Cross-modal content generation and editing")
-    print("• Accessibility tools for multimodal content")
+
+    analysis_results = {}
+    for name, t, i, a in cases:
+        res = analyzer.analyze_content(text_data=t, image_data=i, audio_data=a)
+        analysis_results[name] = res
+        logger.info(f"{name.replace('_', ' ').title()}: "
+                    f"sentiment={res['sentiment']['predicted']} "
+                    f"({res['sentiment'][res['sentiment']['predicted']]:.3f}), "
+                    f"safety={res['safety']['classification']}, "
+                    f"confidence={res['quality_metrics']['confidence']:.3f}")
+
+    save_json(analysis_results, example_dir, "analysis_results")
+    logger.info("Example 04 completed")
+
+
+def example_05_hierarchical_vs_cross_attention():
+    example_dir = create_example_dir("example_05_fusion_comparison")
+    logger = get_logger("ex05", example_dir)
+    logger.info("="*80)
+    logger.info("Example 05: Hierarchical vs Cross-Attention Fusion")
+    logger.info("="*80)
+
+    text_tokens, image_data, audio_data = create_sample_data()
+    comparison = {}
+
+    for strategy in ['cross_attention', 'hierarchical']:
+        processor = MultimodalProcessor(fusion_strategy=strategy)
+        start = time.time()
+        ctx = processor.process_multimodal_context(text_tokens, image_data, audio_data)
+        duration = (time.time() - start) * 1000
+        comparison[strategy] = {
+            "processing_time_ms": round(duration, 2),
+            "fused_norm": float(np.linalg.norm(ctx.fused)),
+            "fused_shape": to_list(ctx.fused),
+            "modalities": len(ctx.available_modalities)
+        }
+        save_numpy(ctx.fused, example_dir, f"fused_{strategy}")
+        logger.info(f"{strategy.replace('_', ' ').title()}: {duration:.2f}ms")
+
+    save_json(comparison, example_dir, "fusion_comparison")
+    logger.info("Example 05 completed")
+
+
+def example_06_performance_benchmark():
+    example_dir = create_example_dir("example_06_benchmark")
+    logger = get_logger("ex06", example_dir)
+    logger.info("="*80)
+    logger.info("Example 06: Full Performance Benchmark")
+    logger.info("="*80)
+
+    results = benchmark_multimodal_processing()  # already uses logger
+    save_json(results, example_dir, "benchmark_results")
+
+    fig = visualize_multimodal_results(results)
+    save_plot(fig, example_dir, "performance_dashboard")
+    logger.info("Benchmark + dashboard saved")
+    logger.info("Example 06 completed")
+
+
+def main():
+    base_logger.info("\n" + "="*80)
+    base_logger.info("MULTIMODAL CONTEXT PROCESSING LAB")
+    base_logger.info("All artifacts → ./generated/multimodal_lab/example_*")
+    base_logger.info("="*80)
+
+    example_01_individual_modality_encoding()
+    example_02_cross_modal_fusion()
+    example_03_multimodal_rag()
+    example_04_content_analysis()
+    example_05_hierarchical_vs_cross_attention()
+    example_06_performance_benchmark()
+
+    base_logger.info("="*80)
+    base_logger.info("ALL EXAMPLES COMPLETED – 6 folders with logs, JSON, NPY, PNG")
+    base_logger.info("="*80)
 
 if __name__ == "__main__":
     main()

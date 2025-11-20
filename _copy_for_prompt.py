@@ -63,9 +63,10 @@ SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = """
-Update these code so that it saves all results under separate OUTPUT_DIR/<example_*> folder.
+Update these code so that it saves all usage example results under separate OUTPUT_DIR/<example_*> folder.
 Save all results and with appropriate extension such as json (for config, generations, etc.), images (.png), html, markdown (for llm context, prompt, response, etc.), etc.
 Write individual descriptive example_<num>_* functions demonstrating all possible use cases.
+Replace all prints with the base or a custom logger.
 Add a main block if not yet added.
 Apply safe refactoring and do not change imports.
 """.strip()

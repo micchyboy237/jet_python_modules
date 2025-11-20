@@ -21,16 +21,47 @@ Research Foundation:
 
 import numpy as np
 import matplotlib.pyplot as plt
-import networkx as nx
 import json
 import time
-from typing import Dict, List, Optional, Tuple, Any, Set, Union
+from typing import Dict, List, Optional, Tuple, Any, Set
 from dataclasses import dataclass, field
-from abc import ABC, abstractmethod
 from enum import Enum
 from collections import defaultdict, deque
 import warnings
 warnings.filterwarnings('ignore')
+
+import shutil
+from pathlib import Path
+
+try:
+    from jet.logger import CustomLogger
+    base_logger = CustomLogger(name="structured_data_lab", filename="structured_data_lab.log", overwrite=True)
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    base_logger = logging.getLogger("structured_data_lab")
+
+def create_example_dir(example_name: str) -> Path:
+    base_dir = Path(__file__).parent / "generated" / Path(__file__).stem
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def get_logger(name: str, output_dir: Path) -> "CustomLogger":
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=log_file, overwrite=True)
+
+def save_json(data: Any, path: Path, name: str = "data") -> None:
+    with open(path / f"{name}.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x))
+
+def save_plot(fig: plt.Figure, path: Path, name: str = "plot") -> None:
+    fig.savefig(path / f"{name}.png", dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+def save_numpy(arr: np.ndarray, path: Path, name: str) -> None:
+    np.save(path / f"{name}.npy", arr)
 
 # ============================================================================
 # CORE INTERFACES & UTILITIES
@@ -829,21 +860,15 @@ def create_sample_knowledge_graph() -> KnowledgeGraph:
 
 def benchmark_graph_operations():
     """Benchmark knowledge graph operations."""
-    
-    print("="*60)
-    print("STRUCTURED DATA PROCESSING BENCHMARK")
-    print("="*60)
-    
-    # Create test knowledge graphs of different sizes
+
     graph_sizes = [100, 500, 1000, 2000]
     results = {}
-    
     for size in graph_sizes:
-        print(f"\nTesting graph with {size} entities:")
-        
+        base_logger.info(f"Testing graph with {size} entities")
+
         # Create random graph
         kg = KnowledgeGraph(d_model=256)
-        
+
         # Add entities
         start_time = time.time()
         entities = []
@@ -856,9 +881,9 @@ def benchmark_graph_operations():
             )
             entities.append(entity)
             kg.add_entity(entity)
-        
+
         entity_creation_time = time.time() - start_time
-        
+
         # Add relations (create connected graph)
         start_time = time.time()
         relations_added = 0
@@ -866,7 +891,7 @@ def benchmark_graph_operations():
             # Connect to 2-5 random other entities
             num_connections = min(np.random.randint(2, 6), size - 1)
             targets = np.random.choice(size, num_connections, replace=False)
-            
+
             for target_idx in targets:
                 if target_idx != i:
                     relation = Relation(
@@ -877,14 +902,14 @@ def benchmark_graph_operations():
                     )
                     if kg.add_relation(relation):
                         relations_added += 1
-        
+
         relation_creation_time = time.time() - start_time
-        
+
         # Test embedding computation
         start_time = time.time()
         embeddings = kg.compute_embeddings_gnn(num_iterations=3)
         embedding_time = time.time() - start_time
-        
+
         # Test path finding
         start_time = time.time()
         paths_found = 0
@@ -894,15 +919,15 @@ def benchmark_graph_operations():
             path = kg.find_path(f"entity_{source_idx}", f"entity_{target_idx}")
             if path:
                 paths_found += 1
-        
+
         pathfinding_time = time.time() - start_time
-        
+
         # Test similarity search
         start_time = time.time()
         query_embedding = np.random.randn(256)
         similar_entities = kg.similarity_search(query_embedding, top_k=10)
         similarity_time = time.time() - start_time
-        
+
         # Store results
         stats = kg.get_statistics()
         results[size] = {
@@ -916,16 +941,17 @@ def benchmark_graph_operations():
             'similar_entities_found': len(similar_entities),
             'average_degree': stats['average_degree']
         }
-        
-        print(f"  Entity creation: {entity_creation_time*1000:.2f}ms")
-        print(f"  Relations added: {relations_added} ({relation_creation_time*1000:.2f}ms)")
-        print(f"  GNN embeddings: {embedding_time*1000:.2f}ms")
-        print(f"  Path finding: {paths_found}/100 found ({pathfinding_time*1000:.2f}ms)")
-        print(f"  Similarity search: {len(similar_entities)} found ({similarity_time*1000:.2f}ms)")
-    
+
+        base_logger.info(
+            f"Entities: {entity_creation_time*1000:.2f}ms | "
+            f"Relations: {relations_added} ({relation_creation_time*1000:.2f}ms) | "
+            f"GNN: {embedding_time*1000:.2f}ms | "
+            f"Paths found: {paths_found}/100"
+        )
+
     return results
 
-def visualize_graph_performance(results: Dict):
+def visualize_graph_performance(results: Dict) -> plt.Figure:
     """Visualize graph processing performance."""
     
     sizes = list(results.keys())
@@ -1023,131 +1049,104 @@ def visualize_graph_performance(results: Dict):
     ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
+    return fig
 
 # ============================================================================
 # MAIN DEMONSTRATION
 # ============================================================================
 
-def main():
-    """Main demonstration of structured data processing capabilities."""
-    
-    print("="*80)
-    print("STRUCTURED DATA CONTEXT PROCESSING LAB")
-    print("Context Engineering Course - Module 02")
-    print("="*80)
-    print()
-    
-    # 1. Basic knowledge graph demonstration
-    print("1. Knowledge Graph Construction and Querying")
-    print("-" * 60)
-    
-    # Create sample knowledge graph
+def example_01_knowledge_graph_basics():
+    example_dir = create_example_dir("example_01_knowledge_graph_basics")
+    logger = get_logger("ex01", example_dir)
+    logger.info("="*80)
+    logger.info("Example 01: Knowledge Graph Construction & Querying")
+    logger.info("="*80)
+
     kg = create_sample_knowledge_graph()
     stats = kg.get_statistics()
-    
-    print("Knowledge Graph Statistics:")
-    print(f"  Entities: {stats['num_entities']}")
-    print(f"  Relations: {stats['num_relations']}")
-    print(f"  Entity types: {list(stats['entity_types'].keys())}")
-    print(f"  Relation types: {list(stats['relation_types'].keys())}")
-    print(f"  Average degree: {stats['average_degree']:.2f}")
-    
-    # Test path finding
-    print("\nPath Finding Examples:")
-    paths = [
-        ("person_1", "product_1"),
-        ("person_2", "location_1"),
-        ("company_1", "person_1")
-    ]
-    
-    for source, target in paths:
-        path = kg.find_path(source, target)
-        print(f"  {source} → {target}: {' → '.join(path) if path else 'No path found'}")
-    
-    # Test entity queries
-    print("\nEntity Queries:")
+    save_json(stats, example_dir, "graph_statistics")
+
+    # Path finding
+    paths = [("person_1", "product_1"), ("person_2", "location_1"), ("company_1", "person_1")]
+    path_results = {}
+    for src, tgt in paths:
+        path = kg.find_path(src, tgt)
+        path_results[f"{src}_to_{tgt}"] = path
+        logger.info(f"Path {src} → {tgt}: {' → '.join(path) if path else 'Not found'}")
+    save_json(path_results, example_dir, "paths")
+
+    # Entity queries
     people = kg.query_entities(entity_type=EntityType.PERSON)
-    print(f"  Found {len(people)} people: {[p.name for p in people]}")
-    
     orgs = kg.query_entities(entity_type=EntityType.ORGANIZATION)
-    print(f"  Found {len(orgs)} organizations: {[o.name for o in orgs]}")
-    
-    # 2. Graph Neural Network embeddings
-    print("\n2. Graph Neural Network Embeddings")
-    print("-" * 60)
-    
-    print("Computing GNN embeddings...")
-    start_time = time.time()
+    save_json({"people": [p.__dict__ for p in people]}, example_dir, "people")
+    save_json({"organizations": [o.__dict__ for o in orgs]}, example_dir, "organizations")
+
+    logger.info("Example 01 completed")
+    return kg
+
+
+def example_02_gnn_embeddings():
+    example_dir = create_example_dir("example_02_gnn_embeddings")
+    logger = get_logger("ex02", example_dir)
+    logger.info("="*80)
+    logger.info("Example 02: Graph Neural Network Embeddings")
+    logger.info("="*80)
+
+    kg = example_01_knowledge_graph_basics()  # reuse from previous
+    start = time.time()
     embeddings = kg.compute_embeddings_gnn(num_iterations=3)
-    embedding_time = time.time() - start_time
-    
-    print(f"  Computed embeddings for {len(embeddings)} entities")
-    print(f"  Processing time: {embedding_time*1000:.2f}ms")
-    
-    # Test similarity search
-    alice_entity = kg.get_entity("person_1")
-    if alice_entity and alice_entity.embedding is not None:
-        similar_entities = kg.similarity_search(alice_entity.embedding, top_k=3)
-        print("\nSimilar entities to Alice Johnson:")
-        for entity, similarity in similar_entities:
-            print(f"  {entity.name} ({entity.entity_type.value}): {similarity:.3f}")
-    
-    # 3. GraphRAG demonstration
-    print("\n3. Graph-Enhanced RAG System")
-    print("-" * 60)
-    
+    duration = time.time() - start
+
+    save_json({"duration_ms": duration*1000, "num_entities": len(embeddings)}, example_dir, "embedding_stats")
+    save_numpy(kg.entity_embeddings, example_dir, "entity_embeddings")
+
+    alice = kg.get_entity("person_1")
+    if alice and alice.embedding is not None:
+        similar = kg.similarity_search(alice.embedding, top_k=3)
+        save_json([{"name": e.name, "type": e.entity_type.value, "similarity": s} for e, s in similar],
+                  example_dir, "alice_similar_entities")
+        logger.info(f"Top similar to Alice: {[e.name for e, _ in similar]}")
+
+    logger.info(f"GNN embedding completed in {duration*1000:.2f}ms")
+    return kg
+
+
+def example_03_graph_rag():
+    example_dir = create_example_dir("example_03_graph_rag")
+    logger = get_logger("ex03", example_dir)
+    logger.info("="*80)
+    logger.info("Example 03: Graph-Enhanced Retrieval (GraphRAG)")
+    logger.info("="*80)
+
     graph_rag = GraphRAG(d_model=256)
-    
-    # Add sample documents
-    sample_docs = [
-        {
-            'id': 'doc_1',
-            'content': 'Alice Johnson founded TechCorp in San Francisco',
-            'entities': [
-                Entity('alice_doc', 'Alice Johnson', EntityType.PERSON),
-                Entity('techcorp_doc', 'TechCorp', EntityType.ORGANIZATION),
-                Entity('sf_doc', 'San Francisco', EntityType.LOCATION)
-            ],
-            'relations': [
-                Relation(Entity('alice_doc', 'Alice', EntityType.PERSON),
-                        Entity('techcorp_doc', 'TechCorp', EntityType.ORGANIZATION),
-                        RelationType.WORKS_FOR)
-            ]
-        }
-    ]
-    
-    for doc in sample_docs:
-        doc_embedding = np.random.randn(256) * 0.1
-        graph_rag.add_document(
-            doc['id'], doc['content'], 
-            doc['entities'], doc['relations'],
-            doc_embedding
-        )
-    
-    # Test retrieval
-    query = "Tell me about TechCorp's founder"
-    query_embedding = np.random.randn(256) * 0.1
-    
-    retrieval_result = graph_rag.retrieve_context(
-        query, query_embedding, top_k_entities=3, top_k_documents=2
-    )
-    
-    print(f"Query: {query}")
-    print(f"Relevant entities found: {retrieval_result['retrieval_stats']['entities_found']}")
-    print(f"Relevant documents found: {retrieval_result['retrieval_stats']['documents_found']}")
-    
-    for entity, similarity in retrieval_result['relevant_entities']:
-        print(f"  Entity: {entity.name} (similarity: {similarity:.3f})")
-    
-    # 4. Schema processing demonstration
-    print("\n4. Schema Processing and Validation")
-    print("-" * 60)
-    
-    # Create schema processor
+    kg = create_sample_knowledge_graph()
+    for entity in kg.entities.values():
+        graph_rag.knowledge_graph.add_entity(entity)
+    for relation in kg.relations:
+        graph_rag.knowledge_graph.add_relation(relation)
+
+    doc_embedding = np.random.randn(256) * 0.1
+    graph_rag.add_document("doc_1", "Alice founded TechCorp in SF", [], [], doc_embedding)
+
+    query = "Who founded TechCorp?"
+    q_emb = np.random.randn(256) * 0.1
+    result = graph_rag.retrieve_context(query, q_emb, top_k_entities=3, top_k_documents=2)
+
+    save_json(result, example_dir, "retrieval_result")
+    save_numpy(result["unified_context"], example_dir, "unified_context")
+
+    logger.info(f"Retrieved {len(result['relevant_entities'])} entities and {len(result['relevant_documents'])} docs")
+    logger.info("Example 03 completed")
+
+
+def example_04_schema_validation():
+    example_dir = create_example_dir("example_04_schema_validation")
+    logger = get_logger("ex04", example_dir)
+    logger.info("="*80)
+    logger.info("Example 04: Structured Data Schema Validation")
+    logger.info("="*80)
+
     processor = StructuredDataProcessor()
-    
-    # Define sample schema
     tech_schema = Schema(
         name="tech_company_data",
         entity_types={EntityType.PERSON, EntityType.ORGANIZATION, EntityType.PRODUCT},
@@ -1157,92 +1156,88 @@ def main():
             'field_types': {'company_name': str, 'founded_year': int}
         }
     )
-    
     processor.register_schema(tech_schema)
-    
-    # Test data validation
+
     test_data = [
         {'company_name': 'TestCorp', 'founder': 'John Doe', 'founded_year': 2021},
-        {'company_name': 'BadCorp', 'founder': 'Jane Smith'},  # Missing founded_year
-        {'founder': 'Bob Wilson', 'founded_year': 2020}        # Missing company_name
+        {'company_name': 'BadCorp', 'founder': 'Jane Smith'},
+        {'founder': 'Bob Wilson', 'founded_year': 2020}
     ]
-    
-    print("Schema Validation Results:")
+
+    validation_results = []
     for i, data in enumerate(test_data):
-        result = processor.validate_data('tech_company_data', data)
-        print(f"  Data {i+1}: {'Valid' if result['valid'] else 'Invalid'}")
-        if not result['valid']:
-            print(f"    Errors: {result.get('errors', [])}")
-    
-    # 5. Graph reasoning demonstration
-    print("\n5. Graph Reasoning Engine")
-    print("-" * 60)
-    
+        res = processor.validate_data('tech_company_data', data)
+        validation_results.append({"input": data, "result": res})
+        status = "Valid" if res['valid'] else "Invalid"
+        logger.info(f"Data {i+1}: {status} → {res.get('errors', [])}")
+
+    save_json(validation_results, example_dir, "validation_results")
+    logger.info("Example 04 completed")
+
+
+def example_05_graph_reasoning():
+    example_dir = create_example_dir("example_05_graph_reasoning")
+    logger = get_logger("ex05", example_dir)
+    logger.info("="*80)
+    logger.info("Example 05: Logical Inference & Reasoning")
+    logger.info("="*80)
+
+    kg = create_sample_knowledge_graph()
     reasoner = GraphReasoner(kg)
-    
-    # Add simple inference rule
     reasoner.add_inference_rule(
         "transitivity",
         [("?x", RelationType.WORKS_FOR, "?y"), ("?y", RelationType.LOCATED_IN, "?z")],
         ("?x", RelationType.LOCATED_IN, "?z")
     )
-    
-    # Test reasoning queries
+
     queries = [
         ("Are Alice and Bob connected?", ["person_1", "person_2"]),
-        ("What is the similarity between TechCorp and Alice?", ["company_1", "person_1"]),
         ("Find path from Bob to San Francisco", ["person_2", "location_1"])
     ]
-    
-    for query_text, entities in queries:
-        print(f"\nQuery: {query_text}")
-        result = reasoner.answer_query(query_text, entities)
-        
-        if result.get('query_type') == 'connectivity':
-            print(f"  Connected: {result['connected']}")
-            if result['path']:
-                print(f"  Path: {' → '.join(result['path'])}")
-        
-        elif result.get('query_type') == 'similarity':
-            for sim in result.get('similarities', []):
-                print(f"  {sim['entity_1']} ↔ {sim['entity_2']}: {sim['similarity']:.3f}")
-        
-        elif result.get('query_type') == 'path':
-            if result['path_exists']:
-                print(f"  Path: {' → '.join(result['path'])}")
-                for rel in result['path_relations']:
-                    print(f"    {rel['source']} --{rel['relation_type']}--> {rel['target']}")
-            else:
-                print("  No path found")
-    
-    # 6. Performance benchmark
-    print("\n6. Performance Benchmark")
-    print("-" * 60)
-    
-    benchmark_results = benchmark_graph_operations()
-    
-    # 7. Visualizations
-    print("\n7. Generating Performance Visualizations...")
-    print("-" * 60)
-    
-    visualize_graph_performance(benchmark_results)
-    
-    print("\n" + "="*80)
-    print("STRUCTURED DATA CONTEXT PROCESSING LAB COMPLETE")
-    print("="*80)
-    print("\nKey Takeaways:")
-    print("• Knowledge graphs provide rich structured context")
-    print("• GNN embeddings capture relational information effectively")
-    print("• Graph-enhanced RAG improves retrieval quality")
-    print("• Schema validation ensures data consistency")
-    print("• Graph reasoning enables logical inference")
-    
-    print("\nPractical Applications:")
-    print("• Enterprise knowledge management systems")
-    print("• Intelligent search with relationship understanding")
-    print("• Automated fact-checking and verification")
-    print("• Recommendation systems with graph-based features")
-    print("• Legal and regulatory compliance systems")
+
+    answers = []
+    for q_text, entities in queries:
+        ans = reasoner.answer_query(q_text, entities)
+        answers.append({"query": q_text, "answer": ans})
+        logger.info(f"Query: {q_text} → {'Connected' if ans.get('connected') else 'Path found' if ans.get('path_exists') else 'No result'}")
+
+    save_json(answers, example_dir, "reasoning_results")
+    logger.info("Example 05 completed")
+
+
+def example_06_performance_benchmark():
+    example_dir = create_example_dir("example_06_performance_benchmark")
+    logger = get_logger("ex06", example_dir)
+    logger.info("="*80)
+    logger.info("Example 06: Full Performance Benchmark")
+    logger.info("="*80)
+
+    results = benchmark_graph_operations()  # already uses logger internally
+    save_json(results, example_dir, "benchmark_results")
+
+    fig = visualize_graph_performance(results)
+    save_plot(fig, example_dir, "performance_dashboard")
+    logger.info("Benchmark completed and dashboard saved")
+    logger.info("Example 06 completed")
+
+
+def main():
+    base_logger.info("\n" + "="*80)
+    base_logger.info("STRUCTURED DATA CONTEXT PROCESSING LAB")
+    base_logger.info("All outputs → ./generated/structured_data_lab/example_*")
+    base_logger.info("="*80)
+
+    example_01_knowledge_graph_basics()
+    example_02_gnn_embeddings()
+    example_03_graph_rag()
+    example_04_schema_validation()
+    example_05_graph_reasoning()
+    example_06_performance_benchmark()
+
+    base_logger.info("="*80)
+    base_logger.info("ALL EXAMPLES COMPLETED")
+    base_logger.info("Check  JSON, PNG, NPY, and logs saved per example")
+    base_logger.info("="*80)
 
 if __name__ == "__main__":
     main()

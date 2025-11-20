@@ -22,12 +22,47 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import json
-from typing import Dict, List, Optional, Tuple, Any, Callable
-from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from enum import Enum
 import warnings
 warnings.filterwarnings('ignore')
+
+import shutil
+from pathlib import Path
+
+# === GLOBAL BASE LOGGER (already exists in your file, keep it) ===
+# We'll reuse the existing base_logger from jet.logger if available
+try:
+    from jet.logger import CustomLogger
+    base_logger = CustomLogger(name="self_refinement_lab", filename="self_refinement_lab.log", overwrite=True)
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    base_logger = logging.getLogger("self_refinement_lab")
+
+def create_example_dir(example_name: str) -> Path:
+    base_dir = Path(__file__).parent / "generated" / Path(__file__).stem
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def get_logger(name: str, output_dir: Path) -> CustomLogger:
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=log_file, overwrite=True)
+
+def save_json(data: Any, filepath: Path, name: str = "data") -> None:
+    with open(filepath / f"{name}.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x))
+
+def save_plot(fig: plt.Figure, filepath: Path, name: str = "plot") -> None:
+    fig.savefig(filepath / f"{name}.png", dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+def save_numpy(arr: np.ndarray, filepath: Path, name: str) -> None:
+    np.save(filepath / f"{name}.npy", arr)
 
 # ============================================================================
 # CORE INTERFACES & UTILITIES
@@ -429,7 +464,7 @@ class SelfRefinementPipeline:
         current_context = initial_context.copy()
         self.refinement_history = []
         
-        print(f"Starting self-refinement pipeline...")
+        print("Starting self-refinement pipeline...")
         print(f"Target quality: {target_quality:.3f}, Max iterations: {self.max_iterations}")
         
         # Initial quality assessment
@@ -477,7 +512,7 @@ class SelfRefinementPipeline:
             
             # Check for degradation (with some tolerance)
             if improvement < -self.convergence_threshold * 2:
-                print(f"Quality degradation detected, stopping refinement")
+                print("Quality degradation detected, stopping refinement")
                 break
             
             # Update for next iteration
@@ -771,75 +806,75 @@ def benchmark_refinement_pipeline():
     
     return results
 
-def visualize_refinement_results(results: Dict, refinement_history: List[RefinementIteration]):
+def visualize_refinement_results(results: Dict, refinement_history: List[RefinementIteration]) -> plt.Figure:
     """Create comprehensive visualization of refinement results."""
-    
+
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
     fig.suptitle('Self-Refinement Analysis Dashboard', fontsize=16, fontweight='bold')
-    
+
     # Plot 1: Quality improvement by initial quality level
     ax = axes[0, 0]
     quality_levels = list(results.keys())
     seq_lengths = list(results[quality_levels[0]].keys())
-    
+
     for seq_len in seq_lengths:
         improvements = [results[qual][seq_len]['improvement'] for qual in quality_levels]
         ax.plot(quality_levels, improvements, 'o-', label=f'Length {seq_len}', linewidth=2, markersize=8)
-    
+
     ax.set_xlabel('Initial Quality Level')
     ax.set_ylabel('Quality Improvement')
     ax.set_title('Improvement by Initial Quality')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     # Plot 2: Processing time analysis
     ax = axes[0, 1]
     for qual in quality_levels:
         times = [results[qual][seq_len]['processing_time'] for seq_len in seq_lengths]
         ax.plot(seq_lengths, times, 's-', label=f'{qual.title()} Quality', linewidth=2, markersize=8)
-    
+
     ax.set_xlabel('Sequence Length')
     ax.set_ylabel('Processing Time (seconds)')
     ax.set_title('Processing Time Analysis')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     # Plot 3: Convergence analysis
     ax = axes[0, 2]
     convergence_rates = {}
     for qual in quality_levels:
         converged = sum(1 for seq_len in seq_lengths if results[qual][seq_len]['convergence_achieved'])
         convergence_rates[qual] = converged / len(seq_lengths)
-    
-    bars = ax.bar(convergence_rates.keys(), convergence_rates.values(), 
+
+    bars = ax.bar(convergence_rates.keys(), convergence_rates.values(),
                   alpha=0.7, color=['red', 'orange', 'green'])
     ax.set_ylabel('Convergence Rate')
     ax.set_title('Convergence Success Rate')
     ax.set_ylim(0, 1)
-    
+
     # Add percentage labels
     for bar, rate in zip(bars, convergence_rates.values()):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
                f'{rate*100:.0f}%', ha='center', va='bottom')
-    
+
     # Plot 4: Refinement trajectory (if history available)
     ax = axes[1, 0]
     if refinement_history:
         iterations = range(len(refinement_history) + 1)
         quality_trajectory = [refinement_history[0].quality_before.overall]
         quality_trajectory.extend([iter.quality_after.overall for iter in refinement_history])
-        
+
         ax.plot(iterations, quality_trajectory, 'b-o', linewidth=3, markersize=8)
         ax.set_xlabel('Iteration')
         ax.set_ylabel('Quality Score')
         ax.set_title('Quality Trajectory Example')
         ax.grid(True, alpha=0.3)
-        
+
         # Highlight best iteration
         best_iter = np.argmax([iter.quality_after.overall for iter in refinement_history])
         ax.axvline(x=best_iter + 1, color='green', linestyle='--', alpha=0.7, label='Best Result')
         ax.legend()
-    
+
     # Plot 5: Efficiency analysis
     ax = axes[1, 1]
     efficiency_data = {}
@@ -847,139 +882,154 @@ def visualize_refinement_results(results: Dict, refinement_history: List[Refinem
         efficiencies = []
         for seq_len in seq_lengths:
             improvement = results[qual][seq_len]['improvement']
-            time = results[qual][seq_len]['processing_time']
-            efficiency = improvement / time if time > 0 else 0
+            time_val = results[qual][seq_len]['processing_time']
+            efficiency = improvement / time_val if time_val > 0 else 0
             efficiencies.append(max(0, efficiency))  # Ensure non-negative
         efficiency_data[qual] = np.mean(efficiencies)
-    
-    bars = ax.bar(efficiency_data.keys(), efficiency_data.values(), 
+
+    bars = ax.bar(efficiency_data.keys(), efficiency_data.values(),
                   alpha=0.7, color=['red', 'orange', 'green'])
     ax.set_ylabel('Efficiency (Improvement/Time)')
     ax.set_title('Refinement Efficiency')
-    
+
     # Add value labels
     for bar, eff in zip(bars, efficiency_data.values()):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001,
                f'{eff:.3f}', ha='center', va='bottom')
-    
+
     # Plot 6: Quality dimensions breakdown (if history available)
     ax = axes[1, 2]
     if refinement_history:
         final_quality = refinement_history[-1].quality_after
         dimensions = ['Coherence', 'Relevance', 'Completeness', 'Clarity', 'Factuality']
-        values = [final_quality.coherence, final_quality.relevance, 
+        values = [final_quality.coherence, final_quality.relevance,
                  final_quality.completeness, final_quality.clarity, final_quality.factuality]
-        
+
         bars = ax.bar(dimensions, values, alpha=0.7, color='skyblue')
         ax.set_ylabel('Quality Score')
         ax.set_title('Final Quality Breakdown')
         ax.set_ylim(0, 1)
         plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-        
+
         # Add value labels
         for bar, value in zip(bars, values):
             ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
                    f'{value:.2f}', ha='center', va='bottom')
-    
+
     plt.tight_layout()
-    plt.show()
+    return fig
 
 # ============================================================================
 # MAIN DEMONSTRATION
 # ============================================================================
 
-def main():
-    """Main demonstration of self-refinement capabilities."""
-    
-    print("="*80)
-    print("SELF-REFINEMENT CONTEXT PROCESSING LAB")
-    print("Context Engineering Course - Module 02")
-    print("="*80)
-    print()
-    
-    # 1. Basic refinement demonstration
-    print("1. Basic Self-Refinement Demonstration")
-    print("-" * 50)
-    
-    # Create sample context with medium quality
+def example_01_basic_self_refinement():
+    example_dir = create_example_dir("example_01_basic_refinement")
+    logger = get_logger("ex01", example_dir)
+    logger.info("="*80)
+    logger.info("Example 01: Basic Self-Refinement Pipeline")
+    logger.info("="*80)
+
     context = create_sample_context(256, quality_level='poor')
     query = create_sample_context(32, quality_level='high')
-    
-    # Initialize refinement pipeline
     pipeline = SelfRefinementPipeline(max_iterations=5, quality_threshold=0.75)
     
-    # Execute refinement
     result = pipeline.refine_context(context, query)
-    
-    print(f"\nRefinement completed:")
-    print(f"  Initial quality: {result['initial_quality'].overall:.3f}")
-    print(f"  Final quality: {result['final_quality'].overall:.3f}")
-    print(f"  Total improvement: {result['total_improvement']:+.3f}")
-    print(f"  Iterations: {result['iterations_completed']}")
-    print(f"  Target reached: {result['target_quality_reached']}")
-    print(f"  Processing time: {result['processing_time']:.2f}s")
-    
-    # 2. Production system demonstration
-    print("\n2. Production Refinement System")
-    print("-" * 50)
-    
+    analytics = pipeline.get_refinement_analytics()
+
+    save_json(result, example_dir, "refinement_result")
+    save_json(analytics, example_dir, "analytics")
+    save_numpy(result['final_context'], example_dir, "final_context")
+    save_numpy(query, example_dir, "query")
+
+    logger.info(f"Initial quality: {result['initial_quality'].overall:.3f}")
+    logger.info(f"Final quality: {result['final_quality'].overall:.3f}")
+    logger.info(f"Improvement: {result['total_improvement']:+.3f}")
+    logger.info(f"Iterations: {result['iterations_completed']}")
+    logger.info(f"Target reached: {result['target_quality_reached']}")
+    logger.info("Example 01 completed")
+    logger.info("-"*80)
+
+    return pipeline  # return for use in visualization example
+
+
+def example_02_production_system():
+    example_dir = create_example_dir("example_02_production_system")
+    logger = get_logger("ex02", example_dir)
+    logger.info("="*80)
+    logger.info("Example 02: Production Refinement with Strategy Selection")
+    logger.info("="*80)
+
     production_system = ProductionRefinementSystem()
-    
-    # Test different scenarios
-    test_contexts = {
+    query = create_sample_context(32, quality_level='high')
+    test_cases = {
         'Poor Quality': create_sample_context(128, quality_level='poor'),
         'Medium Quality': create_sample_context(128, quality_level='medium'),
         'High Quality': create_sample_context(128, quality_level='high')
     }
-    
-    for name, test_context in test_contexts.items():
-        print(f"\nTesting {name} Context:")
-        prod_result = production_system.refine_context_production(test_context, query)
-        
-        print(f"  Strategy selected: {name}")
-        print(f"  Improvement: {prod_result['total_improvement']:+.3f}")
-        print(f"  Final quality: {prod_result['final_quality'].overall:.3f}")
-    
-    # 3. Run comprehensive benchmark
-    print("\n3. Comprehensive Benchmark")
-    print("-" * 50)
-    
+
+    results = {}
+    for name, ctx in test_cases.items():
+        result = production_system.refine_context_production(ctx, query)
+        results[name] = {
+            "initial_quality": result['initial_quality'].overall,
+            "final_quality": result['final_quality'].overall,
+            "improvement": result['total_improvement'],
+            "iterations": result['iterations_completed'],
+            "strategy": "cached" if result.get('cache_hit', False) else "computed"
+        }
+        logger.info(f"{name} → Strategy: {result.get('strategy_used', 'unknown')} | "
+                    f"Quality: {result['initial_quality'].overall:.3f} → {result['final_quality'].overall:.3f}")
+
+    save_json(results, example_dir, "production_results")
+    logger.info("Example 02 completed")
+    logger.info("-"*80)
+
+
+def example_03_comprehensive_benchmark():
+    example_dir = create_example_dir("example_03_benchmark")
+    logger = get_logger("ex03", example_dir)
+    logger.info("="*80)
+    logger.info("Example 03: Comprehensive Benchmark Across Quality & Length")
+    logger.info("="*80)
+
     benchmark_results = benchmark_refinement_pipeline()
-    
-    # 4. Visualize results
-    print("\n4. Generating Visualizations...")
-    print("-" * 50)
-    
-    visualize_refinement_results(benchmark_results, pipeline.refinement_history)
-    
-    # 5. Analytics and insights
-    print("\n5. Refinement Analytics")
-    print("-" * 50)
-    
-    analytics = pipeline.get_refinement_analytics()
-    
-    if 'error' not in analytics:
-        print(f"  Total iterations: {analytics['total_iterations']}")
-        print(f"  Average improvement: {analytics['average_improvement_per_iteration']:+.4f}")
-        print(f"  Best iteration: #{analytics['best_iteration'] + 1}")
-        print(f"  Time efficiency: {analytics['time_efficiency']:.4f}")
-        print(f"  Improvement stability: {analytics['improvement_stability']:.4f}")
-    
-    print("\n" + "="*80)
-    print("SELF-REFINEMENT LAB COMPLETE")
-    print("="*80)
-    print("\nKey Takeaways:")
-    print("• Self-refinement significantly improves context quality")
-    print("• Different strategies work better for different initial quality levels")
-    print("• Convergence detection prevents over-refinement")
-    print("• Production systems need caching and strategy selection")
-    print("• Meta-learning improves refinement efficiency over time")
-    
-    print("\nPractical Applications:")
-    print("• Automated content improvement for RAG systems")
-    print("• Quality assurance in context generation pipelines")
-    print("• Adaptive context optimization for different users/tasks")
-    print("• Self-improving dialogue systems")
+    save_json(benchmark_results, example_dir, "benchmark_results")
+    logger.info("Benchmark completed – 9 test cases saved")
+    logger.info("-"*80)
+
+    return benchmark_results
+
+
+def example_04_visualization_dashboard(pipeline_from_ex01, benchmark_results):
+    example_dir = create_example_dir("example_04_dashboard")
+    logger = get_logger("ex04", example_dir)
+    logger.info("="*80)
+    logger.info("Example 04: Full Visualization Dashboard")
+    logger.info("="*80)
+
+    fig = visualize_refinement_results(benchmark_results, pipeline_from_ex01.refinement_history)
+    save_plot(fig, example_dir, "refinement_dashboard")
+    logger.info("Dashboard saved as PNG")
+    logger.info("Example 04 completed")
+    logger.info("-"*80)
+
+
+def main():
+    base_logger.info("\n" + "="*80)
+    base_logger.info("SELF-REFINEMENT CONTEXT PROCESSING LAB")
+    base_logger.info("All results saved in ./generated/self_refinement_lab/example_*")
+    base_logger.info("="*80)
+
+    pipeline = example_01_basic_self_refinement()
+    example_02_production_system()
+    benchmark_results = example_03_comprehensive_benchmark()
+    example_04_visualization_dashboard(pipeline, benchmark_results)
+
+    base_logger.info("="*80)
+    base_logger.info("ALL EXAMPLES COMPLETED SUCCESSFULLY")
+    base_logger.info("Check generated/self_refinement_lab/ for logs, JSON, PNG, and .npy files")
+    base_logger.info("="*80)
 
 if __name__ == "__main__":
     main()

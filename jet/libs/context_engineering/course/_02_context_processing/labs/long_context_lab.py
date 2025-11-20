@@ -20,14 +20,54 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import math
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Tuple, Any
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+
+from jet.logger import CustomLogger
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+log_file = os.path.join(OUTPUT_DIR, "base.log")
+base_logger = CustomLogger(name="base", filename=log_file, overwrite=True)
+base_logger.debug(f"Base logs: {log_file}")
 
 # Configure for clean output
 import warnings
 warnings.filterwarnings('ignore')
 plt.style.use('default')
+
+import json
+from pathlib import Path
+
+def create_example_dir(example_name: str) -> Path:
+    """Create isolated output directory for each example."""
+    base_dir = Path(__file__).parent / "generated" / Path(__file__).stem
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def save_json(data: Any, filepath: Path, name: str = "data") -> None:
+    with open(filepath / f"{name}.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x))
+
+def save_plot(fig: plt.Figure, filepath: Path, name: str = "plot") -> None:
+    fig.savefig(filepath / f"{name}.png", dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+def save_numpy(arr: np.ndarray, filepath: Path, name: str) -> None:
+    np.save(filepath / f"{name}.npy", arr)
+
+def get_logger(name: str, output_dir: Path) -> CustomLogger:
+    """Create a per-example logger with consistent formatting."""
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=str(log_file), overwrite=True)
 
 # ============================================================================
 # CORE INTERFACES & UTILITIES
@@ -581,243 +621,230 @@ class PerformanceBenchmark:
         
         return results
 
-def visualize_benchmark_results(results: Dict):
-    """Create comprehensive visualization of benchmark results."""
+def visualize_benchmark_results(results: Dict) -> plt.Figure:
+    """Create comprehensive visualization of benchmark results and return the figure."""
     fig, axes = plt.subplots(2, 3, figsize=(15, 10))
     fig.suptitle('Context Processing Benchmark Results', fontsize=16, fontweight='bold')
-    
+
     # Plot 1: Processing Time vs Sequence Length
     ax = axes[0, 0]
     for mechanism, data in results.items():
         if data['sequence_lengths']:
-            ax.plot(data['sequence_lengths'], data['times'], 'o-', 
-                   label=mechanism, linewidth=2, markersize=6)
-    
+            ax.plot(data['sequence_lengths'], data['times'], 'o-',
+                    label=mechanism, linewidth=2, markersize=6)
     ax.set_xlabel('Sequence Length')
     ax.set_ylabel('Processing Time (seconds)')
     ax.set_title('Processing Time Comparison')
     ax.set_yscale('log')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     # Plot 2: Throughput vs Sequence Length
     ax = axes[0, 1]
     for mechanism, data in results.items():
         if data['sequence_lengths']:
-            ax.plot(data['sequence_lengths'], data['throughput'], 's-', 
-                   label=mechanism, linewidth=2, markersize=6)
-    
+            ax.plot(data['sequence_lengths'], data['throughput'], 's-',
+                    label=mechanism, linewidth=2, markersize=6)
     ax.set_xlabel('Sequence Length')
     ax.set_ylabel('Throughput (tokens/sec)')
     ax.set_title('Processing Throughput')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     # Plot 3: Memory Usage
     ax = axes[0, 2]
     for mechanism, data in results.items():
         if data['sequence_lengths'] and any(data['memory_usage']):
             memory_mb = [m / (1024 * 1024) for m in data['memory_usage']]
-            ax.plot(data['sequence_lengths'], memory_mb, '^-', 
-                   label=mechanism, linewidth=2, markersize=6)
-    
+            ax.plot(data['sequence_lengths'], memory_mb, '^-',
+                    label=mechanism, linewidth=2, markersize=6)
     ax.set_xlabel('Sequence Length')
     ax.set_ylabel('Memory Usage (MB)')
     ax.set_title('Memory Efficiency')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     # Plot 4: Complexity Analysis
     ax = axes[1, 0]
     seq_lengths = np.linspace(64, 1024, 100)
-    
-    # Theoretical complexities
-    ax.plot(seq_lengths, seq_lengths**2 / 1e6, '--', 
-           label='O(n²) - Standard', alpha=0.7, linewidth=2)
-    ax.plot(seq_lengths, seq_lengths * np.sqrt(seq_lengths) / 1e4, '--', 
-           label='O(n√n) - Sparse', alpha=0.7, linewidth=2)
-    ax.plot(seq_lengths, seq_lengths / 1e3, '--', 
-           label='O(n) - Streaming', alpha=0.7, linewidth=2)
-    
+    ax.plot(seq_lengths, seq_lengths**2 / 1e6, '--',
+            label='O(n²) - Standard', alpha=0.7, linewidth=2)
+    ax.plot(seq_lengths, seq_lengths * np.sqrt(seq_lengths) / 1e4, '--',
+            label='O(n√n) - Sparse', alpha=0.7, linewidth=2)
+    ax.plot(seq_lengths, seq_lengths / 1e3, '--',
+            label='O(n) - Streaming', alpha=0.7, linewidth=2)
     ax.set_xlabel('Sequence Length')
     ax.set_ylabel('Relative Complexity')
     ax.set_title('Theoretical Complexity')
     ax.set_yscale('log')
     ax.legend()
     ax.grid(True, alpha=0.3)
-    
+
     # Plot 5: Efficiency Comparison
     ax = axes[1, 1]
     mechanisms = list(results.keys())
-    avg_throughput = []
-    
-    for mechanism in mechanisms:
-        data = results[mechanism]
-        if data['throughput']:
-            avg_throughput.append(np.mean(data['throughput']))
-        else:
-            avg_throughput.append(0)
-    
-    bars = ax.bar(mechanisms, avg_throughput, alpha=0.7, 
+    avg_throughput = [
+        np.mean(data['throughput']) if data['throughput'] else 0
+        for data in results.values()
+    ]
+    bars = ax.bar(mechanisms, avg_throughput, alpha=0.7,
                   color=['red', 'blue', 'green'][:len(mechanisms)])
     ax.set_ylabel('Average Throughput (tokens/sec)')
     ax.set_title('Overall Efficiency')
-    
-    # Add value labels on bars
     for bar, value in zip(bars, avg_throughput):
         if value > 0:
             ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 5,
-                   f'{value:.0f}', ha='center', va='bottom')
-    
+                    f'{value:.0f}', ha='center', va='bottom')
+
     # Plot 6: Scalability Analysis
     ax = axes[1, 2]
-    
-    # Show maximum sequence length each mechanism can handle
-    max_seq_lengths = {}
-    for mechanism, data in results.items():
-        if data['sequence_lengths']:
-            max_seq_lengths[mechanism] = max(data['sequence_lengths'])
-        else:
-            max_seq_lengths[mechanism] = 0
-    
-    mechanisms = list(max_seq_lengths.keys())
-    max_lengths = list(max_seq_lengths.values())
-    
-    bars = ax.bar(mechanisms, max_lengths, alpha=0.7,
-                  color=['red', 'blue', 'green'][:len(mechanisms)])
+    max_seq_lengths = {
+        mech: max(data['sequence_lengths']) if data['sequence_lengths'] else 0
+        for mech, data in results.items()
+    }
+    bars = ax.bar(max_seq_lengths.keys(), max_seq_lengths.values(), alpha=0.7,
+                  color=['red', 'blue', 'green'][:len(max_seq_lengths)])
     ax.set_ylabel('Maximum Sequence Length')
     ax.set_title('Scalability Limits')
-    
-    # Add value labels
-    for bar, value in zip(bars, max_lengths):
+    for bar, value in zip(bars, max_seq_lengths.values()):
         if value > 0:
             ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 10,
-                   f'{value}', ha='center', va='bottom')
-    
+                    f'{value}', ha='center', va='bottom')
+
     plt.tight_layout()
-    plt.show()
+    return fig
 
 # ============================================================================
 # MAIN DEMONSTRATION
 # ============================================================================
 
-def main():
-    """Main demonstration of long context processing capabilities."""
-    
-    print("="*80)
-    print("LONG CONTEXT PROCESSING LAB")
-    print("Context Engineering Course - Module 02")
-    print("="*80)
-    print()
-    
-    # 1. Quick demonstration of different mechanisms
-    print("1. Comparing Attention Mechanisms")
-    print("-" * 40)
-    
+def example_01_compare_attention_mechanisms():
+    example_dir = create_example_dir("example_01_compare_mechanisms")
+    logger = get_logger("ex01", example_dir)
+    logger.info("="*80)
+    logger.info("Example 01: Comparing Attention Mechanisms")
+    logger.info("="*80)
+
     seq_len = 128
     x = create_sample_embeddings(seq_len, 256)
-    
+
     mechanisms = {
         'Standard': StandardAttention(256),
         'Sparse': SparseAttention(256),
         'Streaming': StreamingAttention(256)
     }
-    
-    for name, mechanism in mechanisms.items():
-        start_time = time.time()
-        output, info = mechanism.forward(x)
-        end_time = time.time()
-        
-        sparsity = info.get('sparsity', 1.0)
-        memory_mb = info.get('memory_usage', 0) / (1024 * 1024)
-        
-        print(f"{name:12s}: {(end_time-start_time)*1000:6.2f}ms, "
-              f"{memory_mb:6.2f}MB, sparsity: {sparsity:.3f}")
-    
-    print()
-    
-    # 2. Long sequence processing demonstration
-    print("2. Long Sequence Processing")
-    print("-" * 40)
-    
-    # Create a very long sequence
+
+    results = {}
+    for name, mech in mechanisms.items():
+        output, info = mech.forward(x)
+        _, stats = measure_performance(mech.forward, x)
+
+        results[name] = {
+            "time_ms": stats.time_ms,
+            "memory_mb": stats.memory_mb,
+            "throughput": stats.throughput,
+            "mechanism_info": info
+        }
+        logger.info(f"{name:12s}: {stats.time_ms:6.2f}ms | {stats.memory_mb:6.2f}MB | {stats.throughput:6.1f} tok/s")
+
+    save_json(results, example_dir, "comparison_results")
+    logger.info("Example 01 completed – results saved")
+    logger.info("-"*80)
+
+
+def example_02_long_sequence_processing():
+    example_dir = create_example_dir("example_02_long_sequence")
+    logger = get_logger("ex02", example_dir)
+    logger.info("="*80)
+    logger.info("Example 02: Long Sequence Processing (2048 tokens)")
+    logger.info("="*80)
+
     long_seq = create_sample_embeddings(2048, 256)
-    
-    # Process with different approaches
-    sparse_processor = ContextProcessor(mechanism='sparse')
-    streaming_processor = ContextProcessor(mechanism='streaming')
-    
-    print("Processing 2048-token sequence...")
-    
-    # Sparse processing
-    sparse_result = sparse_processor.process_long_sequence(long_seq, chunk_size=256)
-    print(f"Sparse:    {sparse_result['throughput']:6.1f} tokens/sec, "
-          f"{sparse_result['total_time']:6.2f}s total")
-    
-    # Streaming processing
-    streaming_result = streaming_processor.process_long_sequence(long_seq, chunk_size=256)
-    print(f"Streaming: {streaming_result['throughput']:6.1f} tokens/sec, "
-          f"{streaming_result['total_time']:6.2f}s total")
-    
-    print()
-    
-    # 3. Run comprehensive benchmark
-    print("3. Comprehensive Benchmark")
-    print("-" * 40)
-    
+    processors = {
+        'Sparse': ContextProcessor(mechanism='sparse'),
+        'Streaming': ContextProcessor(mechanism='streaming')
+    }
+
+    results = {}
+    for name, proc in processors.items():
+        result = proc.process_long_sequence(long_seq, chunk_size=256)
+        results[name] = {
+            "total_time_s": result['total_time'],
+            "throughput_tokens_per_sec": result['throughput'],
+            "chunks_processed": result['chunks_processed']
+        }
+        logger.info(f"{name} processor → {result['throughput']:.1f} tokens/sec | {result['total_time']:.2f}s total")
+
+    save_json(results, example_dir, "long_sequence_results")
+    logger.info("Example 02 completed – results saved")
+    logger.info("-"*80)
+
+
+def example_03_comprehensive_benchmark():
+    example_dir = create_example_dir("example_03_benchmark")
+    logger = get_logger("ex03", example_dir)
+    logger.info("="*80)
+    logger.info("Example 03: Comprehensive Benchmark & Visualization")
+    logger.info("="*80)
+
     benchmark = PerformanceBenchmark()
-    
-    # Benchmark different mechanisms
-    mechanism_results = benchmark.benchmark_mechanisms([64, 128, 256, 512])
-    
-    # Benchmark long sequence processing
-    long_seq_results = benchmark.benchmark_long_sequence_processing(5000)
-    
-    print("\nLong Sequence Processing Results:")
-    for mechanism, result in long_seq_results.items():
-        if result['success']:
-            print(f"{mechanism:12s}: {result['throughput']:6.1f} tokens/sec")
-        else:
-            print(f"{mechanism:12s}: Failed - {result['error']}")
-    
-    # 4. Visualize results
-    print("\n4. Generating Visualizations...")
-    print("-" * 40)
-    
-    visualize_benchmark_results(mechanism_results)
-    
-    # 5. Memory demonstration
-    print("5. Hierarchical Memory Demonstration")
-    print("-" * 40)
-    
+    mech_results = benchmark.benchmark_mechanisms([64, 128, 256, 512])
+    long_results = benchmark.benchmark_long_sequence_processing(5000)
+
+    save_json(mech_results, example_dir, "mechanism_benchmark")
+    save_json(long_results, example_dir, "long_sequence_benchmark")
+
+    # visualisation is still shown interactively (as intended in labs)
+    fig = visualize_benchmark_results(mech_results)
+    save_plot(fig, example_dir, "benchmark_visualization")
+    fig.show()  # optional interactive display
+
+    logger.info("Example 03 completed – JSON + PNG saved")
+    logger.info("-"*80)
+
+
+def example_04_hierarchical_memory_demo():
+    example_dir = create_example_dir("example_04_memory_demo")
+    logger = get_logger("ex04", example_dir)
+    logger.info("="*80)
+    logger.info("Example 04: Hierarchical Memory System")
+    logger.info("="*80)
+
     memory = HierarchicalMemory(256)
-    
-    # Add several chunks of context
+    memory_stats_history = []
+
     for i in range(10):
         chunk = create_sample_embeddings(100, 256, seed=i)
         stats = memory.add_context(chunk)
-        
+        memory_stats_history.append({"chunk": i+1, **stats})
         if i % 3 == 0:
-            print(f"Chunk {i+1}: Short={stats['short_term']}, "
-                  f"Medium={stats['medium_term']}, Long={stats['long_term']}")
-    
-    # Test retrieval
+            logger.info(f"Chunk {i+1:2d} → Short={stats['short_term']:4d} | Medium={stats['medium_term']:4d} | Long={stats['long_term']:4d}")
+
     query = create_sample_embeddings(50, 256, seed=99)
     retrieved = memory.retrieve_relevant(query, max_tokens=200)
-    print(f"\nRetrieved {retrieved.shape[0]} tokens for query")
-    
-    print("\n" + "="*80)
-    print("LAB COMPLETE")
-    print("="*80)
-    print("\nKey Takeaways:")
-    print("• Sparse attention reduces memory by ~90% with minimal quality loss")
-    print("• Streaming attention enables unlimited sequence length")
-    print("• Hierarchical memory maintains long-term context efficiently")
-    print("• Production systems should combine multiple techniques")
-    print("\nNext Steps:")
-    print("• Experiment with different sparsity patterns")
-    print("• Implement domain-specific compression strategies")
-    print("• Integrate with real language models")
+
+    save_json(memory_stats_history, example_dir, "memory_evolution")
+    save_numpy(retrieved, example_dir, "retrieved_context")
+    logger.info(f"Final query retrieved {retrieved.shape[0]} tokens")
+    logger.info("Example 04 completed – results saved")
+    logger.info("-"*80)
+
+
+def main():
+    base_logger.info("\n" + "="*80)
+    base_logger.info("LONG CONTEXT PROCESSING LAB – STRUCTURED EXAMPLES")
+    base_logger.info("All outputs saved in isolated example directories under ./generated/long_context_lab/")
+    base_logger.info("="*80)
+
+    example_01_compare_attention_mechanisms()
+    example_02_long_sequence_processing()
+    example_03_comprehensive_benchmark()
+    example_04_hierarchical_memory_demo()
+
+    base_logger.info("="*80)
+    base_logger.info("ALL EXAMPLES COMPLETED SUCCESSFULLY")
+    base_logger.info("Check ./generated/long_context_lab/example_* folders for detailed logs and artifacts")
+    base_logger.info("="*80)
 
 if __name__ == "__main__":
     main()
