@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.llm.logger_utils import ChatLogger
-from jet.logger import logger
+from jet.logger import CustomLogger
 from jet.utils.text import format_sub_dir
 
 
@@ -41,9 +41,10 @@ class LlamacppLLM:
         base_url: str = "http://shawn-pc.local:8080/v1",
         api_key: str = "sk-1234",
         max_retries: int = 3,
-        verbose: bool = False,
+        verbose: bool = True,
         agent_name: Optional[str] = None,
         log_dir: str = DEFAULT_LOG_DIR,
+        logger: Optional[CustomLogger] = None,
     ):
         """Initialize sync and async clients with model resolution."""
         self.model = resolve_model_value(model)
@@ -55,6 +56,7 @@ class LlamacppLLM:
             log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
 
         self._chat_logger = ChatLogger(log_dir)
+        self._logger = logger or CustomLogger()
 
     # === Sync Chat ===
     def chat(
@@ -81,7 +83,7 @@ class LlamacppLLM:
                     if chunk.choices and chunk.choices[0].delta.content is not None:
                         content: str = chunk.choices[0].delta.content
                         if self.verbose:
-                            logger.teal(content, flush=True)
+                            self._logger.teal(content, flush=True)
                         yield content
                         response_text += content
 
@@ -96,7 +98,7 @@ class LlamacppLLM:
 
         content = response.choices[0].message.content
         if self.verbose:
-            logger.teal(content)
+            self._logger.teal(content)
 
         self._chat_logger.log_interaction(
             messages=messages,
@@ -126,7 +128,7 @@ class LlamacppLLM:
             if chunk.choices and chunk.choices[0].delta.content is not None:
                 content: str = chunk.choices[0].delta.content
                 if self.verbose:
-                    logger.teal(content, flush=True)
+                    self._logger.teal(content, flush=True)
                 yield chunk
                 response_text += content
 
@@ -156,7 +158,7 @@ class LlamacppLLM:
             if chunk.choices and chunk.choices[0].delta.content is not None:
                 content: str = chunk.choices[0].delta.content
                 if self.verbose:
-                    logger.teal(content, flush=True)
+                    self._logger.teal(content, flush=True)
                 yield chunk
                 response_text += content
 
@@ -190,7 +192,7 @@ class LlamacppLLM:
                     if chunk.choices and chunk.choices[0].text is not None:
                         content = chunk.choices[0].text
                         if self.verbose:
-                            logger.teal(content, flush=True)
+                            self._logger.teal(content, flush=True)
                         yield content
                         response_text += content
 
@@ -204,7 +206,7 @@ class LlamacppLLM:
             return stream_generator()
         content = response.choices[0].text
         if self.verbose:
-            logger.teal(content)
+            self._logger.teal(content)
 
         self._chat_logger.log_interaction(
             messages=prompt,
@@ -250,7 +252,7 @@ class LlamacppLLM:
             if not tool_calls:
                 content = message.content or ""
                 if self.verbose:
-                    logger.teal(content)
+                    self._logger.teal(content)
                 self._chat_logger.log_interaction(**{
                     **create_kwargs,
                     "response": content,
@@ -280,17 +282,17 @@ class LlamacppLLM:
             for tool_call in tool_calls:
                 func_name = tool_call.function.name
                 if self.verbose:
-                    logger.info(f"[TOOL EXEC] {func_name}")
+                    self._logger.info(f"[TOOL EXEC] {func_name}")
                 func = available_functions.get(func_name)
                 if not func:
-                    logger.warning(f"Tool '{func_name}' not found. Skipping.")
+                    self._logger.warning(f"Tool '{func_name}' not found. Skipping.")
                     continue
 
                 args = json.loads(tool_call.function.arguments)
                 result = func(**args)
 
                 if self.verbose:
-                    logger.debug(f"[TOOL OUT] {result}")
+                    self._logger.debug(f"[TOOL OUT] {result}")
 
                 tool_response: ChatMessage = {
                     "role": "tool",
@@ -309,7 +311,7 @@ class LlamacppLLM:
             final_response = self.sync_client.chat.completions.create(**final_kwargs)
             final_content = final_response.choices[0].message.content
             if self.verbose:
-                logger.teal(final_content)
+                self._logger.teal(final_content)
             self._chat_logger.log_interaction(**{
                 **create_kwargs,
                 "response": final_content,
@@ -337,7 +339,7 @@ class LlamacppLLM:
                     message_content += delta.content
                     response_text += delta.content
                     if self.verbose:
-                        logger.teal(delta.content, flush=True)
+                        self._logger.teal(delta.content, flush=True)
                     yield delta.content
 
                 # Accumulate tool calls
@@ -369,18 +371,18 @@ class LlamacppLLM:
                 for tool_call in tool_calls:
                     func_name = tool_call["function"]["name"]
                     if self.verbose:
-                        logger.info(f"[TOOL EXEC] {func_name}")
+                        self._logger.info(f"[TOOL EXEC] {func_name}")
 
                     func = available_functions.get(func_name)
                     if not func:
-                        logger.warning(f"Tool '{func_name}' not found. Skipping.")
+                        self._logger.warning(f"Tool '{func_name}' not found. Skipping.")
                         continue
                     else:
                         args = json.loads(tool_call["function"]["arguments"])
                         result = func(**args)
 
                     if self.verbose:
-                        logger.debug(f"[TOOL OUT] {result}")
+                        self._logger.debug(f"[TOOL OUT] {result}")
 
                     updated_messages.append({
                         "role": "tool",
@@ -403,7 +405,7 @@ class LlamacppLLM:
                     content = chunk.choices[0].delta.content
                     final_content += content
                     if self.verbose:
-                        logger.teal(content, flush=True)
+                        self._logger.teal(content, flush=True)
                     yield content
 
             # === FINAL LOG ===
@@ -431,7 +433,7 @@ class LlamacppLLM:
         )
         raw_json = response.choices[0].message.content or ""
         if self.verbose:
-            logger.teal(raw_json)
+            self._logger.teal(raw_json)
 
         self._chat_logger.log_interaction(**{
             "messages": messages,
@@ -482,7 +484,7 @@ class LlamacppLLM:
                 continue
             content: str = chunk.choices[0].delta.content
             if self.verbose:
-                logger.teal(content, flush=True)
+                self._logger.teal(content, flush=True)
             buffer += content
 
             stripped = buffer.strip()
@@ -526,7 +528,7 @@ class LlamacppLLM:
 
             except Exception as e:
                 if self.verbose:
-                    logger.warning(f"Final parse failed: {e}")
+                    self._logger.warning(f"Final parse failed: {e}")
 
         self._chat_logger.log_interaction(
             messages=messages,
@@ -562,7 +564,7 @@ class LlamacppLLM:
                     if chunk.choices and chunk.choices[0].delta.content is not None:
                         content: str = chunk.choices[0].delta.content
                         if self.verbose:
-                            logger.teal(content, flush=True)
+                            self._logger.teal(content, flush=True)
                         yield content
                         response_text += content
 
@@ -577,7 +579,7 @@ class LlamacppLLM:
 
         content = response.choices[0].message.content
         if self.verbose:
-            logger.teal(content)
+            self._logger.teal(content)
         return content
 
     # === Async Completions ===
@@ -603,7 +605,7 @@ class LlamacppLLM:
                     if chunk.choices and chunk.choices[0].text is not None:
                         content: str = chunk.choices[0].text
                         if self.verbose:
-                            logger.teal(content, flush=True)
+                            self._logger.teal(content, flush=True)
                         yield content
                         response_text += content
 
@@ -618,7 +620,7 @@ class LlamacppLLM:
 
         content = response.choices[0].text
         if self.verbose:
-            logger.teal(content)
+            self._logger.teal(content)
         return content
 
     # === Async Tools ===
@@ -652,7 +654,7 @@ class LlamacppLLM:
             if not tool_calls:
                 content = message.content or ""
                 if self.verbose:
-                    logger.teal(content)
+                    self._logger.teal(content)
                 return content
 
             updated_messages = messages.copy()
@@ -677,7 +679,7 @@ class LlamacppLLM:
             )
             final_content = final_response.choices[0].message.content or ""
             if self.verbose:
-                logger.teal(final_content)
+                self._logger.teal(final_content)
             return final_content
 
         # === ASYNC STREAMING PATH ===
@@ -694,7 +696,7 @@ class LlamacppLLM:
                     if delta.content:
                         message_content += delta.content
                         if self.verbose:
-                            logger.teal(delta.content, flush=True)
+                            self._logger.teal(delta.content, flush=True)
                         yield delta.content
                         response_text += delta.content
                     if delta.tool_calls:
@@ -764,7 +766,7 @@ class LlamacppLLM:
                     final_content += content
                     response_text += content
                     if self.verbose:
-                        logger.teal(content, flush=True)
+                        self._logger.teal(content, flush=True)
                     yield content
 
             self._chat_logger.log_interaction(
@@ -792,7 +794,7 @@ class LlamacppLLM:
         )
         raw_json = response.choices[0].message.content or ""
         if self.verbose:
-            logger.teal(raw_json)
+            self._logger.teal(raw_json)
 
         self._chat_logger.log_interaction(**{
             "messages": messages,
@@ -840,7 +842,7 @@ class LlamacppLLM:
                     continue
                 content: str = chunk.choices[0].delta.content
                 if self.verbose:
-                    logger.teal(content, flush=True)
+                    self._logger.teal(content, flush=True)
                 buffer += content
                 stripped = buffer.strip()
                 if not (stripped.startswith("{") or stripped.startswith("[")):
@@ -872,7 +874,7 @@ class LlamacppLLM:
                             yield item
                 except Exception as e:
                     if self.verbose:
-                        logger.warning(f"Final parse failed: {e}")
+                        self._logger.warning(f"Final parse failed: {e}")
         finally:
             self._chat_logger.log_interaction(
                 messages=messages,

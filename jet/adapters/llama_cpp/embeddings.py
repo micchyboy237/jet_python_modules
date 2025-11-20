@@ -7,7 +7,7 @@ from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.models.utils import get_context_size, get_embedding_size
 from jet.models.embeddings.utils import calculate_dynamic_batch_size
 from jet.models.embeddings.cache import EmbeddingCache
-from jet.logger import logger
+from jet.logger import CustomLogger
 
 GenerateEmbeddingsReturnType = Union[List[List[float]], np.ndarray]
 
@@ -29,9 +29,10 @@ class LlamacppEmbedding:
         cache_backend: Literal["memory", "file", "sqlite"] = "sqlite",
         cache_ttl: Optional[int] = None,
         cache_max_size: int = 10000,
-        use_cache: bool = False,
+        use_cache: bool = True,
         use_dynamic_batch_sizing: bool = False,
-        verbose: bool = False
+        verbose: bool = True,
+        logger: Optional[CustomLogger] = None,
     ):
         """Initialize the client with server URL, model path, and cache settings."""
         self.client = OpenAI(base_url=base_url, api_key="no-key-required", max_retries=max_retries)
@@ -46,6 +47,8 @@ class LlamacppEmbedding:
             ttl=cache_ttl,
             namespace=f"llama_{self.model}"
         )
+
+        self._logger = logger or CustomLogger()
 
     def __call__(
         self,
@@ -105,7 +108,7 @@ class LlamacppEmbedding:
         invalid_inputs = [i for i in input_list if not (isinstance(i, str) and i.strip())]
         
         if invalid_inputs:
-            logger.warning(f"Warning: Skipped {len(invalid_inputs)} invalid inputs: {invalid_inputs}")
+            self._logger.warning(f"Warning: Skipped {len(invalid_inputs)} invalid inputs: {invalid_inputs}")
         if not valid_inputs:
             raise ValueError("No valid inputs provided: inputs must be a non-empty string or list of non-empty strings")
         
@@ -114,7 +117,7 @@ class LlamacppEmbedding:
         max_length = max_input_length if max_input_length is not None else context_size
         
         if max_length <= 0:
-            logger.warning(f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512")
+            self._logger.warning(f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512")
             max_length = 512
         elif max_length <= 0:
             max_length = 512
@@ -123,20 +126,20 @@ class LlamacppEmbedding:
         
         # Log detailed input statistics
         if self.verbose:
-            logger.info(
+            self._logger.info(
                 f"Embedding stats -> model: {self.model}, "
                 f"embedding_size: {embedding_size}, "
                 f"context_size: {context_size}, "
                 f"max_length: {max_length}"
             )
-            logger.debug(f"\nInputs: {len(input_list)}")
-            logger.debug(f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}")
+            self._logger.debug(f"\nInputs: {len(input_list)}")
+            self._logger.debug(f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}")
 
         long_inputs = [(count, idx) for idx, count in enumerate(token_counts) if count > max_length]
         
         if long_inputs:
             long_input_indexes = [idx for _, idx in long_inputs]
-            logger.error(f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}")
+            self._logger.error(f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}")
             raise InputTooLargeError(long_input_indexes, max_length)
         
         # Apply dynamic batch sizing if enabled
@@ -148,10 +151,10 @@ class LlamacppEmbedding:
             )
             batch_size = dynamic_batch_size
             if self.verbose:
-                logger.debug(f"Dynamic batch sizing enabled. Using batch_size: {batch_size}")
+                self._logger.debug(f"Dynamic batch sizing enabled. Using batch_size: {batch_size}")
         else:
             if self.verbose:
-                logger.debug(f"Using static batch_size: {batch_size}")
+                self._logger.debug(f"Using static batch_size: {batch_size}")
         
         # Cache check
         if use_cache:
@@ -163,10 +166,10 @@ class LlamacppEmbedding:
                 else:
                     result = cached
                 if self.verbose:
-                    logger.debug(f"Cache hit for {len(valid_inputs)} texts (key: {cache_key[:16]}...)")
+                    self._logger.debug(f"Cache hit for {len(valid_inputs)} texts (key: {cache_key[:16]}...)")
                 return result
             if self.verbose:
-                logger.debug(f"Cache miss for {len(valid_inputs)} texts (key: {cache_key[:16]}...). Computing...")
+                self._logger.debug(f"Cache miss for {len(valid_inputs)} texts (key: {cache_key[:16]}...). Computing...")
         
         embeddings = []
         progress_bar = tqdm(range(0, len(valid_inputs), batch_size), desc="Processing batches", disable=not show_progress)
@@ -180,7 +183,7 @@ class LlamacppEmbedding:
                     batch_embeddings = [np.array(emb) for emb in batch_embeddings]
                 embeddings.extend(batch_embeddings)
             except Exception as e:
-                logger.error(f"Error generating embeddings for batch {i // batch_size + 1}: {e}")
+                self._logger.error(f"Error generating embeddings for batch {i // batch_size + 1}: {e}")
                 raise
         
         final_embeddings = embeddings if return_format != "numpy" else np.array(embeddings, dtype=np.float32)
@@ -188,7 +191,7 @@ class LlamacppEmbedding:
         if use_cache:
             self.cache.set(cache_key, final_embeddings.tolist() if return_format == "numpy" else final_embeddings)
             if self.verbose:
-                logger.info(f"Cached embeddings for {len(valid_inputs)} texts (key: {cache_key[:16]}...)")
+                self._logger.info(f"Cached embeddings for {len(valid_inputs)} texts (key: {cache_key[:16]}...)")
         
         return final_embeddings
 
@@ -237,7 +240,7 @@ class LlamacppEmbedding:
         max_length = max_input_length if max_input_length is not None else context_size
         
         if max_length <= 0:
-            logger.warning(f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512")
+            self._logger.warning(f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512")
             max_length = 512
         elif max_length <= 0:
             max_length = 512
@@ -246,20 +249,20 @@ class LlamacppEmbedding:
 
         # Log detailed input statistics
         if self.verbose:
-            logger.info(
+            self._logger.info(
                 f"Embedding stats -> model: {self.model}, "
                 f"embedding_size: {embedding_size}, "
                 f"context_size: {context_size}, "
                 f"max_length: {max_length}"
             )
-            logger.debug(f"\nInputs: {len(input_list)}")
-            logger.debug(f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}")
+            self._logger.debug(f"\nInputs: {len(input_list)}")
+            self._logger.debug(f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}")
 
         long_inputs = [(count, idx) for idx, count in enumerate(token_counts) if count > max_length]
         
         if long_inputs:
             long_input_indexes = [idx for _, idx in long_inputs]
-            logger.error(f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}")
+            self._logger.error(f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}")
             raise InputTooLargeError(long_input_indexes, max_length)
         
         # Apply dynamic batch sizing if enabled
@@ -271,7 +274,7 @@ class LlamacppEmbedding:
             )
             batch_size = dynamic_batch_size
             if self.verbose:
-                logger.debug(f"Dynamic batch sizing enabled for stream. Using batch_size: {batch_size}")
+                self._logger.debug(f"Dynamic batch sizing enabled for stream. Using batch_size: {batch_size}")
         
         # Full cache check for streaming
         if use_cache:
@@ -280,7 +283,7 @@ class LlamacppEmbedding:
             if cached is not None:
                 result = np.array(cached, dtype=np.float32) if return_format == "numpy" else cached
                 if self.verbose:
-                    logger.debug(f"Cache hit in stream for {len(valid_inputs)} texts")
+                    self._logger.debug(f"Cache hit in stream for {len(valid_inputs)} texts")
                 for i in range(0, len(result), batch_size):
                     yield result[i:i + batch_size]
                 return
@@ -295,7 +298,7 @@ class LlamacppEmbedding:
                 cached_batch = self.cache.get(batch_key)
                 if cached_batch is not None:
                     if self.verbose:
-                        logger.debug(f"Cache hit for stream batch {i // batch_size + 1} (key: {batch_key[:16]}...)")
+                        self._logger.debug(f"Cache hit for stream batch {i // batch_size + 1} (key: {batch_key[:16]}...)")
                     if return_format == "numpy":
                         yield np.array(cached_batch, dtype=np.float32)
                     else:
@@ -313,7 +316,7 @@ class LlamacppEmbedding:
                 
                 yield batch_embeddings
             except Exception as e:
-                logger.error(f"Error in stream batch {i // batch_size + 1}: {e}")
+                self._logger.error(f"Error in stream batch {i // batch_size + 1}: {e}")
                 raise
 
     def close(self) -> None:
