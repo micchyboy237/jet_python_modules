@@ -26,18 +26,43 @@ Usage:
 
 import math
 import re
-import time
 import json
-import logging
-from typing import Dict, List, Any, Optional, Union, Tuple, Set, Callable
+from typing import Dict, List, Any, Optional, Tuple, Set
 from collections import Counter
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+from pathlib import Path
+from jet.logger import CustomLogger
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
 )
-logger = logging.getLogger("scoring_functions")
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+main_logger = CustomLogger(
+    name="main",
+    filename=os.path.join(OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+
+def create_example_dir(example_name: str) -> Path:
+    from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+    base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def get_example_logger(name: str, output_dir: Path) -> "CustomLogger":
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=log_file, overwrite=True)
 
 # ------------------------------------------------------------------------------
 # Text Processing Utilities
@@ -431,7 +456,7 @@ def score_accuracy(response: str, reference: Optional[str] = None, facts: Option
     else:
         # No reference or facts provided
         # We can't assess accuracy without a gold standard
-        logger.warning("Cannot assess accuracy without reference or facts")
+        main_logger.warning("Cannot assess accuracy without reference or facts")
         return 0.5  # Return neutral score
 
 def score_token_efficiency(response: str, max_tokens: int = 500) -> float:
@@ -525,7 +550,7 @@ def score_field_resonance(response: str, field: Any) -> float:
             return avg_resonance
             
         except Exception as e:
-            logger.warning(f"Failed to calculate field resonance: {e}")
+            main_logger.warning(f"Failed to calculate field resonance: {e}")
             return 0.5  # Neutral score on failure
 
 def score_field_coherence(response: str, field: Any) -> float:
@@ -578,7 +603,7 @@ def score_field_coherence(response: str, field: Any) -> float:
             return coherence
             
         except Exception as e:
-            logger.warning(f"Failed to calculate field coherence: {e}")
+            main_logger.warning(f"Failed to calculate field coherence: {e}")
             return 0.5  # Neutral score on failure
 
 def score_field_stability_impact(response: str, field: Any, before_state: Optional[Dict[str, Any]] = None) -> float:
@@ -614,7 +639,7 @@ def score_field_stability_impact(response: str, field: Any, before_state: Option
             return current_stability
             
     except (AttributeError, TypeError):
-        logger.warning("Cannot calculate stability impact without field support")
+        main_logger.warning("Cannot calculate stability impact without field support")
         return 0.5  # Neutral score
 
 def _get_field_attractors(field: Any) -> List[Tuple[str, float]]:
@@ -924,23 +949,22 @@ def score_response(response: str, query: str, context: Optional[Dict[str, Any]] 
     
     return scores
 
-# ------------------------------------------------------------------------------
-# Usage Examples
-# ------------------------------------------------------------------------------
+# === EXAMPLE FUNCTIONS ===
 
-def basic_scoring_example():
-    """Example of basic scoring functions."""
+def example_01_basic_scoring():
+    """Basic scoring with reference answer provided."""
+    example_dir = create_example_dir("example_01_basic_scoring")
+    logger = get_example_logger("example_01", example_dir)
+
     query = "Explain how neural networks work in simple terms."
-    
     response = """
-    Neural networks are computational models inspired by the human brain. 
+    Neural networks are computational models inspired by the human brain.
     They consist of interconnected nodes called neurons, organized in layers.
     Each neuron receives input, applies a transformation, and passes the output to the next layer.
     Through training with data, neural networks learn to recognize patterns and make predictions.
     The strength of connections between neurons is adjusted during training to minimize errors.
     This process, called backpropagation, is what enables neural networks to learn from examples.
     """
-    
     reference = """
     Neural networks are computational systems inspired by the human brain's structure.
     They consist of layers of nodes (neurons) that process information.
@@ -950,37 +974,135 @@ def basic_scoring_example():
     This training process allows them to recognize patterns and make predictions on new data.
     Applications include image recognition, language processing, and game playing.
     """
-    
-    # Score relevance
-    relevance = score_relevance(response, query)
-    print(f"Relevance score: {relevance:.2f}")
-    
-    # Score coherence
-    coherence = score_coherence(response)
-    print(f"Coherence score: {coherence:.2f}")
-    
-    # Score comprehensiveness
-    comprehensiveness = score_comprehensiveness(response, reference)
-    print(f"Comprehensiveness score: {comprehensiveness:.2f}")
-    
-    # Score conciseness
-    conciseness = score_conciseness(response, reference)
-    print(f"Conciseness score: {conciseness:.2f}")
-    
-    # Score accuracy
-    accuracy = score_accuracy(response, reference)
-    print(f"Accuracy score: {accuracy:.2f}")
-    
-    # Score token efficiency
-    token_efficiency = score_token_efficiency(response)
-    print(f"Token efficiency score: {token_efficiency:.2f}")
-    
-    # Comprehensive scoring
+
+    # Save inputs
+    (example_dir / "input_query.txt").write_text(query.strip())
+    (example_dir / "response.md").write_text(response.strip())
+    (example_dir / "reference.md").write_text(reference.strip())
+
     scores = score_response(response, query, reference=reference)
-    print("\nComprehensive scores:")
-    for metric, score in scores.items():
-        print(f"- {metric}: {score:.2f}")
+
+    # Save results
+    (example_dir / "scores.json").write_text(json.dumps(scores, indent=2))
+
+    logger.info("Example 01 - Basic Scoring (with reference)")
+    for metric, value in scores.items():
+        logger.info(f"  {metric:25}: {value:.3f}")
+
+def example_02_reference_free_scoring():
+    """Scoring without reference – uses heuristic defaults."""
+    example_dir = create_example_dir("example_02_reference_free_scoring")
+    logger = get_example_logger("example_02", example_dir)
+
+    query = "What are the benefits of exercise?"
+    response = """
+    Regular exercise improves cardiovascular health, strengthens muscles and bones,
+    boosts mood through endorphin release, enhances cognitive function, helps maintain healthy weight,
+    reduces risk of chronic diseases like diabetes and hypertension, and improves sleep quality.
+    """
+
+    (example_dir / "input_query.txt").write_text(query)
+    (example_dir / "response.md").write_text(response.strip())
+
+    scores = score_response(response, query)  # no reference
+
+    (example_dir / "scores.json").write_text(json.dumps(scores, indent=2))
+
+    logger.info("Example 02 - Reference-Free Scoring")
+    for metric, value in scores.items():
+        logger.info(f"  {metric:25}: {value:.3f}")
+
+def example_03_with_key_points():
+    """Scoring using explicit key points instead of reference text."""
+    example_dir = create_example_dir("example_03_with_key_points")
+    logger = get_example_logger("example_03", example_dir)
+
+    query = "List the main causes of climate change."
+    response = "The primary causes include greenhouse gas emissions from burning fossil fuels, deforestation, industrial processes, and agriculture."
+    
+    key_points = [
+        "burning fossil fuels",
+        "deforestation",
+        "industrial processes",
+        "agriculture",
+        "greenhouse gas emissions"
+    ]
+
+    (example_dir / "input_query.txt").write_text(query)
+    (example_dir / "response.md").write_text(response)
+    (example_dir / "key_points.json").write_text(json.dumps(key_points, indent=2))
+
+    # Individual scores using key_points
+    comprehensiveness = score_comprehensiveness(response, key_points=key_points)
+    conciseness = score_conciseness(response, key_points=key_points)
+    accuracy = score_accuracy(response, facts=key_points)
+
+    scores = score_response(response, query)
+    scores["comprehensiveness_keypoints"] = comprehensiveness
+    scores["conciseness_keypoints"] = conciseness
+    scores["accuracy_via_facts"] = accuracy
+
+    (example_dir / "scores.json").write_text(json.dumps(scores, indent=2))
+
+    logger.info("Example 03 - Scoring with Key Points")
+    logger.info(f"  Comprehensiveness (key points): {comprehensiveness:.3f}")
+    logger.info(f"  Conciseness (key points)      : {conciseness:.3f}")
+    logger.info(f"  Accuracy (fact matching)      : {accuracy:.3f}")
+
+def example_04_protocol_adherence():
+    """Demo protocol adherence scoring (mock protocol)."""
+    example_dir = create_example_dir("example_04_protocol_adherence")
+    logger = get_example_logger("example_04", example_dir)
+
+    query = "Write a scientific abstract."
+    response = """
+    Title: Impact of Exercise on Cognitive Function
+    
+    Background: Previous studies suggest physical activity enhances brain health.
+    Methods: We conducted a meta-analysis of 25 RCTs involving 3000 participants.
+    Results: Moderate aerobic exercise (150 min/week) improved executive function by 0.42 SD (p<0.001).
+    Conclusion: Regular exercise should be prescribed as a cognitive enhancement strategy.
+    """
+
+    protocol = {
+        "process": [
+            {"name": "Title"},
+            {"name": "Background"},
+            {"name": "Methods"},
+            {"name": "Results"},
+            {"name": "Conclusion"}
+        ],
+        "output": {
+            "Title": "<string>",
+            "Background": "<string>",
+            "Methods": "<string>",
+            "Results": "<string>",
+            "Conclusion": "<string>"
+        }
+    }
+
+    (example_dir / "input_query.txt").write_text(query)
+    (example_dir / "response.md").write_text(response.strip())
+    (example_dir / "protocol.json").write_text(json.dumps(protocol, indent=2))
+
+    scores = score_response(response, query, protocol=protocol)
+
+    (example_dir / "scores.json").write_text(json.dumps(scores, indent=2))
+
+    logger.info("Example 04 - Protocol Adherence Scoring")
+    logger.info(f"  Protocol Adherence : {scores.get('protocol_adherence', 0):.3f}")
+    logger.info(f"  Output Match       : {scores.get('protocol_output_match', 0):.3f}")
+
+# === MAIN ENTRY POINT ===
 
 if __name__ == "__main__":
-    # Example usage
-    basic_scoring_example()
+    main_logger.info("="*60)
+    main_logger.info("Running scoring_functions.py examples")
+    main_logger.info("="*60)
+
+    example_01_basic_scoring()
+    example_02_reference_free_scoring()
+    example_03_with_key_points()
+    example_04_protocol_adherence()
+
+    main_logger.info("All examples completed. Outputs saved in ./generated/scoring_functions/")
