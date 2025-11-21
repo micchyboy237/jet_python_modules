@@ -210,6 +210,39 @@ Improved response:"""
             output_tokens=output_tokens
         )
 
+    def batch_improve(
+        self,
+        inputs: list[str],
+        max_iterations: int = 3,
+        improvement_threshold: float = 0.08
+    ) -> list[ContextResult]:
+        """
+        Process multiple inputs in parallel (sequentially with rate-limiting).
+        Returns a list of ContextResult in the same order as inputs.
+        """
+        main_logger.info(f"Batch improving {len(inputs)} items (max {max_iterations} iterations each)")
+        results = []
+        for idx, inp in enumerate(inputs, start=1):
+            main_logger.info(f"Batch item {idx}/{len(inputs)}")
+            try:
+                result = self.improve(
+                    content=inp,
+                    max_iterations=max_iterations,
+                    improvement_threshold=improvement_threshold
+                )
+                results.append(result)
+            except Exception as e:
+                main_logger.error(f"Batch item {idx} failed: {e}")
+                # Append a minimal failed result so indexing stays consistent
+                results.append(ContextResult(
+                    content=f"[ERROR] {str(e)}",
+                    iteration=0,
+                    improvement_score=0.0,
+                    processing_time=0.0,
+                    input_tokens=0,
+                    output_tokens=0
+                ))
+        return results
 
 # Example secure integration with actual LLM provider
 class SecureAnthropicProvider:

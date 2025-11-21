@@ -32,16 +32,46 @@ Usage:
 import re
 import json
 import time
-import logging
-from typing import Dict, List, Any, Optional, Union, Callable, Tuple
+from typing import Dict, List, Any, Optional, Tuple
 from enum import Enum
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# --- Real LLM + Token Counter ---
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+from jet._token.token_utils import token_counter
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+from pathlib import Path
+from jet.logger import CustomLogger
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
 )
-logger = logging.getLogger("prompt_program")
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="main",
+    filename=os.path.join(OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+
+def create_example_dir(example_name: str) -> Path:
+    from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+    base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def get_example_logger(name: str, output_dir: Path) -> CustomLogger:
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=log_file, overwrite=True)
 
 # ------------------------------------------------------------------------------
 # Prompt Program Components
@@ -128,49 +158,25 @@ class PromptProgram:
     Combines natural language with programming constructs.
     """
     
-    def __init__(self, 
-                 description: str,
-                 model: Optional[Any] = None,
-                 variables: Optional[Dict[str, Any]] = None,
-                 neural_field: Optional[Any] = None):
-        """
-        Initialize a prompt program.
-        
-        Args:
-            description: Description of the program's purpose
-            model: Language model interface (optional)
-            variables: Initial variables (optional)
-            neural_field: Neural field for context persistence (optional)
-        """
+    def __init__(self, description: str, model: Optional[LlamacppLLM] = None,
+                 variables: Optional[Dict[str, Any]] = None):
         self.description = description
-        self.model = model
+        self.model = model or LlamacppLLM(
+            model="qwen3-instruct-2507:4b",
+            base_url="http://shawn-pc.local:8080/v1",
+            verbose=True  # Live streaming!
+        )
         self.variables = variables or {}
-        self.neural_field = neural_field
-        
         self.steps: List[ProgramStep] = []
         self.error_handlers: List[ProgramStep] = []
-        
-        # Execution state
-        self.current_step: int = 0
         self.execution_trace: List[Dict[str, Any]] = []
-    
-    def add_step(self, content: str, step_type: StepType = StepType.INSTRUCTION, 
-                metadata: Optional[Dict[str, Any]] = None) -> ProgramStep:
-        """
-        Add a step to the program.
-        
-        Args:
-            content: The content of the step
-            step_type: The type of step
-            metadata: Additional metadata for the step
-            
-        Returns:
-            The created step
-        """
+
+    def add_step(self, content: str, step_type: StepType = StepType.INSTRUCTION,
+                 metadata: Optional[Dict[str, Any]] = None) -> ProgramStep:
         step = ProgramStep(content, step_type, metadata)
         self.steps.append(step)
         return step
-    
+
     def add_condition(self, condition: str, true_step: str, 
                      false_step: Optional[str] = None) -> Tuple[ProgramStep, ProgramStep, Optional[ProgramStep]]:
         """
@@ -263,139 +269,50 @@ class PromptProgram:
         return step
     
     def format(self) -> str:
-        """Format the program as a string for use in prompts."""
-        # Program header
-        parts = [
-            f"# {self.description}",
-            ""
-        ]
-        
-        # Format steps
-        if self.steps:
-            parts.append("## Steps:")
-            for i, step in enumerate(self.steps):
-                parts.append(step.format(i+1))
-        
-        # Format error handlers
-        if self.error_handlers:
-            parts.append("")
-            parts.append("## Error Handling:")
-            for handler in self.error_handlers:
-                parts.append(handler.format())
-        
-        # Format variables
+        parts = [f"PROGRAM: {self.description}\n"]
+        for i, step in enumerate(self.steps, 1):
+            parts.append(step.format(i))
         if self.variables:
-            parts.append("")
-            parts.append("## Initial Context:")
-            for name, value in self.variables.items():
-                if isinstance(value, str):
-                    parts.append(f"- {name} = \"{value}\"")
-                else:
-                    parts.append(f"- {name} = {value}")
-        
+            parts.append("\nINITIAL VARIABLES:")
+            for k, v in self.variables.items():
+                parts.append(f"- {k} = {v}")
         return "\n".join(parts)
-    
-    def execute(self, input_data: str, max_tokens: int = 1000) -> str:
-        """
-        Execute the prompt program with the given input.
-        
-        Args:
-            input_data: The input data for the program
-            max_tokens: Maximum tokens for generation
-            
-        Returns:
-            The execution result
-        """
-        if not self.model:
-            raise ValueError("No model provided for execution")
-        
-        # Reset execution state
-        self.current_step = 0
-        self.execution_trace = []
-        
-        # Format program
-        program_str = self.format()
-        
-        # Inject into neural field if available
-        if self.neural_field:
-            try:
-                self.neural_field.inject(f"Prompt Program: {self.description}", strength=0.9)
-                self.neural_field.inject(program_str, strength=0.8)
-                
-                # Inject input
-                self.neural_field.inject(f"Input: {input_data}", strength=1.0)
-                
-                # Get field representation for context
-                field_context = self.neural_field.get_context_representation()
-                
-                # Create execution prompt with field context
-                prompt = f"""
-{field_context}
 
-# Input
+    def _stream_generate(self, prompt: str, max_tokens: int = 1500) -> str:
+        """Live streaming generation with colored chunks."""
+        full = ""
+        main_logger.info("Streaming response...")
+        for chunk in self.model.generate(prompt, max_tokens=max_tokens, stream=True):
+            full += chunk
+        return full.strip()
+
+    def execute(self, input_data: str, max_tokens: int = 1500) -> str:
+        program_str = self.format()
+        prompt = f"""
+INPUT:
 {input_data}
 
-# Program
 {program_str}
 
-# Execution
-Please execute the above program step by step using the provided input.
+Execute the program above step by step.
 For each step:
 1. Show your reasoning
 2. Show the result
-3. Update any variables
+3. Update variables if needed
 
-After executing all steps, provide your final answer.
+After all steps, give a clear final answer.
 """
-            except (AttributeError, TypeError):
-                logger.warning("Failed to use neural field, falling back to standard prompt")
-                # Fall back to standard prompt
-                prompt = self._create_standard_prompt(program_str, input_data)
-        else:
-            # Standard prompt without neural field
-            prompt = self._create_standard_prompt(program_str, input_data)
-        
-        # Execute the program
-        try:
-            response = self.model.generate(prompt, max_tokens=max_tokens)
-            
-            # Record execution
-            self.execution_trace.append({
-                "timestamp": time.time(),
-                "prompt": prompt,
-                "response": response
-            })
-            
-            # Update neural field if available
-            if self.neural_field:
-                try:
-                    self.neural_field.inject(f"Execution Result: {response}", strength=0.7)
-                except (AttributeError, TypeError):
-                    pass
-            
-            return response
-        except Exception as e:
-            logger.error(f"Execution failed: {e}")
-            
-            # Try error handlers if available
-            if self.error_handlers and hasattr(self.model, 'generate'):
-                error_prompt = f"""
-The program execution encountered an error: {str(e)}
+        response = self._stream_generate(prompt, max_tokens)
+        self.execution_trace.append({
+            "timestamp": time.time(),
+            "input": input_data,
+            "prompt": prompt,
+            "response": response,
+            "input_tokens": token_counter(input_data + prompt),
+            "output_tokens": token_counter(response)
+        })
+        return response
 
-Please apply the following error handling:
-"""
-                for handler in self.error_handlers:
-                    error_prompt += f"\n- {handler.content}"
-                
-                error_prompt += f"\n\nInput: {input_data}"
-                
-                try:
-                    return self.model.generate(error_prompt, max_tokens=max_tokens)
-                except Exception as e2:
-                    logger.error(f"Error handler failed: {e2}")
-            
-            return f"Execution failed: {str(e)}"
-    
     def _create_standard_prompt(self, program_str: str, input_data: str) -> str:
         """Create a standard execution prompt."""
         return f"""
@@ -512,7 +429,7 @@ class NeuralFieldProgram(PromptProgram):
                     from field_resonance_measure import ResidueEnhancedNeuralField
                     self.neural_field = ResidueEnhancedNeuralField(**field_params)
                 except (ImportError, AttributeError):
-                    logger.warning("Could not import ResidueEnhancedNeuralField, using basic NeuralField")
+                    main_logger.warning("Could not import ResidueEnhancedNeuralField, using basic NeuralField")
                     self.neural_field = self._create_basic_neural_field(field_params)
         else:
             self.neural_field = None
@@ -617,7 +534,7 @@ class NeuralFieldProgram(PromptProgram):
                     "strength": strength
                 }
         except (AttributeError, TypeError) as e:
-            logger.warning(f"Failed to add attractor: {e}")
+            main_logger.warning(f"Failed to add attractor: {e}")
     
     def execute(self, input_data: str, max_tokens: int = 1000) -> str:
         """
@@ -647,13 +564,13 @@ class NeuralFieldProgram(PromptProgram):
                 field_metrics = self._measure_field_metrics()
                 
                 # Log metrics
-                logger.info(f"Field metrics after execution: {field_metrics}")
+                main_logger.info(f"Field metrics after execution: {field_metrics}")
                 
                 # Save metrics in execution trace
                 if self.execution_trace:
                     self.execution_trace[-1]["field_metrics"] = field_metrics
             except (AttributeError, TypeError) as e:
-                logger.warning(f"Failed to measure field metrics: {e}")
+                main_logger.warning(f"Failed to measure field metrics: {e}")
         
         return result
     
@@ -687,7 +604,7 @@ class NeuralFieldProgram(PromptProgram):
                 pass
                 
         except Exception as e:
-            logger.warning(f"Error measuring field metrics: {e}")
+            main_logger.warning(f"Error measuring field metrics: {e}")
         
         return metrics
 
@@ -941,7 +858,7 @@ def basic_program_example():
     # Mock model for demonstration
     class MockModel:
         def generate(self, prompt, max_tokens=1000):
-            return f"""
+            return """
 Step 1: Parse the problem to identify variables and relationships
 Reasoning: I need to understand what variables are involved and their relationships.
 Result: The problem involves a train traveling at 60 mph for 2.5 hours, and I need to find the distance.
@@ -994,7 +911,7 @@ def neural_field_program_example():
     # Mock model for demonstration
     class MockModel:
         def generate(self, prompt, max_tokens=1000):
-            return f"""
+            return """
 Step 1: Understand the research area of interest
 Reasoning: I need to identify the main research area the user is interested in.
 Result: The user is interested in climate change research.
@@ -1070,7 +987,7 @@ def protocol_shell_program_example():
     # Mock model for demonstration
     class MockModel:
         def generate(self, prompt, max_tokens=1000):
-            return f"""
+            return """
 I'll execute this protocol step by step.
 
 Step 1: Analyze the document structure
@@ -1159,13 +1076,98 @@ recommendation="Plant-based diets can significantly reduce cholesterol levels"
     for key, value in output.items():
         print(f"{key}: {value}")
 
+# ============================================================================
+# EXAMPLES – Each in its own folder with full artifacts
+# ============================================================================
+
+def example_01_basic_math_word_problem():
+    ex_dir = create_example_dir("example_01_basic_math_word_problem")
+    log = get_example_logger("ex01", ex_dir)
+
+    program = PromptProgram("Solve distance/time math word problems")
+    program.add_step("Parse the problem: identify speed, time, and what is asked")
+    program.add_step("Recall the formula: distance = speed × time")
+    program.add_step("Plug in the values and calculate")
+    program.add_step("Verify units and reasonableness")
+    program.add_step("State the final answer clearly")
+
+    input_text = "A car travels at 65 mph for 3.5 hours. How far does it go?"
+    result = program.execute(input_text)
+
+    # Save everything
+    (ex_dir / "input.txt").write_text(input_text)
+    (ex_dir / "program.md").write_text(program.format())
+    (ex_dir / "full_prompt.txt").write_text(program.execution_trace[-1]["prompt"])
+    (ex_dir / "response.md").write_text(result)
+    (ex_dir / "trace.json").write_text(json.dumps(program.execution_trace[-1], indent=2, ensure_ascii=False))
+
+    log.info("Basic math word problem – completed!")
+    log.info(f"Final answer saved to: {ex_dir}/response.md")
+
+def example_02_conditional_reasoning():
+    ex_dir = create_example_dir("example_02_conditional_reasoning")
+    log = get_example_logger("ex02", ex_dir)
+
+    program = PromptProgram("Classify sentiment with reasoning")
+    program.add_step("Read the text carefully")
+    program.add_step("Identify emotional words and tone indicators")
+    program.add_step("IF the text contains words like 'love', 'great', 'happy' → classify as POSITIVE")
+    program.add_step("ELSE IF contains 'hate', 'terrible', 'angry' → classify as NEGATIVE")
+    program.add_step("ELSE → classify as NEUTRAL")
+    program.add_step("Explain your classification")
+
+    input_text = "I absolutely love this new coffee shop! The ambiance is perfect and the latte art is amazing."
+    result = program.execute(input_text)
+
+    (ex_dir / "input.txt").write_text(input_text)
+    (ex_dir / "program.md").write_text(program.format())
+    (ex_dir / "response.md").write_text(result)
+    (ex_dir / "stats.json").write_text(json.dumps({
+        "input_tokens": program.execution_trace[-1]["input_tokens"],
+        "output_tokens": program.execution_trace[-1]["output_tokens"]
+    }, indent=2))
+
+    log.info("Conditional sentiment analysis – live streaming complete!")
+
+def example_03_research_direction_finder():
+    ex_dir = create_example_dir("example_03_research_direction_finder")
+    log = get_example_logger("ex03", ex_dir)
+
+    program = PromptProgram("Find promising research directions")
+    program.add_step("Understand the broad field from the query")
+    program.add_step("List 5–7 active sub-areas")
+    program.add_step("For each sub-area, identify current open questions")
+    program.add_step("Rank by potential impact and feasibility")
+    program.add_step("Recommend top 3 directions with justification")
+
+    input_text = "What are the most promising research areas in sustainable energy right now?"
+    result = program.execute(input_text, max_tokens=2000)
+
+    (ex_dir / "input.txt").write_text(input_text)
+    (ex_dir / "program.md").write_text(program.format())
+    (ex_dir / "response.md").write_text(result)
+    (ex_dir / "execution_trace.json").write_text(json.dumps(program.execution_trace, indent=2))
+
+    log.info("Research direction finder – full live output saved!")
+
+# ============================================================================
+# MAIN – Run all examples with live streaming
+# ============================================================================
+
 if __name__ == "__main__":
-    # Example usage
-    print("Basic Program Example:")
-    basic_program_example()
-    
-    print("\n\nNeural Field Program Example:")
-    neural_field_program_example()
-    
-    print("\n\nProtocol Shell Program Example:")
-    protocol_shell_program_example()
+    main_logger.info("=" * 80)
+    main_logger.info("Prompt Program Template – LIVE STREAMING EXAMPLES")
+    main_logger.info("Watch the model think in real time with colored chunks!")
+    main_logger.info("=" * 80)
+
+    example_01_basic_math_word_problem()
+    main_logger.info("\n" + "—" * 80 + "\n")
+
+    example_02_conditional_reasoning()
+    main_logger.info("\n" + "—" * 80 + "\n")
+
+    example_03_research_direction_finder()
+
+    main_logger.info("\nAll examples finished!")
+    main_logger.info(f"Check results in: {OUTPUT_DIR}")
+

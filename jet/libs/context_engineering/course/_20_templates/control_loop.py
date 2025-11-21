@@ -21,18 +21,45 @@ Usage:
 
 import time
 import json
-import logging
 from typing import Dict, List, Any, Optional, Union, Tuple
 from abc import ABC, abstractmethod
 
 from jet.adapters.llama_cpp.llm import LlamacppLLM
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+from pathlib import Path
+from jet.logger import CustomLogger
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
 )
-logger = logging.getLogger("control_loop")
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="main",
+    filename=os.path.join(OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+
+def create_example_dir(example_name: str) -> Path:
+    from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+    base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def get_example_logger(name: str, output_dir: Path) -> CustomLogger:
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=log_file, overwrite=True)
 
 # ------------------------------------------------------------------------------
 # Model Interface
@@ -2131,9 +2158,9 @@ def basic_control_loop_example():
     result = control_loop.run("Explain how neural networks work in simple terms.")
     
     # Print result
-    print(f"Success: {result['successful']}")
-    print(f"Iterations: {result['iterations']}")
-    print(f"Final response: {result['final_response'][:100]}...")
+    main_logger.info(f"Success: {result['successful']}")
+    main_logger.info(f"Iterations: {result['iterations']}")
+    main_logger.info(f"Final response: {result['final_response'][:100]}...")
 
 def neural_field_example():
     """Example of using the neural field control loop."""
@@ -2171,10 +2198,10 @@ def neural_field_example():
     result = field_loop.run("Explain how neural fields maintain information persistence.")
     
     # Print result
-    print(f"Success: {result['successful']}")
-    print(f"Iterations: {result['iterations']}")
-    print(f"Field stability: {result['field_state']['stability']}")
-    print(f"Final response: {result['final_response'][:100]}...")
+    main_logger.info(f"Success: {result['successful']}")
+    main_logger.info(f"Iterations: {result['iterations']}")
+    main_logger.info(f"Field stability: {result['field_state']['stability']}")
+    main_logger.info(f"Final response: {result['final_response'][:100]}...")
 
 def protocol_shell_example():
     """Example of using the protocol shell control loop."""
@@ -2243,9 +2270,9 @@ def protocol_shell_example():
     result = protocol_loop.run("If a train travels at 60 mph for 2.5 hours, how far does it go?")
     
     # Print result
-    print(f"Success: {result['successful']}")
-    print(f"Iterations: {result['iterations']}")
-    print(f"Final response: {result['final_response'][:100]}...")
+    main_logger.info(f"Success: {result['successful']}")
+    main_logger.info(f"Iterations: {result['iterations']}")
+    main_logger.info(f"Final response: {result['final_response'][:100]}...")
 
 def recursive_field_example():
     """Example of using the recursive field control loop."""
@@ -2329,22 +2356,135 @@ def recursive_field_example():
     )
     
     # Print result
-    print(f"Success: {result['successful']}")
-    print(f"Iterations: {result['iterations']}")
-    print(f"Recursion level: {result['recursion_level']}")
-    print(f"Field stability: {result['field_state']['stability']}")
-    print(f"Final response: {result['final_response'][:100]}...")
+    main_logger.info(f"Success: {result['successful']}")
+    main_logger.info(f"Iterations: {result['iterations']}")
+    main_logger.info(f"Recursion level: {result['recursion_level']}")
+    main_logger.info(f"Field stability: {result['field_state']['stability']}")
+    main_logger.info(f"Final response: {result['final_response'][:100]}...")
+
+# === EXAMPLES – Each saves full artifacts in its own folder ===
+def example_01_basic_control_loop():
+    ex_dir = create_example_dir("example_01_basic_control_loop")
+    log = get_example_logger("ex01", ex_dir)
+
+    evaluator = SimpleKeywordEvaluator(
+        required_keywords=["neural network", "layers", "weights", "training"],
+        forbidden_keywords=["I don't know", "uncertain"]
+    )
+    loop = ControlLoop(
+        model="qwen3-instruct-2507:4b",
+        initial_context={"system": "You are an expert in neural networks.", "goal": "Explain clearly and accurately."},
+        max_iterations=3,
+        evaluators=[evaluator]
+    )
+    result = loop.run("Explain how a neural network learns in simple terms.")
+
+    # Save everything
+    (ex_dir / "prompt_context.txt").write_text(loop.context_manager.get_context_str())
+    (ex_dir / "final_response.md").write_text(f"# Final Answer\n\n{result['final_response']}")
+    (ex_dir / "results.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    (ex_dir / "evaluations.md").write_text(
+        "\n".join(f"### Iteration {r['iteration']}\n- Success: {r['success']}\n- Score: {r['score']:.3f}\n\n{r['response'][:500]}...\n"
+                  for r in result["detailed_results"])
+    )
+    log.info("Basic control loop example completed")
+    log.info(f"Success: {result['successful']} | Iterations: {result['iterations']}")
+
+def example_02_neural_field_control_loop():
+    ex_dir = create_example_dir("example_02_neural_field_control_loop")
+    log = get_example_logger("ex02", ex_dir)
+
+    evaluator = PatternMatchEvaluator(required_patterns=[r"resonance", r"attractor", r"field"])
+    field_params = {
+        "decay_rate": 0.08,
+        "initial_attractors": [
+            "Neural fields treat context as a continuous resonant medium.",
+            "Information persists through pattern resonance, not token storage."
+        ]
+    }
+    loop = NeuralFieldControlLoop(
+        model="qwen3-instruct-2507:4b",
+        field_params=field_params,
+        max_iterations=4,
+        evaluators=[evaluator]
+    )
+    result = loop.run("How do neural fields achieve long-term context persistence?")
+
+    (ex_dir / "final_field_state.md").write_text(f"# Final Field State\n\n{loop.field.get_context_representation()}")
+    (ex_dir / "results.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    (ex_dir / "final_response.md").write_text(result["final_response"])
+    log.info("Neural field loop completed")
+    log.info(f"Final stability: {result['field_state']['stability']:.3f}")
+
+def example_03_protocol_shell_loop():
+    ex_dir = create_example_dir("example_03_protocol_shell_loop")
+    log = get_example_logger("ex03", ex_dir)
+
+    protocol = {
+        "intent": "Solve math problem step by step",
+        "input": {"problem": "<current_input>"},
+        "process": [
+            {"name": "understand"}, {"name": "plan"}, {"name": "solve"}, {"name": "verify"}
+        ],
+        "output": {"solution": "...", "answer": "..."},
+        "meta": {"name": "math_solver"}
+    }
+    evaluator = PatternMatchEvaluator(required_patterns=[r"step", r"calculation", r"answer"])
+    loop = ProtocolShellControlLoop(
+        model="qwen3-instruct-2507:4b",
+        protocol_shell=protocol,
+        max_iterations=2,
+        evaluators=[evaluator]
+    )
+    result = loop.run("A train travels 60 mph for 2.5 hours. How far does it go?")
+
+    (ex_dir / "protocol.txt").write_text(loop.protocol.format())
+    (ex_dir / "final_response.md").write_text(result["final_response"])
+    (ex_dir / "extracted_output.json").write_text(json.dumps(result.get("context", {}), indent=2))
+    log.info("Protocol shell example completed")
+
+def example_04_recursive_field_loop():
+    ex_dir = create_example_dir("example_04_recursive_field_loop")
+    log = get_example_logger("ex04", ex_dir)
+
+    evaluator = PatternMatchEvaluator(required_patterns=[r"perspective", r"impact", r"long-term"])
+    loop = RecursiveFieldControlLoop(
+        model="qwen3-instruct-2507:4b",
+        max_iterations=3,
+        evaluators=[evaluator],
+        recursion_depth=2
+    )
+    result = loop.run("What are the long-term societal impacts of AGI?")
+
+    (ex_dir / "final_response.md").write_text(result["final_response"])
+    (ex_dir / "full_trace.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    (ex_dir / "field_evolution.md").write_text(
+        "\n".join(f"### Iteration {i}\n{loop.field.get_context_representation()}\n"
+                  for i in range(1, loop.iterations + 1))
+    )
+    log.info("Recursive field loop completed")
+    log.info(f"Used recursion level: {result.get('recursion_level', 0)}")
+
+# ============================================================================
+# MAIN – Run all examples with live streaming
+# ============================================================================
 
 if __name__ == "__main__":
-    # Example usage
-    print("Running basic control loop example...")
-    basic_control_loop_example()
-    
-    print("\nRunning neural field example...")
-    neural_field_example()
-    
-    print("\nRunning protocol shell example...")
-    protocol_shell_example()
-    
-    print("\nRunning recursive field example...")
-    recursive_field_example()
+    main_logger.info("═" * 90)
+    main_logger.info("CONTEXT-ENGINEERING CONTROL LOOP – LIVE EXAMPLES")
+    main_logger.info("Watch streaming responses, field evolution, and full artifact saving")
+    main_logger.info("═" * 90)
+
+    example_01_basic_control_loop()
+    main_logger.info("\n" + "─" * 90 + "\n")
+
+    example_02_neural_field_control_loop()
+    main_logger.info("\n" + "─" * 90 + "\n")
+
+    example_03_protocol_shell_loop()
+    main_logger.info("\n" + "─" * 90 + "\n")
+
+    example_04_recursive_field_loop()
+
+    main_logger.info(f"\nAll examples finished! Check folders in: {OUTPUT_DIR}")
+

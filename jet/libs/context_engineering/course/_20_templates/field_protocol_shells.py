@@ -44,8 +44,41 @@ import json
 import re
 import os
 import datetime
-from typing import Dict, List, Any, Optional, Callable, Union, Tuple
+from typing import Dict, List, Any
 import jsonschema
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+from pathlib import Path
+from jet.logger import CustomLogger
+import shutil
+# ----------------------------------------------------------------------------
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
+)
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="main",
+    filename=os.path.join(OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+
+def create_example_dir(example_name: str) -> Path:
+    from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+    base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def get_example_logger(name: str, output_dir: Path) -> CustomLogger:
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=log_file, overwrite=True)
 
 # Type aliases for clarity
 Field = Dict[str, Any]  # Semantic field representation
@@ -1065,3 +1098,190 @@ class RecursiveEmergenceProtocol(ProtocolShell):
             return "max_cycles_reached"
         else:
             return "convergence_achieved"
+
+# ----------------------------------------------------------------------------
+# Example functions – each saves everything in its own folder
+# ----------------------------------------------------------------------------
+
+def example_01_basic_parsing_and_execution():
+    ex_dir = create_example_dir("example_01_basic_parsing_and_execution")
+    log = get_example_logger("ex01", ex_dir)
+
+    shell_str = """
+    test.protocol {
+      intent: "Simple test protocol",
+      input: { value: "<input_value>" },
+      process: [
+        /echo.message { message: "Hello from protocol!" }
+      ],
+      output: { greeting: "greeting" },
+      meta: { version: "1.0" }
+    }
+    """
+    class EchoProtocol(ProtocolShell):
+        def echo_message(self, state, message: str):
+            state["greeting"] = f"{message} Input was: {state.get('value', 'none')}"
+            return state
+
+    protocol = EchoProtocol.from_string(shell_str)
+    result = protocol.execute({"value": "world"})
+
+    (ex_dir / "protocol.shell").write_text(shell_str)
+    (ex_dir / "input.json").write_text(json.dumps({"value": "world"}, indent=2))
+    (ex_dir / "output.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    (ex_dir / "protocol_pretty.md").write_text(f"# {protocol.name}\n\n{ProtocolParser.serialize_shell(protocol.protocol_dict)}")
+
+    log.info("Basic parsing + execution example completed")
+    log.info(f"Greeting: {result.get('greeting')}")
+
+def example_02_attractor_co_emerge_protocol():
+    ex_dir = create_example_dir("example_02_attractor_co_emerge_protocol")
+    log = get_example_logger("ex02", ex_dir)
+
+    shell_str = """
+    attractor.co.emerge {
+      intent: "Facilitate co-emergence of attractors",
+      input: { current_field_state: "<field>" },
+      process: [
+        /attractor_scan { detect: "attractors", filter_by: "strength" },
+        /residue_surface { mode: "recursive" },
+        /co_emergence_algorithms { strategy: "harmonic integration" }
+      ],
+      output: { detected_attractors: "...", surfaced_residues: "...", current_field_state: "..." },
+      meta: { version: "2.1" }
+    }
+    """
+    protocol = AttractorCoEmergeProtocol.from_string(shell_str)
+    fake_field = {"patterns": ["A", "B"], "strength": 0.8}
+    result = protocol.execute({"current_field_state": fake_field})
+
+    (ex_dir / "protocol.shell").write_text(shell_str)
+    (ex_dir / "input_field.json").write_text(json.dumps(fake_field, indent=2))
+    (ex_dir / "full_result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    log.info("Attractor co-emergence protocol executed")
+
+def example_03_recursive_emergence_with_llm_self_prompt():
+    ex_dir = create_example_dir("example_03_recursive_emergence_with_llm_self_prompt")
+    log = get_example_logger("ex03", ex_dir)
+
+    llm = LlamacppLLM(model="qwen3-instruct-2507:4b", verbose=True)
+
+    shell_str = """
+    recursive.emergence {
+      intent: "Enable recursive self-improvement via self-prompting",
+      input: { initial_field_state: "<field>", cycle_count: 0 },
+      process: [
+        /self_prompt_loop { trigger_condition: "cycle_interval" },
+        /agency_activate { enable_field_agency: true, agency_level: 0.8 },
+        /residue_compress { integrate_residue_into_field: true },
+        /emergence_detect { pattern: "recursive capability" }
+      ],
+      output: { current_field_state: "...", emergent_patterns: "...", agency_level: "..." },
+      meta: { version: "3.0" }
+    }
+    """
+    protocol = RecursiveEmergenceProtocol.from_string(shell_str)
+    initial_field = {"concept": "self-awareness", "strength": 0.4}
+    result = protocol.execute({"initial_field_state": initial_field, "cycle_count": 1})
+
+    # Simulate LLM self-prompt streaming
+    prompt = f"Field state:\n{initial_field}\nContinue recursive emergence..."
+    log.info("Streaming LLM self-prompt...")
+    response = ""
+    for chunk in llm.generate(prompt, stream=True):
+        response += chunk
+    (ex_dir / "llm_self_prompt.md").write_text(response)
+
+    (ex_dir / "protocol.shell").write_text(shell_str)
+    (ex_dir / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    log.info("Recursive emergence example finished")
+
+def example_04_protocol_with_real_llm_integration():
+    ex_dir = create_example_dir("example_04_protocol_with_real_llm_integration")
+    log = get_example_logger("ex04", ex_dir)
+
+    llm = LlamacppLLM(model="qwen3-instruct-2507:4b", verbose=True)
+
+    class LLMProtocol(ProtocolShell):
+        def llm_generate(self, state, prompt_key: str = "prompt"):
+            prompt = state.get(prompt_key, "Think step by step.")
+            log.info(f"Generating with prompt: {prompt[:100]}...")
+            full = ""
+            for chunk in llm.generate(prompt, stream=True):
+                full += chunk
+            state["llm_response"] = full
+            return state
+
+    shell = """
+    llm.integration {
+      intent: "Use real LLM inside protocol",
+      input: { prompt: "Explain quantum entanglement simply" },
+      process: [ /llm_generate { prompt_key: "prompt" } ],
+      output: { llm_response: "..." },
+      meta: { version: "1.0" }
+    }
+    """
+    protocol = LLMProtocol.from_string(shell)
+    result = protocol.execute({"prompt": "Explain quantum entanglement in simple terms."})
+
+    (ex_dir / "protocol.shell").write_text(shell)
+    (ex_dir / "llm_response.md").write_text(result["llm_response"])
+    (ex_dir / "full_result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    log.info("LLM-integrated protocol completed")
+
+def example_05_full_cycle_with_field_simulation():
+    ex_dir = create_example_dir("example_05_full_cycle_with_field_simulation")
+    log = get_example_logger("ex05", ex_dir)
+
+    # Simulate a very simple field dict
+    field = {
+        "attractors": [{"id": "a1", "pattern": "reasoning", "strength": 0.9}],
+        "residues": [{"id": "r1", "content": "meta-cognition"}]
+    }
+
+    protocol = AttractorCoEmergeProtocol.from_string("""
+    full.cycle {
+      intent: "Run complete co-emergence cycle",
+      input: { current_field_state: "<field>" },
+      process: [
+        /attractor_scan {},
+        /residue_surface {},
+        /co_emergence_algorithms { strategy: "resonance amplification" },
+        /field_audit { surface_new: "attractor_basins" },
+        /integration_protocol {}
+      ],
+      output: { detected_attractors: "...", current_field_state: "..." },
+      meta: { version: "4.2" }
+    }
+    """)
+
+    result = protocol.execute({"current_field_state": field})
+
+    (ex_dir / "initial_field.json").write_text(json.dumps(field, indent=2))
+    (ex_dir / "final_result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    log.info("Full co-emergence cycle example completed")
+
+# ----------------------------------------------------------------------------
+# MAIN – Run all examples with beautiful live streaming
+# ----------------------------------------------------------------------------
+if __name__ == "__main__":
+    main_logger.info("═" * 100)
+    main_logger.info("FIELD PROTOCOL SHELLS – LIVE EXAMPLES WITH FULL ARTIFACT SAVING")
+    main_logger.info("Watch streaming LLM chunks, per-example folders, and saved artifacts")
+    main_logger.info("═" * 100)
+
+    example_01_basic_parsing_and_execution()
+    main_logger.info("\n" + "─" * 90 + "\n")
+
+    example_02_attractor_co_emerge_protocol()
+    main_logger.info("\n" + "─" * 90 + "\n")
+
+    example_03_recursive_emergence_with_llm_self_prompt()
+    main_logger.info("\n" + "─" * 90 + "\n")
+
+    example_04_protocol_with_real_llm_integration()
+    main_logger.info("\n" + "─" * 90 + "\n")
+
+    example_05_full_cycle_with_field_simulation()
+
+    main_logger.info(f"\nAll examples finished! Artifacts saved under: {OUTPUT_DIR}")

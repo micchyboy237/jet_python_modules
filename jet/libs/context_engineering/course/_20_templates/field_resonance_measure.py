@@ -21,19 +21,48 @@ Usage:
 """
 
 import math
-import time
-import logging
-from typing import Dict, List, Any, Optional, Callable, Union, Tuple, Set
+from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 import yaml
 import json
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# --- Real LLM & Token Counter ---
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+
+# ============================================================================
+# OUTPUT & LOGGING SETUP
+# ============================================================================
+
+from pathlib import Path
+from jet.logger import CustomLogger
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
 )
-logger = logging.getLogger("field_resonance")
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+main_logger = CustomLogger(
+    name="main",
+    filename=os.path.join(OUTPUT_DIR, "main.log"),
+    console_level="INFO",
+    level="DEBUG",
+    overwrite=True
+)
+
+def create_example_dir(example_name: str) -> Path:
+    from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+    base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
+    return example_dir
+
+def get_example_logger(name: str, output_dir: Path) -> CustomLogger:
+    log_file = output_dir / "run.log"
+    return CustomLogger(name=name, filename=log_file, overwrite=True)
 
 # ------------------------------------------------------------------------------
 # Resonance Measurement
@@ -1133,74 +1162,140 @@ class FieldAnalyzer:
         
         return recommendations
 
-# ------------------------------------------------------------------------------
-# Usage Examples
-# ------------------------------------------------------------------------------
+# ============================================================================
+# REAL NEURAL FIELD + LLM INTEGRATION
+# ============================================================================
 
-def measure_field_resonance_example():
-    """Example usage of field resonance measurement."""
-    # Create a simple mock field for demonstration
-    class MockField:
-        def __init__(self):
-            self.state = {
-                "Neural fields treat context as a continuous medium.": 0.9,
-                "Information persists through resonance rather than explicit storage.": 0.8,
-                "Patterns that align with existing field structures decay more slowly.": 0.7,
-                "Field boundaries determine how information flows in and out.": 0.6,
-                "New inputs interact with the entire field, not just recent tokens.": 0.5
-            }
-            self.attractors = {
-                "attractor1": {
-                    "pattern": "Neural fields represent context as a continuous semantic landscape.",
-                    "strength": 0.9
-                },
-                "attractor2": {
-                    "pattern": "Resonance is a key mechanism for information persistence.",
-                    "strength": 0.8
-                }
-            }
-    
-    # Create a field
-    field = MockField()
-    
-    # Create a measurer
+class LiveNeuralField:
+    def __init__(self):
+        self.state: Dict[str, float] = {}
+        self.attractors: Dict[str, Dict[str, Any]] = {}
+        self.history = []
+        self.llm = LlamacppLLM(
+            model="qwen3-instruct-2507:4b",
+            base_url="http://shawn-pc.local:8080/v1",
+            verbose=True  # Live streaming!
+        )
+
+    def inject(self, pattern: str, strength: float = 1.0):
+        self.state[pattern] = self.state.get(pattern, 0.0) + strength
+        self.history.append(("inject", pattern, strength))
+        main_logger.info(f"Injected → {pattern[:60]}{'...' if len(pattern)>60 else ''} [+{strength:.2f}]")
+
+    def form_attractor(self, pattern: str, strength: float = 1.0):
+        key = f"a{len(self.attractors)+1}"
+        self.attractors[key] = {"pattern": pattern, "strength": strength}
+        main_logger.info(f"Formed attractor → {pattern[:60]}{'...' if len(pattern)>60 else ''}")
+
+    def decay(self, rate: float = 0.05):
+        for p in list(self.state):
+            self.state[p] *= (1 - rate)
+            if self.state[p] < 0.01:
+                del self.state[p]
+
+    def generate_insight(self, prompt: str) -> str:
+        full = ""
+        main_logger.info("Generating insight with live streaming...")
+        for chunk in self.llm.generate(prompt, max_tokens=1200, stream=True):
+            full += chunk
+        return full.strip()
+
+# ============================================================================
+# EXAMPLES – Each in its own folder with full artifacts
+# ============================================================================
+
+def example_01_basic_field_measurement():
+    ex_dir = create_example_dir("example_01_basic_field_measurement")
+    log = get_example_logger("ex01", ex_dir)
+
+    field = LiveNeuralField()
+    field.inject("Neural fields represent context as a continuous semantic medium", 0.95)
+    field.inject("Resonance enables persistent information without explicit storage", 0.90)
+    field.inject("Attractors shape long-term field structure", 0.85)
+    field.form_attractor("Context is a living resonant field, not a token list")
+
     measurer = FieldResonanceMeasurer()
-    
-    # Measure resonance between two patterns
-    pattern1 = "Neural fields enable persistent context."
-    pattern2 = "Information persists in neural fields through resonance."
-    resonance = measurer.measure_resonance(pattern1, pattern2)
-    print(f"Resonance between patterns: {resonance:.2f}")
-    
-    # Measure field coherence
-    coherence = measurer.measure_coherence(field)
-    print(f"Field coherence: {coherence:.2f}")
-    
-    # Measure field stability
-    stability = measurer.measure_stability(field)
-    print(f"Field stability: {stability:.2f}")
-    
-    # Get comprehensive metrics
     metrics = measurer.get_field_metrics(field)
-    print("Field metrics:")
-    for key, value in metrics.items():
-        print(f"- {key}: {value:.2f}")
-    
-    # Visualize the field
-    visualization = measurer.visualize_field(field, format="ascii")
-    print("\nField visualization:")
-    print(visualization)
-    
-    # Analyze the field
-    analyzer = FieldAnalyzer(measurer)
-    analysis = analyzer.analyze_field(field)
-    
-    print("\nField analysis:")
-    print(f"Evolution potential: {analysis['evolution_analysis']['evolution_potential']}")
-    print("Recommendations:")
-    for recommendation in analysis['recommendations']:
-        print(f"- {recommendation}")
+    ascii_viz = measurer.visualize_field(field, "ascii")
+    json_viz = measurer.visualize_field(field, "json")
+
+    # Save everything
+    (ex_dir / "field_state.json").write_text(json.dumps({
+        "patterns": list(field.state.items()),
+        "attractors": field.attractors
+    }, indent=2, ensure_ascii=False))
+    (ex_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    (ex_dir / "visualization_ascii.txt").write_text(ascii_viz)
+    (ex_dir / "visualization.json").write_text(json_viz)
+    (ex_dir / "field_diagram.md").write_text(f"# Neural Field State\n\n```text\n{ascii_viz}\n```")
+
+    log.info("Basic field measurement complete!")
+    log.info(ascii_viz)
+
+def example_02_live_insight_generation():
+    ex_dir = create_example_dir("example_02_live_insight_generation")
+    log = get_example_logger("ex02", ex_dir)
+
+    field = LiveNeuralField()
+    field.inject("Creativity emerges from resonance between distant concepts", 0.92)
+    field.inject("Constraints amplify novelty when properly tuned", 0.88)
+    field.inject("Breakthrough ideas often come from pattern recombination", 0.90)
+    field.form_attractor("True creativity requires both freedom and structure")
+
+    prompt = """
+Based on the current neural field state, generate a profound insight about the nature of creativity.
+Make it original, concise, and deeply resonant with the field.
+"""
+    insight = field.generate_insight(prompt)
+
+    measurer = FieldResonanceMeasurer()
+    metrics = measurer.get_field_metrics(field)
+    ascii_viz = measurer.visualize_field(field, "ascii")
+
+    # Save results
+    (ex_dir / "prompt.txt").write_text(prompt.strip())
+    (ex_dir / "insight.md").write_text(f"# Generated Insight\n\n{insight}")
+    (ex_dir / "field_before_generation.md").write_text(f"```text\n{ascii_viz}\n```")
+    (ex_dir / "final_metrics.json").write_text(json.dumps(metrics, indent=2))
+
+    log.info("Live insight generation complete!")
+    log.info(f"Insight → {insight}")
+
+def example_03_field_evolution_tracking():
+    ex_dir = create_example_dir("example_03_field_evolution_tracking")
+    log = get_example_logger("ex03", ex_dir)
+
+    field = LiveNeuralField()
+    measurer = FieldResonanceMeasurer()
+
+    evolution = []
+    for i in range(5):
+        field.inject(f"Insight wave {i+1}: Novelty increases with controlled chaos", 0.8 + i*0.05)
+        field.decay(0.03)
+        metrics = measurer.get_field_metrics(field)
+        evolution.append({"step": i+1, "metrics": metrics})
+
+    (ex_dir / "evolution_trace.json").write_text(json.dumps(evolution, indent=2))
+    (ex_dir / "final_visualization.txt").write_text(measurer.visualize_field(field))
+
+    log.info("Field evolution tracking complete – 5 steps saved!")
+
+# ============================================================================
+# MAIN – Run all examples with live streaming
+# ============================================================================
 
 if __name__ == "__main__":
-    # Example usage
-    measure_field_resonance_example()
+    main_logger.info("=" * 90)
+    main_logger.info("Field Resonance Measurer – LIVE STREAMING + REAL LLM EXAMPLES")
+    main_logger.info("Watch the field form, resonate, and generate insights in real time!")
+    main_logger.info("=" * 90)
+
+    example_01_basic_field_measurement()
+    main_logger.info("\n" + "—" * 90 + "\n")
+
+    example_02_live_insight_generation()
+    main_logger.info("\n" + "—" * 90 + "\n")
+
+    example_03_field_evolution_tracking()
+
+    main_logger.info(f"\nAll examples completed! Results in: {OUTPUT_DIR}")
