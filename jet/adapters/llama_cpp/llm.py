@@ -2,7 +2,6 @@ import json
 import os
 from typing import Any, AsyncIterator, Callable, Dict, Iterator, List, Optional, Union, Literal, TypedDict
 from openai import AsyncOpenAI, OpenAI
-from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.llm.config import DEFAULT_LOG_DIR
@@ -108,66 +107,6 @@ class LlamacppLLM:
         )
 
         return content
-
-    # === Sync Chat Stream ===
-    def chat_stream(
-        self,
-        messages: List[ChatMessage],
-        temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
-    ) -> Iterator[ChatCompletion]:
-        response = self.sync_client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-        )
-        response_text = ""
-        for chunk in response:
-            if chunk.choices and chunk.choices[0].delta.content is not None:
-                content: str = chunk.choices[0].delta.content
-                if self.verbose:
-                    self._logger.teal(content, flush=True)
-                yield chunk
-                response_text += content
-
-        self._chat_logger.log_interaction(
-            messages=messages,
-            response=response_text,
-            model=self.model,
-            method="stream_chat",
-        )
-
-    # === Async Chat Stream ===
-    async def achat_stream(
-        self,
-        messages: List[ChatMessage],
-        temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
-    ) -> AsyncIterator[ChatCompletion]:
-        response = await self.async_client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-        )
-        response_text = ""
-        async for chunk in response:
-            if chunk.choices and chunk.choices[0].delta.content is not None:
-                content: str = chunk.choices[0].delta.content
-                if self.verbose:
-                    self._logger.teal(content, flush=True)
-                yield chunk
-                response_text += content
-
-        self._chat_logger.log_interaction(
-            messages=messages,
-            response=response_text,
-            model=self.model,
-            method="stream_chat",
-        )
 
     # === Sync Completions ===
     def generate(
