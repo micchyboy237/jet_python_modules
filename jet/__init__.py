@@ -28,6 +28,7 @@ def suppress_logging():
     Configure logging to suppress HTTP request logs from urllib3 and requests.
     """
     from transformers import logging as transformers_logging
+    import matplotlib
 
     transformers_logging.set_verbosity_warning()
 
@@ -56,6 +57,11 @@ def suppress_logging():
     # # Optional: Disable propagation to prevent bubbling to root
     # logging.getLogger('markdown_it').propagate = False
     # logging.getLogger('mdit_plain').propagate = False
+
+    # ← ADD THESE LINES TO KILL THE findfont MESSAGES ←
+    logging.getLogger('matplotlib.font_manager').setLevel(logging.WARNING)
+    # Optional: also silence all Matplotlib debug output
+    matplotlib.set_loglevel("warning")
 
 
 suppress_logging()

@@ -743,7 +743,8 @@ class SolverArchitecture:
         """Initialize the solver architecture."""
         self.tools_library = CognitiveToolsLibrary()
         self.metacognitive_controller = MetaCognitiveController()
-        self.field = SemanticField(name="solution_field")
+        # High-dim field used by the normal solve() workflow (embedding style)
+        self.field = SemanticField(dimensions=128, name="solution_field")
         self.session_history = []
     
     def solve(self, problem: str, domain: str = None) -> Dict[str, Any]:
@@ -1126,73 +1127,55 @@ def solver_example_algorithmic_design():
 def solver_example_with_field_theory():
     """Example: Using field theory for solution space exploration."""
     print("\n===== SOLVER EXAMPLE: FIELD THEORY EXPLORATION =====")
-    
-    # Initialize the solver architecture
     solver = SolverArchitecture()
-    
-    # Create a field with multiple solution attractors
-    field = solver.field
-    
-    # Add attractors representing different solution approaches
-    field.add_attractor("Greedy Algorithm", np.array([0.8, 0.2, 0.1]), strength=0.7)
+
+    # Use a dedicated low-dimensional field for clear visualisation
+    field = SemanticField(dimensions=3, name="tsp_solution_space")
+
+    field.add_attractor("Greedy / Nearest Neighbour", np.array([0.8, 0.2, 0.1]), strength=0.7)
     field.add_attractor("Dynamic Programming", np.array([0.1, 0.9, 0.2]), strength=0.9)
-    field.add_attractor("Divide and Conquer", np.array([0.4, 0.4, 0.8]), strength=0.6)
-    field.add_attractor("Graph-Based Approach", np.array([-0.7, 0.5, 0.1]), strength=0.5)
-    
-    # Define an optimization problem
+    field.add_attractor("Divide & Conquer", np.array([0.4, 0.4, 0.8]), strength=0.6)
+    field.add_attractor("Graph / Exact TSP", np.array([-0.7, 0.5, 0.1]), strength=0.8)
+
     problem = """
     Find the most efficient route for a delivery truck that must visit 20 locations
     and return to its starting point, minimizing the total distance traveled.
     """
-    
-    # Solve the problem
     print(f"Solving problem: {problem}")
+    # Still run the normal solver (uses its own 128-dim field)
     solution = solver.solve(problem, domain="optimization")
-    
-    # Print results
+
     print("\nProblem Understanding:")
     print(json.dumps(solution["stages"]["understand"], indent=2))
-    
     print("\nProblem Analysis:")
     print(json.dumps(solution["stages"]["analyze"], indent=2))
-    
     print("\nSolution Approach:")
     print(json.dumps(solution["stages"]["solve"], indent=2))
-    
-    # Simulate exploring different solution approaches through field trajectories
+
     start_positions = [
-        np.array([0.9, 0.1, 0.2]),  # Near greedy algorithm
-        np.array([0.2, 0.8, 0.1]),  # Near dynamic programming
-        np.array([0.3, 0.3, 0.9]),  # Near divide and conquer
-        np.random.normal(0, 1, 3)    # Random starting point
+        np.array([0.9, 0.1, 0.2]),
+        np.array([0.2, 0.8, 0.1]),
+        np.array([0.3, 0.3, 0.9]),
+        np.random.normal(0, 1, 3),
     ]
-    
+
     print("\nExploring solution space through field trajectories...")
     for i, start_pos in enumerate(start_positions):
-        # Normalize the starting position
-        start_pos = start_pos / np.linalg.norm(start_pos)
-        
-        # Calculate trajectory
+        start_pos = start_pos / np.linalg.norm(start_pos)  # normalise to unit sphere
         trajectory = field.calculate_trajectory(start_pos, steps=15)
-        
-        # Determine where the trajectory ends up (which attractor basin)
         end_point = trajectory[-1]
         closest_attractor = None
         min_distance = float('inf')
-        
         for attr_id, attr in field.attractors.items():
             pos = attr["position"]
             dist = np.linalg.norm(pos - end_point)
             if dist < min_distance:
                 min_distance = dist
                 closest_attractor = attr["concept"]
-        
         print(f"Trajectory {i+1}: Converged to solution approach '{closest_attractor}'")
-    
-    # Visualize the field with trajectories
-    field_fig = field.visualize(show_trajectories=True)
+
+    field_fig = field.visualize(show_trajectories=True, reduced_dims=2)
     plt.show()
-    
     return solution
 
 # =============================================================================
