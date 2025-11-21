@@ -31,21 +31,20 @@ async def scrape_url(
     max_retries: int = 1,
     with_screenshot: bool = True,
     wait_for_js: bool = True,
-    use_cache: bool = True
+    use_cache: bool = True  # Now respected properly
 ) -> ScrapeResult:
     cache_key = f"html:{url}"
     if use_cache:
         cached_content = cache.get(cache_key)
         if cached_content:
             logger.debug(f"Retrieved cached content for {url}")
-            screenshot = cached_content.get('screenshot')
-            if screenshot:
+            screenshot = None
+            if with_screenshot and 'screenshot' in cached_content:
                 try:
-                    screenshot = base64.b64decode(screenshot)
+                    screenshot = base64.b64decode(cached_content['screenshot'])
                 except Exception as e:
                     logger.error(f"Failed to decode cached screenshot for {url}: {str(e)}")
-                    screenshot = None
-                return {"url": url, "status": "completed", "html": cached_content['content'], "screenshot": screenshot}
+            return {"url": url, "status": "completed", "html": cached_content['content'], "screenshot": screenshot}
 
     attempt = 0
     page = None
@@ -118,26 +117,37 @@ async def scrape_urls(
     semaphore = asyncio.Semaphore(num_parallel)
     completed_count = 0
     tasks = []
+
+    # Helper to yield cached result immediately
+    def yield_cached(url: str, cached_data: dict) -> ScrapeResult:
+        screenshot = None
+        if with_screenshot and 'screenshot' in cached_data:
+            try:
+                screenshot = base64.b64decode(cached_data['screenshot'])
+            except Exception as e:
+                logger.error(f"Failed to decode cached screenshot for {url}: {e}")
+        logger.debug(f"Cache hit for {url}")
+        return {"url": url, "status": "completed", "html": cached_data['content'], "screenshot": screenshot}
+
     async def sem_fetch_and_yield(url: str, context: BrowserContext, pbar=None) -> List[ScrapeResult]:
         results = []
         results.append({"url": url, "status": "started", "html": None, "screenshot": None})
         async with semaphore:
             try:
-                result = await scrape_url(context, url, timeout, max_retries, with_screenshot, wait_for_js, use_cache)
+                result = await scrape_url(
+                    context, url, timeout, max_retries,
+                    with_screenshot, wait_for_js, use_cache=False  # Important: disable inner cache check
+                )
                 if pbar:
                     pbar.update(1)
-                    active_tasks = min(num_parallel, len(urls)) - semaphore._value
-                    pbar.set_description(f"Scraping URLs ({active_tasks - 1} active)")
                 results.append(result)
-            except asyncio.CancelledError:
-                logger.info(f"Task for {url} was cancelled")
-                raise
             except Exception as e:
                 logger.error(f"Exception while scraping {url}: {str(e)}")
                 if pbar:
                     pbar.update(1)
                 results.append({"url": url, "status": "failed_error", "html": None, "screenshot": None})
         return results
+
     async with async_playwright() as p:
         ua = UserAgent()
         browser = None
@@ -151,70 +161,66 @@ async def scrape_urls(
                 traces_dir=traces_dir,
             )
             context = await browser.new_context(user_agent=ua.random)
-            # Create tasks directly, handling progress bar if enabled
+
+            # Pre-check cache for all URLs
+            urls_to_scrape = []
+            for url in urls:
+                if use_cache:
+                    cache_key = f"html:{url}"
+                    cached = cache.get(cache_key)
+                    if cached:
+                        yield yield_cached(url, cached)
+                        if show_progress:
+                            # Still update progress for cached items
+                            pass  # will be handled below via initial pbar total
+                        completed_count += 1
+                        if limit and completed_count >= limit:
+                            return
+                        continue
+                urls_to_scrape.append(url)
+
+            # Only launch browser + tasks for URLs that need scraping
+            if not urls_to_scrape:
+                return
+
+            desc = f"Scraping URLs ({num_parallel} max active)"
             if show_progress:
-                with tqdm_asyncio(total=len(urls), desc=f"Scraping URLs ({min(num_parallel, len(urls)) - 1} active)", file=sys.stdout, mininterval=0.1) as pbar:
-                    tasks = [asyncio.create_task(sem_fetch_and_yield(url, context, pbar)) for url in urls]
+                with tqdm_asyncio(total=len(urls_to_scrape), desc=desc, file=sys.stdout, mininterval=0.1) as pbar:
+                    tasks = [asyncio.create_task(sem_fetch_and_yield(url, context, pbar)) for url in urls_to_scrape]
                     for task in asyncio.as_completed(tasks):
-                        try:
-                            result = await task
-                            for item in result:
-                                yield item
-                                if item["status"] == "completed":
-                                    completed_count += 1
-                                    if limit and completed_count >= limit:
-                                        logger.info(f"Reached limit of {limit} completed URLs.")
-                                        for t in tasks:
-                                            if not t.done():
-                                                t.cancel()
-                                        await asyncio.gather(*tasks, return_exceptions=True)
-                                        return
-                        except asyncio.CancelledError:
-                            logger.info("Task processing was cancelled")
-                            raise
-            else:
-                tasks = [asyncio.create_task(sem_fetch_and_yield(url, context, None)) for url in urls]
-                for task in asyncio.as_completed(tasks):
-                    try:
-                        result = await task
-                        for item in result:
+                        result_list = await task
+                        for item in result_list:
+                            if item["status"] == "started":
+                                continue
                             yield item
                             if item["status"] == "completed":
                                 completed_count += 1
                                 if limit and completed_count >= limit:
-                                    logger.info(f"Reached limit of {limit} completed URLs.")
                                     for t in tasks:
                                         if not t.done():
                                             t.cancel()
                                     await asyncio.gather(*tasks, return_exceptions=True)
                                     return
-                    except asyncio.CancelledError:
-                        logger.info("Task processing was cancelled")
-                        raise
-            # Ensure all tasks are completed or cancelled
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
+            else:
+                tasks = [asyncio.create_task(sem_fetch_and_yield(url, context, None)) for url in urls_to_scrape]
+                for task in asyncio.as_completed(tasks):
+                    result_list = await task
+                    for item in result_list:
+                        if item["status"] == "started":
+                            continue
+                        yield item
+                        if item["status"] == "completed":
+                            completed_count += 1
+                            if limit and completed_count >= limit:
+                                return
+
             await asyncio.gather(*tasks, return_exceptions=True)
-        except asyncio.CancelledError:
-            logger.info("Cancelling all tasks due to interruption")
-            for t in tasks:
-                if not t.done():
-                    t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise
+
         finally:
             if context:
-                try:
-                    await asyncio.wait_for(context.close(), timeout=5.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
-                    logger.debug(f"Failed to close context: {str(e)}")
+                await asyncio.wait_for(context.close(), timeout=5.0)
             if browser:
-                try:
-                    await asyncio.wait_for(browser.close(), timeout=5.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError, RuntimeError) as e:
-                    logger.debug(f"Failed to close browser: {str(e)}")
-
+                await asyncio.wait_for(browser.close(), timeout=5.0)
 
 def scrape_urls_sync(
     urls: List[str],
