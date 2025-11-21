@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import numpy as np
 from collections import defaultdict
+from pathlib import Path
 
 from jet.file.utils import save_file
 from jet.logger import CustomLogger
@@ -74,10 +75,13 @@ main_logger.info("DYNAMIC CONTEXT ASSEMBLY LAB STARTED")
 main_logger.info("=" * 80)
 
 
-def create_example_dir(example_name: str) -> str:
-    """Create and return path to a dedicated example output directory."""
-    example_dir = os.path.join(OUTPUT_DIR, example_name)
-    os.makedirs(example_dir, exist_ok=True)
+def create_example_dir(example_name: str) -> Path:
+    from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+
+    base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
     return example_dir
 
 

@@ -36,6 +36,8 @@ import pickle
 import warnings
 warnings.filterwarnings('ignore')
 
+from pathlib import Path
+
 # Core imports for embeddings and vector operations
 try:
     from sentence_transformers import SentenceTransformer
@@ -86,9 +88,13 @@ main_logger.info("KNOWLEDGE RETRIEVAL LAB STARTED")
 main_logger.info("=" * 80)
 
 
-def create_example_dir(example_name: str) -> str:
-    example_dir = os.path.join(BASE_OUTPUT_DIR, example_name)
-    os.makedirs(example_dir, exist_ok=True)
+def create_example_dir(example_name: str) -> Path:
+    from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+
+    base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
+    example_dir = base_dir / example_name
+    shutil.rmtree(example_dir, ignore_errors=True)
+    example_dir.mkdir(parents=True, exist_ok=True)
     return example_dir
 
 
@@ -1567,7 +1573,7 @@ def main():
     main_logger.info("• Performance optimization and scalability")
     
     if eval_summary:
-        main_logger.info(f"\nSystem Performance:")
+        main_logger.info("\nSystem Performance:")
         main_logger.info(f"• Mean Average Precision (MAP): {eval_summary['MAP']:.3f}")
         main_logger.info(f"• Mean Reciprocal Rank (MRR): {eval_summary['MRR']:.3f}")
         main_logger.info(f"• Mean Precision@3: {eval_summary['mean_precision@3']:.3f}")
