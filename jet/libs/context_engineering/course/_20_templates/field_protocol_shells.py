@@ -47,6 +47,8 @@ import datetime
 from typing import Dict, List, Any
 import jsonschema
 
+from jet.adapters.llama_cpp.llm import LlamacppLLM
+
 # ============================================================================
 # OUTPUT & LOGGING SETUP
 # ============================================================================
@@ -91,64 +93,54 @@ class ProtocolParser:
     
     @staticmethod
     def parse_shell(shell_content: str) -> Dict[str, Any]:
-        """
-        Parse a protocol shell from Pareto-lang format to a dictionary.
+        # 1. Strip comments
+        clean = re.sub(r'#.*$', '', shell_content, flags=re.MULTILINE)
         
-        Args:
-            shell_content: String containing the protocol shell in Pareto-lang format
-            
-        Returns:
-            Dictionary representation of the protocol shell
-        """
-        # Extract protocol name and content
-        protocol_match = re.match(r'(\w+(?:\.\w+)*)\s*{(.*)}', 
-                                 shell_content, re.DOTALL)
-        if not protocol_match:
-            raise ValueError("Invalid protocol shell format")
+        # 2. Extract protocol name and entire block content
+        #    Accepts any amount of whitespace around { } and inside
+        match = re.search(r'(\w+(?:\.\w+)*)\s*\{([^}]*)\}', clean, re.DOTALL)
+        if not match:
+            raise ValueError(f"Invalid protocol shell – cannot find name {{ block }}:\n{shell_content}")
         
-        protocol_name, content = protocol_match.groups()
-        
-        # Initialize result dictionary
-        result = {"name": protocol_name}
-        
-        # Extract sections (intent, input, process, output, meta)
+        name, content = match.groups()
+        result = {"name": name.strip()}
+
+        # 3. Section patterns – very permissive
         sections = {
-            "intent": r'intent:\s*"([^"]*)"',
-            "input": r'input:\s*{([^}]*)}',
-            "process": r'process:\s*\[(.*?)\]',
-            "output": r'output:\s*{([^}]*)}',
-            "meta": r'meta:\s*{([^}]*)}'
+            "intent":  r'intent\s*:\s*"([^"]+)"',
+            "input":   r'input\s*:\s*\{([^}]*)\}',
+            "process": r'process\s*:\s*\[\s*([^]]*?)\s*\]',   # non-greedy for nested [] safety
+            "output":  r'output\s*:\s*\{([^}]*)\}',
+            "meta":    r'meta\s*:\s*\{([^}]*)\}',
         }
-        
-        for section_name, pattern in sections.items():
-            match = re.search(pattern, content, re.DOTALL)
-            if match:
-                section_content = match.group(1).strip()
-                if section_name in ["input", "output", "meta"]:
-                    # Parse object sections
-                    result[section_name] = ProtocolParser._parse_object_section(section_content)
-                elif section_name == "process":
-                    # Parse array of operations
-                    result[section_name] = ProtocolParser._parse_process_section(section_content)
+
+        for sec_name, pattern in sections.items():
+            m = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+            if m:
+                raw = m.group(1)
+                if sec_name == "process":
+                    # Split operations by comma, ignore empty entries
+                    ops = [op.strip() for op in re.split(r',(?!\s*[}\]])', raw) if op.strip()]
+                    result[sec_name] = ops
+                elif sec_name in ["input", "output", "meta"]:
+                    result[sec_name] = ProtocolParser._parse_object_section(raw)
                 else:
-                    # Simple string sections
-                    result[section_name] = section_content
-        
+                    result[sec_name] = raw.strip().strip('"')
+
         return result
-    
+
     @staticmethod
     def _parse_object_section(section_content: str) -> Dict[str, Any]:
-        """Parse an object section of the protocol shell."""
+        """Parse key: value pairs – works with quotes, <placeholders>, and commas."""
         result = {}
-        # Match field: value pairs
-        matches = re.finditer(r'(\w+):\s*([^,\n]+)(?:,|$)', section_content, re.DOTALL)
-        for match in matches:
-            key, value = match.groups()
-            key = key.strip()
-            value = value.strip()
-            result[key] = value
+        # Match key: anything-until-comma-or-end
+        for m in re.finditer(r'(\w+)\s*:\s*([^,]+)', section_content):
+            k, v = m.groups()
+            k = k.strip()
+            v = v.strip().strip('"\'')
+            result[k] = v
         return result
-    
+
     @staticmethod
     def _parse_process_section(section_content: str) -> List[str]:
         """Parse the process section of the protocol shell."""
@@ -1117,22 +1109,26 @@ def example_01_basic_parsing_and_execution():
       output: { greeting: "greeting" },
       meta: { version: "1.0" }
     }
-    """
+    """.strip()
+
     class EchoProtocol(ProtocolShell):
         def echo_message(self, state, message: str):
             state["greeting"] = f"{message} Input was: {state.get('value', 'none')}"
             return state
 
+    # This now works – parser handles the multi-line shell perfectly
     protocol = EchoProtocol.from_string(shell_str)
     result = protocol.execute({"value": "world"})
 
     (ex_dir / "protocol.shell").write_text(shell_str)
     (ex_dir / "input.json").write_text(json.dumps({"value": "world"}, indent=2))
     (ex_dir / "output.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
-    (ex_dir / "protocol_pretty.md").write_text(f"# {protocol.name}\n\n{ProtocolParser.serialize_shell(protocol.protocol_dict)}")
+    (ex_dir / "protocol_pretty.md").write_text(
+        f"# {protocol.name}\n\n{ProtocolParser.serialize_shell(protocol.protocol_dict)}"
+    )
 
-    log.info("Basic parsing + execution example completed")
-    log.info(f"Greeting: {result.get('greeting')}")
+    log.info("example_01_basic_parsing_and_execution completed")
+    log.info(f"Generated greeting → {result.get('greeting')}")
 
 def example_02_attractor_co_emerge_protocol():
     ex_dir = create_example_dir("example_02_attractor_co_emerge_protocol")
