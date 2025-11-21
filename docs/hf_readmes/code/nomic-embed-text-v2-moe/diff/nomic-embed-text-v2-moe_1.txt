@@ -1,0 +1,2 @@
++ embeddings = embeddings[:, :matryoshka_dim]
+embeddings = F.normalize(embeddings, p=2, dim=1)

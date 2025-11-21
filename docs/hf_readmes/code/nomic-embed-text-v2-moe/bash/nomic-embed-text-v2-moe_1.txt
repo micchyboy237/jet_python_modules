@@ -1,0 +1,1 @@
+pip install torch transformers einops git+https://github.com/nomic-ai/megablocks.git

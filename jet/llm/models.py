@@ -84,7 +84,7 @@ OLLAMA_MODEL_CONTEXTS = {
     "mistral:7b-instruct-v0.3-q3_K_M": 32768,
     "mistral:7b-instruct-v0.3-q4_K_M": 32768,
     "mxbai-embed-large": 512,
-    "nomic-embed-text": 2048,
+    "nomic-embed-text": 8192,
     "nomic-embed-text-v2-moe": 2048,
     "qwen2.5-coder:7b-instruct-q4_K_M": 32768,
     "qwen2.5vl:3b-q4_K_M": 128000,
