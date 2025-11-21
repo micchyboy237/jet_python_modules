@@ -1184,7 +1184,7 @@ def example_03_recursive_emergence_with_llm_self_prompt():
     prompt = f"Field state:\n{initial_field}\nContinue recursive emergence..."
     log.info("Streaming LLM self-prompt...")
     response = ""
-    for chunk in llm.generate(prompt, stream=True):
+    for chunk in llm.generate(prompt, max_tokens=1200, stream=True):
         response += chunk
     (ex_dir / "llm_self_prompt.md").write_text(response)
 
@@ -1203,7 +1203,7 @@ def example_04_protocol_with_real_llm_integration():
             prompt = state.get(prompt_key, "Think step by step.")
             log.info(f"Generating with prompt: {prompt[:100]}...")
             full = ""
-            for chunk in llm.generate(prompt, stream=True):
+            for chunk in llm.generate(prompt, max_tokens=1200, stream=True):
                 full += chunk
             state["llm_response"] = full
             return state
