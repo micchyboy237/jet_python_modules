@@ -29,7 +29,7 @@ class LlamacppEmbedding:
         cache_backend: Literal["memory", "file", "sqlite"] = "sqlite",
         cache_ttl: Optional[int] = None,
         cache_max_size: int = 10000,
-        use_cache: bool = True,
+        use_cache: bool = False,
         use_dynamic_batch_sizing: bool = False,
         verbose: bool = True,
         logger: Optional[CustomLogger] = None,
