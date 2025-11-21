@@ -59,7 +59,7 @@ def create_example_dir(example_name: str) -> Path:
 
     base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
     example_dir = base_dir / example_name
-    shutil.rmtree(example_dir, ignore_errors=True)
+    # shutil.rmtree(example_dir, ignore_errors=True)
     example_dir.mkdir(parents=True, exist_ok=True)
     return example_dir
 
