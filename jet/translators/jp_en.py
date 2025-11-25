@@ -1,105 +1,147 @@
-"""
-Fast Japanese → English translator using CTranslate2-converted Opus-MT model.
-
-Install once:
-    pip install transformers sentencepiece ctranslate2
-
-Convert model (run once):
-    ct2-transformers-converter --model Helsinki-NLP/opus-mt-ja-en --output_dir ~/.cache/hf_translation_models/ct2-opus-ja-en
-"""
-
+from typing import List, Optional
+from transformers import pipeline, Pipeline
+from jet.logger import logger
+from jet.file.utils import save_file
 import os
-from typing import List
+import shutil
 
-import ctranslate2
-from transformers import AutoTokenizer
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
-DEFAULT_TRANSLATION_MODEL = "Helsinki-NLP/opus-mt-ja-en"
-DEFAULT_CT2_MODEL_DIR = os.path.expanduser("~/.cache/hf_translation_models/ct2-opus-ja-en")
+class JapaneseTranslator:
+    """
+    A reusable, lazily-initialized Japanese to English translator using
+    Helsinki-NLP/opus-mt-ja-en (MarianMT-based, fast and lightweight).
+    
+    Designed for repeated use, supports batch translation, and is safe for
+    both CPU and GPU environments (auto-detects available device).
+    """
 
-
-class FastOpusMT:
     def __init__(
         self,
-        model: str = DEFAULT_TRANSLATION_MODEL,
-        ct2_model_dir: str = DEFAULT_CT2_MODEL_DIR,
-        device: str = "cpu",
-        max_decoding_length: int = 512,
-    ) -> None:
-        """
-        Fast translator using a CTranslate2-converted Opus-MT model.
+        model_name: str = "Helsinki-NLP/opus-mt-ja-en",
+        device: Optional[int] = None,  # None = auto (cuda if available), -1 = CPU
+        max_length: int = 512,
+    ):
+        self.model_name = model_name
+        self.device = device
+        self.max_length = max_length
+        self._translator: Optional[Pipeline] = None
 
-        Args:
-            model: Original HF model name (only used for tokenizer)
-            ct2_model_dir: Path to the converted CTranslate2 model directory
-            device: "cpu" or "cuda"
-            max_decoding_length: Maximum tokens to generate
-        """
-        if not os.path.isdir(ct2_model_dir):
-            raise FileNotFoundError(
-                f"CTranslate2 model not found at {ct2_model_dir}\n"
-                "Run: ct2-transformers-converter --model Helsinki-NLP/opus-mt-ja-en --output_dir ~/.cache/hf_translation_models/ct2-opus-ja-en"
+    @property
+    def translator(self) -> Pipeline:
+        """Lazy-load the pipeline only when first needed."""
+        if self._translator is None:
+            logger.info(f"Loading translation model: {self.model_name}")
+            self._translator = pipeline(
+                "translation",
+                model=self.model_name,
+                device=self.device,        # handles CUDA if available
+                max_length=self.max_length,
+                truncation=True,
             )
+            logger.info("Translation model loaded successfully")
+        return self._translator
 
-        self.translator = ctranslate2.Translator(ct2_model_dir, device=device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model)
-        self.max_decoding_length = max_decoding_length
+    def translate(self, text: str) -> str:
+        """
+        Translate a single Japanese string to English.
+        
+        Args:
+            text: Japanese input text
+            
+        Returns:
+            Translated English text (stripped of '>>en<<' prefix if present)
+        """
+        if not text.strip():
+            return ""
+            
+        result = self.translator(text)[0]["translation_text"]
+        # Some older MarianMT models prepend language tokens like ">>en<<"
+        if result.startswith(">>en<<"):
+            result = result[6:].lstrip()
+        return result.strip()
 
     def translate_batch(self, texts: List[str]) -> List[str]:
         """
-        Translate a batch of Japanese → English.
-        Correctly handles tokenization and proper decoding of CTranslate2 output.
+        Translate multiple Japanese texts efficiently in batch.
+        
+        Args:
+            texts: List of Japanese strings
+            
+        Returns:
+            List of translated English strings in the same order
         """
-        # 1. Tokenize Japanese text → list of subword tokens (strings)
-        source_tokens: List[List[str]] = [
-            self.tokenizer.tokenize(text) for text in texts
-        ]
+        if not texts:
+            return []
+            
+        cleaned_texts = [t.strip() for t in texts if t.strip()]
+        if not cleaned_texts:
+            return [""] * len(texts)
 
-        # 2. Run translation with CTranslate2
-        results = self.translator.translate_batch(
-            source_tokens,
-            beam_size=5,                     # good quality/speed trade-off
-            max_decoding_length=self.max_decoding_length,
-            num_hypotheses=1,
-        )
+        results = self.translator(cleaned_texts)
+        translations = [r["translation_text"] for r in results]
+        
+        # Clean language tokens
+        cleaned = []
+        for t in translations:
+            if t.startswith(">>en<<"):
+                t = t[6:].lstrip()
+            cleaned.append(t.strip())
+            
+        # Reconstruct full list preserving empty inputs
+        output = []
+        clean_idx = 0
+        for original in texts:
+            if original.strip():
+                output.append(cleaned[clean_idx])
+                clean_idx += 1
+            else:
+                output.append("")
+        return output
 
-        # 3. Convert the generated token **IDs** (not strings) back to text
-        translations: List[str] = []
-        for result in results:
-            # CTranslate2 returns tokens, not IDs → convert first
-            tokens = result.hypotheses[0]
-            token_ids = self.tokenizer.convert_tokens_to_ids(tokens)
-
-            text = self.tokenizer.decode(
-                token_ids,
-                skip_special_tokens=True,
-            )
-
-            # Marian/SentencePiece models sometimes output "▁" as literal space marker
-            # → clean it up once and for all
-            text = text.replace("▁", " ").strip()
-
-            translations.append(text)
-
-        return translations
-
-    def translate(self, text: str) -> str:
-        """Translate a single Japanese string to English."""
-        return self.translate_batch([text])[0]
-
+    def __call__(self, text: str) -> str:
+        """Make the instance callable for convenience."""
+        return self.translate(text)
 
 if __name__ == "__main__":
-    fast = FastOpusMT(device="cpu")  # use "cuda" if available and built with CUDA support
+    # Basic usage
+    translator = JapaneseTranslator()
 
-    samples = [
-        "世界各国が水面下で熾烈な情報戦を繰り広げる時代睨み合う2つの国東のオスタニア西のウェスタリス戦争を企てるオスタニア政府要人の動向を探るべくウェスタリスはオペレーションストリックスを発動作戦を担うスゴーデエージェント黄昏百の顔を使い分ける彼の任務は家族を作ること父ロイドフォージャー精神",
-        # "翻訳テスト。短い文と長い文の両方を試します。このモデルはCTranslate2で高速化されており、バッチ処理にも対応しています。",
-    ]
+    # Single translation
+    japanese_text = "世界各国が水面下で熾烈な情報戦を繰り広げる時代睨み合う2つの国東のオスタニア西のウェスタリス戦争を企てるオスタニア政府要人の動向を探るべくウェスタリスはオペレーションストリックスを発動作戦を担うスゴーデエージェント黄昏百の顔を使い分ける彼の任務は家族を作ること父ロイドフォージャー精神"
 
-    print("Translating...\n")
-    outs = fast.translate_batch(samples)
+    english_text = translator.translate(japanese_text)
+    
+    print(f"JA Transcript: {japanese_text[:100]}...")  # Preview (optional)
+    print(f"EN Translation: {english_text[:100]}...")  # Preview (optional)
 
-    for ja, en in zip(samples, outs):
-        print("JA:", ja)
-        print("EN:", en)
-        print("---\n")
+    # Save both
+    save_file(japanese_text, f"{OUTPUT_DIR}/transcript_ja.txt")
+    save_file(english_text, f"{OUTPUT_DIR}/transcript_en.txt")
+
+    # # Or use callable syntax
+    # english = translator("こんにちは、世界！")
+    # print(english)
+    # # Output: "Hello, world!"
+
+    # # Batch translation (more efficient)
+    # sentences = [
+    #     # "おはようございます。",
+    #     # "私はソフトウェアエンジニアです。",
+    #     # "",  # empty strings are preserved
+    #     # "寿司が大好きです！", 
+
+    #     "世界各国が水面下で",
+    # ]
+
+    # translations = translator.translate_batch(sentences)
+    # for ja, en in zip(sentences, translations):
+    #     print(f"JA: {ja} → EN: {en}")
+
+    # Output:
+    # JA: おはようございます。 → EN: Good morning.
+    # JA: 私はソフトウェアエンジニアです。 → EN: I am a software engineer.
+    # JA:  → EN: 
+    # JA: 寿司が大好きです！ → EN: I love sushi!

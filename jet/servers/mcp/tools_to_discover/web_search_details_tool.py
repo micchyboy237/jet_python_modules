@@ -2,7 +2,7 @@ from typing import List, Dict, Optional
 from collections import defaultdict
 from pydantic import BaseModel, Field
 from jet.scrapers.utils import search_data
-from jet_python_modules.jet.servers.mcp.mcp_server import server, FastMCP, Context
+from jet.servers.mcp.mcp_server import server, Context
 from jet.code.markdown_types.markdown_parsed_types import HeaderSearchResult
 from jet.vectors.semantic_search.header_vector_search import search_headers
 from jet.models.model_types import EmbedModelType

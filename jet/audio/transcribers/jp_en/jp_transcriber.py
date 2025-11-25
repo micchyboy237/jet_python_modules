@@ -18,7 +18,7 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 from tqdm import tqdm
 
-from jet_python_modules.jet.audio.utils import get_input_channels
+from jet.audio.utils import get_input_channels
 
 
 # ============================= CONFIG =============================

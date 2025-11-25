@@ -1,9 +1,7 @@
 import os
 import shutil
-import platform
 import argostranslate.package
 import argostranslate.translate
-from faster_whisper import WhisperModel
 from jet.file.utils import save_file
 
 OUTPUT_DIR = os.path.join(
@@ -37,39 +35,10 @@ def translate_text(text: str, from_lang: str = "ja", to_lang: str = "en") -> str
     return argostranslate.translate.translate(text, from_lang, to_lang)
 
 if __name__ == "__main__":
+    japanese_text = "世界各国が水面下で熾烈な情報戦を繰り広げる時代睨み合う2つの国東のオスタニア西のウェスタリス戦争を企てるオスタニア政府要人の動向を探るべくウェスタリスはオペレーションストリックスを発動作戦を担うスゴーデエージェント黄昏百の顔を使い分ける彼の任務は家族を作ること父ロイドフォージャー精神"
+
     # One-time model setup (call once; safe to rerun)
     setup_argos_model()
-
-    sound_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic_stream/recording_20251126_022942.wav"
-
-    # Choose model: "large-v3" for best accuracy, "large-v3-turbo" for speed
-    device = "cuda" if platform.system() == "Windows" else "auto"  # Auto-detects Metal on M1
-    model = WhisperModel("large-v3-turbo", device=device)
-
-    # Transcribe Japanese audio → Japanese text
-    # segments_iter, info = model.transcribe(
-    #     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic_stream/recording_20251126_022942.wav",
-    #     language="ja",
-    #     task="translate",
-    #     beam_size=7,
-    #     best_of=5,
-    #     temperature=(0.0, 0.2),
-    #     vad_filter=True,
-    #     vad_parameters=dict(min_silence_duration_ms=700),
-    #     prefix=None,
-    #     word_timestamps=True,
-    #     log_progress=True,
-    # )
-    segments_iter, info = model.transcribe(
-        "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic_stream/recording_20251126_022942.wav",
-        beam_size=1,                   # greedy
-        temperature=[0.0],
-        vad_filter=True,
-        chunk_length=20,
-        word_timestamps=False
-    )
-    segments = [segment for segment in segments_iter]
-    japanese_text = " ".join(seg.text for seg in segments)
 
     # Translate to English (offline with Argos Translate)
     english_text = translate_text(japanese_text)
@@ -78,7 +47,5 @@ if __name__ == "__main__":
     print(f"EN Translation: {english_text[:100]}...")  # Preview (optional)
 
     # Save both
-    save_file(segments, f"{OUTPUT_DIR}/segments.json")
-    save_file(info, f"{OUTPUT_DIR}/info.json")
     save_file(japanese_text, f"{OUTPUT_DIR}/transcript_ja.txt")
     save_file(english_text, f"{OUTPUT_DIR}/transcript_en.txt")
