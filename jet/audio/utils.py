@@ -3,9 +3,14 @@ import subprocess
 import os
 import glob
 import re
-from typing import List, Tuple
+import sounddevice as sd
 from jet.logger import logger
 
+def get_input_channels() -> int:
+    device_info = sd.query_devices(sd.default.device[0], 'input')
+    channels = device_info['max_input_channels']
+    logger.debug(f"Detected {channels} input channels")
+    return channels
 
 def list_avfoundation_devices() -> str:
     """List available avfoundation devices and return the output."""

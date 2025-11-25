@@ -1,24 +1,16 @@
-import sounddevice as sd
-import numpy as np
 import wave
-from datetime import datetime
+import numpy as np
+import sounddevice as sd
 from pathlib import Path
 from typing import Optional
 from tqdm import tqdm
 
 from jet.logger import logger
+from jet.audio.utils import get_input_channels
 
 
 SAMPLE_RATE = 16000
 DTYPE = 'int16'
-
-
-def get_input_channels() -> int:
-    device_info = sd.query_devices(sd.default.device[0], 'input')
-    channels = device_info['max_input_channels']
-    logger.debug(f"Detected {channels} input channels")
-    return channels
-
 
 CHANNELS = min(2, get_input_channels())
 

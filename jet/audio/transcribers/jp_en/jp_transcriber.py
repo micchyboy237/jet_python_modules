@@ -18,6 +18,8 @@ import sounddevice as sd
 from faster_whisper import WhisperModel
 from tqdm import tqdm
 
+from jet_python_modules.jet.audio.utils import get_input_channels
+
 
 # ============================= CONFIG =============================
 class AudioConfig(TypedDict):
@@ -260,14 +262,6 @@ class JapaneseTranscriber:
 
 
 # ============================= DEVICE =============================
-def get_input_channels() -> int:
-    try:
-        info = sd.query_devices(sd.default.device[0], 'input')
-        return info['max_input_channels']
-    except:
-        return 1
-
-
 CHANNELS = min(2, get_input_channels())
 print(f"Input channels: {CHANNELS}")
 
