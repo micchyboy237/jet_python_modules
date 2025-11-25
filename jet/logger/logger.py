@@ -6,7 +6,7 @@ import logging
 import traceback
 import argparse
 from datetime import datetime
-from typing import List, Callable, Optional, Any, Union, Literal, Iterable
+from typing import Final, List, Callable, Optional, Any, Union, Literal, Iterable
 from jet.logger.config import DEFAULT_LOGGER, COLORS, RESET, colorize_log
 from jet.transformers.formatters import format_json
 from jet.transformers.json_parsers import parse_json
@@ -24,6 +24,15 @@ def clean_ansi(text: str) -> str:
 
 
 class CustomLogger:
+    # Standard logging level constants (same as logging module)
+    DEBUG: Final[int] = logging.DEBUG      # 10
+    INFO: Final[int] = logging.INFO        # 20
+    WARNING: Final[int] = logging.WARNING  # 30
+    WARN: Final[int] = logging.WARNING    # alias
+    ERROR: Final[int] = logging.ERROR      # 40
+    CRITICAL: Final[int] = logging.CRITICAL  # 50
+    FATAL: Final[int] = logging.CRITICAL   # alias
+
     def __init__(
         self,
         name: str = DEFAULT_LOGGER,
@@ -473,6 +482,32 @@ class CustomLogger:
             return self.custom_logger_method(name.upper())
         self.warning(f"'CustomLogger' object has no attribute '{name}'")
 
+    # ──────────────────────────────────────────────────────────────
+    # Add a classmethod that mimics logging.getLogger()
+    # ──────────────────────────────────────────────────────────────
+    @classmethod
+    def getLogger(
+        cls,
+        name: str = DEFAULT_LOGGER,
+        filename: Optional[str] = None,
+        overwrite: bool = False,
+        console_level: Union[int, str] = "DEBUG",
+        level: Union[int, str] = "DEBUG",
+        fmt: Union[str, logging.Formatter] = "%(message)s",
+    ) -> "CustomLogger":
+        """
+        Works exactly like the global ``getLogger`` you already have,
+        but also allows:
+            logger.getLogger("faster_whisper").setLevel(logger.DEBUG)
+        """
+        return cls(
+            name=name,
+            filename=filename,
+            overwrite=overwrite,
+            console_level=console_level,
+            level=level,
+            fmt=fmt,
+        )
 
 def logger_examples(logger: CustomLogger):
     logger.log("\n==== LOGGER METHODS =====")
@@ -653,7 +688,7 @@ def getLogger(
 ):
     if not name or isinstance(name, str) and name == logger.name:
         return logger
-    return CustomLogger(name, log_file, overwrite, console_level, level, fmt)
+    return CustomLogger(name, log_file, overwrite, console_level, level, fmt).setLevel
 
 
 logger = CustomLogger()

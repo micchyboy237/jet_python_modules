@@ -1,3 +1,26 @@
+"""
+Audio Recording Utility using FFmpeg (Cross-Platform)
+
+Features:
+- Automatically detects the correct FFmpeg input format based on OS:
+  → macOS:    avfoundation
+  → Windows:  dshow
+  → Linux:    alsa
+- On macOS, lists all available AVFoundation audio (and video) devices with friendly names
+- Maps human-readable device indices (0, 1, 2…) to actual device names for easier selection
+- Records microphone audio directly to a WAV file with:
+  • Configurable sample rate (default 44.1 kHz)
+  • Configurable channel count (default stereo)
+  • 16-bit PCM little-endian encoding (standard WAV)
+- Accepts recording duration in seconds and an optional audio device index
+- Returns the running subprocess.Popen object for further control/monitoring
+- Comprehensive error handling:
+  • Detects missing FFmpeg installation
+  • Gracefully handles unsupported platforms
+  • Provides clear console feedback with emojis for quick debugging
+- Designed for easy integration into larger audio processing pipelines
+"""
+
 import subprocess
 from datetime import datetime
 from pathlib import Path

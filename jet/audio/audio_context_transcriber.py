@@ -1,3 +1,16 @@
+"""
+AudioContextTranscriber
+
+Offline, context-aware transcriber for chunked audio files (e.g., streaming pipelines).
+Loads a main audio chunk + optional overlapping regions from previous/next chunks,
+concatenates them for contextual inference, then intelligently splits the transcription
+back into three parts using precise timing and fractional segment allocation:
+- Start overlap (for continuity with previous chunk)
+- Non-overlap (the new unique content)
+- End overlap (lookahead context for next chunk)
+Ensures stereo input, handles resampling, and optionally saves only the non-overlap text.
+"""
+
 import os
 import soundfile as sf
 import numpy as np
@@ -9,7 +22,11 @@ from typing import Optional, List, Tuple
 from jet.logger import logger
 from jet.models.model_registry.transformers.speech_to_text.whisper_model_registry import WhisperModelRegistry
 
-
+"""
+ensure_stereo(audio: np.ndarray, expected_channels: int = 2) -> np.ndarray
+    Utility function that forces audio to have expected_channels (default stereo).
+    Duplicates mono channel if needed. Safe for both 1D and 2D arrays.
+"""
 def ensure_stereo(audio: np.ndarray, expected_channels: int = 2) -> np.ndarray:
     """
     Ensure the audio array has the expected number of channels (e.g., stereo).
@@ -30,6 +47,13 @@ def ensure_stereo(audio: np.ndarray, expected_channels: int = 2) -> np.ndarray:
 
 
 class AudioContextTranscriber:
+    """
+    class AudioContextTranscriber:
+        def __init__(self, model_size: str = "small", sample_rate: Optional[int] = None):
+            - Sets logging to DEBUG
+            - Loads faster-whisper model via WhisperModelRegistry (int8, auto device)
+            - Stores optional target sample_rate for consistent resampling across chunks
+    """
     def __init__(self, model_size: str = "small", sample_rate: Optional[int] = None):
         logger.setLevel(logging.DEBUG)
         registry = WhisperModelRegistry()
@@ -37,6 +61,18 @@ class AudioContextTranscriber:
             model_size, device="auto", compute_type="int8")
         self.sample_rate = sample_rate
 
+    """
+    Full context-aware transcription pipeline:
+    1. Loads and normalizes current chunk (stereo, resampled if needed)
+    2. Loads and slices overlap regions from prev/next files
+    3. Builds combined audio: [prev_overlap | current | next_overlap]
+    4. Runs single deterministic transcription (beam_size=1, temperature=0)
+    5. Splits segments by time into start_overlap, non_overlap, end_overlap
+        using robust fractional logic to avoid word tearing
+    6. Optionally saves only non-overlap transcription to numbered .txt file
+    7. Returns (non_overlap_text, start_overlap_text, end_overlap_text)
+    Fully logged and exception-safe.
+    """
     async def transcribe_with_context(
         self,
         file_path: str,
