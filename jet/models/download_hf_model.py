@@ -152,14 +152,30 @@ def remove_download_cache() -> None:
     remove_cache_locks()
 
 
-def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CACHE_DIR, timeout: float = 300.0):
+def _has_safetensors_in_repo(repo_id: str) -> bool:
     """
-    Download a model from Hugging Face Hub with optimized lock handling and timeout.
+    Quick check if the repository contains any safetensors file.
+    Uses the lightweight `list_repo_files` API – no download required.
+    """
+    from huggingface_hub import list_repo_files
 
-    Args:
-        repo_id (Union[str, ModelType]): Repository ID or model type
-        cache_dir (str): Directory to cache the downloaded model
-        timeout (float): Maximum time to wait for download in seconds
+    try:
+        files = list_repo_files(repo_id=repo_id, repo_type="model")
+        return any(f.endswith(".safetensors") for f in files)
+    except Exception as e:
+        logger.warning(f"Could not list files for {repo_id}: {e}")
+        return False
+
+
+def download_hf_model(
+    repo_id: Union[str, ModelType],
+    cache_dir: str = MODELS_CACHE_DIR,
+    timeout: float = 300.0,
+) -> None:
+    """
+    Download a model from Hugging Face Hub.
+    - First tries to download only safetensors + essential files.
+    - If no safetensors file exists in the repo → automatically downloads the *.bin files instead.
     """
     try:
         model_path = resolve_model_value(repo_id)
@@ -168,19 +184,41 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
 
     remove_download_cache()
 
+    # Resolve repo_id string once
+    repo_id_str = str(model_path)
+
+    # Determine which patterns to allow
+    has_st = _has_safetensors_in_repo(repo_id_str)
+
+    if has_st:
+        # Prefer safetensors – ignore the old .bin weights
+        allow_patterns = None
+        ignore_patterns = [
+            "*.bin",
+            "*.h5",
+            "*.onnx",
+            "onnx/*.onnx",
+            "onnx/*/*.onnx",
+            "openvino/*",
+        ]
+        logger.info(f"Repository {repo_id_str} contains safetensors → ignoring *.bin files")
+    else:
+        # No safetensors → download the legacy .bin weights (and everything else except ONNX/OpenVINO)
+        allow_patterns = None
+        ignore_patterns = [
+            "*.onnx",
+            "onnx/*.onnx",
+            "onnx/*/*.onnx",
+            "openvino/*",
+        ]
+        logger.info(f"No safetensors found in {repo_id_str} → downloading *.bin weights")
+
     try:
         snapshot_download(
-            repo_id=model_path,
+            repo_id=repo_id_str,
             cache_dir=cache_dir,
-            ignore_patterns=[
-                "*.bin",
-                "*.h5",
-                "*.onnx",
-                "onnx/*.onnx",
-                "onnx/*/*.onnx",
-                "openvino/*",
-            ],
-            allow_patterns=None,
+            allow_patterns=allow_patterns,
+            ignore_patterns=ignore_patterns,
             force_download=False,
             etag_timeout=20.0,
             local_dir_use_symlinks="auto",
@@ -189,16 +227,15 @@ def download_hf_model(repo_id: Union[str, ModelType], cache_dir: str = MODELS_CA
             tqdm_class=ProgressBar,
         )
     except HfHubHTTPError as e:
-        logger.error(f"Failed to download model from {model_path}: {str(e)}")
+        logger.error(f"Failed to download model from {repo_id_str}: {str(e)}")
         raise
     except TimeoutError:
-        logger.error(
-            f"Download timed out after {timeout} seconds for {model_path}")
+        logger.error(f"Download timed out after {timeout} seconds for {repo_id_str}")
         raise
 
 
 if __name__ == "__main__":
-    repo_id = "google/embeddinggemma-300m"
+    repo_id = "Systran/faster-whisper-large-v3"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")

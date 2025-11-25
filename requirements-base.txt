@@ -36,6 +36,7 @@ requests
 scikit-learn
 scipy
 sentence-transformers
+sentencepiece
 spacy
 tokenizers
 torch

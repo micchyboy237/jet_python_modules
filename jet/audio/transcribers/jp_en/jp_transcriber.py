@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-jp_to_en_realtime.py
+jp_transcriber.py
 REAL-TIME JAPANESE → ENGLISH • ZERO LOSS • MAXIMUM ACCURACY
 Full-context rolling buffer transcription • No VAD • Perfect continuity
 """
@@ -69,9 +69,8 @@ class JapaneseTranscriber:
         self.show_progress = show_progress
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.txt_file = output_dir / f"translation_{timestamp}.txt"
-        self.srt_file = output_dir / f"subtitles_{timestamp}.srt"
+        self.txt_file = output_dir / "translation.txt"
+        self.srt_file = output_dir / "subtitles.srt"
         self.txt_handle = open(self.txt_file, "w", encoding="utf-8")
         self.srt_handle = open(self.srt_file, "w", encoding="utf-8")
         self.srt_counter = 1
@@ -111,6 +110,10 @@ class JapaneseTranscriber:
             disable=not show_progress,
         )
 
+        self.absolute_audio_time: float = 0.0          # real-world elapsed seconds
+        self.last_emitted_end: float = 0.0             # last segment end we actually showed
+        self.emitted_keys: set[tuple[str, float]] = set()  # deduplication cache
+
     def _seconds_to_srt(self, seconds: float) -> str:
         h = int(seconds // 3600)
         m = int((seconds % 3600) // 60)
@@ -119,9 +122,16 @@ class JapaneseTranscriber:
         return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
     def _save_segment(self, text: str, start: float, end: float) -> None:
+        # light cleanup – generic, no language-specific strings
+        text = text.strip()
+        if len(text) < 2 or text.lower().startswith(("subtitles", "thanks for watching")):
+            return
+
         print(f"→ {text}")
+
         self.txt_handle.write(text + "\n")
         self.txt_handle.flush()
+
         self.srt_handle.write(f"{self.srt_counter}\n")
         self.srt_handle.write(f"{self._seconds_to_srt(start)} --> {self._seconds_to_srt(end)}\n")
         self.srt_handle.write(f"{text}\n\n")
@@ -138,9 +148,9 @@ class JapaneseTranscriber:
         except:
             self.logger.error("CRITICAL: Audio queue full — dropping frame!")
 
-    def _worker(self):
+    def _worker(self) -> None:
         chunk_seconds = self.audio_cfg["chunk_duration"]
-        chunk_samples = int(self.audio_cfg["samplerate"] * chunk_seconds)
+        samples_per_chunk = int(self.audio_cfg["samplerate"] * chunk_seconds)
 
         while self.running:
             try:
@@ -148,50 +158,74 @@ class JapaneseTranscriber:
             except Empty:
                 continue
 
-            # Append to rolling buffer
+            # advance real-world clock
+            self.absolute_audio_time += chunk_seconds
+
+            # rolling buffer
             self.buffer = np.concatenate([self.buffer, chunk])
             self.processed_chunks += 1
             self.pbar.update(1)
 
-            # Keep buffer between 15–30 seconds for best context
-            max_buffer = self.audio_cfg["samplerate"] * 30
-            min_buffer = self.audio_cfg["samplerate"] * 10
-            if len(self.buffer) > max_buffer:
-                self.buffer = self.buffer[-max_buffer:]
+            # keep 8–30 seconds of context (sweet spot)
+            max_samples = int(self.audio_cfg["samplerate"] * 30)
+            if len(self.buffer) > max_samples:
+                keep_samples = len(self.buffer) - max_samples
+                self.buffer = self.buffer[-max_samples:]
 
-            # Only transcribe when we have enough new audio
-            if len(self.buffer) < min_buffer:
+            if len(self.buffer) < self.audio_cfg["samplerate"] * 7:
+                self.queue.task_done()
                 continue
 
             try:
-                segments, _ = self.model.transcribe(
+                segments, info = self.model.transcribe(
                     self.buffer,
-                    language="ja",
-                    task="translate",           # ← Japanese → English
-                    vad_filter=False,            # ← ZERO LOSS
-                    beam_size=5,
-                    temperature=0.0,
+                    language=self.trans_cfg.get("language", "ja"),
+                    task=self.trans_cfg["task"],           # "translate" → English guaranteed
+                    beam_size=7,
+                    best_of=5,
+                    temperature=(0.0, 0.2),
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=700),
+                    prefix=None,                            # prevents repetition carry-over
                     word_timestamps=False,
                 )
 
-                # Emit only new segments (avoid duplicates)
-                new_segments = [s for s in segments if s.end > self.last_emitted_time + 0.1]
+                buffer_duration = len(self.buffer) / self.audio_cfg["samplerate"]
 
-                for seg in new_segments:
-                    if seg.text.strip():
-                        self._save_segment(seg.text.strip(), seg.start, seg.end)
-                        self.last_emitted_time = max(self.last_emitted_time, seg.end)
+                for seg in segments:
+                    text = seg.text.strip()
+                    if not text:
+                        continue
 
-                # Optional: show buffer stats
+                    # deduplication key: text + rounded end time (0.5s tolerance)
+                    key = (text, round(seg.end, 1))
+                    if key in self.emitted_keys:
+                        continue
+                    self.emitted_keys.add(key)
+                    if len(self.emitted_keys) > 1500:           # prevent unbounded growth
+                        self.emitted_keys = set(list(self.emitted_keys)[-1000:])
+
+                    # calculate real-world timestamps
+                    seg_start_real = self.absolute_audio_time - buffer_duration + seg.start
+                    seg_end_real   = self.absolute_audio_time - buffer_duration + seg.end
+
+                    # only emit segments that are truly new
+                    if seg_end_real <= self.last_emitted_end + 0.3:
+                        continue
+
+                    self._save_segment(text, seg_start_real, seg_end_real)
+                    self.last_emitted_end = seg_end_real
+
                 self.pbar.set_postfix({
-                    "buffer": f"{len(self.buffer)/16000:.1f}s",
-                    "lag": f"{(datetime.now() - self.session_start).total_seconds() - self.last_emitted_time:.1f}s"
+                    "buf": f"{buffer_duration:.1f}s",
+                    "lag": f"{self.absolute_audio_time - self.last_emitted_end:.1f}s",
+                    "det": info.language,
                 })
 
             except Exception as e:
-                self.logger.error(f"Transcription failed: {e}")
-
-            self.queue.task_done()
+                self.logger.error(f"Transcription exception: {e}")
+            finally:
+                self.queue.task_done()
 
     def start(self) -> None:
         self.running = True
@@ -242,7 +276,6 @@ print(f"Input channels: {CHANNELS}")
 def main() -> None:
     parser = argparse.ArgumentParser(description="Japanese → English Real-time • Zero Loss • Max Quality")
     parser.add_argument("--device", type=int, default=None, help="Audio device index")
-    parser.add_argument("--model", type=str, default="large-v3", choices=["tiny", "base", "small", "medium", "large-v3", "turbo"])
     parser.add_argument("--chunk", type=float, default=2.0, help="Audio chunk size in seconds (1.5–3.0 recommended)")
     parser.add_argument("--output-dir", type=str, default="./translations")
     parser.add_argument("--quiet", action="store_true")
@@ -259,10 +292,9 @@ def main() -> None:
         "channels": CHANNELS,
     }
 
-    compute_type = "int8" if args.model in ("tiny", "base") else "float16"
     trans_cfg: TranscriberConfig = {
-        "model_size": args.model,
-        "compute_type": compute_type,
+        "model_size": "large-v3",
+        "compute_type": "int16",
         "language": "ja",
         "task": "translate",   # ← This guarantees English output
         "device": "auto",
