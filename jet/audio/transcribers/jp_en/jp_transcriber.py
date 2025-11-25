@@ -187,7 +187,7 @@ class JapaneseTranscriber:
                     vad_filter=True,
                     vad_parameters=dict(min_silence_duration_ms=700),
                     prefix=None,                            # prevents repetition carry-over
-                    word_timestamps=False,
+                    word_timestamps=True,
                 )
 
                 buffer_duration = len(self.buffer) / self.audio_cfg["samplerate"]

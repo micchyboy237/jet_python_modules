@@ -26,6 +26,7 @@ mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/pydantic-ai
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/faster-whisper
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/OpenNMT-py
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/argos-translate
 
 gradio
 pyppeteer # for rendering mermaid graph
