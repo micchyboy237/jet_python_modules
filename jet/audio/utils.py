@@ -4,12 +4,13 @@ import subprocess
 import os
 import glob
 import re
-from typing import Iterator, List, Tuple, Union
+from typing import Iterator, List, Sequence, Tuple, Union
 import librosa
 import sounddevice as sd
 import numpy as np
 from jet.logger import logger
 import soundfile as sf  # <-- fast, supports many formats, free & popular
+from numpy.typing import NDArray
 
 def get_input_channels() -> int:
     device_info = sd.query_devices(sd.default.device[0], 'input')
@@ -168,93 +169,121 @@ def save_audio_chunks(
     return saved_paths
 
 
+AudioChunk = NDArray[np.floating]  # covers float32/float64 from librosa/sf
+
+def _natural_sort_key(path: Path) -> list:
+    """Natural sort: chunk_9.wav before chunk_10.wav"""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', path.name)]
+
+
+def _load_audio(path: Path, target_sr: int) -> np.ndarray:
+    audio, sr = sf.read(str(path))
+    if sr != target_sr:
+        logger.debug(f"Resampling {path.name}: {sr} → {target_sr} Hz")
+        audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
+    return audio.astype(np.float32)
+
+
 def merge_audio_chunks(
-    chunk_files: Union[List[Path], Iterator[Path], List[str], Iterator[str]],
-    output_path: Union[str, Path],
-    overlap_duration: float = 2.0,
+    chunks: Union[
+        str, Path,                              # single file or directory
+        AudioChunk,                             # single in-memory array
+        Sequence[Union[str, Path]],             # list of files
+        Iterator[Union[str, Path]],             # iterator of files
+        Sequence[AudioChunk],                   # list of in-memory arrays
+    ],
+    output_path: Union[str, Path] = "merged_output.wav",
+    *,
+    overlap_duration: float = 0.0,
     sample_rate: int = 16000,
     expected_channels: int = 2,
     subtype: str = "PCM_16",
+    recursive: bool = True,
+    audio_extensions: Tuple[str, ...] = (".wav", ".flac", ".ogg", ".mp3", ".m4a", ".aac"),
 ) -> Path:
     """
-    Merge overlapping audio chunks into a single continuous WAV file.
-    Correctly removes the overlapping region from all chunks except the first.
+    Universal audio chunk merger.
 
-    This is the inverse of splitting with overlap — essential for reconstructing
-    the original clean stream from chunked real-time recordings.
+    Pass:
+      - A directory path → auto-find + natural sort all audio files recursively
+      - A list of file paths → use exactly those (in order)
+      - A single or list of np.ndarray → merge in-memory chunks
 
-    Args:
-        chunk_files: Ordered list or iterator of chunk file paths (as saved by save_audio_chunks)
-        output_path: Destination path for the merged file
-        overlap_duration: How much overlap was used when splitting (seconds)
-        sample_rate: Sample rate of the chunks (must match)
-        expected_channels: Number of channels (1 or 2)
-        subtype: Output format subtype (e.g. "PCM_16", "PCM_24")
-
-    Returns:
-        Path to the saved merged file
-
-    Example:
-        >>> merged = merge_audio_chunks(saved_paths, "output/full_stream.wav", overlap_duration=2.0)
+    Examples:
+        merge_audio_chunks("recordings/session_2025/")                    # auto-discover
+        merge_audio_chunks(["part1.wav", "part2.wav"])                   # explicit files
+        merge_audio_chunks([array1, array2, array3])                     # in-memory
+        merge_audio_chunks(np.random.rand(320000, 2))                    # single array
     """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
     overlap_samples = int(sample_rate * overlap_duration)
-    consolidated_chunks: List[np.ndarray] = []
 
-    chunk_paths = [Path(p) for p in chunk_files] if not isinstance(chunk_files, (list, tuple)) else list(chunk_files)
-
-    if len(chunk_paths) == 0:
-        raise ValueError("No chunk files provided to merge")
-
-    logger.info(f"Merging {len(chunk_paths)} chunks → {output_path.name} (removing {overlap_duration}s overlap)")
-
-    for idx, chunk_path in enumerate(chunk_paths):
-        if not chunk_path.exists():
-            raise FileNotFoundError(f"Chunk file not found: {chunk_path}")
-
-        audio, sr = sf.read(str(chunk_path))
-        if sr != sample_rate:
-            logger.warning(f"Resampling chunk {chunk_path.name} from {sr} → {sample_rate} Hz")
-            audio = librosa.resample(audio, orig_sr=sr, target_sr=sample_rate)
-
-        # Ensure correct channels
-        if audio.ndim == 1:
-            audio = np.stack([audio, audio], axis=1) if expected_channels == 2 else audio[:, np.newaxis]
-        elif audio.shape[1] != expected_channels:
-            audio = np.tile(audio[:, :1], (1, expected_channels))
-
-        audio = audio.astype(np.float32)
-
-        if idx == 0:
-            # First chunk: keep full
-            consolidated_chunks.append(audio)
+    # ------------------- Resolve input -------------------
+    if isinstance(chunks, (str, Path)):
+        path = Path(chunks).expanduser().resolve()
+        if path.is_dir():
+            # Directory mode
+            pattern = "**/*.*" if recursive else "*.*"
+            files = [
+                f for ext in audio_extensions
+                for f in path.glob(pattern)
+                if f.suffix.lower() in ext
+            ]
+            if not files:
+                raise FileNotFoundError(f"No audio files found in directory: {path}")
+            files.sort(key=_natural_sort_key)
+            arrays = [_load_audio(f, sample_rate) for f in files]
+            source = f"directory '{path}' ({len(files)} files)"
         else:
-            # All other chunks: drop the trailing overlap
-            if len(audio) > overlap_samples:
-                consolidated_chunks.append(audio[:-overlap_samples])
+            # Single file
+            arrays = [_load_audio(path, sample_rate)]
+            source = f"single file '{path}'"
+    elif isinstance(chunks, np.ndarray):
+        arrays = [np.asarray(chunks, dtype=np.float32)]
+        source = "single in-memory array"
+    elif isinstance(chunks, Sequence) and chunks and isinstance(chunks[0], np.ndarray):
+        arrays = [np.asarray(arr, dtype=np.float32) for arr in chunks]
+        source = f"{len(arrays)} in-memory arrays"
+    else:
+        # List/iterator of file paths
+        paths = [Path(p).resolve() for p in chunks]
+        if not all(p.exists() for p in paths):
+            missing = [p for p in paths if not p.exists()]
+            raise FileNotFoundError(f"Missing files: {missing[:5]}{'...' if len(missing)>5 else ''}")
+        arrays = [_load_audio(p, sample_rate) for p in paths]
+        source = f"{len(paths)} explicit file(s)"
+
+    logger.info(f"Merging {len(arrays)} chunks from {source} → {output_path.name}")
+
+    # ------------------- Process chunks -------------------
+    processed: List[np.ndarray] = []
+    for i, audio in enumerate(arrays):
+        if audio.ndim == 1:
+            audio = audio[:, np.newaxis]
+
+        # Normalize channels
+        if audio.shape[1] == 1 and expected_channels == 2:
+            audio = np.repeat(audio, 2, axis=1)
+        elif audio.shape[1] > expected_channels:
+            audio = audio[:, :expected_channels]
+
+        if i == 0:
+            processed.append(audio)
+        else:
+            keep = len(audio) - overlap_samples
+            if keep > 0:
+                processed.append(audio[:keep])
             else:
-                logger.warning(
-                    f"Chunk {idx} ({chunk_path.name}) is shorter than overlap ({len(audio)} < {overlap_samples} samples). "
-                    "Including full chunk to avoid gaps."
-                )
-                consolidated_chunks.append(audio)
+                logger.warning(f"Chunk {i} too short for overlap ({len(audio)} < {overlap_samples} samples), keeping full")
+                processed.append(audio)
 
-    # Final concatenation
-    merged_audio = np.concatenate(consolidated_chunks, axis=0)
+    merged = np.concatenate(processed, axis=0)
 
-    # Write output
-    sf.write(
-        str(output_path),
-        merged_audio,
-        samplerate=sample_rate,
-        subtype=subtype,
-        format="WAV",
-    )
-
-    duration = len(merged_audio) / sample_rate
-    logger.info(f"Merged stream saved: {output_path} ({duration:.2f}s, {len(merged_audio):,} samples)")
+    # ------------------- Write -------------------
+    sf.write(str(output_path), merged, samplerate=sample_rate, subtype=subtype)
+    duration = len(merged) / sample_rate
+    logger.log(f"Merged ({duration:.2f}s, {merged.shape}): ", str(output_path), colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
     return output_path
 
