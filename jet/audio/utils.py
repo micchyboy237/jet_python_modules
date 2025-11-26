@@ -105,7 +105,7 @@ def load_audio(audio_path, sample_rate: int = 16000, **kwargs) -> Tuple[np.ndarr
         audio = np.stack([audio, audio], axis=1)  # Force stereo for consistency
     return audio, sr
 
-def split_audio(audio: Union[np.ndarray, str, Path], segment_duration: float = 10.0, overlap_duration: float = 1.0, sample_rate: int = 16000) -> Iterator[Tuple[np.ndarray, float, float]]:
+def split_audio(audio: Union[np.ndarray, str, Path], segment_duration: float = 20.0, overlap_duration: float = 2.0, sample_rate: int = 16000) -> Iterator[Tuple[np.ndarray, float, float]]:
     """Split audio into segments with optional overlap to prevent information loss.
 
     Args:

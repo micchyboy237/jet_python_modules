@@ -14,6 +14,7 @@ def _get_default_settings(**overrides) -> dict:
     return {
         "beam_size": 1,
         "temperature": 0.0,
+        "condition_on_previous_text": False,
         "word_timestamps": True,
         "vad_filter": True,
         **overrides,
