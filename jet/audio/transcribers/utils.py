@@ -1,4 +1,4 @@
-# transcription.py
+from __future__ import annotations
 import numpy as np
 from faster_whisper import WhisperModel, BatchedInferencePipeline
 from tqdm.auto import tqdm
@@ -107,49 +107,63 @@ def transcribe_batch_audio(
 
     return results
 
+AudioInput = Union[str, Path, np.ndarray]
+
+# Yield type: one result per segment as soon as its chunk is done
+TranscriptionStream = Generator[tuple[Segment, TranscriptionInfo, int], None, None]
+
 def transcribe_audio(
-    audio_path: str | Path,
+    audio_input: AudioInput,
     model_name: str = "large-v3",
-    device: str = "auto",           # ← "auto" detects mps/cuda/cpu correctly
-    compute_type: str = "int8_float32",  # ← Best performance on M1 & GTX 1660
-    overlap_seconds: float = 8.0,   # ← Recommended: 8s for perfect continuity
+    device: str = "auto",
+    compute_type: str = "int8_float32",
+    overlap_seconds: float = 8.0,
     chunk_length_seconds: int = 30,
     vad_filter: bool = True,
     word_timestamps: bool = True,
     hotwords: Optional[List[str]] = None,
     **transcribe_kwargs,
-) -> Tuple[Generator[Segment, None, None], TranscriptionInfo]:
+) -> TranscriptionStream:
     """
-    Transcribe long audio with full control over chunk overlap.
-    Fixes the hardcoded 2-second overlap in faster-whisper.
+    Streaming transcription of long audio with correct overlap handling.
+
+    Yields:
+        (Segment, TranscriptionInfo, int) – one tuple per segment:
+            - adjusted Segment with correct global timestamps
+            - TranscriptionInfo from the current chunk
+            - chunk_idx (0-based index of the chunk this segment came from)
     """
-    audio_path = Path(audio_path)
-    if not audio_path.exists():
-        raise FileNotFoundError(f"Audio file not found: {audio_path}")
+    # Accept str, Path, or already-loaded np.ndarray
+    if isinstance(audio_input, (str, Path)):
+        audio_path = Path(audio_input)
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        audio_source = str(audio_path)
+    else:
+        audio_source = audio_input  # already np.ndarray
 
     print(f"Loading model {model_name} on {device} ({compute_type})...")
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
 
     print("Loading and resampling audio to 16kHz...")
-    audio = decode_audio(str(audio_path), sampling_rate=16000)
-    sample_rate = 16000
+    audio = decode_audio(audio_source, sampling_rate=16000) if isinstance(audio_source, (str, Path)) else audio_source
+    sample_rate = 16000.0
 
-    chunk_samples = chunk_length_seconds * sample_rate
+    chunk_samples = int(chunk_length_seconds * sample_rate)
     overlap_samples = int(overlap_seconds * sample_rate)
 
-    all_segments: List[Segment] = []
-    info: Optional[TranscriptionInfo] = None
+    print(f"Starting streaming transcription (overlap={overlap_seconds}s, chunk={chunk_length_seconds}s)...\n")
 
     start_sample = 0
     chunk_idx = 0
-
-    print(f"Starting transcription (overlap={overlap_seconds}s, chunk={chunk_length_seconds}s)...\n")
 
     while start_sample < len(audio):
         end_sample = start_sample + chunk_samples
         chunk_audio = audio[start_sample:end_sample]
 
-        print(f"Transcribing chunk {chunk_idx + 1} @ {start_sample / sample_rate:.2f}s → {(end_sample / sample_rate):.2f}s")
+        chunk_start_sec = start_sample / sample_rate
+        chunk_end_sec = min(end_sample, len(audio)) / sample_rate
+        print(f"Transcribing chunk {chunk_idx + 1} @ {chunk_start_sec:.2f}s → {chunk_end_sec:.2f}s")
 
         segs, chunk_info = model.transcribe(
             chunk_audio,
@@ -160,21 +174,22 @@ def transcribe_audio(
         )
 
         offset = start_sample / sample_rate
-        for seg in segs:
-            # Properly reconstruct Segment with corrected word timestamps
-            adjusted_words = []
-            if word_timestamps and seg.words:
-                for w in seg.words:
-                    adjusted_words.append(
-                        type("Word", (), {
-                            "start": w.start + offset if w.start is not None else None,
-                            "end": w.end + offset if w.end is not None else None,
-                            "word": w.word,
-                            "probability": w.probability,
-                        })()
-                    )
 
-            adjusted_seg = Segment(
+        for seg in segs:
+            # Adjust word-level timestamps
+            adjusted_words = None
+            if word_timestamps and seg.words:
+                adjusted_words = [
+                    type("Word", (), {
+                        "start": (w.start + offset) if w.start is not None else None,
+                        "end": (w.end + offset) if w.end is not None else None,
+                        "word": w.word,
+                        "probability": w.probability,
+                    })()
+                    for w in seg.words
+                ]
+
+            adjusted_segment = Segment(
                 id=seg.id,
                 seek=seg.seek,
                 start=seg.start + offset,
@@ -187,21 +202,13 @@ def transcribe_audio(
                 no_speech_prob=seg.no_speech_prob,
                 words=adjusted_words,
             )
-            all_segments.append(adjusted_seg)
 
-        if info is None:
-            info = chunk_info
+            # Yield immediately with per-chunk info
+            yield adjusted_segment, chunk_info, chunk_idx
 
+        # Advance chunk with overlap
         start_sample += chunk_samples - overlap_samples
         chunk_idx += 1
 
-    def segment_generator() -> Generator[Segment, None, None]:
-        yield from all_segments
-
-    final_info = info or TranscriptionInfo(
-        language="en",
-        language_probability=1.0,
-        duration=len(audio) / sample_rate,
-    )
-
-    return segment_generator(), final_info
+    # Optional: yield a final None + info if you want a clean end signal
+    # yield None, chunk_info  # uncomment if needed downstream
