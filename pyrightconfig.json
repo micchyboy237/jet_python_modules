@@ -1,0 +1,20 @@
+{
+  "include": [
+    "jet_python_modules",
+    "jet_python_modules/jet/shared_modules",
+    "JetScripts"
+  ],
+  "venvPath": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv",
+  "venv": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv",
+  "extraPaths": [
+    "jet_python_modules",
+    "jet_python_modules/jet/shared_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/faster-whisper",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta-python",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/openai-python",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/pydantic-ai",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/wtpsplit",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/argos-translate"
+  ]
+}
