@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import timedelta
 import numpy as np
 from faster_whisper import WhisperModel, BatchedInferencePipeline
 from tqdm.auto import tqdm
@@ -117,8 +118,8 @@ def transcribe_audio(
     model_name: str = "large-v3",
     device: str = "auto",
     compute_type: str = "int8_float32",
-    overlap_seconds: float = 8.0,
-    chunk_length_seconds: int = 30,
+    overlap_seconds: float = 2.0,
+    chunk_length_seconds: int = 20,
     vad_filter: bool = True,
     word_timestamps: bool = True,
     hotwords: Optional[List[str]] = None,
@@ -212,3 +213,27 @@ def transcribe_audio(
 
     # Optional: yield a final None + info if you want a clean end signal
     # yield None, chunk_info  # uncomment if needed downstream
+
+def segments_to_srt(segments: List[Segment]) -> str:
+    """
+    Convert a list of Segment objects (with global timestamps) into SRT formatted string.
+    """
+    def format_timestamp(seconds: float | None) -> str:
+        if seconds is None:
+            return "00:00:00,000"
+        delta = timedelta(seconds=seconds)
+        hours, remainder = divmod(delta.total_seconds(), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        milliseconds = int((seconds - int(seconds)) * 1000)
+        return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d},{milliseconds:03d}"
+
+    lines = []
+    for i, seg in enumerate(segments, start=1):
+        start = format_timestamp(seg.start)
+        end = format_timestamp(seg.end)
+        text = seg.text.strip()
+        lines.append(f"{i}")
+        lines.append(f"{start} --> {end}")
+        lines.append(text)
+        lines.append("")  # blank line between subtitles
+    return "\n".join(lines)
