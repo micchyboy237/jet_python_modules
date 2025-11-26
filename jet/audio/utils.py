@@ -4,7 +4,7 @@ import subprocess
 import os
 import glob
 import re
-from typing import Iterator, List, Sequence, Tuple, Union
+from typing import Iterator, List, Sequence, Tuple, TypedDict, Union
 import librosa
 import sounddevice as sd
 import numpy as np
@@ -106,36 +106,70 @@ def load_audio(audio_path, sample_rate: int = 16000, **kwargs) -> Tuple[np.ndarr
         audio = np.stack([audio, audio], axis=1)  # Force stereo for consistency
     return audio, sr
 
-def split_audio(audio: Union[np.ndarray, str, Path], segment_duration: float = 20.0, overlap_duration: float = 2.0, sample_rate: int = 16000) -> Iterator[Tuple[np.ndarray, float, float]]:
-    """Split audio into segments with optional overlap to prevent information loss.
 
-    Args:
-        audio: Input audio array.
-        segment_duration: Duration of each segment in seconds.
-        overlap_duration: Duration of overlap between segments in seconds.
+class AudioSegment(TypedDict):
+    segment: np.ndarray
+    start_time: float       # absolute start time in the original audio (seconds)
+    end_time: float         # absolute end time in the original audio (seconds)
+    segment_index: int      # 0-based index of this chunk
+    is_first: bool          # True only for the very first segment
+    is_last: bool           # True only for the final segment (may be shorter)
+    overlaps_previous: bool # True if this segment overlaps with the previous chunk
+    overlaps_next: bool     # True if this segment will overlap with the next chunk
+                            # (always True except possibly the last one when overlap > 0)
 
-    Yields:
-        Tuple containing the audio segment, start time, and end time.
+
+def split_audio(
+    audio: Union[np.ndarray, str, Path],
+    segment_duration: float = 20.0,
+    overlap_duration: float = 2.0,
+    sample_rate: int = 16000,
+) -> Iterator[AudioSegment]:
+    """
+    Yield richly annotated audio segments with precise overlap information.
     """
     if isinstance(audio, (str, Path)):
-        audio, sampling_rate = librosa.load(str(audio), sr=sample_rate, mono=True)
+        audio, sr = librosa.load(str(audio), sr=sample_rate, mono=True)
+    else:
+        sr = sample_rate
 
-    samples_per_segment = int(sample_rate * segment_duration)
-    overlap_samples = int(sample_rate * overlap_duration)
-    step_samples = samples_per_segment - \
-        overlap_samples  # Step size adjusted for overlap
-    total_samples = len(audio)
+    seg_samples = int(sr * segment_duration)
+    ovl_samples = int(sr * overlap_duration)
+    step_samples = seg_samples - ovl_samples
 
     if step_samples <= 0:
-        raise ValueError(
-            "Overlap duration must be less than segment duration.")
+        raise ValueError("overlap_duration must be less than segment_duration")
 
-    for start_sample in range(0, total_samples, step_samples):
-        end_sample = min(start_sample + samples_per_segment, total_samples)
-        segment = audio[start_sample:end_sample]
-        start_time = start_sample / sample_rate
-        end_time = end_sample / sample_rate
-        yield segment, start_time, end_time
+    total_samples = len(audio)
+    pos = 0
+    segment_index = 0
+
+    while pos < total_samples:
+        end = min(pos + seg_samples, total_samples)
+        segment = audio[pos:end]
+
+        start_sec = pos / sr
+        end_sec = end / sr
+
+        # Determine overlap flags
+        is_first = (segment_index == 0)
+        is_last = (end == total_samples)
+        overlaps_previous = (not is_first) and (ovl_samples > 0)
+        overlaps_next = (not is_last) and (ovl_samples > 0)
+
+        yield AudioSegment(
+            segment=segment,
+            start_time=start_sec,
+            end_time=end_sec,
+            segment_index=segment_index,
+            is_first=is_first,
+            is_last=is_last,
+            overlaps_previous=overlaps_previous,
+            overlaps_next=overlaps_next,
+        )
+
+        pos += step_samples
+        segment_index += 1
 
 
 def save_audio_chunks(
