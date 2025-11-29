@@ -1,6 +1,5 @@
 import pytest
 from jet.utils.language import detect_lang, DetectLangResult
-from jet.utils.string_utils import remove_non_alpha_numeric
 
 
 class TestDetectLang:
@@ -43,7 +42,7 @@ class TestDetectLang:
     def test_empty_text(self):
         # Given: An empty string
         input_text = ""
-        expected: DetectLangResult = {"lang": "en", "score": 0.1245}
+        expected: DetectLangResult = {"lang": "unknown", "score": 0}
 
         # When: Calling detect_lang with empty text
         result = detect_lang(input_text)

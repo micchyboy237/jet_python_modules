@@ -21,14 +21,31 @@ class M2MTranslator:
             if torch.cuda.is_available():
                 self.device = "cuda"
             elif torch.backends.mps.is_available():
-                self.device = "cpu"  # <--- FIX: Force CPU on MPS to avoid embedding storage bug
+                self.device = "cpu"  # Force CPU on Apple Silicon (avoids known MPS bugs)
             else:
                 self.device = "cpu"
 
-        self.tokenizer = M2M100Tokenizer.from_pretrained(model_name, use_safetensors=False)
-        self.model = M2M100ForConditionalGeneration.from_pretrained(
-            model_name, use_safetensors=False
-        ).to(self.device)
+        # === PREVENT AUTO DOWNLOAD OF SAFETENSORS + ANY MISSING FILES ===
+        preload_kwargs = {
+            "local_files_only": True,       # Fail if files not already cached
+            "use_safetensors": False,       # Explicitly disable safetensors
+            "torch_dtype": torch.float32,   # Optional: ensure consistency
+        }
+
+        try:
+            self.tokenizer = M2M100Tokenizer.from_pretrained(
+                model_name, **preload_kwargs
+            )
+            self.model = M2M100ForConditionalGeneration.from_pretrained(
+                model_name, **preload_kwargs
+            ).to(self.device)
+        except OSError as e:
+            if "local_files_only" in str(e):
+                raise RuntimeError(
+                    f"Model '{model_name}' not found in cache and downloading is disabled. "
+                    "Run once without 'local_files_only=True' to download, or place files manually."
+                ) from e
+            raise
 
     def translate(self, text: str, src_lang: str = "ja", tgt_lang: str = "en") -> str:
         self.tokenizer.src_lang = src_lang

@@ -105,13 +105,31 @@ class AudioContextTranscriber:
                 audio_mono,
                 language=language,
                 task="translate",
-                beam_size=7,
-                best_of=5,
-                temperature=(0.0, 0.2),
+
+                # Decoding: Maximum accuracy
+                beam_size=10,
+                patience=2.0,
+                temperature=0.0,
+                length_penalty=1.0,
+                best_of=1,
+                log_prob_threshold=-0.5,
+
+                # Context & consistency
+                condition_on_previous_text=True,
+
+                # Japanese punctuation handling
+                prepend_punctuations="\"'“¿([{-『「（［",
+                append_punctuations="\"'.。,，!！?？:：”)]}、。」」！？",
+
+                # Clean input
                 vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=700),
-                prefix=None,
+                vad_parameters=None,
+
+                # Output options
+                without_timestamps=False,
                 word_timestamps=True,
+                chunk_length=30,
+                log_progress=True,
             )
 
             start_overlap_samples = len(prev_audio)

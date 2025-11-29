@@ -69,13 +69,32 @@ class AudioFileTranscriber:
             segments, info = self.model.transcribe(
                 audio_data,                    # Must be 1D mono float32
                 language=language,
-                task="translate",              # Forces clean English output
-                beam_size=7,                   # Better accuracy than 1
-                best_of=5,
-                temperature=(0.0, 0.2),        # Slight sampling for better fluency
+                task="translate",
+
+                # Decoding: Maximum accuracy
+                beam_size=10,
+                patience=2.0,
+                temperature=0.0,
+                length_penalty=1.0,
+                best_of=1,
+                log_prob_threshold=-0.5,
+
+                # Context & consistency
+                condition_on_previous_text=True,
+
+                # Japanese punctuation handling
+                prepend_punctuations="\"'“¿([{-『「（［",
+                append_punctuations="\"'.。,，!！?？:：”)]}、。」」！？",
+
+                # Clean input
                 vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=700),
-                word_timestamps=False,         # Not needed here
+                vad_parameters=None,
+
+                # Output options
+                without_timestamps=False,
+                word_timestamps=True,
+                chunk_length=30,
+                log_progress=True,
             )
 
             transcription = " ".join(segment.text.strip() for segment in segments).strip()
