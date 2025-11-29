@@ -15,6 +15,18 @@ class TestDetectLang:
         assert result["lang"] == expected["lang"]
         assert pytest.approx(result["score"], rel=0.1) == expected["score"]
 
+    def test_detect_japanese_text(self):
+        # Given: a natural Japanese sentence containing hiragana and kanji
+        input_text = "今日はいい天気ですね。明日は雨が降るそうです。"
+        
+        # When: detecting the language
+        result = detect_lang(input_text)
+        
+        # Then: language should be detected as Japanese with high confidence
+        expected: DetectLangResult = {"lang": "ja", "score": 0.99}
+        assert result["lang"] == expected["lang"]
+        assert pytest.approx(result["score"], rel=0.1) == expected["score"]
+
     def test_detect_spanish_text(self):
         # Given: A simple Spanish text input
         input_text = "Hola, esto es una prueba."
