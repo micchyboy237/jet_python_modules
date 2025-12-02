@@ -12,6 +12,51 @@ from jet.logger import logger
 import soundfile as sf  # <-- fast, supports many formats, free & popular
 from numpy.typing import NDArray
 
+# Supported audio extensions (common + comprehensive)
+AUDIO_EXTENSIONS = {
+    ".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".webm", ".mp4", ".mkv", ".avi"
+}
+
+AudioInput = Union[str, Path, Sequence[Union[str, Path]]]
+
+def resolve_audio_paths(audio_inputs: AudioInput, recursive: bool = False) -> List[Path]:
+    """Resolve single/list/dir → flat list of existing audio file Paths.
+
+    Args:
+        audio_inputs: Single path, list of paths, or directory.
+        recursive: If True and a directory is given, walk recursively.
+                   Defaults to False (only direct children).
+
+    Returns:
+        Flat list of Path objects pointing to valid audio files.
+    """
+    inputs = [audio_inputs] if isinstance(audio_inputs, (str, Path)) else audio_inputs
+    resolved: List[Path] = []
+
+    for item in inputs:
+        path = Path(item)
+
+        if path.is_dir():
+            iterator = path.rglob("*") if recursive else path.iterdir()
+            audio_files = [
+                p for p in iterator
+                if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
+            ]
+            if not audio_files:
+                logger.warning(f"No audio files found in directory: {path}")
+            resolved.extend(audio_files)
+        elif path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS:
+            resolved.append(path)
+        elif path.exists():
+            logger.warning(f"Skipping non-audio or unsupported file: {path}")
+        else:
+            logger.error(f"Path not found: {path}")
+
+    if not resolved:
+        raise ValueError("No valid audio files found from provided inputs.")
+
+    return resolved
+
 def get_input_channels() -> int:
     device_info = sd.query_devices(sd.default.device[0], 'input')
     channels = device_info['max_input_channels']

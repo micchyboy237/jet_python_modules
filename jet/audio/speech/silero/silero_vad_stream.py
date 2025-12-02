@@ -1,7 +1,6 @@
-# jet_python_modules/jet/audio/speech/silero/silero_vad_stream.py
+# silero_vad_stream.py
 from __future__ import annotations
 import signal
-import sys
 import threading
 from collections import deque
 from dataclasses import dataclass
@@ -10,6 +9,7 @@ from typing import Callable, Optional
 
 import sounddevice as sd
 import torch
+import json
 from rich.console import Console
 
 console = Console()
@@ -101,7 +101,7 @@ class SileroVADStreamer:
 
     def _audio_callback(self, indata, frames, time, status):
         if status:
-            console.print(f"[yellow]Audio warning:[/] {status}", file=sys.stderr)
+            console.log(f"[yellow]Audio warning:[/] {status}")
 
         # Convert and store chunk
         chunk = torch.from_numpy(indata.copy()).squeeze(1).float()  # (samples,)
@@ -141,14 +141,28 @@ class SileroVADStreamer:
                 audio_tensor = self._extract_segment_audio(start_sample, end_sample)
                 if audio_tensor is not None:
                     self._segment_counter += 1
-                    filename = (
-                        f"speech_{self._segment_counter:03d}_"
-                        f"{segment.start_sec:.2f}s_"
-                        f"{segment.duration_sec:.2f}s.wav"
-                    )
-                    path = self.output_dir / filename
-                    save_audio(str(path), audio_tensor, self.sample_rate)
-                    console.print(f"[bold green]Saved:[/] {path.name}")
+                    seg_dir = self.output_dir / f"segment_{self._segment_counter:03d}"
+                    seg_dir.mkdir(parents=True, exist_ok=True)
+
+                    wav_path = seg_dir / "sound.wav"
+                    json_path = seg_dir / "segment.json"
+
+                    save_audio(str(wav_path), audio_tensor, self.sample_rate)
+
+                    with json_path.open("w", encoding="utf-8") as f:
+                        json.dump(
+                            {
+                                "start_sample": segment.start_sample,
+                                "end_sample": segment.end_sample,
+                                "start_sec": segment.start_sec,
+                                "end_sec": segment.end_sec,
+                                "duration_sec": segment.duration_sec,
+                            },
+                            f,
+                            indent=2,
+                        )
+
+                    console.print(f"[bold green]Saved segment:[/] {seg_dir.name}")
 
             self.on_speech_end(segment)
 
@@ -156,8 +170,9 @@ class SileroVADStreamer:
             self._current_start = None
             self._current_start_sample = None
 
-            # Clean old buffer (keep only last ~10 seconds to bound memory)
-            self._trim_buffer(end_sample_global)
+        # Periodic lazy cleanup – keeps memory bounded but never drops active speech
+        if self._total_samples % (self.sample_rate * 10) == 0:  # every ~10 s
+            self._trim_buffer_lazy(keep_seconds=60)
 
     def _extract_segment_audio(self, start_sample: int, end_sample: int) -> Optional[torch.Tensor]:
         """Extract exact speech segment from ring buffer."""
@@ -169,23 +184,32 @@ class SileroVADStreamer:
         segment_audio = full_audio[start_sample:end_sample]
         return segment_audio
 
-    def _trim_buffer(self, keep_up_to_sample: int) -> None:
-        """Remove old chunks that are no longer needed."""
+    def _trim_buffer_lazy(self, keep_seconds: int = 60) -> None:
+        """
+        Lazily discard very old audio (older than `keep_seconds`).
+        This guarantees that any active or recently finished speech segment
+        is still fully present in the buffer when we extract it.
+        """
         with self._lock:
-            samples_to_keep = max(0, self._total_samples - keep_up_to_sample + self.sample_rate * 10)
-            while self._audio_buffer and samples_to_keep > 0:
+            max_samples = int(keep_seconds * self.sample_rate)
+            samples_to_discard = max(0, self._total_samples - max_samples)
+            discarded = 0
+            while self._audio_buffer and discarded < samples_to_discard:
                 chunk = self._audio_buffer[0]
-                if len(chunk) <= samples_to_keep:
-                    samples_to_keep -= len(chunk)
+                if len(chunk) + discarded <= samples_to_discard:
+                    discarded += len(chunk)
                     self._audio_buffer.popleft()
                 else:
-                    # Partial trim (rare)
-                    self._audio_buffer[0] = chunk[len(chunk) - samples_to_keep :]
-                    self._total_samples = keep_up_to_sample + self.sample_rate * 10
+                    # cut the head of the oldest chunk
+                    cut = samples_to_discard - discarded
+                    self._audio_buffer[0] = chunk[cut:]
+                    discarded += cut
                     break
+            # update total sample counter accordingly
+            self._total_samples -= discarded
 
     def _signal_handler(self, sig, frame):
-        print("\nShutting down...")
+        console.log("\nShutting down...")
         with self._lock:
             silent = torch.zeros(self.block_size)
             final = self.vad_iterator(silent, return_seconds=True)
@@ -205,16 +229,34 @@ class SileroVADStreamer:
                     audio_tensor = self._extract_segment_audio(start_sample, end_sample)
                     if audio_tensor is not None:
                         self._segment_counter += 1
-                        filename = f"speech_final_{segment.start_sec:.2f}s_{segment.duration_sec:.2f}s.wav"
-                        path = self.output_dir / filename
-                        save_audio(str(path), audio_tensor, self.sample_rate)
-                        console.print(f"[bold green]Saved final:[/] {path.name}")
+                        seg_dir = self.output_dir / f"segment_{self._segment_counter:03d}"
+                        seg_dir.mkdir(parents=True, exist_ok=True)
+
+                        wav_path = seg_dir / "sound.wav"
+                        json_path = seg_dir / "segment.json"
+
+                        save_audio(str(wav_path), audio_tensor, self.sample_rate)
+
+                        with json_path.open("w", encoding="utf-8") as f:
+                            json.dump(
+                                {
+                                    "start_sample": segment.start_sample,
+                                    "end_sample": segment.end_sample,
+                                    "start_sec": segment.start_sec,
+                                    "end_sec": segment.end_sec,
+                                    "duration_sec": segment.duration_sec,
+                                },
+                                f,
+                                indent=2,
+                            )
+
+                        console.print(f"[bold green]Saved final segment:[/] {seg_dir.name}")
                 self.on_speech_end(segment)
 
     def start(self) -> None:
         """Start the microphone stream. Blocks until Ctrl+C."""
-        print(f"Starting Silero VAD streamer (sr={self.sample_rate}, block={self.block_size})")
-        print("Press Ctrl+C to stop.\n")
+        console.log(f"Starting Silero VAD streamer (sr={self.sample_rate}, block={self.block_size})")
+        console.log("Press Ctrl+C to stop.\n")
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             blocksize=self.block_size,
@@ -230,14 +272,18 @@ class SileroVADStreamer:
                     sd.sleep(100)
             except KeyboardInterrupt:
                 pass
-        print("\nStream stopped.")
+        console.log("\nStream stopped.")
 
 if __name__ == "__main__":
+    import os
+    import shutil
+
+    OUTPUT_DIR = os.path.join(
+        os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
     streamer = SileroVADStreamer(
-        threshold=0.5,
-        min_silence_duration_ms=500,
-        speech_pad_ms=30,
-        output_dir="vad_recordings",   # ← enables saving
+        output_dir=OUTPUT_DIR,   # ← enables saving
         save_segments=True,
     )
     streamer.start()

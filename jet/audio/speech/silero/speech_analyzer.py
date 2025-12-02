@@ -1,4 +1,4 @@
-# file: silero_vad_analyzer.py
+# file: speech_analyzer.py
 """
 Silero VAD Analyzer – One-click full insight generator
 
