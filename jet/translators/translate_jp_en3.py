@@ -10,6 +10,14 @@ from rich.table import Table
 from tqdm.auto import tqdm
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
+from jet.file.utils import save_file
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
 console = Console()
 
 # Constants (easy to override if needed)
@@ -149,6 +157,10 @@ if __name__ == "__main__":
     #     "こんにちは、世界",
     #     "今日の天気は晴れです",
     # ]
-    sample_references = None
+    # sample_references = None
 
-    inferencer.transcribe_and_display(sample_audio_files, references=sample_references)
+    # inferencer.transcribe_and_display(sample_audio_files, references=sample_references)
+
+    predictions = inferencer.transcribe(sample_audio_files)
+    save_file(predictions, f"{OUTPUT_DIR}/predictions.json")
+    
