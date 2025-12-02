@@ -85,10 +85,10 @@ class WhisperModelRegistry(BaseModelRegistry):
 
     def _load_model(
         self,
-        model_size: WhisperModelsType = "small",
-        device: str = "auto",
+        model_size: WhisperModelsType = "large-v3",
+        device: str = "cpu",
         device_index: Union[int, List[int]] = 0,
-        compute_type: str = "default",
+        compute_type: str = "int8",
         cpu_threads: int = 0,
         num_workers: int = 1,
         download_root: Optional[str] = None,
@@ -100,7 +100,7 @@ class WhisperModelRegistry(BaseModelRegistry):
         resolved_model_id = model_size
 
         cache_key = generate_key(
-            resolved_model_id, compute_type, device_index, cpu_threads, num_workers
+            resolved_model_id, device, device_index, compute_type, cpu_threads, num_workers
         )
 
         if cache_key in self._models:

@@ -188,6 +188,7 @@ def save_file(
     """
     from rich.console import Console
     from rich.padding import Padding
+    from rich.text import Text
     output_file = str(output_file)
     output_file = re.sub(r"[^\w\-/\.]", "", output_file)
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
@@ -235,8 +236,11 @@ def save_file(
                 logger.newline()
                 upper_ext = ext.upper().lstrip('.')
                 count = f" {len(data)}" if isinstance(data, list) else ""
-                logger.log(f"{'Appended' if append else 'Saved'} {upper_ext} data{count} to: ",
-                           output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                action = 'Appended' if append else 'Saved'
+                path_text = Text(output_file, style="bold bright_green")
+                path_text.overflow = "fold"
+                path_text.no_wrap = True
+                logger.log(f"{action} {upper_ext} data{count} to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
         elif ext == ".md":
             if isinstance(data, Table):
                 if not data.columns or not data.rows:
@@ -268,7 +272,10 @@ def save_file(
                 f.write(data)
             if verbose:
                 logger.newline()
-                logger.log("Saved Markdown to: ", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                path_text = Text(output_file, style="bold bright_green")
+                path_text.overflow = "fold"
+                path_text.no_wrap = True
+                logger.log("Saved Markdown to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
         elif ext in {".html", ".txt"}:
             if not isinstance(data, str):
                 data = str(data)
@@ -278,8 +285,11 @@ def save_file(
                 f.write(data)
             if verbose:
                 logger.newline()
-                logger.log(f"Saved {'HTML' if ext == '.html' else 'text'} to: ", output_file,
-                           colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                kind = 'HTML' if ext == '.html' else 'text'
+                path_text = Text(output_file, style="bold bright_green")
+                path_text.overflow = "fold"
+                path_text.no_wrap = True
+                logger.log(f"Saved {kind} to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
         elif ext in {".png", ".jpg", ".jpeg"}:
             if not isinstance(data, bytes):
                 raise ValueError(f"Expected bytes for {ext} file, got {type(data)}")
@@ -287,7 +297,10 @@ def save_file(
                 f.write(data)
             if verbose:
                 logger.newline()
-                logger.log("Saved binary data to: ", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                path_text = Text(output_file, style="bold bright_green")
+                path_text.overflow = "fold"
+                path_text.no_wrap = True
+                logger.log("Saved binary data to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
         else:
             if isinstance(data, bytes):
                 with open(output_file, "wb") as f:
@@ -299,7 +312,10 @@ def save_file(
                     f.write(data)
             if verbose:
                 logger.newline()
-                logger.log("Saved data to: ", output_file, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                path_text = Text(output_file, style="bold bright_green")
+                path_text.overflow = "fold"
+                path_text.no_wrap = True
+                logger.log("Saved data to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
         return output_file
     except Exception as e:
         if verbose:

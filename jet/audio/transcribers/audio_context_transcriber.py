@@ -26,10 +26,10 @@ def ensure_stereo(audio: np.ndarray, expected_channels: int = 2) -> np.ndarray:
 
 
 class AudioContextTranscriber:
-    def __init__(self, model_size: str = "large-v3", sample_rate: Optional[int] = None, compute_type: str = "default"):
+    def __init__(self, model_size: str = "large-v3", sample_rate: Optional[int] = None, device: str = "cpu", compute_type: str = "int8"):
         logger.setLevel(logging.DEBUG)
         registry = WhisperModelRegistry()
-        self.model = registry.load_model(model_size, device="auto", compute_type="default")
+        self.model = registry.load_model(model_size, device=device, compute_type=compute_type)
         self.sample_rate = sample_rate
 
     def transcribe_with_context(  # ← REMOVED `async` — now synchronous

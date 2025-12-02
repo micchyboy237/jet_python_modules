@@ -1,42 +1,40 @@
-# file: speech_analyzer.py
-"""
-Silero VAD Analyzer – One-click full insight generator
-
-Features:
-- Loads any audio file
-- Runs Silero VAD with your chosen threshold
-- Generates:
-    • Interactive probability plot (with threshold lines)
-    • Speech segments timeline (colored bars)
-    • JSON with all timestamps (samples + seconds)
-    • High-res PNGs saved to your output folder
-- Fully typed, clean, no global state
-"""
-
+# jet_python_modules/jet/audio/speech/silero/silero_vad_stream.py
 from __future__ import annotations
 
-import argparse
-import json
-import sys
-from dataclasses import dataclass, asdict
+import signal
+import threading
+from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import Callable, Optional
 
-import matplotlib.pyplot as plt
+import sounddevice as sd
 import torch
+import json
+import logging
+from rich.logging import RichHandler
 
-# ----------------------------------------------------------------------
-# Load Silero VAD (official way – always up to date)
-# ----------------------------------------------------------------------
-model, utils = torch.hub.load(  # pyright: ignore[reportGeneralTypeIssues]
-    repo_or_dir="snakers4/silero-vad",
-    model="silero_vad",
-    force_reload=False,
-    trust_repo=True,
-    verbose=False,
+# Proper rich logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(rich_tracebacks=True, markup=True)]
 )
+log = logging.getLogger("silero-vad-stream")
 
-get_speech_timestamps, _, read_audio, _, _ = utils
+
+# Lazy load model only when needed
+def _load_silero_vad() -> tuple:
+    model, utils = torch.hub.load(
+        repo_or_dir="snakers4/silero-vad",
+        model="silero_vad",
+        force_reload=False,
+        trust_repo=True,
+        verbose=False,
+    )
+    get_speech_timestamps, save_audio, _, VADIterator, _ = utils
+    return model, VADIterator, save_audio
 
 
 @dataclass
@@ -47,187 +45,257 @@ class SpeechSegment:
     end_sec: float
     duration_sec: float
 
+    def duration(self) -> float:
+        return self.duration_sec
 
-class SileroVADAnalyzer:
+
+class SileroVADStreamer:
     def __init__(
         self,
-        threshold: float = 0.5,
-        min_speech_duration_ms: int = 250,
-        min_silence_duration_ms: int = 100,
+        threshold: float = 0.6,
+        sample_rate: int = 16000,
+        min_silence_duration_ms: int = 700,
         speech_pad_ms: int = 30,
-        sampling_rate: int = 16000,
+        device: Optional[int] = None,
+        block_size: Optional[int] = None,
+        on_speech_start: Optional[Callable[[float], None]] = None,
+        on_speech_end: Optional[Callable[[SpeechSegment], None]] = None,
+        output_dir: Optional[Path | str] = None,
+        save_segments: bool = True,
+        debug: bool = False,
     ):
+        if sample_rate not in (8000, 16000):
+            raise ValueError("Silero VAD only supports 8000 or 16000 Hz")
+        self.sample_rate = sample_rate
+        self.block_size = block_size or (512 if sample_rate == 16000 else 256)
+        if self.block_size not in (256, 512):
+            raise ValueError(f"block_size must be 256 (8k) or 512 (16k), got {self.block_size}")
+
         self.threshold = threshold
-        self.min_speech_duration_ms = min_speech_duration_ms
         self.min_silence_duration_ms = min_silence_duration_ms
         self.speech_pad_ms = speech_pad_ms
-        self.sr = sampling_rate
+        self.device = device
+        self.on_speech_start = on_speech_start or self._default_start_handler
+        self.on_speech_end = on_speech_end or self._default_end_handler
+        self.debug = debug
+        if debug:
+            log.setLevel(logging.DEBUG)
 
-        self.window_size = 512 if sampling_rate == 16000 else 256
-        self.step_sec = self.window_size / self.sr  # 0.032s or 0.032s
+        self.output_dir = Path(output_dir) if output_dir else None
+        self.save_segments = save_segments and bool(self.output_dir)
+        if self.save_segments:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            self._segment_counter = 0
 
-    def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment]]:
-        wav = read_audio(str(audio_path), sampling_rate=self.sr)
+        # Lazy load
+        self.model, VADIterator, self.save_audio = _load_silero_vad()
 
-        # 1. Get speech timestamps (with internal probability collection)
-        segments = get_speech_timestamps(
-            wav,
-            model,
-            threshold=self.threshold,
-            sampling_rate=self.sr,
-            min_speech_duration_ms=self.min_speech_duration_ms,
-            min_silence_duration_ms=self.min_silence_duration_ms,
-            speech_pad_ms=self.speech_pad_ms,
-            return_seconds=False,  # we'll convert ourselves
-            visualize_probs=False,  # we do it manually for beauty
+        self.vad_iterator = VADIterator(
+            model=self.model,
+            threshold=threshold,
+            sampling_rate=sample_rate,
+            min_silence_duration_ms=min_silence_duration_ms,
+            speech_pad_ms=speech_pad_ms,
         )
 
-        # 2. Manually collect probabilities (for full control + plotting)
-        model.reset_states()
-        probs = []
-        for i in range(0, len(wav), self.window_size):
-            chunk = wav[i : i + self.window_size]
-            if len(chunk) < self.window_size:
-                chunk = torch.nn.functional.pad(chunk, (0, self.window_size - len(chunk)))
-            prob = model(chunk.unsqueeze(0), self.sr).item()
-            probs.append(prob)
+        # State
+        self._current_start: Optional[float] = None
+        self._current_start_sample: Optional[int] = None
+        self._total_samples_processed: int = 0           # global time
+        self._buffer_start_sample: int = 0                # start offset after trims
+        self._audio_buffer: deque[torch.Tensor] = deque()
+        self._stream: Optional[sd.InputStream] = None
+        self._lock = threading.Lock()
+        self._stopped = threading.Event()
 
-        # Convert segments to rich objects
-        rich_segments = [
-            SpeechSegment(
-                start_sample=s["start"],
-                end_sample=s["end"],
-                start_sec=round(s["start"] / self.sr, 3),
-                end_sec=round(s["end"] / self.sr, 3),
-                duration_sec=round((s["end"] - s["start"]) / self.sr, 3),
+    def _default_start_handler(self, timestamp: float) -> None:
+        log.info(f"[green]Speech Start[/] @ {timestamp:.3f}s")
+
+    def _default_end_handler(self, segment: SpeechSegment) -> None:
+        log.info(
+            f"[bold magenta]Speech End[/] @ {segment.end_sec:.3f}s "
+            f"[cyan]dur={segment.duration():.3f}s[/]"
+        )
+
+    def _audio_callback(self, indata: np.ndarray, frames: int, time, status) -> None:
+        if status:
+            log.warning(f"Audio callback status: {status}")
+        chunk = torch.from_numpy(indata.copy()).squeeze(1).float()
+
+        with self._lock:
+            self._audio_buffer.append(chunk)
+            self._total_samples_processed += len(chunk)
+
+        result = self.vad_iterator(chunk, return_seconds=True)
+
+        if result is None:
+            return
+
+        if "start" in result:
+            start_sec = result["start"]
+            self._current_start = start_sec
+            self._current_start_sample = int(start_sec * self.sample_rate)
+            self.on_speech_start(start_sec)
+
+        elif "end" in result and self._current_start is not None:
+            end_sec = result["end"]
+            segment = SpeechSegment(
+                start_sample=self._current_start_sample,
+                end_sample=int(end_sec * self.sample_rate),
+                start_sec=self._current_start,
+                end_sec=end_sec,
+                duration_sec=end_sec - self._current_start,
             )
-            for s in segments
-        ]
+            self._save_and_notify(segment)
+            self._current_start = None
+            self._current_start_sample = None
 
-        return probs, rich_segments
+        # Periodic trim
+        if self._total_samples_processed % (self.sample_rate * 10) < self.block_size:
+            self._trim_buffer(keep_seconds=60)
 
-    def plot_insights(
-        self,
-        probs: List[float],
-        segments: List[SpeechSegment],
-        audio_path: str | Path,
-        out_dir: str | Path,
-    ) -> None:
-        Path(out_dir).mkdir(parents=True, exist_ok=True)
+    def _save_and_notify(self, segment: SpeechSegment) -> None:
+        if self.save_segments:
+            audio_tensor = self._extract_segment_audio(segment.start_sample, segment.end_sample)
+            if audio_tensor is not None:
+                self._segment_counter += 1
+                seg_dir = self.output_dir / f"segment_{self._segment_counter:03d}"
+                seg_dir.mkdir(parents=True, exist_ok=True)
+                wav_path = seg_dir / "sound.wav"
+                json_path = seg_dir / "segment.json"
+                self.save_audio(str(wav_path), audio_tensor.unsqueeze(0), self.sample_rate)
+                with json_path.open("w", encoding="utf-8") as f:
+                    json.dump({
+                        "start_sample": segment.start_sample,
+                        "end_sample": segment.end_sample,
+                        "start_sec": round(segment.start_sec, 3),
+                        "end_sec": round(segment.end_sec, 3),
+                        "duration_sec": round(segment.duration_sec, 3),
+                    }, f, indent=2)
+                log.info(f"[bold green]Saved segment:[/] {seg_dir.name}")
+        self.on_speech_end(segment)
 
-        time_axis = [i * self.step_sec for i in range(len(probs))]
-        total_sec = len(probs) * self.step_sec
+    def _extract_segment_audio(self, start_sample: int, end_sample: int) -> Optional[torch.Tensor]:
+        if start_sample >= end_sample:
+            return None
+        target_len = end_sample - start_sample
+        extracted = torch.zeros(target_len, dtype=torch.float32)
+        pos = self._buffer_start_sample
+        out_idx = 0
 
-        plt.figure(figsize=(20, 10))
-        plt.suptitle(f"Silero VAD Full Analysis – {Path(audio_path).name}", fontsize=18, fontweight="bold")
+        with self._lock:
+            buffer_copy = list(self._audio_buffer)
 
-        # Top: Probability curve
-        plt.subplot(2, 1, 1)
-        plt.fill_between(time_axis, probs, color="#4CAF50", alpha=0.7, label="Speech Probability")
-        plt.axhline(self.threshold, color="red", linestyle="--", linewidth=2, label=f"Threshold = {self.threshold}")
-        plt.axhline(self.threshold - 0.15, color="orange", linestyle=":", linewidth=1.5, label="Negative Threshold")
-        plt.ylim(0, 1.05)
-        plt.xlim(0, total_sec)
-        plt.ylabel("Probability", fontsize=14)
-        plt.title("Raw Speech Probability Over Time", fontsize=14)
-        plt.legend(loc="upper right")
-        plt.grid(True, alpha=0.3)
+        for chunk in buffer_copy:
+            chunk_len = len(chunk)
+            chunk_start = pos
+            chunk_end = pos + chunk_len
 
-        # Bottom: Detected speech segments
-        ax2 = plt.subplot(2, 1, 2)
-        for i, seg in enumerate(segments):
-            ax2.fill_between(
-                [seg.start_sec, seg.end_sec],
-                0,
-                1,
-                color="#2196F3",
-                edgecolor="black",
-                linewidth=1,
-                alpha=0.8,
-                label="Speech" if i == 0 else None,
+            overlap_start = max(chunk_start, start_sample)
+            overlap_end = min(chunk_end, end_sample)
+
+            if overlap_start < overlap_end:
+                rel_start = overlap_start - chunk_start
+                rel_end = overlap_end - chunk_start
+                seg = chunk[rel_start:rel_end]
+                seg_len = len(seg)
+                extracted[out_idx: out_idx + seg_len] = seg
+                out_idx += seg_len
+                if out_idx >= target_len:
+                    break
+            pos += chunk_len
+
+        return extracted if out_idx == target_len else None
+
+    def _trim_buffer(self, keep_seconds: int = 60) -> None:
+        keep_samples = int(keep_seconds * self.sample_rate)
+        samples_to_keep = max(0, self._total_samples_processed - keep_samples)
+        
+        with self._lock:
+            while self._audio_buffer and self._buffer_start_sample + len(self._audio_buffer[0]) <= samples_to_keep:
+                discarded_chunk = self._audio_buffer.popleft()
+                self._buffer_start_sample += len(discarded_chunk)
+
+            if self._audio_buffer and self._buffer_start_sample < samples_to_keep:
+                keep_in_first = samples_to_keep - self._buffer_start_sample
+                self._audio_buffer[0] = self._audio_buffer[0][keep_in_first:]
+                self._buffer_start_sample += keep_in_first
+
+            current_buffered_sec = (self._total_samples_processed - self._buffer_start_sample) / self.sample_rate
+            if self.debug:
+                log.debug(f"[dim]Buffer:[/] {current_buffered_sec:.2f}s kept ({len(self._audio_buffer)} chunks)")
+
+    def _flush_final_segment(self) -> None:
+        if self._current_start is not None:
+            end_sec = self._total_samples_processed / self.sample_rate
+            segment = SpeechSegment(
+                start_sample=self._current_start_sample,
+                end_sample=self._total_samples_processed,
+                start_sec=self._current_start,
+                end_sec=end_sec,
+                duration_sec=end_sec - self._current_start,
             )
-            mid = (seg.start_sec + seg.end_sec) / 2
-            ax2.text(mid, 0.5, f"{seg.duration_sec}s", ha="center", va="center", color="white", fontweight="bold")
+            self._save_and_notify(segment)
+            self._current_start = None
+            self._current_start_sample = None
 
-        plt.xlim(0, total_sec)
-        plt.ylim(0, 1)
-        plt.xlabel("Time (seconds)", fontsize=14)
-        plt.title(f"Detected Speech Segments (n={len(segments)})", fontsize=14)
-        if segments:
-            plt.legend()
+    # Context manager support
+    def __enter__(self):
+        self.start()
+        return self
 
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
-        plt.subplots_adjust(hspace=0.3)
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.stop()
 
-        # Save
-        plot_path = Path(out_dir) / f"vad_analysis_{Path(audio_path).stem}.png"
-        plt.savefig(plot_path, dpi=300, bbox_inches="tight")
-        print(f"Plot saved → {plot_path}")
+    def start(self) -> None:
+        log.info(f"Starting Silero VAD streamer • sr={self.sample_rate} • block={self.block_size}")
+        log.info("Press Ctrl+C to stop.\n")
 
-        # Also save probability as separate high-res
-        plt.figure(figsize=(18, 6))
-        plt.plot(time_axis, probs, color="#2E7D32", linewidth=1.5)
-        plt.fill_between(time_axis, probs, color="#81C784", alpha=0.6)
-        plt.axhline(self.threshold, color="red", linestyle="--", linewidth=2)
-        plt.title("Speech Probability Only (zoomable)")
-        plt.xlabel("Seconds")
-        plt.ylabel("Probability")
-        prob_path = Path(out_dir) / f"vad_probability_{Path(audio_path).stem}.png"
-        plt.savefig(prob_path, dpi=300, bbox_inches="tight")
-        plt.close("all")
-        print(f"Probability plot → {prob_path}")
+        self._stream = sd.InputStream(
+            samplerate=self.sample_rate,
+            blocksize=self.block_size,
+            device=self.device,
+            channels=1,
+            dtype="float32",
+            callback=self._audio_callback,
+        )
+        self._stream.start()
+        self._stopped.clear()
 
-    def save_json(self, segments: List[SpeechSegment], out_dir: str | Path, audio_path: str | Path) -> None:
-        Path(out_dir).mkdir(parents=True, exist_ok=True)
+    def stop(self) -> None:
+        if self._stopped.is_set():
+            return
+        self._stopped.set()
+        self._flush_final_segment()
+        if self._stream:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
+        log.info("Stream stopped gracefully.")
 
-        data = {
-            "audio_file": Path(audio_path).name,
-            "threshold": self.threshold,
-            "sampling_rate": self.sr,
-            "total_segments": len(segments),
-            "segments": [asdict(s) for s in segments],
-        }
-        json_path = Path(out_dir) / f"vad_segments_{Path(audio_path).stem}.json"
-        json_path.write_text(json.dumps(data, indent=2))
-        print(f"JSON saved → {json_path}")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Silero VAD Full Analyzer – Beautiful insights + JSON")
-    parser.add_argument("audio", type=Path, help="Path to input .wav file")
-    parser.add_argument(
-        "-o",
-        "--output-dir",
-        type=Path,
-        default=Path("vad_results"),
-        help="Output directory (default: ./vad_results)",
-    )
-    parser.add_argument("-t", "--threshold", type=float, default=0.5, help="VAD threshold (0.3–0.7 typical)")
-    args = parser.parse_args()
-
-    if not args.audio.exists():
-        print(f"Audio not found: {args.audio}")
-        sys.exit(1)
-
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-
-    analyzer = SileroVADAnalyzer(
-        threshold=args.threshold,
-        min_speech_duration_ms=250,
-        min_silence_duration_ms=120,
-        speech_pad_ms=30,
-    )
-
-    print(f"Analyzing: {args.audio.name}")
-    print(f"Threshold: {args.threshold} | Output → {args.output_dir.resolve()}")
-
-    probs, segments = analyzer.analyze(args.audio)
-    analyzer.plot_insights(probs, segments, args.audio, args.output_dir)
-    analyzer.save_json(segments, args.output_dir, args.audio)
-
-    print("\nAll done! Open the PNGs to see everything at a glance.")
-    print(f"→ {args.output_dir}")
+    def run_forever(self) -> None:
+        """Blocking run (original behavior)"""
+        signal.signal(signal.SIGINT, lambda s, f: self.stop())
+        try:
+            while not self._stopped.wait(0.1):
+                pass
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.stop()
 
 
 if __name__ == "__main__":
-    main()
+    import shutil
+
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+    with SileroVADStreamer(
+        output_dir=OUTPUT_DIR,
+        save_segments=True,
+        debug=True,
+        min_silence_duration_ms=700,
+        threshold=0.6,
+    ) as streamer:
+        streamer.run_forever()
