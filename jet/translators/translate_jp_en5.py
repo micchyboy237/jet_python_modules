@@ -1,119 +1,76 @@
-"""
-Fast Japanese → English translator using CTranslate2-converted Opus-MT model.
+# example_3_m2m100.py
+# pip install transformers sentencepiece torch
 
-Install once:
-    pip install transformers sentencepiece ctranslate2
-
-Convert model (run once):
-    ct2-transformers-converter --model Helsinki-NLP/opus-mt-ja-en --output_dir ~/.cache/hf_translation_models/ct2-opus-ja-en
-"""
-
-import os
-from typing import List
-
-import ctranslate2
-from transformers import AutoTokenizer
+from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
+from typing import Optional
+import torch
 
 from jet.file.utils import save_file
+import os
 import shutil
 
 OUTPUT_DIR = os.path.join(
     os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
-DEFAULT_TRANSLATION_MODEL = "Helsinki-NLP/opus-mt-ja-en"
-DEFAULT_CT2_MODEL_DIR = os.path.expanduser("~/.cache/hf_translation_models/ct2-opus-ja-en")
+class M2MTranslator:
+    def __init__(self, model_name: str = "facebook/m2m100_418M", device: Optional[str] = None):
+        if device is not None:
+            self.device = device
+        else:
+            if torch.cuda.is_available():
+                self.device = "cuda"
+            elif torch.backends.mps.is_available():
+                self.device = "cpu"  # Force CPU on Apple Silicon (avoids known MPS bugs)
+            else:
+                self.device = "cpu"
 
+        # === PREVENT AUTO DOWNLOAD OF SAFETENSORS + ANY MISSING FILES ===
+        preload_kwargs = {
+            "local_files_only": True,       # Fail if files not already cached
+            "use_safetensors": False,       # Explicitly disable safetensors
+            "torch_dtype": torch.float32,   # Optional: ensure consistency
+        }
 
-class FastOpusMT:
-    def __init__(
-        self,
-        model: str = DEFAULT_TRANSLATION_MODEL,
-        ct2_model_dir: str = DEFAULT_CT2_MODEL_DIR,
-        device: str = "cpu",
-        max_decoding_length: int = 512,
-    ) -> None:
-        """
-        Fast translator using a CTranslate2-converted Opus-MT model.
-
-        Args:
-            model: Original HF model name (only used for tokenizer)
-            ct2_model_dir: Path to the converted CTranslate2 model directory
-            device: "cpu" or "cuda"
-            max_decoding_length: Maximum tokens to generate
-        """
-        if not os.path.isdir(ct2_model_dir):
-            raise FileNotFoundError(
-                f"CTranslate2 model not found at {ct2_model_dir}\n"
-                "Run: ct2-transformers-converter --model Helsinki-NLP/opus-mt-ja-en --output_dir ~/.cache/hf_translation_models/ct2-opus-ja-en"
+        try:
+            self.tokenizer = M2M100Tokenizer.from_pretrained(
+                model_name, **preload_kwargs
             )
+            self.model = M2M100ForConditionalGeneration.from_pretrained(
+                model_name, **preload_kwargs
+            ).to(self.device)
+        except OSError as e:
+            if "local_files_only" in str(e):
+                raise RuntimeError(
+                    f"Model '{model_name}' not found in cache and downloading is disabled. "
+                    "Run once without 'local_files_only=True' to download, or place files manually."
+                ) from e
+            raise
 
-        self.translator = ctranslate2.Translator(ct2_model_dir, device=device)
-        self.tokenizer = AutoTokenizer.from_pretrained(model)
-        self.max_decoding_length = max_decoding_length
+    def translate(self, text: str, src_lang: str = "ja", tgt_lang: str = "en") -> str:
+        self.tokenizer.src_lang = src_lang
+        encoded = self.tokenizer(text, return_tensors="pt").to(self.device)
+        forced_bos_token_id = self.tokenizer.get_lang_id(tgt_lang)
 
-    def translate_batch(self, texts: List[str]) -> List[str]:
-        """
-        Translate a batch of Japanese → English.
-        Correctly handles tokenization and proper decoding of CTranslate2 output.
-        """
-        # 1. Tokenize Japanese text → list of subword tokens (strings)
-        source_tokens: List[List[str]] = [
-            self.tokenizer.tokenize(text) for text in texts
-        ]
-
-        # 2. Run translation with CTranslate2
-        results = self.translator.translate_batch(
-            source_tokens,
-            beam_size=5,                     # good quality/speed trade-off
-            max_decoding_length=self.max_decoding_length,
-            num_hypotheses=1,
+        generated = self.model.generate(
+            **encoded,
+            forced_bos_token_id=forced_bos_token_id,
+            max_new_tokens=200,
+            # Retain these for better quality/reduced repetition (works fine on CPU)
+            no_repeat_ngram_size=3,
+            num_beams=5,
         )
-
-        # 3. Convert the generated token **IDs** (not strings) back to text
-        translations: List[str] = []
-        for result in results:
-            # CTranslate2 returns tokens, not IDs → convert first
-            tokens = result.hypotheses[0]
-            token_ids = self.tokenizer.convert_tokens_to_ids(tokens)
-
-            text = self.tokenizer.decode(
-                token_ids,
-                skip_special_tokens=True,
-            )
-
-            # Marian/SentencePiece models sometimes output "▁" as literal space marker
-            # → clean it up once and for all
-            text = text.replace("▁", " ").strip()
-
-            translations.append(text)
-
-        return translations
-
-    def translate(self, text: str) -> str:
-        """Translate a single Japanese string to English."""
-        return self.translate_batch([text])[0]
-
+        return self.tokenizer.batch_decode(generated, skip_special_tokens=True)[0]
 
 if __name__ == "__main__":
-    fast = FastOpusMT(device="cpu")  # use "cuda" if available and built with CUDA support
+    tr = M2MTranslator()
+    japanese_text = "世界各国が水面下で熾烈な情報戦を繰り広げる時代睨み合う2つの国東のオスタニア西のウェスタリス戦争を企てるオスタニア政府要人の動向を探るべくウェスタリスはオペレーションストリックスを発動作戦を担うスゴーデエージェント黄昏百の顔を使い分ける彼の任務は家族を作ること父ロイドフォージャー精神"
 
-    samples = [
-        "世界各国が水面下で熾烈な情報戦を繰り広げる時代睨み合う2つの国東のオスタニア西のウェスタリス戦争を企てるオスタニア政府要人の動向を探るべくウェスタリスはオペレーションストリックスを発動作戦を担うスゴーデエージェント黄昏百の顔を使い分ける彼の任務は家族を作ること父ロイドフォージャー精神",
-    ]
+    english_text = tr.translate(japanese_text, src_lang="ja", tgt_lang="en")
+    
+    print(f"JA Transcript: {japanese_text[:100]}...")  # Preview (optional)
+    print(f"EN Translation: {english_text[:100]}...")  # Preview (optional)
 
-    print("Translating...\n")
-    translations_iter = fast.translate_batch(samples)
-
-    translations = []
-    for ja, en in zip(samples, translations_iter):
-        print("JA:", ja)
-        print("EN:", en)
-        print("---\n")
-
-        translations.append({
-            "ja": ja,
-            "en": en,
-        })
-
-    save_file(translations, f"{OUTPUT_DIR}/translations.json")
+    # Save both
+    save_file(japanese_text, f"{OUTPUT_DIR}/transcript_ja.txt")
+    save_file(english_text, f"{OUTPUT_DIR}/transcript_en.txt")
