@@ -9,6 +9,7 @@
   "extraPaths": [
     "jet_python_modules",
     "jet_python_modules/jet/shared_modules",
+    "JetScripts",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/faster-whisper",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta",
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta-python",

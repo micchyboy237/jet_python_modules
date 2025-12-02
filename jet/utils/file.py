@@ -34,7 +34,7 @@ def search_files(
             os.path.join(root, f)
             for root, _, filenames in os.walk(dir_path)
             for f in filenames
-            if any(f.endswith(ext) for ext in extensions)
+            if not extensions or any(f.endswith(ext) for ext in extensions)
         )
     
     # Apply file/directory filters first (path-based)
@@ -53,27 +53,44 @@ def search_files(
 
 
 def matches_pattern(path: str, patterns: list[str]) -> bool:
-    """Check if the path, filename, or directories match any of the given patterns."""
+    """Check if the path, filename, or directories match any of the given patterns using proper fnmatch semantics."""
+    if not patterns:
+        return True
+
     file_name = os.path.basename(path)
     dir_path = os.path.dirname(path)
     normalized_path = os.path.normpath(path)
 
     for pattern in patterns:
-        # Normalize pattern for consistent matching
-        pattern = os.path.normpath(pattern)
+        pattern = os.path.normpath(pattern.strip())
+        if not pattern:
+            continue
 
-        # Full path match (relative or absolute) with wildcards
-        if fnmatch.fnmatch(normalized_path, f"*{pattern}*") or fnmatch.fnmatch(normalized_path, pattern):
+        if fnmatch.fnmatch(normalized_path, pattern):
             return True
-        # Exact filename match
+
         if fnmatch.fnmatch(file_name, pattern):
             return True
-        # Directory segments match (partial paths like "tutorial/agents")
-        if any(fnmatch.fnmatch(part, pattern) or part == pattern for part in dir_path.split(os.sep)):
+
+        dir_parts = dir_path.split(os.sep)
+        if any(fnmatch.fnmatch(part, pattern) for part in dir_parts):
             return True
-        # Handle relative path patterns
-        if fnmatch.fnmatch(normalized_path, f"*{os.sep}{pattern}"):
-            return True
+
+        # Remove special "folder/*.py" path matching - replaced with more general wildcard handling below
+
+        if "*" not in pattern and "?" not in pattern and "[" not in pattern:
+            if pattern in normalized_path or pattern in file_name:
+                return True
+
+        # Handle bare wildcard patterns like "*datasets--*" → match any part of full path
+        if ("*" in pattern or "?" in pattern or "[" in pattern):
+            import re
+            try:
+                regex = re.compile(fnmatch.translate(pattern), re.IGNORECASE)
+                if regex.search(normalized_path):
+                    return True
+            except re.error:
+                pass
 
     return False
 

@@ -1,0 +1,6 @@
+@misc{grosman2021xlsr53-large-japanese,
+  title={Fine-tuned {XLSR}-53 large model for speech recognition in {J}apanese},
+  author={Grosman, Jonatas},
+  howpublished={\url{https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-japanese}},
+  year={2021}
+}

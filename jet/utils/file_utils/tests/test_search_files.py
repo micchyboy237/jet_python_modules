@@ -194,6 +194,51 @@ class TestSearchFiles:
         # Then
         assert sorted(result) == sorted(expected_files)
 
+    def test_search_files_include_wildcard_real_world_example(self, setup_logger):
+        """
+        Given include patterns like "*datasets--*" and "*japanese*"
+        When searching a HuggingFace cache structure
+        Then every file whose absolute path matches any pattern must be returned
+        """
+        def _hf_walk(dir_path):
+            norm = os.path.normpath(dir_path)
+            if norm.endswith("hub") or norm == "/cache/huggingface/hub":
+                return [
+                    ("/cache/huggingface/hub/datasets--squad", [], [
+                        "config.json",
+                        "dataset_info.json",
+                        "train.arrow"
+                    ]),
+                    ("/cache/huggingface/datasets/datasets--japanese-wikipedia", [], [
+                        "part-00000.arrow",
+                        "metadata.json"
+                    ]),
+                    ("/cache/huggingface/hub/models--bert-base-uncased", [], [
+                        "config.json"
+                    ]),
+                ]
+            return []
+
+        base_dir = "/cache/huggingface/hub"
+        extensions: list[str] = []          # match everything
+        includes = ["*japanese*"]
+        excludes: list[str] = []
+
+        expected = [
+            "/cache/huggingface/hub/datasets--japanese-wikipedia/part-00000.arrow",
+            "/cache/huggingface/hub/datasets--japanese-wikipedia/metadata.json",
+        ]
+
+        with patch("os.walk", _hf_walk):
+            result = search_files(
+                base_dir=base_dir,
+                extensions=extensions,
+                include_files=includes,
+                exclude_files=excludes,
+            )
+
+        assert sorted(result) == sorted(expected)
+
 class TestSearchFilesWithContentFilters:
     """Test search_files with content-based include/exclude filtering."""
 
