@@ -1,19 +1,16 @@
+# Synchronous (scripts, legacy code, Jupyter, etc.)
+from .google_translator import translate_text
+
+print(translate_text("こんにちは"))                     # Hello
+print(translate_text("Good morning", dest="ja"))        # おはようございます
+print(translate_text("Merci", src="fr", dest="es"))     # Gracias
+
+# Asynchronous (FastAPI, aiohttp, etc.)
 import asyncio
-from googletrans import Translator
+from .google_translator import atranslate_text
 
-async def translate_text():
-    # Translator supports async context manager in 4.0.0-rc1
-    async with Translator() as translator:
-        # JA → EN
-        result = await translator.translate("こんにちは", src="ja", dest="en")
-        print(result.text)  # Hello / Hello there / Hi (varies)
+async def main():
+    print(await atranslate_text("今日はいい天気ですね。", dest="en"))
+    print(await atranslate_text("Hola", src="es", dest="ja"))
 
-        # EN → JA
-        result = await translator.translate("Good morning", src="en", dest="ja")
-        print(result.text)
-
-        # Auto-detect JA → EN
-        result = await translator.translate("今日はいい天気ですね。", dest="en")
-        print(result.text)
-
-asyncio.run(translate_text())
+asyncio.run(main())

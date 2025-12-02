@@ -10,9 +10,17 @@ from typing import Callable, Optional
 import sounddevice as sd
 import torch
 import json
-from rich.console import Console
+import logging
+from rich.logging import RichHandler
 
-console = Console()
+# ────────────── Logging Setup (replacing global Console) ──────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(rich_tracebacks=True, markup=True)],
+)
+log = logging.getLogger("silero_vad")
 
 model, utils = torch.hub.load(  # pyright: ignore[reportGeneralTypeIssues]
     repo_or_dir="snakers4/silero-vad",
@@ -56,6 +64,7 @@ class SileroVADStreamer:
         on_speech_end: Optional[Callable[[SpeechSegment], None]] = None,
         output_dir: Optional[Path | str] = None,           # ← NEW
         save_segments: bool = True,                        # ← NEW: toggle
+        debug: bool = False,                               # ← NEW: enable verbose buffer logging
     ):
         self.sample_rate = sample_rate
         self.block_size = block_size
@@ -65,6 +74,9 @@ class SileroVADStreamer:
         self.device = device
         self.on_speech_start = on_speech_start or self._default_start_handler
         self.on_speech_end = on_speech_end or self._default_end_handler
+        self.debug = debug
+        if debug:
+            log.setLevel(logging.DEBUG)
 
         # Saving options
         self.output_dir = Path(output_dir) if output_dir else None
@@ -91,17 +103,17 @@ class SileroVADStreamer:
         self._lock = threading.Lock()
 
     def _default_start_handler(self, timestamp: float) -> None:
-        console.print(f"[green]Speech Start[/] @ {timestamp:.2f}s")
+        log.info(f"[green]Speech Start[/] @ {timestamp:.3f}s")
 
     def _default_end_handler(self, segment: SpeechSegment) -> None:
-        console.print(
-            f"[bold magenta]Speech End[/] @ {segment.end_sec:.2f}s "
-            f"([cyan]duration: {segment.duration():.2f}s[/])"
+        log.info(
+            f"[bold magenta]Speech End[/] @ {segment.end_sec:.3f}s "
+            f"[cyan]dur={segment.duration():.3f}s[/]"
         )
 
     def _audio_callback(self, indata, frames, time, status):
         if status:
-            console.log(f"[yellow]Audio warning:[/] {status}")
+            log.warning(f"Audio warning: {status}")
 
         # Convert and store chunk
         chunk = torch.from_numpy(indata.copy()).squeeze(1).float()  # (samples,)
@@ -162,7 +174,7 @@ class SileroVADStreamer:
                             indent=2,
                         )
 
-                    console.print(f"[bold green]Saved segment:[/] {seg_dir.name}")
+                    log.info(f"[bold green]Saved segment:[/] {seg_dir.name}")
 
             self.on_speech_end(segment)
 
@@ -175,14 +187,40 @@ class SileroVADStreamer:
             self._trim_buffer_lazy(keep_seconds=60)
 
     def _extract_segment_audio(self, start_sample: int, end_sample: int) -> Optional[torch.Tensor]:
-        """Extract exact speech segment from ring buffer."""
-        if start_sample < 0 or end_sample > self._total_samples:
+        """Extract exact speech segment from ring buffer without full concatenation."""
+        if start_sample < 0 or end_sample > self._total_samples or start_sample >= end_sample:
             return None
-        # Rebuild full audio up to current point
+
+        target_len = end_sample - start_sample
+        extracted = torch.zeros(target_len, dtype=torch.float32)
+
         with self._lock:
-            full_audio = torch.cat(list(self._audio_buffer), dim=0)
-        segment_audio = full_audio[start_sample:end_sample]
-        return segment_audio
+            current_pos = self._total_samples - sum(len(c) for c in self._audio_buffer)
+            buffer_copy = list(self._audio_buffer)  # shallow copy of references
+
+        pos_in_buffer = 0
+        out_idx = 0
+        for chunk in buffer_copy:
+            chunk_len = len(chunk)
+            chunk_start = pos_in_buffer
+            chunk_end = pos_in_buffer + chunk_len
+
+            overlap_start = max(chunk_start, start_sample)
+            overlap_end = min(chunk_end, end_sample)
+
+            if overlap_start < overlap_end:
+                rel_start = overlap_start - chunk_start
+                rel_end = overlap_end - chunk_start
+                seg = chunk[rel_start:rel_end]
+                seg_len = len(seg)
+                extracted[out_idx : out_idx + seg_len] = seg
+                out_idx += seg_len
+
+            pos_in_buffer += chunk_len
+            if out_idx >= target_len:
+                break
+
+        return extracted if out_idx == target_len else None
 
     def _trim_buffer_lazy(self, keep_seconds: int = 60) -> None:
         """
@@ -193,6 +231,8 @@ class SileroVADStreamer:
         with self._lock:
             max_samples = int(keep_seconds * self.sample_rate)
             samples_to_discard = max(0, self._total_samples - max_samples)
+            old_total = self._total_samples
+            old_chunks = len(self._audio_buffer)
             discarded = 0
             while self._audio_buffer and discarded < samples_to_discard:
                 chunk = self._audio_buffer[0]
@@ -208,8 +248,26 @@ class SileroVADStreamer:
             # update total sample counter accordingly
             self._total_samples -= discarded
 
+            # ────── Improved Buffer Logging ──────
+            if discarded > 0 or self.debug:
+                current_sec = self._total_samples / self.sample_rate
+                chunks = len(self._audio_buffer)
+                if discarded > 0:
+                    log.info(
+                        f"[dim]Buffer trimmed:[/] −{discarded / self.sample_rate:.2f}s "
+                        f"({discarded} samples) → "
+                        f"[bold]{current_sec:.2f}s[/] kept "
+                        f"({chunks} chunks)"
+                    )
+                elif self.debug and old_total % (self.sample_rate * 30) < (len(self._audio_buffer[0]) if self._audio_buffer else 1):
+                    # Every ~30s in debug mode, show status even if no trim
+                    log.debug(
+                        f"[dim]Buffer:[/] {current_sec:.2f}s "
+                        f"({self._total_samples} samples, {chunks} chunks) – no trim needed"
+                    )
+
     def _signal_handler(self, sig, frame):
-        console.log("\nShutting down...")
+        log.info("\nShutting down gracefully...")
         with self._lock:
             silent = torch.zeros(self.block_size)
             final = self.vad_iterator(silent, return_seconds=True)
@@ -250,13 +308,13 @@ class SileroVADStreamer:
                                 indent=2,
                             )
 
-                        console.print(f"[bold green]Saved final segment:[/] {seg_dir.name}")
+                        log.info(f"[bold green]Saved final segment:[/] {seg_dir.name}")
                 self.on_speech_end(segment)
 
     def start(self) -> None:
         """Start the microphone stream. Blocks until Ctrl+C."""
-        console.log(f"Starting Silero VAD streamer (sr={self.sample_rate}, block={self.block_size})")
-        console.log("Press Ctrl+C to stop.\n")
+        log.info(f"Starting Silero VAD streamer • sr={self.sample_rate} • block={self.block_size}")
+        log.info("Press Ctrl+C to stop.\n")
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             blocksize=self.block_size,
@@ -272,7 +330,7 @@ class SileroVADStreamer:
                     sd.sleep(100)
             except KeyboardInterrupt:
                 pass
-        console.log("\nStream stopped.")
+        log.info("\nStream stopped.")
 
 if __name__ == "__main__":
     import os
@@ -285,5 +343,6 @@ if __name__ == "__main__":
     streamer = SileroVADStreamer(
         output_dir=OUTPUT_DIR,   # ← enables saving
         save_segments=True,
+        debug=True,
     )
     streamer.start()

@@ -1,17 +1,52 @@
 from typing import Literal, Optional, Union, List
 from faster_whisper import WhisperModel
-import torch
 
 from jet.data.utils import generate_key
 from jet.logger import logger
-from jet.models.utils import resolve_model_value
-from jet.models.model_registry.base import BaseModelRegistry, ModelFeatures
+from jet.models.model_registry.base import BaseModelRegistry
+
+_MODELS = {
+    "tiny.en": "Systran/faster-whisper-tiny.en",
+    "tiny": "Systran/faster-whisper-tiny",
+    "base.en": "Systran/faster-whisper-base.en",
+    "base": "Systran/faster-whisper-base",
+    "small.en": "Systran/faster-whisper-small.en",
+    "small": "Systran/faster-whisper-small",
+    "medium.en": "Systran/faster-whisper-medium.en",
+    "medium": "Systran/faster-whisper-medium",
+    "large-v1": "Systran/faster-whisper-large-v1",
+    "large-v2": "Systran/faster-whisper-large-v2",
+    "large-v3": "Systran/faster-whisper-large-v3",
+    "large": "Systran/faster-whisper-large-v3",
+    "distil-large-v2": "Systran/faster-distil-whisper-large-v2",
+    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
+    "distil-small.en": "Systran/faster-distil-whisper-small.en",
+    "distil-large-v3": "Systran/faster-distil-whisper-large-v3",
+    "distil-large-v3.5": "distil-whisper/distil-large-v3.5-ct2",
+    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+}
 
 WhisperModelsType = Literal[
-    "tiny", "tiny.en", "base", "base.en",
-            "small", "small.en", "distil-small.en", "medium", "medium.en", "distil-medium.en",
-            "large-v1", "large-v2", "large-v3", "large",
-            "distil-large-v2", "distil-large-v3", "large-v3-turbo", "turbo"
+    "tiny.en",
+    "tiny",
+    "base.en",
+    "base",
+    "small.en",
+    "small",
+    "medium.en",
+    "medium",
+    "large-v1",
+    "large-v2",
+    "large-v3",
+    "large",
+    "distil-large-v2",
+    "distil-medium.en",
+    "distil-small.en",
+    "distil-large-v3",
+    "distil-large-v3.5",
+    "large-v3-turbo",
+    "turbo",
 ]
 
 

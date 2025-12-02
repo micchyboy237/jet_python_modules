@@ -63,5 +63,7 @@ def suppress_logging():
     # Optional: also silence all Matplotlib debug output
     matplotlib.set_loglevel("warning")
 
+    import warnings
+    warnings.filterwarnings("ignore", message=".*FFmpeg.*extension.*")
 
 suppress_logging()
