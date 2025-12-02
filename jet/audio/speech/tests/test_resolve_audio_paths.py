@@ -188,6 +188,29 @@ class TestResolveAudioPaths:
         assert sorted(result_recursive) == expected
         assert result_non_recursive == [top_level]  # only top-level when recursive=False
 
+    def test_results_are_sorted_by_absolute_path(self, tmp_path: Path):
+        # Given
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+
+        file1 = dir_b / "zzz.wav"
+        file2 = dir_a / "aaa.wav"
+        file1.touch()
+        file2.touch()
+
+        # Intentionally unsorted input order
+        inputs = [file1, file2]
+
+        expected = sorted([file2, file1], key=lambda p: p.resolve())
+
+        # When
+        result = resolve_audio_paths(inputs)
+
+        # Then
+        assert result == expected
+
 
 # ──────────────────────────────────────────────────────────────
 # Parametrized check for every supported extension

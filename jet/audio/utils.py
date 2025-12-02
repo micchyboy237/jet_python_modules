@@ -55,7 +55,7 @@ def resolve_audio_paths(audio_inputs: AudioInput, recursive: bool = False) -> Li
     if not resolved:
         raise ValueError("No valid audio files found from provided inputs.")
 
-    return resolved
+    return sorted(resolved, key=lambda p: p.resolve())
 
 def get_input_channels() -> int:
     device_info = sd.query_devices(sd.default.device[0], 'input')
