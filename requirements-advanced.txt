@@ -27,7 +27,7 @@ mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/whisperX
 # Commented out because whisperX already provides/depends on faster-whisper
 # -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/faster-whisper
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/OpenNMT-py
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/CTranslate2/python
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/argos-translate
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/googletrans
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/silero-vad
