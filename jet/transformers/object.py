@@ -21,6 +21,8 @@ def convert_dict_keys_to_snake_case(d: Dict[str, Any]) -> Dict[str, Any]:
         for k, v in d.items()
     }
 
+import math  # ← Add this import
+
 def make_serializable(obj, seen=None):
     """
     Recursively converts an object's attributes to be serializable.
@@ -64,6 +66,11 @@ def make_serializable(obj, seen=None):
                 decoded_str = base64.b64encode(inner_obj).decode('utf-8')
             return _serialize_inner(decoded_str, seen.copy())
         elif isinstance(inner_obj, (int, float, bool, type(None))):
+            if isinstance(inner_obj, float):
+                if math.isinf(inner_obj):
+                    return "Infinity" if inner_obj > 0 else "-Infinity"
+                if math.isnan(inner_obj):
+                    return "NaN"
             return inner_obj
         elif isinstance(inner_obj, str):
             try:
@@ -76,7 +83,13 @@ def make_serializable(obj, seen=None):
         elif isinstance(inner_obj, (types.FunctionType, types.BuiltinFunctionType, types.MethodType)):
             return str(type(inner_obj))
         elif isinstance(inner_obj, (np.integer, np.floating)):
-            return inner_obj.item()
+            value = inner_obj.item()
+            if isinstance(value, float):
+                if math.isinf(value):
+                    return "Infinity" if value > 0 else "-Infinity"
+                if math.isnan(value):
+                    return "NaN"
+            return value
         elif isinstance(inner_obj, np.ndarray):
             return inner_obj.tolist()
         elif isinstance(inner_obj, BaseModel):

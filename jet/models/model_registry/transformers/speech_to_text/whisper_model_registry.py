@@ -55,7 +55,7 @@ class WhisperModelRegistry(BaseModelRegistry):
 
     @staticmethod
     def load_model(
-        model_size: WhisperModelsType = "small",
+        model_size: Union[str, WhisperModelsType] = "small",
         device: str = "auto",
         device_index: Union[int, List[int]] = 0,
         compute_type: str = "default",
@@ -85,7 +85,7 @@ class WhisperModelRegistry(BaseModelRegistry):
 
     def _load_model(
         self,
-        model_size: WhisperModelsType = "large-v3",
+        model_size: Union[str, WhisperModelsType] = "large-v3",
         device: str = "cpu",
         device_index: Union[int, List[int]] = 0,
         compute_type: str = "int8",

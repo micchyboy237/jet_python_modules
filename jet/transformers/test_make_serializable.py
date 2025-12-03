@@ -406,6 +406,37 @@ def test_serializable_coref_chains():
     except TypeError as e:
         pytest.fail(f"Result is not JSON-serializable: {str(e)}")
 
+def test_serializable_infinity_and_nan():
+    # Given various infinite and NaN values from Python and NumPy
+    input_data = {
+        "pos_inf": float("inf"),
+        "neg_inf": float("-inf"),
+        "nan": float("nan"),
+        "np_pos_inf": np.inf,
+        "np_neg_inf": -np.inf,
+        "np_nan": np.nan,
+        "np_float_inf": np.float64("inf"),
+        "mixed": [1.0, float("inf"), float("-inf"), np.nan, -np.inf],
+    }
+
+    # When
+    result = make_serializable(input_data)
+
+    # Then
+    expected = {
+        "pos_inf": "Infinity",
+        "neg_inf": "-Infinity",
+        "nan": "NaN",
+        "np_pos_inf": "Infinity",
+        "np_neg_inf": "-Infinity",
+        "np_nan": "NaN",
+        "np_float_inf": "Infinity",
+        "mixed": [1.0, "Infinity", "-Infinity", "NaN", "-Infinity"],
+    }
+    assert result == expected
+    # Extra safety: must be JSON-serializable
+    json.dumps(result)  # raises if not
+
 @pytest.fixture(autouse=True)
 def cleanup():
     yield
