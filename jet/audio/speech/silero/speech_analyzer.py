@@ -156,7 +156,7 @@ class SileroVADAnalyzer:
         if segments:
             plt.legend()
 
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.tight_layout(rect=(0, 0, 1, 0.96))
         plt.subplots_adjust(hspace=0.3)
 
         # Save
@@ -191,6 +191,60 @@ class SileroVADAnalyzer:
         json_path.write_text(json.dumps(data, indent=2))
         print(f"JSON saved → {json_path}")
 
+    def get_metrics(
+        self,
+        probs: List[float],
+        segments: List[SpeechSegment],
+        total_duration_sec: float,
+    ) -> dict:
+        """Return a clean dictionary of all useful metrics."""
+        import numpy as np
+
+        durations = [s.duration_sec for s in segments]
+        num_segments = len(segments)
+        total_speech_sec = sum(durations)
+        speech_percent = total_speech_sec / total_duration_sec * 100 if total_duration_sec else 0
+
+        # Confidence
+        prob_array = np.array(probs)
+        speech_mask = np.zeros(len(probs), dtype=bool)
+        for seg in segments:
+            start_idx = int(seg.start_sec / self.step_sec)
+            end_idx = int(seg.end_sec / self.step_sec)
+            speech_mask[start_idx:end_idx] = True
+        avg_prob_speech = float(prob_array[speech_mask].mean()) if speech_mask.any() else 0.0
+        avg_prob_silence = float(prob_array[~speech_mask].mean()) if (~speech_mask).any() else 0.0
+
+        # Gaps between segments
+        gaps = (
+            [segments[i + 1].start_sec - segments[i].end_sec for i in range(num_segments - 1)]
+            if num_segments > 1
+            else []
+        )
+        avg_gap_sec = float(np.mean(gaps)) if gaps else 0.0
+
+        return {
+            "total_duration_sec": round(total_duration_sec, 3),
+            "total_speech_sec": round(total_speech_sec, 3),
+            "speech_percentage": round(speech_percent, 1),
+            "total_silence_sec": round(total_duration_sec - total_speech_sec, 3),
+            "num_segments": num_segments,
+            "avg_segment_sec": round(np.mean(durations), 3) if durations else 0,
+            "median_segment_sec": round(np.median(durations), 3) if durations else 0,
+            "shortest_segment_sec": round(min(durations), 3) if durations else 0,
+            "longest_segment_sec": round(max(durations), 3) if durations else 0,
+            "speech_rate_per_minute": round(num_segments / (total_duration_sec / 60), 1)
+            if total_duration_sec
+            else 0,
+            "avg_gap_between_segments_sec": round(avg_gap_sec, 3),
+            "avg_probability_all": round(float(prob_array.mean()), 3),
+            "avg_probability_in_speech": round(avg_prob_speech, 3),
+            "avg_probability_in_silence": round(avg_prob_silence, 3),
+            "windows_above_threshold_percent": round(
+                sum(p > self.threshold for p in probs) / len(probs) * 100, 1
+            ),
+        }
+
 
 def main():
     parser = argparse.ArgumentParser(description="Silero VAD Full Analyzer – Beautiful insights + JSON")
@@ -222,8 +276,28 @@ def main():
     print(f"Threshold: {args.threshold} | Output → {args.output_dir.resolve()}")
 
     probs, segments = analyzer.analyze(args.audio)
+    
+    total_sec = len(probs) * analyzer.step_sec
+    metrics = analyzer.get_metrics(probs, segments, total_sec)
+    
     analyzer.plot_insights(probs, segments, args.audio, args.output_dir)
     analyzer.save_json(segments, args.output_dir, args.audio)
+
+    # NEW: Pretty table in console
+    from rich.table import Table
+    from rich.console import Console
+    console = Console()
+    table = Table(title=f"[bold]VAD Metrics – {args.audio.name}[/bold]")
+    table.add_column("Metric")
+    table.add_column("Value", justify="right")
+    for k, v in metrics.items():
+        table.add_row(k.replace("_", " ").title(), str(v))
+    console.print(table)
+
+    # NEW: Save metrics as JSON too
+    metrics_path = args.output_dir / f"vad_metrics_{Path(args.audio).stem}.json"
+    metrics_path.write_text(json.dumps(metrics, indent=2))
+    print(f"Metrics JSON → {metrics_path}")
 
     print("\nAll done! Open the PNGs to see everything at a glance.")
     print(f"→ {args.output_dir}")
