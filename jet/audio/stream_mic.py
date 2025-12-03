@@ -3,7 +3,14 @@ import numpy as np
 import asyncio
 from typing import Generator, AsyncGenerator, Optional, Tuple, Dict
 from tqdm import tqdm
-from jet.audio.record_mic import SAMPLE_RATE, CHANNELS, DTYPE, detect_silence, calibrate_silence_threshold, save_wav_file
+from jet.audio.record_mic import save_wav_file
+from jet.audio.helpers.silence import (
+    SAMPLE_RATE,
+    DTYPE,
+    CHANNELS,
+    calibrate_silence_threshold,
+    detect_silence,
+)
 from jet.logger import logger
 
 

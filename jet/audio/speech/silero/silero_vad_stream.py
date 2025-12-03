@@ -5,13 +5,19 @@ import threading
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, List, Tuple
 
 import sounddevice as sd
 import torch
 import json
 import logging
 from rich.logging import RichHandler
+
+# === NEW IMPORTS ===
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 # ────────────── Logging Setup (replacing global Console) ──────────────
 logging.basicConfig(
@@ -22,7 +28,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("silero_vad")
 
-model, utils = torch.hub.load(  # pyright: ignore[reportGeneralTypeIssues]
+model, utils = torch.hub.load(
     repo_or_dir="snakers4/silero-vad",
     model="silero_vad",
     force_reload=False,
@@ -32,12 +38,11 @@ model, utils = torch.hub.load(  # pyright: ignore[reportGeneralTypeIssues]
 
 (
     get_speech_timestamps,
-    save_audio,   # ← now used
+    save_audio,
     _,
     VADIterator,
     _,
 ) = utils
-
 
 @dataclass
 class SpeechSegment:
@@ -50,7 +55,6 @@ class SpeechSegment:
     def duration(self) -> float:
         return self.duration_sec
 
-
 class SileroVADStreamer:
     def __init__(
         self,
@@ -62,9 +66,9 @@ class SileroVADStreamer:
         block_size: int = 512,
         on_speech_start: Optional[Callable[[float], None]] = None,
         on_speech_end: Optional[Callable[[SpeechSegment], None]] = None,
-        output_dir: Optional[Path | str] = None,           # ← NEW
-        save_segments: bool = True,                        # ← NEW: toggle
-        debug: bool = False,                               # ← NEW: enable verbose buffer logging
+        output_dir: Optional[Path | str] = None,
+        save_segments: bool = True,
+        debug: bool = False,
     ):
         self.sample_rate = sample_rate
         self.block_size = block_size
@@ -98,6 +102,8 @@ class SileroVADStreamer:
         self._current_start_sample: Optional[int] = None
         self._total_samples: int = 0
         self._audio_buffer = deque()  # holds torch tensors (float32, mono)
+        self._prob_buffer = deque()
+        self._prob_timestamps = deque()
 
         self._stream: Optional[sd.InputStream] = None
         self._lock = threading.Lock()
@@ -111,17 +117,281 @@ class SileroVADStreamer:
             f"[cyan]dur={segment.duration():.3f}s[/]"
         )
 
+    def _save_segment_visualization(
+        self,
+        audio_tensor: torch.Tensor,
+        probabilities: List[Tuple[float, float]],
+        energies: List[Tuple[float, float]],
+        seg_dir: Path,
+        strong_chunks: List[Tuple[float, float]],
+        weak_chunks: List[Tuple[float, float]],
+    ) -> None:
+        duration = len(audio_tensor) / self.sample_rate
+        title_suffix = f"Segment Duration: {duration:.2f}s"
+
+        self._save_waveform_plot(audio_tensor, seg_dir, title_suffix)
+        self._save_energy_plot(energies, seg_dir, title_suffix)
+
+        # New split VAD charts
+        self._save_vad_probability_clean(probabilities, seg_dir, title_suffix)
+        self._save_vad_strong_regions(probabilities, strong_chunks, seg_dir, title_suffix)
+        self._save_vad_weak_regions(probabilities, weak_chunks, seg_dir, title_suffix)
+
+    def _save_waveform_plot(self, audio_tensor: torch.Tensor, seg_dir: Path, title_suffix: str) -> None:
+        plt.style.use("seaborn-v0_8-whitegrid")
+        fig, ax = plt.subplots(figsize=(16, 6))
+        times = np.linspace(0, len(audio_tensor) / self.sample_rate, len(audio_tensor))
+        ax.plot(times, audio_tensor.numpy(), color="#1f77b4", linewidth=0.8)
+        ax.set_title(f"Waveform – {title_suffix}", fontsize=16, pad=20)
+        ax.set_xlabel("Time (seconds)", fontsize=12)
+        ax.set_ylabel("Amplitude", fontsize=12)
+        ax.grid(alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(seg_dir / "waveform.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    def _save_vad_probability_clean(
+        self,
+        probabilities: List[Tuple[float, float]],
+        seg_dir: Path,
+        title_suffix: str,
+    ) -> None:
+        if not probabilities:
+            return
+        plt.style.use("seaborn-v0_8-whitegrid")
+        fig, ax = plt.subplots(figsize=(16, 6))
+        ts, probs = zip(*probabilities)
+        ax.plot(ts, probs, color="#6a0dad", linewidth=2.5, label="Speech Probability")
+        ax.fill_between(ts, 0, probs, color="#6a0dad", alpha=0.25)
+        ax.axhline(y=self.threshold, color="red", linestyle="--", linewidth=2, label=f"Threshold = {self.threshold:.2f}")
+        ax.set_ylim(0, 1.1)
+        ax.set_title(f"VAD Probability (Clean) – {title_suffix}", fontsize=16, pad=20)
+        ax.set_xlabel("Time (seconds)", fontsize=12)
+        ax.set_ylabel("Probability", fontsize=12)
+        ax.legend(loc="upper right")
+        ax.grid(alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(seg_dir / "vad_probability_clean.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    def _save_vad_strong_regions(
+        self,
+        probabilities: List[Tuple[float, float]],
+        strong_chunks: List[Tuple[float, float]],
+        seg_dir: Path,
+        title_suffix: str,
+    ) -> None:
+        if not probabilities:
+            return
+        plt.style.use("seaborn-v0_8-whitegrid")
+        fig, ax = plt.subplots(figsize=(16, 6))
+        ts, probs = zip(*probabilities)
+        ax.plot(ts, probs, color="#2ca02c", linewidth=1.2, alpha=0.6)  # faint background line
+        for i, (start, end) in enumerate(strong_chunks):
+            ax.axvspan(start, end, color="#2ca02c", alpha=0.6,
+                       label="Strong Confidence" if i == 0 else "")
+        ax.set_ylim(0, 1.1)
+        ax.set_title(f"Strong Confidence Regions (≥0.85) – {title_suffix}", fontsize=16, pad=20)
+        ax.set_xlabel("Time (seconds)", fontsize=12)
+        ax.set_ylabel("Probability", fontsize=12)
+        ax.legend(loc="upper right")
+        ax.grid(alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(seg_dir / "vad_strong_confidence.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    def _save_vad_weak_regions(
+        self,
+        probabilities: List[Tuple[float, float]],
+        weak_chunks: List[Tuple[float, float]],
+        seg_dir: Path,
+        title_suffix: str,
+    ) -> None:
+        if not probabilities:
+            return
+        plt.style.use("seaborn-v0_8-whitegrid")
+        fig, ax = plt.subplots(figsize=(16, 6))
+        ts, probs = zip(*probabilities)
+        ax.plot(ts, probs, color="#ff7f0e", linewidth=1.2, alpha=0.6)
+        for i, (start, end) in enumerate(weak_chunks):
+            ax.axvspan(start, end, color="#ff7f0e", alpha=0.55,
+                       label="Weak / Uncertain" if i == 0 else "")
+        ax.set_ylim(0, 1.1)
+        ax.set_title(f"Weak / Uncertain Regions (≤0.60) – {title_suffix}", fontsize=16, pad=20)
+        ax.set_xlabel("Time (seconds)", fontsize=12)
+        ax.set_ylabel("Probability", fontsize=12)
+        ax.legend(loc="upper right")
+        ax.grid(alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(seg_dir / "vad_weak_confidence.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    def _save_energy_plot(self, energies: List[Tuple[float, float]], seg_dir: Path, title_suffix: str) -> None:
+        if not energies:
+            return
+        plt.style.use("seaborn-v0_8-whitegrid")
+        fig, ax = plt.subplots(figsize=(16, 6))
+        ts, rms_vals = zip(*energies)
+        ax.plot(ts, rms_vals, color="#ff7f0e", linewidth=2, label="20ms RMS Energy")
+        ax.set_title(f"Energy Envelope – {title_suffix}", fontsize=16, pad=20)
+        ax.set_xlabel("Time (seconds)", fontsize=12)
+        ax.set_ylabel("RMS Energy", fontsize=12)
+        ax.legend(loc="upper right")
+        ax.grid(alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(seg_dir / "energy.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    # === The remainder of the methods below are unchanged ===
+
+    def _compute_energies(self, audio_tensor: torch.Tensor) -> List[Tuple[float, float]]:
+        window_samples = int(0.02 * self.sample_rate)
+        energies = []
+        hop = window_samples // 2
+        audio_np = audio_tensor.numpy()
+        for start in range(0, len(audio_np), hop):
+            end = start + window_samples
+            window = audio_np[start:end]
+            if len(window) < window_samples:
+                window = np.pad(window, (0, window_samples - len(window)))
+            rms = np.sqrt(np.mean(window ** 2))
+            timestamp_sec = start / self.sample_rate + self._current_start
+            energies.append((round(timestamp_sec, 3), float(rms)))
+        return energies
+
+    def _save_chunk_clip(
+        self,
+        audio_tensor: torch.Tensor,
+        start_sample: int,
+        end_sample: int,
+        label: str,
+        chunk_idx: int,
+        seg_dir: Path,
+    ) -> Path:
+        chunk_tensor = audio_tensor[start_sample:end_sample]
+        chunk_dir = seg_dir / f"{label}_chunks"
+        chunk_dir.mkdir(exist_ok=True)
+        path = chunk_dir / f"{label}_{chunk_idx:03d}.wav"
+        save_audio(str(path), chunk_tensor.unsqueeze(0), self.sample_rate)
+        return path
+
+    def _find_confidence_chunks(
+        self,
+        prob_in_segment: List[Tuple[float, float]],
+        strong_threshold: float = 0.85,
+        weak_threshold: float = 0.60,
+        min_duration_sec: float = 0.2,
+    ) -> Tuple[List[dict], List[dict]]:
+        if not prob_in_segment:
+            return [], []
+
+        times, probs = zip(*prob_in_segment)
+        times = np.array(times)
+        probs = np.array(probs)
+
+        min_frames = int(min_duration_sec * self.sample_rate / self.block_size)
+
+        strong_chunks = []
+        weak_chunks = []
+        current_chunk = None
+
+        for i, (t, p) in enumerate(prob_in_segment):
+            frame_center_sample = int((t) * self.sample_rate)
+
+            if p >= strong_threshold:
+                if current_chunk and current_chunk["type"] == "strong":
+                    current_chunk["end_t"] = t
+                    current_chunk["end_sample"] = frame_center_sample + self.block_size // 2
+                    current_chunk["frames"].append((t, p))
+                else:
+                    if current_chunk and len(current_chunk["frames"]) >= min_frames:
+                        if current_chunk["type"] == "strong":
+                            strong_chunks.append(current_chunk)
+                        else:
+                            weak_chunks.append(current_chunk)
+                    current_chunk = {
+                        "type": "strong",
+                        "start_t": t,
+                        "end_t": t,
+                        "start_sample": frame_center_sample - self.block_size // 2,
+                        "end_sample": frame_center_sample + self.block_size // 2,
+                        "frames": [(t, p)],
+                    }
+            elif p <= weak_threshold:
+                if current_chunk and current_chunk["type"] == "weak":
+                    current_chunk["end_t"] = t
+                    current_chunk["end_sample"] = frame_center_sample + self.block_size // 2
+                    current_chunk["frames"].append((t, p))
+                else:
+                    if current_chunk and len(current_chunk["frames"]) >= min_frames:
+                        if current_chunk["type"] == "strong":
+                            strong_chunks.append(current_chunk)
+                        else:
+                            weak_chunks.append(current_chunk)
+                    current_chunk = {
+                        "type": "weak",
+                        "start_t": t,
+                        "end_t": t,
+                        "start_sample": frame_center_sample - self.block_size // 2,
+                        "end_sample": frame_center_sample + self.block_size // 2,
+                        "frames": [(t, p)],
+                    }
+            else:
+                if current_chunk and len(current_chunk["frames"]) >= min_frames:
+                    if current_chunk["type"] == "strong":
+                        strong_chunks.append(current_chunk)
+                    else:
+                        weak_chunks.append(current_chunk)
+                current_chunk = None
+
+        if current_chunk and len(current_chunk["frames"]) >= min_frames:
+            if current_chunk["type"] == "strong":
+                strong_chunks.append(current_chunk)
+            else:
+                weak_chunks.append(current_chunk)
+
+        def finalize(chunks):
+            return [{
+                "start_sec": c["start_t"],
+                "end_sec": c["end_t"],
+                "duration_sec": round(c["end_t"] - c["start_t"], 3),
+                "avg_probability": round(np.mean([p for _, p in c["frames"]]), 4),
+                "peak_probability": round(max(p for _, p in c["frames"]), 4),
+            } for c in chunks]
+
+        return finalize(strong_chunks), finalize(weak_chunks)
+
     def _audio_callback(self, indata, frames, time, status):
         if status:
             log.warning(f"Audio warning: {status}")
 
-        # Convert and store chunk
-        chunk = torch.from_numpy(indata.copy()).squeeze(1).float()  # (samples,)
+        chunk = torch.from_numpy(indata.copy()).squeeze(1).float()
+        current_time_sec = self._total_samples / self.sample_rate
+
+        speech_prob = self.vad_iterator.model(chunk, self.sample_rate).item()
+
         with self._lock:
             self._audio_buffer.append(chunk)
+            self._prob_buffer.append(speech_prob)
+            self._prob_timestamps.append(current_time_sec + (len(chunk) / self.sample_rate) / 2)
             self._total_samples += len(chunk)
 
             result = self.vad_iterator(chunk, return_seconds=True)
+
+        if self.debug:
+            crossed_up   = speech_prob >= self.threshold and not getattr(self.vad_iterator, "triggered", False)
+            crossed_down = speech_prob <  self.threshold and getattr(self.vad_iterator, "triggered", False)
+            should_log_periodic = (
+                not hasattr(self, "_last_debug_log")
+                or (current_time_sec - self._last_debug_log) > 2.0
+            )
+            if crossed_up or crossed_down or should_log_periodic:
+                log.debug(
+                    f"[dim]Block @ {current_time_sec:6.2f}s | "
+                    f"prob={speech_prob:.3f} {'[bold green]SPEECH[/]' if speech_prob >= self.threshold else '[bold red]SILENCE[/]'} | "
+                    f"triggered={self.vad_iterator.triggered}[/]"
+                )
+                self._last_debug_log = current_time_sec
 
         if result is None:
             return
@@ -130,6 +400,7 @@ class SileroVADStreamer:
             self._current_start = result["start"]
             self._current_start_sample = int(result["start"] * self.sample_rate)
             self.on_speech_start(result["start"])
+            log.info(f"[green]Speech START[/] @ {result['start']:.3f}s | initial prob={speech_prob:.3f}")
 
         elif "end" in result and self._current_start is not None:
             end_sec = result["end"]
@@ -148,46 +419,100 @@ class SileroVADStreamer:
                 duration_sec=duration_sec,
             )
 
-            # Extract and save audio if enabled
+            audio_tensor = self._extract_segment_audio(start_sample, end_sample)
+            if audio_tensor is None:
+                log.warning("Failed to extract audio for segment")
+                return
+
+            prob_in_segment = [
+                (t - self._current_start, p)
+                for t, p in zip(self._prob_timestamps, self._prob_buffer)
+                if self._current_start <= t <= end_sec
+            ]
+
+            energies = self._compute_energies(audio_tensor)
+
+            avg_prob = np.mean([p for _, p in prob_in_segment]) if prob_in_segment else 0.0
+            max_prob = max((p for _, p in prob_in_segment), default=0.0)
+            rms_energy = np.sqrt(np.mean(audio_tensor.numpy() ** 2))
+            log.info(
+                f"[bold magenta]Speech END[/] @ {end_sec:.3f}s | "
+                f"dur={duration_sec:.3f}s | "
+                f"avg_prob={avg_prob:.3f} | max_prob={max_prob:.3f} | "
+                f"rms={rms_energy:.5f}"
+            )
+
+            # === CHUNK-LEVEL CONFIDENCE ANALYSIS ===
+            strong_chunks, weak_chunks = self._find_confidence_chunks(prob_in_segment)
+
             if self.save_segments:
-                audio_tensor = self._extract_segment_audio(start_sample, end_sample)
-                if audio_tensor is not None:
-                    self._segment_counter += 1
-                    seg_dir = self.output_dir / f"segment_{self._segment_counter:03d}"
-                    seg_dir.mkdir(parents=True, exist_ok=True)
+                self._segment_counter += 1
+                seg_dir = Path(self.output_dir) / f"segment_{self._segment_counter:03d}"
+                seg_dir.mkdir(parents=True, exist_ok=True)
 
-                    wav_path = seg_dir / "sound.wav"
-                    json_path = seg_dir / "segment.json"
+                # Save audio & metadata
+                wav_path = seg_dir / "sound.wav"
+                json_path = seg_dir / "segment.json"
+                save_audio(str(wav_path), audio_tensor, self.sample_rate)
 
-                    save_audio(str(wav_path), audio_tensor, self.sample_rate)
+                prob_path = seg_dir / "probabilities.json"
+                energy_path = seg_dir / "energy.json"
+                with prob_path.open("w") as f:
+                    json.dump([{"time_sec": t, "probability": p} for t, p in prob_in_segment], f, indent=2)
+                with energy_path.open("w") as f:
+                    json.dump([{"time_sec": t, "rms_energy": e} for t, e in energies], f, indent=2)
 
-                    with json_path.open("w", encoding="utf-8") as f:
-                        json.dump(
-                            {
-                                "start_sample": segment.start_sample,
-                                "end_sample": segment.end_sample,
-                                "start_sec": segment.start_sec,
-                                "end_sec": segment.end_sec,
-                                "duration_sec": segment.duration_sec,
-                            },
-                            f,
-                            indent=2,
-                        )
+                # Save strong/weak chunk audio clips + JSON
+                for i, chunk in enumerate(strong_chunks):
+                    start_s = int(chunk["start_sec"] * self.sample_rate)
+                    end_s = int(chunk["end_sec"] * self.sample_rate)
+                    self._save_chunk_clip(audio_tensor, start_s, end_s, "strong", i + 1, seg_dir)
+                for i, chunk in enumerate(weak_chunks):
+                    start_s = int(chunk["start_sec"] * self.sample_rate)
+                    end_s = int(chunk["end_sec"] * self.sample_rate)
+                    self._save_chunk_clip(audio_tensor, start_s, end_s, "weak", i + 1, seg_dir)
+                (seg_dir / "strong_chunks.json").write_text(json.dumps(strong_chunks, indent=2))
+                (seg_dir / "weak_chunks.json").write_text(json.dumps(weak_chunks, indent=2))
 
-                    log.info(f"[bold green]Saved segment:[/] {seg_dir.name}")
+                # Save new, separate plots for waveform, probability, and energy (no combined plot)
+                self._save_segment_visualization(
+                    audio_tensor,
+                    prob_in_segment,
+                    energies,
+                    seg_dir,
+                    strong_chunks=[(c["start_sec"], c["end_sec"]) for c in strong_chunks],
+                    weak_chunks=[(c["start_sec"], c["end_sec"]) for c in weak_chunks],
+                )
+
+                segment_data = {
+                    "start_sample": segment.start_sample,
+                    "end_sample": segment.end_sample,
+                    "start_sec": segment.start_sec,
+                    "end_sec": segment.end_sec,
+                    "duration_sec": segment.duration_sec,
+                    "avg_speech_probability": round(avg_prob, 4),
+                    "max_speech_probability": round(max_prob, 4),
+                    "rms_energy": round(float(rms_energy), 6),
+                    "num_probability_points": len(prob_in_segment),
+                    "strong_chunk_count": len(strong_chunks),
+                    "weak_chunk_count": len(weak_chunks),
+                    "best_chunk_avg_prob": max((c["avg_probability"] for c in strong_chunks), default=0.0),
+                    "worst_chunk_avg_prob": min((c["avg_probability"] for c in weak_chunks), default=1.0) if weak_chunks else None,
+                }
+                with json_path.open("w", encoding="utf-8") as f:
+                    json.dump(segment_data, f, indent=2)
+
+                log.info(f"[bold green]Saved rich segment:[/] {seg_dir.name} → audio | json | probabilities | energy | waveform.png/vad_probability.png/energy.png | strong/weak_chunks")
 
             self.on_speech_end(segment)
 
-            # Reset
             self._current_start = None
             self._current_start_sample = None
 
-        # Periodic lazy cleanup – keeps memory bounded but never drops active speech
-        if self._total_samples % (self.sample_rate * 10) == 0:  # every ~10 s
+        if self._total_samples % (self.sample_rate * 10) == 0:
             self._trim_buffer_lazy(keep_seconds=60)
 
     def _extract_segment_audio(self, start_sample: int, end_sample: int) -> Optional[torch.Tensor]:
-        """Extract exact speech segment from ring buffer without full concatenation."""
         if start_sample < 0 or end_sample > self._total_samples or start_sample >= end_sample:
             return None
 
@@ -196,7 +521,7 @@ class SileroVADStreamer:
 
         with self._lock:
             current_pos = self._total_samples - sum(len(c) for c in self._audio_buffer)
-            buffer_copy = list(self._audio_buffer)  # shallow copy of references
+            buffer_copy = list(self._audio_buffer)
 
         pos_in_buffer = 0
         out_idx = 0
@@ -223,11 +548,6 @@ class SileroVADStreamer:
         return extracted if out_idx == target_len else None
 
     def _trim_buffer_lazy(self, keep_seconds: int = 60) -> None:
-        """
-        Lazily discard very old audio (older than `keep_seconds`).
-        This guarantees that any active or recently finished speech segment
-        is still fully present in the buffer when we extract it.
-        """
         with self._lock:
             max_samples = int(keep_seconds * self.sample_rate)
             samples_to_discard = max(0, self._total_samples - max_samples)
@@ -240,15 +560,12 @@ class SileroVADStreamer:
                     discarded += len(chunk)
                     self._audio_buffer.popleft()
                 else:
-                    # cut the head of the oldest chunk
                     cut = samples_to_discard - discarded
                     self._audio_buffer[0] = chunk[cut:]
                     discarded += cut
                     break
-            # update total sample counter accordingly
             self._total_samples -= discarded
 
-            # ────── Improved Buffer Logging ──────
             if discarded > 0 or self.debug:
                 current_sec = self._total_samples / self.sample_rate
                 chunks = len(self._audio_buffer)
@@ -260,7 +577,6 @@ class SileroVADStreamer:
                         f"({chunks} chunks)"
                     )
                 elif self.debug and old_total % (self.sample_rate * 30) < (len(self._audio_buffer[0]) if self._audio_buffer else 1):
-                    # Every ~30s in debug mode, show status even if no trim
                     log.debug(
                         f"[dim]Buffer:[/] {current_sec:.2f}s "
                         f"({self._total_samples} samples, {chunks} chunks) – no trim needed"
@@ -287,7 +603,7 @@ class SileroVADStreamer:
                     audio_tensor = self._extract_segment_audio(start_sample, end_sample)
                     if audio_tensor is not None:
                         self._segment_counter += 1
-                        seg_dir = self.output_dir / f"segment_{self._segment_counter:03d}"
+                        seg_dir = Path(self.output_dir) / f"segment_{self._segment_counter:03d}"
                         seg_dir.mkdir(parents=True, exist_ok=True)
 
                         wav_path = seg_dir / "sound.wav"
@@ -312,7 +628,6 @@ class SileroVADStreamer:
                 self.on_speech_end(segment)
 
     def start(self) -> None:
-        """Start the microphone stream. Blocks until Ctrl+C."""
         log.info(f"Starting Silero VAD streamer • sr={self.sample_rate} • block={self.block_size}")
         log.info("Press Ctrl+C to stop.\n")
         self._stream = sd.InputStream(
@@ -341,7 +656,7 @@ if __name__ == "__main__":
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
     streamer = SileroVADStreamer(
-        output_dir=OUTPUT_DIR,   # ← enables saving
+        output_dir=OUTPUT_DIR,
         save_segments=True,
         debug=True,
     )
