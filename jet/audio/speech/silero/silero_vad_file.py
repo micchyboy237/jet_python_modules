@@ -19,6 +19,7 @@ from collections import deque
 from typing import Deque
 import typing
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Silero VAD setup
 # ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +74,7 @@ log = logging.getLogger("file-client")
 
 async def transcribe_chunk(audio_chunk: np.ndarray) -> dict:
     """Send raw float32 mono 16kHz chunk to server"""
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=180.0) as client:
         response = await client.post(
             API_URL,
             content=audio_chunk.tobytes(),
@@ -99,11 +100,12 @@ class ChunkResult(typing.NamedTuple):
     language: str
     language_prob: float
     segments: list[dict]
+    words: list[dict]
 
 async def transcribe_file(
     file_path: Path | str,
     min_speech_duration_ms: int = 500,
-    min_silence_duration_ms: int = 300,
+    min_silence_duration_ms: int = 700,
     speech_pad_ms: int = 30,
     threshold: float = 0.6,
     output_dir: Path | None = None,
@@ -177,6 +179,7 @@ async def transcribe_file(
             lang = result.get("language", "unknown")
             prob = result.get("language_probability", 0.0)
             segments = result.get("segments", [])
+            words = result.get("words", [])
 
             chunk_result = ChunkResult(
                 start_sec=start_sec,
@@ -185,14 +188,26 @@ async def transcribe_file(
                 language=lang,
                 language_prob=prob,
                 segments=segments,
+                words=words,
             )
             results_buffer.append(chunk_result)
 
             if output_dir:
+                # Create a dedicated folder for this speech chunk
+                chunk_dir = output_dir / f"speech_{idx:04d}_{start_sec:.2f}s-{end_sec:.2f}s"
+                chunk_dir.mkdir(parents=True, exist_ok=True)
+
+                # Save the actual speech audio
+                wav_path = chunk_dir / "chunk.wav"
+                sf.write(wav_path, chunk, samplerate=TARGET_SR, subtype="PCM_16")
+
+                # Save transcription result as JSON in the same folder
                 import json
-                out_path = output_dir / f"speech_{idx:04d}_{start_sec:.2f}-{end_sec:.2f}.json"
-                with out_path.open("w", encoding="utf-8") as f:
+                json_path = chunk_dir / "result.json"
+                with json_path.open("w", encoding="utf-8") as f:
                     json.dump(chunk_result._asdict(), f, ensure_ascii=False, indent=2)
+
+                log.debug(f"Saved chunk → {chunk_dir.relative_to(output_dir.parent)}")
 
             time_range = f"{start_sec:6.2f}─{end_sec:6.2f}s"
             duration = end_sec - start_sec
