@@ -117,6 +117,46 @@ class SileroVADStreamer:
             f"[cyan]dur={segment.duration():.3f}s[/]"
         )
 
+    def _configure_time_axis(self, ax, duration: float) -> None:
+        """
+        Smart X-axis tick placement:
+        • Minimum tick spacing ≈ 0.5 s
+        • Dynamically widens for longer segments (0.5 → 1 → 2 → 5 s steps)
+        • Always includes 0.0 and the exact end time
+        • No duplicate labels
+        """
+        from matplotlib.ticker import MaxNLocator
+        import matplotlib.pyplot as plt
+
+        ax.set_xlim(0, duration)
+
+        if duration <= 0.0:
+            return
+
+        # Very short clips → fine, fixed grid
+        if duration < 1.0:
+            step = 0.1 if duration >= 0.4 else 0.05
+            ax.xaxis.set_major_locator(plt.MultipleLocator(step))
+            ax.xaxis.set_minor_locator(plt.MultipleLocator(step / 5))
+        else:
+            # Dynamically determine minimum tick gap for longer audio.
+            # Target: 12–20 major ticks; enforces >=0.5s min between.
+            target_ticks = max(12, min(20, int(duration / 0.5) + 1))
+            locator = MaxNLocator(
+                nbins=target_ticks,
+                steps=[1, 2, 4, 5, 10],
+                min_n_ticks=8,
+                integer=False,
+            )
+            ax.xaxis.set_major_locator(locator)
+
+        # Always force 0.0 and exact end (rounded) to appear (avoids missing rightmost label)
+        current_ticks = set(ax.get_xticks())
+        forced = {0.0, round(duration, 6)}
+        ax.set_xticks(sorted(current_ticks.union(forced)))
+
+        ax.set_xlabel("Time (seconds)", fontsize=12)
+
     def _save_segment_visualization(
         self,
         audio_tensor: torch.Tensor,
@@ -140,10 +180,11 @@ class SileroVADStreamer:
     def _save_waveform_plot(self, audio_tensor: torch.Tensor, seg_dir: Path, title_suffix: str) -> None:
         plt.style.use("seaborn-v0_8-whitegrid")
         fig, ax = plt.subplots(figsize=(16, 6))
-        times = np.linspace(0, len(audio_tensor) / self.sample_rate, len(audio_tensor))
+        duration = len(audio_tensor) / self.sample_rate
+        times = np.linspace(0, duration, len(audio_tensor), endpoint=True)
         ax.plot(times, audio_tensor.numpy(), color="#1f77b4", linewidth=0.8)
+        self._configure_time_axis(ax, duration)
         ax.set_title(f"Waveform – {title_suffix}", fontsize=16, pad=20)
-        ax.set_xlabel("Time (seconds)", fontsize=12)
         ax.set_ylabel("Amplitude", fontsize=12)
         ax.grid(alpha=0.4)
         plt.tight_layout()
@@ -161,12 +202,16 @@ class SileroVADStreamer:
         plt.style.use("seaborn-v0_8-whitegrid")
         fig, ax = plt.subplots(figsize=(16, 6))
         ts, probs = zip(*probabilities)
+        duration = ts[-1] if ts else 0.0
+
         ax.plot(ts, probs, color="#6a0dad", linewidth=2.5, label="Speech Probability")
         ax.fill_between(ts, 0, probs, color="#6a0dad", alpha=0.25)
         ax.axhline(y=self.threshold, color="red", linestyle="--", linewidth=2, label=f"Threshold = {self.threshold:.2f}")
+
+        self._configure_time_axis(ax, duration)
+
         ax.set_ylim(0, 1.1)
         ax.set_title(f"VAD Probability (Clean) – {title_suffix}", fontsize=16, pad=20)
-        ax.set_xlabel("Time (seconds)", fontsize=12)
         ax.set_ylabel("Probability", fontsize=12)
         ax.legend(loc="upper right")
         ax.grid(alpha=0.4)
@@ -186,13 +231,17 @@ class SileroVADStreamer:
         plt.style.use("seaborn-v0_8-whitegrid")
         fig, ax = plt.subplots(figsize=(16, 6))
         ts, probs = zip(*probabilities)
-        ax.plot(ts, probs, color="#2ca02c", linewidth=1.2, alpha=0.6)  # faint background line
+        duration = ts[-1] if ts else 0.0
+
+        ax.plot(ts, probs, color="#2ca02c", linewidth=1.2, alpha=0.6)
         for i, (start, end) in enumerate(strong_chunks):
             ax.axvspan(start, end, color="#2ca02c", alpha=0.6,
                        label="Strong Confidence" if i == 0 else "")
+
+        self._configure_time_axis(ax, duration)
+
         ax.set_ylim(0, 1.1)
         ax.set_title(f"Strong Confidence Regions (≥0.85) – {title_suffix}", fontsize=16, pad=20)
-        ax.set_xlabel("Time (seconds)", fontsize=12)
         ax.set_ylabel("Probability", fontsize=12)
         ax.legend(loc="upper right")
         ax.grid(alpha=0.4)
@@ -212,13 +261,17 @@ class SileroVADStreamer:
         plt.style.use("seaborn-v0_8-whitegrid")
         fig, ax = plt.subplots(figsize=(16, 6))
         ts, probs = zip(*probabilities)
+        duration = ts[-1] if ts else 0.0
+
         ax.plot(ts, probs, color="#ff7f0e", linewidth=1.2, alpha=0.6)
         for i, (start, end) in enumerate(weak_chunks):
             ax.axvspan(start, end, color="#ff7f0e", alpha=0.55,
                        label="Weak / Uncertain" if i == 0 else "")
+
+        self._configure_time_axis(ax, duration)
+
         ax.set_ylim(0, 1.1)
         ax.set_title(f"Weak / Uncertain Regions (≤0.60) – {title_suffix}", fontsize=16, pad=20)
-        ax.set_xlabel("Time (seconds)", fontsize=12)
         ax.set_ylabel("Probability", fontsize=12)
         ax.legend(loc="upper right")
         ax.grid(alpha=0.4)
@@ -232,9 +285,13 @@ class SileroVADStreamer:
         plt.style.use("seaborn-v0_8-whitegrid")
         fig, ax = plt.subplots(figsize=(16, 6))
         ts, rms_vals = zip(*energies)
+        duration = ts[-1] if ts else 0.0
+
         ax.plot(ts, rms_vals, color="#ff7f0e", linewidth=2, label="20ms RMS Energy")
+
+        self._configure_time_axis(ax, duration)
+
         ax.set_title(f"Energy Envelope – {title_suffix}", fontsize=16, pad=20)
-        ax.set_xlabel("Time (seconds)", fontsize=12)
         ax.set_ylabel("RMS Energy", fontsize=12)
         ax.legend(loc="upper right")
         ax.grid(alpha=0.4)

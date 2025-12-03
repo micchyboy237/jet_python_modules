@@ -1,3 +1,4 @@
+from __future__ import annotations
 from pathlib import Path
 import sys
 import subprocess
@@ -11,51 +12,158 @@ import numpy as np
 from jet.logger import logger
 import soundfile as sf  # <-- fast, supports many formats, free & popular
 from numpy.typing import NDArray
+from typing import Literal, Optional
+from collections import defaultdict
+from rich.table import Table
+from rich.tree import Tree
+from rich.console import Console
 
-# Supported audio extensions (common + comprehensive)
+# === Strongly typed structure ===
+class SegmentGroup(TypedDict):
+    root: Optional[str]                  # absolute path string or None
+    strong_chunks: list[str]             # list of absolute path strings
+    weak_chunks: list[str]               # list of absolute path strings
+
+CategoryKey = Literal["root", "strong_chunks", "weak_chunks"]
+
+
+def group_audio_by_segment(paths: list[str]) -> dict[str, SegmentGroup]:
+    """
+    Group audio files by segment folder using absolute path strings as input.
+    Returns SegmentGroup with absolute path strings only.
+    """
+    console = Console()
+    grouped: defaultdict[str, dict[CategoryKey, list[Path] | Path | None]] = defaultdict(dict)
+
+    for path_str in paths:
+        p = Path(path_str).resolve()        # resolve once, work with real path
+        parts = p.parts
+
+        if "strong_chunks" in parts:
+            idx = parts.index("strong_chunks")
+            segment_name = parts[idx - 1]
+            category: CategoryKey = "strong_chunks"
+            grouped[segment_name].setdefault(category, []).append(p)  # type: ignore
+
+        elif "weak_chunks" in parts:
+            idx = parts.index("weak_chunks")
+            segment_name = parts[idx - 1]
+            category: CategoryKey = "weak_chunks"
+            grouped[segment_name].setdefault(category, []).append(p)  # type: ignore
+
+        else:
+            # File directly inside segment folder → root
+            segment_name = p.parent.name
+            if segment_name in grouped and grouped[segment_name].get("root"):
+                console.log(f"[yellow]Warning: Multiple root files in {segment_name}, keeping first[/]")
+            else:
+                grouped[segment_name]["root"] = p
+
+    # Convert to final string-based structure
+    result: dict[str, SegmentGroup] = {}
+    for seg_name in sorted(grouped.keys()):
+        data = grouped[seg_name]
+        root_path: Optional[str] = str(data["root"]) if data.get("root") else None
+
+        result[seg_name] = {
+            "root": root_path,
+            "strong_chunks": sorted(str(p) for p in data.get("strong_chunks", [])),
+            "weak_chunks": sorted(str(p) for p in data.get("weak_chunks", [])),
+        }
+
+    return result
+
+
+# Supported audio extensions
 AUDIO_EXTENSIONS = {
-    ".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".webm", ".mp4", ".mkv", ".avi"
+    ".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma",
+    ".webm", ".mp4", ".mkv", ".avi"
 }
 
 AudioInput = Union[str, Path, Sequence[Union[str, Path]]]
 
-def resolve_audio_paths(audio_inputs: AudioInput, recursive: bool = False) -> List[Path]:
-    """Resolve single/list/dir → flat list of existing audio file Paths.
 
-    Args:
-        audio_inputs: Single path, list of paths, or directory.
-        recursive: If True and a directory is given, walk recursively.
-                   Defaults to False (only direct children).
-
-    Returns:
-        Flat list of Path objects pointing to valid audio files.
+def resolve_audio_paths(audio_inputs: AudioInput, recursive: bool = False) -> list[str]:
+    """
+    Resolve single file, list, or directory into a sorted list of absolute audio file paths as strings.
     """
     inputs = [audio_inputs] if isinstance(audio_inputs, (str, Path)) else audio_inputs
-    resolved: List[Path] = []
+    resolved_paths: list[Path] = []
 
     for item in inputs:
         path = Path(item)
 
         if path.is_dir():
-            iterator = path.rglob("*") if recursive else path.iterdir()
-            audio_files = [
-                p for p in iterator
-                if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
-            ]
-            if not audio_files:
+            pattern = "**/*" if recursive else "*"
+            for p in path.glob(pattern):
+                if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS:
+                    resolved_paths.append(p.resolve())
+            if not any(p.parent == path for p in resolved_paths if p.parent == path):
                 logger.warning(f"No audio files found in directory: {path}")
-            resolved.extend(audio_files)
         elif path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS:
-            resolved.append(path)
+            resolved_paths.append(path.resolve())
         elif path.exists():
-            logger.warning(f"Skipping non-audio or unsupported file: {path}")
+            logger.warning(f"Skipping non-audio file: {path}")
         else:
             logger.error(f"Path not found: {path}")
 
-    if not resolved:
+    if not resolved_paths:
         raise ValueError("No valid audio files found from provided inputs.")
 
-    return sorted(resolved, key=lambda p: p.resolve())
+    # Return sorted list of absolute path strings
+    return sorted(str(p) for p in resolved_paths)
+
+
+def resolve_audio_paths_by_groups(audio_dir: Union[str, Path]) -> dict[str, SegmentGroup]:
+    console = Console()
+    audio_dir_path = Path(audio_dir).resolve()
+
+    # === Execution ===
+    audio_paths: list[str] = resolve_audio_paths(audio_dir, recursive=True)
+    grouped_paths = group_audio_by_segment(audio_paths)
+
+    console.rule("[bold blue]Audio Files Grouped by Segment[/]")
+
+    tree = Tree(f"[bold green]Base directory:[/] {audio_dir}")
+
+    for segment_name, group in grouped_paths.items():
+        total = (1 if group["root"] else 0) + len(group["strong_chunks"]) + len(group["weak_chunks"])
+        seg_branch = tree.add(f"[bold magenta]Segment: {segment_name}[/] – {total} file(s)")
+
+        if group["root"]:
+            rel = Path(group["root"]).relative_to(audio_dir_path)
+            seg_branch.add(f"[bold cyan]root[/] → [dim]{rel}[/]")
+
+        for category in ("strong_chunks", "weak_chunks"):
+            files = group[category]
+            if files:
+                cat_branch = seg_branch.add(f"[bold yellow]{category}[/] – {len(files)} file(s)")
+                for f in files:
+                    rel = Path(f).relative_to(audio_dir_path)
+                    cat_branch.add(f"[dim]{rel}[/]")
+
+    console.print(tree)
+
+    # === Summary Table ===
+    table = Table(title="Summary by Segment", show_header=True, header_style="bold cyan")
+    table.add_column("Segment", style="magenta")
+    table.add_column("Root", justify="center")
+    table.add_column("Strong", justify="right")
+    table.add_column("Weak", justify="right")
+    table.add_column("Total", justify="right", style="bold")
+
+    for seg, g in grouped_paths.items():
+        root_status = "sound.wav" if g["root"] else "—"
+        table.add_row(
+            seg,
+            root_status,
+            str(len(g["strong_chunks"])),
+            str(len(g["weak_chunks"])),
+            str((1 if g["root"] else 0) + len(g["strong_chunks"]) + len(g["weak_chunks"])),
+        )
+
+    console.print(table)
+    return grouped_paths
 
 def get_input_channels() -> int:
     device_info = sd.query_devices(sd.default.device[0], 'input')
