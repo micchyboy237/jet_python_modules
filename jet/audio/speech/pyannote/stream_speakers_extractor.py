@@ -57,14 +57,6 @@ HF_TOKEN = os.getenv("HF_TOKEN")  # Set in env: export HF_TOKEN=hf_...
 WINDOW_DURATION = 10.0
 STEP_DURATION = 5.0  # Overlap for smooth speaker tracking
 
-# ←←← NEW: Speech padding (added silence before/after each turn)
-# # Maximum I recommend without thinking twice
-# SPEECH_PADDING_START = 1.20
-# SPEECH_PADDING_END   = 1.80
-# Paste these two lines — perfect balance of generous context + bulletproof safety
-SPEECH_PADDING_START = 1.50   # 1.5 s before → captures inhale, room tone, etc.
-SPEECH_PADDING_END   = 2.00   # 2.0 s after  → includes natural decay/reverb
-
 # Speaker change detection threshold (cosine similarity)
 SPEAKER_CHANGE_THRESHOLD = 0.55
 
@@ -168,20 +160,10 @@ class LiveSpeakerExtractor:
             end_sec = turn.end
             duration = end_sec - start_sec
 
-            
-            # ←←← APPLY PADDING (but stay inside the current window)
-            padded_start = max(0.0, start_sec - SPEECH_PADDING_START)
-            padded_end   = min(WINDOW_DURATION, end_sec + SPEECH_PADDING_END)
-
-            # Convert to sample indices (integer)
-            start_sample = int(padded_start * SAMPLE_RATE)
-            end_sample   = int(padded_end * SAMPLE_RATE)
+            # Extract segment audio
+            start_sample = int(start_sec * SAMPLE_RATE)
+            end_sample = int(end_sec * SAMPLE_RATE)
             segment_audio = window_audio[start_sample:end_sample]
-
-            # Use padded timestamps for the saved turn metadata
-            global_start = padded_start + window_start
-            global_end   = padded_end + window_start
-            padded_duration = padded_end - padded_start
 
             # Extract embedding using the embedding model (more reliable)
             try:
@@ -221,8 +203,8 @@ class LiveSpeakerExtractor:
                 self.known_speakers[final_speaker_id] = 0.7 * old + 0.3 * emb
 
             turn_obj = SpeakerTurn(
-                start=global_start,
-                end=global_end,
+                start=start_sec + window_start,
+                end=end_sec + window_start,
                 speaker_id=final_speaker_id,
                 confidence=best_sim if best_match else 1.0,
                 embedding=emb
@@ -230,8 +212,6 @@ class LiveSpeakerExtractor:
             turns.append(turn_obj)
 
             # Save only meaningful turns
-            # Keep the original strict filter on *detected* speech length,
-            # but allow padded audio to be a bit longer – still discard very short speech
             if duration > 1.0 and len(segment_audio) > SAMPLE_RATE * 0.5:
                 self.save_turn(turn_obj, segment_audio)
 
