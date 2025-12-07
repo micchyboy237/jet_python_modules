@@ -1,147 +1,142 @@
-from typing import List, Optional
-from transformers import pipeline, Pipeline
-from jet.logger import logger
-from jet.file.utils import save_file
-import os
-import shutil
+# translators/jp_en.py
+from __future__ import annotations
 
-OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+from typing import Literal
+from transformers import MarianMTModel, MarianTokenizer
+import torch
 
-class JapaneseTranslator:
-    """
-    A reusable, lazily-initialized Japanese to English translator using
-    Helsinki-NLP/opus-mt-ja-en (MarianMT-based, fast and lightweight).
-    
-    Designed for repeated use, supports batch translation, and is safe for
-    both CPU and GPU environments (auto-detects available device).
-    """
+model_name = "Helsinki-NLP/opus-mt-ja-en"
+tokenizer = MarianTokenizer.from_pretrained(model_name)
+model = MarianMTModel.from_pretrained(model_name)
 
-    def __init__(
-        self,
-        model_name: str = "Helsinki-NLP/opus-mt-ja-en",
-        device: Optional[int] = None,  # None = auto (cuda if available), -1 = CPU
-        max_length: int = 512,
-    ):
-        self.model_name = model_name
-        self.device = device
-        self.max_length = max_length
-        self._translator: Optional[Pipeline] = None
+device = "mps" if torch.backends.mps.is_available() else "cpu"
+model.to(device)
+model.eval()
 
-    @property
-    def translator(self) -> Pipeline:
-        """Lazy-load the pipeline only when first needed."""
-        if self._translator is None:
-            logger.info(f"Loading translation model: {self.model_name}")
-            self._translator = pipeline(
-                "translation",
-                model=self.model_name,
-                device=self.device,        # handles CUDA if available
-                max_length=self.max_length,
-                truncation=True,
-            )
-            logger.info("Translation model loaded successfully")
-        return self._translator
+Strategy = Literal["sampling", "diverse_beam", "fast_sampling"]
 
-    def translate(self, text: str) -> str:
-        """
-        Translate a single Japanese string to English.
-        
-        Args:
-            text: Japanese input text
-            
-        Returns:
-            Translated English text (stripped of '>>en<<' prefix if present)
-        """
-        if not text.strip():
-            return ""
-            
-        result = self.translator(text)[0]["translation_text"]
-        # Some older MarianMT models prepend language tokens like ">>en<<"
-        if result.startswith(">>en<<"):
-            result = result[6:].lstrip()
-        return result.strip()
 
-    def translate_batch(self, texts: List[str]) -> List[str]:
-        """
-        Translate multiple Japanese texts efficiently in batch.
-        
-        Args:
-            texts: List of Japanese strings
-            
-        Returns:
-            List of translated English strings in the same order
-        """
-        if not texts:
-            return []
-            
-        cleaned_texts = [t.strip() for t in texts if t.strip()]
-        if not cleaned_texts:
-            return [""] * len(texts)
+def translate_ja_en_diverse(
+    ja_text: str,
+    *,
+    n: int = 8,
+    strategy: Strategy = "sampling",
+    temperature: float = 0.9,
+    top_p: float = 0.95,
+    diversity_penalty: float = 1.2,
+    seed: int | None = None,
+) -> list[tuple[str, float]]:
+    if seed is not None:
+        torch.manual_seed(seed)
 
-        results = self.translator(cleaned_texts)
-        translations = [r["translation_text"] for r in results]
-        
-        # Clean language tokens
-        cleaned = []
-        for t in translations:
-            if t.startswith(">>en<<"):
-                t = t[6:].lstrip()
-            cleaned.append(t.strip())
-            
-        # Reconstruct full list preserving empty inputs
-        output = []
-        clean_idx = 0
-        for original in texts:
-            if original.strip():
-                output.append(cleaned[clean_idx])
-                clean_idx += 1
-            else:
-                output.append("")
-        return output
+    inputs = tokenizer(ja_text, return_tensors="pt", padding=True).to(device)
 
-    def __call__(self, text: str) -> str:
-        """Make the instance callable for convenience."""
-        return self.translate(text)
+    # ==================================================================
+    # 1. SAMPLING + proper re-scoring (most diverse + real probabilities)
+    # ==================================================================
+    if strategy == "sampling":
+        candidates = model.generate(
+            **inputs,
+            do_sample=True,
+            temperature=temperature,
+            top_p=top_p,
+            num_return_sequences=n,
+            num_beams=1,                    # ← THIS FIXES THE ERROR
+            max_length=512,
+            no_repeat_ngram_size=2,
+            early_stopping=False,
+        )
 
+        translations = tokenizer.batch_decode(candidates, skip_special_tokens=True)
+
+        # Re-score each candidate for accurate log-probability
+        encoded = tokenizer(
+            translations,
+            padding=True,
+            truncation=True,
+            max_length=512,
+            return_tensors="pt",
+        ).to(device)
+
+        with torch.no_grad():
+            out = model(**encoded, labels=encoded.input_ids)
+            shift_logits = out.logits[..., :-1, :].contiguous()
+            shift_labels = encoded.input_ids[..., 1:].contiguous()
+            log_probs = torch.gather(
+                torch.log_softmax(shift_logits, dim=-1),
+                2,
+                shift_labels.unsqueeze(-1),
+            ).squeeze(-1)
+
+            # Mask padding tokens
+            pad_mask = shift_labels != tokenizer.pad_token_id
+            log_probs = (log_probs * pad_mask).sum(dim=-1)
+
+        results = list(zip(translations, log_probs.cpu().tolist()))
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results
+
+    # ==================================================================
+    # 2. DIVERSE BEAM SEARCH (deterministic + exact scores)
+    # ==================================================================
+    elif strategy == "diverse_beam":
+        outputs = model.generate(
+            **inputs,
+            num_beams=n * 2,
+            num_beam_groups=n,
+            diversity_penalty=diversity_penalty,
+            num_return_sequences=n,
+            early_stopping=True,
+            return_dict_in_generate=True,
+            output_scores=True,
+        )
+
+        transition_scores = model.compute_transition_scores(
+            outputs.sequences, outputs.scores, normalize_logits=True
+        )
+        log_probs = transition_scores.sum(1).cpu().tolist()
+
+        translations = tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)
+        results = sorted(zip(translations, log_probs), key=lambda x: x[1], reverse=True)
+        return results
+
+    # ==================================================================
+    # 3. FAST SAMPLING (quick & dirty)
+    # ==================================================================
+    elif strategy == "fast_sampling":
+        outputs = model.generate(
+            **inputs,
+            do_sample=True,
+            temperature=temperature,
+            top_p=top_p,
+            num_return_sequences=n,
+            num_beams=1,                    # ← also fixed here
+            max_length=512,
+            no_repeat_ngram_size=2,
+            early_stopping=False,
+            return_dict_in_generate=True,
+            output_scores=True,
+        )
+
+        approx_scores = (
+            outputs.sequences_scores.cpu().tolist()
+            if outputs.sequences_scores is not None
+            else [0.0] * n
+        )
+        translations = tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)
+        results = sorted(zip(translations, approx_scores), key=lambda x: x[1], reverse=True)
+        return results
+
+    else:
+        raise ValueError(f"Unknown strategy: {strategy!r}")
+
+
+# ——— Test ———
 if __name__ == "__main__":
-    # Basic usage
-    translator = JapaneseTranslator()
+    ja = "今日はとても良い天気ですね。散歩に行きませんか？"
 
-    # Single translation
-    japanese_text = "世界各国が水面下で熾烈な情報戦を繰り広げる時代睨み合う2つの国東のオスタニア西のウェスタリス戦争を企てるオスタニア政府要人の動向を探るべくウェスタリスはオペレーションストリックスを発動作戦を担うスゴーデエージェント黄昏百の顔を使い分ける彼の任務は家族を作ること父ロイドフォージャー精神"
-
-    english_text = translator.translate(japanese_text)
-    
-    print(f"JA Transcript: {japanese_text[:100]}...")  # Preview (optional)
-    print(f"EN Translation: {english_text[:100]}...")  # Preview (optional)
-
-    # Save both
-    save_file(japanese_text, f"{OUTPUT_DIR}/transcript_ja.txt")
-    save_file(english_text, f"{OUTPUT_DIR}/transcript_en.txt")
-
-    # # Or use callable syntax
-    # english = translator("こんにちは、世界！")
-    # print(english)
-    # # Output: "Hello, world!"
-
-    # # Batch translation (more efficient)
-    # sentences = [
-    #     # "おはようございます。",
-    #     # "私はソフトウェアエンジニアです。",
-    #     # "",  # empty strings are preserved
-    #     # "寿司が大好きです！", 
-
-    #     "世界各国が水面下で",
-    # ]
-
-    # translations = translator.translate_batch(sentences)
-    # for ja, en in zip(sentences, translations):
-    #     print(f"JA: {ja} → EN: {en}")
-
-    # Output:
-    # JA: おはようございます。 → EN: Good morning.
-    # JA: 私はソフトウェアエンジニアです。 → EN: I am a software engineer.
-    # JA:  → EN: 
-    # JA: 寿司が大好きです！ → EN: I love sushi!
+    print("=== sampling (recommended) ===")
+    for i, (en, lp) in enumerate(translate_ja_en_diverse(ja, n=8, strategy="sampling"), 1):
+        prob = torch.exp(torch.tensor(lp)).item()
+        print(f"{i}. {en}")
+        print(f"   log_prob={lp:.3f} → prob≈{prob:.4f}\n")

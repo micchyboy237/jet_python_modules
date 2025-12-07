@@ -23,6 +23,7 @@ pipdeptree
 playwright
 poetry
 psutil
+pyperclip
 pytest
 pytest-asyncio
 pytest-benchmark

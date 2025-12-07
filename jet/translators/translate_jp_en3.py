@@ -35,7 +35,7 @@ def translate_text(text: str, from_lang: str = "ja", to_lang: str = "en") -> str
     return argostranslate.translate.translate(text, from_lang, to_lang)
 
 if __name__ == "__main__":
-    japanese_text = "世界各国が水面下で熾烈な情報戦を繰り広げる時代睨み合う2つの国東のオスタニア西のウェスタリス戦争を企てるオスタニア政府要人の動向を探るべくウェスタリスはオペレーションストリックスを発動作戦を担うスゴーデエージェント黄昏百の顔を使い分ける彼の任務は家族を作ること父ロイドフォージャー精神"
+    japanese_text = "おい、そんな一気に冷たいものを食べると腹を壊す"
 
     # One-time model setup (call once; safe to rerun)
     setup_argos_model()
