@@ -28,7 +28,7 @@ def extract_speech_timestamps(
     min_speech_duration_ms: int = 500,
     max_speech_duration_s: float = float("inf"),
     min_silence_duration_ms: int = 700,
-    speech_pad_ms: int = 30,
+    speech_pad_ms: int = 700,
     return_seconds: bool = False,
     time_resolution: int = 2,
 ) -> List[SpeechSegment]:
