@@ -361,6 +361,6 @@ if __name__ == "__main__":
         debug=True,
     )
 
-    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic_stream/recording_20251126_212124.wav"
+    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
     segments = processor.process(audio_file)
     log.info(f"[bold green]Processing complete. {len(segments)} segments saved to {OUTPUT_DIR}[/]")

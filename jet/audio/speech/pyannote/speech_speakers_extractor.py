@@ -1,4 +1,4 @@
-# jet_python_modules/jet/audio/speech/pyannote/speech_speakers_extractor.py
+# speech_speakers_extractor.py
 from typing import List, TypedDict
 from pathlib import Path
 import numpy as np
