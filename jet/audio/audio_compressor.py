@@ -6,8 +6,7 @@ from pathlib import Path
 import ffmpeg
 from pydantic import BaseModel, Field, conint, validator
 from rich import print as rprint
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
+from rich.progress import Progress
 from tqdm import tqdm
 
 
@@ -64,93 +63,109 @@ def get_output_path(input_path: Path, codec: AudioCodec) -> Path:
     return input_path.with_suffix(suffix_map[codec])
 
 
-def compress_audio_file(
-    input_path: str | Path,
+def compress_audio(
+    path: str | Path,
+    *,
     config: CompressionConfig | None = None,
+    recursive: bool = False,
+    output_dir: Path | str | None = None,
     progress: Progress | None = None,
-) -> Path:
-    config = config or CompressionConfig()
-    input_path = Path(input_path).expanduser().resolve()
-    if not input_path.is_file():
-        raise FileNotFoundError(f"Audio file not found: {input_path}")
-
-    output_path = get_output_path(input_path, config.codec)
-
-    if output_path.exists() and not config.overwrite:
-        raise FileExistsError(f"Output already exists: {output_path}")
-
-    task_id = None
-    if progress:
-        task_id = progress.add_task(f"[cyan]Compressing[/] {input_path.name}", total=None)
-
-    stream = ffmpeg.input(str(input_path))
-
-    kwargs: dict[str, object] = {"c:a": config.codec.value}
-    if config.codec == AudioCodec.FLAC:
-        kwargs["compression_level"] = config.compression_level
-    elif config.codec == AudioCodec.OPUS:
-        kwargs["b:a"] = f"{config.opus_bitrate_kbps}k"
-    elif config.codec == AudioCodec.WAVPACK:
-        # -hx = high, -x1–3 = extra processing
-        kwargs["compression_level"] = min(config.compression_level, 3)
-        if config.compression_level >= 2:
-            kwargs["x"] = config.compression_level - 1
-
-    try:
-        ffmpeg.output(stream, str(output_path), **kwargs).overwrite_output().run(capture_stdout=True, capture_stderr=True)
-    except ffmpeg.Error as e:
-        error_msg = e.stderr.decode() if e.stderr else str(e)
-        raise RuntimeError(f"FFmpeg failed: {error_msg}") from e
-    finally:
-        if progress and task_id:
-            progress.update(task_id, completed=True)
-
-    original_size = input_path.stat().st_size / (1024 * 1024)
-    new_size = output_path.stat().st_size / (1024 * 1024)
-    ratio = (1 - new_size / original_size) * 100
-
-    rprint(
-        f"[green]✓[/green] {input_path.name} → {output_path.name} "
-        f"({original_size:.1f} MB → {new_size:.1f} MB, [bold green]{ratio:.1f}% smaller[/bold green])"
-    )
-
-    if not config.keep_original:
-        input_path.unlink()
-
-    return output_path
-
-
-def compress_audio_folder(
-    folder: Path | str,
-    config: CompressionConfig | None = None,
-    pattern: str = "*.*",
 ) -> list[Path]:
-    folder = Path(folder).expanduser().resolve()
-    supported_exts = {".wav", ".aiff", ".aif", ".flac", ".m4a", ".wv", ".opus"}
-    files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in supported_exts]
+    """
+    Unified, pure compression function.
 
-    if not files:
-        rprint("[yellow]No supported audio files found[/yellow]")
-        return []
-
+    - Works on a single file OR a directory (optionally recursive)
+    - If ``output_dir`` is given  → all outputs go there with ``stem + proper suffix``
+    - If ``output_dir`` is None → output is placed next to input (original behavior)
+    """
     config = config or CompressionConfig()
+    root = Path(path).expanduser().resolve()
+    output_dir_path = Path(output_dir).expanduser().resolve() if output_dir else None
 
-    table = Table(title="Compression Summary")
-    table.add_column("File")
-    table.add_column("Original → New")
-    table.add_column("Savings")
+    if output_dir_path:
+        output_dir_path.mkdir(parents=True, exist_ok=True)
+
+    supported = {".wav", ".aiff", ".aif", ".flac", ".m4a", ".wv", ".opus"}
+
+    # Collect files
+    if root.is_file():
+        if root.suffix.lower() not in supported:
+            raise ValueError(f"Unsupported audio format: {root}")
+        files = [root]
+    elif root.is_dir():
+        iterator = root.rglob("*") if recursive else root.iterdir()
+        files = [p for p in iterator if p.is_file() and p.suffix.lower() in supported]
+        if not files:
+            rprint("[yellow]No supported audio files found in directory[/yellow]")
+            return []
+    else:
+        raise FileNotFoundError(f"Path not found: {root}")
 
     results: list[Path] = []
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        transient=True,
-    ) as progress:
-        for file in tqdm(files, desc="Compressing audio files", unit="file"):
-            try:
-                out_path = compress_audio_file(file, config, progress)
-                results.append(out_path)
-            except Exception as e:
-                rprint(f"[red]✗ Failed {file.name}: {e}[/red]")
+    task_id = None
+    if progress and len(files) > 1:
+        task_id = progress.add_task("[cyan]Compressing…", total=len(files))
+
+    suffix_map = {
+        AudioCodec.FLAC: ".flac",
+        AudioCodec.OPUS: ".opus",
+        AudioCodec.ALAC: ".m4a",
+        AudioCodec.WAVPACK: ".wv",
+    }
+    target_suffix = suffix_map[config.codec]
+
+    for input_path in tqdm(files, desc="Compressing", unit="file", disable=len(files) == 1):
+        # Determine output path
+        if output_dir_path:
+            output_path = output_dir_path / f"{input_path.stem}{target_suffix}"
+        else:
+            output_path = input_path.with_suffix(target_suffix)
+
+        if output_path.exists() and not config.overwrite:
+            rprint(f"[dim]Skipping (exists)[/] {output_path.name}")
+            results.append(output_path)
+            continue
+
+        # Build ffmpeg args
+        stream = ffmpeg.input(str(input_path))
+        kwargs: dict[str, object] = {"c:a": config.codec.value}
+
+        if config.codec == AudioCodec.FLAC:
+            kwargs["compression_level"] = config.compression_level
+        elif config.codec == AudioCodec.OPUS:
+            kwargs["b:a"] = f"{config.opus_bitrate_kbps}k"
+        elif config.codec == AudioCodec.WAVPACK:
+            level = min(config.compression_level, 3)
+            kwargs["compression_level"] = level
+            if level >= 2:
+                kwargs["x"] = level - 1
+
+        try:
+            ffmpeg.output(stream, str(output_path), **kwargs).overwrite_output().run(
+                capture_stdout=True, capture_stderr=True
+            )
+        except ffmpeg.Error as e:
+            msg = e.stderr.decode() if e.stderr else str(e)
+            rprint(f"[red]Failed[/] {input_path.name}: {msg}")
+            continue
+
+        # Stats + optional delete
+        orig_mb = input_path.stat().st_size / (1024 * 1024)
+        new_mb = output_path.stat().st_size / (1024 * 1024)
+        savings = (1 - new_mb / orig_mb) * 100
+
+        rprint(
+            f"[green]Success[/] {input_path.name} → {output_path.name} "
+            f"({orig_mb:.1f} → {new_mb:.1f} MB, [bold green]{savings:.1f}%[/] saved)"
+        )
+
+        if not config.keep_original:
+            input_path.unlink()
+            rprint("[dim]Original deleted[/]")
+
+        results.append(output_path)
+
+    if progress and task_id:
+        progress.update(task_id, completed=True)
 
     return results
