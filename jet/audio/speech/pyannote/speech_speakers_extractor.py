@@ -21,41 +21,87 @@ class SpeechSpeakerSegment(TypedDict):
     duration: float
     prob: float  # Pyannote does not provide per-segment probability
 
-def _merge_speaker_turns(
-    raw_segments: List[SpeechSpeakerSegment],
-    min_duration: float = 0.4,
-    max_gap: float = 0.35,
+def _resolve_overlaps(
+    segments: List[SpeechSpeakerSegment],
+    overlap_threshold: float = 0.7,
 ) -> List[SpeechSpeakerSegment]:
     """
-    Merge overlapping/contiguous turns and remove silence fragments.
+    Remove short segments that are mostly covered by a longer segment
+    (regardless of speaker label). This fixes the classic pyannote
+    "short wrong-speaker overlap" artefact.
     """
-    if not raw_segments:
+    if len(segments) < 2:
+        return segments
+
+    segments = sorted(segments, key=lambda x: x["start"])
+    keep = []
+
+    for i, curr in enumerate(segments):
+        curr_dur = curr["end"] - curr["start"]
+        dominated = False
+
+        for other in segments[:i] + segments[i + 1 :]:
+            if curr["start"] >= other["end"] or curr["end"] <= other["start"]:
+                continue  # no overlap
+
+            overlap_start = max(curr["start"], other["start"])
+            overlap_end = min(curr["end"], other["end"])
+            overlap_dur = overlap_end - overlap_start
+
+            # if the longer turn covers most of the current (short) turn → drop it
+            if overlap_dur / curr_dur >= overlap_threshold and (
+                other["end"] - other["start"]
+            ) > curr_dur:
+                dominated = True
+                break
+
+        if not dominated:
+            keep.append(curr)
+
+    return keep
+
+def _post_process_diarization(
+    segments: List[SpeechSpeakerSegment],
+    min_duration: float = 0.45,
+    max_gap: float = 0.35,
+) -> List[SpeechSpeakerSegment]:
+    if not segments:
         return []
 
-    # Sort by start time
-    raw_segments = sorted(raw_segments, key=lambda x: x["start"])
-    merged: List[SpeechSpeakerSegment] = []
-    current = raw_segments[0].copy()
+    segments = sorted(segments, key=lambda x: x["start"])
+    merged = []
+    current = segments[0].copy()
 
-    for next_seg in raw_segments[1:]:
-        same_speaker = next_seg["speaker"] == current["speaker"]
+    for next_seg in segments[1:]:
         gap = next_seg["start"] - current["end"]
+        overlap = max(current["end"] - next_seg["start"], 0)
 
-        # Merge if same speaker and overlapping or very close
-        if same_speaker and gap <= max_gap:
+        if next_seg["speaker"] == current["speaker"] and (gap <= max_gap or overlap > 0):
             current["end"] = max(current["end"], next_seg["end"])
             current["duration"] = round(current["end"] - current["start"], 3)
-        else:
-            if current["duration"] >= min_duration:
-                merged.append(current)
-            current = next_seg.copy()
+            continue
+
+        if overlap > 0.2:
+            if current["duration"] > 1.0 and next_seg["duration"] < 1.5:
+                current["end"] = max(current["end"], next_seg["end"])
+                current["duration"] = round(current["end"] - current["start"], 3)
+                continue
+            elif next_seg["duration"] > current["duration"]:
+                if current["duration"] >= min_duration:
+                    merged.append(current)
+                current = next_seg.copy()
+                continue
+
+        if current["duration"] >= min_duration:
+            merged.append(current)
+        current = next_seg.copy()
 
     if current["duration"] >= min_duration:
         merged.append(current)
 
-    # Re-index
     for i, seg in enumerate(merged):
         seg["idx"] = i
+
     return merged
 
 @torch.no_grad()
@@ -231,18 +277,34 @@ def extract_speech_speakers(
             )
         )
 
-    # Merge & clean segments
-    cleaned_segments = _merge_speaker_turns(
-        raw_segments=raw,
+    # MERGE/POST-PROCESS: use new post-processing function here
+    cleaned_segments = _post_process_diarization(
+        raw,
         min_duration=min_duration,
         max_gap=max_gap,
     )
 
+    # 2. Optionally resolve wrong-speaker short overlaps (optional: comment out if not wanted)
+    # cleaned_segments = _resolve_overlaps(
+    #     cleaned_segments,
+    #     overlap_threshold=0.7,   # keep this value – works well in practice
+    # )
+
+    # 3. Final clean-up: apply min_duration again + re-index and rounding
+    final_segments = [
+        seg for seg in cleaned_segments if seg["duration"] >= min_duration
+    ]
+    for i, seg in enumerate(final_segments):
+        seg["idx"] = i
+        seg["start"] = round(seg["start"], time_resolution)
+        seg["end"] = round(seg["end"], time_resolution)
+        seg["duration"] = round(seg["end"] - seg["start"], 3)
+
     console.print(
-        f"[bold green]Speaker diarization done → {len(raw)} raw → {len(cleaned_segments)} cleaned segments[/bold green]"
+        f"[bold green]Speaker diarization done → {len(raw)} raw → {len(cleaned_segments)} processed → {len(final_segments)} final segments[/bold green]"
         + (" ([cyan]Silero VAD pre-filtered[/cyan])" if use_silero_vad else "")
     )
-    return cleaned_segments
+    return final_segments
 
 if __name__ == "__main__":
     audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
