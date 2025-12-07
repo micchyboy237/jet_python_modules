@@ -17,8 +17,9 @@ Features:
 
 from __future__ import annotations
 
-import json
 import os
+import shutil
+import json
 import time
 import wave
 from dataclasses import dataclass
@@ -36,7 +37,10 @@ from rich.logging import RichHandler
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 # ====================== CONFIG ======================
-OUTPUT_DIR = Path("OUTPUT_DIR")
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR = Path(OUTPUT_DIR)
 SPEAKERS_DIR = OUTPUT_DIR / "speakers"
 SPEAKERS_DIR.mkdir(parents=True, exist_ok=True)
 
