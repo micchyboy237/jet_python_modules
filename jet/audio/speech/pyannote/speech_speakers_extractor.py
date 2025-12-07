@@ -1,5 +1,5 @@
 # speech_speakers_extractor.py
-from typing import List, TypedDict, Optional
+from typing import List, TypedDict
 from pathlib import Path
 import numpy as np
 import torch
@@ -8,10 +8,11 @@ from pyannote.audio.pipelines.utils.hook import ProgressHook
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, MofNCompleteColumn
 
-# --- Silero VAD (optional, strong accuracy boost) ---
+# Silero VAD
 from silero_vad.utils_vad import get_speech_timestamps
 
 console = Console()
+
 
 class SpeechSpeakerSegment(TypedDict):
     idx: int
@@ -19,235 +20,171 @@ class SpeechSpeakerSegment(TypedDict):
     end: float
     speaker: str
     duration: float
-    prob: float  # Pyannote does not provide per-segment probability
+    prob: float
 
-def _resolve_overlaps(
-    segments: List[SpeechSpeakerSegment],
-    overlap_threshold: float = 0.7,
-) -> List[SpeechSpeakerSegment]:
-    """
-    Remove short segments that are mostly covered by a longer segment
-    (regardless of speaker label). This fixes the classic pyannote
-    "short wrong-speaker overlap" artefact.
-    """
-    if len(segments) < 2:
-        return segments
-
-    segments = sorted(segments, key=lambda x: x["start"])
-    keep = []
-
-    for i, curr in enumerate(segments):
-        curr_dur = curr["end"] - curr["start"]
-        dominated = False
-
-        for other in segments[:i] + segments[i + 1 :]:
-            if curr["start"] >= other["end"] or curr["end"] <= other["start"]:
-                continue  # no overlap
-
-            overlap_start = max(curr["start"], other["start"])
-            overlap_end = min(curr["end"], other["end"])
-            overlap_dur = overlap_end - overlap_start
-
-            # if the longer turn covers most of the current (short) turn → drop it
-            if overlap_dur / curr_dur >= overlap_threshold and (
-                other["end"] - other["start"]
-            ) > curr_dur:
-                dominated = True
-                break
-
-        if not dominated:
-            keep.append(curr)
-
-    return keep
 
 def _post_process_diarization(
     segments: List[SpeechSpeakerSegment],
     min_duration: float = 0.45,
     max_gap: float = 0.35,
+    *,
+    overlap_threshold_ratio: float = 0.30,
+    momentum_threshold_ratio: float = 0.60,
+    intruder_max_ratio: float = 0.85,
 ) -> List[SpeechSpeakerSegment]:
+    """
+    Fully adaptive post-processing with dynamic thresholds based on actual turn statistics.
+    No more brittle magic numbers like 0.2s, 1.0s, 1.5s.
+    """
     if not segments:
         return []
 
     segments = sorted(segments, key=lambda x: x["start"])
-    merged = []
+
+    # Compute statistics from real turns (after basic min_duration filter)
+    valid_durations = [s["duration"] for s in segments if s["duration"] >= min_duration]
+    if not valid_durations:
+        median_dur = 2.0  # safe fallback
+    else:
+        median_dur = float(np.median(valid_durations))
+
+    # Dynamic thresholds
+    momentum_threshold = max(0.7, median_dur * momentum_threshold_ratio)
+    intruder_threshold = median_dur * intruder_max_ratio
+
+    merged: List[SpeechSpeakerSegment] = []
     current = segments[0].copy()
 
     for next_seg in segments[1:]:
         gap = next_seg["start"] - current["end"]
-        overlap = max(current["end"] - next_seg["start"], 0)
+        overlap_dur = max(0.0, current["end"] - next_seg["start"])
+        shorter_dur = min(current["duration"], next_seg["duration"])
+        overlap_ratio = overlap_dur / shorter_dur if shorter_dur > 0 else 0.0
 
-        if next_seg["speaker"] == current["speaker"] and (gap <= max_gap or overlap > 0):
+        # 1. Same speaker + close in time → merge
+        if next_seg["speaker"] == current["speaker"] and (gap <= max_gap or overlap_dur > 0):
             current["end"] = max(current["end"], next_seg["end"])
             current["duration"] = round(current["end"] - current["start"], 3)
             continue
 
-        if overlap > 0.2:
-            if current["duration"] > 1.0 and next_seg["duration"] < 1.5:
+        # 2. Significant overlap → adaptive conflict resolution
+        if overlap_ratio >= overlap_threshold_ratio:
+            current_has_momentum = current["duration"] >= momentum_threshold
+            next_is_intruder = next_seg["duration"] < intruder_threshold
+
+            if current_has_momentum and next_is_intruder:
+                # Absorb short wrong-speaker glitch
                 current["end"] = max(current["end"], next_seg["end"])
                 current["duration"] = round(current["end"] - current["start"], 3)
                 continue
-            elif next_seg["duration"] > current["duration"]:
-                if current["duration"] >= min_duration:
-                    merged.append(current)
+            elif next_seg["duration"] > current["duration"] * 1.8 and not current_has_momentum:
+                # Current was likely noise → replace with stronger turn
                 current = next_seg.copy()
                 continue
+            else:
+                # Real speaker overlap → keep both
+                merged.append(current)
+                current = next_seg.copy()
+        else:
+            # No significant overlap
+            if current["duration"] >= min_duration:
+                merged.append(current)
+            current = next_seg.copy()
 
-        if current["duration"] >= min_duration:
-            merged.append(current)
-        current = next_seg.copy()
-
+    # Don't forget the last segment
     if current["duration"] >= min_duration:
         merged.append(current)
 
+    # Re-index
     for i, seg in enumerate(merged):
         seg["idx"] = i
 
     return merged
 
+
 @torch.no_grad()
 def extract_speech_speakers(
     audio: str | Path | np.ndarray | torch.Tensor,
     sampling_rate: int = 16000,
-    time_resolution: int = 3,   # Higher precision
-    min_duration: float = 0.45, # min segment length after merge (sec)
-    max_gap: float = 0.35,      # max gap for merge (sec)
+    time_resolution: int = 3,
+    min_duration: float = 0.45,
+    max_gap: float = 0.35,
     use_silero_vad: bool = True,
     vad_threshold: float = 0.5,
     min_speech_duration_ms: int = 500,
     min_silence_duration_ms: int = 700,
     speech_pad_ms: int = 30,
 ) -> List[SpeechSpeakerSegment]:
-    """
-    Extract **clean** speaker diarization segments using pyannote-audio.
-
-    Optionally uses Silero VAD (recommended) for dramatically better speech detection.
-    Added post-processing to merge cut/too-short micro-segments.
-    """
-    # Optionally: Load Silero VAD if requested
+    # --- Load Silero VAD ---
     vad_model = None
     if use_silero_vad:
-        with console.status("[bold green]Loading Silero VAD model...[/bold green]"):
+        with console.status("[bold green]Loading Silero VAD...[/bold green]"):
             vad_model, _ = torch.hub.load(
                 repo_or_dir="snakers4/silero-vad",
                 model="silero_vad",
-                force_reload=False,
                 trust_repo=True,
                 verbose=False,
             )
-        console.print("✅ Silero VAD ready")
+        console.print("Silero VAD ready")
 
-    # Load pyannote model with status
-    with console.status("[bold green]Loading pyannote speaker diarization model...[/bold green]"):
-        try:
-            pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-community-1",
-            )
-            console.print("✅ Pyannote model loaded")
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to load model: {e}. Ensure model conditions accepted at https://hf.co/pyannote/speaker-diarization-community-1"
-            )
-    # Auto GPU if available
+    # --- Load pyannote pipeline ---
+    with console.status("[bold green]Loading pyannote diarization model...[/bold green]"):
+        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-community-1")
+        console.print("Pyannote model loaded")
+
     if torch.cuda.is_available():
         pipeline.to(torch.device("cuda"))
-        console.print("🚀 Using GPU for inference")
+        console.print("Using GPU")
 
-    # Audio input handling and forced mono preparation
+    # --- Audio input handling ---
     if isinstance(audio, (str, Path)):
-        audio_path = Path(audio)
-        if not audio_path.is_file():
-            raise FileNotFoundError(f"Audio file not found: {audio_path}")
         import torchaudio
-
-        waveform, sr = torchaudio.load(audio_path)
+        waveform, sr = torchaudio.load(str(audio))
         if waveform.shape[0] > 1:
-            console.print(f"[yellow]⚠️  Audio has {waveform.shape[0]} channels → downmixing to mono[/yellow]")
             waveform = waveform.mean(dim=0, keepdim=True)
         if sr != sampling_rate:
-            console.print(f"[dim]Resampling from {sr} Hz → {sampling_rate} Hz[/dim]")
             resampler = torchaudio.transforms.Resample(sr, sampling_rate)
             waveform = resampler(waveform)
-        audio = waveform.squeeze(0).numpy()
+        audio_tensor = waveform.squeeze(0)
     elif isinstance(audio, np.ndarray):
-        if audio.dtype == np.int16:
-            audio = audio.astype(np.float32) / 32768.0
-        elif audio.dtype != np.float32:
-            audio = audio.astype(np.float32)
-        if audio.ndim > 1:
-            if audio.shape[0] > 1:
-                console.print(f"[yellow]⚠️  NumPy input has {audio.shape[0]} channels → downmixing to mono[/yellow]")
-                audio = audio.mean(axis=0)
-            else:
-                audio = audio.squeeze()
+        audio_tensor = torch.from_numpy(audio.astype(np.float32))
+        if audio_tensor.ndim > 1:
+            audio_tensor = audio_tensor.mean(dim=0)
     elif isinstance(audio, torch.Tensor):
-        if audio.dtype == torch.int16:
-            audio = audio.float() / 32768.0
-        elif audio.dtype != torch.float32:
-            audio = audio.float()
-        if audio.ndim > 1:
-            if audio.shape[0] > 1:
-                console.print(f"[yellow]⚠️  Torch input has {audio.shape[0]} channels → downmixing to mono[/yellow]")
-                audio = audio.mean(dim=0)
-            else:
-                audio = audio.squeeze(dim=0)
-        audio = audio.numpy()
+        audio_tensor = audio.float()
+        if audio_tensor.ndim > 1 and audio_tensor.shape[0] > 1:
+            audio_tensor = audio_tensor.mean(dim=0)
     else:
-        raise TypeError("audio must be torch.Tensor, np.ndarray, str or Path")
+        raise TypeError("audio must be file path, np.ndarray, or torch.Tensor")
 
-    if audio.ndim != 1:
-        raise ValueError("Audio must be mono (1D array)")
+    audio_tensor = audio_tensor.unsqueeze(0)  # (1, T)
 
-    # ALWAYS: Convert to torch.tensor for consistency downstream
-    if not isinstance(audio, torch.Tensor):
-        audio = torch.from_numpy(audio)
-    if audio.dtype != torch.float32:
-        audio = audio.float()
-    # Always (1, N) shape for pyannote
-    if audio.dim() == 1:
-        audio = audio.unsqueeze(0)
-
-    console.print("✅ Audio prepared as torch tensor (mono, 16kHz)")
-
-    # --- OPTIONAL PRE-FILTERING BY SILERO VAD ---
-    speech_mask: Optional[torch.Tensor] = None
-    if use_silero_vad:
-        vad_waveform = audio.clone().squeeze(0)  # Silero expects 1D float32
-        if vad_waveform.dtype != torch.float32:
-            vad_waveform = vad_waveform.float()
-
+    # --- Silero VAD masking ---
+    if use_silero_vad and vad_model is not None:
         speech_ts = get_speech_timestamps(
-            vad_waveform,
+            audio_tensor.squeeze(0),
             vad_model,
             threshold=vad_threshold,
             sampling_rate=sampling_rate,
             min_speech_duration_ms=min_speech_duration_ms,
             min_silence_duration_ms=min_silence_duration_ms,
             speech_pad_ms=speech_pad_ms,
-            return_seconds=False,
         )
-
         if not speech_ts:
-            console.print("[bold red]Silero VAD found no speech – returning empty result[/bold red]")
+            console.print("[bold red]No speech detected by Silero VAD[/bold red]")
             return []
 
-        # Build mask
-        mask = torch.zeros_like(vad_waveform)
+        mask = torch.zeros_like(audio_tensor.squeeze(0))
         for seg in speech_ts:
-            start = seg["start"]
-            end = seg["end"]
-            mask[start:end] = 1.0
-        # Soft fade at edges
-        fade_samples = int(0.02 * sampling_rate)
-        if fade_samples > 0 and fade_samples < mask.numel():
-            mask[:fade_samples] *= torch.linspace(0, 1, fade_samples)
-            mask[-fade_samples:] *= torch.linspace(1, 0, fade_samples)
-        # Apply mask: silence regions → -80 dB (almost zero but not exactly zero)
-        audio = audio * mask.unsqueeze(0)
-        speech_mask = mask
-        console.print(f"✅ Silero VAD applied → kept {len(speech_ts)} speech regions")
+            mask[seg["start"]:seg["end"]] = 1.0
+        fade = int(0.02 * sampling_rate)
+        if fade > 0:
+            mask[:fade] *= torch.linspace(0, 1, fade)
+            mask[-fade:] *= torch.linspace(1, 0, fade)
+        audio_tensor = audio_tensor * mask.unsqueeze(0)
+        console.print(f"Silero kept {len(speech_ts)} speech regions")
 
-    pyannote_input = {"waveform": audio, "sample_rate": sampling_rate}
-
+    # --- Run pyannote diarization ---
     with Progress(
         SpinnerColumn(),
         "[bold blue]{task.description}",
@@ -258,68 +195,70 @@ def extract_speech_speakers(
     ) as progress:
         task = progress.add_task("Running speaker diarization...", total=1)
         with ProgressHook() as hook:
-            output = pipeline(pyannote_input, hook=hook)
+            diarization = pipeline({"waveform": audio_tensor, "sample_rate": sampling_rate}, hook=hook)
         progress.update(task, completed=1)
 
-    # Build raw segments
-    raw: List[SpeechSpeakerSegment] = []
-    for idx, (turn, _, speaker) in enumerate(
-        output.speaker_diarization.itertracks(yield_label=True)
-    ):
-        raw.append(
-            SpeechSpeakerSegment(
-                idx=idx,
-                start=round(turn.start, time_resolution),
-                end=round(turn.end, time_resolution),
-                speaker=speaker,
-                duration=round(turn.end - turn.start, 3),
-                prob=1.0,
-            )
-        )
+    # --- Build raw segments (supports both legacy and full pipeline output) ---
+    if hasattr(diarization, "speaker_diarization"):
+        annotation = diarization.speaker_diarization
+    else:
+        annotation = diarization  # community model returns Annotation directly
 
-    # MERGE/POST-PROCESS: use new post-processing function here
-    cleaned_segments = _post_process_diarization(
-        raw,
+    raw_segments: List[SpeechSpeakerSegment] = [
+        SpeechSpeakerSegment(
+            idx=i,
+            start=round(turn.start, time_resolution),
+            end=round(turn.end, time_resolution),
+            speaker=speaker,
+            duration=round(turn.end - turn.start, 3),
+            prob=1.0,
+        )
+        for i, (turn, _, speaker) in enumerate(annotation.itertracks(yield_label=True))
+    ]
+
+    # --- Adaptive post-processing ---
+    processed_segments = _post_process_diarization(
+        raw_segments,
         min_duration=min_duration,
         max_gap=max_gap,
     )
 
-    # 2. Optionally resolve wrong-speaker short overlaps (optional: comment out if not wanted)
-    # cleaned_segments = _resolve_overlaps(
-    #     cleaned_segments,
-    #     overlap_threshold=0.7,   # keep this value – works well in practice
-    # )
-
-    # 3. Final clean-up: apply min_duration again + re-index and rounding
+    # --- Final clean segments ---
     final_segments = [
-        seg for seg in cleaned_segments if seg["duration"] >= min_duration
+        SpeechSpeakerSegment(
+            idx=i,
+            start=round(s["start"], time_resolution),
+            end=round(s["end"], time_resolution),
+            speaker=s["speaker"],
+            duration=round(s["end"] - s["start"], 3),
+            prob=1.0,
+        )
+        for i, s in enumerate(processed_segments)
+        if s["duration"] >= min_duration
     ]
-    for i, seg in enumerate(final_segments):
-        seg["idx"] = i
-        seg["start"] = round(seg["start"], time_resolution)
-        seg["end"] = round(seg["end"], time_resolution)
-        seg["duration"] = round(seg["end"] - seg["start"], 3)
 
     console.print(
-        f"[bold green]Speaker diarization done → {len(raw)} raw → {len(cleaned_segments)} processed → {len(final_segments)} final segments[/bold green]"
-        + (" ([cyan]Silero VAD pre-filtered[/cyan])" if use_silero_vad else "")
+        f"[bold green]Diarization complete:[/bold green] "
+        f"{len(raw_segments)} → {len(processed_segments)} → {len(final_segments)} segments"
+        + (" [cyan](VAD pre-filtered)[/cyan]" if use_silero_vad else "")
     )
+
     return final_segments
+
 
 if __name__ == "__main__":
     audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
     console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_file).name}")
+
     segments = extract_speech_speakers(
         audio_file,
-        vad_threshold=0.5,
         time_resolution=2,
         use_silero_vad=True,
     )
-    console.print(f"\n[bold green]Speaker segments found:[/bold green] {len(segments)}\n")
-    for seg in segments:
+
+    console.print(f"\n[bold green]{len(segments)} final speaker segments:[/bold green]\n")
+    for s in segments:
         console.print(
-            f"[yellow][[/yellow] [bold white]{seg['start']:.2f}[/bold white] - [bold white]{seg['end']:.2f}[/bold white] [yellow]][/yellow] "
-            f"speaker=[bold magenta]{seg['speaker']}[/bold magenta] "
-            f"duration=[bold cyan]{seg['duration']}s[/bold cyan] "
-            f"prob=[bold green]{seg['prob']:.3f}[/bold green]"
+            f"[yellow][[/yellow] {s['start']:6.2f} - {s['end']:6.2f} [yellow]][/yellow] "
+            f"{s['speaker']:>10} | {s['duration']:5.2f}s"
         )
