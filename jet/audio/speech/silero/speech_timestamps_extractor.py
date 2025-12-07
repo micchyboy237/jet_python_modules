@@ -136,7 +136,7 @@ def extract_speech_timestamps(
 
 
 if __name__ == "__main__":
-    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic_stream/recording_20251126_212124.wav"
+    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
 
     console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_file).name}")
 
