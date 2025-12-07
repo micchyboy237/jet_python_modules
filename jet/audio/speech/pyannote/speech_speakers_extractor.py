@@ -150,7 +150,10 @@ def extract_speech_speakers(
 
     # Process output into enhanced segments
     enhanced: List[SpeechSpeakerSegment] = []
-    for idx, (turn, _, speaker) in enumerate(output.itertracks(yield_label=True)):
+    # CORRECT: use the Annotation stored inside the DiarizeOutput
+    for idx, (turn, _, speaker) in enumerate(
+        output.speaker_diarization.itertracks(yield_label=True)
+    ):
         duration_sec = round(turn.end - turn.start, 3)
         start_rounded = round(turn.start, time_resolution)
         end_rounded = round(turn.end, time_resolution)
@@ -159,9 +162,9 @@ def extract_speech_speakers(
                 idx=idx,
                 start=start_rounded,
                 end=end_rounded,
-                speaker=speaker,  # e.g., 'SPEAKER_00'
+                speaker=speaker,
                 duration=duration_sec,
-                prob=1.0,  # Placeholder
+                prob=1.0,
             )
         )
 
@@ -169,7 +172,7 @@ def extract_speech_speakers(
 
 if __name__ == "__main__":
     # Example usage (replace with your HF token)
-    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic_stream/recording_20251126_212124.wav"
+    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_20251207_191523.wav"
     console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_file).name}")
     segments = extract_speech_speakers(
         audio_file,
