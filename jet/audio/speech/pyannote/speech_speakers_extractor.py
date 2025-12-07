@@ -61,7 +61,6 @@ def _merge_speaker_turns(
 @torch.no_grad()
 def extract_speech_speakers(
     audio: str | Path | np.ndarray | torch.Tensor,
-    threshold: float = 0.5,  # Only used if use_silero_vad=True
     sampling_rate: int = 16000,
     time_resolution: int = 3,   # Higher precision
     min_duration: float = 0.45, # min segment length after merge (sec)
@@ -250,7 +249,7 @@ if __name__ == "__main__":
     console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_file).name}")
     segments = extract_speech_speakers(
         audio_file,
-        threshold=0.5,
+        vad_threshold=0.5,
         time_resolution=2,
         use_silero_vad=True,
     )
