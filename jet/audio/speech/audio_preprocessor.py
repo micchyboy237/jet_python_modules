@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Literal, TypedDict
 
 import numpy as np
-import soundfile as sf
 import torch
 import torchaudio
 from silero_vad import load_silero_vad, get_speech_timestamps
@@ -16,6 +15,30 @@ console = Console()
 
 SampleRate = Literal[16000]
 Channels = Literal[1]
+
+# --- SINGLETONS for model and resampler(s) ---
+_VAD_MODEL: torch.nn.Module | None = None
+_RESAMPLERS: dict[tuple[int, int], torchaudio.transforms.Resample] = {}
+
+
+def _get_vad_model():
+    global _VAD_MODEL
+    if _VAD_MODEL is None:
+        console.log("[bold green]Loading Silero VAD model (singleton)...[/bold green]")
+        _VAD_MODEL = load_silero_vad()
+        console.log("[bold green]Silero VAD model loaded[/bold green]")
+    return _VAD_MODEL
+
+
+def _get_resampler(orig_sr: int, target_sr: int):
+    key = (orig_sr, target_sr)
+    if key not in _RESAMPLERS:
+        _RESAMPLERS[key] = torchaudio.transforms.Resample(
+            orig_freq=orig_sr,
+            new_freq=target_sr,
+            resampling_method="kaiser_window",
+        )
+    return _RESAMPLERS[key]
 
 
 class PreprocessResult(TypedDict):
@@ -39,21 +62,18 @@ class AudioPreprocessor:
         self.min_speech_duration = min_speech_duration
         self.padding_duration = padding_duration
 
-        console.log("[bold green]Loading Silero VAD model...[/bold green]")
-        self.model = load_silero_vad()
-        console.log("[bold green]Silero VAD model loaded[/bold green]")
-
-        self.resampler = None
+        self.model = _get_vad_model()
 
     def load_audio(self, file_path: str | Path | bytes) -> tuple[np.ndarray, int]:
-        if isinstance(file_path, (str, Path)):
-            audio, sr = sf.read(file_path, dtype="float32")
+        # Use torchaudio for robust, fast, format-agnostic loading!
+        if isinstance(file_path, bytes):
+            info = torchaudio.info(io.BytesIO(file_path))
+            waveform, sr = torchaudio.load(io.BytesIO(file_path))
         else:
-            audio, sr = sf.read(io.BytesIO(file_path), dtype="float32")
+            waveform, sr = torchaudio.load(file_path)
 
-        if audio.ndim > 1:
-            audio = audio.mean(axis=1)
-
+        audio = waveform.numpy().mean(axis=0)  # to mono
+        audio = np.ascontiguousarray(audio, dtype=np.float32)
         console.log(f"Loaded audio: sr={sr}Hz, duration={len(audio)/sr:.2f}s, peak={np.abs(audio).max():.4f}")
         return audio, sr
 
@@ -62,14 +82,9 @@ class AudioPreprocessor:
             console.log("No resampling needed (already 16kHz)")
             return audio
 
-        if self.resampler is None or self.resampler.orig_freq != orig_sr:
-            self.resampler = torchaudio.transforms.Resample(
-                orig_freq=orig_sr,
-                new_freq=self.target_sr,
-                resampling_method="kaiser_window",
-            )
+        resampler = _get_resampler(orig_sr, self.target_sr)
         tensor = torch.from_numpy(audio).unsqueeze(0)
-        resampled = self.resampler(tensor).squeeze(0).numpy()
+        resampled = resampler(tensor).squeeze(0).numpy()
         console.log(f"Resampled {orig_sr} → {self.target_sr}Hz, new length: {len(resampled)}")
         return resampled
 
