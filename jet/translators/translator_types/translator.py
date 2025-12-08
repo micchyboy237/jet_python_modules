@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any, Callable, Literal, Sequence
 from typing_extensions import NotRequired, TypedDict
 
@@ -83,4 +84,5 @@ class Translator(ctranslate2.Translator):
         **kwargs: Any,
     ) -> list[TranslationResult]:
         opts = (options.as_dict() if options else {}) | kwargs
+        print(f"opts:\n{json.dumps(opts, indent=2)}")
         return super().translate_batch(source, target_prefix=target_prefix, **opts)

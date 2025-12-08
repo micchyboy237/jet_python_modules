@@ -1,11 +1,22 @@
-from typing import List
-
+# jet/translators/translate_jp_en2.py
+from typing import Any, Dict, List, Sequence, Tuple, Union
 from transformers import AutoTokenizer
 
-from jet.translators.types import Device, BatchType, TranslationOptions, Translator
+from jet.translators.translator_types import (
+    Device,
+    BatchType,
+    TranslationOptions,
+    Translator,
+)
 
 # ── Device auto-detection with memory safety ──────────────────────────────────
 import torch
+from jet.translators.analyzer import (
+    analyze_logits,
+    analyze_translation_results,
+    print_analysis_table,
+    print_logits_insights,
+)
 
 MIN_FREE_VRAM_GB = 2.0  # Safe threshold for quantized Opus-MT models
 
@@ -15,22 +26,13 @@ DEFAULT_TOKENIZER = "Helsinki-NLP/opus-mt-ja-en"
 
 
 def detect_device() -> Device:
-    """
-    Automatically choose the best device:
-      - "cuda"  → if GPU available AND ≥ 2 GB free VRAM
-      - "cpu"   → otherwise
-
-    Uses PyTorch (already a dependency via transformers).
-    """
+    """Auto-detect GPU if enough VRAM, else CPU."""
     if not torch.cuda.is_available():
         return "cpu"
-
     try:
-        # Get current free memory in bytes
-        free_memory_bytes = torch.cuda.mem_get_info()[0]  # (free, total)
-        free_memory_gb = free_memory_bytes / (1024 ** 3)
-        print(f"Detected free GPU VRAM: {free_memory_gb:.2f} GB")  # Print free memory
-
+        free_memory_bytes = torch.cuda.mem_get_info()[0]
+        free_memory_gb = free_memory_bytes / (1024**3)
+        print(f"Detected free GPU VRAM: {free_memory_gb:.2f} GB")
         if free_memory_gb >= MIN_FREE_VRAM_GB:
             return "cuda"
         else:
@@ -44,7 +46,70 @@ def detect_device() -> Device:
         return "cpu"
 
 
-# ── Single Translation ───────────────────────────────────────────────────────
+# ── Shared Core Translation Logic ─────────────────────────────────────────────
+def _translate_core(
+    source_texts: Sequence[str],
+    *,
+    model_path: str,
+    tokenizer_name: str,
+    beam_size: int,
+    max_decoding_length: int,
+    device: Device,
+    max_batch_size: int = 0,
+    batch_type: BatchType = "examples",
+    **options: TranslationOptions,
+) -> Union[
+    Tuple[List[str], List[Dict[str, Any]]],
+    Tuple[List[str], List[Dict[str, Any]], Dict[str, Any] | None],
+]:
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    translator = Translator(model_path, device=device)
+
+    source_batches: List[List[str]] = [
+        tokenizer.convert_ids_to_tokens(tokenizer.encode(text))
+        for text in source_texts
+    ]
+
+    results = translator.translate_batch(
+        source_batches,
+        options=TranslationOptions(
+            beam_size=beam_size,
+            max_decoding_length=max_decoding_length,
+            max_batch_size=max_batch_size,
+            batch_type=batch_type,
+            **options,
+        ),
+    )
+
+    translations = [
+        tokenizer.decode(tokenizer.convert_tokens_to_ids(result.hypotheses[0])).strip()
+        for result in results
+    ]
+
+    translation_analysis = analyze_translation_results(results)
+
+    # FIXED LOGITS EXTRACTION
+    if options.get("return_logits_vocab", False):
+        logits_for_analysis = []
+        for r in results:
+            if not hasattr(r, "logits") or not r.logits:
+                continue
+            hyp_logits = r.logits[0]  # list of StorageView (one per generated token)
+            try:
+                converted = [token_logits.to_numpy() for token_logits in hyp_logits]
+                logits_for_analysis.append(converted)
+            except Exception as e:
+                print(f"Warning: Failed to extract logits: {e}")
+                continue
+
+        logits_analysis = analyze_logits(logits_for_analysis)
+
+        return translations, translation_analysis, logits_analysis
+    else:
+        return translations, translation_analysis
+
+
+# ── Public APIs ─────────────────────────────────────────────────────────────
 def translate_ja_to_en(
     text: str,
     *,
@@ -52,56 +117,31 @@ def translate_ja_to_en(
     tokenizer_name: str = DEFAULT_TOKENIZER,
     beam_size: int = 5,
     max_decoding_length: int = 512,
-    device: Device | None = None,  # ← now optional!
+    device: Device | None = None,
     **options: TranslationOptions,
 ) -> str:
-    """
-    Translate a single Japanese sentence to English using a quantized Opus-MT model.
-
-    All translation options are fully type-checked via :class:`TranslationOptions`.
-
-    Args:
-        text: Japanese input text.
-        model_path: Path to the CTranslate2-converted model.
-        tokenizer_name: Hugging Face tokenizer (must match the model).
-        beam_size: Beam size (1 = greedy decoding).
-        max_decoding_length: Maximum number of generated tokens.
-        device: Device to run on ("cpu", "cuda", "auto", or ``None`` for smart auto-detect).
-        **options: Any additional valid keys from :class:`TranslationOptions`
-                   (e.g. ``return_scores=True``, ``sampling_temperature=0.8``).
-
-    Returns:
-        Translated English string (stripped whitespace).
-    """
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-
-    # Resolve device: None or "auto" → smart detection, otherwise use as-is
     if device is None or device == "auto":
         device = detect_device()
-    # Explicit "cpu" or "cuda" → respect user choice (no memory check)
 
-    translator = Translator(model_path, device=device)  # our thin wrapper
-
-    # Tokenize → convert to subword tokens expected by CTranslate2
-    source_tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(text))
-    source_batch = [source_tokens]
-
-    results = translator.translate_batch(
-        source_batch,
-        options=TranslationOptions(
-            beam_size=beam_size,
-            max_decoding_length=max_decoding_length,
-            **options,  # user overrides
-        ),
+    translations, analysis, logits_analysis = _translate_core(
+        source_texts=[text],
+        model_path=model_path,
+        tokenizer_name=tokenizer_name,
+        beam_size=beam_size,
+        max_decoding_length=max_decoding_length,
+        device=device,
+        max_batch_size=0,
+        batch_type="examples",
+        **options,
     )
 
-    # ctranslate2 returns a list of TranslationResult objects
-    best_hypothesis: list[str] = results[0].hypotheses[0]
-    translated = tokenizer.decode(tokenizer.convert_tokens_to_ids(best_hypothesis))
-    return translated.strip()
+    print_analysis_table(analysis)
+    if logits_analysis:
+        print_logits_insights(logits_analysis)
+
+    return translations[0]
 
 
-# ── Batch Translation ────────────────────────────────────────────────────────
 def batch_translate_ja_to_en(
     texts: List[str],
     *,
@@ -114,66 +154,42 @@ def batch_translate_ja_to_en(
     batch_type: BatchType = "examples",
     **options: TranslationOptions,
 ) -> List[str]:
-    """
-    Efficient batch translation of Japanese to English.
-
-    Fully typed — IDEs and static checkers will catch invalid options instantly.
-
-    Args:
-        texts: List of Japanese sentences.
-        model_path: Path to the CTranslate2 model.
-        tokenizer_name: Matching tokenizer.
-        beam_size: Beam size for decoding.
-        max_decoding_length: Max tokens to generate.
-        device: Runtime device ("cpu", "cuda", "auto", or ``None`` → auto-detect with memory check).
-        max_batch_size: Split large inputs to reduce padding (0 = auto).
-        batch_type: "examples" or "tokens".
-        **options: Any additional :class:`TranslationOptions`.
-
-    Returns:
-        List of English translations in the same order.
-    """
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-
     if device is None or device == "auto":
         device = detect_device()
 
-    # ctranslate2.Translator is the class itself; avoid instantiating a second time
-    translator = Translator(model_path, device=device)  # our thin wrapper
-
-    source_batch: list[list[str]] = [
-        tokenizer.convert_ids_to_tokens(tokenizer.encode(text)) for text in texts
-    ]
-
-    results = translator.translate_batch(
-        source_batch,
-        options=TranslationOptions(
-            beam_size=beam_size,
-            max_decoding_length=max_decoding_length,
-            max_batch_size=max_batch_size,
-            batch_type=batch_type,
-            **options,
-        ),
+    translations, analysis, logits_analysis = _translate_core(
+        source_texts=texts,
+        model_path=model_path,
+        tokenizer_name=tokenizer_name,
+        beam_size=beam_size,
+        max_decoding_length=max_decoding_length,
+        device=device,
+        max_batch_size=max_batch_size,
+        batch_type=batch_type,
+        **options,
     )
 
-    translations = [
-        # result is now a real ctranslate2.TranslationResult → use attribute access
-        tokenizer.decode(
-            tokenizer.convert_tokens_to_ids(result.hypotheses[0])
-        ).strip()
-        for result in results
-    ]
+    print_analysis_table(analysis)
+    if logits_analysis:
+        print_logits_insights(logits_analysis)
+
     return translations
 
 
 # ── Example Usage ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     ja_example = "おい、そんな一気に冷たいものを食べると腹を壊すぞ！"
-
     print("=== Single Translation ===")
-    print(f"JA:  {ja_example}")
-    # No device argument → automatically uses GPU if available
-    print(f"EN:  {translate_ja_to_en(ja_example, beam_size=5)}")
+    print(f"JA: {ja_example}")
+
+    en_single = translate_ja_to_en(
+        ja_example,
+        beam_size=5,
+        return_scores=True,
+        return_attention=True,
+        return_logits_vocab=True,
+    )
+    print(f"EN: {en_single}")
 
     ja_batch = [
         "昨日、友達と一緒に映画を見に行きました。",
@@ -186,10 +202,11 @@ if __name__ == "__main__":
         ja_batch,
         beam_size=4,
         max_batch_size=16,
-        return_scores=True,
         sampling_temperature=0.9,
         replace_unknowns=True,
-        # device=None → auto-detect (will use GPU on your Windows machine)
+        return_scores=True,
+        return_attention=True,
+        return_logits_vocab=True,
     )
 
     for ja, en in zip(ja_batch, en_batch):

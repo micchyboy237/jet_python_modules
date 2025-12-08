@@ -6,7 +6,7 @@ import collections.abc
 from typing import Any, Dict
 from enum import Enum
 from jet.transformers.text import to_snake_case
-from jet.utils.class_utils import get_non_empty_attributes
+from jet.utils.class_utils import get_non_empty_attributes, is_class_instance
 from pydantic.main import BaseModel
 from dataclasses import is_dataclass, asdict
 
@@ -127,6 +127,9 @@ def make_serializable(obj, seen=None):
                 return _serialize_inner(dict_data, new_seen)
             except Exception:
                 return str(inner_obj)
+        elif is_class_instance(inner_obj):
+            dict_data = get_non_empty_attributes(inner_obj)
+            return _serialize_inner(dict_data, new_seen)
         else:
             return str(inner_obj)
 

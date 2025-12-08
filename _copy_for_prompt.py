@@ -28,17 +28,18 @@ exclude_files = [
     "**/dream/",
     "**/jupyter/",
     "**/*.png",
+    "**/*.pyc",
     # "**/_*",
     # "**/.cache/",
     "**/_git_stats.json",
     "**/stats_results/",
+    # "**/generated/",
     # "**/.*",
 
     # Custom
-    # "**/generated/",
     # "**/*.sh"
     # "**/__init__.py",
-    # "*.md",
+    # "**/*.md",
 ]
 include_files = [
     # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",

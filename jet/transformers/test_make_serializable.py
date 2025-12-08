@@ -437,6 +437,48 @@ def test_serializable_infinity_and_nan():
     # Extra safety: must be JSON-serializable
     json.dumps(result)  # raises if not
 
+def test_serializable_plain_class_instance_with_nested_objects():
+    # Given: a plain class (no dataclass, no BaseModel, no custom __dict__) 
+    #        containing mixed attributes and a nested instance of another plain class
+    class Address:
+        def __init__(self):
+            self.street = "123 Main St"
+            self.city = "Springfield"
+            self._secret = "hidden"
+            self.empty_list = []
+            self.none_value = None
+
+    class Person:
+        def __init__(self):
+            self.name = "Alice"
+            self.age = 30
+            self.is_active = True
+            self.address = Address()
+            self._password = "s3cr3t"
+            self.hobbies = []           # empty → should be filtered
+            self.notes = None           # None → should be filtered
+
+    input_data = Person()
+
+    # Expected: only non-empty, non-private attributes are kept
+    #           nested objects are recursively serialized
+    #           keys are converted to snake_case
+    expected = {
+        "name": "Alice",
+        "age": 30,
+        "is_active": True,
+        "address": {
+            "street": "123 Main St",
+            "city": "Springfield"
+        }
+    }
+
+    # When
+    result = make_serializable(input_data)
+
+    # Then
+    assert result == expected, f"Expected {expected!r} but got {result!r}"
+
 @pytest.fixture(autouse=True)
 def cleanup():
     yield
