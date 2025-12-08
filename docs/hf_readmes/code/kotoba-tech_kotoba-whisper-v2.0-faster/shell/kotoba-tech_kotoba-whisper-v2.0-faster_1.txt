@@ -1,0 +1,2 @@
+pip install faster-whisper
+wget https://huggingface.co/kotoba-tech/kotoba-whisper-v1.0-ggml/resolve/main/sample_ja_speech.wav

@@ -183,7 +183,7 @@ class FastJaEnTranscriber:
         return results
 
 # Example usage
-AUDIO_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/pyannote/generated/stream_speakers_extractor/speakers/004_13.23_16.64_SPEAKER_01/sound.wav"
+AUDIO_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/python_scripts/samples/audio/data/sound.wav"
 if __name__ == "__main__":
     transcriber = FastJaEnTranscriber(batch_size=16)
 
