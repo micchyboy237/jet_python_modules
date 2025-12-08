@@ -205,7 +205,7 @@ def print_results(
 
 # ———————————————————————————— MAIN DEMO ————————————————————————————
 if __name__ == "__main__":
-    ja_text = "今日はとても良い天気ですね。散歩に行きませんか？"
+    ja_text = "おい、そんな一気に冷たいものを食べると腹を壊す"
 
     rprint(Panel(f"[bold cyan]{ja_text}[/]", title="Original Japanese", border_style="bright_blue"))
 
