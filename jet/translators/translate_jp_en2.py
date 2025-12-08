@@ -3,7 +3,7 @@ import ctranslate2
 from transformers import AutoTokenizer
 from typing import List, Any
 
-QUANTIZED_MODEL_PATH = "/Users/jethroestrada/.cache/hf_translation_models/ja_en_ct2"
+QUANTIZED_MODEL_PATH = "/Users/jethroestrada/.cache/hf_ctranslate2_models/ja_en_ct2"
 
 def translate_ja_to_en(
     text: str,
