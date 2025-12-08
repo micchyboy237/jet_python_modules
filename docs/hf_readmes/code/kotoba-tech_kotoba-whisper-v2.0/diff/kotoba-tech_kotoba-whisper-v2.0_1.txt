@@ -1,0 +1,2 @@
+- result = pipe(sample, generate_kwargs=generate_kwargs)
++ result = pipe("audio.mp3", generate_kwargs=generate_kwargs)

@@ -1,0 +1,2 @@
+- model_kwargs = {"attn_implementation": "sdpa"} if torch.cuda.is_available() else {}
++ model_kwargs = {"attn_implementation": "flash_attention_2"} if torch.cuda.is_available() else {}

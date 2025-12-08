@@ -1,0 +1,2 @@
+- dataset_name = "japanese-asr/ja_asr.reazonspeech_test"
++ dataset_name = "japanese-asr/ja_asr.jsut_basic5000"
