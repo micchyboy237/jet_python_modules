@@ -110,8 +110,6 @@ def analyze_translation_results(
 
     return analyses
 
-AlignmentCategory = Literal["perfect", "good", "split", "reordered", "diffuse", "suspicious"]
-
 # === Rating helpers (return styled Text with (LEVEL)) ===
 def rated_score(score: float) -> Text:
     if score > -0.8:
