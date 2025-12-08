@@ -19,6 +19,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+# ────────────── Add Transcription Pipeline Import ──────────────
+from jet.audio.transcribers.transcription_pipeline import TranscriptionPipeline
+
 # ────────────── Logging Setup (replacing global Console) ──────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -54,6 +57,9 @@ class SpeechSegment:
 
     def duration(self) -> float:
         return self.duration_sec
+
+# # ────────────── Instantiate Transcription Pipeline (Global) ──────────────
+# trans_pipeline = TranscriptionPipeline(max_workers=3)
 
 class SileroVADStreamer:
     def __init__(
@@ -561,6 +567,12 @@ class SileroVADStreamer:
 
                 log.info(f"[bold green]Saved rich segment:[/] {seg_dir.name} → audio | json | probabilities | energy | waveform.png/vad_probability.png/energy.png | strong/weak_chunks")
 
+            # ────── ADD TRANSLATION PIPELINE SUBMIT HERE ──────
+            # Convert torch → numpy (float32, mono) exactly as your transcriber expects
+            audio_np: np.ndarray = audio_tensor.numpy().astype(np.float32)
+            trans_pipeline.submit_segment(audio_np)
+            # ────────────────────────────────────────────────
+
             self.on_speech_end(segment)
 
             self._current_start = None
@@ -711,6 +723,9 @@ if __name__ == "__main__":
     OUTPUT_DIR = os.path.join(
         os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+
+    # Instantiate transcription pipeline probably already done at global, but can do here too if you want fresh instance.
+    trans_pipeline = TranscriptionPipeline(max_workers=3)
 
     streamer = SileroVADStreamer(
         output_dir=OUTPUT_DIR,
