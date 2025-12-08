@@ -9,6 +9,13 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import print as rprint
+from jet.file.utils import save_file
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 console = Console()
 log = console.log
@@ -211,6 +218,7 @@ if __name__ == "__main__":
 
     strategies: list[Strategy] = ["sampling", "diverse_beam", "fast_sampling"]
 
+    all_results = []
     for strat in strategies:
         console.rule(f"[bold red]{strat.upper()}[/]")
 
@@ -227,3 +235,13 @@ if __name__ == "__main__":
         print_results(ja_text, results, strat, n_display=6)
 
         console.print()  # spacing
+
+        all_results.append((strat, ja_text, results))
+
+    for (strat, ja_text, results) in all_results:
+        save_file({
+            "strat": strat,
+            "ja_text": ja_text,
+            "count": len(results),
+        }, f"{OUTPUT_DIR}/{strat}/info.json")
+        save_file(results, f"{OUTPUT_DIR}/{strat}/results.json")

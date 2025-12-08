@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
-import os
-from typing import List, Optional, Sequence, Union, Literal, overload
+from typing import Any, Dict, List, Optional, Sequence, Union, Literal, overload
 
 import ctranslate2
 from ctranslate2 import Translator, TranslationResult
 from rich.console import Console
 from rich.table import Table
+from jet.file.utils import save_file
+import os
+import shutil
+
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 console = Console()
 
@@ -122,50 +128,74 @@ class JapaneseToEnglishTranslator:
         texts: Union[str, Sequence[str]],
         results: Union[TranslationResult, List[TranslationResult], List[List[TranslationResult]]],
     ) -> None:
-        """Rich table with clean diverse translations and scores."""
+        """Beautiful, correct rich table with proper Japanese to English detokenization."""
+        # Normalize input text
         if isinstance(texts, str):
             texts = [texts]
-            if isinstance(results, TranslationResult):
-                results = [results]
-            else:
-                results = [results]  # type: ignore
+
+        # Normalize results to always be List[List[TranslationResult]]
+        # This is the fixed line — was previously a syntax error!
+        if isinstance(results, TranslationResult):
+            results = [[results]]
+        elif isinstance(results, list) and results and isinstance(results[0], TranslationResult):
+            results = [results]  # Wrap single batch into list-of-batches
+        elif isinstance(results, list) and results and isinstance(results[0], list):
+            pass  # Already in correct shape: List[List[TranslationResult]]
+        else:
+            console.log("[red]Warning: Unexpected results format in pretty_print_results[/]")
+            return
 
         table = Table(
-            title="Japanese → English (Diverse Beam Search)",
+            title="Japanese to English (Diverse Beam Search)",
             title_style="bold magenta",
             show_lines=True,
+            expand=False,
+            pad_edge=False,
         )
-        table.add_column("Input (JA)", style="cyan", width=45)
-        table.add_column("Rank", justify="center", style="dim")
-        table.add_column("Translation (EN)", style="green")
-        table.add_column("Score", justify="right", style="yellow")
+        table.add_column("Input (JA)", style="cyan", width=50, overflow="fold")
+        table.add_column("Rank", justify="center", style="dim", width=6)
+        table.add_column("Translation (EN)", style="green", overflow="fold")
+        table.add_column("Score", justify="right", style="yellow", width=12)
 
-        for ja_text, batch_results in zip(texts, results):
-            # batch_results is List[TranslationResult] when num_hypotheses > 1
-            for rank, res in enumerate(batch_results, start=1):
-                # Modern TranslationResult object: hypotheses are already joined strings
+        for ja_text, batch in zip(texts, results):
+            for rank, res in enumerate(batch, start=1):
+                # Safely extract top hypothesis and score
+                tokens: List[str] = []
+                score: Optional[float] = None
+
                 if isinstance(res, TranslationResult):
-                    # hypotheses: List[str]  → take top hypothesis
-                    translation = res.hypotheses[0] if res.hypotheses else ""
-                    # scores: List[float] (one per hypothesis) → take top score
-                    score_val = res.scores[0] if res.scores else None
-                else:
-                    # Fallback for unexpected formats (e.g., legacy dict)
-                    translation = res.get("hypotheses", [""])[0] if isinstance(res, dict) else ""
-                    score_val = res.get("scores", [None])[0] if isinstance(res, dict) else None
+                    if res.hypotheses:
+                        tokens = res.hypotheses[0]
+                    if res.scores:
+                        score = res.scores[0]
+                elif isinstance(res, dict):
+                    hyp_list = res.get("hypotheses")
+                    if hyp_list and len(hyp_list) > 0:
+                        tokens = hyp_list[0]
+                    score_val = res.get("score")
+                    if score_val is None and "scores" in res and res["scores"]:
+                        score_val = res["scores"][0]
+                    score = score_val
 
-                score_str = f"{score_val:.4f}" if score_val is not None else "—"
+                # Correct detokenization for Opus-MT / Helsinki models (SentencePiece)
+                translation = "".join(tokens).replace("▁", " ").strip()
+                translation = " ".join(translation.split())  # Clean multiple spaces
+
+                if not translation:
+                    translation = "[empty translation]"
+
+                score_str = f"{score:.4f}" if score is not None else "—"
 
                 table.add_row(
-                    ja_text if rank == 1 else "",
+                    ja_text if rank == 1 else "",  # Show source only on first row
                     str(rank),
                     translation,
                     score_str,
                 )
-            table.add_row("")  # separator
+
+            table.add_row("")  # Visual separator between sentences
 
         console.print(table)
-
 
 def to_serializable_results(
     results: Union[TranslationResult, List[TranslationResult], List[List[TranslationResult]]],
@@ -235,10 +265,60 @@ def translate_ja_en_diverse(
 
     return results
 
+
+def translation_result_to_dict(result: ctranslate2.TranslationResult) -> Dict[str, Any]:
+    """
+    Robust conversion of a single TranslationResult → dict.
+    Handles the fact that each hypothesis is a list of token strings (not a dict-like object).
+    """
+    data: Dict[str, Any] = {}
+
+    # hypotheses is List[List[str]] → convert each inner list to plain strings for readability
+    data["hypotheses"] = [
+        "".join(hyp).replace("▁", " ").strip()           # proper SentencePiece detokenization
+        if isinstance(hyp, (list, tuple)) else str(hyp)
+        for hyp in result.hypotheses
+    ]
+
+    # top hypothesis as a clean string (most common use-case)
+    data["top_hypothesis"] = data["hypotheses"][0] if result.hypotheses else None
+
+    # Optional fields that may exist
+    optional_attrs = ["scores", "attention", "logits", "alignment"]
+
+    for attr in optional_attrs:
+        if hasattr(result, attr):
+            value = getattr(result, attr)
+            if value is None:
+                continue
+
+            if attr in ("attention", "alignment"):
+                # convert numpy arrays → plain python lists
+                if attr == "attention":
+                    data[attr] = [
+                        [matrix.tolist() for matrix in seq_att]
+                        for seq_att in value
+                    ]
+                else:  # alignment
+                    data[attr] = [matrix.tolist() for matrix in value]
+            else:
+                data[attr] = value
+
+    return data
+
+
+# Batch version (most useful in practice)
+def translation_results_to_dicts(
+    results: List[ctranslate2.TranslationResult],
+) -> List[Dict[str, Any]]:
+    """Convert a whole batch of TranslationResult objects to list[dict]."""
+    return [translation_result_to_dict(res) for res in results]
+
 # Updated demo (use the new helper for JSON printing)
 if __name__ == "__main__":
     results = translate_ja_en_diverse(
         [
+            "おい、そんな一気に冷たいものを食べると腹を壊す",
             "昨日、友達と一緒に映画を見に行きました。",
             "日本は美しい国ですね！"
         ],
@@ -247,5 +327,9 @@ if __name__ == "__main__":
         max_decoding_length=512,
         pretty_print=True,
     )
+    results_dicts = [translation_result_to_dict(res) for res in results]
     serializable = to_serializable_results(results)
     print(f"\nResults ({len(results)}):\n{json.dumps(serializable, indent=2)}")
+    save_file(results, f"{OUTPUT_DIR}/results.json")
+    save_file(serializable, f"{OUTPUT_DIR}/serializable.json")
+    save_file(results_dicts, f"{OUTPUT_DIR}/results_dicts.json")
