@@ -1,3 +1,4 @@
+import json
 import ctranslate2
 from transformers import AutoTokenizer
 from typing import List, Any
@@ -56,26 +57,53 @@ def batch_translate_ja_to_en(
     texts: List[str],
     model_path: str = QUANTIZED_MODEL_PATH,
     tokenizer_name: str = "Helsinki-NLP/opus-mt-ja-en",
+    beam_size: int = 5,
+    max_decoding_length: int = 512,
+    device: str = "cpu",
     **kwargs: Any,
 ) -> List[str]:
-    """Batch version of translate_ja_to_en."""
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-    translator = ctranslate2.Translator(model_path, device=kwargs.get("device", "cpu"))
+    """
+    Batch version of translate_ja_to_en with identical default arguments.
     
+    Accepts the same translation options as translate_ja_to_en.
+    Extra kwargs are forwarded to ctranslate2.Translator.translate_batch.
+    """
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    translator = ctranslate2.Translator(model_path, device=device)
+
     source_batch = [
         tokenizer.convert_ids_to_tokens(tokenizer.encode(text)) for text in texts
     ]
-    
-    results = translator.translate_batch(source_batch, **kwargs)
-    
+
+    results = translator.translate_batch(
+        source_batch,
+        beam_size=beam_size,
+        max_decoding_length=max_decoding_length,
+        **kwargs,  # allow extra ctranslate2 options (e.g. return_scores=True)
+    )
+
     translations = [
-        tokenizer.decode(tokenizer.convert_tokens_to_ids(hypotheses[0]))
-        .strip() for result in results for hypotheses in [result.hypotheses]
+        tokenizer.decode(
+            tokenizer.convert_tokens_to_ids(result.hypotheses[0])
+        ).strip()
+        for result in results
     ]
     return translations
 
-# Example usage
+# Example usage (single)
 japanese_text = "おい、そんな一気に冷たいものを食べると腹を壊す"
 english_translation = translate_ja_to_en(japanese_text)
+print("=== Single Translation Result ===")
 print(f"Input: {japanese_text}")
 print(f"Output: {english_translation}")
+
+# Example usage (batch)
+japanese_text = [
+    "おい、そんな一気に冷たいものを食べると腹を壊す",
+    "昨日、友達と一緒に映画を見に行きました。",
+    "日本は美しい国ですね！"
+]
+english_translations = batch_translate_ja_to_en(japanese_text)
+print("=== Batch Translation Results ===")
+print(f"Input: {japanese_text}")
+print(f"Outputs:\n{json.dumps(english_translations, indent=2)}")
