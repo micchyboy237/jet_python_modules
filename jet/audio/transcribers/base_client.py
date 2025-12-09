@@ -1,21 +1,32 @@
 from __future__ import annotations
 
-import asyncio
 import json
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional, AsyncGenerator  # <-- updated import
+from typing import TypedDict, Union, Optional
 
 import httpx
+import numpy as np
 from rich import print as rprint
 
 BASE_URL = "http://shawn-pc.local:8001/transcribe_translate"
 
-# Global client – created once and reused for the entire process lifetime
-_client: Optional[httpx.AsyncClient] = None
+AudioInput = Union[str, Path, bytes, bytearray, np.ndarray]
 
-async def get_client() -> httpx.AsyncClient:
-    """Lazy-initialize a high-performance AsyncClient with pooling & HTTP/2."""
+# ---- Typed Dict for Response ----
+class TranscribeResponse(TypedDict):
+    duration_sec: float
+    detected_language: str
+    detected_language_prob: float
+    transcription:         str
+    translation:           str
+
+
+# Global synchronous client – created once and reused
+_client: Optional[httpx.Client] = None
+
+
+def get_sync_client() -> httpx.Client:
+    """Lazy-initialize a high-performance synchronous Client with pooling & HTTP/2."""
     global _client
     if _client is None:
         limits = httpx.Limits(
@@ -25,129 +36,123 @@ async def get_client() -> httpx.AsyncClient:
         )
         timeout = httpx.Timeout(30.0, connect=10.0)
 
-        # Updated: Skip raise_for_status on redirects (3xx) or informational (1xx)
-        async def raise_on_4xx_5xx(response: httpx.Response):
-            # Only raise on client/server errors (4xx/5xx); allow 1xx/2xx/3xx
+        def raise_on_4xx_5xx(response: httpx.Response):
             if response.is_client_error or response.is_server_error:
                 try:
                     response.raise_for_status()
                 except httpx.HTTPStatusError as exc:
                     rprint(f"[bold red]HTTP error: {exc}[/bold red]")
                     raise
-            # Optional: Log non-errors for debugging
             else:
                 rprint(f"[dim cyan]Response: {response.status_code} {response.reason_phrase}[/dim cyan]")
 
-        _client = httpx.AsyncClient(
+        _client = httpx.Client(
             base_url=BASE_URL,
             timeout=timeout,
             limits=limits,
             http2=True,
             headers={"User-Agent": "audio-transcriber/1.0"},
-            follow_redirects=True,  # Explicitly enable
-            event_hooks={
-                "response": [raise_on_4xx_5xx]
-            }
+            follow_redirects=True,
+            event_hooks={"response": [raise_on_4xx_5xx]},
         )
     return _client
 
-async def upload_file_multipart(file_path: Path) -> Dict[str, Any]:
-    client = await get_client()
-    # Read synchronously once – perfectly fine for <100 MB files
-    data = file_path.read_bytes()
-    files = {
-        "data": (
-            file_path.name,
-            data,  # ← bytes directly
-            "application/octet-stream",
-        )
-    }
-    rprint(f"[bold green]Sending as multipart:[/bold green] {file_path} ({len(data):,} bytes)")
-    r = await client.post("", files=files)
-    # New: Explicitly raise on final response (post-redirects) for 4xx/5xx
-    r.raise_for_status()
-    return r.json()
 
-# --- OPTIONAL: truly async streaming version (for >500 MB files) ---
-async def _async_file_chunks(file_path: Path, chunk_size: int = 65536) -> AsyncGenerator[bytes, None]:
-    """Yield file chunks asynchronously – works with any size."""
-    def _iterator():
+def transcribe_audio(audio: AudioInput) -> TranscribeResponse:
+    """
+    Synchronous entry-point for transcription.
+
+    Accepts:
+        - File path (str / Path)
+        - Raw bytes / bytearray
+        - NumPy array (will be converted with .tobytes())
+
+    Returns parsed TranscribeResponse dict.
+    """
+    client = get_sync_client()
+
+    # ------------------------------------------------------------------
+    # 1. File path → multipart upload (best for large files on disk)
+    # ------------------------------------------------------------------
+    if isinstance(audio, (str, Path)):
+        file_path = Path(audio)
+        if not file_path.is_file():
+            raise FileNotFoundError(f"Audio file not found: {file_path}")
+
+        rprint(f"[bold green]Sending multipart:[/bold green] {file_path} ({file_path.stat().st_size:,} bytes)")
         with file_path.open("rb") as f:
-            while chunk := f.read(chunk_size):
-                yield chunk
-    for chunk in _iterator():   # runs synchronously but yields fast enough for network
-        yield chunk
+            files = {
+                "data": (
+                    file_path.name,
+                    f,
+                    "application/octet-stream",
+                )
+            }
+            response = client.post("", files=files)
 
+    # ------------------------------------------------------------------
+    # 2. In-memory bytes / bytearray / np.ndarray → raw binary body
+    # ------------------------------------------------------------------
+    else:
+        if isinstance(audio, np.ndarray):
+            data: bytes = audio.tobytes()
+        elif isinstance(audio, (bytes, bytearray)):
+            data = bytes(audio)
+        else:
+            raise TypeError(
+                f"Unsupported audio input type: {type(audio)!r}. "
+                "Expected Path/str, bytes, bytearray, or np.ndarray."
+            )
 
-async def upload_file_multipart_streaming(file_path: Path) -> Dict[str, Any]:
-    client = await get_client()
-
-    async def _streaming_generator():
-        async for chunk in _async_file_chunks(file_path):
-            yield chunk
-
-    files = {
-        "data": (
-            file_path.name,
-            _streaming_generator(),
-            "application/octet-stream",
+        rprint(f"[bold yellow]Sending raw bytes:[/bold yellow] {len(data):,} bytes")
+        response = client.post(
+            "",
+            content=data,
+            headers={"Content-Type": "application/octet-stream"},
         )
-    }
-    rprint(f"[bold green]Streaming multipart:[/bold green] {file_path}")
-    r = await client.post("", files=files)
-    # New: Explicitly raise on final response
-    r.raise_for_status()
-    return r.json()
 
-async def upload_raw_bytes(data: bytes) -> Dict[str, Any]:
-    client = await get_client()
-    rprint(f"[bold yellow]Sending as raw bytes:[/bold yellow] {len(data):,} bytes")
-    r = await client.post(
-        "",
-        content=data,
-        headers={"Content-Type": "application/octet-stream"},
-    )
-    # New: Explicitly raise on final response
-    r.raise_for_status()
-    return r.json()
+    # ------------------------------------------------------------------
+    # Common response handling
+    # ------------------------------------------------------------------
+    response.raise_for_status()
+    result: TranscribeResponse = response.json()
+    return result
 
-async def close_client() -> None:
-    """Call this on app shutdown or script exit."""
+
+def close_sync_client() -> None:
+    """Close the global synchronous client and free resources."""
     global _client
     if _client is not None:
-        await _client.aclose()
+        _client.close()
         _client = None
 
-async def main() -> None:
-    file_path = Path(
-        "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/"
-        "python_scripts/samples/audio/data/sound.wav"
-    )
 
-    start = time.perf_counter()
-    result1 = await upload_file_multipart(file_path)
-    mid = time.perf_counter()
-    rprint(json.dumps(result1, indent=2, ensure_ascii=False))
-    rprint(f"[bold green]multipart duration:[/bold green] {mid - start:.3f}s")
-
-    rprint("\n" + "─" * 50 + "\n")
-
-    start2 = time.perf_counter()
-    data = file_path.read_bytes()
-    result2 = await upload_raw_bytes(data)
-    end = time.perf_counter()
-    rprint(json.dumps(result2, indent=2, ensure_ascii=False))
-    rprint(f"[bold yellow]raw bytes duration:[/bold yellow] {end - start2:.3f}s")
-
-    # Total time (useful when batching many files)
-    rprint(f"[bold cyan]Total elapsed:[/bold cyan] {end - start:.3f}s")
-
-    # Always close cleanly
-    await close_client()
-
+# ----------------------------------------------------------------------
+# Example usage (can be placed in if __name__ == "__main__": block)
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
+    import time
     try:
-        asyncio.run(main())
+        file_path = Path(
+            "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/"
+            "python_scripts/samples/audio/data/sound.wav"
+        )
+        # Test with file path
+        start1 = time.perf_counter()
+        result1 = transcribe_audio(file_path)
+        end1 = time.perf_counter()
+        rprint("[bold green]Multipart result:[/bold green]")
+        rprint(json.dumps(result1, indent=2, ensure_ascii=False))
+        print(f"[bold green]upload_file_multipart duration:[/bold green] {end1 - start1:.3f} seconds")
+
+        # Test with in-memory bytes
+        raw_data = file_path.read_bytes()
+        start2 = time.perf_counter()
+        result2 = transcribe_audio(raw_data)
+        end2 = time.perf_counter()
+        rprint("[bold yellow]Raw bytes result:[/bold yellow]")
+        rprint(json.dumps(result2, indent=2, ensure_ascii=False))
+        print(f"[bold yellow]upload_raw_bytes duration:[/bold yellow] {end2 - start2:.3f} seconds")
+
     finally:
-        # Guarantees cleanup even on Ctrl+C
-        asyncio.run(close_client())
+        close_sync_client()
