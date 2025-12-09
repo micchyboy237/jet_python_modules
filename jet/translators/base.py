@@ -105,8 +105,12 @@ def _translate_core(
     return translations, translation_analysis, logits_analysis
 
 
+def select_model_tokenizer(language: str):
+    pass
+
+
 # ── Public APIs ─────────────────────────────────────────────────────────────
-def translate_ja_to_en(
+def translate_text(
     text: str,
     *,
     model_path: str = QUANTIZED_MODEL_PATH,
@@ -114,6 +118,7 @@ def translate_ja_to_en(
     beam_size: int = 5,
     max_decoding_length: int = 512,
     device: Device | None = None,
+    language: str | None = None,
     **options: TranslationOptions,
 ) -> str:
     if device is None or device == "auto":
@@ -138,7 +143,7 @@ def translate_ja_to_en(
     return translations[0]
 
 
-def batch_translate_ja_to_en(
+def batch_translate_text(
     texts: List[str],
     *,
     model_path: str = QUANTIZED_MODEL_PATH,
@@ -178,7 +183,7 @@ if __name__ == "__main__":
     print("=== Single Translation ===")
     print(f"JA: {ja_example}")
 
-    en_single = translate_ja_to_en(
+    en_single = translate_text(
         ja_example,
         beam_size=5,
         return_scores=True,
@@ -194,7 +199,7 @@ if __name__ == "__main__":
     ]
 
     print("\n=== Batch Translation ===")
-    en_batch = batch_translate_ja_to_en(
+    en_batch = batch_translate_text(
         ja_batch,
         beam_size=4,
         max_batch_size=16,

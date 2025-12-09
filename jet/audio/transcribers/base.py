@@ -151,8 +151,6 @@ def transcribe_audio(
 
     # 3. Transcribe in original language
     text_original = transcribe(model, features, processor, language_token=lang_token)
-    print("\nTranscription:")
-    print(text_original)
 
     return text_original
 
