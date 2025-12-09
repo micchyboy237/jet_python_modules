@@ -8,6 +8,9 @@ import librosa
 import torch
 import transformers
 from typing import Any, Literal, Tuple
+from typing import Union
+import numpy.typing as npt
+
 
 QuantizedModelSizes = Literal[
     "tiny", "base", "small", "medium", "large-v2", "large-v3"
@@ -30,11 +33,13 @@ def load_whisper_ct2_model(
     model = ctranslate2.models.Whisper(model_dir)
     return model, processor
 
-
-from typing import Union
-import numpy.typing as npt
-
-AudioInput = Union[str, bytes, os.PathLike, npt.NDArray[Any], "torch.Tensor"]  # torch optional
+AudioInput = Union[
+    str,
+    bytes,
+    os.PathLike,
+    npt.NDArray[np.floating | np.integer],
+    torch.Tensor,
+]
 
 def load_audio(
     audio: AudioInput,
@@ -42,48 +47,61 @@ def load_audio(
     mono: bool = True,
 ) -> np.ndarray:
     """
-    Load audio from a file path or directly use a numpy array / torch tensor.
+    Robust audio loader for ASR pipelines with correct datatype, normalization, layout, and resampling.
     
+    Handles:
+      - File paths
+      - In-memory WAV bytes
+      - NumPy arrays (any shape/layout/dtype/sr)
+      - Torch tensors
+      - Automatically normalizes to [-1.0, 1.0] float32
+      - Always resamples to target_sr
+      - Correctly converts stereo → mono regardless of channel position
     Returns
     -------
     np.ndarray
-        Float32 array in [-1.0, 1.0], resampled to `sr` Hz, converted to mono if requested.
+        Shape (samples,), float32, [-1.0, 1.0], exactly `sr` Hz
     """
-    # Case 1: already a numpy array → normalize / resample / channel-mix
-    if isinstance(audio, np.ndarray):
+    # ─────── FIX 1: In-memory arrays/tensors have unknown original sr ───────
+    import io
+    current_sr: int | None
+    if isinstance(audio, (str, os.PathLike)):
+        y, current_sr = librosa.load(audio, sr=None, mono=False)
+    elif isinstance(audio, bytes):
+        y, current_sr = librosa.load(io.BytesIO(audio), sr=None, mono=False)
+    elif isinstance(audio, np.ndarray):
         y = audio.astype(np.float32, copy=False)
-        current_sr = sr  # we have no way of knowing the original sr → assume target sr
-    # Optional torch support (no hard dependency)
-    elif hasattr(audio, "__torch__") or "torch" in str(type(audio)):
+        current_sr = None
+    elif isinstance(audio, torch.Tensor):
         y = audio.float().cpu().numpy()
-        current_sr = sr
-    # Case 2: everything else → delegate to librosa (paths, file-like objects, etc.)
+        current_sr = None
     else:
-        y, current_sr = librosa.load(audio, sr=None, mono=False)  # load native sr first
+        raise TypeError(f"Unsupported audio input type: {type(audio)}")
 
-    # Ensure float32
-    if y.dtype != np.float32:
-        y = y.astype(np.float32)
+    # ─────── FIX 2: Correct normalization (NumPy, not torch) ───────
+    if np.issubdtype(y.dtype, np.integer):
+        y = y / (2 ** (np.iinfo(y.dtype).bits - 1))
+    elif np.abs(y).max() > 1.0 + 1e-6:
+        y = y / np.abs(y).max()
 
-    # Resample only if needed (librosa is very cheap when sr matches)
+    # ─────── FIX 3: Always make (channels, time) layout ───────
+    if y.ndim == 1:
+        y = y[None, :]
+    elif y.ndim == 2:
+        if y.shape[0] > y.shape[1]:
+            y = y.T
+    else:
+        raise ValueError(f"Audio must be 1D or 2D, got shape {y.shape}")
+
+    # Mono conversion
+    if mono and y.shape[0] > 1:
+        y = np.mean(y, axis=0, keepdims=True)
+
+    # ─────── FIX 4: ALWAYS resample if current_sr is None or wrong ───────
     if current_sr != sr:
-        y = librosa.resample(y, orig_sr=current_sr, target_sr=sr)
+        y = librosa.resample(y, orig_sr=current_sr or sr, target_sr=sr)
 
-    # Convert to mono if requested
-    if mono and y.ndim > 1:
-        y = y.mean(axis=0) if y.shape[0] <= y.shape[-1] else np.mean(y, axis=0)
-
-    # Normalize to [-1, 1] range for integer inputs that librosa didn't already normalize
-    if y.max() > 1.0 or y.min() < -1.0:
-        if np.issubdtype(y.dtype, np.integer):
-            bit_depth = np.iinfo(y.dtype).bits
-            y = y.astype(np.float32) / (2 ** (bit_depth - 1))
-        else:
-            peak = np.max(np.abs(y))
-            if peak > 0:
-                y /= peak
-
-    return y
+    return y.squeeze()
 
 
 def preprocess_audio(

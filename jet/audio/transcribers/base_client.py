@@ -7,10 +7,12 @@ from typing import TypedDict, Union, Optional
 import httpx
 import numpy as np
 from rich import print as rprint
+from mimetypes import guess_type
 
 BASE_URL = "http://shawn-pc.local:8001/transcribe_translate"
 
 AudioInput = Union[str, Path, bytes, bytearray, np.ndarray]
+
 
 # ---- Typed Dict for Response ----
 class TranscribeResponse(TypedDict):
@@ -23,6 +25,12 @@ class TranscribeResponse(TypedDict):
 
 # Global synchronous client – created once and reused
 _client: Optional[httpx.Client] = None
+
+
+def _guess_mime(path_or_filename: Union[str, Path]) -> str:
+    """Return a proper audio MIME or fall back to octet-stream only as last resort."""
+    mime, _ = guess_type(str(path_or_filename))
+    return mime or "application/octet-stream"
 
 
 def get_sync_client() -> httpx.Client:
@@ -58,7 +66,11 @@ def get_sync_client() -> httpx.Client:
     return _client
 
 
-def transcribe_audio(audio: AudioInput) -> TranscribeResponse:
+def transcribe_audio(
+    audio: AudioInput,
+    *,
+    filename: Optional[str] = None
+) -> TranscribeResponse:
     """
     Synchronous entry-point for transcription.
 
@@ -66,6 +78,7 @@ def transcribe_audio(audio: AudioInput) -> TranscribeResponse:
         - File path (str / Path)
         - Raw bytes / bytearray
         - NumPy array (will be converted with .tobytes())
+        - Optionally a filename for in-memory data (for correct MIME type)
 
     Returns parsed TranscribeResponse dict.
     """
@@ -79,23 +92,22 @@ def transcribe_audio(audio: AudioInput) -> TranscribeResponse:
         if not file_path.is_file():
             raise FileNotFoundError(f"Audio file not found: {file_path}")
 
-        rprint(f"[bold green]Sending multipart:[/bold green] {file_path} ({file_path.stat().st_size:,} bytes)")
+        mime_type = _guess_mime(file_path)
+
+        rprint(f"[bold green]Sending multipart ({mime_type}):[/bold green] {file_path}")
         with file_path.open("rb") as f:
             files = {
-                "data": (
-                    file_path.name,
-                    f,
-                    "application/octet-stream",
-                )
+                "data": (file_path.name, f, mime_type)
             }
             response = client.post("", files=files)
 
     # ------------------------------------------------------------------
-    # 2. In-memory bytes / bytearray / np.ndarray → raw binary body
+    # 2. In-memory bytes / bytearray / np.ndarray
+    #     If filename provided, send as multipart with mimetype
     # ------------------------------------------------------------------
     else:
         if isinstance(audio, np.ndarray):
-            data: bytes = audio.tobytes()
+            data = audio.tobytes()
         elif isinstance(audio, (bytes, bytearray)):
             data = bytes(audio)
         else:
@@ -104,12 +116,22 @@ def transcribe_audio(audio: AudioInput) -> TranscribeResponse:
                 "Expected Path/str, bytes, bytearray, or np.ndarray."
             )
 
-        rprint(f"[bold yellow]Sending raw bytes:[/bold yellow] {len(data):,} bytes")
-        response = client.post(
-            "",
-            content=data,
-            headers={"Content-Type": "application/octet-stream"},
-        )
+        # Prefer multipart/form upload if filename is available
+        if filename:
+            mime_type = _guess_mime(filename)
+            rprint(f"[bold cyan]Sending in-memory as multipart ({mime_type}):[/bold cyan] {filename} ({len(data):,} bytes)")
+            files = {
+                "data": (filename, data, mime_type)
+            }
+            response = client.post("", files=files)
+        else:
+            mime_type = "application/octet-stream"
+            rprint(f"[bold yellow]Sending raw bytes ({mime_type}):[/bold yellow] {len(data):,} bytes")
+            response = client.post(
+                "",
+                content=data,
+                headers={"Content-Type": mime_type},
+            )
 
     # ------------------------------------------------------------------
     # Common response handling
@@ -145,10 +167,10 @@ if __name__ == "__main__":
         rprint(json.dumps(result1, indent=2, ensure_ascii=False))
         print(f"[bold green]upload_file_multipart duration:[/bold green] {end1 - start1:.3f} seconds")
 
-        # Test with in-memory bytes
+        # Test with in-memory bytes (with filename)
         raw_data = file_path.read_bytes()
         start2 = time.perf_counter()
-        result2 = transcribe_audio(raw_data)
+        result2 = transcribe_audio(raw_data, filename="sound_from_memory.wav")
         end2 = time.perf_counter()
         rprint("[bold yellow]Raw bytes result:[/bold yellow]")
         rprint(json.dumps(result2, indent=2, ensure_ascii=False))

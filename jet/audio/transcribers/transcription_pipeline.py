@@ -14,8 +14,8 @@ from rich.table import Table
 
 import logging
 
-from jet.audio.transcribers.base import transcribe_audio
-from jet.translators.translate_jp_en2 import translate_ja_to_en
+from jet.audio.transcribers.base_client import transcribe_audio  # new unified endpoint
+# translate_ja_to_en is no longer needed – translation is already in the response
 
 # Add this near the top (after imports)
 logging.basicConfig(level=logging.DEBUG)
@@ -28,13 +28,16 @@ console = Console()
 # ----------------------------------------------------------------------
 # Placeholder stubs – replace with your real implementations
 # ----------------------------------------------------------------------
-def transcribe_ja_chunk(audio: NDArray[np.float32]) -> str:
-    """Your existing Japanese transcriber – accepts np.ndarray, returns text."""
-    return transcribe_audio(audio)
-
-def translate_ja_en(text_ja: str) -> str:
-    """Your existing Japanese → English translator."""
-    return translate_ja_to_en(text_ja)
+def transcribe_ja_chunk(audio: NDArray[np.float32]) -> dict:
+    """
+    Call the unified transcription+translation endpoint.
+    Returns the full TranscribeResponse dict (contains both transcription and translation).
+    """
+    result = transcribe_audio(audio.tobytes())
+    return {
+        "transcription": result["transcription"],
+        "translation": result["translation"],
+    }
 
 
 # ----------------------------------------------------------------------
@@ -117,11 +120,14 @@ class TranscriptionPipeline:
     def _process(self, audio: NDArray[np.float32], key: AudioKey) -> None:
         logger.debug("START _process → key=%s", key)
         try:
-            ja_text = transcribe_ja_chunk(audio)
-            logger.debug("transcribe_ja_chunk returned: %r", ja_text)
+            result = transcribe_ja_chunk(audio)          # now a dict
+            logger.debug("transcribe_audio returned: %r", result)
 
-            en_text = translate_ja_en(ja_text)
-            logger.debug("translate_ja_en returned: %r", en_text)
+            ja_text = result["transcription"].strip()
+            en_text = result.get("translation", "").strip()  # fallback empty string if missing
+
+            logger.debug("Extracted ja_text: %r", ja_text)
+            logger.debug("Extracted en_text: %r", en_text)
 
             logger.debug("Calling _cache_set...")
             self._cache_set(key, ja_text, en_text)
