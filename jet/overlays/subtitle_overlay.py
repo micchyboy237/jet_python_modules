@@ -263,34 +263,37 @@ class SubtitleOverlay(QWidget):
     @classmethod
     def create(cls, app: Optional[QApplication] = None) -> 'SubtitleOverlay':
         """
-        Creates and shows the overlay, guaranteeing perfect screen centering
-        even when called synchronously without threading delays.
+        One-liner to get a perfectly centered, always-on-top, live subtitle overlay.
         
-        Use this instead of .create() in scripts/notebooks/interactive sessions.
+        Features (all automatic):
+        - Creates QApplication if needed
+        - Prevents quit on close/minimize
+        - Perfect centering on Windows/macOS/Linux
+        - Graceful Ctrl+C shutdown
+        - Thread-safe .add_message()
         """
-        if app is None:
-            app = QApplication.instance() or QApplication(sys.argv)
-            app.setQuitOnLastWindowClosed(False)
+        app = app or QApplication.instance() or QApplication(sys.argv)
+        app.setQuitOnLastWindowClosed(False)
 
-        signal.signal(signal.SIGINT, lambda s, f: app.quit())
+        def _quit_on_sigint(sig, frame):
+            app.quit()
+        signal.signal(signal.SIGINT, _quit_on_sigint)
 
-        overlay = cls()  # __init__ builds UI but does NOT center yet
+        overlay = cls()
         overlay.show()
         overlay.raise_()
         overlay.activateWindow()
 
-        # Defer centering until after the window is fully shown and laid out
-        def _finalize_position():
-            # Force layout update
+        def _do_center():
             overlay.updateGeometry()
-            screen = QApplication.primaryScreen().availableGeometry()
+            screen = app.primaryScreen().availableGeometry()
             overlay.move(
                 screen.center().x() - overlay.width() // 2,
                 screen.center().y() - overlay.height() // 2,
             )
             overlay.logger.info("[green]Overlay centered perfectly[/]")
 
-        QTimer.singleShot(50, _finalize_position)  # 50ms is more than enough on both platforms
+        QTimer.singleShot(50, _do_center)
 
         return overlay
 

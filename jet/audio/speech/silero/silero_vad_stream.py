@@ -780,17 +780,17 @@ class SileroVADStreamer:
     def start(self) -> None:
         log.info(f"Starting Silero VAD streamer • sr={self.sample_rate} • block={self.block_size}")
 
-        # ──────── 1. Create Qt application ONCE in the main thread ────────
-        self._qt_app = QApplication.instance() or QApplication(sys.argv)
-        self._qt_app.setQuitOnLastWindowClosed(False)
+        # 1. Ensure QApplication exists (main thread)
+        app = QApplication.instance() or QApplication(sys.argv)
+        app.setQuitOnLastWindowClosed(False)  # keep alive even if overlay minimized
 
-        # ──────── 2. Create overlay (now guaranteed to be on the main thread) ────────
+        # 2. Create overlay — now guaranteed visible
         if self.show_overlay and self.overlay is None:
-            self.overlay = SubtitleOverlay.create()          # uses our fixed version
+            self.overlay = SubtitleOverlay.create()
             self.overlay.add_message("Live Subtitle Overlay • Listening…")
             log.info("[bold green]Subtitle overlay ready – perfectly centered[/]")
 
-        # ──────── 3. Start audio stream in a clean background thread ────────
+        # 3. Start audio in background thread (NO signal.signal here!)
         def _run_audio_stream():
             self._stream = sd.InputStream(
                 samplerate=self.sample_rate,
@@ -801,17 +801,22 @@ class SileroVADStreamer:
                 callback=self._audio_callback,
             )
             with self._stream:
-                signal.signal(signal.SIGINT, self._signal_handler)
-                log.info("Press Ctrl+C to stop.\n")
+                log.info("Audio stream started in background thread")
                 while True:
-                    sd.sleep(1000)   # 1-second sleep is enough
+                    sd.sleep(1000)  # keep thread alive
 
-        # Run the blocking audio loop in a daemon thread
         threading.Thread(target=_run_audio_stream, daemon=True).start()
 
-        # ──────── 4. Finally start the Qt event loop (THIS IS THE MISSING PIECE) ────────
-        log.info("[bold yellow]Qt event loop starting – you should now see the overlay[/]")
-        sys.exit(self._qt_app.exec())   # ← this keeps the process alive and shows windows
+        # 4. Install SIGINT handler ONLY in main thread (here!)
+        def _qt_safe_shutdown(sig, frame):
+            log.info("\n[bold red]Ctrl+C received – shutting down gracefully...[/]")
+            QApplication.quit()  # this will exit app.exec()
+
+        signal.signal(signal.SIGINT, _qt_safe_shutdown)
+
+        # 5. Run Qt event loop — THIS makes the window appear
+        log.info("[bold yellow]Qt event loop starting – overlay should now be visible[/]")
+        sys.exit(app.exec())
 
 if __name__ == "__main__":
     import os
@@ -824,7 +829,7 @@ if __name__ == "__main__":
     streamer = SileroVADStreamer(
         output_dir=OUTPUT_DIR,
         save_segments=True,
-        debug=False,          # set True if you want VAD debug spam
+        debug=True,          # set True if you want VAD debug spam
         show_overlay=True,    # ← live subtitles on screen
     )
     streamer.start()
