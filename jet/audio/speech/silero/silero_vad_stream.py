@@ -14,13 +14,15 @@ import logging
 from rich.logging import RichHandler
 
 # === NEW IMPORTS ===
+import sys
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from PyQt6.QtWidgets import QApplication
 
-# ────────────── Add Transcription Pipeline Import ──────────────
 from jet.audio.transcribers.transcription_pipeline import TranscriptionPipeline
+from jet.overlays.subtitle_overlay import SubtitleOverlay
 
 # ────────────── Logging Setup (replacing global Console) ──────────────
 logging.basicConfig(
@@ -72,6 +74,7 @@ class SileroVADStreamer:
         output_dir: Optional[Path | str] = None,
         save_segments: bool = True,
         debug: bool = False,
+        show_overlay: bool = True,
     ):
         self.sample_rate = sample_rate
         self.block_size = block_size
@@ -111,10 +114,29 @@ class SileroVADStreamer:
         self._stream: Optional[sd.InputStream] = None
         self._lock = threading.Lock()
 
+        # ──────── Subtitle Overlay Setup ────────
+        self.overlay: Optional[SubtitleOverlay] = None
+        self.show_overlay = show_overlay
+        self._qt_app: Optional[QApplication] = None   # ← we keep a reference
+
         # Instantiate transcription pipeline
         self._trans_pipeline = TranscriptionPipeline(max_workers=3)
 
-        # Set up transcription result callback if saving segments is enabled and output_dir is set
+        _on_transcription_result = None
+
+        # ──────── Transcription → Overlay callback ────────
+        if self.show_overlay:
+            # Will be created in .start() so the Qt app exists
+            def _on_transcription_result(ja: str, en: str, words: list[dict]):
+                # Prefer Japanese, fall back to English if empty
+                text = ja.strip() or en.strip()
+                if text and self.overlay:
+                    self.overlay.add_message(text)
+
+            self._transcription_overlay_cb = _on_transcription_result  # keep reference
+
+        # Existing save-to-disk callback (kept unchanged)
+        _segment_files_cb = None
         if self.save_segments and self.output_dir:
             def _save_transcription_files(ja: str, en: str, words: list[dict]):
                 seg_dir = Path(self.output_dir) / f"segment_{self._segment_counter:03d}"
@@ -125,8 +147,26 @@ class SileroVADStreamer:
                     (seg_dir / "translation.txt").write_text(en, encoding="utf-8")
                 self._save_srt(seg_dir, words)
                 log.info(f"[bold cyan]Saved transcription files[/] → {seg_dir.name}")
+            _segment_files_cb = _save_transcription_files
 
-            self._trans_pipeline.on_result = _save_transcription_files
+        # Compose the final on_result callback
+        if self.show_overlay and self.save_segments and self.output_dir:
+            # Both overlay and file saving are enabled
+            def _combined(ja, en, words):
+                if self._transcription_overlay_cb:
+                    self._transcription_overlay_cb(ja, en, words)
+                if _segment_files_cb:
+                    _segment_files_cb(ja, en, words)
+            self._trans_pipeline.on_result = _combined
+        elif self.show_overlay and self._transcription_overlay_cb:
+            self._trans_pipeline.on_result = self._transcription_overlay_cb
+        elif self.save_segments and _segment_files_cb:
+            self._trans_pipeline.on_result = _segment_files_cb
+
+    def overlay_message(self, text: str) -> None:
+        """Thread-safe wrapper – can be called from any thread."""
+        if self.overlay:
+            self.overlay.add_message(text)
 
     def _default_start_handler(self, timestamp: float) -> None:
         log.info(f"[green]Speech Start[/] @ {timestamp:.3f}s")
@@ -710,6 +750,12 @@ class SileroVADStreamer:
                         log.info(f"[bold green]Saved final segment:[/] {seg_dir.name}")
                 self.on_speech_end(segment)
 
+        # Close overlay nicely
+        if self.overlay:
+            self.overlay.clear()
+            self.overlay.close()
+            self.overlay = None
+
     def _seconds_to_tc(self, seconds: float) -> str:
         """Convert seconds → SRT timecode 00:00:01,234"""
         hrs = int(seconds // 3600)
@@ -733,23 +779,39 @@ class SileroVADStreamer:
 
     def start(self) -> None:
         log.info(f"Starting Silero VAD streamer • sr={self.sample_rate} • block={self.block_size}")
-        log.info("Press Ctrl+C to stop.\n")
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            blocksize=self.block_size,
-            device=self.device,
-            channels=1,
-            dtype="float32",
-            callback=self._audio_callback,
-        )
-        with self._stream:
-            signal.signal(signal.SIGINT, self._signal_handler)
-            try:
+
+        # ──────── 1. Create Qt application ONCE in the main thread ────────
+        self._qt_app = QApplication.instance() or QApplication(sys.argv)
+        self._qt_app.setQuitOnLastWindowClosed(False)
+
+        # ──────── 2. Create overlay (now guaranteed to be on the main thread) ────────
+        if self.show_overlay and self.overlay is None:
+            self.overlay = SubtitleOverlay.create()          # uses our fixed version
+            self.overlay.add_message("Live Subtitle Overlay • Listening…")
+            log.info("[bold green]Subtitle overlay ready – perfectly centered[/]")
+
+        # ──────── 3. Start audio stream in a clean background thread ────────
+        def _run_audio_stream():
+            self._stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                blocksize=self.block_size,
+                device=self.device,
+                channels=1,
+                dtype="float32",
+                callback=self._audio_callback,
+            )
+            with self._stream:
+                signal.signal(signal.SIGINT, self._signal_handler)
+                log.info("Press Ctrl+C to stop.\n")
                 while True:
-                    sd.sleep(100)
-            except KeyboardInterrupt:
-                pass
-        log.info("\nStream stopped.")
+                    sd.sleep(1000)   # 1-second sleep is enough
+
+        # Run the blocking audio loop in a daemon thread
+        threading.Thread(target=_run_audio_stream, daemon=True).start()
+
+        # ──────── 4. Finally start the Qt event loop (THIS IS THE MISSING PIECE) ────────
+        log.info("[bold yellow]Qt event loop starting – you should now see the overlay[/]")
+        sys.exit(self._qt_app.exec())   # ← this keeps the process alive and shows windows
 
 if __name__ == "__main__":
     import os
@@ -762,6 +824,7 @@ if __name__ == "__main__":
     streamer = SileroVADStreamer(
         output_dir=OUTPUT_DIR,
         save_segments=True,
-        debug=True,
+        debug=False,          # set True if you want VAD debug spam
+        show_overlay=True,    # ← live subtitles on screen
     )
     streamer.start()
