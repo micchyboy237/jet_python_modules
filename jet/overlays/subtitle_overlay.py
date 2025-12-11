@@ -166,7 +166,10 @@ class SubtitleOverlay(QWidget):
             event.accept()
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.MouseButton.LeftButton and int(self._drag_position):
+        if (
+            event.buttons() == Qt.MouseButton.LeftButton
+            and not self._drag_position.isNull()
+        ):
             self.move(event.globalPosition().toPoint() - self._drag_position)
             event.accept()
 
