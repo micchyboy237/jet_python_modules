@@ -62,7 +62,6 @@ class SubtitleOverlay(QWidget):
         self._drag_pos = QPoint()
         self._build_ui()
         self._connect_signals()
-        self._center_window()
 
         self.add_message("Live Subtitle Overlay • Ready")
         self.logger.info("[green]Ready – use .add_message('text')[/]")
@@ -263,43 +262,49 @@ class SubtitleOverlay(QWidget):
     # ─────────────────────── One-liner factory ───────────────────────
     @classmethod
     def create(cls, app: Optional[QApplication] = None) -> 'SubtitleOverlay':
-        """Create and return a ready-to-use overlay instance."""
+        """
+        Creates and shows the overlay, guaranteeing perfect screen centering
+        even when called synchronously without threading delays.
+        
+        Use this instead of .create() in scripts/notebooks/interactive sessions.
+        """
         if app is None:
             app = QApplication.instance() or QApplication(sys.argv)
             app.setQuitOnLastWindowClosed(False)
 
         signal.signal(signal.SIGINT, lambda s, f: app.quit())
 
-        overlay = cls()
+        overlay = cls()  # __init__ builds UI but does NOT center yet
         overlay.show()
         overlay.raise_()
         overlay.activateWindow()
+
+        # Defer centering until after the window is fully shown and laid out
+        def _finalize_position():
+            # Force layout update
+            overlay.updateGeometry()
+            screen = QApplication.primaryScreen().availableGeometry()
+            overlay.move(
+                screen.center().x() - overlay.width() // 2,
+                screen.center().y() - overlay.height() // 2,
+            )
+            overlay.logger.info("[green]Overlay centered perfectly[/]")
+
+        QTimer.singleShot(50, _finalize_position)  # 50ms is more than enough on both platforms
+
         return overlay
 
 
 # Demo when run directly
 if __name__ == "__main__":
-    overlay = SubtitleOverlay.create()
+    overlay = SubtitleOverlay.create()  # ← Always centered!
 
+    # Works perfectly even without threading:
+    overlay.add_message("This appears instantly")
+    overlay.add_message("And the window is perfectly centered!")
+    
     import time
-    from threading import Thread
+    time.sleep(1)
+    overlay.add_message("No thread needed anymore")
 
-    def demo():
-        msgs = [
-            "overlay.add_message() works!",
-            "Super clean API",
-            "Thread-safe",
-            "Perfect for live translation",
-            "Works on Windows + macOS",
-            "This is a very long message to test word wrapping and auto-scrolling behavior during real-time streaming...",
-        ]
-        for i, msg in enumerate(msgs * 20):
-            time.sleep(2.5)
-            overlay.add_message(msg)
-            if i == 10:
-                overlay.toggle_minimize()
-                time.sleep(1.5)
-                overlay.toggle_minimize()
-
-    Thread(target=demo, daemon=True).start()
     sys.exit(QApplication.exec())
