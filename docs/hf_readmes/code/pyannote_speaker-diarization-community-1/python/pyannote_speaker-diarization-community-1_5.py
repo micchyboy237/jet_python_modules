@@ -1,0 +1,1 @@
+output = pipeline("audio.wav", num_speakers=2)

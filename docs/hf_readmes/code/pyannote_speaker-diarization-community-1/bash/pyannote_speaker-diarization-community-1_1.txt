@@ -1,0 +1,9 @@
+# make sure git-lfs is installed (https://git-lfs.com)
+git lfs install
+
+# create a directory on disk
+mkdir /path/to/directory
+
+# when prompted for a password, use an access token with write permissions.
+# generate one from your settings: https://huggingface.co/settings/tokens
+git clone https://hf.co/pyannote/speaker-diarization-community-1 /path/to/directory/pyannote-speaker-diarization-community-1

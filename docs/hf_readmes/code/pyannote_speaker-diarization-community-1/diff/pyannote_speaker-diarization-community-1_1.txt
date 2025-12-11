@@ -1,0 +1,5 @@
+from pyannote.audio import Pipeline
+pipeline = Pipeline.from_pretrained(
+-     'pyannote/speaker-diarization-community-1', token="{huggingface-token}")
++     'pyannote/speaker-diarization-precision-2', token="{pyannoteAI-api-key}")
+diarization = pipeline("audio.wav")  # runs on pyannoteAI servers

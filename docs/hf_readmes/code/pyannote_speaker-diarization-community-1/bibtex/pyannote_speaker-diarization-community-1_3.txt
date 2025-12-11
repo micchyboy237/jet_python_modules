@@ -1,0 +1,6 @@
+@article{Landini2022,
+  author={Landini, Federico and Profant, J{\'a}n and Diez, Mireia and Burget, Luk{\'a}{\v{s}}},
+  title={{Bayesian HMM clustering of x-vector sequences (VBx) in speaker diarization: theory, implementation and analysis on standard tasks}},
+  year={2022},
+  journal={Computer Speech \& Language},
+}
