@@ -64,53 +64,7 @@ SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = """
-Update these code so that it saves all usage example results under separate OUTPUT_DIR/<example_*> folder.
-Save all results and with appropriate extension such as json (for config, generations, etc.), images (.png), html, markdown (for llm context, prompt, response, etc.), etc.
-Write individual descriptive example_<num>_* functions demonstrating all possible use cases.
-Replace all prints with the main or a custom logger.
-Add a main block if not yet added.
-Apply safe refactoring and do not change imports.
-
-
-Add this code on top
-
-```python
-from pathlib import Path
-from jet.logger import CustomLogger
-import os
-import shutil
-
-# ============================================================================
-# OUTPUT & LOGGING SETUP
-# ============================================================================
-
-OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0]
-)
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-main_logger = CustomLogger(
-    name="main",
-    filename=os.path.join(OUTPUT_DIR, "main.log"),
-    console_level="INFO",
-    level="DEBUG",
-    overwrite=True
-)
-
-def create_example_dir(example_name: str) -> Path:
-    from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
-
-    base_dir = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
-    example_dir = base_dir / example_name
-    shutil.rmtree(example_dir, ignore_errors=True)
-    example_dir.mkdir(parents=True, exist_ok=True)
-    return example_dir
-
-def get_example_logger(name: str, output_dir: Path) -> "CustomLogger":
-    log_file = output_dir / "run.log"
-    return CustomLogger(name=name, filename=log_file, overwrite=True)
-```
+Evaluate results
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
