@@ -1,44 +1,55 @@
 # subtitle_overlay.py
+# One-liner: overlay = SubtitleOverlay.create()
+# Then:      overlay.add_message("Your text here")   ← exactly what you want
+
 import sys
-import time
 import signal
 import logging
-from threading import Thread
+from typing import Optional
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QScrollArea
 )
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QObject, QTimer
 from PyQt6.QtGui import QFont
 
 from rich.logging import RichHandler
 
 
-# ────────────────────────────── Rich Logging ──────────────────────────────
-def setup_logging():
+def _setup_logging():
     logger = logging.getLogger("SubtitleOverlay")
     logger.setLevel(logging.INFO)
     if not logger.handlers:
         handler = RichHandler(rich_tracebacks=True, markup=True, show_path=False)
-        handler.setFormatter(logging.Formatter("[bold magenta]%(name)s[/] → %(message)s"))
+        handler.setFormatter(logging.Formatter("[bold magenta]Subtitle[/] → %(message)s"))
         logger.addHandler(handler)
     return logger
 
 
-# ────────────────────────────── Main Overlay ──────────────────────────────
+class _Signals(QObject):
+    _add_message = pyqtSignal(str)
+    _clear = pyqtSignal()
+    _toggle_minimize = pyqtSignal()
+
+
 class SubtitleOverlay(QWidget):
-    textChanged = pyqtSignal(str)
+    """
+    Beautiful, thread-safe, reusable live subtitle overlay.
 
-    # New signal for thread-safe text appending
-    appendRequested = pyqtSignal(str)
+    Usage:
+        overlay = SubtitleOverlay.create()
+        overlay.add_message("Hello world!")           # ← your dream API
+        overlay.add_message("Another line")
+        overlay.clear()
+    """
 
-    def __init__(self):
-        super().__init__()
-        setup_logging()
-        self.logger = logging.getLogger("SubtitleOverlay")
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.logger = _setup_logging()
+        self.signals = _Signals()
+        self.history = []
 
-        # Window setup
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
@@ -48,48 +59,38 @@ class SubtitleOverlay(QWidget):
         self.setStyleSheet("background-color: rgba(0, 0, 0, 190); border-radius: 16px;")
         self.setFixedSize(960, 600)
 
-        self.history = []
         self._drag_pos = QPoint()
-
         self._build_ui()
+        self._connect_signals()
         self._center_window()
 
-        # Connect the thread-safe signal
-        self.appendRequested.connect(self.append_text)
-
-        self.appendRequested.emit("Live Subtitle Overlay • Ready")
-        self.logger.info("[green]Overlay ready and centered[/]")
+        self.add_message("Live Subtitle Overlay • Ready")
+        self.logger.info("[green]Ready – use .add_message('text')[/]")
 
     def _build_ui(self):
         main = QVBoxLayout(self)
         main.setContentsMargins(16, 16, 16, 16)
         main.setSpacing(12)
 
-        # ── Control bar ──
+        # Control bar
         ctrl = QHBoxLayout()
         ctrl.addStretch()
 
         self.min_btn = QPushButton("−")
         self.min_btn.setFixedSize(36, 36)
-        self.min_btn.setStyleSheet("""
-            QPushButton { background: rgba(255,255,255,0.2); color: white; border-radius: 18px; font-weight: bold; }
-            QPushButton:hover { background: rgba(255,255,255,0.35); }
-        """)
-        self.min_btn.clicked.connect(self.toggle_minimize)
+        self.min_btn.setStyleSheet("background: rgba(255,255,255,0.2); color: white; border-radius: 18px; font-weight: bold;")
+        self.min_btn.clicked.connect(lambda: self.signals._toggle_minimize.emit())
 
         close_btn = QPushButton("×")
         close_btn.setFixedSize(36, 36)
-        close_btn.setStyleSheet("""
-            QPushButton { background: rgba(220,50,50,0.8); color: white; border-radius: 18px; font-weight: bold; }
-            QPushButton:hover { background: rgba(255,50,50,1); }
-        """)
+        close_btn.setStyleSheet("background: rgba(220,50,50,0.8); color: white; border-radius: 18px; font-weight: bold;")
         close_btn.clicked.connect(QApplication.quit)
 
         ctrl.addWidget(self.min_btn)
         ctrl.addWidget(close_btn)
         main.addLayout(ctrl)
 
-        # ── Scroll area ──
+        # Scroll area
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -100,35 +101,50 @@ class SubtitleOverlay(QWidget):
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.content_layout.setSpacing(10)
         self.content_layout.setContentsMargins(10, 10, 10, 10)
-
         self.scroll.setWidget(self.content)
+
         main.addWidget(self.scroll, stretch=1)
 
-        # ── Summary ──
+        # Summary
         self.summary = QLabel("1 line • 34 chars")
-        self.summary.setStyleSheet("""
-            color: #bbffbb; font-size: 15px; padding: 8px;
-            background: rgba(0,100,0,0.5); border-radius: 8px;
-        """)
+        self.summary.setStyleSheet("color: #bbffbb; font-size: 15px; padding: 8px; background: rgba(0,100,0,0.5); border-radius: 8px;")
         self.summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main.addWidget(self.summary)
 
+    def _connect_signals(self):
+        self.signals._add_message.connect(self._do_add_message)
+        self.signals._clear.connect(self.clear)
+        self.signals._toggle_minimize.connect(self.toggle_minimize)
+
     def _center_window(self):
         screen = QApplication.primaryScreen().availableGeometry()
-        self.move(
-            screen.center().x() - self.width() // 2,
-            screen.center().y() - self.height() // 2
-        )
+        self.move(screen.center().x() - self.width() // 2,
+                  screen.center().y() - self.height() // 2)
 
-    # ── Public API ──
-    def append_text(self, text: str):
-        if not text or not text.strip():
+    # ─────────────────────── Your Dream Public API ───────────────────────
+    def add_message(self, text: str):
+        """Call this from anywhere, any thread — 100% safe and clean."""
+        if not text or not str(text).strip():
             return
+        self.signals._add_message.emit(str(text).strip())
 
-        clean = text.strip()
-        self.history.append(clean)
+    def clear(self):
+        """Clear all messages"""
+        self.signals._clear.emit()
 
-        lbl = QLabel(clean)
+    def toggle_minimize(self):
+        if self.height() > 100:
+            self.setFixedHeight(80)
+            self.min_btn.setText("Box")
+        else:
+            self.setFixedHeight(600)
+            self.min_btn.setText("Minus")
+
+    # ─────────────────────── Internal (thread-safe) implementation ───────────────────────
+    def _do_add_message(self, text: str):
+        self.history.append(text)
+
+        lbl = QLabel(text)
         lbl.setWordWrap(True)
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setStyleSheet("color: white; padding: 4px;")
@@ -136,27 +152,13 @@ class SubtitleOverlay(QWidget):
 
         self.content_layout.addWidget(lbl)
 
-        # Safe auto-scroll (already in GUI thread now)
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
-            self.scroll.verticalScrollBar().maximum()
-        ))
+            self.scroll.verticalScrollBar().maximum()))
 
-        total = sum(len(l) for l in self.history)
-        self.summary.setText(f"{len(self.history)} lines • {total:,} chars")
-        self.textChanged.emit(text)
+        total_chars = sum(len(line) for line in self.history)
+        self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
 
-    def set_text(self, text: str):
-        self.append_text(text)
-
-    def toggle_minimize(self):
-        if self.height() > 100:
-            self.setFixedHeight(80)
-            self.min_btn.setText("□")
-        else:
-            self.setFixedHeight(600)
-            self.min_btn.setText("−")
-
-    # ── Dragging ──
+    # Dragging
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -167,46 +169,46 @@ class SubtitleOverlay(QWidget):
             self.move(e.globalPosition().toPoint() - self._drag_pos)
             e.accept()
 
+    # ─────────────────────── One-liner factory ───────────────────────
+    @classmethod
+    def create(cls, app: Optional[QApplication] = None) -> 'SubtitleOverlay':
+        """Create and return a ready-to-use overlay instance."""
+        if app is None:
+            app = QApplication.instance() or QApplication(sys.argv)
+            app.setQuitOnLastWindowClosed(False)
 
-# ────────────────────────────── Graceful Ctrl+C ──────────────────────────────
-def handle_sigint(sig, frame):
-    print("\n[yellow]Ctrl+C → quitting gracefully...[/]")
-    QApplication.quit()
+        signal.signal(signal.SIGINT, lambda s, f: app.quit())
 
+        overlay = cls()
+        overlay.show()
+        overlay.raise_()
+        overlay.activateWindow()
+        return overlay
+
+
+# Demo when run directly
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, handle_sigint)
+    overlay = SubtitleOverlay.create()
 
-    app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)
+    import time
+    from threading import Thread
 
-    win = SubtitleOverlay()
-    win.show()
-    win.raise_()
-    win.activateWindow()
-
-    # Ensures it's visible on Windows too
-
-    # Demo thread — now thread-safe
     def demo():
         msgs = [
-            "Text now appears instantly on Windows",
-            "Ctrl+C works perfectly",
-            "No more thread warnings",
-            "Auto-scroll to bottom",
-            "History preserved",
-            "Clean dark theme",
-            "Very long line to test wrapping and scrolling behavior when subtitles get long during live streams or presentations...",
-            "Short line",
-            "Another one!",
+            "overlay.add_message() works!",
+            "Super clean API",
+            "Thread-safe",
+            "Perfect for live translation",
+            "Works on Windows + macOS",
+            "This is a very long message to test word wrapping and auto-scrolling behavior during real-time streaming...",
         ]
-        for i, m in enumerate(msgs * 10):
+        for i, msg in enumerate(msgs * 20):
             time.sleep(2.5)
-            win.appendRequested.emit(m)   # ← Use signal instead of direct call
-            if i == 8:
-                win.toggle_minimize()
+            overlay.add_message(msg)
+            if i == 10:
+                overlay.toggle_minimize()
                 time.sleep(1.5)
-                win.toggle_minimize()
+                overlay.toggle_minimize()
 
     Thread(target=demo, daemon=True).start()
-
-    sys.exit(app.exec())
+    sys.exit(QApplication.exec())
