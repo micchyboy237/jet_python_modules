@@ -1,0 +1,1 @@
+diarization = pipeline("audio.wav", min_speakers=2, max_speakers=5)
