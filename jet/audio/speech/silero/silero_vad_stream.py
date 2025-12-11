@@ -19,6 +19,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+# ────────────── Add Transcription Pipeline Import ──────────────
+from jet.audio.transcribers.transcription_pipeline import TranscriptionPipeline
+
 # ────────────── Logging Setup (replacing global Console) ──────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -107,6 +110,23 @@ class SileroVADStreamer:
 
         self._stream: Optional[sd.InputStream] = None
         self._lock = threading.Lock()
+
+        # Instantiate transcription pipeline
+        self._trans_pipeline = TranscriptionPipeline(max_workers=3)
+
+        # Set up transcription result callback if saving segments is enabled and output_dir is set
+        if self.save_segments and self.output_dir:
+            def _save_transcription_files(ja: str, en: str, words: list[dict]):
+                seg_dir = Path(self.output_dir) / f"segment_{self._segment_counter:03d}"
+                if not seg_dir.exists():
+                    return  # Safety: segment folder might have been removed
+                (seg_dir / "transcription.txt").write_text(ja, encoding="utf-8")
+                if en:
+                    (seg_dir / "translation.txt").write_text(en, encoding="utf-8")
+                self._save_srt(seg_dir, words)
+                log.info(f"[bold cyan]Saved transcription files[/] → {seg_dir.name}")
+
+            self._trans_pipeline.on_result = _save_transcription_files
 
     def _default_start_handler(self, timestamp: float) -> None:
         log.info(f"[green]Speech Start[/] @ {timestamp:.3f}s")
@@ -561,6 +581,12 @@ class SileroVADStreamer:
 
                 log.info(f"[bold green]Saved rich segment:[/] {seg_dir.name} → audio | json | probabilities | energy | waveform.png/vad_probability.png/energy.png | strong/weak_chunks")
 
+            # ────── ADD TRANSLATION PIPELINE SUBMIT HERE ──────
+            # Convert torch → numpy (float32, mono) exactly as your transcriber expects
+            audio_np: np.ndarray = audio_tensor.numpy().astype(np.float32)
+            self._trans_pipeline.submit_segment(audio_np)
+            # ────────────────────────────────────────────────
+
             self.on_speech_end(segment)
 
             self._current_start = None
@@ -683,6 +709,27 @@ class SileroVADStreamer:
 
                         log.info(f"[bold green]Saved final segment:[/] {seg_dir.name}")
                 self.on_speech_end(segment)
+
+    def _seconds_to_tc(self, seconds: float) -> str:
+        """Convert seconds → SRT timecode 00:00:01,234"""
+        hrs = int(seconds // 3600)
+        mins = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        ms = int(round((seconds - int(seconds)) * 1000))
+        return f"{hrs:02}:{mins:02}:{secs:02},{ms:03}"
+
+    def _save_srt(self, seg_dir: Path, words: list[dict]) -> None:
+        if not words:
+            return
+        lines = []
+        for i, w in enumerate(words, start=1):
+            start = max(0.0, float(w.get("start", 0)))
+            end = float(w.get("end", start + 0.5))
+            text = w.get("word", "").strip()
+            if not text:
+                continue
+            lines.append(f"{i}\n{self._seconds_to_tc(start)} --> {self._seconds_to_tc(end)}\n{text}\n")
+        (seg_dir / "subtitles.srt").write_text("\n".join(lines), encoding="utf-8")
 
     def start(self) -> None:
         log.info(f"Starting Silero VAD streamer • sr={self.sample_rate} • block={self.block_size}")
