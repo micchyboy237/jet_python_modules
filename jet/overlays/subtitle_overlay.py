@@ -70,27 +70,69 @@ class SubtitleOverlay(QWidget):
     def _build_ui(self):
         main = QVBoxLayout(self)
         main.setContentsMargins(16, 16, 16, 16)
-        main.setSpacing(12)
+        main.setSpacing(10)
 
-        # Control bar
-        ctrl = QHBoxLayout()
-        ctrl.addStretch()
+        # === TOP CONTROL BAR (always visible) ===
+        self.control_bar = QHBoxLayout()
+        self.control_bar.setContentsMargins(12, 10, 12, 10)
+        self.control_bar.setSpacing(12)
 
-        self.min_btn = QPushButton("−")
-        self.min_btn.setFixedSize(36, 36)
-        self.min_btn.setStyleSheet("background: rgba(255,255,255,0.2); color: white; border-radius: 18px; font-weight: bold;")
-        self.min_btn.clicked.connect(lambda: self.signals._toggle_minimize.emit())
+        # Status indicator (LIVE)
+        self.status_label = QLabel("LIVE")
+        self.status_label.setStyleSheet("""
+            color: #ff4444;
+            background: rgba(255, 50, 50, 0.25);
+            border: 1px solid rgba(255, 100, 100, 0.4);
+            border-radius: 10px;
+            padding: 4px 14px;
+            font-weight: bold;
+            font-size: 15px;
+        """)
 
+        # Minimize button
+        self.min_btn = QPushButton("Minimize")
+        self.min_btn.setFixedSize(38, 38)
+        self.min_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(100, 180, 255, 0.25);
+                color: white;
+                border-radius: 19px;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton:hover { background: rgba(100, 180, 255, 0.5); }
+        """)
+
+        # Close button
         close_btn = QPushButton("×")
-        close_btn.setFixedSize(36, 36)
-        close_btn.setStyleSheet("background: rgba(220,50,50,0.8); color: white; border-radius: 18px; font-weight: bold;")
+        close_btn.setFixedSize(38, 38)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 80, 80, 0.7);
+                color: white;
+                border-radius: 19px;
+                font-weight: bold;
+                font-size: 18px;
+            }
+            QPushButton:hover { background: rgba(255, 50, 50, 1); }
+        """)
         close_btn.clicked.connect(QApplication.quit)
 
-        ctrl.addWidget(self.min_btn)
-        ctrl.addWidget(close_btn)
-        main.addLayout(ctrl)
+        self.control_bar.addWidget(self.status_label)
+        self.control_bar.addStretch()
+        self.control_bar.addWidget(self.min_btn)
+        self.control_bar.addWidget(close_btn)
 
-        # Scroll area
+        # Optional: Make whole control bar draggable
+        self.control_bar_widget = QWidget()
+        self.control_bar_widget.setLayout(self.control_bar)
+        self.control_bar_widget.setCursor(Qt.CursorShape.OpenHandCursor)
+        main.addWidget(self.control_bar_widget)
+
+        # === CONTENT AREA (scroll + summary) ===
+        self.content_area = QVBoxLayout()
+        self.content_area.setSpacing(8)
+
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -103,13 +145,22 @@ class SubtitleOverlay(QWidget):
         self.content_layout.setContentsMargins(10, 10, 10, 10)
         self.scroll.setWidget(self.content)
 
-        main.addWidget(self.scroll, stretch=1)
-
-        # Summary
-        self.summary = QLabel("1 line • 34 chars")
-        self.summary.setStyleSheet("color: #bbffbb; font-size: 15px; padding: 8px; background: rgba(0,100,0,0.5); border-radius: 8px;")
+        self.summary = QLabel("0 lines • 0 chars")
+        self.summary.setStyleSheet("""
+            color: #aaffaa; font-size: 15px; padding: 8px;
+            background: rgba(0, 100, 0, 0.5); border-radius: 8px;
+        """)
         self.summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main.addWidget(self.summary)
+
+        self.content_area.addWidget(self.scroll, stretch=1)
+        self.content_area.addWidget(self.summary)
+
+        main.addLayout(self.content_area, stretch=1)
+
+        # Initially full view
+        self.min_btn.clicked.connect(self.toggle_minimize)
+        self._is_minimized = False
+        self._original_size = None
 
     def _connect_signals(self):
         self.signals._add_message.connect(self._do_add_message)
@@ -133,12 +184,52 @@ class SubtitleOverlay(QWidget):
         self.signals._clear.emit()
 
     def toggle_minimize(self):
-        if self.height() > 100:
-            self.setFixedHeight(80)
-            self.min_btn.setText("Box")
+        """Toggle between full transcript view and minimal floating bar"""
+        if not self._is_minimized:
+            # → Minimize
+            self._original_size = self.size()
+            self.setFixedHeight(64)
+            self.content_area.layout().setEnabled(False)
+            for i in reversed(range(self.content_area.layout().count())):
+                item = self.content_area.layout().itemAt(i)
+                if item.widget():
+                    item.widget().hide()
+
+            self.control_bar.layout().setContentsMargins(16, 12, 16, 12)
+            self.status_label.setText("LIVE • MINIMIZED")
+            self.min_btn.setText("Restore")
+            self._is_minimized = True
         else:
-            self.setFixedHeight(600)
-            self.min_btn.setText("Minus")
+            # → Restore
+            if self._original_size:
+                self.setFixedSize(self._original_size)
+            else:
+                self.setFixedHeight(600)
+
+            for i in range(self.content_area.layout().count()):
+                item = self.content_area.layout().itemAt(i)
+                if item.widget():
+                    item.widget().show()
+            self.content_area.layout().setEnabled(True)
+
+            self.control_bar.layout().setContentsMargins(12, 10, 12, 10)
+            self.status_label.setText("LIVE")
+            self.min_btn.setText("Minimize")
+            self._is_minimized = False
+
+    def keyPressEvent(self, event):
+        """Global hotkeys: Ctrl+M = toggle minimize, Ctrl+Q/Esc = quit"""
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            if event.key() == Qt.Key.Key_M:
+                self.toggle_minimize()
+                return
+            elif event.key() == Qt.Key.Key_Q:
+                QApplication.quit()
+                return
+        elif event.key() == Qt.Key.Key_Escape:
+            QApplication.quit()
+            return
+        super().keyPressEvent(event)
 
     # ─────────────────────── Internal (thread-safe) implementation ───────────────────────
     def _do_add_message(self, text: str):

@@ -16,11 +16,13 @@ from rich.logging import RichHandler
 # === NEW IMPORTS ===
 import numpy as np
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # ────────────── Add Transcription Pipeline Import ──────────────
 from jet.audio.transcribers.transcription_pipeline import TranscriptionPipeline
+from jet.overlays.subtitle_overlay import SubtitleOverlay
 
 # ────────────── Logging Setup (replacing global Console) ──────────────
 logging.basicConfig(
@@ -30,6 +32,9 @@ logging.basicConfig(
     handlers=[RichHandler(rich_tracebacks=True, markup=True)],
 )
 log = logging.getLogger("silero_vad")
+
+# === GLOBAL OVERLAY INSTANCE ===
+overlay: Optional[SubtitleOverlay] = None
 
 model, utils = torch.hub.load(
     repo_or_dir="snakers4/silero-vad",
@@ -85,6 +90,11 @@ class SileroVADStreamer:
         if debug:
             log.setLevel(logging.DEBUG)
 
+        global overlay
+        if overlay is None:
+            overlay = SubtitleOverlay.create()  # ← Creates and shows the overlay once
+            overlay.add_message("Live Transcription • Ready")
+
         # Saving options
         self.output_dir = Path(output_dir) if output_dir else None
         self.save_segments = save_segments and bool(self.output_dir)
@@ -119,23 +129,34 @@ class SileroVADStreamer:
             def _save_transcription_files(ja: str, en: str, words: list[dict]):
                 seg_dir = Path(self.output_dir) / f"segment_{self._segment_counter:03d}"
                 if not seg_dir.exists():
-                    return  # Safety: segment folder might have been removed
+                    return
+
+                # Save files
                 (seg_dir / "transcription.txt").write_text(ja, encoding="utf-8")
                 if en:
                     (seg_dir / "translation.txt").write_text(en, encoding="utf-8")
                 self._save_srt(seg_dir, words)
-                log.info(f"[bold cyan]Saved transcription files[/] → {seg_dir.name}")
+
+                # === LIVE SUBTITLE DISPLAY ===
+                global overlay
+                if overlay:
+                    if en and en.strip():
+                        overlay.add_message(f"[ja]{ja.strip()}\n[en]{en.strip()}")
+                    else:
+                        overlay.add_message(ja.strip())
+
+                log.info(f"[bold cyan]Transcribed & displayed live[/] → {seg_dir.name}")
 
             self._trans_pipeline.on_result = _save_transcription_files
 
     def _default_start_handler(self, timestamp: float) -> None:
+        global overlay
+        if overlay:
+            overlay.add_message("[mic] Speaking…")
         log.info(f"[green]Speech Start[/] @ {timestamp:.3f}s")
 
     def _default_end_handler(self, segment: SpeechSegment) -> None:
-        log.info(
-            f"[bold magenta]Speech End[/] @ {segment.end_sec:.3f}s "
-            f"[cyan]dur={segment.duration():.3f}s[/]"
-        )
+        log.info(f"[bold magenta]Speech End[/] • {segment.duration():.2f}s")
 
     def _configure_time_axis(self, ax, duration: float) -> None:
         """
