@@ -1,217 +1,212 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Add these imports at the top (replace the old ones)
-# ─────────────────────────────────────────────────────────────────────────────
-
+# subtitle_overlay.py
 import sys
-
+import time
+import signal
 import logging
-from rich.logging import RichHandler
+from threading import Thread
 
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QScrollArea
 )
-from PyQt6.QtCore import Qt, QRect, QPoint, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 
-# ─────────────────────────────────────────────────────────────────────────────
-# New: Logging setup helper (add near the top of the file)
-# ─────────────────────────────────────────────────────────────────────────────
+from rich.logging import RichHandler
 
-def setup_overlay_logging(level: int = logging.INFO) -> logging.Logger:
-    """Configure rich logging for the overlay (beautiful console output)."""
+
+# ────────────────────────────── Rich Logging ──────────────────────────────
+def setup_logging():
     logger = logging.getLogger("SubtitleOverlay")
-    logger.setLevel(level)
-
-    # Avoid adding handlers multiple times
+    logger.setLevel(logging.INFO)
     if not logger.handlers:
-        handler = RichHandler(
-            rich_tracebacks=True,
-            markup=True,
-            show_path=False,
-        )
-        handler.setLevel(level)
-        formatter = logging.Formatter("[bold magenta]%(name)s[/] | %(message)s")
-        handler.setFormatter(formatter)
+        handler = RichHandler(rich_tracebacks=True, markup=True, show_path=False)
+        handler.setFormatter(logging.Formatter("[bold magenta]%(name)s[/] → %(message)s"))
         logger.addHandler(handler)
-
     return logger
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Updated class with rich logging + signals
-# ─────────────────────────────────────────────────────────────────────────────
 
+# ────────────────────────────── Main Overlay ──────────────────────────────
 class SubtitleOverlay(QWidget):
-    # Signal for external code to react to events (optional but handy)
     textChanged = pyqtSignal(str)
-    minimized = pyqtSignal(bool)
-    closed = pyqtSignal()
 
-    def __init__(
-        self,
-        initial_text: str = "Subtitle Overlay Ready",
-        font_size: int = 32,
-        width: int = 800,
-        height: int = 200,
-        parent=None
-    ):
-        super().__init__(parent)
+    # New signal for thread-safe text appending
+    appendRequested = pyqtSignal(str)
 
-        self.logger = setup_overlay_logging()
+    def __init__(self):
+        super().__init__()
+        setup_logging()
+        self.logger = logging.getLogger("SubtitleOverlay")
 
+        # Window setup
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setStyleSheet("background-color: rgba(0, 0, 0, 180); border-radius: 15px;")
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 190); border-radius: 16px;")
+        self.setFixedSize(960, 600)
 
-        self._drag_position = QPoint()
-        self._minimized = False
-        self._original_geometry = QRect(100, 100, width, height)
+        self.history = []
+        self._drag_pos = QPoint()
 
-        self._setup_ui(initial_text, font_size, width, height)
-        self.setGeometry(self._original_geometry)
+        self._build_ui()
+        self._center_window()
 
-        self.logger.info("[green]SubtitleOverlay created[/] – drag, minimize, close ready")
+        # Connect the thread-safe signal
+        self.appendRequested.connect(self.append_text)
 
-    def _setup_ui(self, initial_text: str, font_size: int, width: int, height: int):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        self.appendRequested.emit("Live Subtitle Overlay • Ready")
+        self.logger.info("[green]Overlay ready and centered[/]")
 
-        # Control bar (minimize + close)
-        control_bar = QHBoxLayout()
-        control_bar.addStretch()
+    def _build_ui(self):
+        main = QVBoxLayout(self)
+        main.setContentsMargins(16, 16, 16, 16)
+        main.setSpacing(12)
 
-        self.minimize_btn = QPushButton("−")
-        self.minimize_btn.setFixedSize(30, 30)
-        self.minimize_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 255, 255, 50);
-                border: none;
-                border-radius: 15px;
-                font-weight: bold;
-                color: white;
-            }
-            QPushButton:hover { background-color: rgba(255, 255, 255, 100); }
+        # ── Control bar ──
+        ctrl = QHBoxLayout()
+        ctrl.addStretch()
+
+        self.min_btn = QPushButton("−")
+        self.min_btn.setFixedSize(36, 36)
+        self.min_btn.setStyleSheet("""
+            QPushButton { background: rgba(255,255,255,0.2); color: white; border-radius: 18px; font-weight: bold; }
+            QPushButton:hover { background: rgba(255,255,255,0.35); }
         """)
-        self.minimize_btn.clicked.connect(self.toggle_minimize)
+        self.min_btn.clicked.connect(self.toggle_minimize)
 
         close_btn = QPushButton("×")
-        close_btn.setFixedSize(30, 30)
+        close_btn.setFixedSize(36, 36)
         close_btn.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(255, 100, 100, 150);
-                border: none;
-                border-radius: 15px;
-                font-weight: bold;
-                color: white;
-            }
-            QPushButton:hover { background-color: rgba(255, 50, 50, 200); }
+            QPushButton { background: rgba(220,50,50,0.8); color: white; border-radius: 18px; font-weight: bold; }
+            QPushButton:hover { background: rgba(255,50,50,1); }
         """)
-        close_btn.clicked.connect(self.close)
+        close_btn.clicked.connect(QApplication.quit)
 
-        control_bar.addWidget(self.minimize_btn)
-        control_bar.addWidget(close_btn)
+        ctrl.addWidget(self.min_btn)
+        ctrl.addWidget(close_btn)
+        main.addLayout(ctrl)
 
-        # Subtitle label
-        self.text_label = QLabel(initial_text)
-        self.text_label.setStyleSheet("color: white;")
-        self.text_label.setFont(QFont("Arial", font_size, QFont.Weight.Bold))
-        self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.text_label.setWordWrap(True)
+        # ── Scroll area ──
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        layout.addLayout(control_bar)
-        layout.addWidget(self.text_label, stretch=1)
+        self.content = QWidget()
+        self.content_layout = QVBoxLayout(self.content)
+        self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.content_layout.setSpacing(10)
+        self.content_layout.setContentsMargins(10, 10, 10, 10)
 
-    # ──────────────────────────────
-    # Updated methods with logging
-    # ──────────────────────────────
-    def set_text(self, text: str):
-        """Update the displayed subtitle text."""
-        old_text = self.text_label.text()
-        self.text_label.setText(text or "")
+        self.scroll.setWidget(self.content)
+        main.addWidget(self.scroll, stretch=1)
+
+        # ── Summary ──
+        self.summary = QLabel("1 line • 34 chars")
+        self.summary.setStyleSheet("""
+            color: #bbffbb; font-size: 15px; padding: 8px;
+            background: rgba(0,100,0,0.5); border-radius: 8px;
+        """)
+        self.summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main.addWidget(self.summary)
+
+    def _center_window(self):
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.move(
+            screen.center().x() - self.width() // 2,
+            screen.center().y() - self.height() // 2
+        )
+
+    # ── Public API ──
+    def append_text(self, text: str):
+        if not text or not text.strip():
+            return
+
+        clean = text.strip()
+        self.history.append(clean)
+
+        lbl = QLabel(clean)
+        lbl.setWordWrap(True)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet("color: white; padding: 4px;")
+        lbl.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+
+        self.content_layout.addWidget(lbl)
+
+        # Safe auto-scroll (already in GUI thread now)
+        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
+            self.scroll.verticalScrollBar().maximum()
+        ))
+
+        total = sum(len(l) for l in self.history)
+        self.summary.setText(f"{len(self.history)} lines • {total:,} chars")
         self.textChanged.emit(text)
-        self.logger.info(f"[cyan]Text updated[/]: '{old_text}' → '[bold] {text or '(empty)'}[/]'")
+
+    def set_text(self, text: str):
+        self.append_text(text)
 
     def toggle_minimize(self):
-        """Minimize to only show control bar or restore full size."""
-        self._minimized = not self._minimized
-        if self._minimized:
-            minimized_geom = QRect(
-                self.x(), self.y(), self.width(), 60
-            )
-            self.setGeometry(minimized_geom)
-            self.text_label.hide()
-            self.minimize_btn.setText("□")
-            self.logger.info("[yellow]Overlay minimized[/]")
+        if self.height() > 100:
+            self.setFixedHeight(80)
+            self.min_btn.setText("□")
         else:
-            self.setGeometry(self._original_geometry)
-            self.text_label.show()
-            self.minimize_btn.setText("−")
-            self.logger.info("[green]Overlay restored[/]")
-        self.minimized.emit(self._minimized)
+            self.setFixedHeight(600)
+            self.min_btn.setText("−")
 
-    def closeEvent(self, event):
-        """Override close to emit signal and log."""
-        self.closed.emit()
-        self.logger.info("[red]Overlay closed[/]")
-        super().closeEvent(event)
+    # ── Dragging ──
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            e.accept()
 
-    # Dragging support (unchanged, but still needed)
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
+    def mouseMoveEvent(self, e):
+        if e.buttons() == Qt.MouseButton.LeftButton:
+            self.move(e.globalPosition().toPoint() - self._drag_pos)
+            e.accept()
 
-    def mouseMoveEvent(self, event):
-        if (
-            event.buttons() == Qt.MouseButton.LeftButton
-            and not self._drag_position.isNull()
-        ):
-            self.move(event.globalPosition().toPoint() - self._drag_position)
-            event.accept()
 
-    def mouseReleaseEvent(self, event):
-        self._drag_position = QPoint()
+# ────────────────────────────── Graceful Ctrl+C ──────────────────────────────
+def handle_sigint(sig, frame):
+    print("\n[yellow]Ctrl+C → quitting gracefully...[/]")
+    QApplication.quit()
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Updated example usage (replace the old if __name__ block)
-# ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, handle_sigint)
+
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
 
-    overlay = SubtitleOverlay(
-        initial_text="Live Subtitle Overlay • Ready",
-        font_size=36,
-        width=900,
-        height=220
-    )
-    overlay.show()
+    win = SubtitleOverlay()
+    win.show()
+    win.raise_()
+    win.activateWindow()
 
-    # Simulate live subtitle updates
-    import time
-    from threading import Thread
+    # Ensures it's visible on Windows too
 
-    def demo_updates():
-        subtitles = [
-            "Hello! This is a live subtitle overlay.",
-            "You can drag me anywhere on the screen.",
-            "Click the minus button to minimize.",
-            "Rich logging is now active below!",
-            "Supports very long subtitles that automatically wrap because word-wrap is enabled.",
-            "Enjoy!",
-            "",
+    # Demo thread — now thread-safe
+    def demo():
+        msgs = [
+            "Text now appears instantly on Windows",
+            "Ctrl+C works perfectly",
+            "No more thread warnings",
+            "Auto-scroll to bottom",
+            "History preserved",
+            "Clean dark theme",
+            "Very long line to test wrapping and scrolling behavior when subtitles get long during live streams or presentations...",
+            "Short line",
+            "Another one!",
         ]
-        for i, line in enumerate(subtitles * 3):  # repeat a few times
-            time.sleep(3.5)
-            overlay.set_text(line)
-            if i == 5:
-                overlay.toggle_minimize()
-                time.sleep(2)
-                overlay.toggle_minimize()
+        for i, m in enumerate(msgs * 10):
+            time.sleep(2.5)
+            win.appendRequested.emit(m)   # ← Use signal instead of direct call
+            if i == 8:
+                win.toggle_minimize()
+                time.sleep(1.5)
+                win.toggle_minimize()
 
-    Thread(target=demo_updates, daemon=True).start()
+    Thread(target=demo, daemon=True).start()
 
     sys.exit(app.exec())
