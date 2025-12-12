@@ -17,7 +17,7 @@ def compute_energy(audio_frame: np.ndarray) -> float:
 
 def compute_energies(
     file_path: str | Path,
-    chunk_duration: float = 0.25,
+    chunk_duration: float = 0.05,
     silence_threshold: float | None = None,
 ) -> List[Dict[str, float]]:
     """

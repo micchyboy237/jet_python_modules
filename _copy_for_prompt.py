@@ -70,9 +70,11 @@ Evaluate results
 DEFAULT_INSTRUCTIONS_MESSAGE = """
 """.strip()
 
+# DEFAULT_SYSTEM_MESSAGE = """
+# You don't use prior artifact knowledge and memory.
+# You write step by step analysis before providing the new code or diff changes for updated code.
+# """.strip()
 DEFAULT_SYSTEM_MESSAGE = """
-You don't use prior artifact knowledge and memory.
-You write step by step analysis before providing the new code or diff changes for updated code.
 """.strip()
 
 # For existing projects

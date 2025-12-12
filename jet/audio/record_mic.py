@@ -19,9 +19,17 @@ from jet.audio.helpers.silence import (
 def record_from_mic(
     duration: Optional[int] = None,
     silence_threshold: Optional[float] = None,
-    silence_duration: float = 2.0
+    silence_duration: float = 2.0,
+    trim_silent: bool = False,  # ← new argument
 ) -> Optional[np.ndarray]:
-    """Record audio from microphone with silence detection and progress tracking."""
+    """Record audio from microphone with silence detection and progress tracking.
+
+    Args:
+        duration: Maximum recording duration in seconds (None = indefinite).
+        silence_threshold: Silence level in RMS (None = auto-calibrated).
+        silence_duration: Seconds of continuous silence to stop recording.
+        trim_silent: If True, removes silent sections from the final audio.
+    """
     silence_threshold = silence_threshold if silence_threshold is not None else calibrate_silence_threshold()
 
     duration_str = f"{duration}s" if duration is not None else "indefinite"
@@ -32,8 +40,7 @@ def record_from_mic(
     )
 
     chunk_size = int(SAMPLE_RATE * 0.5)  # 0.5 second chunks
-    max_frames = int(
-        duration * SAMPLE_RATE) if duration is not None else float('inf')
+    max_frames = int(duration * SAMPLE_RATE) if duration is not None else float('inf')
     silence_frames = int(silence_duration * SAMPLE_RATE)
     grace_frames = int(SAMPLE_RATE * 1.0)  # 1-second grace period
 
@@ -56,8 +63,7 @@ def record_from_mic(
                 chunk = stream.read(chunk_size)[0]
                 audio_data.append(chunk)
                 recorded_frames += chunk_size
-                pbar.update(0.5) if duration is not None else pbar.update(
-                    0.5)  # Update by 0.5s
+                pbar.update(0.5) if duration is not None else pbar.update(0.5)  # Update by 0.5s
 
                 # Skip silence detection during grace period
                 if recorded_frames > grace_frames and detect_silence(chunk, silence_threshold):
@@ -73,13 +79,17 @@ def record_from_mic(
         logger.warning("No audio recorded")
         return None
 
-    # Trim silent chunks
-    trimmed_data = trim_silent_chunks(audio_data, silence_threshold)
-    if not trimmed_data:
-        logger.warning("All chunks were silent after trimming")
-        return None
+    # Trim silent chunks only when requested
+    if trim_silent:
+        trimmed_data = trim_silent_chunks(audio_data, silence_threshold)
+        if not trimmed_data:
+            logger.warning("All chunks were silent after trimming")
+            return None
+        audio_data = np.concatenate(trimmed_data, axis=0)
+    else:
+        # No trimming → just concatenate everything we recorded
+        audio_data = np.concatenate(audio_data, axis=0)
 
-    audio_data = np.concatenate(trimmed_data, axis=0)
     actual_duration = len(audio_data) / SAMPLE_RATE
     logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
     return audio_data
