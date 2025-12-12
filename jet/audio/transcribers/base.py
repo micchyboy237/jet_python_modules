@@ -195,3 +195,13 @@ def translate_to_english(
     result = model.generate(features, [prompt])
     sequence = result[0].sequences_ids[0]
     return processor.decode(sequence, skip_special_tokens=True)
+
+
+if __name__ == "__main__":
+    model_size: QuantizedModelSizes = "small"
+    audio_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/python_scripts/samples/audio/data/sound.wav"
+
+    # Transcribe in original language
+    text_original = transcribe_audio(audio_path)
+    print("\nTranscription:")
+    print(text_original)

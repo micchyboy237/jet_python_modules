@@ -9,7 +9,8 @@ import numpy as np
 from rich import print as rprint
 from mimetypes import guess_type
 
-BASE_URL = "http://shawn-pc.local:8001/transcribe_translate"
+# BASE_URL = "http://shawn-pc.local:8001/transcribe_translate"
+BASE_URL = "http://shawn-pc.local:8001/transcribe_translate_old"
 
 AudioInput = Union[str, Path, bytes, bytearray, np.ndarray]
 
