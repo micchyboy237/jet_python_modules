@@ -151,3 +151,26 @@ class SpeakerEmbedding:
         e1 = self.embed(file1, start1, end1)
         e2 = self.embed(file2, start2, end2)
         return float(cdist(e1["vector"], e2["vector"], metric="cosine")[0, 0])
+
+    def similarity(
+        self,
+        file1: str,
+        file2: str,
+        *,
+        start1: float | None = None,
+        end1: float | None = None,
+        start2: float | None = None,
+        end2: float | None = None,
+    ) -> float:
+        """
+        Compute cosine similarity between two audio files or segments.
+        Returns a value between -1 and 1, where 1 means identical.
+
+        Args:
+            file1: Path to the first audio file.
+            file2: Path to the second audio file.
+            start1, end1: Optional start and end times for the first file.
+            start2, end2: Optional start and end times for the second file.
+        """
+        dist = self.distance(file1, file2, start1=start1, end1=end1, start2=start2, end2=end2)
+        return 1.0 - dist
