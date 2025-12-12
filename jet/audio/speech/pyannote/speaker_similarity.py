@@ -3,7 +3,7 @@ Reusable speaker embedding & similarity utilities using pyannote.audio.
 """
 
 from __future__ import annotations
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, Literal
 import numpy as np
 from scipy.spatial.distance import cdist
 from pyannote.audio import Model, Inference
@@ -33,7 +33,7 @@ class SpeakerEmbedding:
 
     def create_inference(
         self,
-        window: str = "whole",
+        window: Literal["whole", "sliding"] = "whole",
         duration: Optional[float] = None,
         step: Optional[float] = None,
     ) -> Inference:
