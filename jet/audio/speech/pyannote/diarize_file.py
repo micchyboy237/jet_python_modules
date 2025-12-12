@@ -11,6 +11,7 @@ import torch
 import torchaudio
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+
 from pyannote.audio import Pipeline, Model
 from pyannote.audio.pipelines.utils import get_devices
 from pyannote.core import Annotation, SlidingWindowFeature
@@ -202,6 +203,142 @@ def diarize_file(
     summary_path = output_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2))
     console.log(f"[bold green]Done![/] Summary → {summary_path}")
+
+    # === NEW: Export RTTM (standard format) ===
+    rttm_path = output_dir / "diarization.rttm"
+    with rttm_path.open("w") as f:
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            line = (
+                f"SPEAKER {audio_path.stem} 1 "
+                f"{turn.start:.3f} {turn.duration:.3f} "
+                f"<NA> <NA> {speaker} <NA> <NA>\n"
+            )
+            f.write(line)
+    console.log(f"[bold magenta]RTTM exported[/] → {rttm_path.name}")
+
+    # === NEW: Per-segment confidence from raw scores ===
+    if scores is not None:
+        # Build a mapping from time → max speaker probability
+        frame_times = np.arange(
+            scores.sliding_window.start,
+            scores.sliding_window.start + scores.data.shape[0] * scores.sliding_window.step,
+            scores.sliding_window.step,
+        )
+        # Flatten 3D → 2D if needed
+        if scores.data.ndim == 3:
+            flat_scores = scores.data.reshape(-1, scores.data.shape[-1])
+        else:
+            flat_scores = scores.data
+        confidences = flat_scores.max(axis=1)  # highest speaker prob per frame
+
+        # Attach confidence to each segment
+        for seg in turns:
+            mask = (frame_times >= seg["start_sec"]) & (frame_times < seg["end_sec"])
+            if mask.any():
+                seg_conf = float(confidences[mask].mean())
+            else:
+                seg_conf = 0.0
+            seg["confidence"] = round(seg_conf, 4)
+
+        # Update summary with confidences
+        summary["segments"] = turns
+
+    # === NEW: Beautiful HTML timeline visualization ===
+    html_path = output_dir / "timeline.html"
+
+    # Modern, accessible, high-contrast colors
+    colors = ["#8b5cf6", "#ec4899", "#10b981", "#f59e0b", "#3b82f6", "#ef4444"]
+
+    rows = ""
+    for i, seg in enumerate(turns):
+        speaker_color = colors[ord(seg["speaker"][-1]) % len(colors)]
+        conf = seg.get("confidence", 0.0)
+        opacity = max(0.4, conf)
+        rows += f'''
+        <div class="segment"
+             style="left: {seg["start_sec"]/total_seconds*100:.3f}%;
+                    width: {seg["duration_sec"]/total_seconds*100:.3f}%;
+                    background: {speaker_color}{int(opacity*255):02x};"
+             title="Speaker: {seg['speaker']} | {seg['start_sec']:.3f}–{seg['end_sec']:.3f}s | Duration: {seg['duration_sec']:.3f}s | Conf: {conf:.4f}">
+          <span class="speaker">{seg['speaker']}</span>
+          <span class="time">{seg['start_sec']:.2f}s</span>
+          <span class="conf">{conf:.3f}</span>
+        </div>'''
+
+    # Time ruler every 2 seconds
+    ticks = []
+    for t in np.arange(0, total_seconds + 0.001, 2):
+        percent = t / total_seconds * 100 if total_seconds > 0 else 0
+        ticks.append(f'<div class="tick" style="left:{percent:.3f}%"></div>')
+        ticks.append(f'<div class="tick-label" style="left:{percent:.3f}%">{t:.1f}s</div>')
+    ticks_html = "\n        ".join(ticks)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diarization • {audio_path.name}</title>
+  <style>
+    :root {{ --bg: #0d1117; --fg: #c9d1d9; --border: #30363d; }}
+    body {{ 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); color: var(--fg); margin: 0; padding: 2rem;
+    }}
+    .container {{ max-width: 1200px; margin: 0 auto; }}
+    h1 {{ margin: 0 0 1.5rem; font-weight: 600; }}
+    .info {{ opacity: 0.8; margin-bottom: 1rem; font-size: 0.95rem; }}
+    .timeline {{ 
+      position: relative; height: 80px; background: #161b22; border-radius: 12px; 
+      overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }}
+    .ruler {{ 
+      position: absolute; top: 0; left: 0; right: 0; height: 20px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .tick {{ position: absolute; top: 20px; width: 1px; height: 8px; background: var(--border); }}
+    .tick-label {{ position: absolute; top: 24px; font-size: 0.75rem; transform: translateX(-50%); }}
+    .track {{ position: relative; height: 60px; margin-top: 20px; }}
+    .segment {{
+      position: absolute; height: 44px; top: 8px; border-radius: 8px;
+      padding: 0 10px; display: flex; align-items: center; gap: 8px;
+      color: white; font-weight: 600; font-size: 0.9rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      transition: all 0.2s; white-space: nowrap; overflow: hidden;
+    }}
+    .segment:hover {{ transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.5); z-index: 10; }}
+    .speaker {{ font-weight: 700; }}
+    .time {{ font-size: 0.8rem; opacity: 0.9; }}
+    .conf {{ margin-left: auto; font-size: 0.8rem; padding: 2px 6px; background: rgba(0,0,0,0.3); border-radius: 4px; }}
+    footer {{ margin-top: 2rem; text-align: center; opacity: 0.6; font-size: 0.85rem; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Diarization Timeline</h1>
+    <div class="info">
+      {audio_path.name} • {total_seconds:.2f}s • {len(turns)} segments • {len(diarization.labels())} speakers
+    </div>
+
+    <div class="timeline">
+      <div class="ruler">
+        {ticks_html}
+      </div>
+      <div class="track">
+        {rows}
+      </div>
+    </div>
+
+    <footer>
+      Generated with pyannote-audio • Confidence = mean max-speaker probability from raw segmentation model
+    </footer>
+  </div>
+</body>
+</html>"""
+
+    html_path.write_text(html, encoding="utf-8")
+    console.log(f"[bold cyan]Interactive timeline[/] → {html_path.name}")
+
     return summary, scores
 
 if __name__ == "__main__":
