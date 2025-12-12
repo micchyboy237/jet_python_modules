@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -130,11 +129,3 @@ class SegmentSpeakerLabeler:
 
         print(f"Clustering complete → {len(set(labels))} speakers detected.")
         return results
-
-    def save_results(self, results: List[Dict[str, Any]], output_path: Path | str) -> None:
-        """Save clustering results as JSON."""
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2)
-        print(f"Results saved to {output_path}")
