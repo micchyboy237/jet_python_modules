@@ -220,18 +220,19 @@ def diarize_file(
 
     # === NEW: Per-segment confidence from raw scores ===
     if scores is not None:
-        # Build a mapping from time → max speaker probability
-        frame_times = np.arange(
-            scores.sliding_window.start,
-            scores.sliding_window.start + scores.data.shape[0] * scores.sliding_window.step,
-            scores.sliding_window.step,
-        )
-        # Flatten 3D → 2D if needed
+        # Flatten 3D → 2D if needed, and get total_frames
         if scores.data.ndim == 3:
-            flat_scores = scores.data.reshape(-1, scores.data.shape[-1])
+            num_chunks, frames_per_chunk, num_speakers = scores.data.shape
+            flat_scores = scores.data.reshape(num_chunks * frames_per_chunk, num_speakers)
+            total_frames = num_chunks * frames_per_chunk
         else:
             flat_scores = scores.data
+            total_frames = flat_scores.shape[0]
+
         confidences = flat_scores.max(axis=1)  # highest speaker prob per frame
+
+        # Generate frame times correctly (length == total_frames)
+        frame_times = scores.sliding_window.start + np.arange(total_frames) * scores.sliding_window.step
 
         # Attach confidence to each segment
         for seg in turns:
