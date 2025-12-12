@@ -11,26 +11,64 @@ from typing import Any, Literal, Tuple
 from typing import Union
 import numpy.typing as npt
 
+import logging
+from rich.logging import RichHandler
+
+# Configure rich-based logger once at module level
+logging.captureWarnings(True)
+_log = logging.getLogger("ct2_cache")
+_log.handlers = []  # Clear any existing handlers
+_log.addHandler(RichHandler(rich_tracebacks=True, markup=True))
+_log.setLevel(logging.INFO)
+_log.propagate = False
+
+log = _log
 
 QuantizedModelSizes = Literal[
     "tiny", "base", "small", "medium", "large-v2", "large-v3"
 ]
 
+# Global single cache for loaded model and processor
+# Key: model_size (str), Value: Tuple[model, processor]
+_MODEL_CACHE: dict[str, Tuple[ctranslate2.models.Whisper, transformers.WhisperProcessor]] = {}
+
 
 def load_whisper_ct2_model(
     model_size: QuantizedModelSizes,
     model_dir: str,
+    device: str = "cpu",
+    compute_type: str = "int8",  # or "int8" on CPU
 ) -> Tuple[ctranslate2.models.Whisper, transformers.WhisperProcessor]:
-    """Load quantized CTranslate2 Whisper model + processor."""
+    """Load quantized CTranslate2 Whisper model + processor with global caching."""
+    # Use model_size as cache key (ensures one instance per size regardless of model_dir calls)
+    key = f"{model_size}|{model_dir}|{compute_type}|{device}"
+    if key in _MODEL_CACHE:
+        log.info(f"[dim]CTranslate2 cache hit[/] → {key}")
+        return _MODEL_CACHE[key]
+
     if not os.path.exists(model_dir):
         raise FileNotFoundError(
             f"Model not found: {model_dir}\n"
             f"Convert with:\n"
-            f"  ct2-transformers-converter --model openai/whisper-{model_size} "
+            f" ct2-transformers-converter --model openai/whisper-{model_size} "
             f"--output_dir {model_dir} --quantization int8_float16"
         )
+
+    log.info(
+        f"[bold yellow]Loading CTranslate2 model[/] "
+        f"[dim]→[/] [cyan]{model_size}[/] | [green]{compute_type}[/] | [blue]{device}[/]"
+    )
     processor = transformers.WhisperProcessor.from_pretrained(f"openai/whisper-{model_size}")
     model = ctranslate2.models.Whisper(model_dir)
+
+    # Cache the loaded pair
+    _MODEL_CACHE[key] = (model, processor)
+
+    log.info(
+        f"[bold green]CTranslate2 model ready & cached[/] "
+        f"[dim]→[/] [bright_white]{key}[/]"
+    )
+
     return model, processor
 
 AudioInput = Union[
@@ -154,7 +192,9 @@ def transcribe(
 
 def transcribe_audio(
     audio: Any,
-) -> str:
+    device: str = "cpu",
+    compute_type: str = "int8",
+) -> dict:
     model_size: QuantizedModelSizes = "small"
     model_dir = Path("~/.cache/hf_ctranslate2_models").expanduser() / f"whisper-{model_size}-ct2"
 
@@ -170,7 +210,11 @@ def transcribe_audio(
     # 3. Transcribe in original language
     text_original = transcribe(model, features, processor, language_token=lang_token)
 
-    return text_original
+    return {
+        "language": lang_token.strip("<|>").strip(),
+        "language_prob": prob,
+        "text": text_original,
+    }
 
 
 def translate_to_english(
@@ -202,6 +246,6 @@ if __name__ == "__main__":
     audio_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/python_scripts/samples/audio/data/sound.wav"
 
     # Transcribe in original language
-    text_original = transcribe_audio(audio_path)
+    result = transcribe_audio(audio_path)
     print("\nTranscription:")
-    print(text_original)
+    print(result)
