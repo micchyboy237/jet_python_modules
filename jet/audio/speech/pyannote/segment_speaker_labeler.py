@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, TypedDict
 
 import numpy as np
 import torch
@@ -9,6 +9,13 @@ from pyannote.audio import Inference, Model
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
+
+
+class SegmentResult(TypedDict):
+    path: str
+    parent_dir: str
+    speaker_label: int
+    min_cosine_similarity: float
 
 
 class SegmentSpeakerLabeler:
@@ -80,7 +87,7 @@ class SegmentSpeakerLabeler:
     def cluster_segments(
         self,
         segment_paths: List[Path] | List[str],
-    ) -> List[Dict[str, Any]]:
+    ) -> List[SegmentResult]:
         """
         Cluster speaker embeddings from a provided list of segment file paths.
 
@@ -91,8 +98,8 @@ class SegmentSpeakerLabeler:
 
         Returns
         -------
-        List[Dict[str, Any]]
-            List of dictionaries with keys: "path" (str), "parent_dir" (str), "speaker_label" (int).
+        List[SegmentResult]
+            List of dictionaries with keys: "path", "parent_dir", "speaker_label", "min_cosine_similarity".
         """
 
         if not segment_paths:
@@ -114,14 +121,18 @@ class SegmentSpeakerLabeler:
         )
         labels = clustering.fit_predict(distance_matrix)
 
-        results: List[Dict[str, Any]] = []
-        for path, label in zip(segment_paths, labels):
+        results: List[SegmentResult] = []
+        cluster_centroids = np.stack([embeddings[labels == l].mean(axis=0) for l in set(labels)])
+        for path, label, emb in zip(segment_paths, labels, embeddings):
+            centroid = cluster_centroids[label]
+            similarity = float(np.dot(emb, centroid))
             path = Path(path)
             results.append(
                 {
                     "path": str(path),
                     "parent_dir": path.parent.name,
                     "speaker_label": int(label),
+                    "min_cosine_similarity": similarity,
                 }
             )
 
