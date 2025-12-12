@@ -72,7 +72,7 @@ def save_segment_plot(
     end_sec: float,
     assigned_speaker: str,
 ) -> None:
-    """Save per-segment probability plot – correctly handles 3D scores."""
+    """Save per-segment probability plot – works with pyannote 3.1 3D data."""
     data_3d = np.asarray(scores.data)
     step = scores.sliding_window.step
     total_frames = data_3d.shape[0] * data_3d.shape[1]
@@ -104,8 +104,13 @@ def save_segment_plot(
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
-    (seg_dir / "speaker_probabilities.png").write_bytes(fig.to_png())
+
+    # Fixed: correct way to save to PNG bytes → then write
+    plot_path = seg_dir / "speaker_probabilities.png"
+    fig.savefig(plot_path, format="png", bbox_inches="tight", facecolor="white", dpi=150)
     plt.close(fig)
+
+    console.log(f"   [dim]↳ per-segment plot → {plot_path.name}[/]")
 
 
 def save_frame_level_probabilities_json(
