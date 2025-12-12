@@ -41,8 +41,6 @@ get_speech_timestamps, _, read_audio, _, _ = utils
 
 @dataclass
 class SpeechSegment:
-    start_sample: int
-    end_sample: int
     start_sec: float
     end_sec: float
     duration_sec: float
@@ -52,8 +50,8 @@ class SileroVADAnalyzer:
     def __init__(
         self,
         threshold: float = 0.5,
-        min_speech_duration_ms: int = 500,
-        min_silence_duration_ms: int = 700,
+        min_speech_duration_ms: int = 250,
+        min_silence_duration_ms: int = 100,
         speech_pad_ms: int = 30,
         sampling_rate: int = 16000,
     ):
@@ -95,8 +93,6 @@ class SileroVADAnalyzer:
         # Convert segments to rich objects
         rich_segments = [
             SpeechSegment(
-                start_sample=s["start"],
-                end_sample=s["end"],
                 start_sec=round(s["start"] / self.sr, 3),
                 end_sec=round(s["end"] / self.sr, 3),
                 duration_sec=round((s["end"] - s["start"]) / self.sr, 3),

@@ -3,7 +3,7 @@ from faster_whisper import WhisperModel
 model = WhisperModel("kotoba-tech/kotoba-whisper-v2.0-faster")
 
 # Example usage
-AUDIO_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/python_scripts/samples/audio/data/sound.wav"
+AUDIO_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_2_speakers.wav"
 
 # Japanese ASR
 segments, info = model.transcribe(AUDIO_PATH, language="ja", chunk_length=15, condition_on_previous_text=False)
