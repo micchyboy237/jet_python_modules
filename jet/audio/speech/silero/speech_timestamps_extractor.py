@@ -25,12 +25,12 @@ def extract_speech_timestamps(
     model=None,
     threshold: float = 0.5,
     sampling_rate: int = 16000,
-    min_speech_duration_ms: int = 500,
+    min_speech_duration_ms: int = 250,
     max_speech_duration_s: float = float("inf"),
-    min_silence_duration_ms: int = 700,
-    speech_pad_ms: int = 700,
-    return_seconds: bool = False,
-    time_resolution: int = 2,
+    min_silence_duration_ms: int = 100,
+    speech_pad_ms: int = 30,
+    return_seconds: bool = True,
+    time_resolution: int = 1,
 ) -> List[SpeechSegment]:
     # ── Lazy-load model ─────────────────────────────────────────
     if model is None:
