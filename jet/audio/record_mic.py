@@ -20,7 +20,7 @@ def record_from_mic(
     duration: Optional[int] = None,
     silence_threshold: Optional[float] = None,
     silence_duration: float = 2.0,
-    trim_silent: bool = False,  # ← new argument
+    trim_silent: bool = True,
 ) -> Optional[np.ndarray]:
     """Record audio from microphone with silence detection and progress tracking.
 
