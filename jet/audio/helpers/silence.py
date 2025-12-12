@@ -56,20 +56,26 @@ def trim_silent_chunks(audio_data: list, threshold: float) -> list:
     start_idx = 0
     end_idx = len(audio_data)
 
-    # Trim from start
+    # Find first non-silent chunk
     for i, chunk in enumerate(audio_data):
         if not detect_silence(chunk, threshold):
             start_idx = i
             break
+    else:
+        # All chunks are silent
+        return []
 
-    # Trim from end
+    # Find last non-silent chunk
     for i in range(len(audio_data) - 1, -1, -1):
         if not detect_silence(audio_data[i], threshold):
             end_idx = i + 1
             break
 
     trimmed = audio_data[start_idx:end_idx]
+
     if start_idx > 0 or end_idx < len(audio_data):
         logger.info(
-            f"Trimmed {start_idx} chunks from start, {len(audio_data) - end_idx} from end")
+            f"Trimmed {start_idx} chunks from start, {len(audio_data) - end_idx} from end"
+        )
+
     return trimmed

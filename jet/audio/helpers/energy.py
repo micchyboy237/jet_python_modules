@@ -9,6 +9,8 @@ from tqdm import tqdm
 from jet.audio.record_mic import SAMPLE_RATE  # 16000
 from jet.logger import logger
 
+from jet.audio.helpers.silence import calibrate_silence_threshold
+
 def compute_energy(audio_frame: np.ndarray) -> float:
     """Return mean absolute amplitude of an audio frame."""
     return float(np.mean(np.abs(audio_frame)))
@@ -83,9 +85,78 @@ def compute_energies(
     logger.info(f"Computed energy for {len(results)} chunks from {file_path.name}")
     return results
 
-if __name__ == "__main__":
-    from jet.audio.helpers.silence import calibrate_silence_threshold
+def detect_sound(audio_chunk: np.ndarray, threshold: float) -> bool:
+    """
+    Detect if an audio chunk contains audible sound (non-silence).
+    
+    Parameters
+    ----------
+    audio_chunk : np.ndarray
+        Raw audio samples (float32, normalized to [-1.0, 1.0])
+    threshold : float
+        Silence energy threshold (higher = stricter)
+    
+    Returns
+    -------
+    bool
+        True if chunk has detectable sound (energy >= threshold)
+    """
+    energy = compute_energy(audio_chunk)
+    is_sound = energy >= threshold
+    logger.debug(
+        f"detect_sound → energy: {energy:.6f}, threshold: {threshold:.6f}, has_sound: {is_sound}"
+    )
+    return is_sound
 
+def has_sound(
+    file_path: str | Path,
+    silence_threshold: float | None = None,
+    chunk_duration: float = 0.25,
+    min_sound_chunks: int = 1,
+) -> bool:
+    """
+    Determine whether a WAV file contains any detectable speech/sound.
+    
+    Parameters
+    ----------
+    file_path : str | Path
+        Path to WAV file
+    silence_threshold : float | None, optional
+        Energy threshold. If None → auto-calibrate using ambient noise.
+    chunk_duration : float, default 0.25
+        Analysis chunk size in seconds (must match live pipeline)
+    min_sound_chunks : int, default 1
+        Minimum number of non-silent chunks required to classify as "has sound"
+    
+    Returns
+    -------
+    bool
+        True if at least `min_sound_chunks` chunks exceed the threshold
+    """
+    file_path = Path(file_path)
+    if not file_path.is_file():
+        raise FileNotFoundError(f"Audio file not found: {file_path}")
+
+    if silence_threshold is None:
+        logger.info("No silence threshold provided → auto-calibrating...")
+        silence_threshold = calibrate_silence_threshold()
+
+    energies = compute_energies(
+        file_path=file_path,
+        chunk_duration=chunk_duration,
+        silence_threshold=silence_threshold,
+    )
+
+    sound_chunks = [e for e in energies if not e.get("is_silent", False)]
+    has_detected_sound = len(sound_chunks) >= min_sound_chunks
+
+    logger.info(
+        f"has_sound('{file_path.name}'): {len(sound_chunks)} sound chunk(s) "
+        f"(≥ {silence_threshold:.6f}), threshold used: {silence_threshold:.6f} → {has_detected_sound}"
+    )
+    return has_detected_sound
+
+if __name__ == "__main__":
     audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/silero/generated/silero_vad_stream/segment_001/sound.wav"
 
     threshold = calibrate_silence_threshold()
