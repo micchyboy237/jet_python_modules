@@ -72,39 +72,39 @@ def save_segment_plot(
     end_sec: float,
     assigned_speaker: str,
 ) -> None:
-    """Save a clean per-segment probability plot inside the segment folder."""
+    """Save per-segment probability plot – correctly handles 3D scores."""
+    data_3d = np.asarray(scores.data)
     step = scores.sliding_window.step
-    start_idx = max(0, int(start_sec / step))
-    end_idx = min(len(scores.data), int(end_sec / step) + 1)
+    total_frames = data_3d.shape[0] * data_3d.shape[1]
+    times = np.linspace(0, total_frames * step, total_frames, endpoint=False)
 
-    if start_idx >= end_idx:
-        return  # too short to plot
+    mask = (times >= start_sec) & (times < end_sec)
+    if not mask.any():
+        return
 
-    times = np.linspace(start_sec, end_sec, end_idx - start_idx, endpoint=False)
-    probs = scores.data[start_idx:end_idx]
+    flat_probs = data_3d.reshape(-1, data_3d.shape[2])
+    segment_probs = flat_probs[mask]
+    segment_times = times[mask]
 
-    fig: Figure
-    ax: Axes
     fig, ax = plt.subplots(figsize=(10, 3.5), dpi=150)
     cmap = plt.colormaps["tab10"]
 
-    for spk_idx in range(probs.shape[1]):
+    for spk_idx in range(segment_probs.shape[1]):
         label = f"Speaker {spk_idx}" + (" (assigned)" if str(spk_idx) == assigned_speaker else "")
-        color = cmap(spk_idx)
-        lw = 2.5 if str(spk_idx) == assigned_speaker else 1.2
-        ax.plot(times, probs[:, spk_idx], label=label, color=color, linewidth=lw)
+        lw = 2.8 if str(spk_idx) == assigned_speaker else 1.2
+        ax.plot(segment_times, segment_probs[:, spk_idx], label=label,
+                color=cmap(spk_idx), linewidth=lw)
 
     ax.set_xlim(start_sec, end_sec)
     ax.set_ylim(0, 1.02)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Probability")
-    ax.set_title(f"Segment – Speaker {assigned_speaker}", fontsize=12)
-    ax.legend(fontsize=9, loc="upper right")
+    ax.set_title(f"Segment – {assigned_speaker}")
+    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
-    plot_path = seg_dir / "speaker_probabilities.png"
-    fig.savefig(plot_path, bbox_inches="tight", facecolor="white")
+    (seg_dir / "speaker_probabilities.png").write_bytes(fig.to_png())
     plt.close(fig)
 
 
@@ -154,25 +154,29 @@ def get_segment_speaker_stats(
     start_sec: float,
     end_sec: float,
 ) -> Dict[str, float]:
-    """Compute max and average probability per speaker within a segment."""
+    """Return max/avg probability per speaker inside a segment – handles 3D data."""
+    data_3d = np.asarray(scores.data)                       # (chunks, frames_per_chunk, speakers)
     step = scores.sliding_window.step
-    start_idx = max(0, int(start_sec / step))
-    end_idx = min(len(scores.data), int(end_sec / step) + 1)
+    total_frames = data_3d.shape[0] * data_3d.shape[1]
+    times = np.linspace(0, total_frames * step, total_frames, endpoint=False)
 
-    if start_idx >= end_idx:
-        # Very short / empty segment → return zeros
-        num_spk = scores.data.shape[1]
-        empty = {f"speaker_{i}_max_prob": 0.0 for i in range(num_spk)}
-        empty.update({f"speaker_{i}_avg_prob": 0.0 for i in range(num_spk)})
-        return empty
+    # Find frame indices belonging to the segment
+    mask = (times >= start_sec) & (times < end_sec)
+    if not mask.any():
+        # Segment too short or out of bounds → return zeros
+        n = data_3d.shape[2]
+        return {f"speaker_{i}_max_prob_max": 0.0 for i in range(n)} | \
+               {f"speaker_{i}_prob_avg": 0.0 for i in range(n)}
 
-    segment_probs = scores.data[start_idx:end_idx]
+    flat_probs = data_3d.reshape(-1, data_3d.shape[2])      # (total_frames, speakers)
+    segment_probs = flat_probs[mask]
+
     max_probs = segment_probs.max(axis=0)
     avg_probs = segment_probs.mean(axis=0)
 
     return (
-        {f"speaker_{i}_max_prob": round(float(v), 4) for i, v in enumerate(max_probs)}
-        | {f"speaker_{i}_avg_prob": round(float(v), 4) for i, v in enumerate(avg_probs)}
+        {f"speaker_{i}_prob_max": round(float(v), 4) for i, v in enumerate(max_probs)}
+        | {f"speaker_{i}_prob_avg": round(float(v), 4) for i, v in enumerate(avg_probs)}
     )
 
 
