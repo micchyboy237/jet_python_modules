@@ -1,189 +1,72 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """
-Diarize + export everything:
-  • speaker_probabilities.png (full file)
-  • frame_level_probabilities.json
-  • per-segment plots + confidence stats
-Works perfectly with pyannote/speaker-diarization-3.1
+Diarize a recording + optionally export raw segmentation scores (logits/probabilities)
+Works with pyannote-audio 3.1+ (including current 4.0.3 version)
 """
-
 from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import Dict, Any, Tuple
-
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torchaudio
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from pyannote.audio import Pipeline
-from pyannote.audio.pipelines.utils import get_devices
-from pyannote.core import Annotation, SlidingWindowFeature
 from rich.console import Console
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+from pyannote.audio import Pipeline, Model
+from pyannote.audio.pipelines.utils import get_devices
+from pyannote.core import Annotation, SlidingWindowFeature
 
 console = Console()
 
+def compute_scores_insights(scores: SlidingWindowFeature) -> Dict[str, Any]:
+    """
+    Analyze the raw segmentation scores and return useful statistics.
+    Works with pyannote 3.1 where scores.data is 3D: (chunks, frames_per_chunk, speakers)
+    """
+    data = np.asarray(scores.data)  # shape: (chunks, frames_per_chunk, speakers)
 
-def save_speaker_probability_plot(
-    scores: SlidingWindowFeature,
-    output_dir: Path,
-    audio_duration: float,
-    title: str = "Speaker Probabilities (Frame-Level)",
-) -> Path:
-    data = scores.data
-    times = np.linspace(0, audio_duration, len(data), endpoint=False)
+    # Handle both 2D and 3D cases safely
+    if data.ndim == 3:
+        num_chunks, frames_per_chunk, num_speakers = data.shape
+        total_frames = num_chunks * frames_per_chunk
+        flat_data = data.reshape(total_frames, num_speakers)
+    elif data.ndim == 2:
+        total_frames, num_speakers = data.shape
+        flat_data = data
+    else:
+        raise ValueError(f"Unexpected scores.data shape: {data.shape}")
 
-    fig: Figure
-    ax: Axes
-    fig, ax = plt.subplots(figsize=(14, 5), dpi=150)
-    cmap = plt.colormaps["tab10"]
-
-    for spk_idx in range(data.shape[1]):
-        ax.plot(times, data[:, spk_idx], label=f"Speaker {spk_idx}", color=cmap(spk_idx), linewidth=1.8)
-
-    ax.set_xlim(0, audio_duration)
-    ax.set_ylim(0, 1.02)
-    ax.set_xlabel("Time (seconds)", fontsize=12)
-    ax.set_ylabel("Probability", fontsize=12)
-    ax.set_title(title, fontsize=14, pad=15)
-    ax.legend(framealpha=0.9, fontsize=10)
-    ax.grid(True, alpha=0.3, linestyle="--")
-    fig.tight_layout()
-
-    plot_path = output_dir / "speaker_probabilities.png"
-    fig.savefig(plot_path, bbox_inches="tight", facecolor="white")
-    fig.savefig(plot_path.with_suffix(".pdf"), bbox_inches="tight")
-    plt.close(fig)
-
-    console.log("[bold magenta]Full plot saved[/] → speaker_probabilities.png")
-    return plot_path
-
-
-def save_segment_plot(
-    scores: SlidingWindowFeature,
-    seg_dir: Path,
-    start_sec: float,
-    end_sec: float,
-    assigned_speaker: str,
-) -> None:
-    """Save per-segment probability plot – works with pyannote 3.1 3D data."""
-    data_3d = np.asarray(scores.data)
     step = scores.sliding_window.step
-    total_frames = data_3d.shape[0] * data_3d.shape[1]
-    times = np.linspace(0, total_frames * step, total_frames, endpoint=False)
+    duration = total_frames * step
 
-    mask = (times >= start_sec) & (times < end_sec)
-    if not mask.any():
-        return
+    # Per-speaker stats
+    max_per_speaker = flat_data.max(axis=0)
+    avg_per_speaker = flat_data.mean(axis=0)
+    active_ratio = (flat_data > 0.5).mean(axis=0)  # how often model thinks speaker is active
 
-    flat_probs = data_3d.reshape(-1, data_3d.shape[2])
-    segment_probs = flat_probs[mask]
-    segment_times = times[mask]
+    # Global stats
+    max_prob_per_frame = flat_data.max(axis=1)
+    confidence_mean = max_prob_per_frame.mean()
+    confidence_std = max_prob_per_frame.std()
+    overlap_frames = (flat_data.sum(axis=1) > 1.1).sum()  # rough overlap detection
 
-    fig, ax = plt.subplots(figsize=(10, 3.5), dpi=150)
-    cmap = plt.colormaps["tab10"]
-
-    for spk_idx in range(segment_probs.shape[1]):
-        label = f"Speaker {spk_idx}" + (" (assigned)" if str(spk_idx) == assigned_speaker else "")
-        lw = 2.8 if str(spk_idx) == assigned_speaker else 1.2
-        ax.plot(segment_times, segment_probs[:, spk_idx], label=label,
-                color=cmap(spk_idx), linewidth=lw)
-
-    ax.set_xlim(start_sec, end_sec)
-    ax.set_ylim(0, 1.02)
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Probability")
-    ax.set_title(f"Segment – {assigned_speaker}")
-    ax.legend(fontsize=9)
-    ax.grid(True, alpha=0.3)
-
-    fig.tight_layout()
-
-    # Fixed: correct way to save to PNG bytes → then write
-    plot_path = seg_dir / "speaker_probabilities.png"
-    fig.savefig(plot_path, format="png", bbox_inches="tight", facecolor="white", dpi=150)
-    plt.close(fig)
-
-    console.log(f"   [dim]↳ per-segment plot → {plot_path.name}[/]")
-
-
-def save_frame_level_probabilities_json(
-    scores: SlidingWindowFeature,
-    audio_duration: float,
-    output_dir: Path,
-) -> Path:
-    """
-    Save frame-level speaker probabilities to JSON.
-    Handles the real pyannote 3.1 output format where scores.data is 3D:
-        (num_chunks, frames_per_chunk, num_speakers)
-    """
-    # scores.data shape → (num_chunks, chunk_frames, num_speakers)
-    data_3d = np.asarray(scores.data)                     # e.g. (N, 512, K)
-    num_chunks, frames_per_chunk, num_speakers = data_3d.shape
-
-    # Reconstruct correct time axis
-    total_frames = num_chunks * frames_per_chunk
-    times = np.linspace(0, audio_duration, total_frames, endpoint=False)
-
-    # Flatten to 2D: (total_frames, num_speakers)
-    flat_probs = data_3d.reshape(-1, num_speakers)
-
-    frames = [
-        {
-            "time_sec": round(float(t), 4),
-            "probabilities": {
-                f"speaker_{i}": round(float(p), 6)
-                for i, p in enumerate(frame_probs)
+    return {
+        "total_duration_sec": round(float(duration), 3),
+        "total_frames": int(total_frames),
+        "frame_step_sec": float(step),
+        "num_speakers": int(num_speakers),
+        "confidence_mean": round(float(confidence_mean), 4),
+        "confidence_std": round(float(confidence_std), 4),
+        "overlap_frame_count": int(overlap_frames),
+        "overlap_percentage": round(100 * overlap_frames / total_frames, 2),
+        "per_speaker": {
+            f"speaker_{i}": {
+                "max_probability": round(float(m), 4),
+                "avg_probability": round(float(a), 4),
+                "active_ratio": round(float(r), 4),
             }
-        }
-        for t, frame_probs in zip(times, flat_probs)
-    ]
-
-    json_path = output_dir / "frame_level_probabilities.json"
-    json_path.write_text(json.dumps(frames, indent=2))
-    console.log(
-        f"[bold cyan]Frame-level JSON saved[/] → {json_path.name} "
-        f"({len(frames)} frames, {num_speakers} speakers)"
-    )
-    return json_path
-
-
-def get_segment_speaker_stats(
-    scores: SlidingWindowFeature,
-    start_sec: float,
-    end_sec: float,
-) -> Dict[str, float]:
-    """Return max/avg probability per speaker inside a segment – handles 3D data."""
-    data_3d = np.asarray(scores.data)                       # (chunks, frames_per_chunk, speakers)
-    step = scores.sliding_window.step
-    total_frames = data_3d.shape[0] * data_3d.shape[1]
-    times = np.linspace(0, total_frames * step, total_frames, endpoint=False)
-
-    # Find frame indices belonging to the segment
-    mask = (times >= start_sec) & (times < end_sec)
-    if not mask.any():
-        # Segment too short or out of bounds → return zeros
-        n = data_3d.shape[2]
-        return {f"speaker_{i}_max_prob_max": 0.0 for i in range(n)} | \
-               {f"speaker_{i}_prob_avg": 0.0 for i in range(n)}
-
-    flat_probs = data_3d.reshape(-1, data_3d.shape[2])      # (total_frames, speakers)
-    segment_probs = flat_probs[mask]
-
-    max_probs = segment_probs.max(axis=0)
-    avg_probs = segment_probs.mean(axis=0)
-
-    return (
-        {f"speaker_{i}_prob_max": round(float(v), 4) for i, v in enumerate(max_probs)}
-        | {f"speaker_{i}_prob_avg": round(float(v), 4) for i, v in enumerate(avg_probs)}
-    )
-
+            for i, (m, a, r) in enumerate(zip(max_per_speaker, avg_per_speaker, active_ratio))
+        },
+    }
 
 def diarize_file(
     audio_path: Path | str,
@@ -198,16 +81,13 @@ def diarize_file(
     output_dir = Path(output_dir).expanduser().resolve()
     segments_dir = output_dir / "segments"
     segments_dir.mkdir(parents=True, exist_ok=True)
-
     console.log(f"Loading pipeline [bold cyan]{pipeline_id}[/]")
-    pipeline: Pipeline = Pipeline.from_pretrained(pipeline_id)
-
+    pipeline: Pipeline = Pipeline.from_pretrained(pipeline_id, revision="main")
     if device is None:
         device = get_devices(needs=1)[0]
     console.log(f"Using device: [bold green]{device}[/]")
     pipeline.to(torch.device(device))
-
-    console.log(f"Running diarization on [bold]{audio_path.name}[/]")
+    console.log(f"Running full diarization on [bold]{audio_path.name}[/]")
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
@@ -216,65 +96,31 @@ def diarize_file(
         console=console,
     ) as progress:
         task = progress.add_task("Diarizing...", total=None)
-        result = pipeline(str(audio_path), num_speakers=num_speakers)
+        diarization_result = pipeline(
+            str(audio_path),
+            num_speakers=num_speakers,
+        )
         progress.update(task, completed=True)
-
     diarization: Annotation = (
-        result.speaker_diarization if hasattr(result, "speaker_diarization") else result
+        diarization_result.speaker_diarization
+        if hasattr(diarization_result, "speaker_diarization")
+        else diarization_result
     )
-    console.log(f"Detected speakers: {sorted(diarization.labels())}")
-
+    console.log(f"Detected {len(diarization.labels())} speaker(s): {sorted(str(s) for s in diarization.labels())}")
     waveform, sample_rate = torchaudio.load(audio_path)
     total_seconds = waveform.shape[1] / sample_rate
-
-    scores: SlidingWindowFeature | None = None
-    if return_scores:
-        console.log("Extracting raw frame-level speaker probabilities...")
-        seg_inference = pipeline._segmentation
-        scores = seg_inference(str(audio_path))
-
-        np.save(output_dir / "segmentation_scores.npy", scores.data)
-
-        timing = {
-            "start": float(scores.sliding_window.start),
-            "duration": float(scores.sliding_window.duration),
-            "step": float(scores.sliding_window.step),
-            "num_frames": int(scores.data.shape[0]),
-            "num_speakers": int(scores.data.shape[1]),
-            "frame_rate_hz": round(1 / scores.sliding_window.step, 2),
-        }
-        (output_dir / "segmentation_scores_timing.json").write_text(json.dumps(timing, indent=2))
-
-        save_frame_level_probabilities_json(scores, total_seconds, output_dir)
-        save_speaker_probability_plot(
-            scores=scores,
-            output_dir=output_dir,
-            audio_duration=total_seconds,
-            title=f"Speaker Diarization – {audio_path.name}",
-        )
-
-    # Export segments + per-segment plots & stats
-    turns = []
+    turns: list[Dict[str, Any]] = []
     for idx, (segment, _, speaker) in enumerate(diarization.itertracks(yield_label=True)):
         start_sec = round(segment.start, 3)
         end_sec = round(segment.end, 3)
         duration_sec = round(end_sec - start_sec, 3)
-
         seg_dir = segments_dir / f"segment_{idx:04d}"
         seg_dir.mkdir(exist_ok=True)
-
         start_sample = int(start_sec * sample_rate)
         end_sample = int(end_sec * sample_rate)
-        seg_wav = waveform[:, start_sample:end_sample]
+        segment_waveform = waveform[:, start_sample:end_sample]
         wav_path = seg_dir / "segment.wav"
-        torchaudio.save(str(wav_path), seg_wav, sample_rate)
-
-        seg_stats = (
-            get_segment_speaker_stats(scores, start_sec, end_sec)
-            if return_scores and scores is not None
-            else {}
-        )
-
+        torchaudio.save(str(wav_path), segment_waveform, sample_rate)
         meta = {
             "segment_index": idx,
             "speaker": str(speaker),
@@ -282,27 +128,55 @@ def diarize_file(
             "end_sec": end_sec,
             "duration_sec": duration_sec,
             "wav_path": str(wav_path.relative_to(output_dir)),
-            **seg_stats,
         }
         (seg_dir / "segment.json").write_text(json.dumps(meta, indent=2))
-
-        # Save per-segment plot (only when scores are available)
-        if return_scores and scores is not None:
-            save_segment_plot(
-                scores=scores,
-                seg_dir=seg_dir,
-                start_sec=start_sec,
-                end_sec=end_sec,
-                assigned_speaker=speaker,  # e.g. "SPEAKER_00"
-            )
-
         turns.append(meta)
-
         console.log(
             f"[green]Saved[/] segment_{idx:04d} | {str(speaker):<12} | "
-            f"{start_sec:>7.3f}s → {end_sec:>7.3f}s"
+            f"{start_sec:>7.3f}s -> {end_sec:>7.3f}s ({duration_sec:>5.3f}s)"
         )
-
+    scores: SlidingWindowFeature | None = None
+    if return_scores:
+        console.log("Extracting raw frame-level segmentation scores...")
+        # In pyannote-audio 4.0+, instantiate pipeline and access internal model
+        pipeline.instantiate({})
+        try:
+            # Access the bundled segmentation model via private attribute
+            seg_model: Model = pipeline._segmentation.model
+            console.log("[dim]Using bundled segmentation model[/]")
+        except AttributeError:
+            console.log("[red]Warning: Could not access internal model. Falling back to direct load.[/]")
+            # Fallback for custom pipelines: load segmentation directly
+            seg_model = Model.from_pretrained("pyannote/segmentation-3.0", revision="main")
+            seg_model.to(torch.device(device))
+        from pyannote.audio import Inference
+        duration = seg_model.specifications.duration
+        inference = Inference(
+            seg_model,
+            duration=duration,
+            step=0.1 * duration,  # 90% overlap (default for smooth sliding)
+        )
+        scores = inference(str(audio_path))
+        scores_path = output_dir / "segmentation_scores.npy"
+        np.save(scores_path, scores.data)
+        console.log(f"[bold blue]Raw scores saved[/] → {scores_path}")
+        timing = {
+            "start": float(scores.sliding_window.start),
+            "duration": float(scores.sliding_window.duration),
+            "step": float(scores.sliding_window.step),
+            "num_frames": int(scores.data.shape[0]),
+            "num_speakers": int(scores.data.shape[1]),  # Actually num_classes
+            "frame_rate_hz": round(1 / scores.sliding_window.step, 2),
+        }
+        (output_dir / "segmentation_scores_timing.json").write_text(json.dumps(timing, indent=2))
+        # New: Compute and save insights
+        console.log("Analyzing raw speaker probabilities...")
+        insights = compute_scores_insights(scores)
+        insights_path = output_dir / "segmentation_scores_insights.json"
+        (insights_path).write_text(json.dumps(insights, indent=2))
+        console.log("[bold yellow]Scores insights saved[/] → scores_insights.json")
+    else:
+        scores_path = None
     summary = {
         "audio_file": str(audio_path),
         "total_duration_sec": round(total_seconds, 3),
@@ -311,27 +185,20 @@ def diarize_file(
         "speakers": sorted(str(s) for s in diarization.labels()),
         "num_segments": len(turns),
         "segments": turns,
-        "segmentation_scores_npy": "segmentation_scores.npy" if return_scores else None,
-        "frame_level_probabilities_json": "frame_level_probabilities.json" if return_scores else None,
-        "speaker_probability_plot": "speaker_probabilities.png" if return_scores else None,
+        "segmentation_scores_npy": str(scores_path) if scores_path else None,
     }
-
     summary_path = output_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2))
-    console.log(f"[bold green]Finished![/] → {summary_path}")
-
+    console.log(f"[bold green]Done![/] Summary → {summary_path}")
     return summary, scores
-
 
 if __name__ == "__main__":
     import shutil
-
     AUDIO_FILE = Path(
         "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_20251212_041845.wav"
     )
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-
     diarize_file(
         audio_path=AUDIO_FILE,
         output_dir=OUTPUT_DIR,
