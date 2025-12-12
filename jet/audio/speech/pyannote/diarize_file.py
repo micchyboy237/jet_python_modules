@@ -160,13 +160,25 @@ def diarize_file(
         scores_path = output_dir / "segmentation_scores.npy"
         np.save(scores_path, scores.data)
         console.log(f"[bold blue]Raw scores saved[/] → {scores_path}")
+        # Corrected timing block
+        if scores.data.ndim == 3:
+            num_chunks = scores.data.shape[0]
+            frames_per_chunk = scores.data.shape[1]
+            num_speakers = scores.data.shape[2]
+            total_frames = num_chunks * frames_per_chunk
+        else:
+            total_frames, num_speakers = scores.data.shape
+            frames_per_chunk = None
+            num_chunks = None
         timing = {
             "start": float(scores.sliding_window.start),
             "duration": float(scores.sliding_window.duration),
             "step": float(scores.sliding_window.step),
-            "num_frames": int(scores.data.shape[0]),
-            "num_speakers": int(scores.data.shape[1]),  # Actually num_classes
-            "frame_rate_hz": round(1 / scores.sliding_window.step, 2),
+            "total_frames": int(total_frames),
+            "frames_per_chunk": frames_per_chunk,
+            "num_chunks": int(num_chunks) if scores.data.ndim == 3 else None,
+            "num_speakers": int(num_speakers),
+            "frame_rate_hz": round(1 / scores.sliding_window.step, 3),
         }
         (output_dir / "segmentation_scores_timing.json").write_text(json.dumps(timing, indent=2))
         # New: Compute and save insights
