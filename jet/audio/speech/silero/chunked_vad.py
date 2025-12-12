@@ -23,18 +23,18 @@ import torch
 class SpeechProbChunk(TypedDict):
     """Typed dictionary for fixed-duration speech probability chunks"""
     start_sec: float          # start time in seconds
-    end_sec: float          # end time in seconds
-    duration_sec: float     # = end_sec - start_sec
-    speech_prob: float      # average speech probability in [0.0, 1.0]
-    num_windows: int        # how many VAD windows contributed to this chunk
+    end_sec: float            # end time in seconds
+    duration_sec: float       # = end_sec - start_sec
+    speech_prob: float        # average speech probability in [0.0, 1.0]
+    num_windows: int          # how many VAD windows contributed to this chunk
 
 
 def get_speech_probabilities_chunks(
     audio: torch.Tensor,
     model,
     sampling_rate: int = 16000,
-    chunk_seconds: float = 0.25,
-    overlap_seconds: float = 0.0,
+    chunk_seconds: float = 0.5,
+    overlap_seconds: float = 0.25,
     min_chunk_samples: int | None = None,
     aggregation: Literal["mean", "max", "median"] = "mean",
 ) -> List[SpeechProbChunk]:
