@@ -32,7 +32,6 @@ QuantizedModelSizes = Literal[
 # Key: model_size (str), Value: Tuple[model, processor]
 _MODEL_CACHE: dict[str, Tuple[ctranslate2.models.Whisper, transformers.WhisperProcessor]] = {}
 
-
 def load_whisper_ct2_model(
     model_size: QuantizedModelSizes,
     model_dir: str,
