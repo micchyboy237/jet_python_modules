@@ -79,29 +79,26 @@ class SegmentSpeakerLabeler:
 
     def cluster_segments(
         self,
-        segments_dir: Path | str,
-        file_pattern: str = "**/sound.wav",
+        segment_paths: List[Path] | List[str],
     ) -> List[Dict[str, Any]]:
         """
-        Cluster all matching audio segments in a directory tree.
+        Cluster speaker embeddings from a provided list of segment file paths.
 
         Parameters
         ----------
-        segments_dir : Path | str
-            Root directory containing segment wav files (recursively searched).
-        file_pattern : str, optional
-            Glob pattern for segment files, by default "**/sound.wav".
+        segment_paths : List[Path] | List[str]
+            List of paths to segment audio files to be clustered.
 
         Returns
         -------
         List[Dict[str, Any]]
-            List of results with keys: "path" (str), "parent_dir" (str), "speaker_label" (int).
+            List of dictionaries with keys: "path" (str), "parent_dir" (str), "speaker_label" (int).
         """
-        segments_dir = Path(segments_dir)
-        segment_paths = sorted(segments_dir.rglob(file_pattern))
 
         if not segment_paths:
-            raise ValueError(f"No files found matching pattern '{file_pattern}' in {segments_dir}")
+            raise ValueError(
+                "No segment file paths were provided to cluster_segments (segment_paths is empty)."
+            )
 
         print(f"Found {len(segment_paths)} segments. Extracting embeddings...")
         embeddings = self._extract_embeddings(segment_paths)
@@ -119,6 +116,7 @@ class SegmentSpeakerLabeler:
 
         results: List[Dict[str, Any]] = []
         for path, label in zip(segment_paths, labels):
+            path = Path(path)
             results.append(
                 {
                     "path": str(path),
