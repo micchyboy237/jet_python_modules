@@ -44,11 +44,12 @@ class SubtitleOverlay(QWidget):
         overlay.clear()
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, title: Optional[str] = None):
         super().__init__(parent)
         self.logger = _setup_logging()
         self.signals = _Signals()
         self.history = []
+        self.title = title
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
@@ -76,6 +77,12 @@ class SubtitleOverlay(QWidget):
         self.control_bar.setContentsMargins(12, 10, 12, 10)
         self.control_bar.setSpacing(12)
 
+        # Optional title label
+        if self.title:
+            self.title_label = QLabel(self.title)
+            self.title_label.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold;")
+            self.control_bar.addWidget(self.title_label)
+
         # Status indicator (LIVE)
         self.status_label = QLabel("LIVE")
         self.status_label.setStyleSheet("""
@@ -87,6 +94,8 @@ class SubtitleOverlay(QWidget):
             font-weight: bold;
             font-size: 15px;
         """)
+        self.control_bar.addWidget(self.status_label)
+        self.control_bar.addStretch()
 
         # Minimize button
         self.min_btn = QPushButton("Minimize")
@@ -117,8 +126,6 @@ class SubtitleOverlay(QWidget):
         """)
         close_btn.clicked.connect(QApplication.quit)
 
-        self.control_bar.addWidget(self.status_label)
-        self.control_bar.addStretch()
         self.control_bar.addWidget(self.min_btn)
         self.control_bar.addWidget(close_btn)
 
@@ -196,6 +203,8 @@ class SubtitleOverlay(QWidget):
 
             self.control_bar.layout().setContentsMargins(16, 12, 16, 12)
             self.status_label.setText("LIVE • MINIMIZED")
+            if hasattr(self, 'title_label'):
+                self.title_label.show()  # always keep title visible
             self.min_btn.setText("Restore")
             self._is_minimized = True
         else:
@@ -261,7 +270,7 @@ class SubtitleOverlay(QWidget):
 
     # ─────────────────────── One-liner factory ───────────────────────
     @classmethod
-    def create(cls, app: Optional[QApplication] = None) -> 'SubtitleOverlay':
+    def create(cls, app: Optional[QApplication] = None, title: Optional[str] = None) -> 'SubtitleOverlay':
         """
         One-liner to get a perfectly centered, always-on-top, live subtitle overlay.
         
@@ -271,6 +280,7 @@ class SubtitleOverlay(QWidget):
         - Perfect centering on Windows/macOS/Linux
         - Graceful Ctrl+C shutdown
         - Thread-safe .add_message()
+        - Optional custom title displayed in the top control bar
         """
         app = app or QApplication.instance() or QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(False)
@@ -279,7 +289,7 @@ class SubtitleOverlay(QWidget):
             app.quit()
         signal.signal(signal.SIGINT, _quit_on_sigint)
 
-        overlay = cls()
+        overlay = cls(title=title)
         overlay.show()
         overlay.raise_()
         overlay.activateWindow()
@@ -300,7 +310,7 @@ class SubtitleOverlay(QWidget):
 
 # Demo when run directly
 if __name__ == "__main__":
-    overlay = SubtitleOverlay.create()  # ← Always centered!
+    overlay = SubtitleOverlay.create(title="My Live Transcription")  # ← Always centered!
 
     # Works perfectly even without threading:
     overlay.add_message("This appears instantly")
