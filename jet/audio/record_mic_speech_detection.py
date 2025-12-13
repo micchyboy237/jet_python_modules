@@ -15,7 +15,6 @@ from jet.audio.helpers.silence import (
     CHANNELS,
     calibrate_silence_threshold,
     detect_silence,
-    trim_silent_chunks,
 )
 
 silero_model = load_silero_vad(onnx=False)
@@ -132,25 +131,18 @@ def record_from_mic(
         logger.warning("No audio recorded")
         return None
 
-    # Trim silent chunks only when requested
-    if trim_silent:
-        trimmed_data = trim_silent_chunks(audio_data, silence_threshold)
-        if not trimmed_data:
-            logger.warning("All chunks were silent after trimming")
-            return None
-        audio_data = np.concatenate(trimmed_data, axis=0)
-    else:
-        audio_data = np.concatenate(audio_data, axis=0)
+    audio_data = np.concatenate(audio_data, axis=0)
 
     # === FINAL FLUSH: save any remaining speech ===
     if save_segments:
-        full_audio_np = np.concatenate(audio_data, axis=0) if isinstance(audio_data, list) else audio_data
+        full_audio_np = np.concatenate(audio_data, axis=0)  # always untrimmed full recording
         state["counter"] = save_completed_segment(
             segment_root=segment_root,
             counter=state["counter"],
             ts=prev_segment,
             audio_np=full_audio_np,
-            is_final_utterance=True,
+            trim_silence=trim_silent,           # pass the original flag
+            silence_threshold=silence_threshold,  # already calibrated earlier
         )
 
     actual_duration = len(audio_data) / SAMPLE_RATE
