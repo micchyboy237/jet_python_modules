@@ -40,8 +40,8 @@ def record_from_mic(
 ) -> Optional[np.ndarray]:
     """Record audio from microphone with silence detection and progress tracking.
 
-    When ``output_dir`` is supplied each detected speech segment (from Silero VAD)
-    is saved under ``<output_dir>/segment/segment_<num>/`` as:
+    When ``output_dir`` is supplied each detected speech segments (from Silero VAD)
+    is saved under ``<output_dir>/segments/segment_<num>/`` as:
         - sound.wav
         - metadata.json
 
@@ -75,7 +75,7 @@ def record_from_mic(
     save_segments = output_dir is not None
     if save_segments:
         output_dir = Path(output_dir)
-        segment_root = output_dir / "segment"
+        segment_root = output_dir / "segments"
         segment_root.mkdir(parents=True, exist_ok=True)
     # Use module/global record_from_mic_segment_state as state
     state = record_from_mic_segment_state

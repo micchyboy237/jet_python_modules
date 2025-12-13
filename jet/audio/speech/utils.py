@@ -78,8 +78,8 @@ def display_segments(speech_ts):
     for i, seg in enumerate(speech_ts, 1):
         table.add_row(
             str(seg['idx'] + 1),
-            f"{seg['start']:.2f}",
-            f"{seg['end']:.2f}",
+            f"{seg['start'] / 1000:.2f}",
+            f"{seg['end'] / 1000:.2f}",
             f"{seg['duration']:.2f}",
             f"{seg['prob']:.2f}",
             "active",  # all currently detected segments are still active
