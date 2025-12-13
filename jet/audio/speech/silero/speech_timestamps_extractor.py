@@ -29,7 +29,7 @@ def extract_speech_timestamps(
     max_speech_duration_s: float = float("inf"),
     min_silence_duration_ms: int = 100,
     speech_pad_ms: int = 30,
-    return_seconds: bool = True,
+    return_seconds: bool = False,
     time_resolution: int = 1,
 ) -> List[SpeechSegment]:
     # ── Lazy-load model ─────────────────────────────────────────
