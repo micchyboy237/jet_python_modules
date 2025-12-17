@@ -84,7 +84,26 @@ class SubtitleOverlay(QWidget):
         if not self._pending_tasks:
             return
 
-        task, loading_widget = self._pending_tasks.pop(0)
+        task, loading_layout, loading_widget = self._pending_tasks[0]  # Keep in queue until done
+
+        # --- Replace "Pending" with spinner + "Processing" ---
+        loading_layout.takeAt(0)  # clear existing widgets/stretches
+        while loading_layout.count():
+            item = loading_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        spinner = QLabel()
+        self._setup_spinner_animation(spinner, loading_widget)
+
+        processing_text = QLabel("Processing")
+        processing_text.setStyleSheet("color: #ffff66; font-style: italic;")
+        processing_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+
+        loading_layout.addStretch()
+        loading_layout.addWidget(spinner)
+        loading_layout.addWidget(processing_text)
+        loading_layout.addStretch()
 
         def run_in_thread() -> tuple[str, QWidget]:
             try:
@@ -107,27 +126,35 @@ class SubtitleOverlay(QWidget):
         if future.cancelled():
             return
 
+        # Remove the finished task from pending queue
+        if self._pending_tasks:
+            self._pending_tasks.pop(0)
+
         try:
             message, loading_widget = future.result()
         except Exception as e:
             message = f"[Error] {e}"
-            # loading_widget = getattr(future, "_loading_widget", None)
 
         if not loading_widget or not loading_widget.parent():
+            if self._pending_tasks:
+                self._process_next_task()
             return
 
-        # Stop the spinner animation immediately before deleting the widget
+        # Stop spinner
         timer = loading_widget.property("_spinner_timer")
         if timer and isinstance(timer, QTimer) and timer.isActive():
             timer.stop()
 
         idx = self.content_layout.indexOf(loading_widget)
         if idx == -1:
+            if self._pending_tasks:
+                self._process_next_task()
             return
 
         self.content_layout.takeAt(idx)
         loading_widget.deleteLater()
 
+        # Replace with final message
         new_label = QLabel(message)
         new_label.setWordWrap(True)
         new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -138,10 +165,17 @@ class SubtitleOverlay(QWidget):
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
 
-        self.history.append(message)
+        # Update history: replace the "Pending" entry
+        pending_idx = next((i for i, h in enumerate(self.history) if h == "Pending"), None)
+        if pending_idx is not None:
+            self.history[pending_idx] = message
+        else:
+            self.history.append(message)
+
         total_chars = sum(len(line) for line in self.history)
         self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
 
+        # Continue with next task
         if self._pending_tasks:
             self._process_next_task()
 
@@ -265,7 +299,7 @@ class SubtitleOverlay(QWidget):
         """
         Add a sync/async callable for sequential execution.
         Its return/awaited value is displayed as a message.
-        Displays a "Processing" row until done.
+        Displays a "Pending" row until processing starts, then replaces it with spinner + "Processing".
         """
         async def _wrapper() -> str:
             result = func(*args, **kwargs)
@@ -273,33 +307,31 @@ class SubtitleOverlay(QWidget):
                 result = await result
             return str(result)
 
-        # Create a loading widget (spinner + text)
+        # Create initial "Pending" loading widget
         loading_widget = QWidget()
         loading_layout = QHBoxLayout(loading_widget)
         loading_layout.setContentsMargins(10, 8, 10, 8)
         loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        spinner = QLabel()
-        self._setup_spinner_animation(spinner, loading_widget)
-
-        loading_text = QLabel("Processing")
-        loading_text.setStyleSheet("color: #ffff66; font-style: italic;")
-        loading_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+        pending_text = QLabel("Pending")
+        pending_text.setStyleSheet("color: #ffff66; font-style: italic;")
+        pending_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
 
         loading_layout.addStretch()
-        loading_layout.addWidget(spinner)
-        loading_layout.addWidget(loading_text)
+        loading_layout.addWidget(pending_text)
         loading_layout.addStretch()
 
         self.content_layout.addWidget(loading_widget)
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
-        self.history.append("Processing…")
+        self.history.append("Pending")
         total_chars = sum(len(line) for line in self.history)
         self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
 
-        self._pending_tasks.append((_wrapper(), loading_widget))
-        self._process_next_task()
+        # Store layout and widget for later replacement when processing starts
+        self._pending_tasks.append((_wrapper(), loading_layout, loading_widget))
+        if len(self._pending_tasks) == 1:  # Only process if this is becoming the active task
+            self._process_next_task()
 
     def clear(self):
         """Remove all messages and reset transcript summary."""
