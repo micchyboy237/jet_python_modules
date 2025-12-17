@@ -7,13 +7,12 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Optional, Callable
 
-import numpy as np
-from numpy.typing import NDArray
 from rich.console import Console
 from rich.table import Table
 
 import logging
 
+from jet.audio.transcribers.base import AudioInput, load_audio
 from jet.audio.transcribers.base_client import transcribe_audio  # new unified endpoint
 
 logging.basicConfig(level=logging.DEBUG)
@@ -25,12 +24,12 @@ console = Console()
 # ----------------------------------------------------------------------
 # Placeholder stubs – replace with your real implementations
 # ----------------------------------------------------------------------
-def transcribe_ja_chunk(audio: NDArray[np.float32]) -> dict:
+def transcribe_ja_chunk(audio: AudioInput) -> dict:
     """
     Call the unified transcription+translation endpoint.
     Returns the full TranscribeResponse dict (contains both transcription and translation and word-level timestamps).
     """
-    result = transcribe_audio(audio.tobytes())
+    result = transcribe_audio(audio, filename="segment_live.wav")
     return {
         "transcription": result["transcription"],
         "translation": result["translation"],
@@ -61,7 +60,8 @@ class TranscriptionPipeline:
         self.on_result = on_result
         logger.debug("Pipeline init: max_workers=%d cache_size=%d", max_workers, cache_size)
 
-    def _make_key(self, audio: NDArray[np.float32]) -> AudioKey:
+    def _make_key(self, audio: AudioInput) -> AudioKey:
+        audio = load_audio(audio)
         duration = len(audio) / 16000.0
         h = hash(audio.tobytes())
         return AudioKey(hash=h, duration_sec=round(duration, 3))
@@ -86,7 +86,7 @@ class TranscriptionPipeline:
                 self._cache.pop(old_key, None)
             logger.debug("  → final cache keys: %s", list(self._cache.keys()))
 
-    def submit_segment(self, audio: NDArray[np.float32]) -> None:
+    def submit_segment(self, audio: AudioInput) -> None:
         key = self._make_key(audio)
         logger.debug("submit_segment → key=%s (duration=%.3fs)", key, key.duration_sec)
 
@@ -116,7 +116,7 @@ class TranscriptionPipeline:
             self._queue.append(future)
             logger.debug("Future added → queue size: %d", len(self._queue))
 
-    def _process(self, audio: NDArray[np.float32], key: AudioKey) -> None:
+    def _process(self, audio: AudioInput, key: AudioKey) -> None:
         logger.debug("START _process → key=%s", key)
         try:
             result = transcribe_ja_chunk(audio)

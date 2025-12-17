@@ -5,7 +5,9 @@
 import sys
 import signal
 import logging
-from typing import Optional
+from threading import Thread
+import time
+from typing import Optional, Callable
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
@@ -308,16 +310,43 @@ class SubtitleOverlay(QWidget):
         return overlay
 
 
+def run_in_background(target: Callable[[], None], *, daemon: bool = True) -> Thread:
+    """
+    Start a long-running or blocking function in a background thread.
+    
+    Usage:
+        run_in_background(transcription_loop)  # fire and forget
+        # or
+        thread = run_in_background(transcription_loop, daemon=False)  # keep reference if needed
+    
+    Returns the Thread instance for advanced use cases (join, etc.).
+    """
+    thread = Thread(target=target, daemon=daemon)
+    thread.start()
+    return thread
+
+
 # Demo when run directly
 if __name__ == "__main__":
-    overlay = SubtitleOverlay.create(title="My Live Transcription")  # ← Always centered!
+    overlay = SubtitleOverlay.create(title="My Live Transcription")
 
-    # Works perfectly even without threading:
-    overlay.add_message("This appears instantly")
-    overlay.add_message("And the window is perfectly centered!")
-    
-    import time
-    time.sleep(1)
-    overlay.add_message("No thread needed anymore")
+    def demo():
+        msgs = [
+            "overlay.add_message() works!",
+            "Super clean API",
+            "Thread-safe",
+            "Perfect for live translation",
+            "Works on Windows + macOS",
+            "This is a very long message to test word wrapping and auto-scrolling behavior during real-time streaming...",
+        ]
+        for i, msg in enumerate(msgs * 20):
+            time.sleep(1.5)
+            overlay.add_message(msg)
+            if i == 10:
+                overlay.toggle_minimize()
+                time.sleep(1.5)
+                overlay.toggle_minimize()
+
+    run_in_background(demo)  # ← clean, readable, reusable
 
     sys.exit(QApplication.exec())

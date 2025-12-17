@@ -14,33 +14,47 @@ def _samples_to_timestamp(samples: int) -> str:
 
 def write_srt_file(
     filepath: Path,
-    text: str,
+    source_text: str,
+    target_text: str,
     start_sample: int,
     end_sample: int,
     index: int = 1,
 ) -> None:
     """
-    Write a single-entry SRT file.
+    Write a single-entry SRT file with optional bilingual subtitles.
+    If target_text is provided, it will be displayed below source_text.
     """
     content = f"{index}\n"
     content += f"{_samples_to_timestamp(start_sample)} --> {_samples_to_timestamp(end_sample)}\n"
-    content += f"{text.strip()}\n\n"
+    
+    if target_text.strip():
+        content += f"{source_text.strip()}\n{target_text.strip()}\n\n"
+    else:
+        content += f"{source_text.strip()}\n\n"
+    
     filepath.parent.mkdir(parents=True, exist_ok=True)
     filepath.write_text(content, encoding="utf-8")
     logger.info(f"SRT saved → {filepath}")
 
 def append_to_combined_srt(
     combined_path: Path,
-    text: str,
+    source_text: str,
+    target_text: str,
     start_sample: int,
     end_sample: int,
     index: int,
 ) -> None:
     """
     Append a single subtitle entry to the combined all_subtitles.srt.
+    If target_text is provided, it will be displayed below source_text.
     """
     content = f"{index}\n"
     content += f"{_samples_to_timestamp(start_sample)} --> {_samples_to_timestamp(end_sample)}\n"
-    content += f"{text.strip()}\n\n"
+    
+    if target_text.strip():
+        content += f"{source_text.strip()}\n{target_text.strip()}\n\n"
+    else:
+        content += f"{source_text.strip()}\n\n"
+    
     with combined_path.open("a", encoding="utf-8") as f:
         f.write(content)

@@ -9,10 +9,10 @@ import numpy as np
 from rich import print as rprint
 from mimetypes import guess_type
 
+from jet.audio.transcribers.base import AudioInput
+
 # BASE_URL = "http://shawn-pc.local:8001/transcribe_translate"
 BASE_URL = "http://shawn-pc.local:8001/transcribe_translate_kotoba"
-
-AudioInput = Union[str, Path, bytes, bytearray, np.ndarray]
 
 
 # ---- Typed Dict for Response ----
@@ -43,7 +43,13 @@ def get_sync_client() -> httpx.Client:
             max_connections=100,
             keepalive_expiry=30.0,
         )
-        timeout = httpx.Timeout(30.0, connect=10.0)
+        timeout = httpx.Timeout(
+            timeout=300.0,       # Overall request timeout (read + write + pool)
+            connect=15.0,        # Connection establishment timeout
+            read=300.0,          # Read timeout for large response bodies (e.g., long audio files)
+            write=300.0,         # Write timeout for large request bodies (e.g., uploading big audio)
+            pool=30.0,           # Pool acquisition timeout
+        )
 
         def raise_on_4xx_5xx(response: httpx.Response):
             if response.is_client_error or response.is_server_error:
@@ -70,7 +76,7 @@ def get_sync_client() -> httpx.Client:
 def transcribe_audio(
     audio: AudioInput,
     *,
-    filename: Optional[str] = None
+    filename: str = "sound.wav"
 ) -> TranscribeResponse:
     """
     Synchronous entry-point for transcription.
@@ -79,7 +85,7 @@ def transcribe_audio(
         - File path (str / Path)
         - Raw bytes / bytearray
         - NumPy array (will be converted with .tobytes())
-        - Optionally a filename for in-memory data (for correct MIME type)
+        - A filename for in-memory data (for correct MIME type)
 
     Returns parsed TranscribeResponse dict.
     """
@@ -157,8 +163,7 @@ if __name__ == "__main__":
     import time
     try:
         file_path = Path(
-            "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/"
-            "python_scripts/samples/audio/data/sound.wav"
+            "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/python_scripts/samples/audio/data/sound.wav"
         )
         # Test with file path
         start1 = time.perf_counter()

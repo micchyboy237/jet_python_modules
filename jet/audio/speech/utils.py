@@ -38,7 +38,7 @@ def save_completed_segment(
     *,
     trim_silence: bool = False,
     silence_threshold: Optional[float] = None,
-) -> Tuple[SegmentMeta, np.ndarray]:
+) -> Tuple[SegmentMeta, np.ndarray, str]:
     """
     Save a single completed speech segment to disk with WAV and metadata.json.
 
@@ -91,7 +91,7 @@ def save_completed_segment(
             seg_audio = np.concatenate(trimmed_chunks, axis=0)
         # start_sample is unchanged, saved_start_sample will reflect relative segment (0)
 
-    save_wav_file(wav_path, seg_audio)
+    seg_sound_file = save_wav_file(wav_path, seg_audio)
 
     # Metadata reflects the actual saved (possibly trimmed) audio
     actual_start_sample = 0  # as saved: always begins at zero
@@ -115,7 +115,7 @@ def save_completed_segment(
 
     (seg_dir / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     logger.info(f"Saved complete segment → {seg_dir.name}")
-    return meta, seg_audio
+    return meta, seg_audio, seg_sound_file
 
 def display_segments(speech_ts):
     """Display detected speech segments in a clean Rich table with correct time in seconds."""
@@ -153,7 +153,7 @@ def display_segments(speech_ts):
     rprint("\n", table, "\n")
 
 
-def save_wav_file(filename, audio_data: np.ndarray):
+def save_wav_file(filename, audio_data: np.ndarray) -> str:
     filename = Path(filename)
     filename.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(filename), 'wb') as wf:
@@ -161,7 +161,9 @@ def save_wav_file(filename, audio_data: np.ndarray):
         wf.setsampwidth(np.dtype(DTYPE).itemsize)
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(audio_data.tobytes())
-    logger.info(f"Audio saved to {filename}")
+    abs_path = str(filename.resolve())
+    logger.info(f"Audio saved to {abs_path}")
+    return abs_path
 
 
 def convert_audio_to_tensor(audio_data: np.ndarray) -> torch.Tensor:
