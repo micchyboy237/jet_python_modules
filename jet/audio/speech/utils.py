@@ -1,20 +1,15 @@
-import os
 import numpy as np
 import json
 from typing import Optional, Tuple, TypedDict
 from datetime import datetime
 from pathlib import Path
 import torch
-import wave
 from rich.table import Table
 from jet.audio.helpers.silence import (
     SAMPLE_RATE,
-    DTYPE,
-    CHANNELS,
 )
 from jet.audio.speech.silero.speech_timestamps_extractor import SpeechSegment
 from jet.audio.speech.wav_utils import save_wav_file
-from jet.audio.transcribers.base import AudioInput
 from jet.logger import logger
 
 class SegmentMeta(TypedDict):
@@ -189,63 +184,3 @@ def convert_audio_to_tensor(audio_data: np.ndarray) -> torch.Tensor:
     assert SAMPLE_RATE == 16000, "Wrong sample rate for Silero VAD: must be 16000 Hz"
 
     return tensor  # shape: (N_samples,), float32, [-1, 1], 16kHz
-
-def load_audio_to_array(audio: AudioInput) -> np.ndarray:
-    """Load various audio input types into a NumPy array (raw PCM samples)."""
-    if isinstance(audio, (str, os.PathLike)):
-        with wave.open(str(audio), 'rb') as wf:
-            nchannels = wf.getnchannels()
-            sampwidth = wf.getsampwidth()
-            framerate = wf.getframerate()
-            nframes = wf.getnframes()
-            raw_bytes = wf.readframes(nframes)
-        # Convert raw bytes to numpy array
-        dtype = np.dtype(f'<i{sampwidth}')  # little-endian signed int
-        array = np.frombuffer(raw_bytes, dtype=dtype).reshape(-1, nchannels)
-        if nchannels > 1:
-            array = np.mean(array, axis=1).astype(array.dtype)
-        if nchannels == 1:
-            array = array.flatten()
-        return array.astype(np.int16)  # Normalize to int16 for consistency
-    
-    elif isinstance(audio, bytes):
-        # Assume raw PCM bytes matching expected format (CHANNELS, DTYPE, SAMPLE_RATE)
-        itemsize = np.dtype(DTYPE).itemsize
-        expected_samples = len(audio) // itemsize
-        if CHANNELS > 1:
-            expected_samples //= CHANNELS
-        dtype = np.dtype(f'<i{itemsize}')
-        array = np.frombuffer(audio, dtype=dtype)
-        if len(array) != expected_samples * (CHANNELS if CHANNELS > 1 else 1):
-            raise ValueError("Bytes length does not match expected PCM format")
-        if CHANNELS > 1:
-            array = array.reshape(-1, CHANNELS)
-            array = np.mean(array, axis=1).astype(array.dtype)
-        return array.astype(np.int16)
-    
-    elif isinstance(audio, np.ndarray):
-        if audio.dtype.kind == 'f':
-            # Use 32767.0 for scaling to match common practice and minimize rounding errors
-            audio = (audio * 32767.0).clip(-32768.0, 32767.0)
-        audio = audio.astype(np.int16)
-        if audio.ndim > 1:
-            if audio.shape[1] == CHANNELS:
-                audio = np.mean(audio, axis=1).astype(np.int16)
-            else:
-                audio = audio.flatten()
-        return audio.flatten()
-    
-    elif isinstance(audio, torch.Tensor):
-        if audio.dtype.is_floating_point:
-            audio = (audio * 32767.0).clamp_(-32768.0, 32767.0)
-        audio = audio.to(torch.int16)
-        array = audio.cpu().numpy()
-        if array.ndim > 1:
-            if array.shape[1] == CHANNELS:
-                array = np.mean(array, axis=1).astype(np.int16)
-            else:
-                array = array.flatten()
-        return array.flatten()
-    
-    else:
-        raise TypeError(f"Unsupported audio input type: {type(audio)}")
