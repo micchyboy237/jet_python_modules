@@ -68,6 +68,8 @@ Evaluate results
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
+If applicable:
+- Provide a single diff for each updated file
 """.strip()
 
 # DEFAULT_SYSTEM_MESSAGE = """
