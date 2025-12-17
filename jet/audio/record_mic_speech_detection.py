@@ -2,11 +2,11 @@ import numpy as np
 from silero_vad import load_silero_vad
 import sounddevice as sd
 from pathlib import Path
-from typing import Optional, List
+from typing import Generator, Optional, List, Tuple
 from tqdm import tqdm
 
 from jet.audio.speech.silero.speech_timestamps_extractor import extract_speech_timestamps
-from jet.audio.speech.utils import convert_audio_to_tensor, display_segments
+from jet.audio.speech.utils import SegmentMeta, convert_audio_to_tensor, display_segments
 from jet.audio.speech.utils import save_completed_segment
 from jet.logger import logger
 from jet.audio.helpers.silence import (
@@ -36,7 +36,7 @@ def record_from_mic(
     trim_silent: bool = True,
     *,
     output_dir: Optional[Path | str] = None,
-) -> Optional[np.ndarray]:
+) -> Generator[Tuple[SegmentMeta, np.ndarray, np.ndarray], None, Optional[np.ndarray]]:
     """Record audio from microphone with silence detection and progress tracking.
 
     When ``output_dir`` is supplied each detected speech segments (from Silero VAD)
@@ -119,12 +119,12 @@ def record_from_mic(
                 if save_segments and curr_segment and prev_segment and curr_segment["start"] != prev_segment["start"]:
                     full_audio_np = np.concatenate(audio_data, axis=0)
 
-                    state["counter"] = save_completed_segment(
+                    seg_meta, seg_audio_np = save_completed_segment(
                         segment_root=segment_root,
-                        counter=state["counter"],
                         ts=prev_segment,
                         audio_np=full_audio_np,
                     )
+                    yield seg_meta, seg_audio_np, full_audio_np
                 prev_segment = curr_segment
 
     if not audio_data:
@@ -136,16 +136,14 @@ def record_from_mic(
     # === FINAL FLUSH: save any remaining speech ===
     if save_segments:
         full_audio_np = np.concatenate(audio_data, axis=0)  # always untrimmed full recording
-        state["counter"] = save_completed_segment(
+        seg_meta, seg_audio_np = save_completed_segment(
             segment_root=segment_root,
-            counter=state["counter"],
             ts=prev_segment,
             audio_np=full_audio_np,
             trim_silence=trim_silent,           # pass the original flag
             silence_threshold=silence_threshold,  # already calibrated earlier
         )
+        yield seg_meta, seg_audio_np, full_audio_np
 
     actual_duration = len(audio_data) / SAMPLE_RATE
     logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
-    return audio_data
-
