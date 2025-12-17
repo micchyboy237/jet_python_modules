@@ -83,6 +83,8 @@ def record_from_mic(
     state["counter"] = 0
     state["finalized_up_to_sample"] = 0
     state["last_seen_segments"] = []
+
+    audio_tensor = None
     curr_segment = None
     prev_segment = None
 
@@ -125,6 +127,10 @@ def record_from_mic(
                             curr_segment = None
                             prev_segment = None
 
+                        audio_tensor = convert_audio_to_tensor(audio_data)
+                        speech_ts = extract_speech_timestamps(audio=audio_tensor, model=silero_model)
+                        display_segments(speech_ts)
+
                         continue
                 else:
                     silent_count = 0
@@ -155,6 +161,10 @@ def record_from_mic(
 
     # === FINAL FLUSH: save any remaining speech ===
     if save_segments and prev_segment:
+        audio_tensor = convert_audio_to_tensor(audio_data)
+        speech_ts = extract_speech_timestamps(audio=audio_tensor, model=silero_model)
+        display_segments(speech_ts)
+
         full_audio_np = np.concatenate(audio_data, axis=0)  # always untrimmed full recording
         seg_meta, seg_audio_np, seg_sound_file = save_completed_segment(
             segment_root=segment_root,
