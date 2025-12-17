@@ -39,11 +39,11 @@ class _Signals(QObject):
 
 class SubtitleOverlay(QWidget):
     """
-    Beautiful, thread-safe, reusable live subtitle overlay.
+    Modern, thread-safe, live overlay for displaying subtitles, transcripts, or status messages.
 
     Usage:
         overlay = SubtitleOverlay.create()
-        overlay.add_message("Hello world!")           # ← your dream API
+        overlay.add_message("Hello world!")           # ← easy, always safe
         overlay.add_message("Another line")
         overlay.clear()
     """
@@ -69,34 +69,31 @@ class SubtitleOverlay(QWidget):
         self._connect_signals()
 
         # ------------------------------------------------------------------
-        # ASYNCIO TASK CHAIN INTEGRATION (replaced with thread pool)
+        # ASYNCIO/TASK INTEGRATION (Always sequential)
         # ------------------------------------------------------------------
         from concurrent.futures import ThreadPoolExecutor
-        self._executor = ThreadPoolExecutor(max_workers=1)  # 1 worker → sequential, exactly like you want
-        # Queue of (awaitable_task, associated_loading_label)
-        self._pending_tasks: list[tuple[Awaitable[str], QLabel]] = []
+        self._executor = ThreadPoolExecutor(max_workers=1)
+        self._pending_tasks: list[tuple[Awaitable[str], QWidget]] = []
 
         self.add_message("Live Subtitle Overlay • Ready")
         self.logger.info("[green]Ready – use .add_message('text')[/]")
-        self._process_next_task()  # start processing if any tasks already queued
+        self._process_next_task()
 
     def _process_next_task(self) -> None:
-        """Start the next task in the queue if the executor is free."""
+        """Start the next queued async/sync task if available (runs sequentially)."""
         if not self._pending_tasks:
             return
 
-        # Take the oldest pending task + its loading label
-        task, loading_label = self._pending_tasks.pop(0)
+        task, loading_widget = self._pending_tasks.pop(0)
 
-        def run_in_thread() -> tuple[str, QLabel]:
+        def run_in_thread() -> tuple[str, QWidget]:
             try:
                 result = asyncio.run(task)
-                return str(result), loading_label
+                return str(result), loading_widget
             except Exception as e:
-                return f"[Error] {e}", loading_label
+                return f"[Error] {e}", loading_widget
 
         future = self._executor.submit(run_in_thread)
-        # Poll for completion in the main thread
         QTimer.singleShot(100, lambda: self._check_future_done(future))
 
     def _check_future_done(self, future: Future) -> None:
@@ -106,35 +103,36 @@ class SubtitleOverlay(QWidget):
             QTimer.singleShot(100, lambda: self._check_future_done(future))
 
     def _on_task_finished(self, future: Future) -> None:
-        """Callback executed in the main Qt thread."""
+        """Handles completion of an add_task call."""
         if future.cancelled():
             return
 
         try:
-            message, loading_label = future.result()
+            message, loading_widget = future.result()
         except Exception as e:
             message = f"[Error] {e}"
-            # In case of exception, still try to replace the associated label
-            loading_label = future.result()[1] if future.done() else None
+            # loading_widget = getattr(future, "_loading_widget", None)
 
-        if not loading_label or not loading_label.parent():
-            # Label was removed (e.g. window closed) → nothing to do
+        if not loading_widget or not loading_widget.parent():
             return
 
-        # Replace the exact loading label that belongs to this task
-        idx = self.content_layout.indexOf(loading_label)
+        # Stop the spinner animation immediately before deleting the widget
+        timer = loading_widget.property("_spinner_timer")
+        if timer and isinstance(timer, QTimer) and timer.isActive():
+            timer.stop()
+
+        idx = self.content_layout.indexOf(loading_widget)
         if idx == -1:
-            return  # safety
+            return
 
         self.content_layout.takeAt(idx)
-        loading_label.deleteLater()
+        loading_widget.deleteLater()
 
         new_label = QLabel(message)
         new_label.setWordWrap(True)
         new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         new_label.setStyleSheet("color: white; padding: 4px;")
         new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
-
         self.content_layout.insertWidget(idx, new_label)
 
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
@@ -144,15 +142,9 @@ class SubtitleOverlay(QWidget):
         total_chars = sum(len(line) for line in self.history)
         self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
 
-        # Continue with next task if any
         if self._pending_tasks:
             self._process_next_task()
 
-        # No longer need to track a single current label
-
-    # ------------------------------------------------------------------
-    # Cleanup on close
-    # ------------------------------------------------------------------
     def closeEvent(self, event):
         self._executor.shutdown(wait=False)
         super().closeEvent(event)
@@ -162,18 +154,16 @@ class SubtitleOverlay(QWidget):
         main.setContentsMargins(16, 16, 16, 16)
         main.setSpacing(10)
 
-        # === TOP CONTROL BAR (always visible) ===
+        # --- Top control bar (title, status, buttons) ---
         self.control_bar = QHBoxLayout()
         self.control_bar.setContentsMargins(12, 10, 12, 10)
         self.control_bar.setSpacing(12)
 
-        # Optional title label
         if self.title:
             self.title_label = QLabel(self.title)
             self.title_label.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold;")
             self.control_bar.addWidget(self.title_label)
 
-        # Status indicator (LIVE)
         self.status_label = QLabel("LIVE")
         self.status_label.setStyleSheet("""
             color: #ff4444;
@@ -187,7 +177,6 @@ class SubtitleOverlay(QWidget):
         self.control_bar.addWidget(self.status_label)
         self.control_bar.addStretch()
 
-        # Minimize button
         self.min_btn = QPushButton("Minimize")
         self.min_btn.setFixedSize(38, 38)
         self.min_btn.setStyleSheet("""
@@ -201,7 +190,6 @@ class SubtitleOverlay(QWidget):
             QPushButton:hover { background: rgba(100, 180, 255, 0.5); }
         """)
 
-        # Close button
         close_btn = QPushButton("×")
         close_btn.setFixedSize(38, 38)
         close_btn.setStyleSheet("""
@@ -219,13 +207,12 @@ class SubtitleOverlay(QWidget):
         self.control_bar.addWidget(self.min_btn)
         self.control_bar.addWidget(close_btn)
 
-        # Optional: Make whole control bar draggable
         self.control_bar_widget = QWidget()
         self.control_bar_widget.setLayout(self.control_bar)
         self.control_bar_widget.setCursor(Qt.CursorShape.OpenHandCursor)
         main.addWidget(self.control_bar_widget)
 
-        # === CONTENT AREA (scroll + summary) ===
+        # --- Content area (scrollable + summary) ---
         self.content_area = QVBoxLayout()
         self.content_area.setSpacing(8)
 
@@ -253,7 +240,6 @@ class SubtitleOverlay(QWidget):
 
         main.addLayout(self.content_area, stretch=1)
 
-        # Initially full view
         self.min_btn.clicked.connect(self.toggle_minimize)
         self._is_minimized = False
         self._original_size = None
@@ -268,18 +254,18 @@ class SubtitleOverlay(QWidget):
         self.move(screen.center().x() - self.width() // 2,
                   screen.center().y() - self.height() // 2)
 
-    # ─────────────────────── Your Dream Public API ───────────────────────
+    # --- PUBLIC API ---
     def add_message(self, text: str):
-        """Call this from anywhere, any thread — 100% safe and clean."""
+        """Add a message (subtitled line) from anywhere, any thread."""
         if not text or not str(text).strip():
             return
         self.signals._add_message.emit(str(text).strip())
 
     def add_task(self, func: callable, *args, **kwargs) -> None:
         """
-        Add a callable (sync or async) with its arguments to be executed sequentially.
-        The return value (or await result) must be convertible to str and will be displayed.
-        A temporary “Processing…” row is shown immediately.
+        Add a sync/async callable for sequential execution.
+        Its return/awaited value is displayed as a message.
+        Displays a "Processing" row until done.
         """
         async def _wrapper() -> str:
             result = func(*args, **kwargs)
@@ -287,31 +273,64 @@ class SubtitleOverlay(QWidget):
                 result = await result
             return str(result)
 
-        # Create temporary loading row (in main thread)
-        loading_lbl = QLabel("Processing…")
-        loading_lbl.setWordWrap(True)
-        loading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        loading_lbl.setStyleSheet("color: #ffff66; padding: 4px; font-style: italic;")
-        loading_lbl.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
-        self.content_layout.addWidget(loading_lbl)
+        # Create a loading widget (spinner + text)
+        loading_widget = QWidget()
+        loading_layout = QHBoxLayout(loading_widget)
+        loading_layout.setContentsMargins(10, 8, 10, 8)
+        loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        spinner = QLabel()
+        self._setup_spinner_animation(spinner, loading_widget)
+
+        loading_text = QLabel("Processing")
+        loading_text.setStyleSheet("color: #ffff66; font-style: italic;")
+        loading_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+
+        loading_layout.addStretch()
+        loading_layout.addWidget(spinner)
+        loading_layout.addWidget(loading_text)
+        loading_layout.addStretch()
+
+        self.content_layout.addWidget(loading_widget)
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
         self.history.append("Processing…")
         total_chars = sum(len(line) for line in self.history)
         self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
 
-        # Queue the wrapped coroutine together with its loading label
-        self._pending_tasks.append((_wrapper(), loading_lbl))
+        self._pending_tasks.append((_wrapper(), loading_widget))
         self._process_next_task()
 
     def clear(self):
-        """Clear all messages"""
+        """Remove all messages and reset transcript summary."""
         self.signals._clear.emit()
 
+    def _setup_spinner_animation(self, spinner_label: QLabel, parent_widget: QWidget) -> None:
+        spinner_label.setStyleSheet("color: #ffff66;")
+        spinner_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 28))
+        spinner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠇"]
+        current = 0
+
+        def update_frame():
+            nonlocal current
+            spinner_label.setText(frames[current])
+            current = (current + 1) % len(frames)
+
+        timer = QTimer(self)  # parented to the overlay for longevity
+        timer.timeout.connect(update_frame)
+        timer.start(80)
+
+        # Store the timer on the loading row so we can stop it on completion
+        parent_widget.setProperty("_spinner_timer", timer)
+
+        # Auto-stop the timer when the loading row is destroyed
+        parent_widget.destroyed.connect(timer.stop)
+
     def toggle_minimize(self):
-        """Toggle between full transcript view and minimal floating bar"""
+        """Toggle overlay between full transcript and floating mini-bar."""
         if not self._is_minimized:
-            # → Minimize
             self._original_size = self.size()
             self.setFixedHeight(64)
             self.content_area.layout().setEnabled(False)
@@ -323,16 +342,14 @@ class SubtitleOverlay(QWidget):
             self.control_bar.layout().setContentsMargins(16, 12, 16, 12)
             self.status_label.setText("LIVE • MINIMIZED")
             if hasattr(self, 'title_label'):
-                self.title_label.show()  # always keep title visible
+                self.title_label.show()
             self.min_btn.setText("Restore")
             self._is_minimized = True
         else:
-            # → Restore
             if self._original_size:
                 self.setFixedSize(self._original_size)
             else:
                 self.setFixedHeight(600)
-
             for i in range(self.content_area.layout().count()):
                 item = self.content_area.layout().itemAt(i)
                 if item.widget():
@@ -358,7 +375,7 @@ class SubtitleOverlay(QWidget):
             return
         super().keyPressEvent(event)
 
-    # ─────────────────────── Internal (thread-safe) implementation ───────────────────────
+    # --- INTERNAL ----
     def _do_add_message(self, text: str):
         self.history.append(text)
 
@@ -376,7 +393,6 @@ class SubtitleOverlay(QWidget):
         total_chars = sum(len(line) for line in self.history)
         self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
 
-    # Dragging
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -387,19 +403,17 @@ class SubtitleOverlay(QWidget):
             self.move(e.globalPosition().toPoint() - self._drag_pos)
             e.accept()
 
-    # ─────────────────────── One-liner factory ───────────────────────
     @classmethod
     def create(cls, app: Optional[QApplication] = None, title: Optional[str] = None) -> 'SubtitleOverlay':
         """
         One-liner to get a perfectly centered, always-on-top, live subtitle overlay.
-        
         Features (all automatic):
         - Creates QApplication if needed
         - Prevents quit on close/minimize
-        - Perfect centering on Windows/macOS/Linux
+        - Centers on main screen
         - Graceful Ctrl+C shutdown
         - Thread-safe .add_message()
-        - Optional custom title displayed in the top control bar
+        - Optional custom title
         """
         app = app or QApplication.instance() or QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(False)
@@ -423,7 +437,6 @@ class SubtitleOverlay(QWidget):
             overlay.logger.info("[green]Overlay centered perfectly[/]")
 
         QTimer.singleShot(50, _do_center)
-
         return overlay
 
 
