@@ -24,6 +24,7 @@ from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import torch
+import soundfile as sf  # NEW: for audio saving
 
 # ----------------------------------------------------------------------
 # Load Silero VAD (official way – always up to date)
@@ -187,6 +188,41 @@ class SileroVADAnalyzer:
         json_path.write_text(json.dumps(data, indent=2))
         print(f"JSON saved → {json_path}")
 
+    # NEW: Save each segment as individual .wav + meta.json
+    def save_segments_individually(
+        self,
+        audio_path: str | Path,
+        segments: List[SpeechSegment],
+        out_dir: str | Path,
+    ) -> None:
+        """Extract and save each speech segment as a separate .wav file with accompanying meta.json."""
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        wav, sr = sf.read(str(audio_path))
+        if sr != self.sr:
+            raise ValueError(f"Audio sampling rate {sr} does not match analyzer's {self.sr}")
+        for idx, seg in enumerate(segments, start=1):
+            seg_dir = Path(out_dir) / f"segment_{idx:03d}"
+            seg_dir.mkdir(parents=True, exist_ok=True)
+
+            start_sample = int(seg.start_sec * self.sr)
+            end_sample = int(seg.end_sec * self.sr)
+            segment_audio = wav[start_sample:end_sample]
+
+            wav_path = seg_dir / "sound.wav"
+            sf.write(str(wav_path), segment_audio, self.sr)
+
+            meta = {
+                "segment_index": idx,
+                "start_sec": seg.start_sec,
+                "end_sec": seg.end_sec,
+                "duration_sec": seg.duration_sec,
+                "original_file": Path(audio_path).name,
+            }
+            meta_path = seg_dir / "meta.json"
+            meta_path.write_text(json.dumps(meta, indent=2))
+
+        print(f"Saved {len(segments)} individual segments → {out_dir}")
+
     def get_metrics(
         self,
         probs: List[float],
@@ -278,6 +314,7 @@ def main():
     
     analyzer.plot_insights(probs, segments, args.audio, args.output_dir)
     analyzer.save_json(segments, args.output_dir, args.audio)
+    analyzer.save_segments_individually(args.audio, segments, Path(args.output_dir) / "segments")
 
     # NEW: Pretty table in console
     from rich.table import Table
