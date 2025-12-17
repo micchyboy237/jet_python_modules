@@ -133,12 +133,49 @@ class SileroVADAnalyzer:
         time_axis = [i * self.step_sec for i in range(len(probs))]
         total_sec = len(probs) * self.step_sec
 
+        # Improved dynamic x-axis labeling with denser ticks and max ~12 labels
+        def set_dynamic_xticks(ax, total_seconds: float) -> None:
+            """Set x-ticks with adaptive interval to avoid crowding while reducing large gaps."""
+            import numpy as np
+
+            # Target ~10–14 ticks max for good readability across durations
+            target_ticks = 12
+            interval = max(1, round(total_seconds / target_ticks, -1))  # round to nearest 10s base
+
+            # Fine-tune for better human-readable intervals
+            if interval <= 5:
+                interval = 5
+            elif interval <= 12:
+                interval = 10
+            elif interval <= 35:
+                interval = 30
+            elif interval <= 70:
+                interval = 60
+            elif interval <= 150:
+                interval = 120
+            else:
+                interval = 300  # 5 min for very long files
+
+            ticks = np.arange(0, total_seconds + interval / 2, interval)  # slight overrun ok
+            labels = []
+            for t in ticks:
+                if t >= 3600:
+                    labels.append(f"{int(t // 3600)}:{int((t % 3600) // 60):02d}:{int(t % 60):02d}")
+                elif t >= 60:
+                    labels.append(f"{int(t // 60):02d}:{int(t % 60):02d}")
+                else:
+                    labels.append(f"{int(t)}s")
+
+            ax.set_xticks(ticks)
+            ax.set_xticklabels(labels)
+            ax.grid(True, which="major", axis="x", alpha=0.4, linestyle="--")
+
         plt.figure(figsize=(20, 10))
         plt.suptitle(f"Silero VAD Full Analysis – {Path(audio_path).name}", fontsize=18, fontweight="bold")
 
         # Top: Probability curve
         plt.subplot(2, 1, 1)
-        plt.fill_between(time_axis, probs, color="#4CAF50", alpha=0.7, label="Speech Probability")
+        plt.fill_between(time_axis, probs, color="skyblue")
         plt.axhline(self.threshold, color="red", linestyle="--", linewidth=2, label=f"Threshold = {self.threshold}")
         plt.axhline(self.threshold - 0.15, color="orange", linestyle=":", linewidth=1.5, label="Negative Threshold")
         plt.ylim(0, 1.05)
@@ -147,6 +184,7 @@ class SileroVADAnalyzer:
         plt.title("Raw Speech Probability Over Time", fontsize=14)
         plt.legend(loc="upper right")
         plt.grid(True, alpha=0.3)
+        set_dynamic_xticks(plt.gca(), total_sec)
 
         # Bottom: Detected speech segments
         ax2 = plt.subplot(2, 1, 2)
@@ -155,14 +193,22 @@ class SileroVADAnalyzer:
                 [seg.start_sec, seg.end_sec],
                 0,
                 1,
-                color="#2196F3",
+                color="lightgreen",
                 edgecolor="black",
                 linewidth=1,
                 alpha=0.8,
                 label="Speech" if i == 0 else None,
             )
             mid = (seg.start_sec + seg.end_sec) / 2
-            ax2.text(mid, 0.5, f"{seg.duration_sec}s", ha="center", va="center", color="white", fontweight="bold")
+            # Dark text for better readability on lightgreen background
+            ax2.text(
+                mid, 0.5, f"{seg.duration_sec:.1f}s",
+                ha="center", va="center",
+                color="darkgreen",  # dark and high contrast
+                fontweight="bold",
+                fontsize=10,
+            )
+        set_dynamic_xticks(ax2, total_sec)
 
         plt.xlim(0, total_sec)
         plt.ylim(0, 1)
@@ -175,22 +221,70 @@ class SileroVADAnalyzer:
         plt.subplots_adjust(hspace=0.3)
 
         # Save
-        plot_path = Path(out_dir) / f"vad_analysis_{Path(audio_path).stem}.png"
+        plot_path = Path(out_dir) / f"vad_detected_speech_{Path(audio_path).stem}.png"
         plt.savefig(plot_path, dpi=300, bbox_inches="tight")
         print(f"Plot saved → {plot_path}")
 
-        # Also save probability as separate high-res
-        plt.figure(figsize=(18, 6))
-        plt.plot(time_axis, probs, color="#2E7D32", linewidth=1.5)
-        plt.fill_between(time_axis, probs, color="#81C784", alpha=0.6)
-        plt.axhline(self.threshold, color="red", linestyle="--", linewidth=2)
-        plt.title("Speech Probability Only (zoomable)")
-        plt.xlabel("Seconds")
-        plt.ylabel("Probability")
-        prob_path = Path(out_dir) / f"vad_probability_{Path(audio_path).stem}.png"
-        plt.savefig(prob_path, dpi=300, bbox_inches="tight")
-        plt.close("all")
-        print(f"Probability plot → {prob_path}")
+        plt.close()
+
+        # Apply dynamic ticks to histogram as well (optional but nice)
+        plt.figure(figsize=(12, 8))
+        prob_array = np.array(probs)
+        speech_probs = []
+        silence_probs = []
+        for seg in segments:
+            start_idx = int(seg.start_sec / self.step_sec)
+            end_idx = int(seg.end_sec / self.step_sec)
+            speech_probs.extend(prob_array[start_idx:end_idx])
+        speech_probs = np.array(speech_probs)
+        silence_mask = np.ones(len(prob_array), dtype=bool)
+        for seg in segments:
+            start_idx = int(seg.start_sec / self.step_sec)
+            end_idx = int(seg.end_sec / self.step_sec)
+            silence_mask[start_idx:end_idx] = False
+        silence_probs = prob_array[silence_mask]
+        plt.hist(silence_probs, bins=50, alpha=0.6, label="Silence windows", color="lightgray", density=True)
+        plt.hist(speech_probs, bins=50, alpha=0.7, label="Speech windows", color="lightgreen", density=True)
+        plt.axvline(self.threshold, color="red", linestyle="--", linewidth=2, label=f"Threshold = {self.threshold}")
+        plt.xlabel("Speech Probability")
+        plt.ylabel("Density")
+        plt.title("Probability Distribution (Speech vs. Silence)")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        hist_path = Path(out_dir) / f"vad_probability_histogram_{Path(audio_path).stem}.png"
+        plt.savefig(hist_path, dpi=300, bbox_inches="tight")
+        plt.close()
+        print(f"Histogram saved → {hist_path}")
+
+        # Apply to segment confidence chart (x-axis is probability 0-1, no need for time ticks)
+        if segments:
+            plt.figure(figsize=(12, max(6, len(segments) * 0.4)))
+            avg_probs = [seg.avg_probability for seg in segments]
+            durations = [seg.duration_sec for seg in segments]
+            indices = np.arange(len(segments))
+            colors = ["green" if p > 0.8 else "orange" if p > 0.6 else "red" for p in avg_probs]
+            bars = plt.barh(indices, avg_probs, color=colors, alpha=0.8)
+            plt.yticks(indices, [f"Seg {i+1} ({d:.1f}s)" for i, d in enumerate(durations)])
+            plt.xlabel("Average Probability")
+            plt.title("Per-Segment Confidence (Avg Probability)")
+            plt.xlim(0, 1)
+            plt.xticks(np.linspace(0, 1, 11))  # fixed 0.0 to 1.0 with 0.1 steps
+            # Dark text annotations on bars
+            for bar, prob in zip(bars, avg_probs):
+                plt.text(
+                    bar.get_width() + 0.01,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{prob:.3f}",
+                    va="center",
+                    fontsize=9,
+                    color="black",  # high contrast regardless of bar color
+                    fontweight="bold",
+                )
+            plt.grid(True, alpha=0.3, axis="x")
+            conf_path = Path(out_dir) / f"vad_segment_confidence_{Path(audio_path).stem}.png"
+            plt.savefig(conf_path, dpi=300, bbox_inches="tight")
+            plt.close()
+            print(f"Segment confidence chart saved → {conf_path}")
 
     def save_json(self, segments: List[SpeechSegment], out_dir: str | Path, audio_path: str | Path) -> None:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
