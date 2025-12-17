@@ -21,6 +21,7 @@ import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import List, Tuple
+import numpy as np
 
 import matplotlib.pyplot as plt
 import torch
@@ -45,6 +46,11 @@ class SpeechSegment:
     start_sec: float
     end_sec: float
     duration_sec: float
+    avg_probability: float = 0.0
+    min_probability: float = 0.0
+    max_probability: float = 0.0
+    std_probability: float = 0.0
+    percent_above_threshold: float = 0.0
 
 
 class SileroVADAnalyzer:
@@ -91,15 +97,27 @@ class SileroVADAnalyzer:
             prob = model(chunk.unsqueeze(0), self.sr).item()
             probs.append(prob)
 
-        # Convert segments to rich objects
-        rich_segments = [
-            SpeechSegment(
+        # Enrich segments with per-segment probability stats
+        rich_segments = []
+        prob_array = np.array(probs)
+        for s in segments:
+            start_idx = int(s["start"] / self.window_size)
+            end_idx = int(s["end"] / self.window_size)
+            seg_probs = prob_array[start_idx:end_idx]
+
+            seg = SpeechSegment(
                 start_sec=round(s["start"] / self.sr, 3),
                 end_sec=round(s["end"] / self.sr, 3),
                 duration_sec=round((s["end"] - s["start"]) / self.sr, 3),
+                avg_probability=round(float(seg_probs.mean()), 3) if len(seg_probs) > 0 else 0.0,
+                min_probability=round(float(seg_probs.min()), 3) if len(seg_probs) > 0 else 0.0,
+                max_probability=round(float(seg_probs.max()), 3) if len(seg_probs) > 0 else 0.0,
+                std_probability=round(float(seg_probs.std()), 3) if len(seg_probs) > 0 else 0.0,
+                percent_above_threshold=round(
+                    sum(p > self.threshold for p in seg_probs) / len(seg_probs) * 100, 1
+                ) if len(seg_probs) > 0 else 0.0,
             )
-            for s in segments
-        ]
+            rich_segments.append(seg)
 
         return probs, rich_segments
 
@@ -217,6 +235,11 @@ class SileroVADAnalyzer:
                 "end_sec": seg.end_sec,
                 "duration_sec": seg.duration_sec,
                 "original_file": Path(audio_path).name,
+                "avg_probability": seg.avg_probability,
+                "min_probability": seg.min_probability,
+                "max_probability": seg.max_probability,
+                "std_probability": seg.std_probability,
+                "percent_above_threshold": seg.percent_above_threshold,
             }
             meta_path = seg_dir / "meta.json"
             meta_path.write_text(json.dumps(meta, indent=2))
@@ -230,8 +253,6 @@ class SileroVADAnalyzer:
         total_duration_sec: float,
     ) -> dict:
         """Return a clean dictionary of all useful metrics."""
-        import numpy as np
-
         durations = [s.duration_sec for s in segments]
         num_segments = len(segments)
         total_speech_sec = sum(durations)
@@ -275,6 +296,9 @@ class SileroVADAnalyzer:
             "windows_above_threshold_percent": round(
                 sum(p > self.threshold for p in probs) / len(probs) * 100, 1
             ),
+            "median_probability_all": round(float(np.median(prob_array)), 3),
+            "p95_probability_in_speech": round(float(np.percentile(prob_array[speech_mask], 95)), 3)
+            if speech_mask.any() else 0.0,
         }
 
 
