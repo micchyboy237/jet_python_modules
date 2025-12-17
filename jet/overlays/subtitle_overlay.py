@@ -7,7 +7,7 @@ import signal
 import logging
 from threading import Thread
 import time
-from typing import Optional, Awaitable
+from typing import Optional, Awaitable, TypedDict
 import asyncio
 from concurrent.futures import Future
 
@@ -31,8 +31,17 @@ def _setup_logging():
     return logger
 
 
+class SubtitleMessage(TypedDict):
+    translated_text: str          # Displayed prominently (e.g., English/target language)
+    start_sec: float
+    end_sec: float
+    duration_sec: float
+    source_text: str              # Original text (e.g., Japanese/source language)
+
+
 class _Signals(QObject):
-    _add_message = pyqtSignal(str)
+    # Emit the full SubtitleMessage object as one argument
+    _add_message = pyqtSignal(object)  # object accepts dict or TypedDict
     _clear = pyqtSignal()
     _toggle_minimize = pyqtSignal()
 
@@ -54,6 +63,7 @@ class SubtitleOverlay(QWidget):
         self.signals = _Signals()
         self.history = []
         self.title = title
+        self.message_history: list[SubtitleMessage] = []
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
@@ -75,7 +85,10 @@ class SubtitleOverlay(QWidget):
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._pending_tasks: list[tuple[Awaitable[str], QWidget]] = []
 
-        self.add_message("Live Subtitle Overlay • Ready")
+        self.add_message(
+            translated_text="Live Subtitle Overlay • Ready",
+            source_text="",
+        )
         self.logger.info("[green]Ready – use .add_message('text')[/]")
         self._process_next_task()
 
@@ -289,11 +302,27 @@ class SubtitleOverlay(QWidget):
                   screen.center().y() - self.height() // 2)
 
     # --- PUBLIC API ---
-    def add_message(self, text: str):
-        """Add a message (subtitled line) from anywhere, any thread."""
-        if not text or not str(text).strip():
+    def add_message(
+        self,
+        translated_text: str,
+        *,
+        start_sec: float = 0.0,
+        end_sec: float = 0.0,
+        duration_sec: float = 0.0,
+        source_text: str = "",
+    ) -> None:
+        """Thread-safe add_message – displays translated_text with optional source_text below."""
+        if not translated_text or not str(translated_text).strip():
             return
-        self.signals._add_message.emit(str(text).strip())
+
+        subtitle_message = {
+            "translated_text": str(translated_text).strip(),
+            "start_sec": start_sec,
+            "end_sec": end_sec,
+            "duration_sec": duration_sec,
+            "source_text": source_text.strip(),
+        }
+        self.signals._add_message.emit(subtitle_message)
 
     def add_task(self, func: callable, *args, **kwargs) -> None:
         """
@@ -408,16 +437,55 @@ class SubtitleOverlay(QWidget):
         super().keyPressEvent(event)
 
     # --- INTERNAL ----
-    def _do_add_message(self, text: str):
-        self.history.append(text)
+    def _do_add_message(self, message: SubtitleMessage) -> None:
+        """Internal slot – receives the full SubtitleMessage dict."""
+        translated_text = message["translated_text"]
+        source_text = message.get("source_text", "")
+        start_sec = message.get("start_sec", 0.0)
+        end_sec = message.get("end_sec", 0.0)
+        duration_sec = message.get("duration_sec", 0.0)
 
-        lbl = QLabel(text)
-        lbl.setWordWrap(True)
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet("color: white; padding: 4px;")
-        lbl.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+        self.history.append(translated_text)
+        self.message_history.append(message)
 
-        self.content_layout.addWidget(lbl)
+        # Bilingual container widget
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(6)
+        container_layout.setContentsMargins(16, 12, 16, 12)
+
+        # Translated text – large, bold, prominent
+        trans_label = QLabel(translated_text)
+        trans_label.setWordWrap(True)
+        trans_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        trans_label.setStyleSheet(
+            "color: #ffffff; background: rgba(255, 255, 255, 0.1); "
+            "border-radius: 10px; padding: 12px;"
+        )
+        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 32, QFont.Weight.Bold))
+        container_layout.addWidget(trans_label)
+
+        # Source text – smaller, italic, only shown if present
+        if source_text:
+            src_label = QLabel(source_text)
+            src_label.setWordWrap(True)
+            src_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            src_label.setStyleSheet(
+                "color: #aaccff; font-style: italic; background: rgba(100, 140, 255, 0.15); "
+                "border-radius: 8px; padding: 8px;"
+            )
+            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
+            container_layout.addWidget(src_label)
+
+        container.setStyleSheet("""
+            QWidget {
+                background: rgba(30, 30, 50, 0.4);
+                border-radius: 14px;
+                margin: 4px;
+            }
+        """)
+
+        self.content_layout.addWidget(container)
 
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
@@ -510,6 +578,79 @@ def demo_threading():
     sys.exit(QApplication.exec())
 
 
+# Fixed: subtitle_overlay.py – only the demo_subtitle_metadata() function
+
+def demo_subtitle_metadata() -> None:
+    """
+    Demonstrates the new metadata-rich add_message API with realistic live subtitle timing.
+    Shows English translation on screen while preserving start/end times, duration, and original Japanese (source) text.
+    """
+    overlay = SubtitleOverlay.create(title="Live Subtitles – Metadata Demo")
+
+    # Simulated real-world segments – correct keys
+    demo_segments = [
+        {
+            "translated_text": "Hello, how are you today?",
+            "source_text": "こんにちは、今日はお元気ですか？",
+            "start_sec": 1.250,
+            "end_sec": 4.180,
+        },
+        {
+            "translated_text": "I'm doing great, thank you!",
+            "source_text": "元気です、ありがとう！",
+            "start_sec": 4.500,
+            "end_sec": 6.920,
+        },
+        {
+            "translated_text": "That's wonderful to hear.",
+            "source_text": "それは素晴らしいですね。",
+            "start_sec": 7.100,
+            "end_sec": 9.450,
+        },
+        {
+            "translated_text": "What are your plans for the weekend?",
+            "source_text": "週末の予定は何ですか？",
+            "start_sec": 9.800,
+            "end_sec": 12.300,
+        },
+    ]
+
+    def feed_subtitles() -> None:
+        import time
+
+        # Start from the first real segment (skip the initial "Ready" message)
+        for idx, seg in enumerate(demo_segments, start=2):
+            # Natural pacing based on actual segment duration
+            time.sleep(seg["end_sec"] - seg["start_sec"] + 0.4)
+
+            overlay.add_message(
+                translated_text=seg["translated_text"],
+                start_sec=seg["start_sec"],
+                end_sec=seg["end_sec"],
+                duration_sec=round(seg["end_sec"] - seg["start_sec"], 3),
+                source_text=seg["source_text"],
+            )
+
+            # Print correct metadata table (now shows proper values)
+            latest = overlay.message_history[-1]
+            from rich.table import Table
+            from rich import print as rprint
+
+            table = Table(title=f"Subtitle {idx} metadata")
+            table.add_column("Field")
+            table.add_column("Value")
+            for k, v in latest.items():
+                table.add_row(k, str(v))
+            rprint(table)
+
+    from threading import Thread
+    Thread(target=feed_subtitles, daemon=True).start()
+
+    sys.exit(QApplication.exec())
+    
+
 if __name__ == "__main__":
+    # Uncomment one of the demos to run
+    # demo_async()
     # demo_threading()
-    demo_async()
+    demo_subtitle_metadata()
