@@ -97,7 +97,7 @@ class SubtitleOverlay(QWidget):
         self._setup_spinner_animation(spinner, loading_widget)
 
         processing_text = QLabel("Processing")
-        processing_text.setStyleSheet("color: #ffff66; font-style: italic;")
+        processing_text.setStyleSheet("color: #ffff66; font-style: italic; background-color: rgba(180, 140, 0, 0.2); border-radius: 8px; padding: 4px 12px;")
         processing_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
 
         loading_layout.addStretch()
@@ -314,7 +314,7 @@ class SubtitleOverlay(QWidget):
         loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         pending_text = QLabel("Pending")
-        pending_text.setStyleSheet("color: #ffff66; font-style: italic;")
+        pending_text.setStyleSheet("color: #88ccff; font-style: italic; background-color: rgba(0, 80, 160, 0.2); border-radius: 8px; padding: 4px 12px;")
         pending_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
 
         loading_layout.addStretch()
