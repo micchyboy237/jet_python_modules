@@ -34,6 +34,7 @@ def record_from_mic(
     silence_threshold: Optional[float] = None,
     silence_duration: float = 2.0,
     trim_silent: bool = True,
+    quit_on_silence: bool = False,
     *,
     output_dir: Optional[Path | str] = None,
 ) -> Generator[Tuple[SegmentMeta, np.ndarray, np.ndarray], None, Optional[np.ndarray]]:
@@ -56,10 +57,11 @@ def record_from_mic(
 
     duration_str = f"{duration}s" if duration is not None else "indefinite"
     logger.info(
-        f"Starting recording: {CHANNELS} channel{'s' if CHANNELS > 1 else ''}, "
-        f"max duration {duration_str}, silence threshold {silence_threshold:.6f}, "
-        f"silence duration {silence_duration}s"
+        f"Starting recording: {CHANNELS} channel{'s' if CHANNELS > 1 else ''}\n"
+        f"Max duration {duration_str}"
     )
+    if not quit_on_silence:
+        logger.info(f"Silence threshold {silence_threshold:.6f}\nSilence duration {silence_duration}s")
 
     chunk_size = int(SAMPLE_RATE * 0.5)  # 0.5 second chunks
     max_frames = int(duration * SAMPLE_RATE) if duration is not None else float('inf')
@@ -104,8 +106,26 @@ def record_from_mic(
                     silent_count += chunk_size
                     if silent_count >= silence_frames:
                         logger.info(
-                            f"Silence detected for {silence_duration}s, stopping recording")
-                        break
+                            f"Silence detected for {silence_duration}s")
+
+                        if quit_on_silence:
+                            break
+
+                        if save_segments and prev_segment:
+                            full_audio_np = np.concatenate(audio_data, axis=0)
+
+                            seg_meta, seg_audio_np = save_completed_segment(
+                                segment_root=segment_root,
+                                ts=prev_segment,
+                                audio_np=full_audio_np,
+                            )
+                            yield seg_meta, seg_audio_np, full_audio_np
+
+                            # Reset segments
+                            curr_segment = None
+                            prev_segment = None
+
+                        continue
                 else:
                     silent_count = 0
 
@@ -134,7 +154,7 @@ def record_from_mic(
     audio_data = np.concatenate(audio_data, axis=0)
 
     # === FINAL FLUSH: save any remaining speech ===
-    if save_segments:
+    if save_segments and prev_segment:
         full_audio_np = np.concatenate(audio_data, axis=0)  # always untrimmed full recording
         seg_meta, seg_audio_np = save_completed_segment(
             segment_root=segment_root,
