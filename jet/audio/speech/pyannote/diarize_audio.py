@@ -5,6 +5,7 @@ Works with pyannote-audio 3.1+ (including current 4.0.3 version)
 from __future__ import annotations
 import json
 from pathlib import Path
+import tempfile
 from typing import Dict, Any, Tuple
 import numpy as np
 import torch
@@ -17,6 +18,7 @@ from pyannote.audio.pipelines.utils import get_devices
 from pyannote.core import Annotation, SlidingWindowFeature
 
 from jet.audio.speech.pyannote.utils import export_plotly_timeline
+from jet.audio.transcribers.base import AudioInput, load_audio
 
 console = Console()
 
@@ -256,6 +258,210 @@ def diarize_file(
 
     return summary, scores
 
+def diarize(
+    audio: AudioInput,
+    output_dir: Path | str,
+    *,
+    pipeline_id: str = "pyannote/speaker-diarization-3.1",
+    device: str | None = None,
+    num_speakers: int | None = None,
+    return_scores: bool = False,
+) -> Tuple[Dict[str, Any], SlidingWindowFeature | None]:
+    """Perform speaker diarization on flexible audio input and save segments, metadata, RTTM, optional scores, and Plotly timeline."""
+    output_dir = Path(output_dir).expanduser().resolve()
+    segments_dir = output_dir / "segments"
+    segments_dir.mkdir(parents=True, exist_ok=True)
+
+    console.log(f"Loading pipeline [bold cyan]{pipeline_id}[/]")
+    pipeline: Pipeline = Pipeline.from_pretrained(pipeline_id, revision="main")
+
+    if device is None:
+        device = get_devices(needs=1)[0]
+    console.log(f"Using device: [bold green]{device}[/]")
+    pipeline.to(torch.device(device))
+
+    # Load audio flexibly and get waveform + sample_rate
+    waveform_np = load_audio(audio, sr=16_000, mono=True)
+    waveform = torch.from_numpy(waveform_np).unsqueeze(0)  # (1, samples)
+    sample_rate = 16_000
+    total_seconds = waveform.shape[1] / sample_rate
+
+    # Temporary file for pyannote pipeline (which only accepts file paths)
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        torchaudio.save(tmp.name, waveform, sample_rate)
+        temp_path = Path(tmp.name)
+
+    try:
+        console.log(f"Running full diarization on audio ({total_seconds:.1f}s)")
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Diarizing...", total=None)
+            diarization_result = pipeline(
+                str(temp_path),
+                num_speakers=num_speakers,
+            )
+            progress.update(task, completed=True)
+
+        diarization: Annotation = (
+            diarization_result.speaker_diarization
+            if hasattr(diarization_result, "speaker_diarization")
+            else diarization_result
+        )
+
+        console.log(f"Detected {len(diarization.labels())} speaker(s): {sorted(str(s) for s in diarization.labels())}")
+
+        turns: list[Dict[str, Any]] = []
+        for idx, (segment, _, speaker) in enumerate(diarization.itertracks(yield_label=True)):
+            start_sec = round(segment.start, 3)
+            end_sec = round(segment.end, 3)
+            duration_sec = round(end_sec - start_sec, 3)
+
+            seg_dir = segments_dir / f"segment_{idx:04d}"
+            seg_dir.mkdir(exist_ok=True)
+
+            start_sample = int(start_sec * sample_rate)
+            end_sample = int(end_sec * sample_rate)
+            segment_waveform = waveform[:, start_sample:end_sample]
+
+            wav_path = seg_dir / "segment.wav"
+            torchaudio.save(str(wav_path), segment_waveform, sample_rate)
+
+            meta = {
+                "segment_index": idx,
+                "speaker": str(speaker),
+                "start_sec": start_sec,
+                "end_sec": end_sec,
+                "duration_sec": duration_sec,
+                "wav_path": str(wav_path.relative_to(output_dir)),
+            }
+            (seg_dir / "segment.json").write_text(json.dumps(meta, indent=2))
+            turns.append(meta)
+
+            console.log(
+                f"[green]Saved[/] segment_{idx:04d} | {str(speaker):<12} | "
+                f"{start_sec:>7.3f}s -> {end_sec:>7.3f}s ({duration_sec:>5.3f}s)"
+            )
+
+        scores: SlidingWindowFeature | None = None
+        if return_scores:
+            console.log("Extracting raw frame-level segmentation scores...")
+            pipeline.instantiate({})
+            try:
+                seg_model: Model = pipeline._segmentation.model
+                console.log("[dim]Using bundled segmentation model[/]")
+            except AttributeError:
+                console.log("[red]Warning: Could not access internal model. Falling back to direct load.[/]")
+                seg_model = Model.from_pretrained("pyannote/segmentation-3.0", revision="main")
+                seg_model.to(torch.device(device))
+
+            from pyannote.audio import Inference
+            duration = seg_model.specifications.duration
+            inference = Inference(
+                seg_model,
+                duration=duration,
+                step=0.1 * duration,
+            )
+            scores = inference(str(temp_path))
+
+            scores_path = output_dir / "segmentation_scores.npy"
+            np.save(scores_path, scores.data)
+            console.log(f"[bold blue]Raw scores saved[/] → {scores_path}")
+
+            # Timing metadata
+            if scores.data.ndim == 3:
+                num_chunks = scores.data.shape[0]
+                frames_per_chunk = scores.data.shape[1]
+                num_speakers = scores.data.shape[2]
+                total_frames = num_chunks * frames_per_chunk
+            else:
+                total_frames, num_speakers = scores.data.shape
+                frames_per_chunk = None
+                num_chunks = None
+
+            timing = {
+                "start": float(scores.sliding_window.start),
+                "duration": float(scores.sliding_window.duration),
+                "step": float(scores.sliding_window.step),
+                "total_frames": int(total_frames),
+                "frames_per_chunk": frames_per_chunk,
+                "num_chunks": int(num_chunks) if scores.data.ndim == 3 else None,
+                "num_speakers": int(num_speakers),
+                "frame_rate_hz": round(1 / scores.sliding_window.step, 3),
+            }
+            (output_dir / "segmentation_scores_timing.json").write_text(json.dumps(timing, indent=2))
+
+            # Insights
+            console.log("Analyzing raw speaker probabilities...")
+            insights = compute_scores_insights(scores)
+            insights_path = output_dir / "segmentation_scores_insights.json"
+            insights_path.write_text(json.dumps(insights, indent=2))
+            console.log("[bold yellow]Scores insights saved[/] → scores_insights.json")
+        else:
+            scores_path = None
+
+        # Summary
+        summary = {
+            "audio_file": "in_memory_audio.wav",  # placeholder since no original path
+            "total_duration_sec": round(total_seconds, 3),
+            "sample_rate": sample_rate,
+            "num_speakers": len(diarization.labels()),
+            "speakers": sorted(str(s) for s in diarization.labels()),
+            "num_segments": len(turns),
+            "segments": turns,
+            "segmentation_scores_npy": str(scores_path) if scores_path else None,
+        }
+        summary_path = output_dir / "summary.json"
+        summary_path.write_text(json.dumps(summary, indent=2))
+        console.log(f"[bold green]Done![/] Summary → {summary_path}")
+
+        # RTTM export
+        rttm_path = output_dir / "diarization.rttm"
+        with rttm_path.open("w") as f:
+            for turn, _, speaker in diarization.itertracks(yield_label=True):
+                line = (
+                    f"SPEAKER audio 1 "
+                    f"{turn.start:.3f} {turn.duration:.3f} "
+                    f"<NA> <NA> {speaker} <NA> <NA>\n"
+                )
+                f.write(line)
+        console.log(f"[bold magenta]RTTM exported[/] → {rttm_path.name}")
+
+        # Per-segment confidence
+        if scores is not None:
+            if scores.data.ndim == 3:
+                flat_scores = scores.data.reshape(-1, scores.data.shape[2])
+            else:
+                flat_scores = scores.data
+            confidences = flat_scores.max(axis=1)
+            frame_times = scores.sliding_window.start + np.arange(len(confidences)) * scores.sliding_window.step
+
+            for seg in turns:
+                mask = (frame_times >= seg["start_sec"]) & (frame_times < seg["end_sec"])
+                seg_conf = float(confidences[mask].mean()) if mask.any() else 0.0
+                seg["confidence"] = round(seg_conf, 4)
+
+            summary["segments"] = turns
+
+        # Plotly timeline
+        export_plotly_timeline(
+            turns=turns,
+            total_seconds=total_seconds,
+            audio_name="audio",
+            output_dir=output_dir,
+        )
+
+        return summary, scores
+
+    finally:
+        # Clean up temporary file
+        if temp_path.exists():
+            temp_path.unlink()
+
 if __name__ == "__main__":
     import shutil
     AUDIO_FILE = Path(
@@ -264,7 +470,7 @@ if __name__ == "__main__":
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     diarize_file(
-        audio_path=AUDIO_FILE,
+        AUDIO_FILE,
         output_dir=OUTPUT_DIR,
         return_scores=True,
     )
