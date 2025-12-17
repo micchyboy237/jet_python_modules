@@ -1,6 +1,7 @@
+import io
 import numpy as np
 import json
-from typing import Optional, Tuple, TypedDict
+from typing import BinaryIO, Optional, Tuple, TypedDict
 from datetime import datetime
 from pathlib import Path
 import torch
@@ -153,19 +154,6 @@ def display_segments(speech_ts):
     rprint("\n", table, "\n")
 
 
-def save_wav_file(filename, audio_data: np.ndarray) -> str:
-    filename = Path(filename)
-    filename.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(filename), 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(np.dtype(DTYPE).itemsize)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(audio_data.tobytes())
-    abs_path = str(filename.resolve())
-    logger.info(f"Audio saved to {abs_path}")
-    return abs_path
-
-
 def convert_audio_to_tensor(audio_data: np.ndarray) -> torch.Tensor:
     """
     Convert numpy audio array or list of chunks to torch tensor suitable for Silero VAD.
@@ -203,11 +191,55 @@ def convert_audio_to_tensor(audio_data: np.ndarray) -> torch.Tensor:
     return tensor  # shape: (N_samples,), float32, [-1, 1], 16kHz
 
 
-class SpeechSegmentTracker:
-    def __init__(self):
-        self.speech_ts = []
-        self.curr_segment = None
+def save_wav_file(filename, audio_data: np.ndarray) -> str:
+    filename = Path(filename)
+    filename.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(filename), 'wb') as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(np.dtype(DTYPE).itemsize)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(audio_data.tobytes())
+    abs_path = str(filename.resolve())
+    logger.info(f"Audio saved to {abs_path}")
+    return abs_path
 
-    def update_speech_ts(self, speech_ts):
-        start_sec = speech_ts[-1]["start"]
-        self.speech_ts = speech_ts
+
+def get_wav_bytes(audio_data: np.ndarray) -> bytes:
+    """
+    Generate WAV file bytes in memory without saving to disk.
+    
+    Returns the complete WAV file as bytes, ready for streaming, API responses,
+    or further in-memory processing.
+    """
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(np.dtype(DTYPE).itemsize)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(audio_data.tobytes())
+    
+    buffer.seek(0)
+    wav_bytes = buffer.read()
+    logger.info(f"Generated {len(wav_bytes)} bytes of in-memory WAV audio")
+    return wav_bytes
+
+
+def get_wav_fileobj(audio_data: np.ndarray) -> BinaryIO:
+    """
+    Generate a file-like object containing WAV data in memory.
+    
+    Useful when a function expects an open file object (e.g., for streaming
+    uploads or libraries that read from file-like objects).
+    
+    The returned BytesIO is seeked to the beginning and ready to read.
+    """
+    buffer = io.BytesIO()
+    with wave.open(buffer, 'wb') as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(np.dtype(DTYPE).itemsize)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(audio_data.tobytes())
+    
+    buffer.seek(0)
+    logger.info("Generated in-memory WAV file-like object")
+    return buffer
