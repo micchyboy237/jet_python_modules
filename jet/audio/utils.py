@@ -98,8 +98,6 @@ def resolve_audio_paths(audio_inputs: AudioInput, recursive: bool = False) -> li
             for p in path.glob(pattern):
                 if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS:
                     resolved_paths.append(p.resolve())
-            if not any(p.parent == path for p in resolved_paths if p.parent == path):
-                logger.warning(f"No audio files found in directory: {path}")
         elif path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS:
             resolved_paths.append(path.resolve())
         elif path.exists():

@@ -1,7 +1,5 @@
-import wave
 import numpy as np
 import sounddevice as sd
-from pathlib import Path
 from typing import Optional
 from tqdm import tqdm
 
@@ -93,14 +91,3 @@ def record_from_mic(
     actual_duration = len(audio_data) / SAMPLE_RATE
     logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
     return audio_data
-
-
-def save_wav_file(filename, audio_data: np.ndarray):
-    filename = Path(filename)
-    filename.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(filename), 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(np.dtype(DTYPE).itemsize)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(audio_data.tobytes())
-    logger.info(f"Audio saved to {filename}")

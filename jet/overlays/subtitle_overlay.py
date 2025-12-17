@@ -7,7 +7,9 @@ import signal
 import logging
 from threading import Thread
 import time
-from typing import Optional, Callable
+from typing import Optional, Awaitable
+import asyncio
+from concurrent.futures import Future
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
@@ -66,8 +68,94 @@ class SubtitleOverlay(QWidget):
         self._build_ui()
         self._connect_signals()
 
+        # ------------------------------------------------------------------
+        # ASYNCIO TASK CHAIN INTEGRATION (replaced with thread pool)
+        # ------------------------------------------------------------------
+        from concurrent.futures import ThreadPoolExecutor
+        self._executor = ThreadPoolExecutor(max_workers=1)  # 1 worker → sequential, exactly like you want
+        # Queue of (awaitable_task, associated_loading_label)
+        self._pending_tasks: list[tuple[Awaitable[str], QLabel]] = []
+
         self.add_message("Live Subtitle Overlay • Ready")
         self.logger.info("[green]Ready – use .add_message('text')[/]")
+        self._process_next_task()  # start processing if any tasks already queued
+
+    def _process_next_task(self) -> None:
+        """Start the next task in the queue if the executor is free."""
+        if not self._pending_tasks:
+            return
+
+        # Take the oldest pending task + its loading label
+        task, loading_label = self._pending_tasks.pop(0)
+
+        def run_in_thread() -> tuple[str, QLabel]:
+            try:
+                result = asyncio.run(task)
+                return str(result), loading_label
+            except Exception as e:
+                return f"[Error] {e}", loading_label
+
+        future = self._executor.submit(run_in_thread)
+        # Poll for completion in the main thread
+        QTimer.singleShot(100, lambda: self._check_future_done(future))
+
+    def _check_future_done(self, future: Future) -> None:
+        if future.done():
+            self._on_task_finished(future)
+        else:
+            QTimer.singleShot(100, lambda: self._check_future_done(future))
+
+    def _on_task_finished(self, future: Future) -> None:
+        """Callback executed in the main Qt thread."""
+        if future.cancelled():
+            return
+
+        try:
+            message, loading_label = future.result()
+        except Exception as e:
+            message = f"[Error] {e}"
+            # In case of exception, still try to replace the associated label
+            loading_label = future.result()[1] if future.done() else None
+
+        if not loading_label or not loading_label.parent():
+            # Label was removed (e.g. window closed) → nothing to do
+            return
+
+        # Replace the exact loading label that belongs to this task
+        idx = self.content_layout.indexOf(loading_label)
+        if idx == -1:
+            return  # safety
+
+        self.content_layout.takeAt(idx)
+        loading_label.deleteLater()
+
+        new_label = QLabel(message)
+        new_label.setWordWrap(True)
+        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        new_label.setStyleSheet("color: white; padding: 4px;")
+        new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+
+        self.content_layout.insertWidget(idx, new_label)
+
+        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
+            self.scroll.verticalScrollBar().maximum()))
+
+        self.history.append(message)
+        total_chars = sum(len(line) for line in self.history)
+        self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
+
+        # Continue with next task if any
+        if self._pending_tasks:
+            self._process_next_task()
+
+        # No longer need to track a single current label
+
+    # ------------------------------------------------------------------
+    # Cleanup on close
+    # ------------------------------------------------------------------
+    def closeEvent(self, event):
+        self._executor.shutdown(wait=False)
+        super().closeEvent(event)
 
     def _build_ui(self):
         main = QVBoxLayout(self)
@@ -186,6 +274,35 @@ class SubtitleOverlay(QWidget):
         if not text or not str(text).strip():
             return
         self.signals._add_message.emit(str(text).strip())
+
+    def add_task(self, func: callable, *args, **kwargs) -> None:
+        """
+        Add a callable (sync or async) with its arguments to be executed sequentially.
+        The return value (or await result) must be convertible to str and will be displayed.
+        A temporary “Processing…” row is shown immediately.
+        """
+        async def _wrapper() -> str:
+            result = func(*args, **kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return str(result)
+
+        # Create temporary loading row (in main thread)
+        loading_lbl = QLabel("Processing…")
+        loading_lbl.setWordWrap(True)
+        loading_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading_lbl.setStyleSheet("color: #ffff66; padding: 4px; font-style: italic;")
+        loading_lbl.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+        self.content_layout.addWidget(loading_lbl)
+        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
+            self.scroll.verticalScrollBar().maximum()))
+        self.history.append("Processing…")
+        total_chars = sum(len(line) for line in self.history)
+        self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
+
+        # Queue the wrapped coroutine together with its loading label
+        self._pending_tasks.append((_wrapper(), loading_lbl))
+        self._process_next_task()
 
     def clear(self):
         """Clear all messages"""
@@ -310,25 +427,22 @@ class SubtitleOverlay(QWidget):
         return overlay
 
 
-def run_in_background(target: Callable[[], None], *, daemon: bool = True) -> Thread:
-    """
-    Start a long-running or blocking function in a background thread.
-    
-    Usage:
-        run_in_background(transcription_loop)  # fire and forget
-        # or
-        thread = run_in_background(transcription_loop, daemon=False)  # keep reference if needed
-    
-    Returns the Thread instance for advanced use cases (join, etc.).
-    """
-    thread = Thread(target=target, daemon=daemon)
-    thread.start()
-    return thread
+# Async tasks demo
+def demo_async():
+    async def long_running_translation(text: str) -> str:
+        await asyncio.sleep(1.0)
+        return f"Translated: {text.upper()}"
 
+    overlay = SubtitleOverlay.create(title="Async Demo")
+    overlay.add_task(long_running_translation, "hello world")
+    overlay.add_task(long_running_translation, "first")
+    overlay.add_task(long_running_translation, "second")
+    overlay.add_task(long_running_translation, "third")
+    sys.exit(QApplication.exec())
 
-# Demo when run directly
-if __name__ == "__main__":
-    overlay = SubtitleOverlay.create(title="My Live Transcription")
+# Threading demo
+def demo_threading():
+    overlay = SubtitleOverlay.create(title="Threading Demo")
 
     def demo():
         msgs = [
@@ -340,13 +454,17 @@ if __name__ == "__main__":
             "This is a very long message to test word wrapping and auto-scrolling behavior during real-time streaming...",
         ]
         for i, msg in enumerate(msgs * 20):
-            time.sleep(1.5)
+            time.sleep(0.5)
             overlay.add_message(msg)
             if i == 10:
                 overlay.toggle_minimize()
-                time.sleep(1.5)
+                time.sleep(0.5)
                 overlay.toggle_minimize()
 
-    run_in_background(demo)  # ← clean, readable, reusable
-
+    Thread(target=demo, daemon=True).start()
     sys.exit(QApplication.exec())
+
+
+if __name__ == "__main__":
+    # demo_threading()
+    demo_async()

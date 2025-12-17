@@ -1,19 +1,20 @@
-import io
+import os
 import numpy as np
 import json
-from typing import BinaryIO, Optional, Tuple, TypedDict
+from typing import Optional, Tuple, TypedDict
 from datetime import datetime
 from pathlib import Path
 import torch
 import wave
 from rich.table import Table
-
 from jet.audio.helpers.silence import (
     SAMPLE_RATE,
     DTYPE,
     CHANNELS,
 )
 from jet.audio.speech.silero.speech_timestamps_extractor import SpeechSegment
+from jet.audio.speech.wav_utils import save_wav_file
+from jet.audio.transcribers.base import AudioInput
 from jet.logger import logger
 
 class SegmentMeta(TypedDict):
@@ -153,7 +154,6 @@ def display_segments(speech_ts):
     from rich import print as rprint
     rprint("\n", table, "\n")
 
-
 def convert_audio_to_tensor(audio_data: np.ndarray) -> torch.Tensor:
     """
     Convert numpy audio array or list of chunks to torch tensor suitable for Silero VAD.
@@ -190,56 +190,62 @@ def convert_audio_to_tensor(audio_data: np.ndarray) -> torch.Tensor:
 
     return tensor  # shape: (N_samples,), float32, [-1, 1], 16kHz
 
-
-def save_wav_file(filename, audio_data: np.ndarray) -> str:
-    filename = Path(filename)
-    filename.parent.mkdir(parents=True, exist_ok=True)
-    with wave.open(str(filename), 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(np.dtype(DTYPE).itemsize)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(audio_data.tobytes())
-    abs_path = str(filename.resolve())
-    logger.info(f"Audio saved to {abs_path}")
-    return abs_path
-
-
-def get_wav_bytes(audio_data: np.ndarray) -> bytes:
-    """
-    Generate WAV file bytes in memory without saving to disk.
+def load_audio_to_array(audio: AudioInput) -> np.ndarray:
+    """Load various audio input types into a NumPy array (raw PCM samples)."""
+    if isinstance(audio, (str, os.PathLike)):
+        with wave.open(str(audio), 'rb') as wf:
+            nchannels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            framerate = wf.getframerate()
+            nframes = wf.getnframes()
+            raw_bytes = wf.readframes(nframes)
+        # Convert raw bytes to numpy array
+        dtype = np.dtype(f'<i{sampwidth}')  # little-endian signed int
+        array = np.frombuffer(raw_bytes, dtype=dtype).reshape(-1, nchannels)
+        if nchannels > 1:
+            array = np.mean(array, axis=1).astype(array.dtype)
+        if nchannels == 1:
+            array = array.flatten()
+        return array.astype(np.int16)  # Normalize to int16 for consistency
     
-    Returns the complete WAV file as bytes, ready for streaming, API responses,
-    or further in-memory processing.
-    """
-    buffer = io.BytesIO()
-    with wave.open(buffer, 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(np.dtype(DTYPE).itemsize)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(audio_data.tobytes())
+    elif isinstance(audio, bytes):
+        # Assume raw PCM bytes matching expected format (CHANNELS, DTYPE, SAMPLE_RATE)
+        itemsize = np.dtype(DTYPE).itemsize
+        expected_samples = len(audio) // itemsize
+        if CHANNELS > 1:
+            expected_samples //= CHANNELS
+        dtype = np.dtype(f'<i{itemsize}')
+        array = np.frombuffer(audio, dtype=dtype)
+        if len(array) != expected_samples * (CHANNELS if CHANNELS > 1 else 1):
+            raise ValueError("Bytes length does not match expected PCM format")
+        if CHANNELS > 1:
+            array = array.reshape(-1, CHANNELS)
+            array = np.mean(array, axis=1).astype(array.dtype)
+        return array.astype(np.int16)
     
-    buffer.seek(0)
-    wav_bytes = buffer.read()
-    logger.info(f"Generated {len(wav_bytes)} bytes of in-memory WAV audio")
-    return wav_bytes
-
-
-def get_wav_fileobj(audio_data: np.ndarray) -> BinaryIO:
-    """
-    Generate a file-like object containing WAV data in memory.
+    elif isinstance(audio, np.ndarray):
+        if audio.dtype.kind == 'f':
+            # Use 32767.0 for scaling to match common practice and minimize rounding errors
+            audio = (audio * 32767.0).clip(-32768.0, 32767.0)
+        audio = audio.astype(np.int16)
+        if audio.ndim > 1:
+            if audio.shape[1] == CHANNELS:
+                audio = np.mean(audio, axis=1).astype(np.int16)
+            else:
+                audio = audio.flatten()
+        return audio.flatten()
     
-    Useful when a function expects an open file object (e.g., for streaming
-    uploads or libraries that read from file-like objects).
+    elif isinstance(audio, torch.Tensor):
+        if audio.dtype.is_floating_point:
+            audio = (audio * 32767.0).clamp_(-32768.0, 32767.0)
+        audio = audio.to(torch.int16)
+        array = audio.cpu().numpy()
+        if array.ndim > 1:
+            if array.shape[1] == CHANNELS:
+                array = np.mean(array, axis=1).astype(np.int16)
+            else:
+                array = array.flatten()
+        return array.flatten()
     
-    The returned BytesIO is seeked to the beginning and ready to read.
-    """
-    buffer = io.BytesIO()
-    with wave.open(buffer, 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(np.dtype(DTYPE).itemsize)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(audio_data.tobytes())
-    
-    buffer.seek(0)
-    logger.info("Generated in-memory WAV file-like object")
-    return buffer
+    else:
+        raise TypeError(f"Unsupported audio input type: {type(audio)}")

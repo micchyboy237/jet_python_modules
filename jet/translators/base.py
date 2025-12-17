@@ -1,4 +1,5 @@
 # jet/translators/translate_jp_en2.py
+from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 from transformers import AutoTokenizer
 
@@ -21,7 +22,7 @@ from jet.translators.analyzer import (
 MIN_FREE_VRAM_GB = 2.0  # Safe threshold for quantized Opus-MT models
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-QUANTIZED_MODEL_PATH = "/Users/jethroestrada/.cache/hf_ctranslate2_models/ja_en_ct2"
+QUANTIZED_MODEL_PATH = str(Path("~/.cache/hf_ctranslate2_models/opus-ja-en-ct2").expanduser().resolve())
 DEFAULT_TOKENIZER = "Helsinki-NLP/opus-mt-ja-en"
 
 

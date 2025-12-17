@@ -85,7 +85,7 @@ def transcribe_audio(
         - File path (str / Path)
         - Raw bytes / bytearray
         - NumPy array (will be converted with .tobytes())
-        - A filename for in-memory data (for correct MIME type)
+        - Filename for in-memory data (for correct MIME type)
 
     Returns parsed TranscribeResponse dict.
     """
@@ -176,7 +176,7 @@ if __name__ == "__main__":
         # Test with in-memory bytes (with filename)
         raw_data = file_path.read_bytes()
         start2 = time.perf_counter()
-        result2 = transcribe_audio(raw_data, filename="sound_from_memory.wav")
+        result2 = transcribe_audio(raw_data)
         end2 = time.perf_counter()
         rprint("[bold yellow]Raw bytes result:[/bold yellow]")
         rprint(json.dumps(result2, indent=2, ensure_ascii=False))
