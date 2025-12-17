@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QScrollArea
 )
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QObject, QTimer
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QObject, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont
 
 from rich.logging import RichHandler
@@ -451,18 +451,18 @@ class SubtitleOverlay(QWidget):
         # Bilingual container widget
         container = QWidget()
         container_layout = QVBoxLayout(container)
-        container_layout.setSpacing(6)
-        container_layout.setContentsMargins(16, 12, 16, 12)
+        container_layout.setSpacing(8)
+        container_layout.setContentsMargins(20, 16, 20, 16)
 
         # Translated text – large, bold, prominent
         trans_label = QLabel(translated_text)
         trans_label.setWordWrap(True)
         trans_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         trans_label.setStyleSheet(
-            "color: #ffffff; background: rgba(255, 255, 255, 0.1); "
-            "border-radius: 10px; padding: 12px;"
+            "color: #ffffff; background: rgba(255, 255, 255, 0.12); "
+            "border-radius: 12px; padding: 16px;"
         )
-        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 32, QFont.Weight.Bold))
+        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 34, QFont.Weight.Bold))
         container_layout.addWidget(trans_label)
 
         # Source text – smaller, italic, only shown if present
@@ -471,27 +471,70 @@ class SubtitleOverlay(QWidget):
             src_label.setWordWrap(True)
             src_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             src_label.setStyleSheet(
-                "color: #aaccff; font-style: italic; background: rgba(100, 140, 255, 0.15); "
-                "border-radius: 8px; padding: 8px;"
+                "color: #bbddff; font-style: italic; background: rgba(100, 140, 255, 0.18); "
+                "border-radius: 10px; padding: 10px; margin-top: 4px;"
             )
-            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
+            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 22))
             container_layout.addWidget(src_label)
 
+        # Timing metadata row
+        timing_layout = QHBoxLayout()
+        timing_layout.setSpacing(20)
+
+        start_label = QLabel(f"{start_sec:.3f}s")
+        start_label.setStyleSheet("color: #88ff88; background: rgba(0, 100, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
+        start_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14))
+
+        end_label = QLabel(f"{end_sec:.3f}s")
+        end_label.setStyleSheet("color: #ff8888; background: rgba(100, 0, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
+        end_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14))
+
+        duration_label = QLabel(f"↔ {duration_sec:.3f}s")
+        duration_label.setStyleSheet("color: #ffff88; background: rgba(100, 100, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
+        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14, QFont.Weight.Bold))
+
+        timing_layout.addStretch()
+        timing_layout.addWidget(start_label)
+        timing_layout.addWidget(duration_label)
+        timing_layout.addWidget(end_label)
+        timing_layout.addStretch()
+
+        timing_container = QWidget()
+        timing_container.setLayout(timing_layout)
+        timing_container.setStyleSheet("background: rgba(40, 40, 60, 0.4); border-radius: 8px; margin-top: 8px;")
+        
+        container_layout.addWidget(timing_container)
+
+        # Overall entry background
         container.setStyleSheet("""
             QWidget {
-                background: rgba(30, 30, 50, 0.4);
-                border-radius: 14px;
-                margin: 4px;
+                background: rgba(25, 25, 45, 0.55);
+                border-radius: 16px;
+                border: 1px solid rgba(100, 100, 150, 0.15);
             }
         """)
 
         self.content_layout.addWidget(container)
 
-        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
-            self.scroll.verticalScrollBar().maximum()))
+        # Auto-scroll to the bottom with smooth animation
+        QTimer.singleShot(0, lambda: self._scroll_to_bottom_smooth())
 
         total_chars = sum(len(line) for line in self.history)
         self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
+
+    def _scroll_to_bottom_smooth(self) -> None:
+        """Smoothly scroll to the latest message."""
+        scrollbar = self.scroll.verticalScrollBar()
+        QApplication.processEvents()  # Ensure layout is updated
+        QPropertyAnimation(
+            scrollbar,
+            b"value",
+            self,
+            startValue=scrollbar.value(),
+            endValue=scrollbar.maximum(),
+            duration=300,  # ms
+            easingCurve=QEasingCurve.Type.OutCubic,
+        ).start()
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
