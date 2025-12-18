@@ -67,7 +67,7 @@ class SpeechAnalyzer:
     def __init__(
         self,
         threshold: float = 0.5,
-        raw_threshold: float = 0.05,  # new: for more granular raw segments
+        raw_threshold: float = 0.10,  # new: for more granular raw segments
         min_speech_duration_ms: int = 250,
         min_silence_duration_ms: int = 100,
         speech_pad_ms: int = 30,
@@ -598,8 +598,8 @@ def main():
     parser.add_argument("audio", type=Path, help="Path to input .wav file")
     parser.add_argument("-o", "--output-dir", type=Path, default=Path("vad_results"))
     parser.add_argument("-t", "--threshold", type=float, default=0.5)
-    parser.add_argument("--raw-threshold", type=float, default=0.05,
-                        help="Threshold for raw segments (default: 0.05, set 0.0 for original behavior)")
+    parser.add_argument("--raw-threshold", type=float, default=0.10,
+                        help="Threshold for raw segments (default: 0.10, set 0.0 for original behavior)")
     parser.add_argument("--min-duration-ms", type=int, default=200, help="Minimum raw segment duration in ms (default: 200)")
     parser.add_argument("--min-std-prob", type=float, default=0.0, help="Minimum std(prob) in raw region (default: 0.0)")
     parser.add_argument("--min-pct-threshold", type=float, default=10.0, help="Min %% windows > threshold in raw region (default: 10.0)")
