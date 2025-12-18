@@ -21,6 +21,9 @@ def analyzer() -> SpeechAnalyzer:
         min_silence_duration_ms=100,
         speech_pad_ms=0,
         sampling_rate=16000,
+        min_duration_ms=None,
+        min_std_prob=None,
+        min_pct_threshold=None,
     )
 
 # Helper to create a simple synthetic waveform with known speech regions
@@ -96,20 +99,40 @@ class TestExtractSegments:
         # Then
         assert len(rich_segments) == 2
 
-        seg1 = rich_segments[0]
+        # Given: first segment corresponds to windows 2–5 (inclusive)
         expected_probs_seg1 = prob_array[2:6]  # windows 2,3,4,5
-        assert seg1.start_sec == pytest.approx(2 * analyzer.step_sec, abs=0.001)
-        assert seg1.end_sec == pytest.approx(6 * analyzer.step_sec, abs=0.001)
-        assert seg1.duration_sec == pytest.approx(4 * analyzer.step_sec, abs=0.001)
-        assert seg1.avg_probability == pytest.approx(float(expected_probs_seg1.mean()), abs=0.001)
-        assert seg1.min_probability == pytest.approx(float(expected_probs_seg1.min()), abs=0.001)
-        assert seg1.max_probability == pytest.approx(float(expected_probs_seg1.max()), abs=0.001)
-        assert seg1.percent_above_threshold == pytest.approx(100.0, abs=0.1)  # all > 0.5
+        expected_start_ms = int(round(2 * analyzer.step_sec * 1000))
+        expected_end_ms = int(round(6 * analyzer.step_sec * 1000))
+        expected_duration_ms = expected_end_ms - expected_start_ms
 
-        seg2 = rich_segments[1]
+        # When
+        result = rich_segments[0]
+
+        # Then
+        assert result.num == 1
+        assert result.start == expected_start_ms
+        assert result.end == expected_end_ms
+        assert result.duration == expected_duration_ms
+        assert result.stats["avg_prob"] == pytest.approx(float(expected_probs_seg1.mean()), abs=0.001)
+        assert result.stats["min_prob"] == pytest.approx(float(expected_probs_seg1.min()), abs=0.001)
+        assert result.stats["max_prob"] == pytest.approx(float(expected_probs_seg1.max()), abs=0.001)
+        assert result.stats["std_prob"] == pytest.approx(float(expected_probs_seg1.std()), abs=0.001)
+        assert result.stats["pct_above_threshold"] == pytest.approx(100.0, abs=0.1)
+
+        # Given: second segment is a short one at window 6
         expected_probs_seg2 = prob_array[6:7]
-        assert seg2.avg_probability == pytest.approx(0.4, abs=0.001)
-        assert seg2.percent_above_threshold == pytest.approx(0.0, abs=0.1)
+        expected_start_ms_2 = int(round(6 * analyzer.step_sec * 1000))
+        expected_end_ms_2 = int(round(7 * analyzer.step_sec * 1000))
+
+        # When
+        result_2 = rich_segments[1]
+
+        # Then
+        assert result_2.num == 2
+        assert result_2.start == expected_start_ms_2
+        assert result_2.end == expected_end_ms_2
+        assert result_2.stats["avg_prob"] == pytest.approx(0.4, abs=0.001)
+        assert result_2.stats["pct_above_threshold"] == pytest.approx(0.0, abs=0.1)
 
 class TestExtractRawSegments:
     def test_extract_raw_segments_finds_contiguous_regions_above_raw_threshold(
@@ -122,28 +145,121 @@ class TestExtractRawSegments:
         raw_segments = analyzer.extract_raw_segments(prob_array)
 
         # Then
+        # With default filters disabled (None), both contiguous regions are returned
         assert len(raw_segments) == 2
 
-        # First raw region: windows 2-5
-        seg1 = raw_segments[0]
+        # Given: first raw segment covers windows 2–5
         expected_probs1 = prob_array[2:6]
-        assert seg1.start_sec == pytest.approx(2 * analyzer.step_sec, abs=0.001)
-        assert seg1.end_sec == pytest.approx(6 * analyzer.step_sec, abs=0.001)
-        assert seg1.avg_probability == pytest.approx(float(expected_probs1.mean()), abs=0.001)
+        expected_start_ms = int(round(2 * analyzer.step_sec * 1000))
+        expected_end_ms = int(round(6 * analyzer.step_sec * 1000))
 
-        # Second raw region: windows 7-8
-        seg2 = raw_segments[1]
+        # When
+        result = raw_segments[0]
+
+        # Then
+        assert result.num == 1
+        assert result.start == expected_start_ms
+        assert result.end == expected_end_ms
+        assert result.stats["avg_prob"] == pytest.approx(float(expected_probs1.mean()), abs=0.001)
+
+        # Given: second raw segment covers windows 7–8
         expected_probs2 = prob_array[7:9]
-        assert seg2.start_sec == pytest.approx(7 * analyzer.step_sec, abs=0.001)
-        assert seg2.end_sec == pytest.approx(9 * analyzer.step_sec, abs=0.001)
-        assert seg2.avg_probability == pytest.approx(float(expected_probs2.mean()), abs=0.001)
+        expected_start_ms_2 = int(round(7 * analyzer.step_sec * 1000))
+        expected_end_ms_2 = int(round(9 * analyzer.step_sec * 1000))
+
+        # When
+        result_2 = raw_segments[1]
+
+        # Then
+        assert result_2.num == 2
+        assert result_2.start == expected_start_ms_2
+        assert result_2.end == expected_end_ms_2
+        assert result_2.stats["avg_prob"] == pytest.approx(float(expected_probs2.mean()), abs=0.001)
 
     def test_extract_raw_segments_handles_all_below_threshold(self, analyzer: SpeechAnalyzer):
+        # Given probabilities all below raw_threshold
         prob_array = np.array([0.01, 0.02, 0.03, 0.04])
 
+        # When
         raw_segments = analyzer.extract_raw_segments(prob_array)
 
+        # Then
         assert len(raw_segments) == 0
+
+    def test_extract_raw_segments_applies_filters_correctly(self):
+        # Given an analyzer with active filters
+
+        filtered_analyzer = SpeechAnalyzer(
+            threshold=0.5,
+            raw_threshold=0.01,  # very low to capture all potential regions
+            min_speech_duration_ms=100,
+            min_silence_duration_ms=100,
+            speech_pad_ms=0,
+            sampling_rate=16000,
+            min_duration_ms=300,          # > 300 ms required
+            min_std_prob=0.05,           # require some probability variation
+            min_pct_threshold=30.0,      # at least 30% windows > threshold
+        )
+
+        # Prob array creating three raw regions:
+        # 1. Long, high-confidence (should pass)
+        # 2. Short, low-variation (should fail duration + std)
+        # 3. Long but mostly below threshold (should fail pct)
+        prob_array = np.array([
+            0.95, 0.96, 0.94, 0.97, 0.93,  # windows 0-4: high, std >0.05, 100% >0.5 → passes
+            0.20, 0.21, 0.20,               # windows 5-7: short (~96ms), low std → fails duration & std
+            0.40, 0.41, 0.39, 0.42, 0.38, 0.60, 0.30, 0.31  # windows 8-15: long but only 1/8 >0.5 → fails pct
+        ])
+
+        # When
+        raw_segments = filtered_analyzer.extract_raw_segments(prob_array)
+
+        # Then only the first region should survive all filters
+        assert len(raw_segments) == 1
+
+        result = raw_segments[0]
+
+        expected_start_ms = 0
+        expected_end_ms = int(round(5 * filtered_analyzer.step_sec * 1000))
+        expected_duration_ms = expected_end_ms - expected_start_ms
+
+        assert result.num == 1
+        assert result.start == expected_start_ms
+        assert result.end == expected_end_ms
+        assert result.duration == expected_duration_ms
+        assert result.stats["avg_prob"] == pytest.approx(0.95, abs=0.01)
+        assert result.stats["std_prob"] > 0.01  # variation present
+        assert result.stats["pct_above_threshold"] == pytest.approx(100.0, abs=0.1)
+
+    def test_extract_raw_segments_no_filters_returns_all_regions(self):
+        # Given same prob array as above but with no filters active
+        prob_array = np.array([
+            0.95, 0.96, 0.94, 0.97, 0.93,
+            0.20, 0.21, 0.20,
+            0.40, 0.41, 0.39, 0.42, 0.38, 0.60, 0.30, 0.31
+        ])
+
+        # When
+        no_filter_analyzer = SpeechAnalyzer(
+            threshold=0.5,
+            raw_threshold=0.01,
+            min_speech_duration_ms=100,
+            min_silence_duration_ms=100,
+            speech_pad_ms=0,
+            sampling_rate=16000,
+            min_duration_ms=None,
+            min_std_prob=None,
+            min_pct_threshold=None,
+        )
+        raw_segments = no_filter_analyzer.extract_raw_segments(prob_array)
+
+        # Then all three contiguous regions are returned
+        assert len(raw_segments) == 3
+
+        # Quick sanity checks on boundaries
+        assert raw_segments[0].end == int(round(5 * no_filter_analyzer.step_sec * 1000))
+        assert raw_segments[1].duration == int(round(3 * no_filter_analyzer.step_sec * 1000))
+        assert raw_segments[2].duration == int(round(8 * no_filter_analyzer.step_sec * 1000))
 
 class TestAnalyzeIntegration:
     def test_analyze_returns_consistent_lengths_with_synthetic_speech(

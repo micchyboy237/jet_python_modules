@@ -21,6 +21,7 @@ import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import List, Tuple, Dict
+from typing import TypedDict
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -36,16 +37,20 @@ model, utils = torch.hub.load(
 )
 get_speech_timestamps, _, read_audio, _, _ = utils
 
+class SegmentStats(TypedDict):
+    avg_prob: float
+    min_prob: float
+    max_prob: float
+    std_prob: float
+    pct_above_threshold: float
+
 @dataclass
 class SpeechSegment:
-    start_sec: float
-    end_sec: float
-    duration_sec: float
-    avg_probability: float = 0.0
-    min_probability: float = 0.0
-    max_probability: float = 0.0
-    std_probability: float = 0.0
-    percent_above_threshold: float = 0.0
+    num: int
+    start: int  # milliseconds
+    end: int    # milliseconds
+    duration: int  # milliseconds
+    stats: SegmentStats
 
 class SpeechAnalyzer:
     def __init__(
@@ -56,6 +61,9 @@ class SpeechAnalyzer:
         min_silence_duration_ms: int = 100,
         speech_pad_ms: int = 30,
         sampling_rate: int = 16000,
+        min_duration_ms: int | None = None,   # minimum raw segment duration in milliseconds
+        min_std_prob: float | None = None,
+        min_pct_threshold: float | None = None,
     ):
         self.threshold = threshold
         self.raw_threshold = raw_threshold
@@ -63,6 +71,9 @@ class SpeechAnalyzer:
         self.min_silence_duration_ms = min_silence_duration_ms
         self.speech_pad_ms = speech_pad_ms
         self.sr = sampling_rate
+        self.min_duration_ms = min_duration_ms
+        self.min_std_prob = min_std_prob
+        self.min_pct_threshold = min_pct_threshold
         self.window_size = 512 if sampling_rate == 16000 else 256
         self.step_sec = self.window_size / self.sr
 
@@ -84,51 +95,74 @@ class SpeechAnalyzer:
     ) -> List[SpeechSegment]:
         """Convert Silero's raw timestamp dicts into rich SpeechSegment objects."""
         rich_segments = []
-        for s in segments:
+        for idx, s in enumerate(segments):
             start_idx = int(s["start"] / self.window_size)
             end_idx = int(s["end"] / self.window_size)
             seg_probs = prob_array[start_idx:end_idx]
+            start_ms = int(round(s["start"] / self.sr * 1000))
+            end_ms = int(round(s["end"] / self.sr * 1000))
+            duration_ms = end_ms - start_ms
             seg = SpeechSegment(
-                start_sec=round(s["start"] / self.sr, 3),
-                end_sec=round(s["end"] / self.sr, 3),
-                duration_sec=round((s["end"] - s["start"]) / self.sr, 3),
-                avg_probability=round(float(seg_probs.mean()), 3) if len(seg_probs) > 0 else 0.0,
-                min_probability=round(float(seg_probs.min()), 3) if len(seg_probs) > 0 else 0.0,
-                max_probability=round(float(seg_probs.max()), 3) if len(seg_probs) > 0 else 0.0,
-                std_probability=round(float(seg_probs.std()), 3) if len(seg_probs) > 0 else 0.0,
-                percent_above_threshold=round(
-                    sum(p > self.threshold for p in seg_probs) / len(seg_probs) * 100, 1
-                ) if len(seg_probs) > 0 else 0.0,
+                num=idx + 1,
+                start=start_ms,
+                end=end_ms,
+                duration=duration_ms,
+                stats=SegmentStats(
+                    avg_prob=round(float(seg_probs.mean()), 3) if len(seg_probs) > 0 else 0.0,
+                    min_prob=round(float(seg_probs.min()), 3) if len(seg_probs) > 0 else 0.0,
+                    max_prob=round(float(seg_probs.max()), 3) if len(seg_probs) > 0 else 0.0,
+                    std_prob=round(float(seg_probs.std()), 3) if len(seg_probs) > 0 else 0.0,
+                    pct_above_threshold=round(
+                        sum(p > self.threshold for p in seg_probs) / len(seg_probs) * 100, 1
+                    ) if len(seg_probs) > 0 else 0.0,
+                ),
             )
             rich_segments.append(seg)
         return rich_segments
+
+    def _segment_passes_filters(self, seg: SpeechSegment) -> bool:
+        """Centralized filter logic – reusable across extraction and saving."""
+        if self.min_duration_ms is not None and seg.duration < self.min_duration_ms:
+            return False
+        if self.min_std_prob is not None and seg.stats["std_prob"] < self.min_std_prob:
+            return False
+        if self.min_pct_threshold is not None and seg.stats["pct_above_threshold"] < self.min_pct_threshold:
+            return False
+        return True
 
     def extract_raw_segments(self, prob_array: np.ndarray) -> List[SpeechSegment]:
         """Create raw speech segments based on any probability > raw_threshold (contiguous regions)."""
         raw_segments = []
         is_speech = prob_array > self.raw_threshold
-        for speech_group, group in itertools.groupby(enumerate(is_speech), key=lambda x: x[1]):
-            if not speech_group:
+        for idx, (is_speech_key, group) in enumerate(itertools.groupby(enumerate(is_speech), key=lambda x: x[1])):
+            if not is_speech_key:  # skip silence groups
                 continue
-            indices = [idx for idx, _ in group]
+            indices = [i for i, _ in group]
             start_idx = indices[0]
             end_idx = indices[-1] + 1
             raw_probs = prob_array[start_idx:end_idx]
             if len(raw_probs) == 0:
                 continue
+            start_ms = int(round(start_idx * self.step_sec * 1000))
+            end_ms = int(round(end_idx * self.step_sec * 1000))
+            duration_ms = end_ms - start_ms
             raw_seg = SpeechSegment(
-                start_sec=round(start_idx * self.step_sec, 3),
-                end_sec=round(end_idx * self.step_sec, 3),
-                duration_sec=round((end_idx - start_idx) * self.step_sec, 3),
-                avg_probability=round(float(raw_probs.mean()), 3),
-                min_probability=round(float(raw_probs.min()), 3),
-                max_probability=round(float(raw_probs.max()), 3),
-                std_probability=round(float(raw_probs.std()), 3),
-                percent_above_threshold=round(
-                    np.sum(raw_probs > self.threshold) / len(raw_probs) * 100, 1
+                num=idx + 1,
+                start=start_ms,
+                end=end_ms,
+                duration=duration_ms,
+                stats=SegmentStats(
+                    avg_prob=round(float(raw_probs.mean()), 3),
+                    min_prob=round(float(raw_probs.min()), 3),
+                    max_prob=round(float(raw_probs.max()), 3),
+                    std_prob=round(float(raw_probs.std()), 3),
+                    pct_above_threshold=round(
+                        float(np.sum(raw_probs > self.threshold)) / float(len(raw_probs)) * 100, 1
+                    ),
                 ),
             )
-            raw_segments.append(raw_seg)
+            if self._segment_passes_filters(raw_seg):
+                raw_segments.append(raw_seg)
         return raw_segments
 
     def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment], List[SpeechSegment]]:
@@ -199,18 +233,19 @@ class SpeechAnalyzer:
         ax = plt.gca()
         for i, seg in enumerate(raw_segments):
             ax.fill_between(
-                [seg.start_sec, seg.end_sec], 0, 1,
+                [seg.start / 1000, seg.end / 1000], 0, 1,
                 color="purple", alpha=0.4,
                 label="Raw (>0.0)" if i == 0 else None
             )
         for i, seg in enumerate(segments):
             ax.fill_between(
-                [seg.start_sec, seg.end_sec], 0, 1,
+                [seg.start / 1000, seg.end / 1000], 0, 1,
                 color="lightgreen", edgecolor="black", linewidth=1, alpha=0.8,
                 label="Detected Speech" if i == 0 else None
             )
-            mid = (seg.start_sec + seg.end_sec) / 2
-            ax.text(mid, 0.5, f"{seg.duration_sec:.1f}s", ha="center", va="center",
+            mid = (seg.start + seg.end) / 2000  # convert ms to seconds
+            duration_sec = seg.duration / 1000
+            ax.text(mid, 0.5, f"{duration_sec:.1f}s", ha="center", va="center",
                     color="darkgreen", fontweight="bold", fontsize=10)
         set_dynamic_xticks(ax, total_sec)
         plt.xlim(0, total_sec)
@@ -225,10 +260,10 @@ class SpeechAnalyzer:
 
         # 2. Std probability histogram per segment
         if segments:
-            std_values = [seg.std_probability for seg in segments]
+            std_values = [seg.stats["std_prob"] for seg in segments]
             plt.figure(figsize=(10, 6))
             plt.hist(std_values, bins=20, color="teal", alpha=0.7, edgecolor="black")
-            plt.axvline(np.mean(std_values), color="red", linestyle="--", label=f"Mean = {np.mean(std_values):.3f}")
+            plt.axvline(float(np.mean(std_values)), color="red", linestyle="--", label=f"Mean = {float(np.mean(std_values)):.3f}")
             plt.xlabel("Standard Deviation of Probability")
             plt.ylabel("Number of Segments")
             plt.title("Distribution of Probability Stability per Segment")
@@ -254,10 +289,11 @@ class SpeechAnalyzer:
 
         ax2 = plt.subplot(2, 1, 2)
         for i, seg in enumerate(segments):
-            ax2.fill_between([seg.start_sec, seg.end_sec], 0, 1, color="lightgreen", edgecolor="black", linewidth=1, alpha=0.8,
+            ax2.fill_between([seg.start / 1000, seg.end / 1000], 0, 1, color="lightgreen", edgecolor="black", linewidth=1, alpha=0.8,
                              label="Speech" if i == 0 else None)
-            mid = (seg.start_sec + seg.end_sec) / 2
-            ax2.text(mid, 0.5, f"{seg.duration_sec:.1f}s", ha="center", va="center", color="darkgreen", fontweight="bold", fontsize=10)
+            mid = (seg.start + seg.end) / 2000
+            duration_sec = seg.duration / 1000
+            ax2.text(mid, 0.5, f"{duration_sec:.1f}s", ha="center", va="center", color="darkgreen", fontweight="bold", fontsize=10)
         set_dynamic_xticks(ax2, total_sec)
         plt.xlim(0, total_sec)
         plt.ylim(0, 1)
@@ -277,14 +313,14 @@ class SpeechAnalyzer:
         prob_array = np.array(probs)
         speech_probs = []
         for seg in segments:
-            start_idx = int(seg.start_sec / self.step_sec)
-            end_idx = int(seg.end_sec / self.step_sec)
+            start_idx = int(seg.start / 1000 / self.step_sec)
+            end_idx = int(seg.end / 1000 / self.step_sec)
             speech_probs.extend(prob_array[start_idx:end_idx])
         speech_probs = np.array(speech_probs)
         silence_mask = np.ones(len(prob_array), dtype=bool)
         for seg in segments:
-            start_idx = int(seg.start_sec / self.step_sec)
-            end_idx = int(seg.end_sec / self.step_sec)
+            start_idx = int(seg.start / 1000 / self.step_sec)
+            end_idx = int(seg.end / 1000 / self.step_sec)
             silence_mask[start_idx:end_idx] = False
         silence_probs = prob_array[silence_mask]
         plt.hist(silence_probs, bins=50, alpha=0.6, label="Silence", color="lightgray", density=True)
@@ -303,12 +339,12 @@ class SpeechAnalyzer:
         # Per-segment confidence
         if segments:
             plt.figure(figsize=(12, max(6, len(segments) * 0.4)))
-            avg_probs = [seg.avg_probability for seg in segments]
-            durations = [seg.duration_sec for seg in segments]
+            avg_probs = [seg.stats["avg_prob"] for seg in segments]
+            durations = [seg.duration / 1000 for seg in segments]
             indices = np.arange(len(segments))
             colors = ["green" if p > 0.8 else "orange" if p > 0.6 else "red" for p in avg_probs]
             bars = plt.barh(indices, avg_probs, color=colors, alpha=0.8)
-            plt.yticks(indices, [f"Seg {i+1} ({d:.1f}s)" for i, d in enumerate(durations)])
+            plt.yticks(indices, [f"Seg {seg.num} ({d:.1f}s)" for seg, d in zip(segments, durations)])
             plt.xlabel("Average Probability")
             plt.title("Per-Segment Confidence (Avg Probability)")
             plt.xlim(0, 1)
@@ -361,11 +397,11 @@ class SpeechAnalyzer:
             raise ValueError(f"Audio sampling rate {sr} does not match analyzer's {self.sr}")
 
         for idx, seg in enumerate(segments, start=1):
-            seg_dir = Path(out_dir) / f"segment_{idx:03d}"
+            seg_dir = Path(out_dir) / f"segment_{seg.num:03d}"
             seg_dir.mkdir(parents=True, exist_ok=True)
 
-            start_sample = int(seg.start_sec * self.sr)
-            end_sample = int(seg.end_sec * self.sr)
+            start_sample = int(seg.start / 1000 * self.sr)
+            end_sample = int(seg.end / 1000 * self.sr)
             segment_audio = wav[start_sample:end_sample]
 
             sf.write(str(seg_dir / "sound.wav"), segment_audio, self.sr)
@@ -380,20 +416,16 @@ class SpeechAnalyzer:
         audio_path: str | Path,
         raw_segments: List[SpeechSegment],
         out_dir: str | Path,
-        *,
-        min_duration: float | None = None,
-        min_std_prob: float | None = None,
-        min_pct_threshold: float | None = None,
     ) -> None:
         """
         Save each raw segment as an individual subdirectory containing:
         - sound.wav (extracted audio chunk)
         - meta.json (segment metadata)
 
-        Optional filters (only segments meeting ALL criteria are saved):
-        - min_duration: minimum segment duration in seconds
-        - min_std_prob: minimum standard deviation of probability within segment
-        - min_pct_threshold: minimum percent_above_threshold
+        Filters are applied based on analyzer-level settings:
+        - self.min_duration_ms
+        - self.min_std_prob
+        - self.min_pct_threshold
 
         Directory structure: out_dir/raw_segments/raw_segment_001, ...
         """
@@ -406,19 +438,14 @@ class SpeechAnalyzer:
 
         saved_count = 0
         for idx, seg in enumerate(raw_segments, start=1):
-            # Apply optional filters
-            if min_duration is not None and seg.duration_sec < min_duration:
-                continue
-            if min_std_prob is not None and seg.std_probability < min_std_prob:
-                continue
-            if min_pct_threshold is not None and seg.percent_above_threshold < min_pct_threshold:
+            if not self._segment_passes_filters(seg):
                 continue
 
-            seg_dir = raw_dir / f"raw_segment_{idx:03d}"
+            seg_dir = raw_dir / f"raw_segment_{seg.num:03d}"
             seg_dir.mkdir(parents=True, exist_ok=True)
 
-            start_sample = int(seg.start_sec * self.sr)
-            end_sample = int(seg.end_sec * self.sr)
+            start_sample = int(seg.start / 1000 * self.sr)
+            end_sample = int(seg.end / 1000 * self.sr)
             segment_audio = wav[start_sample:end_sample]
 
             sf.write(str(seg_dir / "sound.wav"), segment_audio, self.sr)
@@ -430,9 +457,9 @@ class SpeechAnalyzer:
                     "segment_type": "raw",
                     "original_file": Path(audio_path).name,
                     "applied_filters": {
-                        "min_duration_sec": min_duration,
-                        "min_std_prob": min_std_prob,
-                        "min_pct_threshold": min_pct_threshold,
+                        "min_duration_ms": self.min_duration_ms,
+                        "min_std_prob": self.min_std_prob,
+                        "min_pct_threshold": self.min_pct_threshold,
                     },
                 }
             )
@@ -449,26 +476,26 @@ class SpeechAnalyzer:
         raw_segments: List[SpeechSegment],
         total_duration_sec: float,
     ) -> dict:
-        durations = [s.duration_sec for s in segments]
+        durations = [s.duration / 1000 for s in segments]
         num_segments = len(segments)
         total_speech_sec = sum(durations)
         speech_percent = total_speech_sec / total_duration_sec * 100 if total_duration_sec else 0
 
-        raw_durations = [s.duration_sec for s in raw_segments]
+        raw_durations = [s.duration / 1000 for s in raw_segments]
         raw_total_speech_sec = sum(raw_durations)
         raw_speech_percent = raw_total_speech_sec / total_duration_sec * 100 if total_duration_sec else 0
 
         prob_array = np.array(probs)
         speech_mask = np.zeros(len(probs), dtype=bool)
         for seg in segments:
-            start_idx = int(seg.start_sec / self.step_sec)
-            end_idx = int(seg.end_sec / self.step_sec)
+            start_idx = int(seg.start / 1000 / self.step_sec)
+            end_idx = int(seg.end / 1000 / self.step_sec)
             speech_mask[start_idx:end_idx] = True
 
         avg_prob_speech = float(prob_array[speech_mask].mean()) if speech_mask.any() else 0.0
         avg_prob_silence = float(prob_array[~speech_mask].mean()) if (~speech_mask).any() else 0.0
 
-        gaps = [segments[i + 1].start_sec - segments[i].end_sec for i in range(num_segments - 1)] if num_segments > 1 else []
+        gaps = [((segments[i + 1].start - segments[i].end) / 1000) for i in range(num_segments - 1)] if num_segments > 1 else []
         avg_gap_sec = float(np.mean(gaps)) if gaps else 0.0
 
         return {
@@ -477,11 +504,11 @@ class SpeechAnalyzer:
             "speech_percentage": round(speech_percent, 1),
             "total_silence_sec": round(total_duration_sec - total_speech_sec, 3),
             "num_segments": num_segments,
-            "avg_segment_sec": round(np.mean(durations), 3) if durations else 0,
+            "avg_segment_sec": round(float(np.mean(durations)), 3) if durations else 0,
             "raw_num_segments": len(raw_segments),
             "raw_total_speech_sec": round(raw_total_speech_sec, 3),
             "raw_speech_percentage": round(raw_speech_percent, 1),
-            "raw_avg_segment_sec": round(np.mean(raw_durations), 3) if raw_durations else 0,
+            "raw_avg_segment_sec": round(float(np.mean(raw_durations)), 3) if raw_durations else 0,
             "avg_gap_between_segments_sec": round(avg_gap_sec, 3),
             "avg_probability_all": round(float(prob_array.mean()), 3),
             "avg_probability_in_speech": round(avg_prob_speech, 3),
@@ -502,7 +529,17 @@ class SpeechAnalyzer:
         total_sec = len(probs) * self.step_sec
 
         for t in thresholds:
-            analyzer = SpeechAnalyzer(threshold=t, raw_threshold=self.raw_threshold)
+            analyzer = SpeechAnalyzer(
+                threshold=t, 
+                raw_threshold=self.raw_threshold,
+                min_speech_duration_ms=self.min_speech_duration_ms,
+                min_silence_duration_ms=self.min_silence_duration_ms,
+                speech_pad_ms=self.speech_pad_ms,
+                sampling_rate=self.sr,
+                min_duration_ms=self.min_duration_ms,
+                min_std_prob=self.min_std_prob,
+                min_pct_threshold=self.min_pct_threshold,
+            )
             _, segments, raw_segments = analyzer.analyze(audio_path)
             metrics = analyzer.get_metrics(probs, segments, raw_segments, total_sec)
             results.append({
@@ -549,6 +586,9 @@ def main():
     parser.add_argument("-t", "--threshold", type=float, default=0.5)
     parser.add_argument("--raw-threshold", type=float, default=0.05,
                         help="Threshold for raw segments (default: 0.05, set 0.0 for original behavior)")
+    parser.add_argument("--min-duration-ms", type=int, default=200, help="Minimum raw segment duration in ms (default: 200)")
+    parser.add_argument("--min-std-prob", type=float, default=0.0, help="Minimum std(prob) in raw region (default: 0.0)")
+    parser.add_argument("--min-pct-threshold", type=float, default=10.0, help="Min %% windows > threshold in raw region (default: 10.0)")
     args = parser.parse_args()
 
     if not args.audio.exists():
@@ -556,7 +596,13 @@ def main():
         sys.exit(1)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    analyzer = SpeechAnalyzer(threshold=args.threshold, raw_threshold=args.raw_threshold)
+    analyzer = SpeechAnalyzer(
+        threshold=args.threshold,
+        raw_threshold=args.raw_threshold,
+        min_duration_ms=args.min_duration_ms,
+        min_std_prob=args.min_std_prob,
+        min_pct_threshold=args.min_pct_threshold,
+    )
     print(f"Analyzing: {args.audio.name}")
     print(f"Threshold: {args.threshold} | Output → {args.output_dir.resolve()}")
 
@@ -566,15 +612,11 @@ def main():
     analyzer.plot_insights(probs, segments, raw_segments, args.audio, args.output_dir)
     analyzer.save_json(segments, args.output_dir, args.audio)
     analyzer.save_raw_json(raw_segments, args.output_dir, args.audio)
-    # Example filtering when using CLI (optional – adjust or comment out as needed)
     analyzer.save_segments_individually(args.audio, segments, args.output_dir / "segments")
     analyzer.save_raw_segments_individually(
         args.audio,
         raw_segments,
         args.output_dir,
-        min_duration=0.200,
-        min_std_prob=0.0,
-        min_pct_threshold=10.0,
     )
 
     from rich.table import Table
