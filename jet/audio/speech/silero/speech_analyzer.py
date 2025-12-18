@@ -20,7 +20,7 @@ import json
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List, Literal, Tuple, Dict
 from typing import TypedDict
 import numpy as np
 import matplotlib.pyplot as plt
@@ -44,13 +44,24 @@ class SegmentStats(TypedDict):
     std_prob: float
     pct_above_threshold: float
 
+Unit = Literal['ms', 'seconds']
+
 @dataclass
 class SpeechSegment:
     num: int
-    start: int  # milliseconds
-    end: int    # milliseconds
-    duration: int  # milliseconds
+    start: int | float  # milliseconds or seconds
+    end: int | float    # milliseconds or seconds
+    duration: int | float  # milliseconds or seconds
     stats: SegmentStats
+
+    def to_dict(self, *, timing_unit: Unit = 'ms') -> dict:
+        """Return a dict representation with timing fields converted to seconds (3 decimals)."""
+        data = asdict(self)
+        factor = 1000.0 if timing_unit == 'ms' else 1.0
+        for field in ('start', 'end', 'duration'):
+            if data[field] is not None:
+                data[field] = round(data[field] / factor, 3)
+        return data
 
 class SpeechAnalyzer:
     def __init__(
@@ -406,8 +417,11 @@ class SpeechAnalyzer:
 
             sf.write(str(seg_dir / "sound.wav"), segment_audio, self.sr)
 
-            meta = asdict(seg)
-            meta.update({"segment_index": idx, "original_file": Path(audio_path).name})
+            meta = seg.to_dict()
+            meta.update({
+                "segment_index": idx,
+                "original_file": Path(audio_path).name,
+            })
             (seg_dir / "meta.json").write_text(json.dumps(meta, indent=2))
         print(f"Saved {len(segments)} individual segments → {out_dir}")
 
@@ -450,7 +464,7 @@ class SpeechAnalyzer:
 
             sf.write(str(seg_dir / "sound.wav"), segment_audio, self.sr)
 
-            meta = asdict(seg)
+            meta = seg.to_dict()
             meta.update(
                 {
                     "segment_index": idx,
