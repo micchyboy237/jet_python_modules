@@ -1,4 +1,4 @@
-from typing import List, TypedDict
+from typing import List
 from pathlib import Path
 import numpy as np
 import torch
@@ -8,16 +8,9 @@ from silero_vad.utils_vad import get_speech_timestamps, read_audio
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, MofNCompleteColumn
 
+from jet.audio.speech.silero.speech_types import SpeechSegment
+
 console = Console()
-
-
-class SpeechSegment(TypedDict):
-    idx: int
-    start: float | int
-    end: float | int
-    prob: float
-    duration: float
-
 
 @torch.no_grad()
 def extract_speech_timestamps(
@@ -124,7 +117,7 @@ def extract_speech_timestamps(
 
         enhanced.append(
             SpeechSegment(
-                idx=idx,
+                num=idx + 1,
                 start=round(start_sample / sampling_rate, time_resolution) if return_seconds else start_sample,
                 end=round(end_sample / sampling_rate, time_resolution) if return_seconds else end_sample,
                 prob=round(avg_prob, 4),

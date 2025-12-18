@@ -2,7 +2,7 @@ from typing import TypedDict
 
 
 class SpeechSegment(TypedDict):
-    idx: int
+    num: int
     start: float | int
     end: float | int
     prob: float
