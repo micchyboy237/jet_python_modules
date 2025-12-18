@@ -32,6 +32,7 @@ pytest-watcher
 pytest-html
 pytest-json-report
 pytest-metadata
+pyyaml
 redis
 requests
 scikit-learn

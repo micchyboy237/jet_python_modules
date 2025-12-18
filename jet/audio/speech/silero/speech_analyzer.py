@@ -85,16 +85,17 @@ class SpeechAnalyzer:
         self.min_duration_ms = min_duration_ms
         self.min_std_prob = min_std_prob
         self.min_pct_threshold = min_pct_threshold
-        self.window_size = 512 if sampling_rate == 16000 else 256
-        self.step_sec = self.window_size / self.sr
+        self.window_size_samples = 512 if sampling_rate == 16000 else 256
+        self.frame_duration_ms = int(round((self.window_size_samples / self.sr) * 1000))  # 32 ms for both 8k/16k
+        self.step_sec = self.window_size_samples / self.sr
 
     def extract_probs(self, wav: torch.Tensor) -> List[float]:
         """Extract raw speech probabilities for the entire audio waveform."""
         probs = []
-        for i in range(0, len(wav), self.window_size):
-            chunk = wav[i : i + self.window_size]
-            if len(chunk) < self.window_size:
-                chunk = torch.nn.functional.pad(chunk, (0, self.window_size - len(chunk)))
+        for i in range(0, len(wav), self.window_size_samples):
+            chunk = wav[i : i + self.window_size_samples]
+            if len(chunk) < self.window_size_samples:
+                chunk = torch.nn.functional.pad(chunk, (0, self.window_size_samples - len(chunk)))
             prob = model(chunk.unsqueeze(0), self.sr).item()
             probs.append(prob)
         return probs
@@ -107,8 +108,8 @@ class SpeechAnalyzer:
         """Convert Silero's raw timestamp dicts into rich SpeechSegment objects."""
         rich_segments = []
         for idx, s in enumerate(segments):
-            start_idx = int(s["start"] / self.window_size)
-            end_idx = int(s["end"] / self.window_size)
+            start_idx = int(s["start"] / self.window_size_samples)
+            end_idx = int(s["end"] / self.window_size_samples)
             seg_probs = prob_array[start_idx:end_idx]
             start_ms = int(round(s["start"] / self.sr * 1000))
             end_ms = int(round(s["end"] / self.sr * 1000))
@@ -176,7 +177,7 @@ class SpeechAnalyzer:
                 raw_segments.append(raw_seg)
         return raw_segments
 
-    def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment], List[SpeechSegment]]:
+    def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment], List[SpeechSegment], int]:
         wav = read_audio(str(audio_path), sampling_rate=self.sr).float()
 
         # Threshold-based segments from Silero
@@ -196,6 +197,7 @@ class SpeechAnalyzer:
         # Extract probabilities
         probs = self.extract_probs(wav)
         prob_array = np.array(probs)
+        num_frames = len(probs)
 
         # Rich threshold-based segments
         rich_segments = self.extract_segments(segments, prob_array)
@@ -203,19 +205,20 @@ class SpeechAnalyzer:
         # Raw segments (independent of Silero's merging logic)
         raw_segments = self.extract_raw_segments(prob_array)
 
-        return probs, rich_segments, raw_segments
+        return probs, rich_segments, raw_segments, num_frames
 
     def plot_insights(
         self,
         probs: List[float],
         segments: List[SpeechSegment],
         raw_segments: List[SpeechSegment],
+        num_frames: int,
         audio_path: str | Path,
         out_dir: str | Path,
     ) -> None:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
-        time_axis = [i * self.step_sec for i in range(len(probs))]
-        total_sec = len(probs) * self.step_sec
+        time_axis = [i * self.step_sec for i in range(num_frames)]
+        total_sec = num_frames * self.step_sec
 
         def set_dynamic_xticks(ax, total_seconds: float) -> None:
             target_ticks = 12
@@ -369,125 +372,241 @@ class SpeechAnalyzer:
             print(f"Segment confidence chart saved → {conf_path}")
             plt.close()
 
-    def save_json(self, segments: List[SpeechSegment], out_dir: str | Path, audio_path: str | Path) -> None:
+        # NEW: Per-segment probability timeline charts
+        if segments:
+            max_cols = 3
+            n_segments = len(segments)
+            cols = min(max_cols, n_segments)
+            rows = (n_segments + cols - 1) // cols
+            fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 4 * rows), squeeze=False)
+            fig.suptitle(f"Per-Segment Probability Timeline – {Path(audio_path).name}", fontsize=16)
+
+            prob_array = np.array(probs)
+            for idx, seg in enumerate(segments):
+                ax = axes[idx // cols, idx % cols]
+                # Frame indices for this segment
+                start_idx = int(round(seg.start / self.frame_duration_ms))
+                end_idx = int(round(seg.end / self.frame_duration_ms))
+                seg_probs = prob_array[start_idx:end_idx]
+                # Relative time within segment (seconds)
+                seg_time = np.arange(len(seg_probs)) * (self.frame_duration_ms / 1000.0)
+                ax.plot(seg_time, seg_probs, color="steelblue", linewidth=1.5)
+                ax.axhline(self.threshold, color="red", linestyle="--", alpha=0.7,
+                           label=f"Threshold = {self.threshold}")
+                ax.set_ylim(0, 1.05)
+                ax.set_title(f"Seg {seg.num} ({seg.duration}ms | avg={seg.stats['avg_prob']:.3f})")
+                ax.set_xlabel("Time in segment (s)")
+                ax.set_ylabel("Probability")
+                ax.grid(True, alpha=0.3)
+                if idx == 0:
+                    ax.legend(loc="upper right")
+
+            # Hide unused subplots
+            for idx in range(n_segments, rows * cols):
+                axes[idx // cols, idx % cols].set_visible(False)
+
+            plt.tight_layout(rect=(0, 0, 1, 0.96))
+            per_seg_path = Path(out_dir) / f"vad_per_segment_probability_{Path(audio_path).stem}.png"
+            plt.savefig(per_seg_path, dpi=300, bbox_inches="tight")
+            print(f"Per-segment probability timeline saved → {per_seg_path}")
+            plt.close()
+
+    def save_json(
+        self,
+        segments: List[SpeechSegment],
+        out_dir: str | Path,
+        audio_path: str | Path,
+        *,
+        extra_info: dict | None = None,
+    ) -> None:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
         data = {
             "audio_file": Path(audio_path).name,
             "threshold": self.threshold,
             "sampling_rate": self.sr,
+            "frame_duration_ms": self.frame_duration_ms,
+            "total_frames": extra_info.get("total_frames") if extra_info else None,
             "total_segments": len(segments),
-            "segments": [asdict(s) for s in segments],
+            "segments": [seg.to_dict(timing_unit="ms") for seg in segments],
         }
+        if extra_info:
+            data.update(extra_info)
         json_path = Path(out_dir) / f"vad_segments_{Path(audio_path).stem}.json"
         json_path.write_text(json.dumps(data, indent=2))
         print(f"JSON saved → {json_path}")
 
-    def save_raw_json(self, raw_segments: List[SpeechSegment], out_dir: str | Path, audio_path: str | Path) -> None:
+    def save_raw_json(
+        self,
+        raw_segments: List[SpeechSegment],
+        out_dir: str | Path,
+        audio_path: str | Path,
+        *,
+        extra_info: dict | None = None,
+    ) -> None:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
         data = {
             "audio_file": Path(audio_path).name,
             "note": f"Raw contiguous regions with probability > {self.raw_threshold} (tunable raw threshold)",
             "sampling_rate": self.sr,
             "raw_threshold": self.raw_threshold,
+            "frame_duration_ms": self.frame_duration_ms,
+            "total_frames": extra_info.get("total_frames") if extra_info else None,
             "total_raw_segments": len(raw_segments),
-            "segments": [asdict(s) for s in raw_segments],
+            "segments": [seg.to_dict(timing_unit="ms") for seg in raw_segments],
         }
+        if extra_info:
+            data.update(extra_info)
         json_path = Path(out_dir) / f"vad_raw_segments_{Path(audio_path).stem}.json"
         json_path.write_text(json.dumps(data, indent=2))
         print(f"Raw JSON saved → {json_path}")
 
-    def save_segments_individually(
+    def _save_segments_individually(
         self,
         audio_path: str | Path,
         segments: List[SpeechSegment],
         out_dir: str | Path,
-    ) -> None:
-        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        probs: List[float],
+        *,
+        prefix: str = "segment",           # "segment" or "raw_segment"
+        subdir: str | None = None,         # optional subdir like "raw_segments"
+        apply_filters: bool = False,        # whether to skip filtered segments
+        segment_type: str | None = None,   # added to meta if provided
+        chart_color: str = "steelblue",    # line color
+        show_raw_threshold: bool = False,  # draw raw_threshold line
+        title_prefix: str = "",            # e.g. "Raw "
+    ) -> int:
+        """
+        Generic private method to save individual segments (detected or raw).
+
+        Returns:
+            int: number of segments actually saved
+        """
+        base_dir = Path(out_dir)
+        if subdir:
+            base_dir = base_dir / subdir
+        base_dir.mkdir(parents=True, exist_ok=True)
+
         wav, sr = sf.read(str(audio_path))
         if sr != self.sr:
             raise ValueError(f"Audio sampling rate {sr} does not match analyzer's {self.sr}")
 
+        prob_array = np.array(probs)
+        saved_count = 0
+
         for idx, seg in enumerate(segments, start=1):
-            seg_dir = Path(out_dir) / f"segment_{seg.num:03d}"
+            if apply_filters and not self._segment_passes_filters(seg):
+                continue
+
+            seg_dir = base_dir / f"{prefix}_{seg.num:03d}"
             seg_dir.mkdir(parents=True, exist_ok=True)
 
             start_sample = int(seg.start / 1000 * self.sr)
             end_sample = int(seg.end / 1000 * self.sr)
             segment_audio = wav[start_sample:end_sample]
-
             sf.write(str(seg_dir / "sound.wav"), segment_audio, self.sr)
 
             meta = seg.to_dict()
             meta.update({
                 "segment_index": idx,
                 "original_file": Path(audio_path).name,
+                "frame_duration_ms": self.frame_duration_ms,
+                "segment_frame_count": int(round(seg.duration / self.frame_duration_ms)),
             })
+            if segment_type:
+                meta["segment_type"] = segment_type
+            if apply_filters:
+                meta["applied_filters"] = {
+                    "min_duration_ms": self.min_duration_ms,
+                    "min_std_prob": self.min_std_prob,
+                    "min_pct_threshold": self.min_pct_threshold,
+                }
             (seg_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-        print(f"Saved {len(segments)} individual segments → {out_dir}")
+
+            # Per-segment probability chart
+            start_idx = int(round(seg.start / self.frame_duration_ms))
+            end_idx = int(round(seg.end / self.frame_duration_ms))
+            seg_probs = prob_array[start_idx:end_idx]
+            if len(seg_probs) == 0:
+                continue  # safety
+            seg_time_sec = np.arange(len(seg_probs)) * (self.frame_duration_ms / 1000.0)
+
+            plt.figure(figsize=(8, 4))
+            plt.plot(seg_time_sec, seg_probs, color=chart_color, linewidth=1.8)
+            plt.axhline(self.threshold, color="red", linestyle="--", alpha=0.8,
+                        label=f"Threshold = {self.threshold}")
+            if show_raw_threshold:
+                plt.axhline(self.raw_threshold, color="orange", linestyle=":", alpha=0.7,
+                            label=f"Raw threshold = {self.raw_threshold}")
+            plt.ylim(0, 1.05)
+            plt.title(f"{title_prefix}Segment {seg.num} Probability Timeline\n"
+                      f"Duration: {seg.duration}ms | Avg: {seg.stats['avg_prob']:.3f} | "
+                      f"Frames: {len(seg_probs)}")
+            plt.xlabel("Time in segment (seconds)")
+            plt.ylabel("Speech Probability")
+            plt.grid(True, alpha=0.3)
+            plt.legend(loc="upper right")
+            plt.tight_layout()
+
+            chart_path = seg_dir / "probability_timeline.png"
+            plt.savefig(chart_path, dpi=300)
+            plt.close()
+            print(f"  → {title_prefix}segment chart saved: {chart_path}")
+
+            saved_count += 1
+
+        total = len(segments)
+        if apply_filters:
+            print(f"Saved {saved_count}/{total} filtered {title_prefix.lower()}segments → {base_dir}")
+        else:
+            print(f"Saved {saved_count} {title_prefix.lower()}segments → {base_dir}")
+        return saved_count
+
+    def save_segments_individually(
+        self,
+        audio_path: str | Path,
+        segments: List[SpeechSegment],
+        out_dir: str | Path,
+        probs: List[float],
+    ) -> None:
+        self._save_segments_individually(
+            audio_path=audio_path,
+            segments=segments,
+            out_dir=out_dir,
+            probs=probs,
+            prefix="segment",
+            subdir=None,
+            apply_filters=False,
+            chart_color="steelblue",
+            title_prefix="",
+        )
 
     def save_raw_segments_individually(
         self,
         audio_path: str | Path,
         raw_segments: List[SpeechSegment],
         out_dir: str | Path,
+        probs: List[float],
     ) -> None:
-        """
-        Save each raw segment as an individual subdirectory containing:
-        - sound.wav (extracted audio chunk)
-        - meta.json (segment metadata)
-
-        Filters are applied based on analyzer-level settings:
-        - self.min_duration_ms
-        - self.min_std_prob
-        - self.min_pct_threshold
-
-        Directory structure: out_dir/raw_segments/raw_segment_001, ...
-        """
-        raw_dir = Path(out_dir) / "raw_segments"
-        raw_dir.mkdir(parents=True, exist_ok=True)
-
-        wav, sr = sf.read(str(audio_path))
-        if sr != self.sr:
-            raise ValueError(f"Audio sampling rate {sr} does not match analyzer's {self.sr}")
-
-        saved_count = 0
-        for idx, seg in enumerate(raw_segments, start=1):
-            if not self._segment_passes_filters(seg):
-                continue
-
-            seg_dir = raw_dir / f"raw_segment_{seg.num:03d}"
-            seg_dir.mkdir(parents=True, exist_ok=True)
-
-            start_sample = int(seg.start / 1000 * self.sr)
-            end_sample = int(seg.end / 1000 * self.sr)
-            segment_audio = wav[start_sample:end_sample]
-
-            sf.write(str(seg_dir / "sound.wav"), segment_audio, self.sr)
-
-            meta = seg.to_dict()
-            meta.update(
-                {
-                    "segment_index": idx,
-                    "segment_type": "raw",
-                    "original_file": Path(audio_path).name,
-                    "applied_filters": {
-                        "min_duration_ms": self.min_duration_ms,
-                        "min_std_prob": self.min_std_prob,
-                        "min_pct_threshold": self.min_pct_threshold,
-                    },
-                }
-            )
-            (seg_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-
-            saved_count += 1
-
-        print(f"Saved {saved_count}/{len(raw_segments)} filtered raw segments → {raw_dir}")
+        self._save_segments_individually(
+            audio_path=audio_path,
+            segments=raw_segments,
+            out_dir=out_dir,
+            probs=probs,
+            prefix="raw_segment",
+            subdir="raw_segments",
+            apply_filters=True,
+            segment_type="raw",
+            chart_color="purple",
+            show_raw_threshold=True,
+            title_prefix="Raw ",
+        )
 
     def get_metrics(
         self,
         probs: List[float],
         segments: List[SpeechSegment],
         raw_segments: List[SpeechSegment],
+        num_frames: int,
         total_duration_sec: float,
     ) -> dict:
         durations = [s.duration / 1000 for s in segments]
@@ -528,16 +647,20 @@ class SpeechAnalyzer:
             "avg_probability_in_speech": round(avg_prob_speech, 3),
             "avg_probability_in_silence": round(avg_prob_silence, 3),
             "windows_above_threshold_percent": round(sum(p > self.threshold for p in probs) / len(probs) * 100, 1),
+            # NEW: Frame-level metadata
+            "frame_duration_ms": self.frame_duration_ms,
+            "total_frames": num_frames,
+            "frames_per_second": round(1000.0 / self.frame_duration_ms, 1),
         }
 
     def run_threshold_sweep(self, audio_path: str | Path, thresholds: List[float] = [0.3, 0.5, 0.7]) -> List[Dict]:
         results = []
         wav = read_audio(str(audio_path), sampling_rate=self.sr).float()
         probs = []
-        for i in range(0, len(wav), self.window_size):
-            chunk = wav[i : i + self.window_size]
-            if len(chunk) < self.window_size:
-                chunk = torch.nn.functional.pad(chunk, (0, self.window_size - len(chunk)))
+        for i in range(0, len(wav), self.window_size_samples):
+            chunk = wav[i : i + self.window_size_samples]
+            if len(chunk) < self.window_size_samples:
+                chunk = torch.nn.functional.pad(chunk, (0, self.window_size_samples - len(chunk)))
             prob = model(chunk.unsqueeze(0), self.sr).item()
             probs.append(prob)
         total_sec = len(probs) * self.step_sec
@@ -554,8 +677,8 @@ class SpeechAnalyzer:
                 min_std_prob=self.min_std_prob,
                 min_pct_threshold=self.min_pct_threshold,
             )
-            _, segments, raw_segments = analyzer.analyze(audio_path)
-            metrics = analyzer.get_metrics(probs, segments, raw_segments, total_sec)
+            _, segments, raw_segments, _ = analyzer.analyze(audio_path)
+            metrics = analyzer.get_metrics(probs, segments, raw_segments, len(probs), total_sec)
             results.append({
                 "threshold": t,
                 "num_segments": metrics["num_segments"],
@@ -594,9 +717,21 @@ class SpeechAnalyzer:
         console.print(table)
 
 def main():
+    import shutil
+    from jet.file.utils import save_file
+
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    DEFAULT_AUDIO_PATH = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_live_subtitles/full_recording.wav"
+
     parser = argparse.ArgumentParser(description="Silero VAD Full Analyzer – Beautiful insights + JSON")
-    parser.add_argument("audio", type=Path, help="Path to input .wav file")
-    parser.add_argument("-o", "--output-dir", type=Path, default=Path("vad_results"))
+    parser.add_argument(
+        "audio",
+        type=Path,
+        nargs="?",
+        default=Path(DEFAULT_AUDIO_PATH),
+        help=f"Path to input .wav file (default: {DEFAULT_AUDIO_PATH})"
+    )
+    parser.add_argument("-o", "--output-dir", type=Path, default=Path(OUTPUT_DIR))
     parser.add_argument("-t", "--threshold", type=float, default=0.5)
     parser.add_argument("--raw-threshold", type=float, default=0.2,
                         help="Threshold for raw segments (default: 0.2, set 0.0 for original behavior)")
@@ -609,6 +744,7 @@ def main():
         print(f"Audio not found: {args.audio}")
         sys.exit(1)
 
+    shutil.rmtree(args.output_dir, ignore_errors=True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     analyzer = SpeechAnalyzer(
         threshold=args.threshold,
@@ -620,17 +756,29 @@ def main():
     print(f"Analyzing: {args.audio.name}")
     print(f"Threshold: {args.threshold} | Output → {args.output_dir.resolve()}")
 
-    probs, segments, raw_segments = analyzer.analyze(args.audio)
-    total_sec = len(probs) * analyzer.step_sec
-    metrics = analyzer.get_metrics(probs, segments, raw_segments, total_sec)
-    analyzer.plot_insights(probs, segments, raw_segments, args.audio, args.output_dir)
-    analyzer.save_json(segments, args.output_dir, args.audio)
-    analyzer.save_raw_json(raw_segments, args.output_dir, args.audio)
-    analyzer.save_segments_individually(args.audio, segments, args.output_dir / "segments")
+    probs, segments, raw_segments, num_frames = analyzer.analyze(args.audio)
+    total_sec = num_frames * analyzer.step_sec
+    metrics = analyzer.get_metrics(probs, segments, raw_segments, num_frames, total_sec)
+    analyzer.plot_insights(probs, segments, raw_segments, num_frames, args.audio, args.output_dir)
+
+    extra_info = {
+        "total_frames": num_frames,
+        "total_duration_sec": round(total_sec, 3),
+        "frame_duration_ms": analyzer.frame_duration_ms,
+    }
+    analyzer.save_json(segments, args.output_dir, args.audio, extra_info=extra_info)
+    analyzer.save_raw_json(raw_segments, args.output_dir, args.audio, extra_info=extra_info)
+    analyzer.save_segments_individually(
+        args.audio,
+        segments,
+        args.output_dir / "segments",
+        probs,  # Pass full probs for per-segment charts
+    )
     analyzer.save_raw_segments_individually(
         args.audio,
         raw_segments,
         args.output_dir,
+        probs,  # Pass full probs for per-segment charts
     )
 
     from rich.table import Table
@@ -653,6 +801,14 @@ def main():
 
     print("\nAll done! Open the PNGs + overlay + std histogram + sweep table.")
     print(f"→ {args.output_dir}")
+
+    formatted_segments = [seg.to_dict() for seg in segments]
+    formatted_raw_segments = [seg.to_dict() for seg in raw_segments]
+
+    save_file(probs, f"{str(args.output_dir)}/probs.json")
+    save_file(formatted_segments, f"{str(args.output_dir)}/segments.json")
+    save_file(formatted_raw_segments, f"{str(args.output_dir)}/raw_segments.json")
+    save_file(metrics, f"{str(args.output_dir)}/vad_metrics.json")
 
 if __name__ == "__main__":
     main()
