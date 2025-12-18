@@ -8,7 +8,7 @@ from rich.table import Table
 from jet.audio.helpers.silence import (
     SAMPLE_RATE,
 )
-from jet.audio.speech.silero.speech_timestamps_extractor import SpeechSegment
+from jet.audio.speech.silero.speech_types import SpeechSegment
 from jet.audio.speech.wav_utils import save_wav_file
 from jet.logger import logger
 
@@ -149,7 +149,7 @@ def display_segments(speech_ts):
     from rich import print as rprint
     rprint("\n", table, "\n")
 
-def convert_audio_to_tensor(audio_data: np.ndarray) -> torch.Tensor:
+def convert_audio_to_tensor(audio_data: np.ndarray | list[np.ndarray]) -> torch.Tensor:
     """
     Convert numpy audio array or list of chunks to torch tensor suitable for Silero VAD.
     - Ensures mono

@@ -51,7 +51,6 @@ def save_wav_file(filename, audio_data: Union[np.ndarray, bytes]) -> str:
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(data_bytes)
     abs_path = str(filename.resolve())
-    logger.info(f"Audio saved to {abs_path}")
     return abs_path
 
 def get_wav_bytes(audio_data: Union[np.ndarray, bytes]) -> bytes:

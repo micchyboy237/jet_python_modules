@@ -101,10 +101,13 @@ def detect_silence(audio_chunk: np.ndarray, threshold: float) -> bool:
     return is_silent
 
 
-def trim_silent_chunks(audio_data: list, threshold: Optional[float] = None) -> list:
-    """Trim silent chunks from start and end of audio data.
-    
-    If threshold is None, calibrates based on ambient noise.
+def trim_silent_chunks(audio_data: list[np.ndarray], threshold: Optional[float] = None) -> list[np.ndarray]:
+    """Trim leading and trailing silent chunks from audio data list.
+
+    Removes consecutive silent chunks only from the start and end of the sequence.
+    Internal silent gaps between non-silent chunks are preserved.
+
+    If threshold is None, it is obtained via calibrate_silence_threshold().
     """
     if threshold is None:
         threshold = calibrate_silence_threshold()

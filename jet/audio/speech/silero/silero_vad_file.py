@@ -12,7 +12,8 @@ import torch
 from rich.logging import RichHandler
 import logging
 
-from jet.audio.speech.silero.speech_timestamps_extractor import extract_speech_timestamps, SpeechSegment as ExtractedSegment
+from jet.audio.speech.silero.speech_timestamps_extractor import extract_speech_timestamps
+from jet.audio.speech.silero.speech_types import SpeechSegment as ExtractedSegment
 from silero_vad.utils_vad import save_audio, read_audio
 
 log = logging.getLogger(__name__)

@@ -5,17 +5,18 @@ import threading
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Optional, Callable
+from typing import Any, Optional, Callable, Dict
 
 from rich.console import Console
 from rich.table import Table
+from rich.logging import RichHandler
 
 import logging
 
 from jet.audio.transcribers.base import AudioInput, load_audio
 from jet.audio.transcribers.base_client import transcribe_audio  # new unified endpoint
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level="DEBUG", handlers=[RichHandler()], force=True)
 logger = logging.getLogger("TranscriptionPipeline")
 logger.setLevel(logging.DEBUG)
 
@@ -50,7 +51,7 @@ class TranscriptionPipeline:
         self,
         max_workers: int = 2,
         cache_size: int = 500,
-        on_result: Optional[Callable[[str, str, list[dict]], None]] = None,
+        on_result: Optional[Callable[[str, str, list[dict], Dict[str, Any]], None]] = None,
     ):
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="TransPipe")
         self._queue: deque[Future[None]] = deque()
@@ -86,21 +87,21 @@ class TranscriptionPipeline:
                 self._cache.pop(old_key, None)
             logger.debug("  → final cache keys: %s", list(self._cache.keys()))
 
-    def submit_segment(self, audio: AudioInput) -> None:
+    def submit_segment(self, audio: AudioInput, **custom_args: Any) -> None:
         key = self._make_key(audio)
-        logger.debug("submit_segment → key=%s (duration=%.3fs)", key, key.duration_sec)
+        logger.debug("submit_segment → key=%s (duration=%.3fs) custom_args=%s", key, key.duration_sec, custom_args)
 
         if (cached := self._cache_get(key)) is not None:
             ja_text, en_text, timestamps = cached
-            logger.debug("CACHE HIT → immediate print and optional callback")
+            logger.debug("CACHE HIT → immediate callback with custom_args")
             self._print_result(ja_text, en_text)
             if self.on_result:
-                self.on_result(ja_text, en_text, timestamps)
+                self.on_result(ja_text, en_text, timestamps, custom_args.copy())
             return
 
-        logger.debug("CACHE MISS → submitting to executor")
+        logger.debug("CACHE MISS → submitting to executor with custom_args=%s", custom_args)
 
-        future = self._executor.submit(self._process, audio, key)
+        future = self._executor.submit(self._process, audio, key, custom_args)
 
         def _cleanup(fut: Future) -> None:
             with self._lock:
@@ -116,8 +117,8 @@ class TranscriptionPipeline:
             self._queue.append(future)
             logger.debug("Future added → queue size: %d", len(self._queue))
 
-    def _process(self, audio: AudioInput, key: AudioKey) -> None:
-        logger.debug("START _process → key=%s", key)
+    def _process(self, audio: AudioInput, key: AudioKey, custom_args: Dict[str, Any]) -> None:
+        logger.debug("START _process → key=%s custom_args=%s", key, custom_args)
         try:
             result = transcribe_ja_chunk(audio)
             logger.debug("transcribe_audio returned: %r", result)
@@ -136,7 +137,7 @@ class TranscriptionPipeline:
             logger.debug("Calling _print_result...")
             self._print_result(ja_text, en_text)
             if self.on_result:
-                self.on_result(ja_text, en_text, timestamps)
+                self.on_result(ja_text, en_text, timestamps, custom_args.copy())
 
         except Exception as exc:
             logger.exception("Exception in _process → will re-raise")
