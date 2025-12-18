@@ -330,22 +330,98 @@ class SileroVADAnalyzer:
         json_path.write_text(json.dumps(data, indent=2))
         print(f"Raw JSON saved → {json_path}")
 
-    def save_segments_individually(self, audio_path: str | Path, segments: List[SpeechSegment], out_dir: str | Path) -> None:
+    def save_segments_individually(
+        self,
+        audio_path: str | Path,
+        segments: List[SpeechSegment],
+        out_dir: str | Path,
+    ) -> None:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
         wav, sr = sf.read(str(audio_path))
         if sr != self.sr:
             raise ValueError(f"Audio sampling rate {sr} does not match analyzer's {self.sr}")
+
         for idx, seg in enumerate(segments, start=1):
             seg_dir = Path(out_dir) / f"segment_{idx:03d}"
             seg_dir.mkdir(parents=True, exist_ok=True)
+
             start_sample = int(seg.start_sec * self.sr)
             end_sample = int(seg.end_sec * self.sr)
             segment_audio = wav[start_sample:end_sample]
+
             sf.write(str(seg_dir / "sound.wav"), segment_audio, self.sr)
+
             meta = asdict(seg)
             meta.update({"segment_index": idx, "original_file": Path(audio_path).name})
             (seg_dir / "meta.json").write_text(json.dumps(meta, indent=2))
         print(f"Saved {len(segments)} individual segments → {out_dir}")
+
+    def save_raw_segments_individually(
+        self,
+        audio_path: str | Path,
+        raw_segments: List[SpeechSegment],
+        out_dir: str | Path,
+        *,
+        min_duration: float | None = None,
+        min_std_prob: float | None = None,
+        min_pct_threshold: float | None = None,
+    ) -> None:
+        """
+        Save each raw segment as an individual subdirectory containing:
+        - sound.wav (extracted audio chunk)
+        - meta.json (segment metadata)
+
+        Optional filters (only segments meeting ALL criteria are saved):
+        - min_duration: minimum segment duration in seconds
+        - min_std_prob: minimum standard deviation of probability within segment
+        - min_pct_threshold: minimum percent_above_threshold
+
+        Directory structure: out_dir/raw_segments/raw_segment_001, ...
+        """
+        raw_dir = Path(out_dir) / "raw_segments"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+
+        wav, sr = sf.read(str(audio_path))
+        if sr != self.sr:
+            raise ValueError(f"Audio sampling rate {sr} does not match analyzer's {self.sr}")
+
+        saved_count = 0
+        for idx, seg in enumerate(raw_segments, start=1):
+            # Apply optional filters
+            if min_duration is not None and seg.duration_sec < min_duration:
+                continue
+            if min_std_prob is not None and seg.std_probability < min_std_prob:
+                continue
+            if min_pct_threshold is not None and seg.percent_above_threshold < min_pct_threshold:
+                continue
+
+            seg_dir = raw_dir / f"raw_segment_{idx:03d}"
+            seg_dir.mkdir(parents=True, exist_ok=True)
+
+            start_sample = int(seg.start_sec * self.sr)
+            end_sample = int(seg.end_sec * self.sr)
+            segment_audio = wav[start_sample:end_sample]
+
+            sf.write(str(seg_dir / "sound.wav"), segment_audio, self.sr)
+
+            meta = asdict(seg)
+            meta.update(
+                {
+                    "segment_index": idx,
+                    "segment_type": "raw",
+                    "original_file": Path(audio_path).name,
+                    "applied_filters": {
+                        "min_duration_sec": min_duration,
+                        "min_std_prob": min_std_prob,
+                        "min_pct_threshold": min_pct_threshold,
+                    },
+                }
+            )
+            (seg_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+
+            saved_count += 1
+
+        print(f"Saved {saved_count}/{len(raw_segments)} filtered raw segments → {raw_dir}")
 
     def get_metrics(
         self,
@@ -471,7 +547,16 @@ def main():
     analyzer.plot_insights(probs, segments, raw_segments, args.audio, args.output_dir)
     analyzer.save_json(segments, args.output_dir, args.audio)
     analyzer.save_raw_json(raw_segments, args.output_dir, args.audio)
+    # Example filtering when using CLI (optional – adjust or comment out as needed)
     analyzer.save_segments_individually(args.audio, segments, args.output_dir / "segments")
+    analyzer.save_raw_segments_individually(
+        args.audio,
+        raw_segments,
+        args.output_dir,
+        min_duration=0.200,
+        min_std_prob=0.0,
+        min_pct_threshold=10.0,
+    )
 
     from rich.table import Table
     from rich.console import Console
