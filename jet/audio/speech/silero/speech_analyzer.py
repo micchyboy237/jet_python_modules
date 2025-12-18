@@ -52,8 +52,6 @@ class SileroVADAnalyzer:
         self,
         threshold: float = 0.5,
         raw_threshold: float = 0.05,  # new: for more granular raw segments
-        overlap_ms: float = 10.0,          # new: window overlap in ms to avoid boundary loss
-        raw_min_duration_ms: int = 100,   # new: min duration for raw segments (0 = no filter)
         min_speech_duration_ms: int = 250,
         min_silence_duration_ms: int = 100,
         speech_pad_ms: int = 30,
@@ -61,15 +59,11 @@ class SileroVADAnalyzer:
     ):
         self.threshold = threshold
         self.raw_threshold = raw_threshold
-        self.overlap_ms = overlap_ms
-        self.raw_min_duration_ms = raw_min_duration_ms
         self.min_speech_duration_ms = min_speech_duration_ms
         self.min_silence_duration_ms = min_silence_duration_ms
         self.speech_pad_ms = speech_pad_ms
         self.sr = sampling_rate
         self.window_size = 512 if sampling_rate == 16000 else 256
-        overlap_samples = int(self.overlap_ms / 1000 * self.sr)
-        self.stride = max(1, self.window_size - overlap_samples)  # avoid zero/negative
         self.step_sec = self.window_size / self.sr
 
     def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment], List[SpeechSegment]]:
@@ -88,9 +82,9 @@ class SileroVADAnalyzer:
         )
         model.reset_states()
 
-        # Compute raw probabilities with possible overlap
+        # Compute raw probabilities
         probs = []
-        for i in range(0, len(wav), self.stride):
+        for i in range(0, len(wav), self.window_size):
             chunk = wav[i : i + self.window_size]
             if len(chunk) < self.window_size:
                 chunk = torch.nn.functional.pad(chunk, (0, self.window_size - len(chunk)))
@@ -98,9 +92,6 @@ class SileroVADAnalyzer:
             probs.append(prob)
 
         prob_array = np.array(probs)
-        # Adjust time axis for overlap
-        time_axis = [i * (self.stride / self.sr) for i in range(len(probs))]
-        total_sec = len(wav) / self.sr  # use exact audio length, not prob-based
 
         # Threshold-based rich segments
         rich_segments = []
@@ -122,23 +113,22 @@ class SileroVADAnalyzer:
             )
             rich_segments.append(seg)
 
-        # Raw segments with min duration filter
+        # Raw segments (any probability > raw_threshold)
         raw_segments = []
         is_speech = prob_array > self.raw_threshold
-        min_raw_windows = max(1, round(self.raw_min_duration_ms / 1000 / (self.stride / self.sr)))
         for speech_group, group in itertools.groupby(enumerate(is_speech), key=lambda x: x[1]):
             if not speech_group:
                 continue
             indices = [idx for idx, _ in group]
-            if len(indices) < min_raw_windows:  # skip too-short raw bursts
-                continue
             start_idx = indices[0]
             end_idx = indices[-1] + 1
             raw_probs = prob_array[start_idx:end_idx]
+            if len(raw_probs) == 0:
+                continue
             raw_seg = SpeechSegment(
-                start_sec=round(start_idx * (self.stride / self.sr), 3),
-                end_sec=round(end_idx * (self.stride / self.sr), 3),
-                duration_sec=round((end_idx - start_idx) * (self.stride / self.sr), 3),
+                start_sec=round(start_idx * self.step_sec, 3),
+                end_sec=round(end_idx * self.step_sec, 3),
+                duration_sec=round((end_idx - start_idx) * self.step_sec, 3),
                 avg_probability=round(float(raw_probs.mean()), 3),
                 min_probability=round(float(raw_probs.min()), 3),
                 max_probability=round(float(raw_probs.max()), 3),
@@ -333,8 +323,6 @@ class SileroVADAnalyzer:
             "note": f"Raw contiguous regions with probability > {self.raw_threshold} (tunable raw threshold)",
             "sampling_rate": self.sr,
             "raw_threshold": self.raw_threshold,
-            "overlap_ms": self.overlap_ms,
-            "raw_min_duration_ms": self.raw_min_duration_ms,
             "total_raw_segments": len(raw_segments),
             "segments": [asdict(s) for s in raw_segments],
         }
@@ -410,28 +398,16 @@ class SileroVADAnalyzer:
         results = []
         wav = read_audio(str(audio_path), sampling_rate=self.sr).float()
         probs = []
-        # Use stride and overlap for computing probs
-        overlap_samples = int(self.overlap_ms / 1000 * self.sr)
-        stride = max(1, self.window_size - overlap_samples)
-        for i in range(0, len(wav), stride):
+        for i in range(0, len(wav), self.window_size):
             chunk = wav[i : i + self.window_size]
             if len(chunk) < self.window_size:
                 chunk = torch.nn.functional.pad(chunk, (0, self.window_size - len(chunk)))
             prob = model(chunk.unsqueeze(0), self.sr).item()
             probs.append(prob)
-        total_sec = len(wav) / self.sr
+        total_sec = len(probs) * self.step_sec
 
         for t in thresholds:
-            analyzer = SileroVADAnalyzer(
-                threshold=t,
-                raw_threshold=self.raw_threshold,
-                overlap_ms=self.overlap_ms,
-                raw_min_duration_ms=self.raw_min_duration_ms,
-                min_speech_duration_ms=self.min_speech_duration_ms,
-                min_silence_duration_ms=self.min_silence_duration_ms,
-                speech_pad_ms=self.speech_pad_ms,
-                sampling_rate=self.sr,
-            )
+            analyzer = SileroVADAnalyzer(threshold=t, raw_threshold=self.raw_threshold)
             _, segments, raw_segments = analyzer.analyze(audio_path)
             metrics = analyzer.get_metrics(probs, segments, raw_segments, total_sec)
             results.append({
@@ -478,10 +454,6 @@ def main():
     parser.add_argument("-t", "--threshold", type=float, default=0.5)
     parser.add_argument("--raw-threshold", type=float, default=0.05,
                         help="Threshold for raw segments (default: 0.05, set 0.0 for original behavior)")
-    parser.add_argument("--overlap-ms", type=float, default=10.0,
-                        help="Window overlap in milliseconds (e.g. 10-20) to reduce boundary artifacts")
-    parser.add_argument("--raw-min-duration-ms", type=int, default=100,
-                        help="Minimum duration for raw segments in ms (0 = disable)")
     args = parser.parse_args()
 
     if not args.audio.exists():
@@ -489,12 +461,7 @@ def main():
         sys.exit(1)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    analyzer = SileroVADAnalyzer(
-        threshold=args.threshold,
-        raw_threshold=getattr(args, "raw_threshold", 0.05),
-        overlap_ms=args.overlap_ms,
-        raw_min_duration_ms=args.raw_min_duration_ms,
-    )
+    analyzer = SileroVADAnalyzer(threshold=args.threshold, raw_threshold=args.raw_threshold)
     print(f"Analyzing: {args.audio.name}")
     print(f"Threshold: {args.threshold} | Output → {args.output_dir.resolve()}")
 
