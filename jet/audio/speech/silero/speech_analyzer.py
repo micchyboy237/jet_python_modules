@@ -47,7 +47,7 @@ class SpeechSegment:
     std_probability: float = 0.0
     percent_above_threshold: float = 0.0
 
-class SileroVADAnalyzer:
+class SpeechAnalyzer:
     def __init__(
         self,
         threshold: float = 0.5,
@@ -66,23 +66,8 @@ class SileroVADAnalyzer:
         self.window_size = 512 if sampling_rate == 16000 else 256
         self.step_sec = self.window_size / self.sr
 
-    def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment], List[SpeechSegment]]:
-        wav = read_audio(str(audio_path), sampling_rate=self.sr).float()
-        # Threshold-based segments
-        segments = get_speech_timestamps(
-            wav,
-            model,
-            threshold=self.threshold,
-            sampling_rate=self.sr,
-            min_speech_duration_ms=self.min_speech_duration_ms,
-            min_silence_duration_ms=self.min_silence_duration_ms,
-            speech_pad_ms=self.speech_pad_ms,
-            return_seconds=False,
-            visualize_probs=False,
-        )
-        model.reset_states()
-
-        # Compute raw probabilities
+    def extract_probs(self, wav: torch.Tensor) -> List[float]:
+        """Extract raw speech probabilities for the entire audio waveform."""
         probs = []
         for i in range(0, len(wav), self.window_size):
             chunk = wav[i : i + self.window_size]
@@ -90,10 +75,14 @@ class SileroVADAnalyzer:
                 chunk = torch.nn.functional.pad(chunk, (0, self.window_size - len(chunk)))
             prob = model(chunk.unsqueeze(0), self.sr).item()
             probs.append(prob)
+        return probs
 
-        prob_array = np.array(probs)
-
-        # Threshold-based rich segments
+    def extract_segments(
+        self,
+        segments: List[Dict[str, int]],
+        prob_array: np.ndarray,
+    ) -> List[SpeechSegment]:
+        """Convert Silero's raw timestamp dicts into rich SpeechSegment objects."""
         rich_segments = []
         for s in segments:
             start_idx = int(s["start"] / self.window_size)
@@ -112,8 +101,10 @@ class SileroVADAnalyzer:
                 ) if len(seg_probs) > 0 else 0.0,
             )
             rich_segments.append(seg)
+        return rich_segments
 
-        # Raw segments (any probability > raw_threshold)
+    def extract_raw_segments(self, prob_array: np.ndarray) -> List[SpeechSegment]:
+        """Create raw speech segments based on any probability > raw_threshold (contiguous regions)."""
         raw_segments = []
         is_speech = prob_array > self.raw_threshold
         for speech_group, group in itertools.groupby(enumerate(is_speech), key=lambda x: x[1]):
@@ -138,6 +129,34 @@ class SileroVADAnalyzer:
                 ),
             )
             raw_segments.append(raw_seg)
+        return raw_segments
+
+    def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment], List[SpeechSegment]]:
+        wav = read_audio(str(audio_path), sampling_rate=self.sr).float()
+
+        # Threshold-based segments from Silero
+        segments = get_speech_timestamps(
+            wav,
+            model,
+            threshold=self.threshold,
+            sampling_rate=self.sr,
+            min_speech_duration_ms=self.min_speech_duration_ms,
+            min_silence_duration_ms=self.min_silence_duration_ms,
+            speech_pad_ms=self.speech_pad_ms,
+            return_seconds=False,
+            visualize_probs=False,
+        )
+        model.reset_states()
+
+        # Extract probabilities
+        probs = self.extract_probs(wav)
+        prob_array = np.array(probs)
+
+        # Rich threshold-based segments
+        rich_segments = self.extract_segments(segments, prob_array)
+
+        # Raw segments (independent of Silero's merging logic)
+        raw_segments = self.extract_raw_segments(prob_array)
 
         return probs, rich_segments, raw_segments
 
@@ -483,7 +502,7 @@ class SileroVADAnalyzer:
         total_sec = len(probs) * self.step_sec
 
         for t in thresholds:
-            analyzer = SileroVADAnalyzer(threshold=t, raw_threshold=self.raw_threshold)
+            analyzer = SpeechAnalyzer(threshold=t, raw_threshold=self.raw_threshold)
             _, segments, raw_segments = analyzer.analyze(audio_path)
             metrics = analyzer.get_metrics(probs, segments, raw_segments, total_sec)
             results.append({
@@ -537,7 +556,7 @@ def main():
         sys.exit(1)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    analyzer = SileroVADAnalyzer(threshold=args.threshold, raw_threshold=args.raw_threshold)
+    analyzer = SpeechAnalyzer(threshold=args.threshold, raw_threshold=args.raw_threshold)
     print(f"Analyzing: {args.audio.name}")
     print(f"Threshold: {args.threshold} | Output → {args.output_dir.resolve()}")
 
