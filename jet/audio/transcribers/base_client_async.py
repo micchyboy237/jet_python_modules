@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import asyncio
 import json
-import time
-import numpy as np
 from pathlib import Path
-from typing import Optional, AsyncGenerator, Union, TypedDict
+from typing import TypedDict, Union, Optional
 
 import httpx
+import numpy as np
 from rich import print as rprint
+from mimetypes import guess_type
 
-BASE_URL = "http://shawn-pc.local:8001/transcribe_translate"
+from jet.audio.transcribers.base import AudioInput
 
-AudioInput = Union[str, Path, np.ndarray]
+BASE_URL = "http://shawn-pc.local:8001/transcribe_translate_kotoba"
 
-# ---- Typed Dict for Response ----
+
 class TranscribeResponse(TypedDict):
     duration_sec: float
     detected_language: str
@@ -22,19 +21,32 @@ class TranscribeResponse(TypedDict):
     transcription: str
     translation: str
 
-# Global client – created once and reused for the entire process lifetime
-_client: Optional[httpx.AsyncClient] = None
 
-async def get_client() -> httpx.AsyncClient:
+# Global asynchronous client – created once and reused
+_async_client: Optional[httpx.AsyncClient] = None
+
+
+def _guess_mime(path_or_filename: Union[str, Path]) -> str:
+    mime, _ = guess_type(str(path_or_filename))
+    return mime or "application/octet-stream"
+
+
+async def get_async_client() -> httpx.AsyncClient:
     """Lazy-initialize a high-performance AsyncClient with pooling & HTTP/2."""
-    global _client
-    if _client is None:
+    global _async_client
+    if _async_client is None:
         limits = httpx.Limits(
             max_keepalive_connections=20,
             max_connections=100,
             keepalive_expiry=30.0,
         )
-        timeout = httpx.Timeout(30.0, connect=10.0)
+        timeout = httpx.Timeout(
+            timeout=300.0,
+            connect=15.0,
+            read=300.0,
+            write=300.0,
+            pool=30.0,
+        )
 
         async def raise_on_4xx_5xx(response: httpx.Response):
             if response.is_client_error or response.is_server_error:
@@ -46,127 +58,133 @@ async def get_client() -> httpx.AsyncClient:
             else:
                 rprint(f"[dim cyan]Response: {response.status_code} {response.reason_phrase}[/dim cyan]")
 
-        _client = httpx.AsyncClient(
+        _async_client = httpx.AsyncClient(
             base_url=BASE_URL,
             timeout=timeout,
             limits=limits,
             http2=True,
             headers={"User-Agent": "audio-transcriber/1.0"},
             follow_redirects=True,
-            event_hooks={
-                "response": [raise_on_4xx_5xx]
-            }
+            event_hooks={"response": [raise_on_4xx_5xx]},
         )
-    return _client
+    return _async_client
 
-async def upload_file_multipart(file_path: Path) -> TranscribeResponse:
-    client = await get_client()
-    data = file_path.read_bytes()
-    files = {
-        "data": (
-            file_path.name,
-            data,
-            "application/octet-stream",
-        )
-    }
-    rprint(f"[bold green]Sending as multipart:[/bold green] {file_path} ({len(data):,} bytes)")
-    r = await client.post("", files=files)
-    r.raise_for_status()
-    result = r.json()
-    return result  # runtime type; conforms to TranscribeResponse if server as expected
 
-async def _async_file_chunks(file_path: Path, chunk_size: int = 65536) -> AsyncGenerator[bytes, None]:
-    def _iterator():
-        with file_path.open("rb") as f:
-            while chunk := f.read(chunk_size):
-                yield chunk
-    for chunk in _iterator():
-        yield chunk
+async def atranscribe_audio(
+    audio: AudioInput,
+    *,
+    filename: str = "sound.wav"
+) -> TranscribeResponse:
+    """
+    Asynchronous entry-point for transcription/translation.
 
-async def upload_file_multipart_streaming(file_path: Union[str, Path]) -> TranscribeResponse:
-    file_path = Path(file_path)
-    client = await get_client()
+    Accepts:
+        - File path (str / Path)
+        - Raw bytes / bytearray
+        - NumPy array (converted with .tobytes())
+        - Filename for in-memory data (for correct MIME type)
 
-    async def _streaming_generator():
-        async for chunk in _async_file_chunks(file_path):
-            yield chunk
+    Returns parsed TranscribeResponse dict.
+    """
+    client = await get_async_client()
 
-    files = {
-        "data": (
-            file_path.name,
-            _streaming_generator(),
-            "application/octet-stream",
-        )
-    }
-    rprint(f"[bold green]Streaming multipart:[/bold green] {file_path}")
-    r = await client.post("", files=files)
-    r.raise_for_status()
-    result = r.json()
-    return result  # runtime type; conforms to TranscribeResponse if server as expected
-
-async def upload_raw_bytes(data: bytes) -> TranscribeResponse:
-    client = await get_client()
-    rprint(f"[bold yellow]Sending as raw bytes:[/bold yellow] {len(data):,} bytes")
-    r = await client.post(
-        "",
-        content=data,
-        headers={"Content-Type": "application/octet-stream"},
-    )
-    r.raise_for_status()
-    result = r.json()
-    return result  # runtime type; conforms to TranscribeResponse if server as expected
-
-async def close_client() -> None:
-    global _client
-    if _client is not None:
-        await _client.aclose()
-        _client = None
-
-async def atranscribe_audio(audio: AudioInput) -> TranscribeResponse:
-    """Async entry-point – works with file paths, in-memory bytes or NumPy arrays."""
+    # ------------------------------------------------------------------
+    # 1. File path → multipart upload (best for large files on disk)
+    # ------------------------------------------------------------------
     if isinstance(audio, (str, Path)):
         file_path = Path(audio)
-        return await upload_file_multipart(file_path)
+        if not file_path.is_file():
+            raise FileNotFoundError(f"Audio file not found: {file_path}")
 
-    if isinstance(audio, (bytes, bytearray)):
-        return await upload_raw_bytes(audio)
+        mime_type = _guess_mime(file_path)
 
-    if isinstance(audio, np.ndarray):
-        data = audio.tobytes()
-        return await upload_raw_bytes(data)
+        rprint(f"[bold green]Sending multipart ({mime_type}):[/bold green] {file_path}")
+        # FIX: Use normal file open context, as httpx.AsyncStream does not exist.
+        # Safe to use blocking file open here because file uploads are rare and
+        # httpx.AsyncClient will upload in background without blocking event loop.
+        with file_path.open("rb") as f:
+            files = {
+                "data": (file_path.name, f, mime_type)
+            }
+            response = await client.post("", files=files)
 
-    raise TypeError(
-        f"Unsupported audio input type: {type(audio)!r}. "
-        "Expected Path/str, bytes, bytearray, or np.ndarray."
-    )
+    # ------------------------------------------------------------------
+    # 2. In-memory bytes / bytearray / np.ndarray
+    # ------------------------------------------------------------------
+    else:
+        if isinstance(audio, np.ndarray):
+            data = audio.tobytes()
+        elif isinstance(audio, (bytes, bytearray)):
+            data = bytes(audio)
+        else:
+            raise TypeError(
+                f"Unsupported audio input type: {type(audio)!r}. "
+                "Expected Path/str, bytes, bytearray, or np.ndarray."
+            )
 
-async def main() -> None:
-    file_path = Path(
-        "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/"
-        "python_scripts/samples/audio/data/sound.wav"
-    )
+        if filename:
+            mime_type = _guess_mime(filename)
+            rprint(f"[bold cyan]Sending in-memory as multipart ({mime_type}):[/bold cyan] {filename} ({len(data):,} bytes)")
+            files = {
+                "data": (filename, data, mime_type)
+            }
+            response = await client.post("", files=files)
+        else:
+            mime_type = "application/octet-stream"
+            rprint(f"[bold yellow]Sending raw bytes ({mime_type}):[/bold yellow] {len(data):,} bytes")
+            response = await client.post(
+                "",
+                content=data,
+                headers={"Content-Type": mime_type},
+            )
 
-    start = time.perf_counter()
-    result1 = await atranscribe_audio(file_path)
-    mid = time.perf_counter()
-    rprint(json.dumps(result1, indent=2, ensure_ascii=False))
-    rprint(f"[bold green]multipart duration:[/bold green] {mid - start:.3f}s")
+    # ------------------------------------------------------------------
+    # Common response handling
+    # ------------------------------------------------------------------
+    response.raise_for_status()
+    result: TranscribeResponse = response.json()
+    return result
 
-    rprint("\n" + "─" * 50 + "\n")
 
-    start2 = time.perf_counter()
-    data = file_path.read_bytes()
-    result2 = await atranscribe_audio(data)
-    end = time.perf_counter()
-    rprint(json.dumps(result2, indent=2, ensure_ascii=False))
-    rprint(f"[bold yellow]raw bytes duration:[/bold yellow] {end - start2:.3f}s")
+async def aclose_async_client() -> None:
+    """Close the global asynchronous client and free resources."""
+    global _async_client
+    if _async_client is not None:
+        await _async_client.aclose()
+        _async_client = None
 
-    rprint(f"[bold cyan]Total elapsed:[/bold cyan] {end - start:.3f}s")
 
-    await close_client()
-
+# ----------------------------------------------------------------------
+# Example usage (async main)
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    finally:
-        asyncio.run(close_client())
+    import asyncio
+    import time
+
+    async def main():
+        try:
+            file_path = Path(
+                "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/python_scripts/samples/audio/data/sound.wav"
+            )
+
+            # Test with file path
+            start1 = time.perf_counter()
+            result1 = await atranscribe_audio(file_path)
+            end1 = time.perf_counter()
+            rprint("[bold green]Multipart result:[/bold green]")
+            rprint(json.dumps(result1, indent=2, ensure_ascii=False))
+            print(f"[bold green]upload_file_multipart duration:[/bold green] {end1 - start1:.3f} seconds")
+
+            # Test with in-memory bytes
+            raw_data = file_path.read_bytes()
+            start2 = time.perf_counter()
+            result2 = await atranscribe_audio(raw_data)
+            end2 = time.perf_counter()
+            rprint("[bold yellow]Raw bytes result:[/bold yellow]")
+            rprint(json.dumps(result2, indent=2, ensure_ascii=False))
+            print(f"[bold yellow]upload_raw_bytes duration:[/bold yellow] {end2 - start2:.3f} seconds")
+
+        finally:
+            await aclose_async_client()
+
+    asyncio.run(main())

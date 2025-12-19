@@ -32,6 +32,7 @@ mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/googletrans
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/silero-vad
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/pyannote-audio
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux
 
 gradio
 pyppeteer # for rendering mermaid graph

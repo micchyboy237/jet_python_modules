@@ -47,3 +47,4 @@ transformers
 umap-learn
 unidecode
 uv
+viztracer
