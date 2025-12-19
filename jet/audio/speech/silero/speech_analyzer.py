@@ -70,7 +70,8 @@ class SpeechAnalyzer:
         raw_threshold: float = 0.2,  # new: for more granular raw segments
         min_speech_duration_ms: int = 250,
         min_silence_duration_ms: int = 100,
-        speech_pad_ms: int = 30,
+        # Increased speech_pad_ms for clear rise → peak → fall pattern on each segment
+        speech_pad_ms: int = 80,
         sampling_rate: int = 16000,
         min_duration_ms: int | None = None,   # minimum raw segment duration in milliseconds
         min_std_prob: float | None = None,
@@ -143,23 +144,44 @@ class SpeechAnalyzer:
         return True
 
     def extract_raw_segments(self, prob_array: np.ndarray) -> List[SpeechSegment]:
-        """Create raw speech segments based on any probability > raw_threshold (contiguous regions)."""
+        """Create natural raw speech segments with low-probability boundaries."""
         raw_segments = []
-        is_speech = prob_array > self.raw_threshold
-        for idx, (is_speech_key, group) in enumerate(itertools.groupby(enumerate(is_speech), key=lambda x: x[1])):
-            if not is_speech_key:  # skip silence groups
+        # Step 1: Find core speech regions using a higher threshold
+        core_threshold = max(self.threshold, 0.6)  # at least 0.6, or use main threshold if higher
+        is_core = prob_array > core_threshold
+
+        # Step 2: Group contiguous core regions
+        for group_key, group in itertools.groupby(enumerate(is_core), key=lambda x: x[1]):
+            if not group_key:
                 continue
             indices = [i for i, _ in group]
-            start_idx = indices[0]
-            end_idx = indices[-1] + 1
-            raw_probs = prob_array[start_idx:end_idx]
+            if not indices:
+                continue
+            core_start = indices[0]
+            core_end = indices[-1] + 1  # exclusive
+
+            # Step 3: Expand backward until low prob or silence
+            expand_start = core_start
+            while expand_start > 0 and prob_array[expand_start - 1] > self.raw_threshold:
+                expand_start -= 1
+
+            # Step 4: Expand forward
+            expand_end = core_end
+            max_frames = len(prob_array)
+            while expand_end < max_frames and prob_array[expand_end] > self.raw_threshold:
+                expand_end += 1
+
+            # Now the segment starts/ends near or in low-probability zones
+            raw_probs = prob_array[expand_start:expand_end]
             if len(raw_probs) == 0:
                 continue
-            start_ms = int(round(start_idx * self.step_sec * 1000))
-            end_ms = int(round(end_idx * self.step_sec * 1000))
+
+            start_ms = int(round(expand_start * self.step_sec * 1000))
+            end_ms = int(round(expand_end * self.step_sec * 1000))
             duration_ms = end_ms - start_ms
+
             raw_seg = SpeechSegment(
-                num=idx + 1,
+                num=len(raw_segments) + 1,
                 start=start_ms,
                 end=end_ms,
                 duration=duration_ms,
@@ -169,12 +191,14 @@ class SpeechAnalyzer:
                     max_prob=round(float(raw_probs.max()), 3),
                     std_prob=round(float(raw_probs.std()), 3),
                     pct_above_threshold=round(
-                        float(np.sum(raw_probs > self.threshold)) / float(len(raw_probs)) * 100, 1
+                        float(np.sum(raw_probs > self.threshold)) / len(raw_probs) * 100, 1
                     ),
                 ),
             )
+
             if self._segment_passes_filters(raw_seg):
                 raw_segments.append(raw_seg)
+
         return raw_segments
 
     def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment], List[SpeechSegment], int]:
