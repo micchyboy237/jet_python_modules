@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from silero_vad.utils_vad import get_speech_timestamps, read_audio
 
-# ── Rich imports for pretty output ──────────────────────────────
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, MofNCompleteColumn
 
@@ -12,38 +11,28 @@ from jet.audio.speech.silero.speech_types import SpeechSegment
 
 console = Console()
 
-@torch.no_grad()
-def extract_speech_timestamps(
-    audio: str | Path | np.ndarray | torch.Tensor,
-    model=None,
-    threshold: float = 0.5,
-    sampling_rate: int = 16000,
-    min_speech_duration_ms: int = 250,
-    max_speech_duration_s: float = float("inf"),
-    min_silence_duration_ms: int = 100,
-    # Increased speech_pad_ms for clear rise → peak → fall pattern on each segment
-    speech_pad_ms: int = 80,
-    return_seconds: bool = False,
-    time_resolution: int = 1,
-) -> List[SpeechSegment]:
-    # ── Lazy-load model ─────────────────────────────────────────
-    if model is None:
-        with console.status("[bold green]Downloading latest Silero VAD model...[/bold green]"):
-            model, _ = torch.hub.load(
-                repo_or_dir="snakers4/silero-vad",
-                model="silero_vad",
-                force_reload=False,
-                trust_repo=True,
-                verbose=False,
-            )
-        console.print("✅ Silero VAD model ready")
 
-    # ── Input normalization ─────────────────────────────────────
+def _load_model() -> torch.nn.Module:
+    """Lazily load the latest Silero VAD model from torch hub."""
+    with console.status("[bold green]Downloading latest Silero VAD model...[/bold green]"):
+        model, _ = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad",
+            model="silero_vad",
+            force_reload=False,
+            trust_repo=True,
+            verbose=False,
+        )
+    console.print("✅ Silero VAD model ready")
+    return model
+
+
+def _normalize_input(audio: str | Path | np.ndarray | torch.Tensor, sampling_rate: int) -> torch.Tensor:
+    """Normalize various input types to a mono float32 torch.Tensor at the target sampling rate."""
     if isinstance(audio, (str, Path)):
         audio_path = Path(audio)
         if not audio_path.is_file():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
-        audio = read_audio(audio_path, sampling_rate=sampling_rate)
+        audio = read_audio(str(audio_path), sampling_rate=sampling_rate)
 
     if isinstance(audio, np.ndarray):
         if audio.dtype == np.int16:
@@ -57,12 +46,15 @@ def extract_speech_timestamps(
 
     if audio.ndim != 1:
         raise ValueError("Audio must be mono (1D tensor)")
-    audio = audio.float()
 
     if sampling_rate not in (8000, 16000):
         raise ValueError("Silero VAD supports only 8000 or 16000 Hz")
 
-    # ── VAD inference with clean progress bar ───────────────────
+    return audio.float()
+
+
+def _run_vad_inference(model: torch.nn.Module, audio: torch.Tensor, sampling_rate: int) -> List[float]:
+    """Run VAD inference chunk-by-chunk with a clean rich progress bar and return speech probabilities."""
     window_size_samples = 512 if sampling_rate == 16000 else 256
     model.reset_states()
 
@@ -83,7 +75,7 @@ def extract_speech_timestamps(
         task = progress.add_task("Running VAD inference...", total=steps)
 
         for i in range(0, total_samples, step):
-            chunk = audio[i : i + window_size_samples]
+            chunk = audio[i: i + window_size_samples]
             if len(chunk) < window_size_samples:
                 chunk = torch.nn.functional.pad(chunk, (0, window_size_samples - len(chunk)))
 
@@ -91,9 +83,33 @@ def extract_speech_timestamps(
             speech_probs.append(prob)
             progress.update(task, advance=1)
 
-    # ── Get raw segments from Silero utils ───────────────────────
+    return speech_probs
+
+
+@torch.no_grad()
+def extract_speech_timestamps(
+    audio: str | Path | np.ndarray | torch.Tensor,
+    model=None,
+    threshold: float = 0.3,
+    sampling_rate: int = 16000,
+    min_speech_duration_ms: int = 250,
+    max_speech_duration_s: float = float("inf"),
+    min_silence_duration_ms: int = 100,
+    speech_pad_ms: int = 0,
+    return_seconds: bool = False,
+    time_resolution: int = 1,
+) -> List[SpeechSegment]:
+    if model is None:
+        model = _load_model()
+
+    audio_tensor = _normalize_input(audio, sampling_rate)
+
+    speech_probs = _run_vad_inference(model, audio_tensor, sampling_rate)
+
+    window_size_samples = 512 if sampling_rate == 16000 else 256
+
     segments = get_speech_timestamps(
-        audio=audio,
+        audio=audio_tensor,
         model=model,
         threshold=threshold,
         sampling_rate=sampling_rate,
@@ -104,7 +120,6 @@ def extract_speech_timestamps(
         return_seconds=False,
     )
 
-    # ── Enhance with average probability & nice formatting ───────
     enhanced: List[SpeechSegment] = []
     for idx, seg in enumerate(segments):
         start_sample = seg["start"]
@@ -136,7 +151,7 @@ if __name__ == "__main__":
 
     segments = extract_speech_timestamps(
         audio_file,
-        threshold=0.5,
+        threshold=0.3,
         sampling_rate=16000,
         return_seconds=True,
         time_resolution=2,

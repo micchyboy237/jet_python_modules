@@ -66,12 +66,12 @@ class SpeechSegment:
 class SpeechAnalyzer:
     def __init__(
         self,
-        threshold: float = 0.5,
-        raw_threshold: float = 0.2,  # new: for more granular raw segments
+        threshold: float = 0.3,
+        raw_threshold: float = 0.10,  # new: for more granular raw segments
         min_speech_duration_ms: int = 250,
         min_silence_duration_ms: int = 100,
         # Increased speech_pad_ms for clear rise → peak → fall pattern on each segment
-        speech_pad_ms: int = 80,
+        speech_pad_ms: int = 0,
         sampling_rate: int = 16000,
         min_duration_ms: int | None = None,   # minimum raw segment duration in milliseconds
         min_std_prob: float | None = None,
@@ -757,8 +757,8 @@ def main():
     )
     parser.add_argument("-o", "--output-dir", type=Path, default=Path(OUTPUT_DIR))
     parser.add_argument("-t", "--threshold", type=float, default=0.5)
-    parser.add_argument("--raw-threshold", type=float, default=0.2,
-                        help="Threshold for raw segments (default: 0.2, set 0.0 for original behavior)")
+    parser.add_argument("--raw-threshold", type=float, default=0.10,
+                        help="Threshold for raw segments (default: 0.10, set 0.0 for original behavior)")
     parser.add_argument("--min-duration-ms", type=int, default=200, help="Minimum raw segment duration in ms (default: 200)")
     parser.add_argument("--min-std-prob", type=float, default=0.0, help="Minimum std(prob) in raw region (default: 0.0)")
     parser.add_argument("--min-pct-threshold", type=float, default=10.0, help="Min %% windows > threshold in raw region (default: 10.0)")

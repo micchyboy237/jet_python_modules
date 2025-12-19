@@ -23,7 +23,7 @@ def record_from_mic(
     silence_threshold: Optional[float] = None,
     silence_duration: float = 2.0,
     trim_silent: bool = False,
-    overlap_seconds: float = 0.5,
+    overlap_seconds: float = 0.0,
     quit_on_silence: bool = False,
 ) -> Generator[Tuple[SpeechSegment, np.ndarray, np.ndarray], None, None]:
     """Record audio from microphone with silence detection and progress tracking.
@@ -181,6 +181,6 @@ def extract_segment_data(segment: SpeechSegment, audio_np: List[np.ndarray], tri
 
 def extract_and_display_speech_segments(audio_data: List[np.ndarray]) -> List[SpeechSegment]:
     audio_tensor = convert_audio_to_tensor(audio_data)
-    speech_ts = extract_speech_timestamps(audio=audio_tensor, model=silero_model,)
+    speech_ts = extract_speech_timestamps(audio=audio_tensor, model=silero_model)
     display_segments(speech_ts)
     return speech_ts
