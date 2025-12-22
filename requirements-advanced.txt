@@ -1,6 +1,7 @@
 mlx
 mlx-lm
 mlx-vlm
+llama-cpp-python -C cmake.args="-DGGML_BLAS=ON;-DGGML_BLAS_VENDOR=OpenBLAS"
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/openai-python
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/ollama-python
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner
@@ -33,6 +34,7 @@ mlx-vlm
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/silero-vad
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/pyannote-audio
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/translators
 
 gradio
 pyppeteer # for rendering mermaid graph

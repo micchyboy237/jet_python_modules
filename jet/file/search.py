@@ -16,7 +16,7 @@ def traverse_directory(
     limit: Optional[int] = None,
     direction: str = "forward",
     max_backward_depth: Optional[int] = None,
-    max_forward_depth: Optional[int] = 3
+    max_forward_depth: Optional[int] = None
 ) -> Generator[tuple[str, int], None, None]:
     excludes = list(set(DEFAULT_EXCLUDES + excludes))
     visited_paths = set()
@@ -93,7 +93,7 @@ def traverse_directory(
             yield folder_path, current_depth
             if limit and yielded_count >= limit:
                 return
-        logger.log(f"Depth:", depth_key, "|", f"Dirs:", len(passed_dirs_dict[depth_key]),
+        logger.log("Depth:", depth_key, "|", "Dirs:", len(passed_dirs_dict[depth_key]),
                    colors=["WHITE", "DEBUG", "GRAY", "WHITE", "SUCCESS"])
 
 

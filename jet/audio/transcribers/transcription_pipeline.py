@@ -12,9 +12,10 @@ from rich.table import Table
 from rich.logging import RichHandler
 
 import logging
+import asyncio
 
 from jet.audio.transcribers.base import AudioInput, load_audio
-from jet.audio.transcribers.base_client import transcribe_audio  # new unified endpoint
+from jet.audio.transcribers.base_client_async import atranscribe_audio  # async endpoint
 
 logging.basicConfig(level="DEBUG", handlers=[RichHandler()], force=True)
 logger = logging.getLogger("TranscriptionPipeline")
@@ -25,12 +26,12 @@ console = Console()
 # ----------------------------------------------------------------------
 # Placeholder stubs – replace with your real implementations
 # ----------------------------------------------------------------------
-def transcribe_ja_chunk(audio: AudioInput) -> dict:
+async def transcribe_ja_chunk(audio: AudioInput) -> dict:
     """
-    Call the unified transcription+translation endpoint.
-    Returns the full TranscribeResponse dict (contains both transcription and translation and word-level timestamps).
+    Call the unified transcription+translation endpoint asynchronously.
+    Returns a dict with transcription, translation, and word-level timestamps.
     """
-    result = transcribe_audio(audio, filename="segment_live.wav")
+    result = await atranscribe_audio(audio, filename="segment_live.wav")
     return {
         "transcription": result["transcription"],
         "translation": result["translation"],
@@ -101,7 +102,7 @@ class TranscriptionPipeline:
 
         logger.debug("CACHE MISS → submitting to executor with custom_args=%s", custom_args)
 
-        future = self._executor.submit(self._process, audio, key, custom_args)
+        future = self._executor.submit(asyncio.run, self._process(audio, key, custom_args))
 
         def _cleanup(fut: Future) -> None:
             with self._lock:
@@ -117,10 +118,10 @@ class TranscriptionPipeline:
             self._queue.append(future)
             logger.debug("Future added → queue size: %d", len(self._queue))
 
-    def _process(self, audio: AudioInput, key: AudioKey, custom_args: Dict[str, Any]) -> None:
+    async def _process(self, audio: AudioInput, key: AudioKey, custom_args: Dict[str, Any]) -> None:
         logger.debug("START _process → key=%s custom_args=%s", key, custom_args)
         try:
-            result = transcribe_ja_chunk(audio)
+            result = await transcribe_ja_chunk(audio)
             logger.debug("transcribe_audio returned: %r", result)
 
             ja_text = result["transcription"].strip()

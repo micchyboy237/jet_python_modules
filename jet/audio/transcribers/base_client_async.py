@@ -10,12 +10,11 @@ from rich import print as rprint
 from mimetypes import guess_type
 
 from jet.audio.transcribers.base import AudioInput
-from jet.audio.utils import resolve_audio_paths
 
 import asyncio
-from tqdm.asyncio import tqdm  # <-- required import
 
-BASE_URL = "http://shawn-pc.local:8001/transcribe_translate_kotoba"
+BASE_URL = "http://shawn-pc.local:8001/transcribe_translate"
+# BASE_URL = "http://shawn-pc.local:8001/transcribe_translate_kotoba"
 
 
 class TranscribeResponse(TypedDict):
@@ -150,47 +149,6 @@ async def atranscribe_audio(
     return result
 
 
-async def atranscribe_many(
-    audio_files: list[Path],
-    *,
-    max_concurrent: int = 4
-) -> list[TranscribeResponse]:
-    """
-    Transcribe multiple audio files in parallel using asynchronous requests.
-
-    Limits concurrency with a semaphore to avoid overwhelming the server.
-    Uses tqdm for a clean progress bar showing completed transcriptions.
-    Returns results in original input order.
-    """
-    semaphore = asyncio.Semaphore(max_concurrent)
-
-    async def transcribe_with_sem(audio_path: Path) -> TranscribeResponse:
-        async with semaphore:
-            try:
-                return await atranscribe_audio(audio_path)
-            except Exception as exc:
-                rprint(f"[bold red]Failed to transcribe {Path(audio_path).name}: {exc}[/bold red]")
-                raise  # Re-raise to let tqdm/as_completed surface the error clearly
-
-    rprint(f"[bold magenta]Starting parallel transcription of {len(audio_files)} files (max {max_concurrent} concurrent)[/bold magenta]")
-
-    # Create tasks explicitly so we can map them to indices
-    tasks = [asyncio.create_task(transcribe_with_sem(path)) for path in audio_files]
-
-    # Pre-allocate results list to preserve original order
-    results: list[TranscribeResponse] = [None] * len(tasks)  # type: ignore
-
-    # Map each task → its original index
-    order_map = {task: idx for idx, task in enumerate(tasks)}
-
-    for finished_task in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Transcribing", unit="file"):
-        result = await finished_task
-        original_idx = order_map[finished_task]
-        results[original_idx] = result
-
-    return results
-
-
 async def aclose_async_client() -> None:
     """Close the global asynchronous client and free resources."""
     global _async_client
@@ -208,7 +166,7 @@ if __name__ == "__main__":
     async def main():
         try:
             file_path = Path(
-                "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/python_scripts/samples/audio/data/sound.wav"
+                "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_20251222_125319.wav"
             )
 
             # Test with file path
@@ -227,24 +185,6 @@ if __name__ == "__main__":
             rprint("[bold yellow]Raw bytes result:[/bold yellow]")
             rprint(json.dumps(result2, indent=2, ensure_ascii=False))
             print(f"[bold yellow]upload_raw_bytes duration:[/bold yellow] {end2 - start2:.3f} seconds")
-
-            # Test parallel up to 4 concurrent
-            audio_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_analyze_speech/raw_segments"
-            sample_audio_files = resolve_audio_paths(audio_dir, recursive=True)
-            # Limit for testing only
-            sample_audio_files = sample_audio_files[:6]
-
-            rprint(f"[bold blue]Found {len(sample_audio_files)} audio files for parallel test[/bold blue]")
-
-            start_parallel = time.perf_counter()
-            parallel_results = await atranscribe_many(sample_audio_files, max_concurrent=4)
-            end_parallel = time.perf_counter()
-
-            rprint("[bold green]Parallel results (in original order):[/bold green]")
-            for i, res in enumerate(parallel_results, 1):
-                rprint(f"[dim]{i:02d}[/dim] {sample_audio_files[i-1].name} → {res['transcription'][:80]}...")
-
-            rprint(f"[bold magenta]Total parallel duration:[/bold magenta] {end_parallel - start_parallel:.3f} seconds")
 
         finally:
             await aclose_async_client()

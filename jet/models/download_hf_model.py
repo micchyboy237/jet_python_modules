@@ -235,7 +235,7 @@ def download_hf_model(
 
 
 if __name__ == "__main__":
-    repo_id = "kotoba-tech/kotoba-whisper-bilingual-v1.0-faster"
+    repo_id = "facebook/nllb-200-distilled-1.3B"
     cache_dir = MODELS_CACHE_DIR
 
     logger.info(f"Downloading files from repo id: {repo_id}...")

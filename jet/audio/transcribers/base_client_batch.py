@@ -80,17 +80,17 @@ if __name__ == "__main__":
     else:
         print(resp1.text)
 
-    # 2. Batch transcription + translation
-    resp2 = batch_transcribe(sample_audio_files, translate=True)
-    print("\n--- /batch/transcribe_translate response ---")
-    print(f"Status: {resp2.status_code}")
-    if resp2.ok:
-        for i, item in enumerate(resp2.json(), 1):
-            print(f"\nFile {i}:")
-            print(f"  Duration:     {item['duration_sec']}s")
-            print(f"  Language:     {item['detected_language']} (prob: {item['detected_language_prob']})")
-            print(f"  Transcription:\n    {item['transcription'][:200]}{'...' if len(item['transcription']) > 200 else ''}")
-            if item["translation"]:
-                print(f"  Translation:\n    {item['translation'][:200]}{'...' if len(item['translation']) > 200 else ''}")
-    else:
-        print(resp2.text)
+    # # 2. Batch transcription + translation
+    # resp2 = batch_transcribe(sample_audio_files, translate=True)
+    # print("\n--- /batch/transcribe_translate response ---")
+    # print(f"Status: {resp2.status_code}")
+    # if resp2.ok:
+    #     for i, item in enumerate(resp2.json(), 1):
+    #         print(f"\nFile {i}:")
+    #         print(f"  Duration:     {item['duration_sec']}s")
+    #         print(f"  Language:     {item['detected_language']} (prob: {item['detected_language_prob']})")
+    #         print(f"  Transcription:\n    {item['transcription'][:200]}{'...' if len(item['transcription']) > 200 else ''}")
+    #         if item["translation"]:
+    #             print(f"  Translation:\n    {item['translation'][:200]}{'...' if len(item['translation']) > 200 else ''}")
+    # else:
+    #     print(resp2.text)
