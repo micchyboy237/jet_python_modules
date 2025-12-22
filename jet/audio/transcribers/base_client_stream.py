@@ -65,6 +65,55 @@ async def stream_sse_post(
                 continue
 
 
+async def collect_full_results(
+    sentences: List[str],
+    url: str = "http://shawn-pc.local:8001/translate/batch",
+    timeout: Optional[float] = None,
+) -> List[TranslationResult]:
+    """
+    Reusable async function to collect only the final completed translations
+    from a batch SSE endpoint, without any partial streaming or progress display.
+
+    Designed to mirror the original example_collect_full_results behavior
+    but as a clean, generic, reusable utility built on stream_sse_post.
+
+    Args:
+        sentences: List of input sentences (used to match order).
+        url: SSE endpoint URL.
+        timeout: httpx timeout (None recommended for streaming).
+
+    Returns:
+        List[TranslationResult]: Completed translations with original text,
+        preserving input order.
+    """
+    payload = TranslationRequest(sentences=sentences).model_dump()
+    results: List[str] = [""] * len(sentences)
+    current_index: int = -1
+
+    async with httpx.AsyncClient(timeout=timeout or None) as client:
+        async for data in stream_sse_post(client=client, url=url, payload=payload):
+            # Detect start of new sentence
+            if "sentence" in data:
+                try:
+                    current_index = sentences.index(data["sentence"])
+                except ValueError:
+                    continue
+
+            # Capture final result
+            if "done" in data and current_index >= 0:
+                results[current_index] = data["done"]
+
+            # Optional: surface server errors
+            if "error" in data:
+                console.print(f"[red]Server error for sentence {current_index + 1}: {data['error']}[/red]")
+
+    # Build structured results preserving order
+    return [
+        TranslationResult(original=orig, translated=trans)
+        for orig, trans in zip(sentences, results)
+    ]
+
+
 def translate_ja_en(
     sentences: List[str],
     url: str = "http://shawn-pc.local:8001/translate/batch",
@@ -194,9 +243,33 @@ async def example_sse_streaming_client() -> None:
             console.print(f"[bold red]Request failed:[/bold red] {e}")
 
 
+async def example_collect_full_results() -> None:
+    """
+    Updated example using the new reusable collect_full_results function.
+    """
+    url = "http://shawn-pc.local:8001/translate/batch"
+
+    sentences = [
+        "こんにちは、お元気ですか？",
+        "今日はとても良い天気ですね。",
+        "最近、面白い本を読みました。",
+    ]
+
+    completed_results = await collect_full_results(sentences=sentences, url=url)
+
+    console.print("[bold green]All complete translations collected:[/bold green]")
+    for result in completed_results:
+        console.print(f"[dim]Original:[/dim]  {result.original}")
+        console.print(f"[bold]Translated:[/bold] {result.translated}")
+        console.print()
+
+
 async def main() -> None:
-    print("=== Example 1: Real-time token streaming ===")
+    console.print("[bold cyan]=== Example 1: Real-time token streaming ===[/bold cyan]")
     await example_sse_streaming_client()
+
+    console.print("\n[bold cyan]=== Example 2: Collect all complete translations (no streaming) ===[/bold cyan]")
+    await example_collect_full_results()
 
 
 if __name__ == "__main__":
