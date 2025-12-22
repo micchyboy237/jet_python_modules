@@ -7,7 +7,7 @@ import httpx
 from pydantic import BaseModel
 from rich.console import Console
 
-from jet.audio.transcribers.base_client_stream import atranslate_ja_en
+from jet.audio.transcribers.base_translate_client_stream import atranslate_ja_en
 
 
 console = Console()
