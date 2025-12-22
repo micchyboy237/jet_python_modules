@@ -169,9 +169,8 @@ async def example_sse_streaming_client() -> None:
     url = "http://shawn-pc.local:8001/translate/batch"  # Adjust to your FastAPI server URL
 
     sentences = [
-        "世界各国が水面下で熾烈な情報戦を繰り広げる時代に、にらみ合う2つの国、東のオスタニア、西のウェスタリス、",
-        "戦争を回避するため、オスタニア政府要人の動向を探るスパイが暗躍していた。",
-        "その中でも特に優秀なスパイ、黄昏と呼ばれる男がいた。",
+        "世界各国が水面架で知列な情報戦を繰り広げる時代に、にらみ合う2つの国、東のオスタニア、西のウェスタリス、戦",
+        "争を加わだてるオスタニア政府要順の動向をさせ、",
     ]
 
     payload = TranslationRequest(sentences=sentences).model_dump()
