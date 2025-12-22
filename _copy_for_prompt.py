@@ -63,7 +63,7 @@ exclude_content = []
 SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
-DEFAULT_QUERY_MESSAGE = """
+DEFAULT_QUERY_MESSAGE = r"""
 Evaluate results
 """.strip()
 
