@@ -152,8 +152,8 @@ async def main() -> None:
     await example_collect_full_results()
 
     # Uncomment to run progress bar example
-    # print("\n=== Example 3: With tqdm progress per sentence ===")
-    # await example_with_progress_bar()
+    print("\n=== Example 3: With tqdm progress per sentence ===")
+    await example_with_progress_bar()
 
 
 if __name__ == "__main__":

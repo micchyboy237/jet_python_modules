@@ -17,13 +17,8 @@ class TranslationRequest(BaseModel):
     sentences: List[str]
 
 
-async def example_sse_streaming_client() -> None:
-    """Example: Real-time token streaming using the reusable async client."""
-    sentences = [
-        "世界各国が水面下で熾烈な情報戦を繰り広げる時代に、にらみ合う2つの国、東のオスタニア、西のウェスタリス、",
-        "戦争を回避するため、オスタニア政府要人の動向を探るスパイが暗躍していた。",
-        "その中でも特に優秀なスパイ、黄昏と呼ばれる男がいた。",
-    ]
+async def sse_streaming_client(sentences: List[str]) -> None:
+    """Real-time token streaming using the reusable async client."""
 
     console.print("Streaming translations:\n")
 
@@ -53,8 +48,8 @@ async def example_sse_streaming_client() -> None:
                     if "partial" in data:
                         print(data["partial"], end="", flush=True)
                     elif "done" in data:
-                        print("\n\n✓ Completed:", data["done"])
-                        print("Original:", data["sentence"])
+                        print("\n\nOriginal:", data["sentence"])
+                        print("Translated:", data["done"])
                         print("-" * 80)
                     elif "error" in data:
                         print("\nServer error:", data["error"])
@@ -62,15 +57,10 @@ async def example_sse_streaming_client() -> None:
                     continue
 
 
-async def example_collect_full_results() -> None:
+async def collect_full_results(sentences: List[str]) -> None:
     """
-    Example: Collect all complete translations into a list using the reusable function.
+    Collect all complete translations into a list using the reusable function.
     """
-    sentences = [
-        "こんにちは、お元気ですか？",
-        "今日はとても良い天気ですね。",
-        "最近、面白い本を読みました。",
-    ]
 
     # Simple and clean – just await the reusable function
     results: List[str] = await atranslate_ja_en(sentences)
@@ -81,14 +71,8 @@ async def example_collect_full_results() -> None:
         console.print(f"[bold]Translated:[/bold] {translated}\n")
 
 
-async def example_with_progress_bar() -> None:
-    """Example: Streaming with per-sentence progress bar using reusable client."""
-    sentences = [
-        "スパイファミリーは面白いアニメです。",
-        "ロイドは優秀なスパイです。",
-        "アーニャは可愛いです。",
-        "ヨルは強いです。",
-    ]
+async def with_progress_bar(sentences: List[str]) -> None:
+    """Streaming with per-sentence progress bar using reusable client."""
 
     console.print("[bold]Translating with progress per sentence...[/bold]\n")
 
@@ -101,14 +85,31 @@ async def example_with_progress_bar() -> None:
 
 
 async def main() -> None:
-    console.print("[bold cyan]=== Example 1: Real-time token streaming ===[/bold cyan]")
-    await example_sse_streaming_client()
+    sentences = [
+        "世界各国が水面下で熾烈な情報戦を繰り広げる時代に、にらみ合う2つの国、東のオスタニア、西のウェスタリス、",
+        "戦争を回避するため、オスタニア政府要人の動向を探るスパイが暗躍していた。",
+        "その中でも特に優秀なスパイ、黄昏と呼ばれる男がいた。",
+    ]
 
+    console.print("[bold cyan]=== Real-time token streaming ===[/bold cyan]")
+    await sse_streaming_client(sentences)
+
+    sentences = [
+        "こんにちは、お元気ですか？",
+        "今日はとても良い天気ですね。",
+        "最近、面白い本を読みました。",
+    ]
     console.print("\n[bold cyan]=== Example 2: Collect all results ===[/bold cyan]")
-    await example_collect_full_results()
+    await collect_full_results(sentences)
 
+    sentences = [
+        "スパイファミリーは面白いアニメです。",
+        "ロイドは優秀なスパイです。",
+        "アーニャは可愛いです。",
+        "ヨルは強いです。",
+    ]
     console.print("\n[bold cyan]=== Example 3: With progress bar per sentence ===[/bold cyan]")
-    await example_with_progress_bar()
+    await with_progress_bar(sentences)
 
 
 if __name__ == "__main__":
