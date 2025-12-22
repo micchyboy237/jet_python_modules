@@ -1,100 +1,114 @@
+# client_examples.py
 import asyncio
+import json
 from typing import List
 
 import httpx
-from transformers import AutoTokenizer
+from pydantic import BaseModel
+from rich.console import Console
 
-# System prompt and instruction (unchanged)
-system_prompt = (
-    "You are a highly skilled professional Japanese-to-English translator. "
-    "Translate the given Japanese text into natural, accurate, and fluent English. "
-    "Preserve the original meaning, tone, and cultural nuances. "
-    "Only add an explicit subject in English when it is clearly specified in the Japanese sentence. "
-    "For technical terms and proper nouns, use standard English equivalents when they exist, "
-    "or keep them in romanized form if no common translation is available. "
-    "After translating, review your output to ensure it is grammatically correct and reads naturally. "
-    "Take a deep breath and produce the best possible translation.\n\n"
-)
-
-instruct = (
-    "Translate the following Japanese text to English.\n"
-    "When translating, please use the following hints:\n"
-    "[writing_style: casual]"
-)
-
-initial_messages = [
-    {"role": "user", "content": system_prompt + instruct},
-    {"role": "assistant", "content": "OK"}
-]
-
-message_list = [
-    "私も、日本人の聴衆に本当に初めて話すので、少し緊張していました。ホワイトハウスを去ってから間違いなく初めてです。",
-    "そして、とても優秀な通訳がいました。もし皆さんが日本で英語でスピーチをしたことがあれば、日本語で言うとずっと時間がかかることが分かると思います。",
-    "そこで、私は自分が知っている一番短いジョークを話して、場を和ませようと思いました。",
-    "それは私が知っている最高のジョークではありませんでしたが、一番短いジョークで、何年か前の知事選のキャンペーンから残っていたものです。",
-    "それで私はジョークを話し、通訳がそのジョークを伝えました。すると聴衆は大笑いしました。",
-    "人生でこれほど良い反応をもらったことはありませんでした。",
-    "だからスピーチを早く終わらせて、通訳に聞きたくて仕方ありませんでした。",
-    "「私のジョークをどうやって伝えたんですか？」",
-    "彼はとても曖昧で、どう伝えたか教えてくれませんでした。",
-    "私がしつこく聞くと、ついに頭を下げてこう言いました。",
-    "「『カーター大統領が面白い話をしてくれました。みんな、笑ってください』と伝えました。」"
-]
-
-tokenizer = AutoTokenizer.from_pretrained("webbigdata/gemma-2-2b-jpn-it-translate")
+from jet.audio.transcribers.base_client_stream import atranslate_ja_en
 
 
-async def translate_sentence(
-    client: httpx.AsyncClient,
-    messages: List[dict],
-    sentence: str,
-) -> str:
-    """Send a single sentence to the local LLM and return the assistant response."""
-    messages.append({"role": "user", "content": sentence})
+console = Console()
 
-    prompt = tokenizer.apply_chat_template(
-        messages,
-        add_generation_prompt=True,
-        tokenize=False,
+
+class TranslationRequest(BaseModel):
+    sentences: List[str]
+
+
+async def example_sse_streaming_client() -> None:
+    """Example: Real-time token streaming using the reusable async client."""
+    sentences = [
+        "世界各国が水面下で熾烈な情報戦を繰り広げる時代に、にらみ合う2つの国、東のオスタニア、西のウェスタリス、",
+        "戦争を回避するため、オスタニア政府要人の動向を探るスパイが暗躍していた。",
+        "その中でも特に優秀なスパイ、黄昏と呼ばれる男がいた。",
+    ]
+
+    console.print("Streaming translations:\n")
+
+    # We manually parse the stream to show incremental tokens and final results
+    url = "http://shawn-pc.local:8001/translate/batch"
+
+    payload = TranslationRequest(sentences=sentences)
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("POST", url, json=payload.model_dump()) as response:
+            if response.status_code != 200:
+                text = await response.aread()
+                console.print(f"[red]Server error: {response.status_code} - {text.decode()}[/red]")
+                return
+
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data: "):
+                    continue
+
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    break
+
+                try:
+                    data = json.loads(data_str)
+                    if "partial" in data:
+                        print(data["partial"], end="", flush=True)
+                    elif "done" in data:
+                        print("\n\n✓ Completed:", data["done"])
+                        print("Original:", data["sentence"])
+                        print("-" * 80)
+                    elif "error" in data:
+                        print("\nServer error:", data["error"])
+                except json.JSONDecodeError:
+                    continue
+
+
+async def example_collect_full_results() -> None:
+    """
+    Example: Collect all complete translations into a list using the reusable function.
+    """
+    sentences = [
+        "こんにちは、お元気ですか？",
+        "今日はとても良い天気ですね。",
+        "最近、面白い本を読みました。",
+    ]
+
+    # Simple and clean – just await the reusable function
+    results: List[str] = await atranslate_ja_en(sentences)
+
+    console.print("[bold]All complete translations collected:[/bold]")
+    for original, translated in zip(sentences, results):
+        console.print(f"[bold]Original:[/bold]  {original}")
+        console.print(f"[bold]Translated:[/bold] {translated}\n")
+
+
+async def example_with_progress_bar() -> None:
+    """Example: Streaming with per-sentence progress bar using reusable client."""
+    sentences = [
+        "スパイファミリーは面白いアニメです。",
+        "ロイドは優秀なスパイです。",
+        "アーニャは可愛いです。",
+        "ヨルは強いです。",
+    ]
+
+    console.print("[bold]Translating with progress per sentence...[/bold]\n")
+
+    # Use the reusable function with streaming and progress enabled
+    await atranslate_ja_en(
+        sentences=sentences,
+        stream_partial=True,
+        show_progress=True,
     )
-
-    payload = {
-        "prompt": prompt,
-        "n_predict": 1200,
-    }
-
-    response = await client.post(
-        "http://shawn-pc.local:8080/completion",
-        json=payload,
-        timeout=60.0,  # Prevent hanging indefinitely
-    )
-
-    if response.status_code != 200:
-        raise RuntimeError(f"Request failed ({response.status_code}): {response.text}")
-
-    content = response.json().get("content", "").strip()
-    messages.append({"role": "assistant", "content": content})
-
-    return content
 
 
 async def main() -> None:
-    messages = initial_messages.copy()
+    console.print("[bold cyan]=== Example 1: Real-time token streaming ===[/bold cyan]")
+    await example_sse_streaming_client()
 
-    async with httpx.AsyncClient() as client:
-        for sentence in message_list:
-            print("user: " + sentence)
+    console.print("\n[bold cyan]=== Example 2: Collect all results ===[/bold cyan]")
+    await example_collect_full_results()
 
-            try:
-                assistant_response = await translate_sentence(client, messages, sentence)
-                print("assistant: " + assistant_response)
-            except Exception as e:
-                print(f"Error during translation: {e}")
-                continue
-
-            # Keep context window manageable: initial 2 + last 6 exchanges (12 messages total)
-            if len(messages) > 12:
-                messages = initial_messages + messages[-10:]  # last 5 full exchanges (10 messages)
+    console.print("\n[bold cyan]=== Example 3: With progress bar per sentence ===[/bold cyan]")
+    await example_with_progress_bar()
 
 
 if __name__ == "__main__":
