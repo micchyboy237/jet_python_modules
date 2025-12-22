@@ -11,23 +11,22 @@ Requirements:
 
 from __future__ import annotations
 
+import json
 import asyncio
 from pathlib import Path
+from typing import List
 
 import httpx
 
+from jet.audio.utils import resolve_audio_paths
 
-BASE_URL = "http://127.0.0.1:8001"
+
+BASE_URL = "http://shawn-pc.local:8001"
 
 
-async def batch_transcribe_example() -> None:
+async def batch_transcribe_example(audio_paths: List[str] | List[Path]) -> None:
     """Example 1: Batch transcription of multiple audio files."""
-    audio_paths = [
-        Path("audio1.wav"),
-        Path("audio2.mp3"),
-        Path("audio3.ogg"),
-        # Add more paths as needed
-    ]
+    audio_paths = [Path(p) for p in audio_paths]
 
     # Field names can be arbitrary – the server accepts any files in the multipart form
     files = {
@@ -112,7 +111,7 @@ async def streaming_transcribe_example() -> None:
     async for line in response.aiter_lines():
         if line.strip():
             try:
-                data = httpx.json.loads(line)
+                data = json.loads(line)
                 text = data.get("text", "").strip()
                 if text:
                     print(f"{text}", end=" ", flush=True)
@@ -154,9 +153,16 @@ async def concurrent_batch_requests_example() -> None:
 
 
 if __name__ == "__main__":
+    audio_inputs = [
+        # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_analyze_speech/raw_segments",
+        "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_analyze_speech/segments",
+    ]
+    audio_paths = resolve_audio_paths(audio_inputs, recursive=True)
+    # Temporarily limit for testing
+    audio_paths = audio_paths[:2]
+
     # Uncomment the example you want to run
-    # asyncio.run(batch_transcribe_example())
+    asyncio.run(batch_transcribe_example(audio_paths))
     # asyncio.run(batch_transcribe_translate_example())
     # asyncio.run(streaming_transcribe_example())
     # asyncio.run(concurrent_batch_requests_example())
-    print("Uncomment the desired example in __main__ to run it.")
