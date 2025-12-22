@@ -24,9 +24,13 @@ from typing import List, Literal, Tuple, Dict
 from typing import TypedDict
 import numpy as np
 import matplotlib.pyplot as plt
+from rich.console import Console
+from rich.table import Table
 import torch
 import soundfile as sf
 import itertools
+
+console = Console()
 
 model, utils = torch.hub.load(
     repo_or_dir="snakers4/silero-vad",
@@ -643,6 +647,8 @@ class SpeechAnalyzer:
         raw_speech_percent = raw_total_speech_sec / total_duration_sec * 100 if total_duration_sec else 0
 
         prob_array = np.array(probs)
+
+        # Mask for frames classified as speech (threshold-based segments)
         speech_mask = np.zeros(len(probs), dtype=bool)
         for seg in segments:
             start_idx = int(seg.start / 1000 / self.step_sec)
@@ -652,7 +658,19 @@ class SpeechAnalyzer:
         avg_prob_speech = float(prob_array[speech_mask].mean()) if speech_mask.any() else 0.0
         avg_prob_silence = float(prob_array[~speech_mask].mean()) if (~speech_mask).any() else 0.0
 
-        gaps = [((segments[i + 1].start - segments[i].end) / 1000) for i in range(num_segments - 1)] if num_segments > 1 else []
+        # Average standard deviation per detected segment (measure of probability fluctuation)
+        seg_stds = [seg.stats["std_prob"] for seg in segments]
+        avg_std_per_segment = float(np.mean(seg_stds)) if seg_stds else 0.0
+
+        # Fragmentation score: how well the detected segments match the raw natural regions
+        raw_num = len(raw_segments)
+        fragmentation_score = round(num_segments / raw_num, 3) if raw_num > 0 else 0.0
+
+        # Gaps between consecutive detected segments
+        gaps = [
+            (segments[i + 1].start - segments[i].end) / 1000
+            for i in range(num_segments - 1)
+        ] if num_segments > 1 else []
         avg_gap_sec = float(np.mean(gaps)) if gaps else 0.0
 
         return {
@@ -670,14 +688,19 @@ class SpeechAnalyzer:
             "avg_probability_all": round(float(prob_array.mean()), 3),
             "avg_probability_in_speech": round(avg_prob_speech, 3),
             "avg_probability_in_silence": round(avg_prob_silence, 3),
-            "windows_above_threshold_percent": round(sum(p > self.threshold for p in probs) / len(probs) * 100, 1),
-            # NEW: Frame-level metadata
+            "windows_above_threshold_percent": round(
+                sum(p > self.threshold for p in probs) / len(probs) * 100, 1
+            ),
+            # NEW insightful metrics
+            "avg_std_per_segment": round(avg_std_per_segment, 3),
+            "fragmentation_score": fragmentation_score,
+            # Frame-level metadata (already present but kept for completeness)
             "frame_duration_ms": self.frame_duration_ms,
             "total_frames": num_frames,
             "frames_per_second": round(1000.0 / self.frame_duration_ms, 1),
         }
 
-    def run_threshold_sweep(self, audio_path: str | Path, thresholds: List[float] = [0.3, 0.5, 0.7]) -> List[Dict]:
+    def run_threshold_sweep(self, audio_path: str | Path, thresholds: List[float] = [0.1, 0.3, 0.5, 0.7, 0.9]) -> List[Dict]:
         results = []
         wav = read_audio(str(audio_path), sampling_rate=self.sr).float()
         probs = []
@@ -710,6 +733,9 @@ class SpeechAnalyzer:
                 "raw_num_segments": metrics["raw_num_segments"],
                 "raw_speech_percentage": metrics["raw_speech_percentage"],
                 "avg_segment_sec": metrics["avg_segment_sec"],
+                "avg_prob_speech": metrics["avg_probability_in_speech"],
+                "avg_std_per_segment": metrics["avg_std_per_segment"],
+                "fragmentation_score": metrics["fragmentation_score"],
             })
         return results
 
@@ -719,24 +745,47 @@ class SpeechAnalyzer:
         print(f"Threshold sweep saved → {path}")
 
     def print_threshold_sweep_table(self, sweep_results: List[Dict]) -> None:
-        from rich.table import Table
-        from rich.console import Console
-        console = Console()
-        table = Table(title="Threshold Sweep Comparison")
+        # Compute composite score and rank
+        for r in sweep_results:
+            # Example composite (tunable weights)
+            over_merge = max(0, r["avg_segment_sec"] - 4.0)
+            r["composite"] = (
+                r["avg_prob_speech"] * 10 +
+                (1 - r["avg_std_per_segment"]) * 8 +
+                r["fragmentation_score"] * 6 -
+                over_merge * 1.5
+            )
+        # Sort for ranking
+        ranked = sorted(sweep_results, key=lambda x: x["composite"], reverse=True)
+        for rank, r in enumerate(ranked, 1):
+            r["rank"] = rank
+
+        table = Table(title="Threshold Sweep Comparison (Improved)")
+        table.add_column("Rank", justify="center")
         table.add_column("Threshold")
-        table.add_column("Num Segments")
+        table.add_column("Num Seg")
         table.add_column("Speech %")
         table.add_column("Raw Num")
         table.add_column("Raw Speech %")
         table.add_column("Avg Seg Sec")
-        for r in sweep_results:
+        table.add_column("Avg Prob Speech")
+        table.add_column("Avg Std/Seg")
+        table.add_column("Frag Score")
+        table.add_column("Composite")
+        
+        for r in ranked:
             table.add_row(
+                f"[bold{'green' if r['rank']==1 else 'yellow' if r['rank']==2 else ''}]{r['rank']}[/]",
                 str(r["threshold"]),
                 str(r["num_segments"]),
                 f"{r['speech_percentage']}%",
                 str(r["raw_num_segments"]),
                 f"{r['raw_speech_percentage']}%",
                 f"{r['avg_segment_sec']:.2f}s",
+                f"{r['avg_prob_speech']:.3f}",
+                f"{r['avg_std_per_segment']:.3f}",
+                f"{r['fragmentation_score']:.2f}",
+                f"{r['composite']:.1f}",
             )
         console.print(table)
 

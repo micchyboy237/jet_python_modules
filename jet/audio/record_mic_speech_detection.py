@@ -181,6 +181,6 @@ def extract_segment_data(segment: SpeechSegment, audio_np: List[np.ndarray], tri
 
 def extract_and_display_speech_segments(audio_data: List[np.ndarray]) -> List[SpeechSegment]:
     audio_tensor = convert_audio_to_tensor(audio_data)
-    speech_ts = extract_speech_timestamps(audio=audio_tensor, model=silero_model)
+    speech_ts, speech_probs = extract_speech_timestamps(audio=audio_tensor, model=silero_model, with_scores=True)
     display_segments(speech_ts)
     return speech_ts

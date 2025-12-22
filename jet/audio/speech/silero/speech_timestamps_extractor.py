@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 from pathlib import Path
 import numpy as np
 import torch
@@ -98,7 +98,8 @@ def extract_speech_timestamps(
     speech_pad_ms: int = 0,
     return_seconds: bool = False,
     time_resolution: int = 1,
-) -> List[SpeechSegment]:
+    with_scores: bool = False,
+) -> List[SpeechSegment] | Tuple[List[SpeechSegment], List[float]]:
     if model is None:
         model = _load_model()
 
@@ -127,6 +128,9 @@ def extract_speech_timestamps(
 
         start_idx = max(0, start_sample // window_size_samples)
         end_idx = min(len(speech_probs), (end_sample + window_size_samples - 1) // window_size_samples)
+        frames_length = end_idx - start_idx
+        frame_start = start_idx
+        frame_end = end_idx - 1  # inclusive end index
 
         avg_prob = sum(speech_probs[start_idx:end_idx]) / (end_idx - start_idx) if end_idx > start_idx else 0.0
         duration_sec = (end_sample - start_sample) / sampling_rate
@@ -138,9 +142,15 @@ def extract_speech_timestamps(
                 end=round(end_sample / sampling_rate, time_resolution) if return_seconds else end_sample,
                 prob=round(avg_prob, 4),
                 duration=round(duration_sec, 3),
+                frames_length=frames_length,
+                frame_start=frame_start,
+                frame_end=frame_end,
+                segment_probs=speech_probs[start_idx:end_idx] if with_scores else [],
             )
         )
 
+    if with_scores:
+        return enhanced, speech_probs
     return enhanced
 
 
