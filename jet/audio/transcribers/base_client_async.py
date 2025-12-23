@@ -166,7 +166,7 @@ if __name__ == "__main__":
     async def main():
         try:
             file_path = Path(
-                "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_20251222_125319.wav"
+                "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_extract_speech_timestamps/segments/segment_002/sound.wav"
             )
 
             # Test with file path

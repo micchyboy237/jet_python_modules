@@ -4,13 +4,12 @@ These examples demonstrate real-world WebSocket streaming for live Japanese → 
 translation using raw 16kHz mono PCM16 audio chunks.
 
 Requirements:
-    pip install httpx httpx-ws rich wave
+    pip install httpx httpx-ws rich librosa soundfile
 
 Run with: python client_examples/asr_client_examples.py
 """
 
 import asyncio
-import wave
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -29,7 +28,11 @@ import logging
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
+from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, TransferSpeedColumn
 from rich import print as rprint
+
+import numpy as np
+import librosa
 
 # Configure rich logging
 logging.basicConfig(
@@ -46,28 +49,65 @@ WEBSOCKETS_URI = "ws://192.168.68.150:8001/asr/live-jp-en"
 
 
 async def read_audio_chunks(
-    audio_path: Path, chunk_duration_sec: float = 5.0
+    audio_path: Path,
+    target_sr: int = 16000,
+    chunk_duration_sec: float = 5.0,
 ) -> AsyncGenerator[bytes, None]:
     """
-    Read a WAV file and yield raw PCM16 chunks matching the expected server format.
+    Load audio with librosa (handles any format, auto-converts to mono and resamples to 16kHz),
+    then yield raw int16 PCM16 bytes in fixed-duration chunks.
 
-    Assumes input is mono 16kHz 16-bit PCM (standard for faster-whisper streaming).
+    This is robust against stereo, different sample rates, or non-WAV formats.
     """
-    with wave.open(str(audio_path), "rb") as wf:
-        if wf.getnchannels() != 1:
-            raise ValueError("Audio must be mono")
-        if wf.getframerate() != 16000:
-            raise ValueError("Audio must be 16kHz")
-        if wf.getsampwidth() != 2:
-            raise ValueError("Audio must be 16-bit PCM")
+    # Load entire file – efficient for typical short/medium recordings (< few minutes)
+    y, sr = librosa.load(audio_path, sr=target_sr, mono=True)
 
-        bytes_per_chunk = int(16000 * 2 * chunk_duration_sec)  # 2 bytes per sample
+    total_duration = len(y) / target_sr
+    total_chunks = int(np.ceil(total_duration / chunk_duration_sec))
 
-        while True:
-            chunk = wf.readframes(bytes_per_chunk // 2)
-            if not chunk:
-                break
+    log.info(
+        f"[bold cyan]Loaded audio:[/] {audio_path.name} → {total_duration:.2f}s "
+        f"({len(y)} samples @ {target_sr}Hz mono) → {total_chunks} chunks of {chunk_duration_sec}s"
+    )
+
+    # Convert float32 [-1.0, 1.0] → int16 PCM
+    audio_int16 = np.int16(y * 32767.999)  # avoid overflow
+    audio_bytes = audio_int16.tobytes()
+
+    bytes_per_chunk = int(target_sr * 2 * chunk_duration_sec)  # 2 bytes per sample
+
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[bold blue]{task.completed}/{task.total}"),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task("[bold magenta]Streaming audio chunks...", total=total_chunks)
+
+        chunk_idx = 0
+        for i in range(0, len(audio_bytes), bytes_per_chunk):
+            chunk = audio_bytes[i : i + bytes_per_chunk]
+            chunk_samples = len(chunk) // 2  # 2 bytes per int16 sample
+            start_sec = chunk_idx * chunk_duration_sec
+            end_sec = min(start_sec + chunk_duration_sec, total_duration)
+            actual_duration = end_sec - start_sec
+
+            log.debug(
+                f"[dim]Chunk {chunk_idx+1:03d}[/] | "
+                f"start={start_sec:6.2f}s → end={end_sec:6.2f}s | "
+                f"duration={actual_duration:.2f}s | "
+                f"samples={chunk_samples:6d} | "
+                f"bytes={len(chunk):7d}"
+            )
+
             yield chunk
+            progress.update(task, advance=1)
+            chunk_idx += 1
+
+    log.info("[bold green]All audio chunks streamed to server[/bold green]")
 
 
 async def streaming_asr_client(
@@ -94,7 +134,6 @@ async def streaming_asr_client(
                 async def send_audio():
                     async for chunk in read_audio_chunks(audio_path):
                         await websocket.send_bytes(chunk)
-                        log.debug(f"[dim]Sent chunk: {len(chunk)} bytes[/dim]")
                     log.info("[yellow]Finished sending audio – closing send channel[/yellow]")
                     await websocket.close()
 
@@ -105,18 +144,25 @@ async def streaming_asr_client(
                         try:
                             message = await websocket.receive_json()
                         except httpx_ws.WebSocketDisconnect:
-                            log.info("[bold yellow]Server disconnected[/bold yellow]")
+                            log.info("[bold yellow]Server disconnected cleanly[/bold yellow]")
+                            break
+                        except httpx_ws.WebSocketNetworkError:
+                            log.warning("[bold yellow]Server disconnected due to network error[/bold yellow]")
+                            break
+                        except Exception as e:
+                            log.error(f"[bold red]Unexpected WebSocket error:[/] {e}")
                             break
 
                         if message.get("final"):
                             text = message["english"]
                             start = message["start"]
                             end = message["end"]
+                            duration = end - start
                             final_segments.append((start, end, text))
                             rprint(
                                 Panel(
                                     f"[bold green]{text}[/bold green]\n"
-                                    f"[dim]Time: {start:.2f}s → {end:.2f}s[/dim]",
+                                    f"[dim]Time: {start:6.2f}s → {end:6.2f}s (duration: {duration:.2f}s)[/dim]",
                                     title="FINAL",
                                     border_style="green",
                                 )
@@ -144,7 +190,7 @@ async def streaming_asr_client(
 
 async def main():
     # Replace with your own 16kHz mono 16-bit WAV file path
-    example_audio = Path("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav")
+    example_audio = Path("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_extract_speech_timestamps/segments/segment_002/sound.wav")
 
     if not example_audio.exists():
         rprint(f"[red]Example audio file not found: {example_audio}[/red]")
