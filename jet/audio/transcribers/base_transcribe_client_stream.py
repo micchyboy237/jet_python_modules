@@ -56,13 +56,9 @@ async def batch_transcribe_example(audio_paths: List[str] | List[Path]) -> None:
         print(f"  Transcription: {res['transcription']}\n")
 
 
-async def batch_transcribe_translate_example() -> None:
+async def batch_transcribe_translate_example(audio_paths: List[str] | List[Path]) -> None:
     """Example 2: Batch transcription + translation of multiple audio files."""
-    audio_paths = [
-        Path("spanish1.wav"),
-        Path("french2.mp3"),
-        # Add more paths as needed
-    ]
+    audio_paths = [Path(p) for p in audio_paths]
 
     files = {
         f"audio{i}": (path.name, open(path, "rb"))
@@ -154,8 +150,10 @@ async def concurrent_batch_requests_example() -> None:
 
 if __name__ == "__main__":
     audio_inputs = [
+        "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_extract_speech_timestamps/segments",
+
         # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_analyze_speech/raw_segments",
-        "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_analyze_speech/segments",
+        # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_analyze_speech/segments",
     ]
     audio_paths = resolve_audio_paths(audio_inputs, recursive=True)
     # Temporarily limit for testing
@@ -163,6 +161,6 @@ if __name__ == "__main__":
 
     # Uncomment the example you want to run
     asyncio.run(batch_transcribe_example(audio_paths))
-    # asyncio.run(batch_transcribe_translate_example())
+    # asyncio.run(batch_transcribe_translate_example(audio_paths))
     # asyncio.run(streaming_transcribe_example())
     # asyncio.run(concurrent_batch_requests_example())

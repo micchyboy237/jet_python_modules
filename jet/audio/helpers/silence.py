@@ -91,13 +91,14 @@ def calibrate_silence_threshold(
     return 0.01
 
 
-def detect_silence(audio_chunk: np.ndarray, threshold: float) -> bool:
+def detect_silence(audio_chunk: np.ndarray, threshold: float = 0.01, verbose: bool = False) -> bool:
     """Detect if audio chunk is silent based on energy threshold."""
     from .energy import compute_energy
     energy = compute_energy(audio_chunk)
     is_silent = energy < threshold
-    logger.debug(
-        f"Audio chunk energy: {energy:.6f}, Threshold: {threshold:.6f}, Silent: {is_silent}")
+    if verbose:
+        logger.debug(
+            f"Audio chunk energy: {energy:.6f}, Threshold: {threshold:.6f}, Silent: {is_silent}")
     return is_silent
 
 
