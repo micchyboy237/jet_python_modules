@@ -1,17 +1,7 @@
-from typing import List, Tuple, TypedDict, Literal
-from jet.audio.speech.silero.speech_types import SpeechSegment
+from __future__ import annotations
 
-class SpeechWaveMeta(TypedDict):
-    has_risen: bool
-    has_multi_passed: bool
-    has_fallen: bool
-    is_valid: bool
-
-
-class SpeechWave(SpeechWaveMeta):
-    start_sec: float
-    end_sec: float
-
+from typing import List, Tuple, Literal
+from jet.audio.speech.silero.speech_types import SpeechSegment, SpeechWave
 
 WaveState = Literal["below", "above"]
 

@@ -8,7 +8,6 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, MofNCompleteColumn
 
 from jet.audio.speech.silero.speech_types import SpeechSegment
-from jet.audio.speech.silero.speech_utils import get_speech_waves
 
 console = Console()
 
@@ -96,19 +95,11 @@ def extract_speech_timestamps(
     min_speech_duration_ms: int = 250,
     max_speech_duration_s: float = float("inf"),
     min_silence_duration_ms: int = 100,
-    speech_pad_ms: int = 30,
+    speech_pad_ms: int = 0,
     return_seconds: bool = False,
     time_resolution: int = 1,
     with_scores: bool = False,
-    refine_waves: bool = False,
-    wave_threshold: float = 0.7,
 ) -> List[SpeechSegment] | Tuple[List[SpeechSegment], List[float]]:
-    """
-    Extract speech timestamps using Silero VAD.
-    
-    If refine_waves=True, the coarse VAD segments are further split into complete
-    speech waves (rise → high → fall) using a higher threshold.
-    """
     if model is None:
         model = _load_model()
 
@@ -118,8 +109,7 @@ def extract_speech_timestamps(
 
     window_size_samples = 512 if sampling_rate == 16000 else 256
 
-    # Coarse segments from original Silero VAD
-    coarse_segments = get_speech_timestamps(
+    segments = get_speech_timestamps(
         audio=audio_tensor,
         model=model,
         threshold=threshold,
@@ -132,58 +122,17 @@ def extract_speech_timestamps(
     )
 
     enhanced: List[SpeechSegment] = []
-
-    segments_to_process = coarse_segments
-
-    if refine_waves:
-        # Collect all refined waves and treat each as a final segment
-        all_waves: List[Tuple[float, float]] = []
-        for coarse_seg in coarse_segments:
-            # Temporary SpeechSegment just to reuse get_speech_waves logic
-            temp_seg = SpeechSegment(
-                num=0,
-                start=coarse_seg["start"],
-                end=coarse_seg["end"],
-                prob=0.0,
-                duration=0.0,
-                frames_length=0,
-                frame_start=0,
-                frame_end=0,
-                segment_probs=[],
-            )
-            waves = get_speech_waves(
-                temp_seg,
-                speech_probs,
-                threshold=wave_threshold,
-                sampling_rate=sampling_rate,
-            )
-            all_waves.extend(waves)
-
-        # Convert waves to sample-based segments for consistent processing
-        segments_to_process = []
-        for wave_start_sec, wave_end_sec in all_waves:
-            segments_to_process.append({
-                "start": int(round(wave_start_sec * sampling_rate)),
-                "end": int(round(wave_end_sec * sampling_rate)),
-            })
-
-    # Process final segments (either coarse or refined waves)
-    for idx, seg in enumerate(segments_to_process):
+    for idx, seg in enumerate(segments):
         start_sample = seg["start"]
         end_sample = seg["end"]
 
         start_idx = max(0, start_sample // window_size_samples)
         end_idx = min(len(speech_probs), (end_sample + window_size_samples - 1) // window_size_samples)
-
         frames_length = end_idx - start_idx
         frame_start = start_idx
-        frame_end = end_idx - 1
+        frame_end = end_idx - 1  # inclusive end index
 
-        segment_prob_slice = speech_probs[start_idx:end_idx]
-        avg_prob = (
-            sum(segment_prob_slice) / len(segment_prob_slice)
-            if segment_prob_slice else 0.0
-        )
+        avg_prob = sum(speech_probs[start_idx:end_idx]) / (end_idx - start_idx) if end_idx > start_idx else 0.0
         duration_sec = (end_sample - start_sample) / sampling_rate
 
         enhanced.append(
@@ -196,7 +145,7 @@ def extract_speech_timestamps(
                 frames_length=frames_length,
                 frame_start=frame_start,
                 frame_end=frame_end,
-                segment_probs=segment_prob_slice if with_scores else [],
+                segment_probs=speech_probs[start_idx:end_idx] if with_scores else [],
             )
         )
 
