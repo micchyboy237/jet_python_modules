@@ -68,7 +68,7 @@ Evaluate results
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
-If applicable:
+- Write step by step analysis
 - Provide a single diff for each updated file
 """.strip()
 
