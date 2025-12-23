@@ -94,6 +94,7 @@ def check_speech_waves(
                 "frame_start": 0,
                 "frame_end": 0,  # temporary, will update if extended
                 "frame_len": 0,
+                "duration_sec": 0.0,
                 "min_prob": speech_probs[0],
                 "max_prob": speech_probs[0],
                 "mean_prob": speech_probs[0],
@@ -119,6 +120,7 @@ def check_speech_waves(
                         "frame_start": i,
                         "frame_end": i,  # temporary
                         "frame_len": 0,
+                        "duration_sec": 0.0,
                         "min_prob": prob,
                         "max_prob": prob,
                         "mean_prob": prob,
@@ -145,6 +147,7 @@ def check_speech_waves(
                         "frame_start": frame_start,
                         "frame_end": frame_end,
                         "frame_len": frame_len,
+                        "duration_sec": current_wave["end_sec"] - current_wave["start_sec"],
                         "min_prob": min(wave_probs),
                         "max_prob": max(wave_probs),
                         "mean_prob": statistics.mean(wave_probs),
@@ -171,6 +174,7 @@ def check_speech_waves(
                 "frame_start": frame_start,
                 "frame_end": frame_end,
                 "frame_len": frame_len,
+                "duration_sec": current_wave["end_sec"] - current_wave["start_sec"],
                 "min_prob": min(wave_probs),
                 "max_prob": max(wave_probs),
                 "mean_prob": statistics.mean(wave_probs),

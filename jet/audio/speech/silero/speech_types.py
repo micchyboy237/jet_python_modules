@@ -12,6 +12,7 @@ class SpeechWaveDetails(TypedDict):
     frame_start: int
     frame_end: int
     frame_len: int
+    duration_sec: float
     min_prob: float
     max_prob: float
     mean_prob: float
