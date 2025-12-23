@@ -7,9 +7,20 @@ class SpeechWaveMeta(TypedDict):
     has_fallen: bool
     is_valid: bool
 
+class SpeechWaveDetails(TypedDict):
+    """Detailed insights including frame boundaries and probability statistics for a speech wave."""
+    frame_start: int
+    frame_end: int
+    frame_len: int
+    min_prob: float
+    max_prob: float
+    mean_prob: float
+    std_prob: float
+
 class SpeechWave(SpeechWaveMeta):
     start_sec: float
     end_sec: float
+    details: SpeechWaveDetails
 
 class SpeechSegment(TypedDict):
     num: int
@@ -21,5 +32,5 @@ class SpeechSegment(TypedDict):
     frame_start: int
     frame_end: int
     # Only present when with_scores=True
-    segment_probs: List[float]  
+    segment_probs: List[float]
     # speech_waves: List[SpeechWave]

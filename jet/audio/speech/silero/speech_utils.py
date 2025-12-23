@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Tuple, Literal
+import statistics
 from jet.audio.speech.silero.speech_types import SpeechSegment, SpeechWave
 
 WaveState = Literal["below", "above"]
@@ -77,6 +78,7 @@ def check_speech_waves(
     waves: List[SpeechWave] = []
     current_wave: SpeechWave | None = None
     state: WaveState = "below"
+    rise_frame_idx: int | None = None
 
     # Handle case where probabilities start already above threshold
     if speech_probs and speech_probs[0] >= threshold:
@@ -88,10 +90,17 @@ def check_speech_waves(
             is_valid=False,
             start_sec=frame_time_sec,
             end_sec=frame_time_sec,
+            details={
+                "frame_start": 0,
+                "frame_end": 0,  # temporary, will update if extended
+                "frame_len": 0,
+                "min_prob": speech_probs[0],
+                "max_prob": speech_probs[0],
+                "mean_prob": speech_probs[0],
+                "std_prob": 0.0,
+            },
         )
         state = "above"
-
-    rise_frame_idx: int | None = None
 
     for i, prob in enumerate(speech_probs):
         frame_time_sec = i * samples_per_frame / sampling_rate
@@ -106,6 +115,15 @@ def check_speech_waves(
                     is_valid=False,
                     start_sec=frame_time_sec,
                     end_sec=frame_time_sec,  # will update on fall
+                    details={
+                        "frame_start": i,
+                        "frame_end": i,  # temporary
+                        "frame_len": 0,
+                        "min_prob": prob,
+                        "max_prob": prob,
+                        "mean_prob": prob,
+                        "std_prob": 0.0,
+                    },
                 )
                 state = "above"
 
@@ -118,6 +136,20 @@ def check_speech_waves(
                     current_wave["has_fallen"] = True
                     current_wave["is_valid"] = current_wave["has_risen"] and current_wave["has_multi_passed"]
                     current_wave["end_sec"] = frame_time_sec
+                    # Finalize details for complete wave
+                    frame_start = rise_frame_idx if rise_frame_idx is not None else 0
+                    frame_end = i
+                    wave_probs = speech_probs[frame_start:frame_end]
+                    frame_len = frame_end - frame_start
+                    current_wave["details"] = {
+                        "frame_start": frame_start,
+                        "frame_end": frame_end,
+                        "frame_len": frame_len,
+                        "min_prob": min(wave_probs),
+                        "max_prob": max(wave_probs),
+                        "mean_prob": statistics.mean(wave_probs),
+                        "std_prob": statistics.stdev(wave_probs) if frame_len > 1 else 0.0,
+                    }
                     waves.append(current_wave)
                 current_wave = None
                 rise_frame_idx = None
@@ -129,6 +161,21 @@ def check_speech_waves(
         current_wave["is_valid"] = False
         # Explicitly: incomplete waves are never valid
         current_wave["end_sec"] = len(speech_probs) * samples_per_frame / sampling_rate
+        # Finalize details for trailing incomplete wave
+        if rise_frame_idx is not None:
+            frame_start = rise_frame_idx if rise_frame_idx is not None else 0
+            frame_end = len(speech_probs)
+            wave_probs = speech_probs[frame_start:frame_end]
+            frame_len = frame_end - frame_start
+            current_wave["details"] = {
+                "frame_start": frame_start,
+                "frame_end": frame_end,
+                "frame_len": frame_len,
+                "min_prob": min(wave_probs),
+                "max_prob": max(wave_probs),
+                "mean_prob": statistics.mean(wave_probs),
+                "std_prob": statistics.stdev(wave_probs) if frame_len > 1 else 0.0,
+            }
         waves.append(current_wave)
 
     return waves

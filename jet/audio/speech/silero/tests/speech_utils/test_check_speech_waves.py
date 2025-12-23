@@ -21,6 +21,15 @@ class TestCheckSpeechWaves:
                 is_valid=True,
                 start_sec=pytest.approx(0.96, abs=0.01),   # 30 frames * 32ms = 0.96s
                 end_sec=pytest.approx(2.56, abs=0.01),     # (30+50) frames * 32ms = 2.56s
+                details={
+                    "frame_start": 30,
+                    "frame_end": 80,
+                    "frame_len": 50,
+                    "min_prob": pytest.approx(0.85, abs=1e-6),
+                    "max_prob": pytest.approx(0.85, abs=1e-6),
+                    "mean_prob": pytest.approx(0.85, abs=1e-6),
+                    "std_prob": pytest.approx(0.0, abs=1e-6),
+                },
             )
         ]
         result = check_speech_waves(probs, threshold=0.7)
@@ -46,8 +55,26 @@ class TestCheckSpeechWaves:
         # Approximate timestamps for 16000 Hz (32ms per frame)
         expected[0]["start_sec"] = pytest.approx(0.64, abs=0.01)
         expected[0]["end_sec"] = pytest.approx(1.92, abs=0.01)
+        expected[0]["details"] = {
+            "frame_start": 20,
+            "frame_end": 60,
+            "frame_len": 40,
+            "min_prob": pytest.approx(0.9, abs=1e-6),
+            "max_prob": pytest.approx(0.9, abs=1e-6),
+            "mean_prob": pytest.approx(0.9, abs=1e-6),
+            "std_prob": pytest.approx(0.0, abs=1e-6),
+        }
         expected[1]["start_sec"] = pytest.approx(2.88, abs=0.01)
         expected[1]["end_sec"] = pytest.approx(4.8, abs=0.01)
+        expected[1]["details"] = {
+            "frame_start": 90,
+            "frame_end": 150,
+            "frame_len": 60,
+            "min_prob": pytest.approx(0.8, abs=1e-6),
+            "max_prob": pytest.approx(0.8, abs=1e-6),
+            "mean_prob": pytest.approx(0.8, abs=1e-6),
+            "std_prob": pytest.approx(0.0, abs=1e-6),
+        }
         result = check_speech_waves(probs, threshold=0.7)
         assert result == expected
 
@@ -66,6 +93,15 @@ class TestCheckSpeechWaves:
                 is_valid=False,
                 start_sec=pytest.approx(0.48, abs=0.01),
                 end_sec=pytest.approx(2.72, abs=0.01),  # end of sequence
+                details={
+                    "frame_start": 15,
+                    "frame_end": 85,
+                    "frame_len": 70,
+                    "min_prob": pytest.approx(0.95, abs=1e-6),
+                    "max_prob": pytest.approx(0.95, abs=1e-6),
+                    "mean_prob": pytest.approx(0.95, abs=1e-6),
+                    "std_prob": pytest.approx(0.0, abs=1e-6),
+                },
             )
         ]
         result = check_speech_waves(probs, threshold=0.7)
@@ -86,6 +122,15 @@ class TestCheckSpeechWaves:
                 is_valid=False,
                 start_sec=pytest.approx(0.64, abs=0.01),
                 end_sec=pytest.approx(0.672, abs=0.01),
+                details={
+                    "frame_start": 20,
+                    "frame_end": 21,
+                    "frame_len": 1,
+                    "min_prob": pytest.approx(0.85, abs=1e-6),
+                    "max_prob": pytest.approx(0.85, abs=1e-6),
+                    "mean_prob": pytest.approx(0.85, abs=1e-6),
+                    "std_prob": pytest.approx(0.0, abs=1e-6),
+                },
             )
         ]
         result = check_speech_waves(probs, threshold=0.7)
@@ -112,6 +157,15 @@ class TestCheckSpeechWaves:
                 is_valid=True,
                 start_sec=pytest.approx(0.32, abs=0.01),
                 end_sec=pytest.approx(1.28, abs=0.01),
+                details={
+                    "frame_start": 10,
+                    "frame_end": 40,
+                    "frame_len": 30,
+                    "min_prob": pytest.approx(0.9, abs=1e-6),
+                    "max_prob": pytest.approx(0.9, abs=1e-6),
+                    "mean_prob": pytest.approx(0.9, abs=1e-6),
+                    "std_prob": pytest.approx(0.0, abs=1e-6),
+                },
             ),
             SpeechWave(
                 has_risen=True,
@@ -120,6 +174,15 @@ class TestCheckSpeechWaves:
                 is_valid=True,
                 start_sec=pytest.approx(1.37, abs=0.01),
                 end_sec=pytest.approx(2.33, abs=0.01),
+                details={
+                    "frame_start": 43,
+                    "frame_end": 73,
+                    "frame_len": 30,
+                    "min_prob": pytest.approx(0.88, abs=1e-6),
+                    "max_prob": pytest.approx(0.88, abs=1e-6),
+                    "mean_prob": pytest.approx(0.88, abs=1e-6),
+                    "std_prob": pytest.approx(0.0, abs=1e-6),
+                },
             )
         ]
         result = check_speech_waves(probs, threshold=0.7)
@@ -152,6 +215,15 @@ class TestCheckSpeechWaves:
                 is_valid=False,
                 start_sec=pytest.approx(3.2, abs=0.01),
                 end_sec=pytest.approx(9.98, abs=0.01),
+                details={
+                    "frame_start": 100,
+                    "frame_end": 312,
+                    "frame_len": 212,
+                    "min_prob": pytest.approx(0.95, abs=1e-6),
+                    "max_prob": pytest.approx(0.95, abs=1e-6),
+                    "mean_prob": pytest.approx(0.95, abs=1e-6),
+                    "std_prob": pytest.approx(0.0, abs=1e-6),
+                },
             )
         ]
         result = check_speech_waves(probs, threshold=0.7)
@@ -173,6 +245,15 @@ class TestCheckSpeechWaves:
                 is_valid=False,
                 start_sec=pytest.approx(0.0, abs=0.01),
                 end_sec=pytest.approx(4.8, abs=0.01),
+                details={
+                    "frame_start": 0,
+                    "frame_end": 150,
+                    "frame_len": 150,
+                    "min_prob": pytest.approx(0.9, abs=1e-6),
+                    "max_prob": pytest.approx(0.9, abs=1e-6),
+                    "mean_prob": pytest.approx(0.9, abs=1e-6),
+                    "std_prob": pytest.approx(0.0, abs=1e-6),
+                },
             )
         ]
         result = check_speech_waves(probs, threshold=0.7)
@@ -194,6 +275,15 @@ class TestCheckSpeechWaves:
                 is_valid=True,
                 start_sec=pytest.approx(0.32, abs=0.01),
                 end_sec=pytest.approx(0.448, abs=0.01),
+                details={
+                    "frame_start": 10,
+                    "frame_end": 14,
+                    "frame_len": 4,
+                    "min_prob": pytest.approx(0.70, abs=1e-6),
+                    "max_prob": pytest.approx(0.85, abs=1e-6),
+                    "mean_prob": pytest.approx(0.775, abs=1e-6),
+                    "std_prob": pytest.approx(0.08660254037844388, abs=1e-6),
+                },
             )
         ]
         result = check_speech_waves(probs, threshold=0.7)
