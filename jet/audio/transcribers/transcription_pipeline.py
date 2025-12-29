@@ -191,12 +191,10 @@ class TranscriptionPipeline:
         console.print("\n")
 
     def shutdown(self, wait: bool = True) -> None:
-        if not wait:
-            with self._lock:
-                for future in list(self._queue):
-                    future.cancel()
-                self._queue.clear()
-
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop_thread and self._loop_thread.is_alive():
+            self._loop_thread.join(timeout=5.0 if wait else 0.1)
         self._executor.shutdown(wait=wait)
 
         # Final safety net
