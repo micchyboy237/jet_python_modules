@@ -78,71 +78,136 @@ class AudioSegmentDatabase:
     def add_segments_from_file(
         self,
         audio_path: str,
-        segment_duration_sec: float = 30.0,
+        segment_duration_sec: float | None = None,
         overlap_sec: float = 10.0,
         metadata_base: dict | None = None
     ):
         """
-        Chunk a long audio file into overlapping segments, embed, and store.
+        Chunk an audio file into segments and store them.
+        
+        If segment_duration_sec is None, the entire file is treated as one segment
+        (no chunking, overlap_sec is ignored).
         """
-        waveform, sr = torchaudio.load(audio_path)
+        waveform, original_sr = torchaudio.load(audio_path)
+        
+        # Convert to mono early
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        
         total_samples = waveform.shape[1]
-        sample_rate = 48000  # After potential resample in load_audio_segment
-
-        step = int((segment_duration_sec - overlap_sec) * sample_rate)
+        total_duration_sec = total_samples / original_sr
+        
+        # Resample to 48kHz once for consistent processing
+        if original_sr != 48000:
+            resampler = torchaudio.transforms.Resample(orig_freq=original_sr, new_freq=48000)
+            waveform = resampler(waveform)
+            total_samples = waveform.shape[1]
+            total_duration_sec = total_samples / 48000.0
+        
         segments = []
         metadatas = []
         ids = []
-
-        start_sec = 0.0
-        pbar = tqdm(desc=f"Chunking {Path(audio_path).name}")
-        while start_sec * sample_rate < total_samples:
-            segment = load_audio_segment(audio_path, start_sec=start_sec, duration_sec=segment_duration_sec)
+        
+        if segment_duration_sec is None:
+            # Whole file mode
+            segment = load_audio_segment(audio_path, start_sec=0.0, duration_sec=total_duration_sec)
             segments.append(segment)
-
-            meta = {"file": audio_path, "start_sec": start_sec, "end_sec": start_sec + segment_duration_sec}
+            
+            meta = {
+                "file": audio_path,
+                "start_sec": 0.0,
+                "end_sec": round(total_duration_sec, 3)
+            }
             if metadata_base:
                 meta.update(metadata_base)
             metadatas.append(meta)
-
-            ids.append(f"{Path(audio_path).stem}_{start_sec:.1f}")
-
-            start_sec += (segment_duration_sec - overlap_sec)
-            pbar.update(1)
-
-        pbar.close()
-
+            
+            ids.append(f"{Path(audio_path).stem}_full")
+            
+            console.print(f"[green]Added full file as single segment ({total_duration_sec:.2f}s) from {audio_path}[/green]")
+        
+        else:
+            # Fixed chunk mode
+            if overlap_sec >= segment_duration_sec:
+                raise ValueError("overlap_sec must be less than segment_duration_sec when chunking")
+            
+            step_sec = segment_duration_sec - overlap_sec
+            start_sec = 0.0
+            pbar = tqdm(desc=f"Chunking {Path(audio_path).name}")
+            while start_sec < total_duration_sec:
+                current_duration = min(segment_duration_sec, total_duration_sec - start_sec)
+                segment = load_audio_segment(
+                    audio_path,
+                    start_sec=start_sec,
+                    duration_sec=current_duration
+                )
+                segments.append(segment)
+                
+                meta = {
+                    "file": audio_path,
+                    "start_sec": round(start_sec, 3),
+                    "end_sec": round(start_sec + current_duration, 3)
+                }
+                if metadata_base:
+                    meta.update(metadata_base)
+                metadatas.append(meta)
+                
+                ids.append(f"{Path(audio_path).stem}_{start_sec:.1f}")
+                
+                start_sec += step_sec
+                pbar.update(1)
+            pbar.close()
+            
+            console.print(f"[green]Added {len(segments)} segments from {audio_path}[/green]")
+        
         embeddings = self._compute_embeddings(segments)
-
+        
         self.collection.add(
             embeddings=embeddings,
             metadatas=metadatas,
             ids=ids
         )
-        console.print(f"[green]Added {len(segments)} segments from {audio_path}[/green]")
 
     def search_similar(
         self,
         query_audio: str | bytes,
         top_k: int = 10,
-        duration_sec: float = 30.0
+        duration_sec: float | None = None
     ) -> List[dict]:
         """
         Search by a query audio segment (file path or raw bytes).
-        Returns list of results with metadata and distance.
-        Handles empty collection gracefully.
+        
+        If duration_sec is None:
+          - For file path: use the actual full duration of the file
+          - For bytes: fallback to 10.0 seconds
+        
+        Always returns a normalized similarity score (1.0 = identical, 0.0 = completely different).
         """
-        query_waveform = load_audio_segment(query_audio, duration_sec=duration_sec)
-
+        # Determine actual duration to use
+        if duration_sec is None:
+            if isinstance(query_audio, str):
+                waveform, sr = torchaudio.load(query_audio)
+                if waveform.shape[0] > 1:
+                    waveform = waveform.mean(dim=0, keepdim=True)
+                if sr != 48000:
+                    resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)
+                    waveform = resampler(waveform)
+                actual_duration = waveform.shape[1] / 48000.0
+            else:
+                actual_duration = 10.0
+        else:
+            actual_duration = duration_sec
+        
+        query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
+        
         query_embedding = self._compute_embeddings([query_waveform])[0]
 
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
-            include=["metadatas", "distances"]  # Removed "ids" – IDs are always returned by default
+            include=["metadatas", "distances"]
         )
 
-        # Handle empty collection or no results
         if not results["ids"][0]:
             console.print("[bold red]No similar segments found (database empty or no matches).[/bold red]")
             return []
@@ -151,12 +216,15 @@ class AudioSegmentDatabase:
 
         formatted = []
         for i in range(actual_results):
+            raw_distance = results["distances"][0][i]
+            score = 1.0 - raw_distance  # Normalized similarity score
+            
             formatted.append({
                 "id": results["ids"][0][i],
                 "file": results["metadatas"][0][i]["file"],
                 "start_sec": results["metadatas"][0][i]["start_sec"],
                 "end_sec": results["metadatas"][0][i]["end_sec"],
-                "distance": results["distances"][0][i]
+                "score": score
             })
 
         return formatted
@@ -166,15 +234,15 @@ class AudioSegmentDatabase:
             console.print("[bold yellow]No results to display.[/bold yellow]")
             return
 
-        table = Table(title="Similar Audio Segments")
+        table = Table(title="Most Similar Audio Segments")
         table.add_column("Rank")
         table.add_column("File")
         table.add_column("Time Range")
-        table.add_column("Distance")
+        table.add_column("Similarity")
 
         for rank, res in enumerate(results, 1):
             time_range = f"{res['start_sec']:.1f}s - {res['end_sec']:.1f}s"
-            table.add_row(str(rank), Path(res["file"]).name, time_range, f"{res['distance']:.4f}")
+            table.add_row(str(rank), Path(res["file"]).name, time_range, f"{res['score']:.4f}")
 
         console.print(table)
 
@@ -186,7 +254,7 @@ if __name__ == "__main__":
     # Example 1: Index some audio files (run once)
     audio_files = ["path/to/song1.wav", "path/to/song2.mp3"]  # Add your files
     for file in audio_files:
-        db.add_segments_from_file(file, segment_duration_sec=30.0, overlap_sec=10.0)
+        db.add_segments_from_file(file)
 
     # Example 2: Search with a query file
     query_path = "path/to/query_segment.wav"

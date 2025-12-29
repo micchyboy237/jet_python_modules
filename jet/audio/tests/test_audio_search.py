@@ -8,7 +8,7 @@ import torch
 import torchaudio
 from chromadb.api.types import QueryResult
 
-from jet.audio.audio_search import (  # Replace with actual module name, e.g., audio_search
+from jet.audio.audio_search import (
     AudioSegmentDatabase,
     load_audio_segment,
 )
@@ -111,91 +111,90 @@ class TestAudioSegmentDatabase:
         assert metadata["start_sec"] == 0.0
 
     def test_search_returns_self_as_most_similar(self, temp_db, synth_audio_files):
-        # Given three short audio segments: two identical 440Hz tones and one different 880Hz tone
-        file1 = synth_audio_files["similar1"]      # 440Hz
-        file2 = synth_audio_files["similar2"]      # identical 440Hz duplicate
-        file_diff = synth_audio_files["different"]  # 880Hz
-        
-        temp_db.add_segments_from_file(file1, segment_duration_sec=30.0, overlap_sec=0.0)
-        temp_db.add_segments_from_file(file2, segment_duration_sec=30.0, overlap_sec=0.0)
-        temp_db.add_segments_from_file(file_diff, segment_duration_sec=30.0, overlap_sec=0.0)
-        
+        # Given three short audio segments added in whole-file mode
+        file1 = synth_audio_files["similar1"]
+        file2 = synth_audio_files["similar2"]
+        file_diff = synth_audio_files["different"]
+
+        temp_db.add_segments_from_file(file1, segment_duration_sec=None)
+        temp_db.add_segments_from_file(file2, segment_duration_sec=None)
+        temp_db.add_segments_from_file(file_diff, segment_duration_sec=None)
+
         expected_db_count = 3
         result_db_count = temp_db.collection.count()
         assert result_db_count == expected_db_count
-        
-        # When querying using the first 440Hz file as the query audio
-        results: List[dict] = temp_db.search_similar(file1, top_k=3)
-        
-        # Then the top result must be one of the 440Hz tones
-        top_result = results[0]
-        top_file_name = Path(top_result["file"]).name
+
+        # When querying with the first file using auto duration
+        results = temp_db.search_similar(file1, top_k=3, duration_sec=None)
+
+        # Then top result must be a 440Hz tone
+        top_file_name = Path(results[0]["file"]).name
         top_is_similar = "440" in top_file_name
-        
+
         expected_top_is_similar = True
         assert top_is_similar == expected_top_is_similar
-        
-        # Distance for top match should be reasonably low (accounting for padding effects)
-        expected_max_top_distance = 0.35
-        result_top_distance = top_result["distance"]
-        top_distance_ok = result_top_distance < expected_max_top_distance
-        
-        assert top_distance_ok
-        
-        # Overall ranking: at least two 440Hz tones in results, 880Hz ranks lower
+
+        # Top score should be high (identical content, minimal padding difference)
+        result_top_score = results[0]["score"]
+        expected_min_top_score = 0.9
+        top_score_ok = result_top_score > expected_min_top_score
+
+        assert top_score_ok
+
+        # At least two 440Hz in results, 880Hz last
         tone_list = ["440" if "440" in Path(r["file"]).name else "880" for r in results]
-        expected_at_least_two_similar = tone_list.count("440") >= 2
-        expected_different_last = tone_list[-1] == "880"
-        
-        assert expected_at_least_two_similar
-        assert expected_different_last
-        
-        # Distances should be non-decreasing
-        distances = [r["distance"] for r in results]
-        expected_non_decreasing = all(distances[i] <= distances[i+1] for i in range(len(distances)-1))
-        assert expected_non_decreasing
+        expected_at_least_two_440 = tone_list.count("440") >= 2
+        expected_880_last = tone_list[-1] == "880"
+
+        assert expected_at_least_two_440
+        assert expected_880_last
+
+        # Scores non-increasing (higher = more similar)
+        scores = [r["score"] for r in results]
+        expected_non_increasing = all(scores[i] >= scores[i+1] for i in range(len(scores)-1))
+        assert expected_non_increasing
 
     def test_search_with_bytes_query_works(self, temp_db, synth_audio_files):
-        # Given database populated with one 440Hz and one 880Hz segment
-        temp_db.add_segments_from_file(synth_audio_files["similar1"])
-        temp_db.add_segments_from_file(synth_audio_files["different"])
-        
+        # Given database populated with one 440Hz and one 880Hz segment (whole-file mode)
+        temp_db.add_segments_from_file(synth_audio_files["similar1"], segment_duration_sec=None)
+        temp_db.add_segments_from_file(synth_audio_files["different"], segment_duration_sec=None)
+
         expected_db_count = 2
         result_db_count = temp_db.collection.count()
         assert result_db_count == expected_db_count
-        
-        # When querying with raw bytes from the duplicate 440Hz tone
+
+        # When querying with raw bytes from the duplicate 440Hz tone (duration_sec=None → fallback 10.0s)
         with open(synth_audio_files["similar2"], "rb") as f:
             query_bytes = f.read()
-        results: List[dict] = temp_db.search_similar(query_bytes, top_k=2)
-        
-        # Then the top result must be the 440Hz tone
+        results = temp_db.search_similar(query_bytes, top_k=2, duration_sec=None)
+
+        # Then the top result must be a 440Hz tone
         top_result = results[0]
         top_file_name = Path(top_result["file"]).name
         top_is_similar = "440" in top_file_name
-        
+
         expected_top_is_similar = True
         assert top_is_similar == expected_top_is_similar
-        
-        # Distance should be reasonably low
-        expected_max_top_distance = 0.35
-        result_top_distance = top_result["distance"]
-        top_distance_ok = result_top_distance < expected_max_top_distance
-        
-        assert top_distance_ok
-        
+
+        # Score should be reasonably high (some padding difference due to 10s vs 2s)
+        result_top_score = top_result["score"]
+        expected_min_top_score = 0.65
+        top_score_ok = result_top_score > expected_min_top_score
+
+        assert top_score_ok
+
         # Ranking checks
         tone_list = ["440" if "440" in Path(r["file"]).name else "880" for r in results]
         expected_similar_first = tone_list[0] == "440"
         expected_different_last = tone_list[-1] == "880"
-        
+
         assert expected_similar_first
         assert expected_different_last
-        
-        # Distances non-decreasing
-        distances = [r["distance"] for r in results]
-        expected_non_decreasing = distances[0] <= distances[1]
-        assert expected_non_decreasing
+
+        # Scores non-increasing
+        scores = [r["score"] for r in results]
+        expected_non_increasing = scores[0] >= scores[1]
+        assert expected_non_increasing
 
     def test_search_similar_handles_empty_database(self, temp_db, synth_audio_files):
         # Given an empty database (no segments added)
@@ -258,3 +257,125 @@ class TestAudioSegmentDatabase:
         expected_message_contains = "No results to display"
         result_output = captured.out
         assert expected_message_contains in result_output
+
+    def test_add_segments_from_file_whole_file_mode(self, temp_db, synth_audio_files):
+        # Given an empty database
+        expected_initial_count = 0
+        result_initial_count = temp_db.collection.count()
+        assert result_initial_count == expected_initial_count
+        
+        # When adding in whole-file mode
+        audio_file = synth_audio_files["similar1"]
+        temp_db.add_segments_from_file(audio_file, segment_duration_sec=None)
+        
+        # Then one segment added with correct metadata
+        expected_count = 1
+        result_count = temp_db.collection.count()
+        assert result_count == expected_count
+        
+        results = temp_db.collection.get(include=["metadatas"])
+        metadata = results["metadatas"][0]
+        
+        expected_file = audio_file
+        expected_start = 0.0
+        expected_end_approx = 2.0  # Synth fixture duration
+        
+        assert metadata["file"] == expected_file
+        assert metadata["start_sec"] == expected_start
+        assert abs(metadata["end_sec"] - expected_end_approx) < 0.2
+
+    def test_add_segments_from_file_fixed_chunk_mode(self, temp_db, synth_audio_files):
+        # Given the same short audio file
+        audio_file = synth_audio_files["similar1"]
+        
+        # When adding with fixed 1.0s segments (should create 2 overlapping segments)
+        temp_db.add_segments_from_file(
+            audio_file,
+            segment_duration_sec=1.0,
+            overlap_sec=0.5
+        )
+        
+        # Then multiple segments should be added
+        expected_min_segments = 2
+        result_segment_count = temp_db.collection.count()
+        assert result_segment_count >= expected_min_segments
+        
+        # Metadatas should have increasing start times
+        results = temp_db.collection.get(include=["metadatas"])
+        start_secs = [m["start_sec"] for m in results["metadatas"]]
+        expected_increasing = all(start_secs[i] <= start_secs[i+1] for i in range(len(start_secs)-1))
+        assert expected_increasing
+
+    def test_search_similar_auto_duration_file_query(self, temp_db, synth_audio_files):
+        # Given database with one full-file segment
+        audio_file = synth_audio_files["similar1"]
+        temp_db.add_segments_from_file(audio_file, segment_duration_sec=None)
+
+        # When searching with the same file and duration_sec=None
+        results = temp_db.search_similar(audio_file, top_k=5, duration_sec=None)
+
+        # Then top result should be very similar (high score)
+        expected_results_length = 1
+        result_length = len(results)
+        assert result_length == expected_results_length
+
+        top_score = results[0]["score"]
+        expected_high_score = top_score > 0.9
+        assert expected_high_score
+
+        # Metadata should match the stored full segment
+        expected_file_match = Path(results[0]["file"]).name == Path(audio_file).name
+        assert expected_file_match
+
+    def test_search_similar_auto_duration_bytes_fallback(self, temp_db, synth_audio_files):
+        # Given database with one full-file segment
+        audio_file = synth_audio_files["similar1"]
+        temp_db.add_segments_from_file(audio_file, segment_duration_sec=None)
+
+        # When querying with raw bytes and duration_sec=None (should fallback to 10.0s)
+        with open(audio_file, "rb") as f:
+            query_bytes = f.read()
+        results = temp_db.search_similar(query_bytes, top_k=5, duration_sec=None)
+
+        # Then should still find the segment (padding difference acceptable)
+        expected_results_length = 1
+        result_length = len(results)
+        assert result_length == expected_results_length
+
+        top_score = results[0]["score"]
+        expected_reasonable_score = top_score > 0.5
+        assert expected_reasonable_score
+
+    def test_search_similar_returns_normalized_score(self, temp_db, synth_audio_files):
+        # Given database with full-file segments
+        temp_db.add_segments_from_file(synth_audio_files["similar1"], segment_duration_sec=None)
+        temp_db.add_segments_from_file(synth_audio_files["similar2"], segment_duration_sec=None)
+        temp_db.add_segments_from_file(synth_audio_files["different"], segment_duration_sec=None)
+
+        # When searching
+        results = temp_db.search_similar(
+            synth_audio_files["similar1"],
+            top_k=3,
+            duration_sec=None
+        )
+
+        # Then results should contain 'score' key with values close to 1.0 for matches
+        expected_keys = {"id", "file", "start_sec", "end_sec", "score"}
+        result_keys = set(results[0].keys())
+
+        assert result_keys == expected_keys
+
+        top_score = results[0]["score"]
+        expected_high_score = top_score > 0.9
+        assert expected_high_score
+
+        # Scores should be non-increasing
+        scores = [r["score"] for r in results]
+        expected_non_increasing = all(scores[i] >= scores[i+1] for i in range(len(scores)-1))
+        assert expected_non_increasing
+
+        # Top result should be a 440Hz tone
+        top_file_name = Path(results[0]["file"]).name
+        expected_top_tone = "440"
+        result_top_contains = expected_top_tone in top_file_name
+        assert result_top_contains
