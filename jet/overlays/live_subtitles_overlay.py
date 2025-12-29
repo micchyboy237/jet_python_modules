@@ -115,7 +115,7 @@ class LiveSubtitlesOverlay(QWidget):
         def run_in_thread() -> tuple[str, QWidget]:
             try:
                 result = asyncio.run(task)
-                return str(result), loading_widget
+                return result, loading_widget
             except Exception as e:
                 return f"[Error] {e}", loading_widget
 
@@ -138,9 +138,9 @@ class LiveSubtitlesOverlay(QWidget):
             self._pending_tasks.pop(0)
 
         try:
-            message, loading_widget = future.result()
+            result, loading_widget = future.result()
         except Exception as e:
-            message = f"[Error] {e}"
+            result = f"[Error] {e}"
 
         if not loading_widget or not loading_widget.parent():
             if self._pending_tasks:
@@ -161,26 +161,31 @@ class LiveSubtitlesOverlay(QWidget):
         self.content_layout.takeAt(idx)
         loading_widget.deleteLater()
 
-        # Replace with final message
-        new_label = QLabel(message)
-        new_label.setWordWrap(True)
-        new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        new_label.setStyleSheet("color: white; padding: 4px;")
-        new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
-        self.content_layout.insertWidget(idx, new_label)
+        # Handle rich SubtitleMessage or fallback to simple string
+        if isinstance(result, dict) and "translated_text" in result:
+            subtitle_message: SubtitleMessage = {
+                "translated_text": str(result.get("translated_text", "")),
+                "start_sec": float(result.get("start_sec", 0.0)),
+                "end_sec": float(result.get("end_sec", 0.0)),
+                "duration_sec": float(result.get("duration_sec", 0.0)),
+                "source_text": str(result.get("source_text", "")),
+            }
+            self.message_history.append(subtitle_message)
+            self.history.append(subtitle_message["translated_text"])
+            self.signals._add_message.emit(subtitle_message)
+        else:
+            # Backward-compatible simple string result
+            text = str(result)
+            new_label = QLabel(text)
+            new_label.setWordWrap(True)
+            new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            new_label.setStyleSheet("color: white; padding: 4px;")
+            new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
+            self.content_layout.insertWidget(idx, new_label)
+            self.history.append(text)
 
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
-
-        # Update history: replace the "Pending" entry
-        pending_idx = next((i for i, h in enumerate(self.history) if h == "Pending"), None)
-        if pending_idx is not None:
-            self.history[pending_idx] = message
-        else:
-            self.history.append(message)
-
-        # Removed summary update (line/char counts no longer displayed)
-        pass
 
         # Continue with next task
         if self._pending_tasks:
@@ -318,11 +323,11 @@ class LiveSubtitlesOverlay(QWidget):
         Its return/awaited value is displayed as a message.
         Displays a "Pending" row until processing starts, then replaces it with spinner + "Processing".
         """
-        async def _wrapper() -> str:
+        async def _wrapper() -> SubtitleMessage | str:
             result = func(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
-            return str(result)
+            return result
 
         # Create initial "Pending" loading widget
         loading_widget = QWidget()
@@ -342,8 +347,6 @@ class LiveSubtitlesOverlay(QWidget):
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
         self.history.append("Pending")
-        # Summary row removed
-        pass
 
         # Store layout and widget for later replacement when processing starts
         self._pending_tasks.append((_wrapper(), loading_layout, loading_widget))
