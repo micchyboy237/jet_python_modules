@@ -65,11 +65,7 @@ class SubtitleOverlay(QWidget):
         self.title = title
         self.message_history: list[SubtitleMessage] = []
 
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
-        )
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet("background-color: rgba(0, 0, 0, 190); border-radius: 16px;")
         self.setFixedSize(960, 600)
@@ -111,7 +107,7 @@ class SubtitleOverlay(QWidget):
 
         processing_text = QLabel("Processing")
         processing_text.setStyleSheet("color: #ffff66; font-style: italic; background-color: rgba(180, 140, 0, 0.2); border-radius: 8px; padding: 4px 12px;")
-        processing_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+        processing_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
 
         loading_layout.addStretch()
         loading_layout.addWidget(spinner)
@@ -172,7 +168,7 @@ class SubtitleOverlay(QWidget):
         new_label.setWordWrap(True)
         new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         new_label.setStyleSheet("color: white; padding: 4px;")
-        new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+        new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
         self.content_layout.insertWidget(idx, new_label)
 
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
@@ -277,8 +273,12 @@ class SubtitleOverlay(QWidget):
 
         self.summary = QLabel("0 lines • 0 chars")
         self.summary.setStyleSheet("""
-            color: #aaffaa; font-size: 15px; padding: 8px;
-            background: rgba(0, 100, 0, 0.5); border-radius: 8px;
+            color: white;
+            background: rgba(40, 40, 60, 0.8);
+            border-radius: 10px;
+            padding: 10px;
+            font-weight: bold;
+            font-size: 13px;
         """)
         self.summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -296,10 +296,12 @@ class SubtitleOverlay(QWidget):
         self.signals._clear.connect(self.clear)
         self.signals._toggle_minimize.connect(self.toggle_minimize)
 
-    def _center_window(self):
+    def position_window_top_right(self, margin: int = 30) -> None:
+        """Position the overlay in the top-right corner of the primary screen."""
         screen = QApplication.primaryScreen().availableGeometry()
-        self.move(screen.center().x() - self.width() // 2,
-                  screen.center().y() - self.height() // 2)
+        x = screen.right() - self.width() - margin
+        y = screen.top() + margin
+        self.move(x, y)
 
     # --- PUBLIC API ---
     def add_message(
@@ -344,7 +346,7 @@ class SubtitleOverlay(QWidget):
 
         pending_text = QLabel("Pending")
         pending_text.setStyleSheet("color: #88ccff; font-style: italic; background-color: rgba(0, 80, 160, 0.2); border-radius: 8px; padding: 4px 12px;")
-        pending_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 24))
+        pending_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
 
         loading_layout.addStretch()
         loading_layout.addWidget(pending_text)
@@ -462,7 +464,7 @@ class SubtitleOverlay(QWidget):
             "color: #ffffff; background: rgba(255, 255, 255, 0.12); "
             "border-radius: 12px; padding: 16px;"
         )
-        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 34, QFont.Weight.Bold))
+        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 28, QFont.Weight.Bold))
         container_layout.addWidget(trans_label)
 
         # Source text – smaller, italic, only shown if present
@@ -474,7 +476,7 @@ class SubtitleOverlay(QWidget):
                 "color: #bbddff; font-style: italic; background: rgba(100, 140, 255, 0.18); "
                 "border-radius: 10px; padding: 10px; margin-top: 4px;"
             )
-            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 22))
+            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 18))
             container_layout.addWidget(src_label)
 
         # Timing metadata row
@@ -483,15 +485,15 @@ class SubtitleOverlay(QWidget):
 
         start_label = QLabel(f"{start_sec:.3f}s")
         start_label.setStyleSheet("color: #88ff88; background: rgba(0, 100, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
-        start_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14))
+        start_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12))
 
         end_label = QLabel(f"{end_sec:.3f}s")
         end_label.setStyleSheet("color: #ff8888; background: rgba(100, 0, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
-        end_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14))
+        end_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12))
 
         duration_label = QLabel(f"↔ {duration_sec:.3f}s")
         duration_label.setStyleSheet("color: #ffff88; background: rgba(100, 100, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
-        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14, QFont.Weight.Bold))
+        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12, QFont.Weight.Bold))
 
         timing_layout.addStretch()
         timing_layout.addWidget(start_label)
@@ -572,12 +574,9 @@ class SubtitleOverlay(QWidget):
 
         def _do_center():
             overlay.updateGeometry()
-            screen = app.primaryScreen().availableGeometry()
-            overlay.move(
-                screen.center().x() - overlay.width() // 2,
-                screen.center().y() - overlay.height() // 2,
-            )
-            overlay.logger.info("[green]Overlay centered perfectly[/]")
+            # Position top-right (generic reusable logic)
+            overlay.position_window_top_right(margin=30)
+            overlay.logger.info("[green]Overlay positioned top-right[/]")
 
         QTimer.singleShot(50, _do_center)
         return overlay
