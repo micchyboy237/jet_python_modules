@@ -130,32 +130,42 @@ class AudioSegmentDatabase:
         """
         Search by a query audio segment (file path or raw bytes).
         Returns list of results with metadata and distance.
+        Handles empty collection gracefully.
         """
         query_waveform = load_audio_segment(query_audio, duration_sec=duration_sec)
-        console.print("[yellow][DEBUG] Query waveform shape: {}[/yellow]".format(query_waveform.shape))
 
         query_embedding = self._compute_embeddings([query_waveform])[0]
-        console.print("[yellow][DEBUG] Query embedding length: {}[/yellow]".format(len(query_embedding)))
 
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
-            include=["metadatas", "distances"]
+            include=["metadatas", "distances"]  # Removed "ids" – IDs are always returned by default
         )
 
+        # Handle empty collection or no results
+        if not results["ids"][0]:
+            console.print("[bold red]No similar segments found (database empty or no matches).[/bold red]")
+            return []
+
+        actual_results = len(results["ids"][0])
+
         formatted = []
-        for i in range(top_k):
+        for i in range(actual_results):
             formatted.append({
                 "id": results["ids"][0][i],
                 "file": results["metadatas"][0][i]["file"],
                 "start_sec": results["metadatas"][0][i]["start_sec"],
                 "end_sec": results["metadatas"][0][i]["end_sec"],
-                "distance": results["distances"][0][i]  # Lower = more similar (cosine)
+                "distance": results["distances"][0][i]
             })
 
         return formatted
 
     def print_results(self, results: List[dict]):
+        if not results:
+            console.print("[bold yellow]No results to display.[/bold yellow]")
+            return
+
         table = Table(title="Similar Audio Segments")
         table.add_column("Rank")
         table.add_column("File")
