@@ -68,7 +68,7 @@ class SubtitleOverlay(QWidget):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet("background-color: rgba(0, 0, 0, 190); border-radius: 16px;")
-        self.setFixedSize(960, 600)
+        self.setFixedSize(720, 900)  # narrower width, taller height
 
         self._drag_pos = QPoint()
         self._build_ui()
@@ -296,11 +296,11 @@ class SubtitleOverlay(QWidget):
         self.signals._clear.connect(self.clear)
         self.signals._toggle_minimize.connect(self.toggle_minimize)
 
-    def position_window_top_right(self, margin: int = 30) -> None:
-        """Position the overlay in the top-right corner of the primary screen."""
+    def position_window_top_right(self, margin: int = 0) -> None:
+        """Position the overlay flush against the top-right corner of the primary screen."""
         screen = QApplication.primaryScreen().availableGeometry()
-        x = screen.right() - self.width() - margin
-        y = screen.top() + margin
+        x = screen.right() - self.width() + 1  # +1 to account for window border/shadow
+        y = screen.top() - 1                   # flush to top
         self.move(x, y)
 
     # --- PUBLIC API ---
@@ -450,63 +450,62 @@ class SubtitleOverlay(QWidget):
         self.history.append(translated_text)
         self.message_history.append(message)
 
-        # Single-line container – minimal nesting, one visual row per subtitle
+        # Ultra-compact single-line container
         container = QWidget()
         main_layout = QHBoxLayout(container)
-        main_layout.setSpacing(16)
-        main_layout.setContentsMargins(20, 10, 20, 10)  # reduced vertical padding significantly
+        main_layout.setSpacing(10)                   # reduced from 14
+        main_layout.setContentsMargins(12, 5, 12, 5)  # minimal vertical/horizontal margins
 
-        # Translated text – left side, primary focus
+        # Translated text – tight padding
         trans_label = QLabel(translated_text)
         trans_label.setWordWrap(True)
         trans_label.setStyleSheet(
             "color: #ffffff; background: rgba(255, 255, 255, 0.08); "
-            "border-radius: 8px; padding: 10px 14px;"  # much less padding
+            "border-radius: 6px; padding: 6px 10px;"  # reduced from 8px 12px
         )
-        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 19, QFont.Weight.Bold))
+        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 16, QFont.Weight.Bold))
 
-        # Source text – shown only if present, smaller and italic
+        # Source text – minimal padding
         if source_text:
             src_label = QLabel(source_text)
             src_label.setWordWrap(True)
             src_label.setStyleSheet(
                 "color: #aaccff; font-style: italic; background: rgba(100, 140, 255, 0.12); "
-                "border-radius: 8px; padding: 8px 12px;"  # tighter padding
+                "border-radius: 6px; padding: 5px 8px;"   # reduced from 6px 10px
             )
-            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14))
+            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12))
 
-            # Layout: translated takes priority space
             main_layout.addWidget(trans_label, stretch=6)
             main_layout.addWidget(src_label, stretch=4)
         else:
             main_layout.addWidget(trans_label, stretch=1)
 
-        # Timing info – compact on the right
+        # Timing info – super tight
         timing_layout = QVBoxLayout()
-        timing_layout.setSpacing(4)
+        timing_layout.setSpacing(2)                  # reduced from 3
         timing_layout.setContentsMargins(0, 0, 0, 0)
 
         duration_label = QLabel(f"↔ {duration_sec:.3f}s")
         duration_label.setStyleSheet(
             "color: #ffffaa; background: rgba(120, 120, 0, 0.3); "
-            "border-radius: 6px; padding: 3px 8px; font-weight: bold;"
+            "border-radius: 4px; padding: 2px 6px; font-weight: bold;"  # reduced padding
         )
-        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 11))
+        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
 
         time_range = QLabel(f"{start_sec:.2f} → {end_sec:.2f}s")
-        time_range.setStyleSheet("color: #cccccc; font-size: 10px;")
-        time_range.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
+        time_range.setStyleSheet("color: #bbbbbb; font-size: 9px;")
+        time_range.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 9))
 
         timing_layout.addWidget(duration_label, alignment=Qt.AlignmentFlag.AlignCenter)
         timing_layout.addWidget(time_range, alignment=Qt.AlignmentFlag.AlignCenter)
 
         main_layout.addLayout(timing_layout)
 
-        # Minimal container styling – no heavy borders or extra widgets
+        # Minimal container styling
         container.setStyleSheet("""
             QWidget {
                 background: rgba(25, 30, 50, 0.45);
-                border-radius: 10px;
+                border-radius: 6px;                  # reduced from 8px
             }
             QWidget:hover {
                 background: rgba(35, 40, 65, 0.6);
@@ -515,7 +514,6 @@ class SubtitleOverlay(QWidget):
 
         self.content_layout.addWidget(container)
 
-        # Auto-scroll to bottom
         QTimer.singleShot(0, lambda: self._scroll_to_bottom_smooth())
 
         total_chars = sum(len(line) for line in self.history)
