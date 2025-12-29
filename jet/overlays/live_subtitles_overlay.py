@@ -5,6 +5,7 @@
 import sys
 import signal
 import logging
+import time
 import threading
 from typing import Optional, Awaitable, TypedDict, Callable, Union
 import asyncio
@@ -82,6 +83,10 @@ class LiveSubtitlesOverlay(QWidget):
         # ------------------------------------------------------------------
         from concurrent.futures import ThreadPoolExecutor
         self._executor = ThreadPoolExecutor(max_workers=1)
+        self._async_loop = None
+        self._async_loop_thread = None
+        self._start_async_loop()
+
         self._pending_tasks: list[tuple[Awaitable[Union[SubtitleMessage, str]], QWidget, QHBoxLayout]] = []
 
         self.add_message(
@@ -90,6 +95,15 @@ class LiveSubtitlesOverlay(QWidget):
         )
         self.logger.info("[green]Ready – use .add_message('text')[/]")
         self._process_next_task()
+
+    def _start_async_loop(self):
+        def run_loop():
+            self._async_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._async_loop)
+            self._async_loop.run_forever()
+        self._async_loop_thread = threading.Thread(target=run_loop, daemon=True, name="OverlayAsyncLoop")
+        self._async_loop_thread.start()
+        time.sleep(0.05)  # give loop time to start
 
     def _process_next_task(self) -> None:
         """Start the next queued async/sync task if available (runs sequentially)."""
@@ -120,7 +134,8 @@ class LiveSubtitlesOverlay(QWidget):
 
         def run_in_thread() -> tuple[Union[SubtitleMessage, str], QWidget]:
             try:
-                result = asyncio.run(coro)   # now coro is actually a coroutine object
+                future = asyncio.run_coroutine_threadsafe(coro, self._async_loop)
+                result = future.result()  # blocks until coro completes or raises
                 return result, loading_widget
             except Exception as e:
                 self.logger.exception("Task failed")
@@ -204,6 +219,10 @@ class LiveSubtitlesOverlay(QWidget):
 
     def closeEvent(self, event):
         self._executor.shutdown(wait=False)
+        if self._async_loop:
+            self._async_loop.call_soon_threadsafe(self._async_loop.stop)
+        if self._async_loop_thread and self._async_loop_thread.is_alive():
+            self._async_loop_thread.join(timeout=3.0)
         super().closeEvent(event)
 
     def _build_ui(self):
