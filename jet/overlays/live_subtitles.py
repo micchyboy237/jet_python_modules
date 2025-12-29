@@ -267,7 +267,7 @@ class SubtitleOverlay(QWidget):
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.content_layout.setSpacing(10)
+        self.content_layout.setSpacing(8)  # consistent vertical gap between subtitle entries
         self.content_layout.setContentsMargins(10, 10, 10, 10)
         self.scroll.setWidget(self.content)
 
@@ -450,75 +450,72 @@ class SubtitleOverlay(QWidget):
         self.history.append(translated_text)
         self.message_history.append(message)
 
-        # Bilingual container widget
+        # Single-line container – minimal nesting, one visual row per subtitle
         container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setSpacing(8)
-        container_layout.setContentsMargins(20, 16, 20, 16)
+        main_layout = QHBoxLayout(container)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(20, 10, 20, 10)  # reduced vertical padding significantly
 
-        # Translated text – large, bold, prominent
+        # Translated text – left side, primary focus
         trans_label = QLabel(translated_text)
         trans_label.setWordWrap(True)
-        trans_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         trans_label.setStyleSheet(
-            "color: #ffffff; background: rgba(255, 255, 255, 0.12); "
-            "border-radius: 12px; padding: 16px;"
+            "color: #ffffff; background: rgba(255, 255, 255, 0.08); "
+            "border-radius: 8px; padding: 10px 14px;"  # much less padding
         )
-        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 28, QFont.Weight.Bold))
-        container_layout.addWidget(trans_label)
+        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 19, QFont.Weight.Bold))
 
-        # Source text – smaller, italic, only shown if present
+        # Source text – shown only if present, smaller and italic
         if source_text:
             src_label = QLabel(source_text)
             src_label.setWordWrap(True)
-            src_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             src_label.setStyleSheet(
-                "color: #bbddff; font-style: italic; background: rgba(100, 140, 255, 0.18); "
-                "border-radius: 10px; padding: 10px; margin-top: 4px;"
+                "color: #aaccff; font-style: italic; background: rgba(100, 140, 255, 0.12); "
+                "border-radius: 8px; padding: 8px 12px;"  # tighter padding
             )
-            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 18))
-            container_layout.addWidget(src_label)
+            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14))
 
-        # Timing metadata row
-        timing_layout = QHBoxLayout()
-        timing_layout.setSpacing(20)
+            # Layout: translated takes priority space
+            main_layout.addWidget(trans_label, stretch=6)
+            main_layout.addWidget(src_label, stretch=4)
+        else:
+            main_layout.addWidget(trans_label, stretch=1)
 
-        start_label = QLabel(f"{start_sec:.3f}s")
-        start_label.setStyleSheet("color: #88ff88; background: rgba(0, 100, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
-        start_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12))
-
-        end_label = QLabel(f"{end_sec:.3f}s")
-        end_label.setStyleSheet("color: #ff8888; background: rgba(100, 0, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
-        end_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12))
+        # Timing info – compact on the right
+        timing_layout = QVBoxLayout()
+        timing_layout.setSpacing(4)
+        timing_layout.setContentsMargins(0, 0, 0, 0)
 
         duration_label = QLabel(f"↔ {duration_sec:.3f}s")
-        duration_label.setStyleSheet("color: #ffff88; background: rgba(100, 100, 0, 0.3); border-radius: 6px; padding: 4px 10px;")
-        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12, QFont.Weight.Bold))
+        duration_label.setStyleSheet(
+            "color: #ffffaa; background: rgba(120, 120, 0, 0.3); "
+            "border-radius: 6px; padding: 3px 8px; font-weight: bold;"
+        )
+        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 11))
 
-        timing_layout.addStretch()
-        timing_layout.addWidget(start_label)
-        timing_layout.addWidget(duration_label)
-        timing_layout.addWidget(end_label)
-        timing_layout.addStretch()
+        time_range = QLabel(f"{start_sec:.2f} → {end_sec:.2f}s")
+        time_range.setStyleSheet("color: #cccccc; font-size: 10px;")
+        time_range.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
 
-        timing_container = QWidget()
-        timing_container.setLayout(timing_layout)
-        timing_container.setStyleSheet("background: rgba(40, 40, 60, 0.4); border-radius: 8px; margin-top: 8px;")
-        
-        container_layout.addWidget(timing_container)
+        timing_layout.addWidget(duration_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        timing_layout.addWidget(time_range, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Overall entry background
+        main_layout.addLayout(timing_layout)
+
+        # Minimal container styling – no heavy borders or extra widgets
         container.setStyleSheet("""
             QWidget {
-                background: rgba(25, 25, 45, 0.55);
-                border-radius: 16px;
-                border: 1px solid rgba(100, 100, 150, 0.15);
+                background: rgba(25, 30, 50, 0.45);
+                border-radius: 10px;
+            }
+            QWidget:hover {
+                background: rgba(35, 40, 65, 0.6);
             }
         """)
 
         self.content_layout.addWidget(container)
 
-        # Auto-scroll to the bottom with smooth animation
+        # Auto-scroll to bottom
         QTimer.singleShot(0, lambda: self._scroll_to_bottom_smooth())
 
         total_chars = sum(len(line) for line in self.history)
