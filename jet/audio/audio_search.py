@@ -130,11 +130,13 @@ class AudioSegmentDatabase:
         metadatas = []
         ids = []
 
+        new_segments = []
+        new_metadatas = []
+        new_ids = []
+
         if segment_duration_sec is None:
             # Whole file as single segment
             segment = load_audio_segment(audio_input, start_sec=0.0, duration_sec=total_duration_sec)
-            segments.append(segment)
-
             meta = {
                 "file": file_for_meta,
                 "start_sec": 0.0,
@@ -143,22 +145,22 @@ class AudioSegmentDatabase:
             }
             if metadata_base:
                 meta.update(metadata_base)
-            metadatas.append(meta)
 
             segment_id = f"{base_name}_{content_hash}_full"
-            ids.append(segment_id)
-
-            # Existence check + smart logging
             existing = self.collection.get(ids=[segment_id], include=[])
-            if existing["ids"]:
-                console.print(
-                    f"[dim]Already indexed (updated): {base_name} "
-                    f"({total_duration_sec:.2f}s, hash={content_hash})[/dim]"
-                )
-            else:
+
+            if not existing["ids"]:
+                new_segments.append(segment)
+                new_metadatas.append(meta)
+                new_ids.append(segment_id)
                 console.print(
                     f"[green]Added new full segment: {base_name} "
                     f"({total_duration_sec:.2f}s, hash={content_hash})[/green]"
+                )
+            else:
+                console.print(
+                    f"[dim]Already present (no recompute): {base_name} "
+                    f"({total_duration_sec:.2f}s)[/dim]"
                 )
 
         else:
@@ -177,8 +179,6 @@ class AudioSegmentDatabase:
                     start_sec=start_sec,
                     duration_sec=current_duration
                 )
-                segments.append(segment)
-
                 meta = {
                     "file": file_for_meta,
                     "start_sec": round(start_sec, 3),
@@ -187,25 +187,32 @@ class AudioSegmentDatabase:
                 }
                 if metadata_base:
                     meta.update(metadata_base)
-                metadatas.append(meta)
 
                 segment_id = f"{base_name}_{content_hash}_{start_sec:.1f}"
-                ids.append(segment_id)
+
+                existing = self.collection.get(ids=[segment_id], include=[])
+                if not existing["ids"]:
+                    new_segments.append(segment)
+                    new_metadatas.append(meta)
+                    new_ids.append(segment_id)
+                    # Optional: log added chunk
+                # else: skip silently or log dim
 
                 start_sec += step_sec
                 pbar.update(1)
 
             pbar.close()
-            console.print(f"[green]Processed {len(segments)} chunks for {base_name} (hash={content_hash})[/green]")
 
-        # ── Upsert to collection ───────────────────────────────────────────────────────────────
-        if segments:
-            embeddings = self._compute_embeddings(segments)
+        if new_segments:
+            embeddings = self._compute_embeddings(new_segments)
             self.collection.upsert(
                 embeddings=embeddings,
-                metadatas=metadatas,
-                ids=ids
+                metadatas=new_metadatas,
+                ids=new_ids
             )
+            console.print(f"[green]Processed {len(new_segments)} new/updated segments[/green]")
+        else:
+            console.print("[dim]All segments already present — no computation needed[/dim]")
 
     def search_similar(
         self,
@@ -217,23 +224,27 @@ class AudioSegmentDatabase:
         Search by a query audio segment (file path or raw bytes).
 
         If duration_sec is None:
-          - For file path: use the actual full duration of the file
-          - For bytes: fallback to 10.0 seconds
+          - Use the actual duration of the provided audio (computed for both file paths and bytes)
 
         Always returns a normalized similarity score (1.0 = identical, 0.0 = completely different).
         """
-        # Determine actual duration to use
+        import io
+
         if duration_sec is None:
-            if isinstance(query_audio, str):
-                waveform, sr = torchaudio.load(query_audio)
-                if waveform.shape[0] > 1:
-                    waveform = waveform.mean(dim=0, keepdim=True)
-                if sr != 48000:
-                    resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)
-                    waveform = resampler(waveform)
-                actual_duration = waveform.shape[1] / 48000.0
+            # Compute actual duration for both file paths and raw bytes
+            if isinstance(query_audio, bytes):
+                waveform, sr = torchaudio.load(io.BytesIO(query_audio))
             else:
-                actual_duration = 10.0
+                waveform, sr = torchaudio.load(str(query_audio))
+
+            if waveform.shape[0] > 1:
+                waveform = waveform.mean(dim=0, keepdim=True)
+
+            if sr != 48000:
+                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)
+                waveform = resampler(waveform)
+
+            actual_duration = waveform.shape[1] / 48000.0
         else:
             actual_duration = duration_sec
 
