@@ -5,7 +5,8 @@
 import sys
 import signal
 import logging
-from typing import Optional, Awaitable, TypedDict
+import threading
+from typing import Optional, Awaitable, TypedDict, Callable, Union
 import asyncio
 from concurrent.futures import Future
 
@@ -42,6 +43,7 @@ class _Signals(QObject):
     _add_message = pyqtSignal(object)  # object accepts dict or TypedDict
     _clear = pyqtSignal()
     _toggle_minimize = pyqtSignal()
+    _enqueue_task = pyqtSignal(object, dict)  # (coro: Awaitable, kwargs: dict)
 
 
 class LiveSubtitlesOverlay(QWidget):
@@ -62,6 +64,8 @@ class LiveSubtitlesOverlay(QWidget):
         self.history = []
         self.title = title
         self.message_history: list[SubtitleMessage] = []
+        # Lock to make concurrent add_task calls thread-safe
+        self._task_lock = threading.Lock()
 
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -71,13 +75,14 @@ class LiveSubtitlesOverlay(QWidget):
         self._drag_pos = QPoint()
         self._build_ui()
         self._connect_signals()
+        self.signals._enqueue_task.connect(self._on_enqueue_task)
 
         # ------------------------------------------------------------------
         # ASYNCIO/TASK INTEGRATION (Always sequential)
         # ------------------------------------------------------------------
         from concurrent.futures import ThreadPoolExecutor
         self._executor = ThreadPoolExecutor(max_workers=1)
-        self._pending_tasks: list[tuple[Awaitable[str], QWidget]] = []
+        self._pending_tasks: list[tuple[Awaitable[Union[SubtitleMessage, str]], QWidget, QHBoxLayout]] = []
 
         self.add_message(
             translated_text="Live Subtitle Overlay • Ready",
@@ -91,32 +96,34 @@ class LiveSubtitlesOverlay(QWidget):
         if not self._pending_tasks:
             return
 
-        task, loading_layout, loading_widget = self._pending_tasks[0]  # Keep in queue until done
+        coro, loading_widget, current_layout = self._pending_tasks[0]
 
-        # --- Replace "Pending" with spinner + "Processing" ---
-        loading_layout.takeAt(0)  # clear existing widgets/stretches
-        while loading_layout.count():
-            item = loading_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        # Clear pending safely using the stored layout
+        while current_layout.count():
+            item = current_layout.takeAt(0)
+            if w := item.widget():
+                w.deleteLater()
+        # Do **not** do loading_widget.setLayout(...) here — it already has one!
 
         spinner = QLabel()
         self._setup_spinner_animation(spinner, loading_widget)
 
         processing_text = QLabel("Processing")
-        processing_text.setStyleSheet("color: #ffff66; font-style: italic; background-color: rgba(180, 140, 0, 0.2); border-radius: 8px; padding: 4px 12px;")
+        processing_text.setStyleSheet("color: #4da6ff;")
         processing_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
 
-        loading_layout.addStretch()
-        loading_layout.addWidget(spinner)
-        loading_layout.addWidget(processing_text)
-        loading_layout.addStretch()
+        # Reuse the existing layout
+        current_layout.addStretch()
+        current_layout.addWidget(spinner)
+        current_layout.addWidget(processing_text)
+        current_layout.addStretch()
 
-        def run_in_thread() -> tuple[str, QWidget]:
+        def run_in_thread() -> tuple[Union[SubtitleMessage, str], QWidget]:
             try:
-                result = asyncio.run(task)
+                result = asyncio.run(coro)   # now coro is actually a coroutine object
                 return result, loading_widget
             except Exception as e:
+                self.logger.exception("Task failed")
                 return f"[Error] {e}", loading_widget
 
         future = self._executor.submit(run_in_thread)
@@ -129,7 +136,7 @@ class LiveSubtitlesOverlay(QWidget):
             QTimer.singleShot(100, lambda: self._check_future_done(future))
 
     def _on_task_finished(self, future: Future) -> None:
-        """Handles completion of an add_task call."""
+        """Handles completion of an add_task call – MUST run in main thread."""
         if future.cancelled():
             return
 
@@ -142,15 +149,18 @@ class LiveSubtitlesOverlay(QWidget):
         except Exception as e:
             result = f"[Error] {e}"
 
+        # All UI operations below must be done in main thread.
+        # Since this method is called via QTimer from main thread, we are safe.
         if not loading_widget or not loading_widget.parent():
             if self._pending_tasks:
                 self._process_next_task()
             return
 
-        # Stop spinner
+        # Stop spinner safely (timer belongs to main thread and is parented to self)
         timer = loading_widget.property("_spinner_timer")
         if timer and isinstance(timer, QTimer) and timer.isActive():
             timer.stop()
+            timer.deleteLater()  # optional cleanup
 
         idx = self.content_layout.indexOf(loading_widget)
         if idx == -1:
@@ -184,6 +194,7 @@ class LiveSubtitlesOverlay(QWidget):
             self.content_layout.insertWidget(idx, new_label)
             self.history.append(text)
 
+        # Smooth scroll in main thread
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
 
@@ -317,47 +328,55 @@ class LiveSubtitlesOverlay(QWidget):
         }
         self.signals._add_message.emit(subtitle_message)
 
-    def add_task(self, func: callable, *args, **kwargs) -> None:
+    from typing import Awaitable
+    FuncType = Callable[..., Union[SubtitleMessage, str, Awaitable[SubtitleMessage | str]]]
+
+    def add_task(self, func: FuncType, *args, **kwargs) -> None:
         """
         Add a sync/async callable for sequential execution.
         Its return/awaited value is displayed as a message.
         Displays a "Pending" row until processing starts, then replaces it with spinner + "Processing".
         """
-        async def _wrapper() -> SubtitleMessage | str:
+        async def _wrapper() -> Union[SubtitleMessage, str]:
             result = func(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
             return result
 
-        # Create initial "Pending" loading widget
+        coro = _wrapper()  # call it here to get the coroutine object
+        self.signals._enqueue_task.emit(coro, kwargs)
+
+    def _on_enqueue_task(self, coro: Awaitable[Union[SubtitleMessage, str]], kwargs: dict) -> None:
+        """Main-thread only: create Pending UI + queue real task"""
         loading_widget = QWidget()
-        loading_layout = QHBoxLayout(loading_widget)
-        loading_layout.setContentsMargins(10, 8, 10, 8)
-        loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout_pending = QHBoxLayout(loading_widget)
+        layout_pending.setContentsMargins(10, 8, 10, 8)
+        layout_pending.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         pending_text = QLabel("Pending")
-        pending_text.setStyleSheet("color: #88ccff; font-style: italic; background-color: rgba(0, 80, 160, 0.2); border-radius: 8px; padding: 4px 12px;")
+        pending_text.setStyleSheet("color: #aaaaaa;")
         pending_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
-
-        loading_layout.addStretch()
-        loading_layout.addWidget(pending_text)
-        loading_layout.addStretch()
+        layout_pending.addStretch()
+        layout_pending.addWidget(pending_text)
+        layout_pending.addStretch()
 
         self.content_layout.addWidget(loading_widget)
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
         self.history.append("Pending")
 
-        # Store layout and widget for later replacement when processing starts
-        self._pending_tasks.append((_wrapper(), loading_layout, loading_widget))
-        if len(self._pending_tasks) == 1:  # Only process if this is becoming the active task
-            self._process_next_task()
+        with self._task_lock:
+            was_empty = len(self._pending_tasks) == 0
+            self._pending_tasks.append((coro, loading_widget, layout_pending))
+            if was_empty:
+                self._process_next_task()
 
     def clear(self):
         """Remove all messages and reset transcript summary."""
         self.signals._clear.emit()
 
     def _setup_spinner_animation(self, spinner_label: QLabel, parent_widget: QWidget) -> None:
+
         spinner_label.setStyleSheet("color: #ffff66;")
         spinner_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 28))
         spinner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -370,14 +389,15 @@ class LiveSubtitlesOverlay(QWidget):
             spinner_label.setText(frames[current])
             current = (current + 1) % len(frames)
 
-        timer = QTimer(self)  # parented to the overlay for longevity
+        # FIXED: Timer must be created in the GUI thread and parented to the overlay
+        timer = QTimer(self)  # parented to the main QWidget (GUI thread)
         timer.timeout.connect(update_frame)
         timer.start(80)
 
-        # Store the timer on the loading row so we can stop it on completion
+        # Store the timer on the parent_widget so we can stop it later
         parent_widget.setProperty("_spinner_timer", timer)
 
-        # Auto-stop the timer when the loading row is destroyed
+        # Ensure timer stops if the widget is destroyed
         parent_widget.destroyed.connect(timer.stop)
 
     def toggle_minimize(self):
