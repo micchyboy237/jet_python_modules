@@ -84,84 +84,91 @@ class AudioSegmentDatabase:
     ):
         """
         Chunk an audio file into segments and store them.
-        
+
         If segment_duration_sec is None, the entire file is treated as one segment
         (no chunking, overlap_sec is ignored).
         """
-        waveform, original_sr = torchaudio.load(audio_path)
-        
-        # Convert to mono early
+        self.add_segments(audio_path, Path(audio_path).name, segment_duration_sec, overlap_sec, metadata_base)
+
+    def add_segments(
+        self,
+        audio_input: str | bytes,
+        audio_name: str | None = None,
+        segment_duration_sec: float | None = None,
+        overlap_sec: float = 10.0,
+        metadata_base: dict | None = None,
+    ):
+        """
+        Generic method to chunk audio (path or raw bytes) into segments and store them.
+        If audio_name is None and audio_input is bytes, uses generic names ("in_memory").
+        """
+        if isinstance(audio_input, bytes):
+            waveform_io = io.BytesIO(audio_input)
+            waveform, original_sr = torchaudio.load(waveform_io)
+            base_name = audio_name or "in_memory"
+            file_for_meta = "<bytes>"
+        else:
+            waveform, original_sr = torchaudio.load(audio_input)
+            base_name = audio_name or Path(audio_input).stem
+            file_for_meta = audio_input
+
+        # ... (rest of the logic identical, but use base_name for IDs and file_for_meta in meta["file"])
         if waveform.shape[0] > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
-        
         total_samples = waveform.shape[1]
         total_duration_sec = total_samples / original_sr
-        
-        # Resample to 48kHz once for consistent processing
         if original_sr != 48000:
             resampler = torchaudio.transforms.Resample(orig_freq=original_sr, new_freq=48000)
             waveform = resampler(waveform)
             total_samples = waveform.shape[1]
             total_duration_sec = total_samples / 48000.0
-        
+
         segments = []
         metadatas = []
         ids = []
-        
+
         if segment_duration_sec is None:
-            # Whole file mode
-            segment = load_audio_segment(audio_path, start_sec=0.0, duration_sec=total_duration_sec)
+            segment = load_audio_segment(audio_input, start_sec=0.0, duration_sec=total_duration_sec)
             segments.append(segment)
-            
             meta = {
-                "file": audio_path,
+                "file": file_for_meta,
                 "start_sec": 0.0,
                 "end_sec": round(total_duration_sec, 3)
             }
             if metadata_base:
                 meta.update(metadata_base)
             metadatas.append(meta)
-            
-            ids.append(f"{Path(audio_path).stem}_full")
-            
-            console.print(f"[green]Added full file as single segment ({total_duration_sec:.2f}s) from {audio_path}[/green]")
-        
+            ids.append(f"{base_name}_full")
+            console.print(f"[green]Added full audio as single segment ({total_duration_sec:.2f}s)[/green]")
         else:
-            # Fixed chunk mode
             if overlap_sec >= segment_duration_sec:
                 raise ValueError("overlap_sec must be less than segment_duration_sec when chunking")
-            
             step_sec = segment_duration_sec - overlap_sec
             start_sec = 0.0
-            pbar = tqdm(desc=f"Chunking {Path(audio_path).name}")
+            pbar = tqdm(desc=f"Chunking {base_name}")
             while start_sec < total_duration_sec:
                 current_duration = min(segment_duration_sec, total_duration_sec - start_sec)
                 segment = load_audio_segment(
-                    audio_path,
+                    audio_input,
                     start_sec=start_sec,
                     duration_sec=current_duration
                 )
                 segments.append(segment)
-                
                 meta = {
-                    "file": audio_path,
+                    "file": file_for_meta,
                     "start_sec": round(start_sec, 3),
                     "end_sec": round(start_sec + current_duration, 3)
                 }
                 if metadata_base:
                     meta.update(metadata_base)
                 metadatas.append(meta)
-                
-                ids.append(f"{Path(audio_path).stem}_{start_sec:.1f}")
-                
+                ids.append(f"{base_name}_{start_sec:.1f}")
                 start_sec += step_sec
                 pbar.update(1)
             pbar.close()
-            
-            console.print(f"[green]Added {len(segments)} segments from {audio_path}[/green]")
-        
+            console.print(f"[green]Added {len(segments)} segments[/green]")
+
         embeddings = self._compute_embeddings(segments)
-        
         self.collection.add(
             embeddings=embeddings,
             metadatas=metadatas,
@@ -176,11 +183,11 @@ class AudioSegmentDatabase:
     ) -> List[dict]:
         """
         Search by a query audio segment (file path or raw bytes).
-        
+
         If duration_sec is None:
           - For file path: use the actual full duration of the file
           - For bytes: fallback to 10.0 seconds
-        
+
         Always returns a normalized similarity score (1.0 = identical, 0.0 = completely different).
         """
         # Determine actual duration to use
@@ -197,9 +204,9 @@ class AudioSegmentDatabase:
                 actual_duration = 10.0
         else:
             actual_duration = duration_sec
-        
+
         query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
-        
+
         query_embedding = self._compute_embeddings([query_waveform])[0]
 
         results = self.collection.query(
@@ -218,7 +225,7 @@ class AudioSegmentDatabase:
         for i in range(actual_results):
             raw_distance = results["distances"][0][i]
             score = 1.0 - raw_distance  # Normalized similarity score
-            
+
             formatted.append({
                 "id": results["ids"][0][i],
                 "file": results["metadatas"][0][i]["file"],

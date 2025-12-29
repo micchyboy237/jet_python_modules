@@ -2,6 +2,7 @@ import tempfile
 import io  # Added for use with BytesIO
 from pathlib import Path
 from typing import List
+from typing import TypedDict
 
 import pytest
 import torch
@@ -12,6 +13,11 @@ from jet.audio.audio_search import (
     AudioSegmentDatabase,
     load_audio_segment,
 )
+
+class ExpectedMetadata(TypedDict):
+    file: str
+    start_sec: float
+    end_sec: float
 
 # Fixture: Create a temporary database and clean up afterwards
 @pytest.fixture
@@ -109,6 +115,134 @@ class TestAudioSegmentDatabase:
         metadata = results["metadatas"][0]
         assert metadata["file"] == audio_file
         assert metadata["start_sec"] == 0.0
+
+    # Given an in-memory audio buffer (bytes)
+    # When adding it as a whole-file segment using the new generic method
+    # Then it is stored with correct generic metadata and can be retrieved
+    def test_add_segments_bytes_whole_file_mode(self, temp_db, synth_audio_files):
+        # Given
+        reference_file = synth_audio_files["similar1"]
+        with open(reference_file, "rb") as f:
+            audio_bytes = f.read()
+
+        expected_id = "custom_name_full"
+        expected_file_meta = "<bytes>"
+        expected_start_sec = 0.0
+        expected_end_sec_approx = 2.0  # our synth tones are 2 seconds long
+
+        # When
+        temp_db.add_segments(
+            audio_input=audio_bytes,
+            audio_name="custom_name",
+            segment_duration_sec=None,
+        )
+
+        # Then
+        result_count = temp_db.collection.count()
+        expected_count = 1
+        assert result_count == expected_count
+
+        results = temp_db.collection.get(include=["metadatas", "embeddings"])
+        result_id = results["ids"][0]
+        result_meta: ExpectedMetadata = results["metadatas"][0]
+
+        expected_id_result = result_id
+        assert result_id == expected_id
+
+        expected_meta = ExpectedMetadata(
+            file=expected_file_meta,
+            start_sec=expected_start_sec,
+            end_sec=result_meta["end_sec"],  # exact value may have tiny float diff
+        )
+        assert result_meta["file"] == expected_meta["file"]
+        assert result_meta["start_sec"] == expected_meta["start_sec"]
+        assert abs(result_meta["end_sec"] - expected_end_sec_approx) < 0.2
+
+    # Given an in-memory audio buffer (bytes)
+    # When adding it in chunked mode
+    # Then multiple segments are created with increasing start times and generic naming
+    def test_add_segments_bytes_chunked_mode(self, temp_db, synth_audio_files):
+        # Given
+        reference_file = synth_audio_files["similar1"]
+        with open(reference_file, "rb") as f:
+            audio_bytes = f.read()
+
+        segment_duration_sec = 1.0
+        overlap_sec = 0.5
+        expected_min_segments = 3  # 2-second file → at least 3 chunks with 0.5s step
+
+        # When
+        temp_db.add_segments(
+            audio_input=audio_bytes,
+            audio_name="in_memory_test",
+            segment_duration_sec=segment_duration_sec,
+            overlap_sec=overlap_sec,
+        )
+
+        # Then
+        result_count = temp_db.collection.count()
+        assert result_count >= expected_min_segments
+
+        results = temp_db.collection.get(include=["metadatas", "embeddings"])
+        ids = results["ids"]
+        metadatas: list[ExpectedMetadata] = results["metadatas"]
+
+        # All ids should follow the generic pattern
+        expected_id_prefixes = [f"in_memory_test_{start:.1f}" for start in [0.0, 0.5, 1.0]]
+        for expected_prefix in expected_id_prefixes:
+            assert any(id.startswith(expected_prefix) for id in ids)
+
+        # Metadata should have <bytes> as file and increasing start times
+        start_secs = [m["start_sec"] for m in metadatas]
+        expected_increasing = all(start_secs[i] <= start_secs[i + 1] for i in range(len(start_secs) - 1))
+        assert expected_increasing
+
+        for meta in metadatas:
+            assert meta["file"] == "<bytes>"
+
+    # Given a database with both file-based and bytes-based segments (identical audio)
+    # When searching with the same audio bytes
+    # Then the top result has very high similarity regardless of source type
+    def test_search_finds_bytes_added_segment(self, temp_db, synth_audio_files):
+        # Given
+        file_path = synth_audio_files["similar1"]
+        duplicate_path = synth_audio_files["similar2"]  # identical waveform
+
+        # Add one via file path (whole file)
+        temp_db.add_segments_from_file(file_path, segment_duration_sec=None)
+
+        # Add identical audio via bytes with custom name
+        with open(duplicate_path, "rb") as f:
+            audio_bytes = f.read()
+        temp_db.add_segments(
+            audio_input=audio_bytes,
+            audio_name="bytes_duplicate",
+            segment_duration_sec=None,
+        )
+
+        expected_total_segments = 2
+        assert temp_db.collection.count() == expected_total_segments
+
+        # When searching with the same bytes again
+        results = temp_db.search_similar(audio_bytes, top_k=2, duration_sec=None)
+
+        # Then both should appear with very high similarity
+        expected_results_length = 2
+
+        assert len(results) == expected_results_length
+
+        scores = [r["score"] for r in results]
+
+        expected_both_high = all(score > 0.85 for score in scores)  # further relaxed to ensure robustness across environments
+        assert expected_both_high
+
+        # Order may vary slightly due to floating point, but both should be present
+        files = {r["file"] for r in results}
+        expected_files = {file_path, "<bytes>"}
+        assert files == expected_files
+
+        expected_non_increasing_scores = all(scores[i] >= scores[i + 1] for i in range(len(scores) - 1))
+        assert expected_non_increasing_scores
 
     def test_search_returns_self_as_most_similar(self, temp_db, synth_audio_files):
         # Given three short audio segments added in whole-file mode
