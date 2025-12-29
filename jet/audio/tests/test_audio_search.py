@@ -1,11 +1,12 @@
 import tempfile
 import io
-from pathlib import Path
-from typing import List
-from typing import TypedDict
 import pytest
 import torch
 import torchaudio
+import numpy as np
+from pathlib import Path
+from typing import List
+from typing import TypedDict
 from chromadb.api.types import QueryResult
 from jet.audio.audio_search import (
     AudioSegmentDatabase,
@@ -492,3 +493,78 @@ class TestAudioSegmentDatabase:
         # Then: Count doesn't increase after re-add
         assert count_after_first >= expected_min_segments
         assert count_after_second == expected_count_after_second
+
+    # New tests for query consistency (file path vs raw bytes)
+
+    def test_search_similar_file_and_bytes_queries_are_consistent_self_match(self, temp_db):
+        """Given a short audio file added to the database via file path,
+        When searching with the same audio as file path and as raw bytes (duration_sec=None),
+        Then both queries should return the segment as rank 1 with near-perfect similarity (~1.0).
+        """
+        # Create short synthetic audio (<10s) saved to temp file
+        duration_sec = 1.2  # Short to trigger previous padding difference
+        sr = 48000
+        t = torch.linspace(0, duration_sec, int(sr * duration_sec))
+        waveform = torch.sin(2 * torch.pi * 440 * t).unsqueeze(0)
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            temp_path = tmp_file.name
+            torchaudio.save(temp_path, waveform, sr)
+
+        try:
+            # Add via file path
+            temp_db.add_segments(temp_path, segment_duration_sec=None)
+
+            expected_file = str(Path(temp_path).resolve())
+            expected_score_min = 0.99  # Allow tiny floating-point / encoding variance
+
+            # Search with file path
+            results_file = temp_db.search_similar(temp_path, top_k=1)
+            result_file = results_file[0]
+
+            # Search with raw bytes
+            with open(temp_path, "rb") as f:
+                audio_bytes = f.read()
+            results_bytes = temp_db.search_similar(audio_bytes, top_k=1)
+            result_bytes = results_bytes[0]
+
+            # Assertions
+            assert result_file["file"] == expected_file
+            assert result_file["score"] >= expected_score_min
+
+            assert result_bytes["file"] == expected_file
+            assert result_bytes["score"] >= expected_score_min
+
+            # Scores should be essentially identical
+            assert np.isclose(result_file["score"], result_bytes["score"], atol=1e-4)
+        finally:
+            Path(temp_path).unlink()
+
+    def test_search_similar_bytes_only_workflow_self_match_high_score(self, temp_db):
+        """Given a short audio added to the database using only raw bytes,
+        When searching with the same raw bytes (duration_sec=None),
+        Then the query should return itself as rank 1 with near-perfect similarity (~1.0).
+        """
+        duration_sec = 0.8
+        sr = 48000
+        t = torch.linspace(0, duration_sec, int(sr * duration_sec))
+        waveform = torch.sin(2 * torch.pi * 880 * t).unsqueeze(0)
+
+        buffer = io.BytesIO()
+        torchaudio.save(buffer, waveform, sr, format="wav")
+        audio_bytes = buffer.getvalue()
+
+        # Add using only bytes
+        temp_db.add_segments(
+            audio_input=audio_bytes,
+            audio_name="bytes_only_short",
+            segment_duration_sec=None,
+        )
+
+        expected_score_min = 0.99
+
+        results = temp_db.search_similar(audio_bytes, top_k=1)
+        result = results[0]
+
+        assert result["file"] == "bytes_only_short"
+        assert result["score"] >= expected_score_min
