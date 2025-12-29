@@ -295,18 +295,11 @@ class AudioSegmentDatabase:
         else:
             actual_duration = duration_sec
 
-        if not localize_in_query:
-            # Original behavior: global query embedding
-            query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
-            query_embedding = self._compute_embeddings([query_waveform])[0]
-
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k,
-                include=["metadatas", "distances"]
-            )
-        elif use_growing_short_segments:
-            # New mode: split query into 0.1s segments and use growing windows
+        # GROWING SHORT SEGMENTS MODE
+        if use_growing_short_segments:
+            # ────────────────────────────────────────────────
+            # GROWING PREFIX MODE (0.1s growing windows)
+            # ────────────────────────────────────────────────
             segment_dur = 0.1
             full_waveform, sr = self._load_full_waveform(query_audio)
             if full_waveform.shape[0] > 1:
@@ -328,16 +321,38 @@ class AudioSegmentDatabase:
                     chunk = torch.cat([chunk, pad], dim=1)
                 chunks.append(chunk.squeeze(0))
 
+            console.print(f"[yellow]Number of chunks: {len(chunks)}[/yellow]")
+
+            # ── Fallback case: inject prefix info into the normal results structure ──
             if not chunks:
                 console.print("[bold yellow]Query too short for growing segments mode[/bold yellow]")
-                # Fallback to normal single-segment search
                 query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
                 query_embedding = self._compute_embeddings([query_waveform])[0]
-                results = self.collection.query(
+                raw_results = self.collection.query(
                     query_embeddings=[query_embedding],
                     n_results=top_k,
                     include=["metadatas", "distances"]
                 )
+                # Build same shape as growing case
+                sorted_matches = []
+                for i in range(len(raw_results["ids"][0])):
+                    dist = raw_results["distances"][0][i]
+                    score = 1.0 - dist
+                    meta = raw_results["metadatas"][0][i]
+                    sorted_matches.append({
+                        "id": raw_results["ids"][0][i],
+                        "file": meta["file"],
+                        "start_sec": meta["start_sec"],
+                        "end_sec": meta["end_sec"],
+                        "score": score,
+                        "prefix_scores": [score],
+                        "prefix_durations_sec": [total_duration],
+                    })
+                results = {
+                    "ids": [[m["id"] for m in sorted_matches]],
+                    "metadatas": [sorted_matches],
+                    "distances": [[1.0 - m["score"] for m in sorted_matches]],
+                }
             else:
                 # Generate growing windows of chunks (max_size=None means full prefix windows)
                 growing = list(growing_windows(chunks, max_size=None))
@@ -407,8 +422,12 @@ class AudioSegmentDatabase:
                     "metadatas": [sorted_matches],
                     "distances": [[1.0 - m["score"] for m in sorted_matches]],
                 }
-        else:
-            # Localize mode: chunk query into overlapping windows
+
+        # LOCALIZATION MODE
+        elif localize_in_query:
+            # ────────────────────────────────────────────────
+            # LOCALIZE IN QUERY MODE (10s overlapping windows)
+            # ────────────────────────────────────────────────
             window_duration = 10.0
             overlap = 5.0
             step = window_duration - overlap
@@ -486,6 +505,19 @@ class AudioSegmentDatabase:
                     "distances": [[1.0 - m["score"] for m in sorted_matches]],
                 }
 
+        # NORMAL GLOBAL SEARCH
+        else:
+            # ────────────────────────────────────────────────
+            # NORMAL GLOBAL SEARCH (single embedding of whole query)
+            # ────────────────────────────────────────────────
+            query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
+            query_embedding = self._compute_embeddings([query_waveform])[0]
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+                include=["metadatas", "distances"]
+            )
+
         if not results["ids"][0]:
             console.print("[bold red]No similar segments found (database empty or no matches).[/bold red]")
             return []
@@ -505,12 +537,10 @@ class AudioSegmentDatabase:
                 "end_sec": results["metadatas"][0][i]["end_sec"],
                 "score": score,
             }
-            # Only add query time ranges when we actually performed localization
-            # (i.e., when sub-windows were created — fallback/global mode does not have them)
             if localize_in_query and "query_start_sec" in results["metadatas"][0][i]:
                 entry["query_start_sec"] = results["metadatas"][0][i]["query_start_sec"]
                 entry["query_end_sec"] = results["metadatas"][0][i]["query_end_sec"]
-            # Preserve growing prefix data if present
+            # Preserve growing prefix data if present (both normal growing and fallback cases)
             meta = results["metadatas"][0][i]
             if "prefix_scores" in meta:
                 entry["prefix_scores"] = meta["prefix_scores"]
