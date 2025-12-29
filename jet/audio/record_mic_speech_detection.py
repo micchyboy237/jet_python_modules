@@ -54,6 +54,7 @@ def record_from_mic(
     silent_count = 0
     recorded_frames = 0
 
+    completed_segments: List[SpeechSegment] = []
     curr_segment: Optional[SpeechSegment] = None
     prev_segment: Optional[SpeechSegment] = None
     last_yielded_end_sample: int = 0
@@ -91,6 +92,7 @@ def record_from_mic(
                             full_audio_np = np.concatenate(audio_data, axis=0)
 
                             yield prev_segment, seg_audio_np, full_audio_np
+                            completed_segments.append(prev_segment)
 
                             # Reset segments
                             prev_segment = None
@@ -102,10 +104,14 @@ def record_from_mic(
                 else:
                     silent_count = 0
 
+                # Prevent inflating RAM usage by reducing VAD inference input data
+                trimmed_audio_data = []
                 # Run Silero VAD every chunk to detect speech segments in real-time
                 speech_ts = extract_and_display_speech_segments(audio_data)
                 curr_segment = speech_ts[-1] if speech_ts else prev_segment
                 prev_segment = speech_ts[-2] if len(speech_ts) > 1 else None
+
+                display_segments(completed_segments + [curr_segment] if curr_segment else [])
 
                 if curr_segment and prev_segment and curr_segment["start"] != prev_segment["start"]:
                     # Apply overlap: start the yielded segment earlier by overlap_seconds (but not before last_yielded_end_sample)
@@ -131,6 +137,7 @@ def record_from_mic(
                     full_audio_np = np.concatenate(audio_data, axis=0)
 
                     yield prev_segment, seg_audio_np, full_audio_np
+                    completed_segments.append(prev_segment)
                 prev_segment = curr_segment
 
     if not audio_data:
@@ -151,6 +158,7 @@ def record_from_mic(
         full_audio_np = np.concatenate(audio_data, axis=0)
 
         yield prev_segment, seg_audio_np, full_audio_np
+        completed_segments.append(prev_segment)
 
     actual_duration = len(audio_data) / SAMPLE_RATE
     logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
@@ -182,5 +190,4 @@ def extract_segment_data(segment: SpeechSegment, audio_np: List[np.ndarray], tri
 def extract_and_display_speech_segments(audio_data: List[np.ndarray]) -> List[SpeechSegment]:
     audio_tensor = convert_audio_to_tensor(audio_data)
     speech_ts, speech_probs = extract_speech_timestamps(audio=audio_tensor, model=silero_model, with_scores=True)
-    display_segments(speech_ts)
     return speech_ts
