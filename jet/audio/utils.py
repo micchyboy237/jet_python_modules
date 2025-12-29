@@ -1,4 +1,5 @@
 from __future__ import annotations
+import io
 from pathlib import Path
 import sys
 import subprocess
@@ -487,3 +488,52 @@ def merge_in_memory_chunks(
         else:
             merged.append(seg[:-overlap_samples] if len(seg) > overlap_samples else seg)
     return np.concatenate(merged, axis=0)
+
+def extract_audio_segment(
+    audio_path: Union[str, Path, bytes, np.ndarray],
+    *,
+    start: float = 0.0,
+    end: Optional[float] = None,
+    sample_rate: Optional[int] = None,
+) -> Tuple[np.ndarray, int]:
+    """
+    Extract a partial audio segment from a file path, raw bytes, or numpy array.
+
+    For numpy input, sample_rate must be provided.
+    """
+    if start < 0:
+        raise ValueError("start must be >= 0")
+
+    # --- Resolve audio source ---
+    if isinstance(audio_path, (str, Path)):
+        audio_path = Path(audio_path)
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+        data, sr = sf.read(audio_path, dtype="float32")
+
+    elif isinstance(audio_path, bytes):
+        data, sr = sf.read(io.BytesIO(audio_path), dtype="float32")
+
+    elif isinstance(audio_path, np.ndarray):
+        if sample_rate is None:
+            raise ValueError("sample_rate must be provided when audio_path is np.ndarray")
+        data = audio_path.astype(np.float32, copy=False)
+        sr = sample_rate
+
+    else:
+        raise TypeError("audio_path must be Path, bytes, or np.ndarray")
+
+    total_frames = data.shape[0]
+    start_frame = int(start * sr)
+
+    if start_frame >= total_frames:
+        raise ValueError("start is beyond audio duration")
+
+    if end is None:
+        end_frame = total_frames
+    else:
+        if end <= start:
+            raise ValueError("end must be greater than start")
+        end_frame = min(int(end * sr), total_frames)
+
+    return data[start_frame:end_frame], sr

@@ -1,7 +1,10 @@
 from hashlib import sha256
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 import io  # For BytesIO in tests, but safe to add
+
+import numpy as np
+from numpy.typing import NDArray
 
 import chromadb
 import torch
@@ -22,17 +25,27 @@ model.eval()  # Inference mode
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
+AudioSearchInput = str | Path | bytes | NDArray[np.float32] | NDArray[np.float64]
+
 def load_audio_segment(
-    audio_input: str | Path | bytes,
+    audio_input: AudioSearchInput,
     start_sec: float = 0.0,
     duration_sec: float = 10.0
 ) -> torch.Tensor:
     """
-    Load an audio segment (file path, Path object or raw bytes) and return waveform tensor.
+    Load an audio segment (file path, Path object, raw bytes, or numpy array) and return waveform tensor.
     Resamples to 48kHz (CLAP requirement).
     """
     if isinstance(audio_input, bytes):
         waveform, sr = torchaudio.load(io.BytesIO(audio_input))
+    elif isinstance(audio_input, np.ndarray):
+        # Convert numpy array to torch tensor
+        waveform = torch.from_numpy(audio_input.copy())
+        if waveform.ndim == 1:
+            waveform = waveform.unsqueeze(0)  # (1, samples)
+        elif waveform.ndim != 2:
+            raise ValueError("NumPy audio array must be 1D or 2D (channels x samples)")
+        sr = 48000  # Assume 48kHz if provided as ndarray (common for CLAP pipelines)
     else:
         waveform, sr = torchaudio.load(str(audio_input))   # Path → str, str stays str
 
@@ -77,14 +90,14 @@ class AudioSegmentDatabase:
 
     def add_segments(
         self,
-        audio_input: str | Path | bytes,
+        audio_input: AudioSearchInput,
         audio_name: str | None = None,
         segment_duration_sec: float | None = None,
         overlap_sec: float = 10.0,
         metadata_base: dict | None = None,
     ):
         """
-        Generic method to chunk audio (path, Path or raw bytes) into segments and store them.
+        Generic method to chunk audio (path, Path, raw bytes, or numpy array) into segments and store them.
 
         Uses a short content hash (first 10s) in the ID to prevent duplicates from identical audio content.
         Logs whether segments were newly added or already indexed (updated via upsert).
@@ -96,6 +109,15 @@ class AudioSegmentDatabase:
             waveform, original_sr = torchaudio.load(str(audio_path))
             base_name = audio_name or audio_path.stem
             file_for_meta = str(audio_path.resolve())
+        elif isinstance(audio_input, np.ndarray):
+            waveform = torch.from_numpy(audio_input.copy())
+            if waveform.ndim == 1:
+                waveform = waveform.unsqueeze(0)
+            elif waveform.ndim != 2:
+                raise ValueError("NumPy audio array must be 1D or 2D (channels x samples)")
+            original_sr = 48000
+            base_name = audio_name or "in_memory"
+            file_for_meta = base_name
         else:
             waveform_io = io.BytesIO(audio_input)
             waveform, original_sr = torchaudio.load(waveform_io)
@@ -121,7 +143,6 @@ class AudioSegmentDatabase:
             start_sec=0.0,
             duration_sec=sample_duration
         )
-        # Fix: convert to numpy before .tobytes()
         waveform_bytes = sample_waveform.cpu().numpy().tobytes()
         content_hash = sha256(waveform_bytes).hexdigest()[:16]
 
@@ -141,7 +162,11 @@ class AudioSegmentDatabase:
                 "file": file_for_meta,
                 "start_sec": 0.0,
                 "end_sec": round(total_duration_sec, 3),
-                "source_type": "file" if isinstance(audio_input, (str, Path)) else "bytes",
+                "source_type": (
+                    "file" if isinstance(audio_input, (str, Path))
+                    else "ndarray" if isinstance(audio_input, np.ndarray)
+                    else "bytes"
+                ),
             }
             if metadata_base:
                 meta.update(metadata_base)
@@ -158,10 +183,11 @@ class AudioSegmentDatabase:
                     f"({total_duration_sec:.2f}s, hash={content_hash})[/green]"
                 )
             else:
-                console.print(
-                    f"[dim]Already present (no recompute): {base_name} "
-                    f"({total_duration_sec:.2f}s)[/dim]"
-                )
+                # console.print(
+                #     f"[dim]Already present (no recompute): {base_name} "
+                #     f"({total_duration_sec:.2f}s)[/dim]"
+                # )
+                pass
 
         else:
             # Chunked mode
@@ -183,7 +209,11 @@ class AudioSegmentDatabase:
                     "file": file_for_meta,
                     "start_sec": round(start_sec, 3),
                     "end_sec": round(start_sec + current_duration, 3),
-                    "source_type": "file" if isinstance(audio_input, (str, Path)) else "bytes",
+                    "source_type": (
+                        "file" if isinstance(audio_input, (str, Path))
+                        else "ndarray" if isinstance(audio_input, np.ndarray)
+                        else "bytes"
+                    ),
                 }
                 if metadata_base:
                     meta.update(metadata_base)
@@ -196,7 +226,6 @@ class AudioSegmentDatabase:
                     new_metadatas.append(meta)
                     new_ids.append(segment_id)
                     # Optional: log added chunk
-                # else: skip silently or log dim
 
                 start_sec += step_sec
                 pbar.update(1)
@@ -212,51 +241,233 @@ class AudioSegmentDatabase:
             )
             console.print(f"[green]Processed {len(new_segments)} new/updated segments[/green]")
         else:
-            console.print("[dim]All segments already present — no computation needed[/dim]")
+            # console.print("[dim]All segments already present — no computation needed[/dim]")
+            pass
 
     def search_similar(
         self,
-        query_audio: str | bytes,
+        query_audio: "AudioSearchInput",
+        localize_in_query: bool = False,
+        use_growing_short_segments: bool = False,
         top_k: int = 10,
         duration_sec: float | None = None
     ) -> List[dict]:
         """
-        Search by a query audio segment (file path or raw bytes).
+        Search by a query audio segment (file path, raw bytes, or numpy array).
 
         If duration_sec is None:
-          - Use the actual duration of the provided audio (computed for both file paths and bytes)
+          - Use the actual duration of the provided audio
+
+        If localize_in_query=True:
+          - Chunk query into overlapping 10s windows (5s overlap)
+          - Return best match per DB segment + query time range where it matched
+
+        If use_growing_short_segments=True:
+          - Splits query into 0.1s segments and forms growing windows from those segments, computes similarity scores per window.
 
         Always returns a normalized similarity score (1.0 = identical, 0.0 = completely different).
         """
         import io
 
         if duration_sec is None:
-            # Compute actual duration for both file paths and raw bytes
+            # Compute actual duration for all input types
             if isinstance(query_audio, bytes):
                 waveform, sr = torchaudio.load(io.BytesIO(query_audio))
+            elif isinstance(query_audio, np.ndarray):
+                waveform = torch.from_numpy(query_audio.copy())
+                if waveform.ndim == 1:
+                    waveform = waveform.unsqueeze(0)
+                sr = 48000
             else:
                 waveform, sr = torchaudio.load(str(query_audio))
 
             if waveform.shape[0] > 1:
                 waveform = waveform.mean(dim=0, keepdim=True)
 
-            if sr != 48000:
-                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)
-                waveform = resampler(waveform)
+            if not (isinstance(query_audio, np.ndarray)):
+                if sr != 48000:
+                    resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)
+                    waveform = resampler(waveform)
 
             actual_duration = waveform.shape[1] / 48000.0
         else:
             actual_duration = duration_sec
 
-        query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
+        if not localize_in_query:
+            # Original behavior: global query embedding
+            query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
+            query_embedding = self._compute_embeddings([query_waveform])[0]
 
-        query_embedding = self._compute_embeddings([query_waveform])[0]
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+                include=["metadatas", "distances"]
+            )
+        elif use_growing_short_segments:
+            # New mode: split query into 0.1s segments and use growing windows
+            segment_dur = 0.1
+            full_waveform, sr = self._load_full_waveform(query_audio)
+            if full_waveform.shape[0] > 1:
+                full_waveform = full_waveform.mean(dim=0, keepdim=True)
+            if sr != 48000:
+                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)
+                full_waveform = resampler(full_waveform)
+            total_samples = full_waveform.shape[1]
+            total_duration = total_samples / 48000.0
 
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=["metadatas", "distances"]
-        )
+            chunk_samples = int(segment_dur * 48000)
+            chunks = []
+            for start_sample in range(0, total_samples, chunk_samples):
+                end_sample = min(start_sample + chunk_samples, total_samples)
+                chunk = full_waveform[:, start_sample:end_sample]
+                # Pad short last chunk to exactly 0.1s for consistency
+                if chunk.shape[1] < chunk_samples:
+                    pad = torch.zeros((1, chunk_samples - chunk.shape[1]))
+                    chunk = torch.cat([chunk, pad], dim=1)
+                chunks.append(chunk.squeeze(0))
+
+            if not chunks:
+                console.print("[bold yellow]Query too short for growing segments mode[/bold yellow]")
+                # Fallback to normal single-segment search
+                query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
+                query_embedding = self._compute_embeddings([query_waveform])[0]
+                results = self.collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=top_k,
+                    include=["metadatas", "distances"]
+                )
+            else:
+                # Generate growing windows of chunks (max_size=None means full prefix windows)
+                from jet.utils.collection_utils import growing_windows
+                growing = list(growing_windows(chunks, max_size=None))
+                prefix_waveforms = []
+                for window in growing:
+                    # Concatenate chunks in window and pad/truncate to 10s (CLAP standard)
+                    concat = torch.cat(window, dim=0)
+                    target_samples = int(10.0 * 48000)
+                    if concat.shape[0] > target_samples:
+                        concat = concat[:target_samples]
+                    else:
+                        pad = torch.zeros(target_samples - concat.shape[0])
+                        concat = torch.cat([concat, pad], dim=0)
+                    prefix_waveforms.append(concat)
+
+                prefix_embeddings = self._compute_embeddings(prefix_waveforms)
+
+                # Query with all prefixes
+                all_results = self.collection.query(
+                    query_embeddings=prefix_embeddings,
+                    n_results=top_k,
+                    include=["metadatas", "distances"]
+                )
+
+                # Aggregate: per DB id, keep the highest score across all prefixes
+                best_matches: Dict[str, Dict[str, Any]] = {}
+                for sub_idx in range(len(all_results["ids"])):
+                    for i in range(len(all_results["ids"][sub_idx])):
+                        db_id = all_results["ids"][sub_idx][i]
+                        dist = all_results["distances"][sub_idx][i]
+                        score = 1.0 - dist
+                        meta = all_results["metadatas"][sub_idx][i]
+                        candidate = {
+                            "id": db_id,
+                            "file": meta["file"],
+                            "start_sec": meta["start_sec"],
+                            "end_sec": meta["end_sec"],
+                            "score": score,
+                        }
+                        if db_id not in best_matches or score > best_matches[db_id]["score"]:
+                            best_matches[db_id] = candidate
+
+                sorted_matches = sorted(
+                    best_matches.values(),
+                    key=lambda x: x["score"],
+                    reverse=True
+                )[:top_k]
+
+                results = {
+                    "ids": [[m["id"] for m in sorted_matches]],
+                    "metadatas": [sorted_matches],
+                    "distances": [[1.0 - m["score"] for m in sorted_matches]],
+                }
+        else:
+            # Localize mode: chunk query into overlapping windows
+            window_duration = 10.0
+            overlap = 5.0
+            step = window_duration - overlap
+
+            full_waveform, sr = self._load_full_waveform(query_audio)
+            if full_waveform.shape[0] > 1:
+                full_waveform = full_waveform.mean(dim=0, keepdim=True)
+            if sr != 48000:
+                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)
+                full_waveform = resampler(full_waveform)
+
+            total_samples = full_waveform.shape[1]
+            total_duration = total_samples / 48000.0
+
+            sub_waveforms = []
+            sub_starts = []
+            start_secs = np.arange(0.0, max(total_duration - window_duration + 1e-6, 0.0), step)
+            for start_sec in start_secs:
+                end_sec = min(start_sec + window_duration, total_duration)
+                seg = load_audio_segment(query_audio, start_sec=start_sec, duration_sec=window_duration)
+                sub_waveforms.append(seg)
+                sub_starts.append(start_sec)
+
+            if not sub_waveforms:
+                # Fallback to global matching for very short queries
+                console.print("[bold yellow]Query too short for localization — falling back to global search[/bold yellow]")
+                query_waveform = load_audio_segment(query_audio, duration_sec=actual_duration)
+                query_embedding = self._compute_embeddings([query_waveform])[0]
+                results = self.collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=top_k,
+                    include=["metadatas", "distances"]
+                )
+            else:
+                sub_embeddings = self._compute_embeddings(sub_waveforms)
+                all_results = self.collection.query(
+                    query_embeddings=sub_embeddings,
+                    n_results=top_k,
+                    include=["metadatas", "distances"]
+                )
+
+                # Aggregate: best score per unique DB segment
+                best_matches: Dict[str, Dict[str, Any]] = {}
+                for sub_idx, sub_start in enumerate(sub_starts):
+                    for i in range(len(all_results["ids"][sub_idx])):
+                        db_id = all_results["ids"][sub_idx][i]
+                        dist = all_results["distances"][sub_idx][i]
+                        score = 1.0 - dist
+                        meta = all_results["metadatas"][sub_idx][i]
+
+                        candidate = {
+                            "id": db_id,
+                            "file": meta["file"],
+                            "start_sec": meta["start_sec"],
+                            "end_sec": meta["end_sec"],
+                            "score": score,
+                            "query_start_sec": sub_start,
+                            "query_end_sec": sub_start + window_duration,
+                        }
+
+                        if db_id not in best_matches or score > best_matches[db_id]["score"]:
+                            best_matches[db_id] = candidate
+
+                # Sort and limit to top_k
+                sorted_matches = sorted(
+                    best_matches.values(),
+                    key=lambda x: x["score"],
+                    reverse=True
+                )[:top_k]
+
+                # Reconstruct Chroma-like structure for unified post-processing
+                results = {
+                    "ids": [[m["id"] for m in sorted_matches]],
+                    "metadatas": [sorted_matches],
+                    "distances": [[1.0 - m["score"] for m in sorted_matches]],
+                }
 
         if not results["ids"][0]:
             console.print("[bold red]No similar segments found (database empty or no matches).[/bold red]")
@@ -265,19 +476,40 @@ class AudioSegmentDatabase:
         actual_results = len(results["ids"][0])
 
         formatted = []
+
         for i in range(actual_results):
             raw_distance = results["distances"][0][i]
-            score = 1.0 - raw_distance  # Normalized similarity score
+            score = 1.0 - raw_distance
 
-            formatted.append({
+            entry = {
                 "id": results["ids"][0][i],
                 "file": results["metadatas"][0][i]["file"],
                 "start_sec": results["metadatas"][0][i]["start_sec"],
                 "end_sec": results["metadatas"][0][i]["end_sec"],
-                "score": score
-            })
+                "score": score,
+            }
+            # Only add query time ranges when we actually performed localization
+            # (i.e., when sub-windows were created — fallback/global mode does not have them)
+            if localize_in_query and "query_start_sec" in results["metadatas"][0][i]:
+                entry["query_start_sec"] = results["metadatas"][0][i]["query_start_sec"]
+                entry["query_end_sec"] = results["metadatas"][0][i]["query_end_sec"]
+            formatted.append(entry)
 
         return formatted
+
+    def _load_full_waveform(self, audio_input: "AudioSearchInput") -> tuple["torch.Tensor", int]:
+        """Helper to load full waveform without segmenting."""
+        import io
+        if isinstance(audio_input, bytes):
+            waveform, sr = torchaudio.load(io.BytesIO(audio_input))
+        elif isinstance(audio_input, np.ndarray):
+            waveform = torch.from_numpy(audio_input.copy())
+            if waveform.ndim == 1:
+                waveform = waveform.unsqueeze(0)
+            sr = 48000
+        else:
+            waveform, sr = torchaudio.load(str(audio_input))
+        return waveform, sr
 
     def print_results(self, results: List[dict]):
         if not results:
@@ -286,7 +518,7 @@ class AudioSegmentDatabase:
 
         table = Table(title="Most Similar Audio Segments")
         table.add_column("Rank", justify="right")
-        table.add_column("ID", style="cyan")           # ← new column
+        table.add_column("ID", style="cyan")
         table.add_column("File")
         table.add_column("Time Range")
         table.add_column("Similarity", justify="right")
@@ -295,13 +527,63 @@ class AudioSegmentDatabase:
             time_range = f"{res['start_sec']:.1f}s – {res['end_sec']:.1f}s"
             table.add_row(
                 str(rank),
-                res["id"],                             # ← added
+                res["id"],
                 Path(res["file"]).name if res["file"] != "<bytes>" else "<bytes>",
                 time_range,
                 f"{res['score']:.4f}"
             )
 
         console.print(table)
+
+        # Optional: Show deduplicated view (highest score per unique content)
+        best_by_content = {}
+
+        for r in results:
+            # Primary key: perfect match + duration (most reliable for true duplicates)
+            # Fallback: content hash from ID
+            is_perfect = abs(r["score"] - 1.0) < 1e-6
+            duration = r["end_sec"]
+
+            primary_key = (is_perfect, duration)
+
+            try:
+                content_hash = r["id"].split("_")[1]
+            except IndexError:
+                content_hash = r["id"]
+
+            key = primary_key if is_perfect else content_hash
+
+            # Keep highest score; if equal, prefer real file path
+            prefer_new = (
+                key not in best_by_content or
+                r["score"] > best_by_content[key]["score"] or
+                (abs(r["score"] - best_by_content[key]["score"]) < 1e-6 and
+                 (Path(r["file"]).is_file() and not Path(best_by_content[key]["file"]).is_file()))
+            )
+            if prefer_new:
+                best_by_content[key] = r
+
+        dedup_results = sorted(best_by_content.values(), key=lambda x: x["score"], reverse=True)
+        if len(dedup_results) < len(results):
+            console.print("\n[bold green]Deduplicated view (one per unique audio content):[/bold green]")
+            # Print directly to avoid recursion and extra headers
+            dedup_table = Table(title="Most Similar Audio Segments")
+            dedup_table.add_column("Rank", justify="right")
+            dedup_table.add_column("ID", style="cyan")
+            dedup_table.add_column("File")
+            dedup_table.add_column("Time Range")
+            dedup_table.add_column("Similarity", justify="right")
+
+            for rank, res in enumerate(dedup_results, 1):
+                time_range = f"{res['start_sec']:.1f}s – {res['end_sec']:.1f}s"
+                dedup_table.add_row(
+                    str(rank),
+                    res["id"],
+                    Path(res["file"]).name if res["file"] != "<bytes>" else "<bytes>",
+                    time_range,
+                    f"{res['score']:.4f}"
+                )
+            console.print(dedup_table)
 
 # Usage Examples
 

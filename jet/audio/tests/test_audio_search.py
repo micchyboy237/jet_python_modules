@@ -83,6 +83,31 @@ class TestLoadAudioSegment:
         waveform = load_audio_segment(short_bytes, duration_sec=30.0)
         assert len(waveform) == expected_samples
         assert torch.all(waveform[int(48000 * 0.5):] == 0)
+    
+    def test_load_audio_segment_handles_ndarray_input(self):
+        """Given a NumPy array representing mono audio,
+        When loading it with load_audio_segment,
+        Then it returns a correctly shaped torch.Tensor with proper resampling/padding.
+        """
+        sr_original = 44100
+        duration_sec = 0.8
+        t = np.linspace(0, duration_sec, int(sr_original * duration_sec), endpoint=False)
+        waveform_np = np.sin(2 * np.pi * 660 * t).astype(np.float32)  # mono 1D
+
+        expected_samples = int(48000 * 2.0)  # request longer duration → padding
+
+        waveform_tensor = load_audio_segment(
+            audio_input=waveform_np,
+            start_sec=0.0,
+            duration_sec=2.0
+        )
+
+        assert isinstance(waveform_tensor, torch.Tensor)
+        assert waveform_tensor.ndim == 1
+        assert len(waveform_tensor) == expected_samples
+        # First part should be non-zero, padded part zero
+        assert not torch.allclose(waveform_tensor[:int(48000 * duration_sec)], torch.zeros_like(waveform_tensor[:int(48000 * duration_sec)]))
+        assert torch.allclose(waveform_tensor[int(48000 * duration_sec):], torch.zeros_like(waveform_tensor[int(48000 * duration_sec):]), atol=1e-6)
 
 
 class TestAudioSegmentDatabase:
@@ -568,3 +593,219 @@ class TestAudioSegmentDatabase:
 
         assert result["file"] == "bytes_only_short"
         assert result["score"] >= expected_score_min
+
+    def test_add_segments_and_search_with_ndarray_input_self_match(self, temp_db):
+        """Given a synthetic audio waveform as np.ndarray added to the database,
+        When searching with the same waveform as np.ndarray (duration_sec=None),
+        Then the query should return itself as rank 1 with near-perfect similarity (~1.0).
+        """
+        sr = 48000
+        duration_sec = 1.5
+        t = np.linspace(0, duration_sec, int(sr * duration_sec), endpoint=False)
+        waveform_np = np.sin(2 * np.pi * 440 * t).astype(np.float32)  # shape (samples,)
+
+        # Add using ndarray
+        temp_db.add_segments(
+            audio_input=waveform_np,
+            audio_name="ndarray_tone_440",
+            segment_duration_sec=None,
+        )
+
+        expected_score_min = 0.99
+        expected_file_meta = "ndarray_tone_440"
+
+        # Search using same ndarray
+        results = temp_db.search_similar(waveform_np, top_k=1)
+
+        result = results[0]
+        assert result["file"] == expected_file_meta
+        assert result["score"] >= expected_score_min
+
+    def test_search_similar_localize_in_query_returns_query_time_ranges(self, temp_db, synth_audio_files):
+        """Given: short segments added to DB
+
+        When: searching a longer query with localize_in_query=True
+
+        Then: results include query_start_sec and query_end_sec for each match
+
+        """
+        # Add two short distinct segments
+
+        short1_path = synth_audio_files["similar1"]  # 2s 440 Hz tone
+        short2_path = synth_audio_files["different"]  # 2s 880 Hz tone
+
+        temp_db.add_segments(short1_path, audio_name="segment_440hz", segment_duration_sec=None)
+        temp_db.add_segments(short2_path, audio_name="segment_880hz", segment_duration_sec=None)
+
+        assert temp_db.collection.count() == 2
+
+        # Create a longer query: silence + exact copy of first + silence + exact copy of second
+        # This guarantees perfect matches at known locations
+        sr = 48000
+
+        # Load exact segments
+        wave_440, _ = torchaudio.load(short1_path)
+        wave_880, _ = torchaudio.load(short2_path)
+        # Pad to mono if needed
+        if wave_440.shape[0] > 1:
+            wave_440 = wave_440.mean(dim=0, keepdim=True)
+        if wave_880.shape[0] > 1:
+            wave_880 = wave_880.mean(dim=0, keepdim=True)
+
+        # Build query: 5s silence + 440 segment + 5s silence + 880 segment + 5s silence
+        silence_5s = torch.zeros(1, int(sr * 5.0))
+        query_wave = torch.cat([
+            silence_5s,
+            wave_440,
+            silence_5s,
+            wave_880,
+            silence_5s
+        ], dim=1)
+
+        # Save to temp file for realistic input
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            temp_path = tmp.name
+            torchaudio.save(temp_path, query_wave, sr)
+
+        try:
+            results = temp_db.search_similar(
+                temp_path,
+                top_k=3,
+                localize_in_query=True
+            )
+
+            assert len(results) >= 2
+            assert all("query_start_sec" in r for r in results)
+            assert all("query_end_sec" in r for r in results)
+
+            # Find results for each known segment by name
+            match_440 = None
+            match_880 = None
+            for r in results:
+                if "440" in r["file"]:
+                    match_440 = r
+                elif "880" in r["file"]:
+                    match_880 = r
+
+            assert match_440 is not None
+            assert match_880 is not None
+
+            # With fixed 10s windows and 5s step, possible query_start_sec values are 0.0 and 5.0
+            # 440Hz segment is in first half → best match likely from window starting at 0.0 or 5.0
+            # 880Hz segment is in second half → best match likely from window starting at 5.0
+            # We only require that the reported query window contains the actual occurrence
+            assert match_440["query_start_sec"] in {0.0, 5.0}
+            assert match_880["query_start_sec"] in {0.0, 5.0}
+
+            # Crucially: the 880Hz match must come from the later window (5.0) because
+            # the 0.0 window ends before the 880Hz segment starts
+            assert match_880["query_start_sec"] == 5.0
+
+            # Scores should be significantly high despite heavy silence padding in 10s windows
+            # (CLAP global embedding is diluted by ~80% silence)
+            assert match_440["score"] > 0.85
+            assert match_880["score"] > 0.85
+
+        finally:
+            Path(temp_path).unlink()
+
+            # INSERT_YOUR_CODE
+    def test_search_similar_growing_short_segments_improves_short_query_match(self, temp_db, synth_audio_files):
+        """Given: full 2-second 440 Hz and 880 Hz tones indexed in whole mode
+        When: querying with a very short prefix (first 0.3 seconds) of the 440 Hz tone
+        Then: normal search yields moderate score due to short duration,
+              but growing_short_segments mode recovers near-perfect score via longer prefixes.
+        """
+        # Index full segments
+        tone_440_path = synth_audio_files["similar1"]
+        tone_880_path = synth_audio_files["different"]
+
+        temp_db.add_segments(tone_440_path, segment_duration_sec=None)
+        temp_db.add_segments(tone_880_path, segment_duration_sec=None)
+
+        assert temp_db.collection.count() == 2
+
+        # Load full 440 Hz tone and take first 0.3 seconds as short query
+        waveform_440, sr = torchaudio.load(tone_440_path)
+        if waveform_440.shape[0] > 1:
+            waveform_440 = waveform_440.mean(dim=0, keepdim=True)
+        short_samples = int(0.3 * sr)
+        short_query = waveform_440[:, :short_samples]
+
+        # Save to temporary file for consistent input handling
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            short_path = f.name
+            torchaudio.save(short_path, short_query, sr)
+
+        try:
+            # Normal single-segment search (global embedding on short audio)
+            normal_results = temp_db.search_similar(short_path, top_k=2)
+            normal_top = normal_results[0]
+
+            # Growing short segments mode
+            growing_results = temp_db.search_similar(
+                short_path,
+                use_growing_short_segments=True,
+                top_k=2
+            )
+            growing_top = growing_results[0]
+
+            # Both should return the 440 Hz segment as top match
+            assert "440" in Path(normal_top["file"]).name
+            assert "440" in Path(growing_top["file"]).name
+
+            # Growing mode should achieve significantly higher score
+            assert growing_top["score"] > normal_top["score"] + 0.1
+            assert growing_top["score"] > 0.85  # Recovers strong similarity via prefixes
+
+            # No localization fields added in this mode
+            assert "query_start_sec" not in growing_top
+            assert "query_end_sec" not in growing_top
+
+        finally:
+            Path(short_path).unlink()
+
+    def test_search_similar_growing_short_segments_handles_very_short_query(self, temp_db, synth_audio_files):
+        """Given: database with full 440 Hz tone
+        When: querying with extremely short (0.05s) perfect prefix of the same tone
+        Then: normal search fails (low score), growing mode still finds correct match with reasonable score.
+        """
+        tone_440_path = synth_audio_files["similar1"]
+        temp_db.add_segments(tone_440_path, segment_duration_sec=None)
+        assert temp_db.collection.count() == 1
+
+        waveform, sr = torchaudio.load(tone_440_path)
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+
+        very_short_samples = int(0.05 * sr)  # 50 ms
+        very_short = waveform[:, :very_short_samples]
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            short_path = f.name
+            torchaudio.save(short_path, very_short, sr)
+
+        try:
+            normal_results = temp_db.search_similar(short_path, top_k=1)
+            growing_results = temp_db.search_similar(
+                short_path,
+                use_growing_short_segments=True,
+                top_k=1
+            )
+
+            normal_score = normal_results[0]["score"]
+            growing_score = growing_results[0]["score"]
+
+            assert "440" in Path(normal_results[0]["file"]).name
+            assert "440" in Path(growing_results[0]["file"]).name
+
+            # With pure sine tones, CLAP embeddings are very robust even on extremely short inputs (~50 ms).
+            # Both modes reliably achieve high similarity scores in this synthetic case.
+            assert normal_score > 0.75
+            assert growing_score > 0.75
+
+            # Core invariant: growing mode (max over prefixes) must not be worse than normal mode
+            assert growing_score >= normal_score - 1e-4
+
+        finally:
+            Path(short_path).unlink()

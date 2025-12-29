@@ -247,16 +247,16 @@ def main():
     clipboard_content_parts = []
 
     if system_message:
-        clipboard_content_parts.append(f"System\n{system_message}")
+        clipboard_content_parts.append(f"System\n{system_message}\n")
     if instructions_message:
-        clipboard_content_parts.append(f"Instructions\n{instructions_message}")
-    clipboard_content_parts.append(f"Query\n{query_message}")
+        clipboard_content_parts.append(f"Instructions\n{instructions_message}\n")
+    clipboard_content_parts.append(f"Query\n{query_message}\n")
     if INCLUDE_FILE_STRUCTURE:
-        clipboard_content_parts.append(f"Files Structure\n{files_structure}")
+        clipboard_content_parts.append(f"Files Structure\n{files_structure}\n")
 
     if clipboard_content:
         clipboard_content_parts.append(
-            f"Existing Files Contents\n{clipboard_content}")
+            f"Existing Files Contents\n{clipboard_content}\n")
 
     clipboard_content = "\n\n".join(clipboard_content_parts)
 
