@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from PyQt6.QtWidgets import QApplication
 
 from jet.audio.transcribers.transcription_pipeline import TranscriptionPipeline
-from jet.overlays.subtitle_overlay import SubtitleOverlay
+from jet.overlays.live_subtitles_overlay import LiveSubtitlesOverlay
 
 # ────────────── Logging Setup (replacing global Console) ──────────────
 logging.basicConfig(
@@ -115,7 +115,7 @@ class SileroVADStreamer:
         self._lock = threading.Lock()
 
         # ──────── Subtitle Overlay Setup ────────
-        self.overlay: Optional[SubtitleOverlay] = None
+        self.overlay: Optional[LiveSubtitlesOverlay] = None
         self.show_overlay = show_overlay
         self._qt_app: Optional[QApplication] = None   # ← we keep a reference
 
@@ -786,7 +786,7 @@ class SileroVADStreamer:
 
         # 2. Create overlay — now guaranteed visible
         if self.show_overlay and self.overlay is None:
-            self.overlay = SubtitleOverlay.create()
+            self.overlay = LiveSubtitlesOverlay.create()
             self.overlay.add_message("Live Subtitle Overlay • Listening…")
             log.info("[bold green]Subtitle overlay ready – perfectly centered[/]")
 

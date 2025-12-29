@@ -1,5 +1,5 @@
 # subtitle_overlay.py
-# One-liner: overlay = SubtitleOverlay.create()
+# One-liner: overlay = LiveSubtitlesOverlay.create()
 # Then:      overlay.add_message("Your text here")   ← exactly what you want
 
 import sys
@@ -22,7 +22,7 @@ from rich.logging import RichHandler
 
 
 def _setup_logging():
-    logger = logging.getLogger("SubtitleOverlay")
+    logger = logging.getLogger("LiveSubtitlesOverlay")
     logger.setLevel(logging.INFO)
     if not logger.handlers:
         handler = RichHandler(rich_tracebacks=True, markup=True, show_path=False)
@@ -46,12 +46,12 @@ class _Signals(QObject):
     _toggle_minimize = pyqtSignal()
 
 
-class SubtitleOverlay(QWidget):
+class LiveSubtitlesOverlay(QWidget):
     """
     Modern, thread-safe, live overlay for displaying subtitles, transcripts, or status messages.
 
     Usage:
-        overlay = SubtitleOverlay.create()
+        overlay = LiveSubtitlesOverlay.create()
         overlay.add_message("Hello world!")           # ← easy, always safe
         overlay.add_message("Another line")
         overlay.clear()
@@ -181,8 +181,8 @@ class SubtitleOverlay(QWidget):
         else:
             self.history.append(message)
 
-        total_chars = sum(len(line) for line in self.history)
-        self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
+        # Removed summary update (line/char counts no longer displayed)
+        pass
 
         # Continue with next task
         if self._pending_tasks:
@@ -255,7 +255,7 @@ class SubtitleOverlay(QWidget):
         self.control_bar_widget.setCursor(Qt.CursorShape.OpenHandCursor)
         main.addWidget(self.control_bar_widget)
 
-        # --- Content area (scrollable + summary) ---
+        # --- Content area (scrollable only) ---
         self.content_area = QVBoxLayout()
         self.content_area.setSpacing(8)
 
@@ -267,23 +267,11 @@ class SubtitleOverlay(QWidget):
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.content_layout.setSpacing(8)  # consistent vertical gap between subtitle entries
+        self.content_layout.setSpacing(8)
         self.content_layout.setContentsMargins(10, 10, 10, 10)
         self.scroll.setWidget(self.content)
 
-        self.summary = QLabel("0 lines • 0 chars")
-        self.summary.setStyleSheet("""
-            color: white;
-            background: rgba(40, 40, 60, 0.8);
-            border-radius: 10px;
-            padding: 10px;
-            font-weight: bold;
-            font-size: 13px;
-        """)
-        self.summary.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         self.content_area.addWidget(self.scroll, stretch=1)
-        self.content_area.addWidget(self.summary)
 
         main.addLayout(self.content_area, stretch=1)
 
@@ -356,8 +344,8 @@ class SubtitleOverlay(QWidget):
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
         self.history.append("Pending")
-        total_chars = sum(len(line) for line in self.history)
-        self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
+        # Summary row removed
+        pass
 
         # Store layout and widget for later replacement when processing starts
         self._pending_tasks.append((_wrapper(), loading_layout, loading_widget))
@@ -516,8 +504,8 @@ class SubtitleOverlay(QWidget):
 
         QTimer.singleShot(0, lambda: self._scroll_to_bottom_smooth())
 
-        total_chars = sum(len(line) for line in self.history)
-        self.summary.setText(f"{len(self.history)} lines • {total_chars:,} chars")
+        # Removed summary update (line/char counts no longer displayed)
+        pass
 
     def _scroll_to_bottom_smooth(self) -> None:
         """Smoothly scroll to the latest message."""
@@ -544,7 +532,7 @@ class SubtitleOverlay(QWidget):
             e.accept()
 
     @classmethod
-    def create(cls, app: Optional[QApplication] = None, title: Optional[str] = None) -> 'SubtitleOverlay':
+    def create(cls, app: Optional[QApplication] = None, title: Optional[str] = None) -> 'LiveSubtitlesOverlay':
         """
         One-liner to get a perfectly centered, always-on-top, live subtitle overlay.
         Features (all automatic):
@@ -583,7 +571,7 @@ def demo_async():
         await asyncio.sleep(1.0)
         return f"Translated: {text.upper()}"
 
-    overlay = SubtitleOverlay.create(title="Async Demo")
+    overlay = LiveSubtitlesOverlay.create(title="Async Demo")
     overlay.add_task(long_running_translation, "hello world")
     overlay.add_task(long_running_translation, "first")
     overlay.add_task(long_running_translation, "second")
@@ -592,7 +580,7 @@ def demo_async():
 
 # Threading demo
 def demo_threading():
-    overlay = SubtitleOverlay.create(title="Threading Demo")
+    overlay = LiveSubtitlesOverlay.create(title="Threading Demo")
 
     def demo():
         msgs = [
@@ -622,7 +610,7 @@ def demo_subtitle_metadata() -> None:
     Demonstrates the new metadata-rich add_message API with realistic live subtitle timing.
     Shows English translation on screen while preserving start/end times, duration, and original Japanese (source) text.
     """
-    overlay = SubtitleOverlay.create(title="Live Subtitles – Metadata Demo")
+    overlay = LiveSubtitlesOverlay.create(title="Live Subtitles – Metadata Demo")
 
     # Simulated real-world segments – correct keys
     demo_segments = [
