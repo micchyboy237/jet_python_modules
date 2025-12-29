@@ -13,6 +13,8 @@ from rich.logging import RichHandler
 
 import logging
 import asyncio
+import random
+import string
 
 from jet.audio.transcribers.base import AudioInput, load_audio
 from jet.audio.transcribers.base_client_async import atranscribe_audio  # async endpoint
@@ -23,15 +25,18 @@ logger.setLevel(logging.DEBUG)
 
 console = Console()
 
-# ----------------------------------------------------------------------
-# Placeholder stubs – replace with your real implementations
-# ----------------------------------------------------------------------
+def _random_suffix(length=4):
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
 async def transcribe_ja_chunk(audio: AudioInput) -> dict:
     """
     Call the unified transcription+translation endpoint asynchronously.
     Returns a dict with transcription, translation, and word-level timestamps.
+    Adds a random 4 char suffix (with underscore) to filename.
     """
-    result = await atranscribe_audio(audio, filename="segment_live.wav")
+    suffix = _random_suffix()
+    filename = f"segment_live_{suffix}.wav"
+    result = await atranscribe_audio(audio, filename=filename)
     return {
         "transcription": result["transcription"],
         "translation": result["translation"],
@@ -61,6 +66,28 @@ class TranscriptionPipeline:
         self._cache_order: deque[AudioKey] = deque(maxlen=cache_size)
         self.on_result = on_result
         logger.debug("Pipeline init: max_workers=%d cache_size=%d", max_workers, cache_size)
+
+        self._loop_thread = None
+        self._loop = None
+        self._start_loop()
+
+    def _start_loop(self):
+        def run_loop():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            self._loop.run_forever()
+
+        import threading
+        self._loop_thread = threading.Thread(
+            target=run_loop,
+            name="PipelineAsyncLoop",
+            daemon=True,
+        )
+        self._loop_thread.start()
+
+        # Give it a moment to start
+        import time
+        time.sleep(0.05)
 
     def _make_key(self, audio: AudioInput) -> AudioKey:
         audio = load_audio(audio)
@@ -100,9 +127,11 @@ class TranscriptionPipeline:
                 self.on_result(ja_text, en_text, timestamps, custom_args.copy())
             return
 
-        logger.debug("CACHE MISS → submitting to executor with custom_args=%s", custom_args)
+        logger.debug("CACHE MISS → submitting to event loop with custom_args=%s", custom_args)
 
-        future = self._executor.submit(asyncio.run, self._process(audio, key, custom_args))
+        coro = self._process(audio, key, custom_args)
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        # Optional: wrap in concurrent.futures Future if you need .result() later
 
         def _cleanup(fut: Future) -> None:
             with self._lock:

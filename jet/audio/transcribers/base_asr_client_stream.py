@@ -190,7 +190,7 @@ async def streaming_asr_client(
 
 async def main():
     # Replace with your own 16kHz mono 16-bit WAV file path
-    example_audio = Path("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/speech/generated/run_extract_speech_timestamps/segments/segment_002/sound.wav")
+    example_audio = Path("/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_2_speakers.wav")
 
     if not example_audio.exists():
         rprint(f"[red]Example audio file not found: {example_audio}[/red]")
