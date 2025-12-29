@@ -87,15 +87,16 @@ class AudioSegmentDatabase:
         """
         # ── Normalize input and determine names ───────────────────────────────
         if isinstance(audio_input, (str, Path)):
-            audio_input = Path(audio_input)
-            waveform, original_sr = torchaudio.load(str(audio_input))
-            base_name = audio_name or audio_input.stem
-            file_for_meta = str(audio_input)
+            audio_path = Path(audio_input)
+            waveform, original_sr = torchaudio.load(str(audio_path))
+            base_name = audio_name or audio_path.stem
+            file_for_meta = str(audio_path.resolve())       # absolute path for traceability
         else:  # bytes
             waveform_io = io.BytesIO(audio_input)
             waveform, original_sr = torchaudio.load(waveform_io)
             base_name = audio_name or "in_memory"
-            file_for_meta = "<bytes>"
+            # Improved: use the meaningful name instead of fixed "<bytes>"
+            file_for_meta = base_name
 
         # ── Mono + resample ───────────────────────────────────────────────────
         if waveform.shape[0] > 1:
@@ -116,22 +117,28 @@ class AudioSegmentDatabase:
         if segment_duration_sec is None:
             segment = load_audio_segment(audio_input, start_sec=0.0, duration_sec=total_duration_sec)
             segments.append(segment)
+
             meta = {
                 "file": file_for_meta,
                 "start_sec": 0.0,
-                "end_sec": round(total_duration_sec, 3)
+                "end_sec": round(total_duration_sec, 3),
+                "source_type": "file" if isinstance(audio_input, (str, Path)) else "bytes",
             }
             if metadata_base:
                 meta.update(metadata_base)
             metadatas.append(meta)
+
             ids.append(f"{base_name}_full")
             console.print(f"[green]Added full audio as single segment ({total_duration_sec:.2f}s)[/green]")
+
         else:
             if overlap_sec >= segment_duration_sec:
                 raise ValueError("overlap_sec must be less than segment_duration_sec when chunking")
+
             step_sec = segment_duration_sec - overlap_sec
             start_sec = 0.0
             pbar = tqdm(desc=f"Chunking {base_name}")
+
             while start_sec < total_duration_sec:
                 current_duration = min(segment_duration_sec, total_duration_sec - start_sec)
                 segment = load_audio_segment(
@@ -140,26 +147,32 @@ class AudioSegmentDatabase:
                     duration_sec=current_duration
                 )
                 segments.append(segment)
+
                 meta = {
                     "file": file_for_meta,
                     "start_sec": round(start_sec, 3),
-                    "end_sec": round(start_sec + current_duration, 3)
+                    "end_sec": round(start_sec + current_duration, 3),
+                    "source_type": "file" if isinstance(audio_input, (str, Path)) else "bytes",
                 }
                 if metadata_base:
                     meta.update(metadata_base)
                 metadatas.append(meta)
+
                 ids.append(f"{base_name}_{start_sec:.1f}")
                 start_sec += step_sec
                 pbar.update(1)
+
             pbar.close()
             console.print(f"[green]Added {len(segments)} segments[/green]")
 
-        embeddings = self._compute_embeddings(segments)
-        self.collection.add(
-            embeddings=embeddings,
-            metadatas=metadatas,
-            ids=ids
-        )
+        # ── Add / update in DB ────────────────────────────────────────────────
+        if segments:
+            embeddings = self._compute_embeddings(segments)
+            self.collection.upsert(  # assuming you already switched to upsert as previously recommended
+                embeddings=embeddings,
+                metadatas=metadatas,
+                ids=ids
+            )
 
     def search_similar(
         self,
@@ -228,14 +241,21 @@ class AudioSegmentDatabase:
             return
 
         table = Table(title="Most Similar Audio Segments")
-        table.add_column("Rank")
+        table.add_column("Rank", justify="right")
+        table.add_column("ID", style="cyan")           # ← new column
         table.add_column("File")
         table.add_column("Time Range")
-        table.add_column("Similarity")
+        table.add_column("Similarity", justify="right")
 
         for rank, res in enumerate(results, 1):
-            time_range = f"{res['start_sec']:.1f}s - {res['end_sec']:.1f}s"
-            table.add_row(str(rank), Path(res["file"]).name, time_range, f"{res['score']:.4f}")
+            time_range = f"{res['start_sec']:.1f}s – {res['end_sec']:.1f}s"
+            table.add_row(
+                str(rank),
+                res["id"],                             # ← added
+                Path(res["file"]).name if res["file"] != "<bytes>" else "<bytes>",
+                time_range,
+                f"{res['score']:.4f}"
+            )
 
         console.print(table)
 
