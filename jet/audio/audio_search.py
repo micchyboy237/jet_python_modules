@@ -14,6 +14,8 @@ from rich.table import Table
 from tqdm import tqdm
 from transformers import ClapModel, ClapProcessor
 
+from jet.utils.collection_utils import growing_windows
+
 console = Console()  # noqa: F841 (used in functions)
 
 # Load pre-trained CLAP model (audio-to-embedding)
@@ -338,7 +340,6 @@ class AudioSegmentDatabase:
                 )
             else:
                 # Generate growing windows of chunks (max_size=None means full prefix windows)
-                from jet.utils.collection_utils import growing_windows
                 growing = list(growing_windows(chunks, max_size=None))
                 prefix_waveforms = []
                 for window in growing:
@@ -363,6 +364,8 @@ class AudioSegmentDatabase:
 
                 # Aggregate: per DB id, keep the highest score across all prefixes
                 best_matches: Dict[str, Dict[str, Any]] = {}
+                # Also track all prefix scores for each DB id (for diagnostics)
+                prefix_scores_per_id: Dict[str, List[float]] = {}
                 for sub_idx in range(len(all_results["ids"])):
                     for i in range(len(all_results["ids"][sub_idx])):
                         db_id = all_results["ids"][sub_idx][i]
@@ -378,12 +381,26 @@ class AudioSegmentDatabase:
                         }
                         if db_id not in best_matches or score > best_matches[db_id]["score"]:
                             best_matches[db_id] = candidate
+                        # Initialize list on first sight
+                        if db_id not in prefix_scores_per_id:
+                            prefix_scores_per_id[db_id] = [0.0] * len(prefix_embeddings)
+                        # Store score at this prefix index
+                        prefix_scores_per_id[db_id][sub_idx] = score
 
                 sorted_matches = sorted(
                     best_matches.values(),
                     key=lambda x: x["score"],
                     reverse=True
                 )[:top_k]
+
+                # Attach full prefix score history and prefix durations
+                prefix_durations = [
+                    min((idx + 1) * 0.1, total_duration) for idx in range(len(prefix_embeddings))
+                ]
+                for match in sorted_matches:
+                    db_id = match["id"]
+                    match["prefix_scores"] = prefix_scores_per_id.get(db_id, [])
+                    match["prefix_durations_sec"] = prefix_durations
 
                 results = {
                     "ids": [[m["id"] for m in sorted_matches]],
@@ -493,6 +510,11 @@ class AudioSegmentDatabase:
             if localize_in_query and "query_start_sec" in results["metadatas"][0][i]:
                 entry["query_start_sec"] = results["metadatas"][0][i]["query_start_sec"]
                 entry["query_end_sec"] = results["metadatas"][0][i]["query_end_sec"]
+            # Preserve growing prefix data if present
+            meta = results["metadatas"][0][i]
+            if "prefix_scores" in meta:
+                entry["prefix_scores"] = meta["prefix_scores"]
+                entry["prefix_durations_sec"] = meta["prefix_durations_sec"]
             formatted.append(entry)
 
         return formatted
@@ -534,6 +556,28 @@ class AudioSegmentDatabase:
             )
 
         console.print(table)
+
+        # If growing short segments were used, show score progression per top match
+        if results and "prefix_scores" in results[0]:
+            console.print("\n[bold magenta]Score progression across growing query prefixes (0.1s steps):[/bold magenta]")
+            prog_table = Table(title="Growing Prefix Confidence Curves")
+            prog_table.add_column("Rank", justify="right")
+            prog_table.add_column("File")
+            prog_table.add_column("Prefix Duration", style="cyan")
+            prog_table.add_column("Score History", style="green")
+
+            for rank, res in enumerate(results[:5], 1):  # Show top 5 for clarity
+                durations = [f"{d:.1f}s" for d in res["prefix_durations_sec"]]
+                scores = [f"{s:.3f}" for s in res["prefix_scores"]]
+                duration_str = " → ".join(durations)
+                score_str = " → ".join(scores)
+                prog_table.add_row(
+                    str(rank),
+                    Path(res["file"]).name if res["file"] != "<bytes>" else "<bytes>",
+                    duration_str,
+                    score_str,
+                )
+            console.print(prog_table)
 
         # Optional: Show deduplicated view (highest score per unique content)
         best_by_content = {}
