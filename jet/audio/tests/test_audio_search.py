@@ -104,7 +104,12 @@ class TestAudioSegmentDatabase:
         audio_file = synth_audio_files["similar1"]
         
         # When
-        temp_db.add_segments_from_file(audio_file, segment_duration_sec=30.0, overlap_sec=0.0)
+        temp_db.add_segments(
+            audio_file,
+            audio_name=Path(audio_file).name,
+            segment_duration_sec=30.0,
+            overlap_sec=0.0
+        )
         
         # Then
         count = temp_db.collection.count()
@@ -209,7 +214,11 @@ class TestAudioSegmentDatabase:
         duplicate_path = synth_audio_files["similar2"]  # identical waveform
 
         # Add one via file path (whole file)
-        temp_db.add_segments_from_file(file_path, segment_duration_sec=None)
+        temp_db.add_segments(
+            file_path,
+            audio_name=Path(file_path).name,
+            segment_duration_sec=None
+        )
 
         # Add identical audio via bytes with custom name
         with open(duplicate_path, "rb") as f:
@@ -250,9 +259,9 @@ class TestAudioSegmentDatabase:
         file2 = synth_audio_files["similar2"]
         file_diff = synth_audio_files["different"]
 
-        temp_db.add_segments_from_file(file1, segment_duration_sec=None)
-        temp_db.add_segments_from_file(file2, segment_duration_sec=None)
-        temp_db.add_segments_from_file(file_diff, segment_duration_sec=None)
+        temp_db.add_segments(file1, audio_name=Path(file1).name, segment_duration_sec=None)
+        temp_db.add_segments(file2, audio_name=Path(file2).name, segment_duration_sec=None)
+        temp_db.add_segments(file_diff, audio_name=Path(file_diff).name, segment_duration_sec=None)
 
         expected_db_count = 3
         result_db_count = temp_db.collection.count()
@@ -290,8 +299,16 @@ class TestAudioSegmentDatabase:
 
     def test_search_with_bytes_query_works(self, temp_db, synth_audio_files):
         # Given database populated with one 440Hz and one 880Hz segment (whole-file mode)
-        temp_db.add_segments_from_file(synth_audio_files["similar1"], segment_duration_sec=None)
-        temp_db.add_segments_from_file(synth_audio_files["different"], segment_duration_sec=None)
+        temp_db.add_segments(
+            synth_audio_files["similar1"],
+            audio_name=Path(synth_audio_files["similar1"]).name,
+            segment_duration_sec=None
+        )
+        temp_db.add_segments(
+            synth_audio_files["different"],
+            audio_name=Path(synth_audio_files["different"]).name,
+            segment_duration_sec=None
+        )
 
         expected_db_count = 2
         result_db_count = temp_db.collection.count()
@@ -348,7 +365,12 @@ class TestAudioSegmentDatabase:
     def test_search_similar_handles_empty_results_but_non_empty_db(self, temp_db, synth_audio_files):
         # Given a database with only one segment of a different tone (880Hz)
         different_file = synth_audio_files["different"]
-        temp_db.add_segments_from_file(different_file, segment_duration_sec=30.0, overlap_sec=0.0)
+        temp_db.add_segments(
+            different_file,
+            audio_name=Path(different_file).name,
+            segment_duration_sec=30.0,
+            overlap_sec=0.0
+        )
         
         expected_count = 1
         result_count = temp_db.collection.count()
@@ -400,7 +422,11 @@ class TestAudioSegmentDatabase:
         
         # When adding in whole-file mode
         audio_file = synth_audio_files["similar1"]
-        temp_db.add_segments_from_file(audio_file, segment_duration_sec=None)
+        temp_db.add_segments(
+            audio_file,
+            audio_name=Path(audio_file).name,
+            segment_duration_sec=None
+        )
         
         # Then one segment added with correct metadata
         expected_count = 1
@@ -423,8 +449,9 @@ class TestAudioSegmentDatabase:
         audio_file = synth_audio_files["similar1"]
         
         # When adding with fixed 1.0s segments (should create 2 overlapping segments)
-        temp_db.add_segments_from_file(
+        temp_db.add_segments(
             audio_file,
+            audio_name=Path(audio_file).name,
             segment_duration_sec=1.0,
             overlap_sec=0.5
         )
@@ -443,7 +470,11 @@ class TestAudioSegmentDatabase:
     def test_search_similar_auto_duration_file_query(self, temp_db, synth_audio_files):
         # Given database with one full-file segment
         audio_file = synth_audio_files["similar1"]
-        temp_db.add_segments_from_file(audio_file, segment_duration_sec=None)
+        temp_db.add_segments(
+            audio_file,
+            audio_name=Path(audio_file).name,
+            segment_duration_sec=None
+        )
 
         # When searching with the same file and duration_sec=None
         results = temp_db.search_similar(audio_file, top_k=5, duration_sec=None)
@@ -464,7 +495,11 @@ class TestAudioSegmentDatabase:
     def test_search_similar_auto_duration_bytes_fallback(self, temp_db, synth_audio_files):
         # Given database with one full-file segment
         audio_file = synth_audio_files["similar1"]
-        temp_db.add_segments_from_file(audio_file, segment_duration_sec=None)
+        temp_db.add_segments(
+            audio_file,
+            audio_name=Path(audio_file).name,
+            segment_duration_sec=None
+        )
 
         # When querying with raw bytes and duration_sec=None (should fallback to 10.0s)
         with open(audio_file, "rb") as f:
@@ -482,9 +517,21 @@ class TestAudioSegmentDatabase:
 
     def test_search_similar_returns_normalized_score(self, temp_db, synth_audio_files):
         # Given database with full-file segments
-        temp_db.add_segments_from_file(synth_audio_files["similar1"], segment_duration_sec=None)
-        temp_db.add_segments_from_file(synth_audio_files["similar2"], segment_duration_sec=None)
-        temp_db.add_segments_from_file(synth_audio_files["different"], segment_duration_sec=None)
+        temp_db.add_segments(
+            synth_audio_files["similar1"],
+            audio_name=Path(synth_audio_files["similar1"]).name,
+            segment_duration_sec=None
+        )
+        temp_db.add_segments(
+            synth_audio_files["similar2"],
+            audio_name=Path(synth_audio_files["similar2"]).name,
+            segment_duration_sec=None
+        )
+        temp_db.add_segments(
+            synth_audio_files["different"],
+            audio_name=Path(synth_audio_files["different"]).name,
+            segment_duration_sec=None
+        )
 
         # When searching
         results = temp_db.search_similar(

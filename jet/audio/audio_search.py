@@ -10,7 +10,7 @@ from rich.table import Table
 from tqdm import tqdm
 from transformers import ClapModel, ClapProcessor
 
-console = Console()
+console = Console()  # noqa: F841 (used in functions)
 
 # Load pre-trained CLAP model (audio-to-embedding)
 model_name = "laion/clap-htsat-unfused"  # Modern, strong general audio embeddings
@@ -21,32 +21,31 @@ model.eval()  # Inference mode
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
-def load_audio_segment(audio_path: str | bytes, start_sec: float = 0.0, duration_sec: float = 10.0) -> torch.Tensor:
+def load_audio_segment(
+    audio_input: str | Path | bytes,
+    start_sec: float = 0.0,
+    duration_sec: float = 10.0
+) -> torch.Tensor:
     """
-    Load an audio segment (file path or raw bytes) and return waveform tensor.
+    Load an audio segment (file path, Path object or raw bytes) and return waveform tensor.
     Resamples to 48kHz (CLAP requirement).
-    The default duration is 10s, with padding as needed for short clips.
     """
-    if isinstance(audio_path, bytes):
-        waveform, sr = torchaudio.load(io.BytesIO(audio_path))  # Use io.BytesIO for bytes input
+    if isinstance(audio_input, bytes):
+        waveform, sr = torchaudio.load(io.BytesIO(audio_input))
     else:
-        waveform, sr = torchaudio.load(audio_path)
+        waveform, sr = torchaudio.load(str(audio_input))   # Path → str, str stays str
 
-    # Convert to mono if stereo
     if waveform.shape[0] > 1:
         waveform = waveform.mean(dim=0, keepdim=True)
 
-    # Resample if needed
     if sr != 48000:
         resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)
         waveform = resampler(waveform)
 
-    # Extract segment
     start_sample = int(start_sec * 48000)
     end_sample = int((start_sec + duration_sec) * 48000)
     segment = waveform[:, start_sample:end_sample]
 
-    # Pad if too short (use updated default duration for expected short queries)
     if segment.shape[1] < 48000 * duration_sec:
         pad_length = int(48000 * duration_sec - segment.shape[1])
         pad = torch.zeros((1, pad_length))
@@ -61,8 +60,8 @@ class AudioSegmentDatabase:
         self.client = chromadb.PersistentClient(path=persist_dir)
         self.collection = self.client.get_or_create_collection(
             name="audio_segments",
-            metadata={"hnsw:space": "cosine"}  # No embedding_function
-        )
+            metadata={"hnsw:space": "cosine"}
+        )  # noqa: E501
 
     def _compute_embeddings(self, audios: List[torch.Tensor]) -> List[List[float]]:
         console.print("[yellow][DEBUG] Computing embeddings for {} audio segments[/yellow]".format(len(audios)))
@@ -75,53 +74,40 @@ class AudioSegmentDatabase:
             console.print("[yellow][DEBUG] Embeddings shape: {}[/yellow]".format(embeddings.shape))
             return embeddings.cpu().tolist()
 
-    def add_segments_from_file(
-        self,
-        audio_path: str,
-        segment_duration_sec: float | None = None,
-        overlap_sec: float = 10.0,
-        metadata_base: dict | None = None
-    ):
-        """
-        Chunk an audio file into segments and store them.
-
-        If segment_duration_sec is None, the entire file is treated as one segment
-        (no chunking, overlap_sec is ignored).
-        """
-        self.add_segments(audio_path, Path(audio_path).name, segment_duration_sec, overlap_sec, metadata_base)
-
     def add_segments(
         self,
-        audio_input: str | bytes,
+        audio_input: str | Path | bytes,
         audio_name: str | None = None,
         segment_duration_sec: float | None = None,
         overlap_sec: float = 10.0,
         metadata_base: dict | None = None,
     ):
         """
-        Generic method to chunk audio (path or raw bytes) into segments and store them.
-        If audio_name is None and audio_input is bytes, uses generic names ("in_memory").
+        Generic method to chunk audio (path, Path or raw bytes) into segments and store them.
         """
-        if isinstance(audio_input, bytes):
+        # ── Normalize input and determine names ───────────────────────────────
+        if isinstance(audio_input, (str, Path)):
+            audio_input = Path(audio_input)
+            waveform, original_sr = torchaudio.load(str(audio_input))
+            base_name = audio_name or audio_input.stem
+            file_for_meta = str(audio_input)
+        else:  # bytes
             waveform_io = io.BytesIO(audio_input)
             waveform, original_sr = torchaudio.load(waveform_io)
             base_name = audio_name or "in_memory"
             file_for_meta = "<bytes>"
-        else:
-            waveform, original_sr = torchaudio.load(audio_input)
-            base_name = audio_name or Path(audio_input).stem
-            file_for_meta = audio_input
 
-        # ... (rest of the logic identical, but use base_name for IDs and file_for_meta in meta["file"])
+        # ── Mono + resample ───────────────────────────────────────────────────
         if waveform.shape[0] > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
+
         total_samples = waveform.shape[1]
         total_duration_sec = total_samples / original_sr
+
         if original_sr != 48000:
             resampler = torchaudio.transforms.Resample(orig_freq=original_sr, new_freq=48000)
             waveform = resampler(waveform)
-            total_samples = waveform.shape[1]
-            total_duration_sec = total_samples / 48000.0
+            total_duration_sec = waveform.shape[1] / 48000.0
 
         segments = []
         metadatas = []
@@ -261,7 +247,7 @@ if __name__ == "__main__":
     # Example 1: Index some audio files (run once)
     audio_files = ["path/to/song1.wav", "path/to/song2.mp3"]  # Add your files
     for file in audio_files:
-        db.add_segments_from_file(file)
+        db.add_segments(file)
 
     # Example 2: Search with a query file
     query_path = "path/to/query_segment.wav"
