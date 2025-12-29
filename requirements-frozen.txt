@@ -1,22 +1,100 @@
-# /Users/jethroestrada/.cache/venv/base_venv/bin/python
-aiohttp==3.12.15
-beautifulsoup4==4.14.2
-Cython==3.1.4
+# .venv/bin/python
+ag-ui-protocol==0.1.10
+aiofiles==25.1.0
+-e git+ssh://git@github.com/argosopentech/argos-translate.git@561369af792133585b4284785eb92e9baf1d632e#egg=argostranslate
+-e git+https://github.com/libAudioFlux/audioFlux.git@824f76d5f19d0358779e513d708a987e4fb9224e#egg=audioflux
+boto3==1.41.1
+chromadb==1.4.0
+cmake==4.1.2
+cohere==5.20.0
+ConfigArgParse==1.7.1
+configobj==5.0.9
+configparser==7.2.0
+Cython==3.2.1
+diskcache==5.6.3
+email-validator==2.3.0
+essentia==2.1b6.dev1177
 evaluate==0.4.6
-matplotlib==3.10.6
+faiss-cpu==1.12.0
+fake-useragent==2.2.0
+fast-langdetect==1.0.0
+fastapi==0.121.3
+fastmcp==2.13.1
+fasttext==0.9.3
+ffmpeg-python==0.2.0
+Flask==3.1.2
+fqdn==1.5.1
+GitPython==3.1.45
+-e git+ssh://git@github.com/ssut/py-googletrans.git@db0567f89d3201b787074cc1c53418763d5e6bcc#egg=googletrans
+groq==0.36.0
+h2==4.3.0
+hdbscan==0.8.40
+httplib2==0.31.0
+httptools==0.7.1
+httpx-ws==0.8.2
+ipython_pygments_lexers==1.1.1
+isoduration==20.11.0
+jiwer==4.0.0
+jsonpointer==3.0.0
+jupyter==1.1.1
+-e git+ssh://git@github.com/letta-ai/letta.git@e026bef80fc8e89298681a044ae852683a47ce4d#egg=letta
+librosa==0.11.0
+logfire==4.16.0
+lxml_html_clean==0.4.3
+mammoth==1.11.0
+mdit-plain==1.0.1
 meson-python==0.18.0
+mrkdwn-analysis==0.2.3
 ninja==1.13.0
-nltk==3.9.2
-openai==2.1.0
-optimum==1.27.0
-pipdeptree==2.28.0
-playwright==1.55.0
+nipype==1.10.0
+noisereduce==3.0.3
+omegaconf==2.3.0
+opentelemetry-instrumentation-httpx==0.59b0
+optimum-onnx==0.0.3
+papermill==2.6.0
+pdfminer.six==20251107
+pipdeptree==2.30.0
+playwright==1.56.0
 poetry==2.2.1
-pytest-asyncio==1.2.0
-pytest-benchmark==5.1.0
+-e git+ssh://git@github.com/pydantic/pydantic-ai.git@baa8731ccb92367e246f7387bb31f006887e4992#egg=pydantic_ai
+pydantic-evals==1.21.0
+PyMuPDF==1.26.6
+PyQt6==6.10.1
+pytest-asyncio==1.3.0
+pytest-benchmark==5.2.3
+pytest-html==4.1.1
+pytest-json-report==1.5.0
 pytest-mock==3.15.1
 pytest-watcher==0.4.3
-sentence-transformers==5.1.1
-spacy==3.8.7
+python-pptx==1.0.2
+pyxnat==1.6.4
+redis==7.0.1
+rfc3987-syntax==1.1.0
+rumps==0.4.0
+seaborn==0.13.2
+semver==3.0.4
+sentence-transformers==5.1.2
+-e git+ssh://git@github.com/snakers4/silero-vad.git@d5b52843f79c97810940534f3433e162470af83d#egg=silero_vad
+sounddevice==0.5.3
+speechbrain==1.0.3
+stack-data==0.6.3
+tabulate==0.9.0
+tensorboard==2.20.0
+tensorboardX==2.6.4
+tinycss2==1.4.0
+tokenize_rt==6.2.0
+torchtext==0.4.0
+translators==6.0.1
+umap-learn==0.5.9.post2
 Unidecode==1.4.0
+uri-template==1.3.0
+uv==0.9.9
+uvloop==0.22.1
+viztracer==1.1.1
+waitress==3.0.2
+watchfiles==1.1.1
+webcolors==25.10.0
+-e git+https://github.com/m-bain/whisperX.git@d32ec3e3012ec4c0934f4088424c32f3f038b249#egg=whisperx
+-e git+ssh://git@github.com/segment-any-text/wtpsplit.git@d107404875d385b64a8fe347d239b3a708d2aa50#egg=wtpsplit
+xx_sent_ud_sm @ https://github.com/explosion/spacy-models/releases/download/xx_sent_ud_sm-3.8.0/xx_sent_ud_sm-3.8.0-py3-none-any.whl#sha256=1b5fb9321723b395f76458d2a13b7a3673c537eb58c0a9df3778f4e0950180b4
 zstandard==0.25.0
