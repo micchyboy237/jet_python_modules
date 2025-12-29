@@ -112,7 +112,6 @@ class TestAudioSegmentDatabase:
         with open(reference_file, "rb") as f:
             audio_bytes = f.read()
 
-        expected_id = "custom_name_full"
         expected_file_meta = "custom_name"  # Now uses audio_name
         expected_start_sec = 0.0
         expected_end_sec_approx = 2.0
@@ -130,9 +129,11 @@ class TestAudioSegmentDatabase:
 
         results = temp_db.collection.get(include=["metadatas", "embeddings"])
         result_id = results["ids"][0]
+        # Updated: Accept new ID structure with optional hash
+        assert result_id.startswith("custom_name_")
+        assert result_id.endswith("_full")
+        # Optional: assert len(result_id.split("_")) == 3  # name + hash + full
         result_meta = results["metadatas"][0]
-
-        assert result_id == expected_id
         assert result_meta["file"] == expected_file_meta
         assert result_meta["start_sec"] == expected_start_sec
         assert abs(result_meta["end_sec"] - expected_end_sec_approx) < 0.2
@@ -162,9 +163,10 @@ class TestAudioSegmentDatabase:
         ids = results["ids"]
         metadatas = results["metadatas"]
 
-        expected_id_prefixes = [f"in_memory_test_{start:.1f}" for start in [0.0, 0.5, 1.0]]
-        for prefix in expected_id_prefixes:
-            assert any(id.startswith(prefix) for id in ids)
+        # Updated: IDs now look like in_memory_test_<hash>_0.0, ..._0.5, etc.
+        # Check that all expected segment start suffixes are present
+        for suffix in ["_0.0", "_0.5", "_1.0"]:
+            assert any(id.endswith(suffix) for id in ids), f"No ID ends with {suffix}"
 
         start_secs = [m["start_sec"] for m in metadatas]
         assert all(start_secs[i] <= start_secs[i + 1] for i in range(len(start_secs) - 1))
@@ -391,7 +393,6 @@ class TestAudioSegmentDatabase:
     def test_add_segments_prevents_duplicates_file_path_whole_mode(self, temp_db, synth_audio_files):
         # Given: A file path input and expected ID/metadata after first add
         audio_file = synth_audio_files["similar1"]
-        expected_id = f"{Path(audio_file).stem}_full"
         expected_count_after_first = 1
         expected_count_after_second = 1
 
@@ -402,7 +403,10 @@ class TestAudioSegmentDatabase:
             segment_duration_sec=None
         )
         count_after_first = temp_db.collection.count()
-        results_after_first = temp_db.collection.get(ids=[expected_id], include=["metadatas"])
+        # Updated: Get the real ID from collection, verifying there is only one entry
+        results_after_first = temp_db.collection.get(include=["metadatas"])
+        assert len(results_after_first["ids"]) == 1, "Expected exactly one segment after first add"
+        real_id = results_after_first["ids"][0]
 
         temp_db.add_segments(
             audio_file,
@@ -410,13 +414,13 @@ class TestAudioSegmentDatabase:
             segment_duration_sec=None
         )
         count_after_second = temp_db.collection.count()
-        results_after_second = temp_db.collection.get(ids=[expected_id], include=["metadatas"])
+        results_after_second = temp_db.collection.get(ids=[real_id], include=["metadatas"])
 
         # Then: Count doesn't increase, ID exists once, metadata matches expected
         assert count_after_first == expected_count_after_first
         assert count_after_second == expected_count_after_second
         assert len(results_after_first["ids"]) == 1
-        assert results_after_first["ids"][0] == expected_id
+        assert results_after_first["ids"][0] == real_id
         assert Path(results_after_first["metadatas"][0]["file"]).resolve() == Path(audio_file).resolve()
         assert len(results_after_second["ids"]) == 1  # Still only one
 
@@ -426,7 +430,6 @@ class TestAudioSegmentDatabase:
         with open(reference_file, "rb") as f:
             audio_bytes = f.read()
         audio_name = "custom_bytes"
-        expected_id = f"{audio_name}_full"
         expected_file_meta = audio_name
         expected_count_after_first = 1
         expected_count_after_second = 1
@@ -438,7 +441,9 @@ class TestAudioSegmentDatabase:
             segment_duration_sec=None
         )
         count_after_first = temp_db.collection.count()
-        results_after_first = temp_db.collection.get(ids=[expected_id], include=["metadatas"])
+        results_after_first = temp_db.collection.get(include=["metadatas"])
+        assert len(results_after_first["ids"]) == 1, "Expected exactly one segment after first add"
+        real_id = results_after_first["ids"][0]
 
         temp_db.add_segments(
             audio_input=audio_bytes,
@@ -446,13 +451,13 @@ class TestAudioSegmentDatabase:
             segment_duration_sec=None
         )
         count_after_second = temp_db.collection.count()
-        results_after_second = temp_db.collection.get(ids=[expected_id], include=["metadatas"])
+        results_after_second = temp_db.collection.get(ids=[real_id], include=["metadatas"])
 
         # Then: Count doesn't increase, ID exists once, metadata matches expected
         assert count_after_first == expected_count_after_first
         assert count_after_second == expected_count_after_second
         assert len(results_after_first["ids"]) == 1
-        assert results_after_first["ids"][0] == expected_id
+        assert results_after_first["ids"][0] == real_id
         assert results_after_first["metadatas"][0]["file"] == expected_file_meta
         assert len(results_after_second["ids"]) == 1  # Still only one
 

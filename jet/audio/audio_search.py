@@ -1,3 +1,4 @@
+from hashlib import sha256
 from pathlib import Path
 from typing import List
 import io  # For BytesIO in tests, but safe to add
@@ -84,21 +85,24 @@ class AudioSegmentDatabase:
     ):
         """
         Generic method to chunk audio (path, Path or raw bytes) into segments and store them.
+
+        Uses a short content hash (first 10s) in the ID to prevent duplicates from identical audio content.
+        Logs whether segments were newly added or already indexed (updated via upsert).
         """
-        # ── Normalize input and determine names ───────────────────────────────
+
+        # ── Load waveform and determine base name / metadata file ───────────────────────────────
         if isinstance(audio_input, (str, Path)):
             audio_path = Path(audio_input)
             waveform, original_sr = torchaudio.load(str(audio_path))
             base_name = audio_name or audio_path.stem
-            file_for_meta = str(audio_path.resolve())       # absolute path for traceability
-        else:  # bytes
+            file_for_meta = str(audio_path.resolve())
+        else:
             waveform_io = io.BytesIO(audio_input)
             waveform, original_sr = torchaudio.load(waveform_io)
             base_name = audio_name or "in_memory"
-            # Improved: use the meaningful name instead of fixed "<bytes>"
             file_for_meta = base_name
 
-        # ── Mono + resample ───────────────────────────────────────────────────
+        # ── Mono + resample ───────────────────────────────────────────────────────────────
         if waveform.shape[0] > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
 
@@ -110,11 +114,24 @@ class AudioSegmentDatabase:
             waveform = resampler(waveform)
             total_duration_sec = waveform.shape[1] / 48000.0
 
+        # ── Compute short content hash for deduplication ──────────────────────────────────────
+        sample_duration = min(10.0, total_duration_sec)
+        sample_waveform = load_audio_segment(
+            audio_input,
+            start_sec=0.0,
+            duration_sec=sample_duration
+        )
+        # Fix: convert to numpy before .tobytes()
+        waveform_bytes = sample_waveform.cpu().numpy().tobytes()
+        content_hash = sha256(waveform_bytes).hexdigest()[:16]
+
+        # ── Prepare segments, metadata, IDs ───────────────────────────────────────────────────
         segments = []
         metadatas = []
         ids = []
 
         if segment_duration_sec is None:
+            # Whole file as single segment
             segment = load_audio_segment(audio_input, start_sec=0.0, duration_sec=total_duration_sec)
             segments.append(segment)
 
@@ -128,10 +145,24 @@ class AudioSegmentDatabase:
                 meta.update(metadata_base)
             metadatas.append(meta)
 
-            ids.append(f"{base_name}_full")
-            console.print(f"[green]Added full audio as single segment ({total_duration_sec:.2f}s)[/green]")
+            segment_id = f"{base_name}_{content_hash}_full"
+            ids.append(segment_id)
+
+            # Existence check + smart logging
+            existing = self.collection.get(ids=[segment_id], include=[])
+            if existing["ids"]:
+                console.print(
+                    f"[dim]Already indexed (updated): {base_name} "
+                    f"({total_duration_sec:.2f}s, hash={content_hash})[/dim]"
+                )
+            else:
+                console.print(
+                    f"[green]Added new full segment: {base_name} "
+                    f"({total_duration_sec:.2f}s, hash={content_hash})[/green]"
+                )
 
         else:
+            # Chunked mode
             if overlap_sec >= segment_duration_sec:
                 raise ValueError("overlap_sec must be less than segment_duration_sec when chunking")
 
@@ -158,17 +189,19 @@ class AudioSegmentDatabase:
                     meta.update(metadata_base)
                 metadatas.append(meta)
 
-                ids.append(f"{base_name}_{start_sec:.1f}")
+                segment_id = f"{base_name}_{content_hash}_{start_sec:.1f}"
+                ids.append(segment_id)
+
                 start_sec += step_sec
                 pbar.update(1)
 
             pbar.close()
-            console.print(f"[green]Added {len(segments)} segments[/green]")
+            console.print(f"[green]Processed {len(segments)} chunks for {base_name} (hash={content_hash})[/green]")
 
-        # ── Add / update in DB ────────────────────────────────────────────────
+        # ── Upsert to collection ───────────────────────────────────────────────────────────────
         if segments:
             embeddings = self._compute_embeddings(segments)
-            self.collection.upsert(  # assuming you already switched to upsert as previously recommended
+            self.collection.upsert(
                 embeddings=embeddings,
                 metadatas=metadatas,
                 ids=ids
