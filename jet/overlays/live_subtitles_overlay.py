@@ -77,7 +77,7 @@ class LiveSubtitlesOverlay(QWidget):
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setStyleSheet("background-color: rgba(0, 0, 0, 190); border-radius: 12px;")
-        self.setFixedSize(560, 900)
+        self.setFixedSize(450, 900)
 
         self._drag_pos = QPoint()
         self._build_ui()
