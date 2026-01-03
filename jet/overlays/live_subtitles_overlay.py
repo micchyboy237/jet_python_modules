@@ -1,19 +1,20 @@
-# subtitle_overlay.py
-# One-liner: overlay = LiveSubtitlesOverlay.create()
-# Then:      overlay.add_message("Your text here")   ← exactly what you want
+# live_subtitles_overlay.py
+# Usage Example:
+# overlay = LiveSubtitlesOverlay.create()
+# overlay.add_message("Your text here")   # Exactly what you want!
 
 import sys
 import signal
 import logging
 import time
 import threading
-from typing import Optional, Awaitable, TypedDict, Callable, Union
+from typing import Optional, Awaitable, TypedDict, Callable, Union, NotRequired
 import asyncio
 from concurrent.futures import Future
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QScrollArea
+    QLabel, QPushButton, QScrollArea, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QObject, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont
@@ -37,11 +38,14 @@ class SubtitleMessage(TypedDict):
     end_sec: float
     duration_sec: float
     source_text: str              # Original text (e.g., Japanese/source language)
+    segment_number: NotRequired[int]
+    avg_vad_confidence: NotRequired[float]
+    translation_confidence: NotRequired[float]
 
 
 class _Signals(QObject):
-    # Emit the full SubtitleMessage object as one argument
-    _add_message = pyqtSignal(object)  # object accepts dict or TypedDict
+    # Signals for thread-safe operation
+    _add_message = pyqtSignal(object)  # emits full SubtitleMessage dict
     _clear = pyqtSignal()
     _toggle_minimize = pyqtSignal()
     _enqueue_task = pyqtSignal(object, dict)  # (coro: Awaitable, kwargs: dict)
@@ -51,9 +55,9 @@ class LiveSubtitlesOverlay(QWidget):
     """
     Modern, thread-safe, live overlay for displaying subtitles, transcripts, or status messages.
 
-    Usage:
+    Example:
         overlay = LiveSubtitlesOverlay.create()
-        overlay.add_message("Hello world!")           # ← easy, always safe
+        overlay.add_message("Hello world!")        # Always safe and simple
         overlay.add_message("Another line")
         overlay.clear()
     """
@@ -65,22 +69,19 @@ class LiveSubtitlesOverlay(QWidget):
         self.history = []
         self.title = title
         self.message_history: list[SubtitleMessage] = []
-        # Lock to make concurrent add_task calls thread-safe
-        self._task_lock = threading.Lock()
+        self._task_lock = threading.Lock()  # for thread-safety with add_task
 
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setStyleSheet("background-color: rgba(0, 0, 0, 190); border-radius: 16px;")
-        self.setFixedSize(720, 900)  # narrower width, taller height
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 190); border-radius: 12px;")
+        self.setFixedSize(560, 900)
 
         self._drag_pos = QPoint()
         self._build_ui()
         self._connect_signals()
         self.signals._enqueue_task.connect(self._on_enqueue_task)
 
-        # ------------------------------------------------------------------
-        # ASYNCIO/TASK INTEGRATION (Always sequential)
-        # ------------------------------------------------------------------
+        # Async integration/setup
         from concurrent.futures import ThreadPoolExecutor
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._async_loop = None
@@ -89,10 +90,7 @@ class LiveSubtitlesOverlay(QWidget):
 
         self._pending_tasks: list[tuple[Awaitable[Union[SubtitleMessage, str]], QWidget, QHBoxLayout]] = []
 
-        self.add_message(
-            translated_text="Live Subtitle Overlay • Ready",
-            source_text="",
-        )
+        # Initial message
         self.logger.info("[green]Ready – use .add_message('text')[/]")
         self._process_next_task()
 
@@ -103,30 +101,25 @@ class LiveSubtitlesOverlay(QWidget):
             self._async_loop.run_forever()
         self._async_loop_thread = threading.Thread(target=run_loop, daemon=True, name="OverlayAsyncLoop")
         self._async_loop_thread.start()
-        time.sleep(0.05)  # give loop time to start
+        time.sleep(0.05)
 
     def _process_next_task(self) -> None:
-        """Start the next queued async/sync task if available (runs sequentially)."""
         if not self._pending_tasks:
             return
 
         coro, loading_widget, current_layout = self._pending_tasks[0]
 
-        # Clear pending safely using the stored layout
+        # Remove pending widgets from the layout
         while current_layout.count():
             item = current_layout.takeAt(0)
             if w := item.widget():
                 w.deleteLater()
-        # Do **not** do loading_widget.setLayout(...) here — it already has one!
 
         spinner = QLabel()
         self._setup_spinner_animation(spinner, loading_widget)
-
         processing_text = QLabel("Processing")
         processing_text.setStyleSheet("color: #4da6ff;")
-        processing_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
-
-        # Reuse the existing layout
+        processing_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 13))  # 15 → 13
         current_layout.addStretch()
         current_layout.addWidget(spinner)
         current_layout.addWidget(processing_text)
@@ -135,7 +128,7 @@ class LiveSubtitlesOverlay(QWidget):
         def run_in_thread() -> tuple[Union[SubtitleMessage, str], QWidget]:
             try:
                 future = asyncio.run_coroutine_threadsafe(coro, self._async_loop)
-                result = future.result()  # blocks until coro completes or raises
+                result = future.result()
                 return result, loading_widget
             except Exception as e:
                 self.logger.exception("Task failed")
@@ -151,11 +144,9 @@ class LiveSubtitlesOverlay(QWidget):
             QTimer.singleShot(100, lambda: self._check_future_done(future))
 
     def _on_task_finished(self, future: Future) -> None:
-        """Handles completion of an add_task call – MUST run in main thread."""
         if future.cancelled():
             return
 
-        # Remove the finished task from pending queue
         if self._pending_tasks:
             self._pending_tasks.pop(0)
 
@@ -164,18 +155,15 @@ class LiveSubtitlesOverlay(QWidget):
         except Exception as e:
             result = f"[Error] {e}"
 
-        # All UI operations below must be done in main thread.
-        # Since this method is called via QTimer from main thread, we are safe.
         if not loading_widget or not loading_widget.parent():
             if self._pending_tasks:
                 self._process_next_task()
             return
 
-        # Stop spinner safely (timer belongs to main thread and is parented to self)
         timer = loading_widget.property("_spinner_timer")
         if timer and isinstance(timer, QTimer) and timer.isActive():
             timer.stop()
-            timer.deleteLater()  # optional cleanup
+            timer.deleteLater()
 
         idx = self.content_layout.indexOf(loading_widget)
         if idx == -1:
@@ -186,7 +174,6 @@ class LiveSubtitlesOverlay(QWidget):
         self.content_layout.takeAt(idx)
         loading_widget.deleteLater()
 
-        # Handle rich SubtitleMessage or fallback to simple string
         if isinstance(result, dict) and "translated_text" in result:
             subtitle_message: SubtitleMessage = {
                 "translated_text": str(result.get("translated_text", "")),
@@ -194,26 +181,28 @@ class LiveSubtitlesOverlay(QWidget):
                 "end_sec": float(result.get("end_sec", 0.0)),
                 "duration_sec": float(result.get("duration_sec", 0.0)),
                 "source_text": str(result.get("source_text", "")),
+                **({k: v for k, v in {
+                    "segment_number": result.get("segment_number"),
+                    "avg_vad_confidence": result.get("avg_vad_confidence"),
+                    "translation_confidence": result.get("translation_confidence"),
+                }.items() if v is not None}),
             }
             self.message_history.append(subtitle_message)
             self.history.append(subtitle_message["translated_text"])
             self.signals._add_message.emit(subtitle_message)
         else:
-            # Backward-compatible simple string result
             text = str(result)
             new_label = QLabel(text)
             new_label.setWordWrap(True)
             new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             new_label.setStyleSheet("color: white; padding: 4px;")
-            new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
+            new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 15))
             self.content_layout.insertWidget(idx, new_label)
             self.history.append(text)
 
-        # Smooth scroll in main thread
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()))
 
-        # Continue with next task
         if self._pending_tasks:
             self._process_next_task()
 
@@ -227,17 +216,17 @@ class LiveSubtitlesOverlay(QWidget):
 
     def _build_ui(self):
         main = QVBoxLayout(self)
-        main.setContentsMargins(16, 16, 16, 16)
-        main.setSpacing(10)
+        main.setContentsMargins(8, 8, 8, 8)          # reduced from 12
+        main.setSpacing(4)                           # reduced from 8
 
-        # --- Top control bar (title, status, buttons) ---
+        # Top bar: title, status, buttons
         self.control_bar = QHBoxLayout()
-        self.control_bar.setContentsMargins(12, 10, 12, 10)
-        self.control_bar.setSpacing(12)
+        self.control_bar.setContentsMargins(8, 6, 8, 6)   # reduced from 10,8,10,8
+        self.control_bar.setSpacing(8)                   # reduced from 10
 
         if self.title:
             self.title_label = QLabel(self.title)
-            self.title_label.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold;")
+            self.title_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold;")  # 16 → 14
             self.control_bar.addWidget(self.title_label)
 
         self.status_label = QLabel("LIVE")
@@ -245,41 +234,56 @@ class LiveSubtitlesOverlay(QWidget):
             color: #ff4444;
             background: rgba(255, 50, 50, 0.25);
             border: 1px solid rgba(255, 100, 100, 0.4);
-            border-radius: 10px;
-            padding: 4px 14px;
+            border-radius: 6px;
+            padding: 2px 8px;
             font-weight: bold;
-            font-size: 15px;
-        """)
+            font-size: 12px;
+        """)  # reduced padding & size
         self.control_bar.addWidget(self.status_label)
         self.control_bar.addStretch()
 
         self.min_btn = QPushButton("Minimize")
-        self.min_btn.setFixedSize(38, 38)
+        clear_btn = QPushButton("Clear")
+        clear_btn.setFixedSize(28, 28)                # smaller buttons
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(180, 100, 100, 0.25);
+                color: white;
+                border-radius: 14px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QPushButton:hover { background: rgba(255, 80, 80, 0.5); }
+        """)
+        clear_btn.clicked.connect(self.clear)
+
+        self.min_btn.setFixedSize(28, 28)
         self.min_btn.setStyleSheet("""
             QPushButton {
                 background: rgba(100, 180, 255, 0.25);
                 color: white;
-                border-radius: 19px;
+                border-radius: 14px;
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 11px;
             }
             QPushButton:hover { background: rgba(100, 180, 255, 0.5); }
         """)
 
         close_btn = QPushButton("×")
-        close_btn.setFixedSize(38, 38)
+        close_btn.setFixedSize(28, 28)
         close_btn.setStyleSheet("""
             QPushButton {
                 background: rgba(255, 80, 80, 0.7);
                 color: white;
-                border-radius: 19px;
+                border-radius: 14px;
                 font-weight: bold;
-                font-size: 18px;
+                font-size: 15px;
             }
             QPushButton:hover { background: rgba(255, 50, 50, 1); }
         """)
         close_btn.clicked.connect(QApplication.quit)
 
+        self.control_bar.addWidget(clear_btn)
         self.control_bar.addWidget(self.min_btn)
         self.control_bar.addWidget(close_btn)
 
@@ -288,9 +292,9 @@ class LiveSubtitlesOverlay(QWidget):
         self.control_bar_widget.setCursor(Qt.CursorShape.OpenHandCursor)
         main.addWidget(self.control_bar_widget)
 
-        # --- Content area (scrollable only) ---
+        # Content area (scrollable)
         self.content_area = QVBoxLayout()
-        self.content_area.setSpacing(8)
+        self.content_area.setSpacing(4)              # reduced from 6
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -300,12 +304,11 @@ class LiveSubtitlesOverlay(QWidget):
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.content_layout.setSpacing(8)
-        self.content_layout.setContentsMargins(10, 10, 10, 10)
+        self.content_layout.setSpacing(4)            # reduced from 6
+        self.content_layout.setContentsMargins(6, 6, 6, 6)  # reduced from 8
         self.scroll.setWidget(self.content)
 
         self.content_area.addWidget(self.scroll, stretch=1)
-
         main.addLayout(self.content_area, stretch=1)
 
         self.min_btn.clicked.connect(self.toggle_minimize)
@@ -314,17 +317,25 @@ class LiveSubtitlesOverlay(QWidget):
 
     def _connect_signals(self):
         self.signals._add_message.connect(self._do_add_message)
-        self.signals._clear.connect(self.clear)
+        self.signals._clear.connect(self._do_clear)
         self.signals._toggle_minimize.connect(self.toggle_minimize)
 
+    def _do_clear(self) -> None:
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if widget := item.widget():
+                widget.deleteLater()
+        self.history.clear()
+        self.message_history.clear()
+
     def position_window_top_right(self, margin: int = 0) -> None:
-        """Position the overlay flush against the top-right corner of the primary screen."""
         screen = QApplication.primaryScreen().availableGeometry()
-        x = screen.right() - self.width() + 1  # +1 to account for window border/shadow
-        y = screen.top() - 1                   # flush to top
+        x = screen.right() - self.width() + 1
+        y = screen.top() - 1
         self.move(x, y)
 
     # --- PUBLIC API ---
+
     def add_message(
         self,
         translated_text: str,
@@ -332,49 +343,53 @@ class LiveSubtitlesOverlay(QWidget):
         start_sec: float = 0.0,
         end_sec: float = 0.0,
         duration_sec: float = 0.0,
-        source_text: str = "",
+        source_text: Optional[str] = None,
+        segment_number: Optional[int] = None,
+        avg_vad_confidence: Optional[float] = None,
+        translation_confidence: Optional[float] = None,
     ) -> None:
-        """Thread-safe add_message – displays translated_text with optional source_text below."""
+        """Add a message thread-safely; displays translated_text and, optionally, the source_text below."""
         if not translated_text or not str(translated_text).strip():
             return
-
         subtitle_message = {
             "translated_text": str(translated_text).strip(),
             "start_sec": start_sec,
             "end_sec": end_sec,
             "duration_sec": duration_sec,
-            "source_text": source_text.strip(),
+            "source_text": (source_text or "").strip(),
+            **({k: v for k, v in {
+                "segment_number": segment_number,
+                "avg_vad_confidence": avg_vad_confidence,
+                "translation_confidence": translation_confidence,
+            }.items() if v is not None}),
         }
         self.signals._add_message.emit(subtitle_message)
 
-    from typing import Awaitable
-    FuncType = Callable[..., Union[SubtitleMessage, str, Awaitable[SubtitleMessage | str]]]
+    FuncType = Callable[..., Union[SubtitleMessage, str, Awaitable[Union[SubtitleMessage, str]]]]
 
     def add_task(self, func: FuncType, *args, **kwargs) -> None:
         """
         Add a sync/async callable for sequential execution.
         Its return/awaited value is displayed as a message.
-        Displays a "Pending" row until processing starts, then replaces it with spinner + "Processing".
+        Displays a "Pending" row until processing starts, then a spinner + "Processing".
         """
         async def _wrapper() -> Union[SubtitleMessage, str]:
             result = func(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
             return result
-
-        coro = _wrapper()  # call it here to get the coroutine object
+        coro = _wrapper()
         self.signals._enqueue_task.emit(coro, kwargs)
 
     def _on_enqueue_task(self, coro: Awaitable[Union[SubtitleMessage, str]], kwargs: dict) -> None:
-        """Main-thread only: create Pending UI + queue real task"""
         loading_widget = QWidget()
         layout_pending = QHBoxLayout(loading_widget)
-        layout_pending.setContentsMargins(10, 8, 10, 8)
+        layout_pending.setContentsMargins(6, 4, 6, 4)    # reduced from 8,6,8,6
         layout_pending.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         pending_text = QLabel("Pending")
         pending_text.setStyleSheet("color: #aaaaaa;")
-        pending_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 20))
+        pending_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12))  # 13 → 12
         layout_pending.addStretch()
         layout_pending.addWidget(pending_text)
         layout_pending.addStretch()
@@ -391,15 +406,13 @@ class LiveSubtitlesOverlay(QWidget):
                 self._process_next_task()
 
     def clear(self):
-        """Remove all messages and reset transcript summary."""
+        """Remove all messages and reset transcript state."""
         self.signals._clear.emit()
 
     def _setup_spinner_animation(self, spinner_label: QLabel, parent_widget: QWidget) -> None:
-
         spinner_label.setStyleSheet("color: #ffff66;")
-        spinner_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 28))
+        spinner_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 16))  # 18 → 16
         spinner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠇"]
         current = 0
 
@@ -408,15 +421,10 @@ class LiveSubtitlesOverlay(QWidget):
             spinner_label.setText(frames[current])
             current = (current + 1) % len(frames)
 
-        # FIXED: Timer must be created in the GUI thread and parented to the overlay
-        timer = QTimer(self)  # parented to the main QWidget (GUI thread)
+        timer = QTimer(self)
         timer.timeout.connect(update_frame)
         timer.start(80)
-
-        # Store the timer on the parent_widget so we can stop it later
         parent_widget.setProperty("_spinner_timer", timer)
-
-        # Ensure timer stops if the widget is destroyed
         parent_widget.destroyed.connect(timer.stop)
 
     def toggle_minimize(self):
@@ -429,7 +437,6 @@ class LiveSubtitlesOverlay(QWidget):
                 item = self.content_area.layout().itemAt(i)
                 if item.widget():
                     item.widget().hide()
-
             self.control_bar.layout().setContentsMargins(16, 12, 16, 12)
             self.status_label.setText("LIVE • MINIMIZED")
             if hasattr(self, 'title_label'):
@@ -446,14 +453,12 @@ class LiveSubtitlesOverlay(QWidget):
                 if item.widget():
                     item.widget().show()
             self.content_area.layout().setEnabled(True)
-
             self.control_bar.layout().setContentsMargins(12, 10, 12, 10)
             self.status_label.setText("LIVE")
             self.min_btn.setText("Minimize")
             self._is_minimized = False
 
     def keyPressEvent(self, event):
-        """Global hotkeys: Ctrl+M = toggle minimize, Ctrl+Q/Esc = quit"""
         if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             if event.key() == Qt.Key.Key_M:
                 self.toggle_minimize()
@@ -466,98 +471,133 @@ class LiveSubtitlesOverlay(QWidget):
             return
         super().keyPressEvent(event)
 
-    # --- INTERNAL ----
+    # --- INTERNAL ---
+
     def _do_add_message(self, message: SubtitleMessage) -> None:
-        """Internal slot – receives the full SubtitleMessage dict."""
         translated_text = message["translated_text"]
         source_text = message.get("source_text", "")
         start_sec = message.get("start_sec", 0.0)
         end_sec = message.get("end_sec", 0.0)
         duration_sec = message.get("duration_sec", 0.0)
+        segment_number = message.get("segment_number")
+        avg_vad_conf = message.get("avg_vad_confidence")
+        trans_conf = message.get("translation_confidence")
 
         self.history.append(translated_text)
         self.message_history.append(message)
 
-        # Ultra-compact single-line container
         container = QWidget()
-        main_layout = QHBoxLayout(container)
-        main_layout.setSpacing(10)                   # reduced from 14
-        main_layout.setContentsMargins(12, 5, 12, 5)  # minimal vertical/horizontal margins
+        container.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Minimum   # Natural height only, no expansion
+        )
 
-        # Translated text – tight padding
+        main_layout = QHBoxLayout(container)
+        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(10, 6, 10, 6)
+
+        # === LEFT: Metadata column ===
+        meta_vbox = QVBoxLayout()
+        meta_vbox.setSpacing(4)
+        meta_vbox.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        if segment_number is not None:
+            seg_label = QLabel(f"#{segment_number}")
+            seg_label.setStyleSheet("""
+                color: rgba(100, 255, 100, 0.95);
+                background: rgba(0, 100, 0, 0.35);
+                border-radius: 6px;
+                padding: 4px 9px;
+                font-weight: bold;
+            """)
+            seg_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 13))
+            meta_vbox.addWidget(seg_label)
+
+        duration_label = QLabel(f"{duration_sec:.2f}s")
+        duration_label.setStyleSheet("color: rgba(180, 220, 255, 0.95);")
+        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
+        meta_vbox.addWidget(duration_label)
+
+        time_label = QLabel(f"{start_sec:05.2f} → {end_sec:05.2f}")
+        time_label.setStyleSheet("color: rgba(150, 180, 220, 0.85);")
+        time_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 9))
+        meta_vbox.addWidget(time_label)
+
+        def confidence_color(conf: Optional[float]) -> str:
+            if conf is None:
+                return "rgba(180, 180, 180, 0.7)"
+            if conf >= 0.90:
+                return "#4ade80"
+            elif conf >= 0.80:
+                return "#fbbf24"
+            else:
+                return "#f87171"
+
+        if avg_vad_conf is not None:
+            vad_label = QLabel(f"VAD {avg_vad_conf:.1%}")
+            vad_label.setStyleSheet(f"color: {confidence_color(avg_vad_conf)}; font-weight: bold;")
+            vad_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
+            meta_vbox.addWidget(vad_label)
+
+        if trans_conf is not None:
+            trans_label = QLabel(f"Trans {trans_conf:.1%}")
+            trans_label.setStyleSheet(f"color: {confidence_color(trans_conf)}; font-weight: bold;")
+            trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
+            meta_vbox.addWidget(trans_label)
+
+        # No stretch in meta column
+        main_layout.addLayout(meta_vbox)
+
+        # === RIGHT: Text column ===
+        text_vbox = QVBoxLayout()
+        text_vbox.setSpacing(3)
+        text_vbox.setContentsMargins(0, 0, 0, 0)
+
         trans_label = QLabel(translated_text)
         trans_label.setWordWrap(True)
-        trans_label.setStyleSheet(
-            "color: #ffffff; background: rgba(255, 255, 255, 0.08); "
-            "border-radius: 6px; padding: 6px 10px;"  # reduced from 8px 12px
-        )
-        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 16, QFont.Weight.Bold))
+        trans_label.setStyleSheet("color: white; background: transparent;")
+        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14, QFont.Weight.Normal))
+        text_vbox.addWidget(trans_label)
 
-        # Source text – minimal padding
         if source_text:
             src_label = QLabel(source_text)
             src_label.setWordWrap(True)
-            src_label.setStyleSheet(
-                "color: #aaccff; font-style: italic; background: rgba(100, 140, 255, 0.12); "
-                "border-radius: 6px; padding: 5px 8px;"   # reduced from 6px 10px
-            )
-            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12))
+            src_label.setStyleSheet("color: rgba(200, 200, 255, 0.75); font-style: italic;")
+            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10, QFont.Weight.Normal))
+            text_vbox.addWidget(src_label)
 
-            main_layout.addWidget(trans_label, stretch=6)
-            main_layout.addWidget(src_label, stretch=4)
-        else:
-            main_layout.addWidget(trans_label, stretch=1)
+        main_layout.addLayout(text_vbox, stretch=1)
 
-        # Timing info – super tight
-        timing_layout = QVBoxLayout()
-        timing_layout.setSpacing(2)                  # reduced from 3
-        timing_layout.setContentsMargins(0, 0, 0, 0)
-
-        duration_label = QLabel(f"↔ {duration_sec:.3f}s")
-        duration_label.setStyleSheet(
-            "color: #ffffaa; background: rgba(120, 120, 0, 0.3); "
-            "border-radius: 4px; padding: 2px 6px; font-weight: bold;"  # reduced padding
-        )
-        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
-
-        time_range = QLabel(f"{start_sec:.2f} → {end_sec:.2f}s")
-        time_range.setStyleSheet("color: #bbbbbb; font-size: 9px;")
-        time_range.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 9))
-
-        timing_layout.addWidget(duration_label, alignment=Qt.AlignmentFlag.AlignCenter)
-        timing_layout.addWidget(time_range, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        main_layout.addLayout(timing_layout)
-
-        # Minimal container styling
         container.setStyleSheet("""
             QWidget {
-                background: rgba(25, 30, 50, 0.45);
-                border-radius: 6px;                  # reduced from 8px
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(30, 35, 60, 0.6),
+                    stop:1 rgba(50, 60, 90, 0.5));
+                border-radius: 10px;
+                border: 1px solid rgba(80, 100, 140, 0.3);
             }
             QWidget:hover {
-                background: rgba(35, 40, 65, 0.6);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 rgba(40, 45, 80, 0.75),
+                    stop:1 rgba(60, 70, 110, 0.65));
+                border: 1px solid rgba(100, 140, 200, 0.4);
             }
         """)
 
         self.content_layout.addWidget(container)
-
         QTimer.singleShot(0, lambda: self._scroll_to_bottom_smooth())
 
-        # Removed summary update (line/char counts no longer displayed)
-        pass
 
     def _scroll_to_bottom_smooth(self) -> None:
-        """Smoothly scroll to the latest message."""
         scrollbar = self.scroll.verticalScrollBar()
-        QApplication.processEvents()  # Ensure layout is updated
+        QApplication.processEvents()
         QPropertyAnimation(
             scrollbar,
             b"value",
             self,
             startValue=scrollbar.value(),
             endValue=scrollbar.maximum(),
-            duration=300,  # ms
+            duration=300,
             easingCurve=QEasingCurve.Type.OutCubic,
         ).start()
 
@@ -574,12 +614,11 @@ class LiveSubtitlesOverlay(QWidget):
     @classmethod
     def create(cls, app: Optional[QApplication] = None, title: Optional[str] = None) -> 'LiveSubtitlesOverlay':
         """
-        One-liner to get a perfectly centered, always-on-top, live subtitle overlay.
-        Features (all automatic):
+        Instantiate the overlay, always positioned top-right, always-on-top, and thread-safe.
         - Creates QApplication if needed
         - Prevents quit on close/minimize
-        - Centers on main screen
-        - Graceful Ctrl+C shutdown
+        - Positions window right
+        - Handles Ctrl+C gracefully
         - Thread-safe .add_message()
         - Optional custom title
         """
@@ -597,7 +636,6 @@ class LiveSubtitlesOverlay(QWidget):
 
         def _do_center():
             overlay.updateGeometry()
-            # Position top-right (generic reusable logic)
             overlay.position_window_top_right(margin=30)
             overlay.logger.info("[green]Overlay positioned top-right[/]")
 
