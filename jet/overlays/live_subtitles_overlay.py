@@ -33,14 +33,17 @@ def _setup_logging():
 
 
 class SubtitleMessage(TypedDict):
-    translated_text: str          # Displayed prominently (e.g., English/target language)
+    translated_text: str
     start_sec: float
     end_sec: float
     duration_sec: float
-    source_text: str              # Original text (e.g., Japanese/source language)
+    source_text: str
     segment_number: NotRequired[int]
     avg_vad_confidence: NotRequired[float]
-    translation_confidence: NotRequired[float]
+    transcription_confidence: NotRequired[float]
+    transcription_quality: NotRequired[str]
+    translation_confidence: NotRequired[float]      # normalized 0.0–1.0 confidence
+    translation_quality: NotRequired[str]
 
 
 class _Signals(QObject):
@@ -184,7 +187,7 @@ class LiveSubtitlesOverlay(QWidget):
                 **({k: v for k, v in {
                     "segment_number": result.get("segment_number"),
                     "avg_vad_confidence": result.get("avg_vad_confidence"),
-                    "translation_confidence": result.get("translation_confidence"),
+                    "transcription_confidence": result.get("transcription_confidence"),
                 }.items() if v is not None}),
             }
             self.message_history.append(subtitle_message)
@@ -346,23 +349,35 @@ class LiveSubtitlesOverlay(QWidget):
         source_text: Optional[str] = None,
         segment_number: Optional[int] = None,
         avg_vad_confidence: Optional[float] = None,
-        translation_confidence: Optional[float] = None,
+        transcription_confidence: Optional[float] = None,
+        transcription_quality: Optional[str] = None,
+        translation_confidence: Optional[float] = None,   # new: 0.0–1.0
+        translation_quality: Optional[str] = None,
     ) -> None:
-        """Add a message thread-safely; displays translated_text and, optionally, the source_text below."""
+        """Add a message thread-safely"""
         if not translated_text or not str(translated_text).strip():
             return
-        subtitle_message = {
+
+        subtitle_message: SubtitleMessage = {
             "translated_text": str(translated_text).strip(),
             "start_sec": start_sec,
             "end_sec": end_sec,
             "duration_sec": duration_sec,
             "source_text": (source_text or "").strip(),
-            **({k: v for k, v in {
-                "segment_number": segment_number,
-                "avg_vad_confidence": avg_vad_confidence,
-                "translation_confidence": translation_confidence,
-            }.items() if v is not None}),
         }
+        if segment_number is not None:
+            subtitle_message["segment_number"] = segment_number
+        if avg_vad_confidence is not None:
+            subtitle_message["avg_vad_confidence"] = avg_vad_confidence
+        if transcription_confidence is not None:
+            subtitle_message["transcription_confidence"] = transcription_confidence
+        if transcription_quality is not None:
+            subtitle_message["transcription_quality"] = transcription_quality
+        if translation_confidence is not None:
+            subtitle_message["translation_confidence"] = translation_confidence
+        if translation_quality is not None:
+            subtitle_message["translation_quality"] = translation_quality
+
         self.signals._add_message.emit(subtitle_message)
 
     FuncType = Callable[..., Union[SubtitleMessage, str, Awaitable[Union[SubtitleMessage, str]]]]
@@ -475,117 +490,155 @@ class LiveSubtitlesOverlay(QWidget):
 
     def _do_add_message(self, message: SubtitleMessage) -> None:
         translated_text = message["translated_text"]
-        source_text = message.get("source_text", "")
-        start_sec = message.get("start_sec", 0.0)
-        end_sec = message.get("end_sec", 0.0)
-        duration_sec = message.get("duration_sec", 0.0)
-        segment_number = message.get("segment_number")
-        avg_vad_conf = message.get("avg_vad_confidence")
-        trans_conf = message.get("translation_confidence")
+        source_text     = message.get("source_text", "")
+        start_sec       = message.get("start_sec", 0.0)
+        end_sec         = message.get("end_sec", 0.0)
+        duration_sec    = message.get("duration_sec", 0.0)
+        segment_number  = message.get("segment_number")
+        vad_conf        = message.get("avg_vad_confidence")
+        tr_conf         = message.get("transcription_confidence")
+        tr_quality      = message.get("transcription_quality")
+        tl_conf         = message.get("translation_confidence")   # new
+        tl_quality      = message.get("translation_quality")
 
         self.history.append(translated_text)
         self.message_history.append(message)
 
         container = QWidget()
-        container.setSizePolicy(
-            QSizePolicy.Policy.Preferred,
-            QSizePolicy.Policy.Minimum   # Natural height only, no expansion
-        )
+        container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
 
-        main_layout = QHBoxLayout(container)
-        main_layout.setSpacing(12)
-        main_layout.setContentsMargins(10, 6, 10, 6)
+        # Main vertical layout: metadata on top, text below
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(4)
+        container_layout.setContentsMargins(8, 5, 8, 5)
 
-        # === LEFT: Metadata column ===
-        meta_vbox = QVBoxLayout()
-        meta_vbox.setSpacing(4)
-        meta_vbox.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # ── 1. Compact metadata row(s) ───────────────────────────────────────
+        meta_widget = QWidget()
+        meta_layout = QHBoxLayout(meta_widget)
+        meta_layout.setContentsMargins(0, 0, 0, 0)
+        meta_layout.setSpacing(8)
 
+        # Segment number pill
         if segment_number is not None:
-            seg_label = QLabel(f"#{segment_number}")
-            seg_label.setStyleSheet("""
-                color: rgba(100, 255, 100, 0.95);
-                background: rgba(0, 100, 0, 0.35);
-                border-radius: 6px;
-                padding: 4px 9px;
+            seg = QLabel(f"#{segment_number}")
+            seg.setStyleSheet("""
+                color: #aaffaa;
+                background: rgba(0, 120, 0, 0.45);
+                border-radius: 5px;
+                padding: 2px 8px;
                 font-weight: bold;
             """)
-            seg_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 13))
-            meta_vbox.addWidget(seg_label)
+            seg.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            meta_layout.addWidget(seg)
 
-        duration_label = QLabel(f"{duration_sec:.2f}s")
-        duration_label.setStyleSheet("color: rgba(180, 220, 255, 0.95);")
-        duration_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
-        meta_vbox.addWidget(duration_label)
+        # Duration
+        dur = QLabel(f"{duration_sec:.1f}s")
+        dur.setStyleSheet("color: #b0d0ff;")
+        dur.setFont(QFont("Segoe UI", 9))
+        meta_layout.addWidget(dur)
 
-        time_label = QLabel(f"{start_sec:05.2f} → {end_sec:05.2f}")
-        time_label.setStyleSheet("color: rgba(150, 180, 220, 0.85);")
-        time_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 9))
-        meta_vbox.addWidget(time_label)
+        # Time range
+        time_range = QLabel(f"{start_sec:.1f} – {end_sec:.1f}")
+        time_range.setStyleSheet("color: #90b0d0; font-size: 9pt;")
+        meta_layout.addWidget(time_range)
 
-        def confidence_color(conf: Optional[float]) -> str:
-            if conf is None:
-                return "rgba(180, 180, 180, 0.7)"
-            if conf >= 0.90:
-                return "#4ade80"
-            elif conf >= 0.80:
-                return "#fbbf24"
-            else:
-                return "#f87171"
+        # Confidence / Quality items (horizontal, compact)
+        quality_colors = {
+            "Very High": "#4ade80",
+            "High":      "#a3e635",
+            "Good":      "#fbbf24",
+            "Medium":    "#fb923c",
+            "Low":       "#f87171",
+            "N/A":       "#aaaaaa",
+        }
 
-        if avg_vad_conf is not None:
-            vad_label = QLabel(f"VAD {avg_vad_conf:.1%}")
-            vad_label.setStyleSheet(f"color: {confidence_color(avg_vad_conf)}; font-weight: bold;")
-            vad_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
-            meta_vbox.addWidget(vad_label)
+        def get_quality_style(q: str | None) -> str:
+            color = quality_colors.get(q or "N/A", "#aaaaaa")
+            return f"color: {color}; font-size:9pt; font-weight:bold;"
 
-        if trans_conf is not None:
-            trans_label = QLabel(f"Trans {trans_conf:.1%}")
-            trans_label.setStyleSheet(f"color: {confidence_color(trans_conf)}; font-weight: bold;")
-            trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10))
-            meta_vbox.addWidget(trans_label)
+        def conf_color(v: float | None) -> str:
+            if v is None: return "#aaaaaa"
+            val = v  # for normalized confidence, higher is already better
+            return "#4ade80" if val >= 0.90 else "#fbbf24" if val >= 0.75 else "#f87171"
 
-        # No stretch in meta column
-        main_layout.addLayout(meta_vbox)
+        if vad_conf is not None:
+            vad = QLabel(f"VAD {vad_conf:.0%}")
+            vad.setStyleSheet(f"color:{conf_color(vad_conf)}; font-weight:bold;")
+            vad.setFont(QFont("Segoe UI", 9))
+            vad.setToolTip("Average VAD confidence during voice detection")
+            meta_layout.addWidget(vad)
 
-        # === RIGHT: Text column ===
-        text_vbox = QVBoxLayout()
-        text_vbox.setSpacing(3)
-        text_vbox.setContentsMargins(0, 0, 0, 0)
+        if tr_conf is not None:
+            trc = QLabel(f"Tr {tr_conf:.0%}")
+            trc.setStyleSheet(f"color:{conf_color(tr_conf)}; font-weight:bold;")
+            trc.setFont(QFont("Segoe UI", 9))
+            trc.setToolTip("Transcription confidence (exp(avg logprob))")
+            meta_layout.addWidget(trc)
 
-        trans_label = QLabel(translated_text)
-        trans_label.setWordWrap(True)
-        trans_label.setStyleSheet("color: white; background: transparent;")
-        trans_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 14, QFont.Weight.Normal))
-        text_vbox.addWidget(trans_label)
+            if tr_quality:
+                trq = QLabel(tr_quality)
+                trq.setStyleSheet(get_quality_style(tr_quality))
+                trq.setToolTip("Transcription quality assessment")
+                meta_layout.addWidget(trq)
 
+        if tl_conf is not None:
+            tl_text = f"TL {tl_conf:.0%}"
+            tl_label = QLabel(tl_text)
+            tl_label.setStyleSheet(f"color:{conf_color(tl_conf)}; font-weight:bold;")
+            tl_label.setFont(QFont("Segoe UI", 9))
+            tl_label.setToolTip("Translation confidence (normalized 0–1, higher = better)")
+            meta_layout.addWidget(tl_label)
+            if tl_quality:
+                tlq = QLabel(tl_quality)
+                tlq.setStyleSheet(get_quality_style(tl_quality))
+                tlq.setToolTip("Translation quality assessment")
+                meta_layout.addWidget(tlq)
+
+        # Stretch to push content left
+        meta_layout.addStretch()
+        container_layout.addWidget(meta_widget)
+
+        # ── 2. Full-width text area below ─────────────────────────────────────
+        text_container = QWidget()
+        text_layout = QVBoxLayout(text_container)
+        text_layout.setContentsMargins(0, 2, 0, 2)
+        text_layout.setSpacing(2)
+
+        # Translated text (main line)
+        tr_label = QLabel(translated_text)
+        tr_label.setWordWrap(True)
+        tr_label.setStyleSheet("color: white;")
+        tr_label.setFont(QFont("Segoe UI", 13))
+        text_layout.addWidget(tr_label)
+
+        # Source text (if present)
         if source_text:
-            src_label = QLabel(source_text)
-            src_label.setWordWrap(True)
-            src_label.setStyleSheet("color: rgba(200, 200, 255, 0.75); font-style: italic;")
-            src_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 10, QFont.Weight.Normal))
-            text_vbox.addWidget(src_label)
+            src = QLabel(source_text)
+            src.setWordWrap(True)
+            src.setStyleSheet("color: #d0d0ff; font-style: italic;")
+            src.setFont(QFont("Segoe UI", 10))
+            text_layout.addWidget(src)
 
-        main_layout.addLayout(text_vbox, stretch=1)
+        container_layout.addWidget(text_container)
 
+        # Container background + hover
         container.setStyleSheet("""
             QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(30, 35, 60, 0.6),
-                    stop:1 rgba(50, 60, 90, 0.5));
-                border-radius: 10px;
-                border: 1px solid rgba(80, 100, 140, 0.3);
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                    stop:0 rgba(30,35,60,0.7),
+                    stop:1 rgba(50,60,90,0.6));
+                border-radius: 8px;
+                border: 1px solid rgba(90,120,160,0.4);
             }
             QWidget:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(40, 45, 80, 0.75),
-                    stop:1 rgba(60, 70, 110, 0.65));
-                border: 1px solid rgba(100, 140, 200, 0.4);
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+                    stop:0 rgba(40,45,75,0.85),
+                    stop:1 rgba(60,70,110,0.75));
             }
         """)
 
         self.content_layout.addWidget(container)
-        QTimer.singleShot(0, lambda: self._scroll_to_bottom_smooth())
+        QTimer.singleShot(0, self._scroll_to_bottom_smooth)
 
 
     def _scroll_to_bottom_smooth(self) -> None:
