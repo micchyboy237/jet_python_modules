@@ -35,6 +35,7 @@ llama-cpp-python -C cmake.args="-DGGML_BLAS=ON;-DGGML_BLAS_VENDOR=OpenBLAS"
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/pyannote-audio
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/translators
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/FunASR
 
 gradio
 pyppeteer # for rendering mermaid graph
