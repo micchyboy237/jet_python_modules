@@ -399,7 +399,7 @@ class LiveSubtitlesOverlay(QWidget):
             self.filter_toggle_btn.setText("⚙ VAD Filter")
 
     def _apply_filters(self) -> None:
-        """Re-render displayed messages based on selected VAD filter"""
+        """Re-render the entire visible list based on the selected VAD filter"""
         if self.vad_all.isChecked():
             min_vad = 0.0
         elif self.vad_high.isChecked():
@@ -409,13 +409,13 @@ class LiveSubtitlesOverlay(QWidget):
         else:
             min_vad = 0.0
 
-        # Clear current display
+        # Clear current displayed messages
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             if widget := item.widget():
                 widget.deleteLater()
 
-        # Re-add messages that meet the VAD threshold
+        # Re-add only those that pass the current filter
         for message in self.message_history:
             vad_conf = message.get("avg_vad_confidence", 1.0)
             if vad_conf >= min_vad:
@@ -734,11 +734,25 @@ class LiveSubtitlesOverlay(QWidget):
         self.content_layout.addWidget(container)
 
     def _do_add_message(self, message: SubtitleMessage) -> None:
-        """Updated to reuse the new rendering method"""
+        """Thread-safe entry point for new messages – now respects current VAD filter"""
         self.message_history.append(message)
         self.history.append(message["translated_text"])
 
-        self._render_message_widget(message)
+        # Determine current minimum VAD threshold from radio buttons
+        if hasattr(self, "vad_all") and self.vad_all.isChecked():
+            min_vad = 0.0
+        elif hasattr(self, "vad_high") and self.vad_high.isChecked():
+            min_vad = 0.7
+        elif hasattr(self, "vad_med") and self.vad_med.isChecked():
+            min_vad = 0.5
+        else:
+            min_vad = 0.0  # fallback – show everything
+
+        vad_conf = message.get("avg_vad_confidence", 1.0)
+
+        # Only render if it meets the current filter
+        if vad_conf >= min_vad:
+            self._render_message_widget(message)
 
         QTimer.singleShot(0, self._scroll_to_bottom_smooth)
 
