@@ -10,6 +10,7 @@ from typing import Iterator, List, Sequence, Tuple, TypedDict, Union
 import librosa
 import sounddevice as sd
 import numpy as np
+from tqdm import tqdm
 from jet.logger import logger
 import soundfile as sf  # <-- fast, supports many formats, free & popular
 from numpy.typing import NDArray
@@ -164,11 +165,13 @@ def resolve_audio_paths_by_groups(audio_dir: Union[str, Path]) -> dict[str, Segm
     console.print(table)
     return grouped_paths
 
+
 def get_input_channels() -> int:
     device_info = sd.query_devices(sd.default.device[0], 'input')
     channels = device_info['max_input_channels']
     logger.debug(f"Detected {channels} input channels")
     return channels
+
 
 def list_avfoundation_devices() -> str:
     """List available avfoundation devices and return the output."""
@@ -489,6 +492,7 @@ def merge_in_memory_chunks(
             merged.append(seg[:-overlap_samples] if len(seg) > overlap_samples else seg)
     return np.concatenate(merged, axis=0)
 
+
 def extract_audio_segment(
     audio_path: Union[str, Path, bytes, np.ndarray],
     *,
@@ -537,3 +541,29 @@ def extract_audio_segment(
         end_frame = min(int(end * sr), total_frames)
 
     return data[start_frame:end_frame], sr
+
+
+def load_audio_files_to_bytes(audio_files: List[str]) -> List[bytes]:
+    """
+    Load a list of audio file paths (as strings) into a list of raw bytes.
+    
+    Generic and reusable: accepts any format supported by the filesystem,
+    reads in binary mode, and returns immutable bytes objects ready for
+    in-memory processing (e.g., torchaudio.load from BytesIO).
+    """
+    audio_bytes_list: List[bytes] = []
+    
+    for file_path in tqdm(audio_files, desc="Loading audio files to bytes"):
+        path = Path(file_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"Audio file not found: {path}")
+        
+        with path.open("rb") as f:
+            audio_bytes = f.read()
+        
+        if not audio_bytes:
+            raise ValueError(f"Empty audio file: {path}")
+        
+        audio_bytes_list.append(audio_bytes)
+    
+    return audio_bytes_list
