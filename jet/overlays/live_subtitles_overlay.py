@@ -218,18 +218,24 @@ class LiveSubtitlesOverlay(QWidget):
         super().closeEvent(event)
 
     def _build_ui(self):
+        # === IMPORTS LOCAL TO METHOD (to fix UnboundLocalError) ===
+        from PyQt6.QtWidgets import (
+            QHBoxLayout, QVBoxLayout, QLabel, QToolButton, QGroupBox, QRadioButton, QWidget
+        )
+        from PyQt6.QtCore import Qt
+
         main = QVBoxLayout(self)
-        main.setContentsMargins(8, 8, 8, 8)          # reduced from 12
-        main.setSpacing(4)                           # reduced from 8
+        main.setContentsMargins(8, 8, 8, 8)
+        main.setSpacing(4)
 
         # Top bar: title, status, buttons
         self.control_bar = QHBoxLayout()
-        self.control_bar.setContentsMargins(8, 6, 8, 6)   # reduced from 10,8,10,8
-        self.control_bar.setSpacing(8)                   # reduced from 10
+        self.control_bar.setContentsMargins(8, 6, 8, 6)
+        self.control_bar.setSpacing(8)
 
         if self.title:
             self.title_label = QLabel(self.title)
-            self.title_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold;")  # 16 → 14
+            self.title_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold;")
             self.control_bar.addWidget(self.title_label)
 
         self.status_label = QLabel("LIVE")
@@ -241,13 +247,35 @@ class LiveSubtitlesOverlay(QWidget):
             padding: 2px 8px;
             font-weight: bold;
             font-size: 12px;
-        """)  # reduced padding & size
+        """)
         self.control_bar.addWidget(self.status_label)
         self.control_bar.addStretch()
 
-        self.min_btn = QPushButton("Minimize")
+        # === VAD FILTER TOGGLE BUTTON ===
+        self.filter_toggle_btn = QToolButton()
+        self.filter_toggle_btn.setText("⚙ VAD Filter")
+        self.filter_toggle_btn.setCheckable(True)
+        self.filter_toggle_btn.setFixedSize(78, 28)
+        self.filter_toggle_btn.setStyleSheet("""
+            QToolButton {
+                background: rgba(100, 140, 255, 0.25);
+                color: white;
+                border-radius: 14px;
+                font-weight: bold;
+                font-size: 11px;
+            }
+            QToolButton:checked {
+                background: rgba(100, 140, 255, 0.6);
+            }
+            QToolButton:hover {
+                background: rgba(100, 140, 255, 0.5);
+            }
+        """)
+        self.filter_toggle_btn.toggled.connect(self._toggle_filter_panel)
+        self.control_bar.addWidget(self.filter_toggle_btn)
+
         clear_btn = QPushButton("Clear")
-        clear_btn.setFixedSize(28, 28)                # smaller buttons
+        clear_btn.setFixedSize(28, 28)
         clear_btn.setStyleSheet("""
             QPushButton {
                 background: rgba(180, 100, 100, 0.25);
@@ -260,6 +288,7 @@ class LiveSubtitlesOverlay(QWidget):
         """)
         clear_btn.clicked.connect(self.clear)
 
+        self.min_btn = QPushButton("Minimize")
         self.min_btn.setFixedSize(28, 28)
         self.min_btn.setStyleSheet("""
             QPushButton {
@@ -290,14 +319,57 @@ class LiveSubtitlesOverlay(QWidget):
         self.control_bar.addWidget(self.min_btn)
         self.control_bar.addWidget(close_btn)
 
+        # === VAD FILTER PANEL (radio buttons, full width when shown) ===
+        self.filter_group = QGroupBox("VAD Confidence Filter")
+        self.filter_group.setStyleSheet("""
+            QGroupBox {
+                font-size: 11px;
+                font-weight: bold;
+                color: #ffffff;
+                margin-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 4px 0 4px;
+            }
+        """)
+
+        # Inner widget + layout to stretch full width
+        filter_widget = QWidget()
+        filter_layout = QHBoxLayout(filter_widget)
+        filter_layout.setContentsMargins(12, 12, 12, 12)
+        filter_layout.setSpacing(20)
+
+        self.vad_all = QRadioButton("All")
+        self.vad_high = QRadioButton("High (≥0.7)")
+        self.vad_med = QRadioButton("Medium (≥0.5)")
+
+        for btn in (self.vad_all, self.vad_high, self.vad_med):
+            btn.setStyleSheet("color: white; font-size: 11px;")
+            filter_layout.addWidget(btn)
+
+        filter_layout.addStretch()  # push buttons left
+
+        self.vad_all.setChecked(True)  # default
+        self.vad_all.toggled.connect(self._apply_filters)
+        self.vad_high.toggled.connect(self._apply_filters)
+        self.vad_med.toggled.connect(self._apply_filters)
+
+        self.filter_group.setLayout(filter_layout)
+        self.filter_group.setVisible(False)
+
+        # Insert filter group directly into main layout (below control bar)
+        main.addWidget(self.filter_group)
+
         self.control_bar_widget = QWidget()
         self.control_bar_widget.setLayout(self.control_bar)
         self.control_bar_widget.setCursor(Qt.CursorShape.OpenHandCursor)
         main.addWidget(self.control_bar_widget)
 
-        # Content area (scrollable)
+        # Content area (unchanged)
         self.content_area = QVBoxLayout()
-        self.content_area.setSpacing(4)              # reduced from 6
+        self.content_area.setSpacing(4)
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -307,8 +379,8 @@ class LiveSubtitlesOverlay(QWidget):
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.content_layout.setSpacing(4)            # reduced from 6
-        self.content_layout.setContentsMargins(6, 6, 6, 6)  # reduced from 8
+        self.content_layout.setSpacing(4)
+        self.content_layout.setContentsMargins(6, 6, 6, 6)
         self.scroll.setWidget(self.content)
 
         self.content_area.addWidget(self.scroll, stretch=1)
@@ -317,6 +389,39 @@ class LiveSubtitlesOverlay(QWidget):
         self.min_btn.clicked.connect(self.toggle_minimize)
         self._is_minimized = False
         self._original_size = None
+
+    def _toggle_filter_panel(self, checked: bool) -> None:
+        """Show/hide the VAD filter panel"""
+        self.filter_group.setVisible(checked)
+        if checked:
+            self.filter_toggle_btn.setText("✓ VAD Filter")
+        else:
+            self.filter_toggle_btn.setText("⚙ VAD Filter")
+
+    def _apply_filters(self) -> None:
+        """Re-render displayed messages based on selected VAD filter"""
+        if self.vad_all.isChecked():
+            min_vad = 0.0
+        elif self.vad_high.isChecked():
+            min_vad = 0.7
+        elif self.vad_med.isChecked():
+            min_vad = 0.5
+        else:
+            min_vad = 0.0
+
+        # Clear current display
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if widget := item.widget():
+                widget.deleteLater()
+
+        # Re-add messages that meet the VAD threshold
+        for message in self.message_history:
+            vad_conf = message.get("avg_vad_confidence", 1.0)
+            if vad_conf >= min_vad:
+                self._render_message_widget(message)
+
+        self._scroll_to_bottom_smooth()
 
     def _connect_signals(self):
         self.signals._add_message.connect(self._do_add_message)
@@ -488,37 +593,34 @@ class LiveSubtitlesOverlay(QWidget):
 
     # --- INTERNAL ---
 
-    def _do_add_message(self, message: SubtitleMessage) -> None:
+    def _render_message_widget(self, message: SubtitleMessage) -> None:
+        """Reusable method to create and add a single message widget.
+        Extracted from _do_add_message to support filtering without duplication."""
         translated_text = message["translated_text"]
-        source_text     = message.get("source_text", "")
-        start_sec       = message.get("start_sec", 0.0)
-        end_sec         = message.get("end_sec", 0.0)
-        duration_sec    = message.get("duration_sec", 0.0)
-        segment_number  = message.get("segment_number")
-        vad_conf        = message.get("avg_vad_confidence")
-        tr_conf         = message.get("transcription_confidence")
-        tr_quality      = message.get("transcription_quality")
-        tl_conf         = message.get("translation_confidence")   # new
-        tl_quality      = message.get("translation_quality")
-
-        self.history.append(translated_text)
-        self.message_history.append(message)
+        source_text = message.get("source_text", "")
+        duration_sec = message.get("duration_sec", 0.0)
+        start_sec = message.get("start_sec", 0.0)
+        end_sec = message.get("end_sec", 0.0)
+        segment_number = message.get("segment_number")
+        vad_conf = message.get("avg_vad_confidence")
+        tr_conf = message.get("transcription_confidence")
+        tr_quality = message.get("transcription_quality")
+        tl_conf = message.get("translation_confidence")
+        tl_quality = message.get("translation_quality")
 
         container = QWidget()
         container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
 
-        # Main vertical layout: metadata on top, text below
         container_layout = QVBoxLayout(container)
         container_layout.setSpacing(4)
         container_layout.setContentsMargins(8, 5, 8, 5)
 
-        # ── 1. Compact metadata row(s) ───────────────────────────────────────
+        # Metadata row
         meta_widget = QWidget()
         meta_layout = QHBoxLayout(meta_widget)
         meta_layout.setContentsMargins(0, 0, 0, 0)
         meta_layout.setSpacing(8)
 
-        # Segment number pill
         if segment_number is not None:
             seg = QLabel(f"#{segment_number}")
             seg.setStyleSheet("""
@@ -531,18 +633,15 @@ class LiveSubtitlesOverlay(QWidget):
             seg.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             meta_layout.addWidget(seg)
 
-        # Duration
         dur = QLabel(f"{duration_sec:.1f}s")
         dur.setStyleSheet("color: #b0d0ff;")
         dur.setFont(QFont("Segoe UI", 9))
         meta_layout.addWidget(dur)
 
-        # Time range
         time_range = QLabel(f"{start_sec:.1f} – {end_sec:.1f}")
         time_range.setStyleSheet("color: #90b0d0; font-size: 9pt;")
         meta_layout.addWidget(time_range)
 
-        # Confidence / Quality items (horizontal, compact)
         quality_colors = {
             "Very High": "#4ade80",
             "High":      "#a3e635",
@@ -558,8 +657,7 @@ class LiveSubtitlesOverlay(QWidget):
 
         def conf_color(v: float | None) -> str:
             if v is None: return "#aaaaaa"
-            val = v  # for normalized confidence, higher is already better
-            return "#4ade80" if val >= 0.90 else "#fbbf24" if val >= 0.75 else "#f87171"
+            return "#4ade80" if v >= 0.90 else "#fbbf24" if v >= 0.75 else "#f87171"
 
         if vad_conf is not None:
             vad = QLabel(f"VAD {vad_conf:.0%}")
@@ -582,36 +680,33 @@ class LiveSubtitlesOverlay(QWidget):
                 meta_layout.addWidget(trq)
 
         if tl_conf is not None:
-            tl_text = f"TL {tl_conf:.0%}"
-            tl_label = QLabel(tl_text)
+            tl_label = QLabel(f"TL {tl_conf:.0%}")
             tl_label.setStyleSheet(f"color:{conf_color(tl_conf)}; font-weight:bold;")
             tl_label.setFont(QFont("Segoe UI", 9))
             tl_label.setToolTip("Translation confidence (normalized 0–1, higher = better)")
             meta_layout.addWidget(tl_label)
+
             if tl_quality:
                 tlq = QLabel(tl_quality)
                 tlq.setStyleSheet(get_quality_style(tl_quality))
                 tlq.setToolTip("Translation quality assessment")
                 meta_layout.addWidget(tlq)
 
-        # Stretch to push content left
         meta_layout.addStretch()
         container_layout.addWidget(meta_widget)
 
-        # ── 2. Full-width text area below ─────────────────────────────────────
+        # Text area
         text_container = QWidget()
         text_layout = QVBoxLayout(text_container)
         text_layout.setContentsMargins(0, 2, 0, 2)
         text_layout.setSpacing(2)
 
-        # Translated text (main line)
         tr_label = QLabel(translated_text)
         tr_label.setWordWrap(True)
         tr_label.setStyleSheet("color: white;")
         tr_label.setFont(QFont("Segoe UI", 13))
         text_layout.addWidget(tr_label)
 
-        # Source text (if present)
         if source_text:
             src = QLabel(source_text)
             src.setWordWrap(True)
@@ -621,7 +716,6 @@ class LiveSubtitlesOverlay(QWidget):
 
         container_layout.addWidget(text_container)
 
-        # Container background + hover
         container.setStyleSheet("""
             QWidget {
                 background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
@@ -638,6 +732,14 @@ class LiveSubtitlesOverlay(QWidget):
         """)
 
         self.content_layout.addWidget(container)
+
+    def _do_add_message(self, message: SubtitleMessage) -> None:
+        """Updated to reuse the new rendering method"""
+        self.message_history.append(message)
+        self.history.append(message["translated_text"])
+
+        self._render_message_widget(message)
+
         QTimer.singleShot(0, self._scroll_to_bottom_smooth)
 
 
