@@ -1,5 +1,6 @@
 # speech_speakers_extractor.py
-from typing import List, TypedDict
+import io
+from typing import List, Sequence, TypedDict, Union
 from pathlib import Path
 import numpy as np
 import torch
@@ -10,9 +11,15 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, MofNComple
 
 # Silero VAD
 from silero_vad.utils_vad import get_speech_timestamps
+import torchaudio
+from tqdm import tqdm
+
+from jet.audio.utils import resolve_audio_paths
 
 console = Console()
 
+
+AudioInput = Union[str, Path, np.ndarray, torch.Tensor, bytes]
 
 class SpeechSpeakerSegment(TypedDict):
     idx: int
@@ -104,7 +111,7 @@ def _post_process_diarization(
 
 @torch.no_grad()
 def extract_speech_speakers(
-    audio: str | Path | np.ndarray | torch.Tensor,
+    audio: AudioInput,
     sampling_rate: int = 16000,
     time_resolution: int = 3,
     min_duration: float = 0.45,
@@ -138,7 +145,6 @@ def extract_speech_speakers(
 
     # --- Audio input handling ---
     if isinstance(audio, (str, Path)):
-        import torchaudio
         waveform, sr = torchaudio.load(str(audio))
         if waveform.shape[0] > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
@@ -146,16 +152,30 @@ def extract_speech_speakers(
             resampler = torchaudio.transforms.Resample(sr, sampling_rate)
             waveform = resampler(waveform)
         audio_tensor = waveform.squeeze(0)
+
+    elif isinstance(audio, bytes):
+        # Handle raw bytes (assumed to be a valid audio file in memory)
+        buffer = io.BytesIO(audio)
+        waveform, sr = torchaudio.load(buffer)
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        if sr != sampling_rate:
+            resampler = torchaudio.transforms.Resample(sr, sampling_rate)
+            waveform = resampler(waveform)
+        audio_tensor = waveform.squeeze(0)
+
     elif isinstance(audio, np.ndarray):
         audio_tensor = torch.from_numpy(audio.astype(np.float32))
         if audio_tensor.ndim > 1:
             audio_tensor = audio_tensor.mean(dim=0)
+
     elif isinstance(audio, torch.Tensor):
         audio_tensor = audio.float()
         if audio_tensor.ndim > 1 and audio_tensor.shape[0] > 1:
             audio_tensor = audio_tensor.mean(dim=0)
+
     else:
-        raise TypeError("audio must be file path, np.ndarray, or torch.Tensor")
+        raise TypeError("audio must be file path, bytes, np.ndarray, or torch.Tensor")
 
     audio_tensor = audio_tensor.unsqueeze(0)  # (1, T)
 
@@ -246,17 +266,112 @@ def extract_speech_speakers(
     return final_segments
 
 
-if __name__ == "__main__":
-    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
-    console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_file).name}")
+def batch_extract_speech_speakers(  # Renamed from extract_speech_speakers_from_files
+    audio_inputs: Sequence[AudioInput],  # Now accepts List[AudioInput] or any sequence
+    sampling_rate: int = 16000,
+    time_resolution: int = 3,
+    min_duration: float = 0.45,
+    max_gap: float = 0.35,
+    use_silero_vad: bool = True,
+    vad_threshold: float = 0.5,
+    min_speech_duration_ms: int = 500,
+    min_silence_duration_ms: int = 700,
+    speech_pad_ms: int = 30,
+) -> List[SpeechSpeakerSegment]:
+    """
+    Process multiple audio inputs sequentially, merging segments with adjusted timestamps.
+    Supports file paths, bytes, numpy arrays, and torch tensors.
+    """
+    all_segments: List[SpeechSpeakerSegment] = []
+    cumulative_duration = 0.0
 
-    segments = extract_speech_speakers(
-        audio_file,
+    with tqdm(total=len(audio_inputs), desc="Processing audio inputs", colour="cyan") as pbar:
+        for idx, audio_input in enumerate(audio_inputs):
+            # Get display name for progress
+            input_name = (
+                Path(audio_input).name if isinstance(audio_input, (str, Path))
+                else f"input_{idx}"
+                if isinstance(audio_input, (bytes, np.ndarray, torch.Tensor))
+                else "unknown"
+            )
+            console.print(f"[bold cyan]Processing {idx+1}/{len(audio_inputs)}: {input_name}[/bold cyan]")
+
+            # Get duration BEFORE processing (for file paths/bytes) or estimate for tensors/arrays
+            if isinstance(audio_input, (str, Path)):
+                waveform, sr = torchaudio.load(str(audio_input))
+                input_duration = waveform.shape[1] / sr
+            elif isinstance(audio_input, bytes):
+                buffer = io.BytesIO(audio_input)
+                waveform, sr = torchaudio.load(buffer)
+                input_duration = waveform.shape[1] / sr
+            else:  # np.ndarray or torch.Tensor
+                # Assume already at target sampling_rate or estimate
+                if isinstance(audio_input, torch.Tensor):
+                    input_duration = audio_input.shape[-1] / sampling_rate
+                else:  # np.ndarray
+                    input_duration = len(audio_input) / sampling_rate
+
+            # Run diarization on this input
+            input_segments = extract_speech_speakers(
+                audio=audio_input,
+                sampling_rate=sampling_rate,
+                time_resolution=time_resolution,
+                min_duration=min_duration,
+                max_gap=max_gap,
+                use_silero_vad=use_silero_vad,
+                vad_threshold=vad_threshold,
+                min_speech_duration_ms=min_speech_duration_ms,
+                min_silence_duration_ms=min_silence_duration_ms,
+                speech_pad_ms=speech_pad_ms,
+            )
+
+            # Adjust timestamps for sequential merging
+            for seg in input_segments:
+                seg["start"] += cumulative_duration
+                seg["end"] += cumulative_duration
+                seg["idx"] = len(all_segments)  # Re-index globally
+                all_segments.append(seg)
+
+            # Update cumulative duration
+            cumulative_duration += input_duration
+            pbar.update(1)
+            pbar.set_postfix({"segments": len(input_segments)})
+
+    console.print(f"[bold green]Processed {len(audio_inputs)} inputs with {len(all_segments)} total segments.[/bold green]")
+    return all_segments
+
+
+# if __name__ == "__main__":
+#     audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
+#     console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_file).name}")
+
+#     segments = extract_speech_speakers(
+#         audio_file,
+#         time_resolution=2,
+#         use_silero_vad=True,
+#     )
+
+#     console.print(f"\n[bold green]{len(segments)} final speaker segments:[/bold green]\n")
+#     for s in segments:
+#         console.print(
+#             f"[yellow][[/yellow] {s['start']:6.2f} - {s['end']:6.2f} [yellow]][/yellow] "
+#             f"{s['speaker']:>10} | {s['duration']:5.2f}s"
+#         )
+
+if __name__ == "__main__":
+    audio_dir = "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/live_subtitles/generated/live_subtitles_client_with_overlay/segments"
+    audio_files = resolve_audio_paths(audio_dir, recursive=True)
+    audio_files = audio_files[:5]
+
+    console.print("[bold magenta]Processing multiple audio files...[/bold magenta]")
+
+    segments = batch_extract_speech_speakers(
+        audio_inputs=audio_files,
         time_resolution=2,
         use_silero_vad=True,
     )
 
-    console.print(f"\n[bold green]{len(segments)} final speaker segments:[/bold green]\n")
+    console.print(f"\n[bold green]{len(segments)} final speaker segments across all files:[/bold green]\n")
     for s in segments:
         console.print(
             f"[yellow][[/yellow] {s['start']:6.2f} - {s['end']:6.2f} [yellow]][/yellow] "
