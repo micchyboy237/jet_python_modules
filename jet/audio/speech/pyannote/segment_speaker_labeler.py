@@ -64,9 +64,17 @@ class SegmentSpeakerLabeler:
         """
         self.device = torch.device("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
         self.model = Model.from_pretrained(embedding_model_name, use_auth_token=hf_token)
-        self.inference = Inference(self.model, window="whole")
-        self.inference.to(self.device)
-
+        # Use sliding-window inference (3s duration, 0.5s step) – this is the recommended
+        # way for pyannote/embedding and gracefully handles very short segments
+        # (prevents InstanceNorm1d crash when waveform collapses to 1 time step).
+        self.inference = Inference(
+            model=self.model,
+            duration=3.0,      # seconds
+            step=0.5,          # seconds – controls overlap, smaller = more robust
+            window="sliding",  # explicit for clarity
+        )
+        self.inference.to(self.device)  # move inference pipeline to GPU/CPU
+        
         self.distance_threshold = distance_threshold
         self.clustering_strategy = clustering_strategy
         self.n_clusters = n_clusters
@@ -75,12 +83,27 @@ class SegmentSpeakerLabeler:
         """Extract and L2-normalize speaker embeddings for all segments with progress bar."""
         embeddings: List[np.ndarray] = []
         for path in tqdm(segment_paths, desc="Extracting embeddings"):
-            emb: np.ndarray = self.inference(str(path))
-            if emb.ndim == 2:
-                emb = emb.squeeze(0)
-            elif emb.ndim > 2:
-                raise ValueError(f"Unexpected embedding shape {emb.shape} for {path}")
-            emb = emb / np.linalg.norm(emb)
+            result = self.inference(str(path))
+            # When using sliding window, result is SlidingWindowFeature
+            if hasattr(result, "data"):
+                emb_array = result.data  # shape: (n_windows, dim)
+                if emb_array.shape[0] == 0:
+                    raise ValueError(f"No windows extracted for very short segment: {path}")
+                # Average-pool over sliding windows to get one embedding per segment
+                emb = np.mean(emb_array, axis=0)
+            else:
+                # Fallback for whole-window mode (numpy array)
+                emb = result
+                if emb.ndim == 2:
+                    emb = emb.squeeze(0)
+                elif emb.ndim > 2:
+                    raise ValueError(f"Unexpected embedding shape {emb.shape} for {path}")
+
+            # L2 normalize
+            norm = np.linalg.norm(emb)
+            if norm == 0:
+                raise ValueError(f"Zero-norm embedding for {path} – silent or invalid audio?")
+            emb = emb / norm
             embeddings.append(emb)
         return np.stack(embeddings)
 
