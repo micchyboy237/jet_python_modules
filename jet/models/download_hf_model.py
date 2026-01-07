@@ -5,14 +5,13 @@ import time
 import sys
 import threading
 
-from typing import Union, Optional
+from typing import Optional
 from huggingface_hub import snapshot_download
 from huggingface_hub.utils import HfHubHTTPError
 from datetime import datetime
 
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR, XET_CACHE_DIR
-from jet.models.model_types import ModelType
 from jet.models.download_onnx_model import download_onnx_model
 from jet.models.utils import resolve_model_value
 from jet.models.onnx_model_checker import has_onnx_model_in_repo
@@ -168,9 +167,10 @@ def _has_safetensors_in_repo(repo_id: str) -> bool:
 
 
 def download_hf_model(
-    repo_id: Union[str, ModelType],
+    repo_id: str,
     cache_dir: str = MODELS_CACHE_DIR,
     timeout: float = 300.0,
+    clean_cache: bool = False,
 ) -> None:
     """
     Download a model from Hugging Face Hub.
@@ -182,7 +182,8 @@ def download_hf_model(
     except ValueError:
         model_path = repo_id
 
-    remove_download_cache()
+    if clean_cache:
+        remove_download_cache()
 
     # Resolve repo_id string once
     repo_id_str = str(model_path)
@@ -242,12 +243,13 @@ if __name__ == "__main__":
 
     try:
         logger.info(f"Removing lock files from cache directory: {cache_dir}")
-        download_hf_model(repo_id)
+        download_hf_model(repo_id, clean_cache=False)
 
         if has_onnx_model_in_repo(repo_id):
             download_onnx_model(repo_id)
 
-        remove_download_cache()
+        # Do not clean cache after successful download unless explicitly requested
+        # remove_download_cache()
 
         logger.info("Download completed")
     except Exception as e:
