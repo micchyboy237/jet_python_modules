@@ -18,6 +18,9 @@ from typing import Sequence
 from jet.file.utils import save_file
 from jet.logger import logger
 
+import torchaudio
+from torch import Tensor
+
 silero_model = load_silero_vad(onnx=False)
 
 AudioInput = Union[str, Path, np.ndarray, torch.Tensor, bytes]
@@ -306,11 +309,14 @@ def process_audio(
     sampling_rate: int = 16000,
     threshold: float = 0.3,
     low_threshold: float = 0.1,
-) -> VadResults:
+) -> tuple[VadResults, Tensor]:
     """Full computation pipeline: extract probabilities, segments, and metadata.
 
     Does NOT perform any file I/O. Returns structured results for further use or saving."""
     probs = extract_probs(audio, sampling_rate=sampling_rate)
+    # Load full waveform once for later segment extraction
+    wav = read_audio(str(audio), sampling_rate=sampling_rate).float()
+
     segments = extract_segments(
         probs=probs,
         threshold=threshold,
@@ -323,7 +329,81 @@ def process_audio(
         probs=probs.tolist(),
         segments=[seg.to_dict() for seg in segments],
         meta=meta,
-    )
+    ), wav
+
+
+def save_per_segment_data(
+    waveform: Tensor,
+    probs: np.ndarray,
+    energies: np.ndarray,
+    segments: List[SpeechSegment],
+    meta: dict,
+    sampling_rate: int,
+    output_dir: Path,
+) -> None:
+    """
+    Save individual segment data into subdirectories: segments/segment_<num>/
+
+    Each subdirectory contains:
+        sound.wav
+        probs.json
+        energy.json
+        probs_plot.png
+        energy_plot.png
+        meta.json
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    window_size = 512 if sampling_rate == 16000 else 256
+    hop_length = window_size  # Silero VAD uses non-overlapping windows
+
+    for seg in segments:
+        seg_dir = output_dir / f"segment_{seg.num:03d}"
+        seg_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Extract and save audio segment
+        start_sample = seg.frame_start * hop_length
+        end_sample = seg.frame_end * hop_length
+        seg_waveform = waveform[start_sample:end_sample]
+        # Ensure it's 1D
+        if seg_waveform.ndim > 1:
+            seg_waveform = seg_waveform.squeeze(0)
+        audio_path = seg_dir / "sound.wav"
+        torchaudio.save(str(audio_path), seg_waveform.unsqueeze(0), sampling_rate)
+
+        # 2. Crop probs and energies for this segment
+        seg_probs = probs[seg.frame_start:seg.frame_end]
+        seg_energies = energies[seg.frame_start:seg.frame_end]
+
+        # 3. Save per-segment probs
+        save_file(seg_probs.tolist(), seg_dir / "probs.json")
+
+        # 4. Save per-segment energy values (raw RMS)
+        save_file(seg_energies.tolist(), seg_dir / "energy.json")
+
+        # 5. Save per-segment meta
+        seg_meta = {
+            **meta,
+            "segment": seg.to_dict(timing_unit="seconds"),
+            "segment_frame_count": seg.frame_count,
+        }
+        save_file(seg_meta, seg_dir / "meta.json")
+
+        # 6. Save per-segment probability plot (zoomed)
+        save_probs_plot(
+            probs=seg_probs,
+            sampling_rate=sampling_rate,
+            segments=None,  # no need to highlight sub-segments
+            output_path=seg_dir / "probs_plot.png",
+        )
+
+        # 7. Save per-segment energy plot
+        save_energy_plot(
+            energies=seg_energies,
+            sampling_rate=sampling_rate,
+            segments=None,
+            output_path=seg_dir / "energy_plot.png",
+        )
 
 
 if __name__ == "__main__":
@@ -339,6 +419,8 @@ if __name__ == "__main__":
         threshold=0.3,
         low_threshold=0.1,
     )
+
+    results, full_waveform = results  # unpack
 
     # Save results
     save_file(results["probs"], OUTPUT_DIR / "probs.json")
@@ -363,3 +445,17 @@ if __name__ == "__main__":
         segments=[SpeechSegment(**seg) for seg in results["segments"]],
         output_path=OUTPUT_DIR / "energy_plot.png",
     )
+
+    # Reconstruct SpeechSegment objects for per-segment saving
+    segments_objs = [SpeechSegment(**seg) for seg in results["segments"]]
+
+    if segments_objs:
+        save_per_segment_data(
+            waveform=full_waveform,
+            probs=np.array(results["probs"]),
+            energies=energy,
+            segments=segments_objs,
+            meta=results["meta"],
+            sampling_rate=16000,
+            output_dir=OUTPUT_DIR / "segments",
+        )
