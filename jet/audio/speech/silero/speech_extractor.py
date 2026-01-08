@@ -13,6 +13,7 @@ import shutil
 import itertools
 import torch
 import numpy as np
+from typing import Sequence
 
 from jet.file.utils import save_file
 from jet.logger import logger
@@ -225,6 +226,81 @@ def extract_probs(audio: AudioInput, sampling_rate: int = 16000) -> np.ndarray:
     return probs
 
 
+def extract_frame_energy(
+    audio: AudioInput,
+    sampling_rate: int = 16000,
+) -> np.ndarray:
+    """
+    Compute RMS energy for each VAD frame using the same window/step as the Silero model.
+
+    Returns
+    -------
+    np.ndarray
+        1D array of RMS energy values (float) with length equal to number of frames.
+    """
+    wav = read_audio(str(audio), sampling_rate=sampling_rate).float()
+
+    window_size_samples = 512 if sampling_rate == 16000 else 256
+
+    energies = []
+    for i in range(0, len(wav), window_size_samples):
+        chunk = wav[i : i + window_size_samples]
+        if len(chunk) == 0:
+            continue
+        # Pad last incomplete frame to match VAD behavior
+        if len(chunk) < window_size_samples:
+            chunk = torch.nn.functional.pad(chunk, (0, window_size_samples - len(chunk)))
+        rms = torch.sqrt(torch.mean(chunk ** 2)).item()
+        energies.append(rms)
+
+    return np.array(energies)
+
+
+def save_energy_plot(
+    energies: np.ndarray,
+    sampling_rate: int = 16000,
+    segments: Optional[Sequence[SpeechSegment]] = None,
+    output_path: Union[str, Path] = "energy_plot.png",
+) -> None:
+    """
+    Save a visualization of frame-wise RMS audio energy over time.
+
+    Optionally highlights detected speech segments for comparison with probability plot.
+    """
+    window_size_samples = 512 if sampling_rate == 16000 else 256
+    frame_duration_s = window_size_samples / sampling_rate
+    times = np.arange(len(energies)) * frame_duration_s
+    output_path = str(output_path)
+
+    plt.figure(figsize=(14, 5))
+    plt.plot(times, energies, label="RMS Energy", color="purple")
+
+    if segments:
+        for seg in segments:
+            plt.axvspan(
+                seg.start_s,
+                seg.end_s,
+                alpha=0.3,
+                color="green",
+                label="Speech Segment" if seg.num == 1 else "",
+            )
+
+    plt.xlabel("Time (seconds)")
+    plt.ylabel("RMS Energy")
+    plt.title("Frame-wise Audio Energy (RMS)")
+    plt.legend(loc="upper right")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+
+    logger.log(
+        "\nSaved audio energy plot to: ",
+        output_path,
+        colors=["SUCCESS", "BRIGHT_SUCCESS"],
+    )
+
+
 def process_audio(
     audio: AudioInput,
     sampling_rate: int = 16000,
@@ -275,4 +351,15 @@ if __name__ == "__main__":
         sampling_rate=16000,
         segments=[SpeechSegment(**seg) for seg in results["segments"]],
         output_path=OUTPUT_DIR / "probs_plot.png",
+    )
+
+    energy = extract_frame_energy(audio_file, sampling_rate=16000)
+    save_file(energy, OUTPUT_DIR / "energy.json")
+
+    # Generate and save energy plot
+    save_energy_plot(
+        energies=energy,
+        sampling_rate=16000,
+        segments=[SpeechSegment(**seg) for seg in results["segments"]],
+        output_path=OUTPUT_DIR / "energy_plot.png",
     )
