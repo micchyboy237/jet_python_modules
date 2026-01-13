@@ -48,3 +48,7 @@ umap-learn
 unidecode
 uv
 viztracer
+
+# Beautiful windows resource usage tool
+asitop # Mac
+nvitop # Windows
