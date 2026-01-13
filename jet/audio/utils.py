@@ -82,10 +82,10 @@ AUDIO_EXTENSIONS = {
     ".webm", ".mp4", ".mkv", ".avi"
 }
 
-AudioInput = Union[str, Path, Sequence[Union[str, Path]]]
+ResolveAudioInput = Union[str, Path, Sequence[Union[str, Path]]]
 
 
-def resolve_audio_paths(audio_inputs: AudioInput, recursive: bool = False) -> list[str]:
+def resolve_audio_paths(audio_inputs: ResolveAudioInput, recursive: bool = False) -> list[str]:
     """
     Resolve single file, list, or directory into a sorted list of absolute audio file paths as strings.
     """
@@ -279,7 +279,7 @@ def split_audio(
     segment_duration: float = 20.0,
     overlap_duration: float = 2.0,
     sample_rate: int = 16000,
-) -> Iterator[AudioSegment]:
+) -> List[AudioSegment]:
     """
     Yield richly annotated audio segments with precise overlap information.
     """
@@ -299,6 +299,8 @@ def split_audio(
     pos = 0
     segment_index = 0
 
+    segments = []
+
     while pos < total_samples:
         end = min(pos + seg_samples, total_samples)
         segment = audio[pos:end]
@@ -312,19 +314,23 @@ def split_audio(
         overlaps_previous = (not is_first) and (ovl_samples > 0)
         overlaps_next = (not is_last) and (ovl_samples > 0)
 
-        yield AudioSegment(
-            segment=segment,
-            start_time=start_sec,
-            end_time=end_sec,
-            segment_index=segment_index,
-            is_first=is_first,
-            is_last=is_last,
-            overlaps_previous=overlaps_previous,
-            overlaps_next=overlaps_next,
+        segments.append(
+            AudioSegment(
+                segment=segment,
+                start_time=start_sec,
+                end_time=end_sec,
+                segment_index=segment_index,
+                is_first=is_first,
+                is_last=is_last,
+                overlaps_previous=overlaps_previous,
+                overlaps_next=overlaps_next,
+            )
         )
 
         pos += step_samples
         segment_index += 1
+
+    return segments
 
 
 def save_audio_chunks(
@@ -543,27 +549,38 @@ def extract_audio_segment(
     return data[start_frame:end_frame], sr
 
 
-def load_audio_files_to_bytes(audio_files: List[str]) -> List[bytes]:
+def load_audio_files_to_bytes(
+    audio_files: Union[str, Path, List[Union[str, Path]]]
+) -> List[bytes]:
     """
-    Load a list of audio file paths (as strings) into a list of raw bytes.
-    
-    Generic and reusable: accepts any format supported by the filesystem,
-    reads in binary mode, and returns immutable bytes objects ready for
+    Load one or more audio file paths (as str or Path, or list of such)
+    into a list of raw bytes.
+
+    Accepts:
+        - str or Path: Single file path
+        - List[str | Path]: List of file paths
+
+    Reads in binary mode and returns immutable bytes objects ready for
     in-memory processing (e.g., torchaudio.load from BytesIO).
     """
+    if isinstance(audio_files, (str, Path)):
+        paths = [audio_files]
+    else:
+        paths = list(audio_files)
+
     audio_bytes_list: List[bytes] = []
-    
-    for file_path in tqdm(audio_files, desc="Loading audio files to bytes"):
+
+    for file_path in tqdm(paths, desc="Loading audio files to bytes"):
         path = Path(file_path)
         if not path.is_file():
             raise FileNotFoundError(f"Audio file not found: {path}")
-        
+
         with path.open("rb") as f:
             audio_bytes = f.read()
-        
+
         if not audio_bytes:
             raise ValueError(f"Empty audio file: {path}")
-        
+
         audio_bytes_list.append(audio_bytes)
-    
+
     return audio_bytes_list

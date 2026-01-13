@@ -58,10 +58,19 @@ class SegmentStats(TypedDict):
     first_prob: float     # probability of the first frame in the segment
     last_prob: float      # probability of the last frame in the segment
 
+
+class VadMeta(TypedDict):
+    sampling_rate: int
+    window_size_samples: int
+    frame_duration_s: float
+    total_frames: int
+    total_duration_s: float
+
+
 class VadResults(TypedDict):
     probs: list[float]  # serialized for JSON compatibility
-    segments: List[dict]  # each segment already converted via to_dict()
-    meta: dict
+    segments: List[SpeechSegment]  # each segment already converted via to_dict()
+    meta: VadMeta
 
 
 def extract_segments(
@@ -145,20 +154,20 @@ def extract_segments(
     return raw_segments
 
 
-def extract_meta(probs: np.ndarray, sampling_rate: int = 16000) -> dict:
+def extract_meta(probs: np.ndarray, sampling_rate: int = 16000) -> VadMeta:
     """Extract metadata about the VAD processing from the probability array."""
     window_size_samples = 512 if sampling_rate == 16000 else 256
     frame_duration_s = window_size_samples / sampling_rate
 
     total_duration_s = round(len(probs) * frame_duration_s, 3)
 
-    return {
-        "sampling_rate": sampling_rate,
-        "window_size_samples": window_size_samples,
-        "frame_duration_s": round(frame_duration_s, 6),
-        "total_frames": len(probs),
-        "total_duration_s": total_duration_s,
-    }
+    return VadMeta(
+        sampling_rate=sampling_rate,
+        window_size_samples=window_size_samples,
+        frame_duration_s=round(frame_duration_s, 6),
+        total_frames=len(probs),
+        total_duration_s=total_duration_s,
+    )
 
 
 def save_probs_plot(
@@ -191,8 +200,6 @@ def save_probs_plot(
     plt.savefig(output_path, dpi=150)
     plt.close()
 
-    logger.log("\nSaved speech probability plot to: ", output_path, colors=["SUCCESS", "BRIGHT_SUCCESS"])
-
 
 def segment_passes_filters(
     seg: SpeechSegment,
@@ -211,8 +218,16 @@ def segment_passes_filters(
 
 
 def extract_probs(audio: AudioInput, sampling_rate: int = 16000) -> np.ndarray:
-    """Extract raw speech probabilities for the entire audio waveform."""
-    wav = read_audio(str(audio), sampling_rate=sampling_rate).float()
+    """Extract raw speech probabilities for the entire audio waveform.
+
+    Now supports direct torch.Tensor or np.ndarray input (already resampled).
+    """
+    if isinstance(audio, (torch.Tensor, np.ndarray)):
+        wav = torch.from_numpy(audio).float() if isinstance(audio, np.ndarray) else audio.float()
+        if wav.dim() > 1:
+            wav = wav.squeeze(0)  # Ensure shape (N,)
+    else:
+        wav = read_audio(str(audio), sampling_rate=sampling_rate).float()
 
     window_size_samples = 512 if sampling_rate == 16000 else 256
 
@@ -241,7 +256,12 @@ def extract_frame_energy(
     np.ndarray
         1D array of RMS energy values (float) with length equal to number of frames.
     """
-    wav = read_audio(str(audio), sampling_rate=sampling_rate).float()
+    if isinstance(audio, (torch.Tensor, np.ndarray)):
+        wav = torch.from_numpy(audio).float() if isinstance(audio, np.ndarray) else audio.float()
+        if wav.dim() > 1:
+            wav = wav.squeeze(0)
+    else:
+        wav = read_audio(str(audio), sampling_rate=sampling_rate).float()
 
     window_size_samples = 512 if sampling_rate == 16000 else 256
 
@@ -257,6 +277,20 @@ def extract_frame_energy(
         energies.append(rms)
 
     return np.array(energies)
+
+
+def classify_segment_quality(seg: SpeechSegment) -> Literal["high", "medium", "low"]:
+    """Assign quality category based on statistics."""
+    avg = seg.stats["avg_prob"]
+    pct = seg.stats["pct_above_threshold"]
+    dur = seg.duration_s
+
+    if avg >= 0.70 and pct >= 85.0 and dur >= 1.2:
+        return "high"
+    elif avg >= 0.45 and pct >= 60.0 and dur >= 0.6:
+        return "medium"
+    else:
+        return "low"
 
 
 def save_energy_plot(
@@ -297,12 +331,6 @@ def save_energy_plot(
     plt.savefig(output_path, dpi=150)
     plt.close()
 
-    logger.log(
-        "\nSaved audio energy plot to: ",
-        output_path,
-        colors=["SUCCESS", "BRIGHT_SUCCESS"],
-    )
-
 
 def process_audio(
     audio: AudioInput,
@@ -311,11 +339,21 @@ def process_audio(
     low_threshold: float = 0.1,
 ) -> tuple[VadResults, Tensor]:
     """Full computation pipeline: extract probabilities, segments, and metadata.
+    Does NOT perform any file I/O. Returns structured results for further use or saving.
 
-    Does NOT perform any file I/O. Returns structured results for further use or saving."""
-    probs = extract_probs(audio, sampling_rate=sampling_rate)
-    # Load full waveform once for later segment extraction
-    wav = read_audio(str(audio), sampling_rate=sampling_rate).float()
+    Supports both file paths and in-memory torch.Tensor/np.ndarray inputs.
+    """
+    # Load waveform only once
+    if isinstance(audio, (torch.Tensor, np.ndarray)):
+        wav = torch.from_numpy(audio).float() if isinstance(audio, np.ndarray) else audio.float()
+        if wav.dim() > 1:
+            wav = wav.squeeze(0)  # Ensure 1D
+    else:
+        # Fallback for file paths
+        wav = read_audio(str(audio), sampling_rate=sampling_rate).float()
+
+    # Extract probabilities using the same waveform
+    probs = extract_probs(wav, sampling_rate=sampling_rate)
 
     segments = extract_segments(
         probs=probs,
@@ -327,7 +365,7 @@ def process_audio(
 
     return VadResults(
         probs=probs.tolist(),
-        segments=[seg.to_dict() for seg in segments],
+        segments=segments,  # segments should be List[SpeechSegment]
         meta=meta,
     ), wav
 
@@ -337,73 +375,62 @@ def save_per_segment_data(
     probs: np.ndarray,
     energies: np.ndarray,
     segments: List[SpeechSegment],
-    meta: dict,
+    meta: VadMeta,
     sampling_rate: int,
     output_dir: Path,
-) -> None:
+) -> List[SpeechSegment]:
     """
     Save individual segment data into subdirectories: segments/segment_<num>/
-
-    Each subdirectory contains:
-        sound.wav
-        probs.json
-        energy.json
-        probs_plot.png
-        energy_plot.png
-        meta.json
+    Returns list of high-quality segments.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-
     window_size = 512 if sampling_rate == 16000 else 256
-    hop_length = window_size  # Silero VAD uses non-overlapping windows
+    hop_length = window_size
+
+    high_quality_segments = []
 
     for seg in segments:
         seg_dir = output_dir / f"segment_{seg.num:03d}"
         seg_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Extract and save audio segment
+        # Extract & save waveform
         start_sample = seg.frame_start * hop_length
         end_sample = seg.frame_end * hop_length
         seg_waveform = waveform[start_sample:end_sample]
-        # Ensure it's 1D
         if seg_waveform.ndim > 1:
             seg_waveform = seg_waveform.squeeze(0)
-        audio_path = seg_dir / "sound.wav"
-        torchaudio.save(str(audio_path), seg_waveform.unsqueeze(0), sampling_rate)
+        torchaudio.save(str(seg_dir / "sound.wav"), seg_waveform.unsqueeze(0), sampling_rate)
 
-        # 2. Crop probs and energies for this segment
         seg_probs = probs[seg.frame_start:seg.frame_end]
         seg_energies = energies[seg.frame_start:seg.frame_end]
 
-        # 3. Save per-segment probs
-        save_file(seg_probs.tolist(), seg_dir / "probs.json")
+        save_file(seg_probs.tolist(), seg_dir / "probs.json", verbose=False)
+        save_file(seg_energies.tolist(), seg_dir / "energy.json", verbose=False)
 
-        # 4. Save per-segment energy values (raw RMS)
-        save_file(seg_energies.tolist(), seg_dir / "energy.json")
+        # ── QUALITY CLASSIFICATION ───────────────────────────────────────
+        quality = classify_segment_quality(seg)
 
-        # 5. Save per-segment meta
         seg_meta = {
             **meta,
             "segment": seg.to_dict(timing_unit="seconds"),
             "segment_frame_count": seg.frame_count,
+            "quality": quality,                   # ← NEW
+            "quality_criteria": {                 # optional – good for debugging
+                "avg_prob": round(seg.stats["avg_prob"], 3),
+                "pct_above_threshold": seg.stats["pct_above_threshold"],
+                "duration_s": seg.duration_s,
+            }
         }
-        save_file(seg_meta, seg_dir / "meta.json")
+        save_file(seg_meta, seg_dir / "meta.json", verbose=False)
 
-        # 6. Save per-segment probability plot (zoomed)
-        save_probs_plot(
-            probs=seg_probs,
-            sampling_rate=sampling_rate,
-            segments=None,  # no need to highlight sub-segments
-            output_path=seg_dir / "probs_plot.png",
-        )
+        # plots...
+        save_probs_plot(seg_probs, sampling_rate, output_path=seg_dir / "probs_plot.png")
+        save_energy_plot(seg_energies, sampling_rate, output_path=seg_dir / "energy_plot.png")
 
-        # 7. Save per-segment energy plot
-        save_energy_plot(
-            energies=seg_energies,
-            sampling_rate=sampling_rate,
-            segments=None,
-            output_path=seg_dir / "energy_plot.png",
-        )
+        if quality == "high":
+            high_quality_segments.append(seg)
+
+    return high_quality_segments
 
 
 if __name__ == "__main__":
@@ -423,9 +450,9 @@ if __name__ == "__main__":
     results, full_waveform = results  # unpack
 
     # Save results
-    save_file(results["probs"], OUTPUT_DIR / "probs.json")
-    save_file(results["segments"], OUTPUT_DIR / "segments.json")
-    save_file(results["meta"], OUTPUT_DIR / "meta.json")
+    save_file(results["probs"], OUTPUT_DIR / "probs.json", verbose=False)
+    save_file(results["segments"], OUTPUT_DIR / "segments.json", verbose=False)
+    save_file(results["meta"], OUTPUT_DIR / "meta.json", verbose=False)
 
     # Generate and save plot
     save_probs_plot(
@@ -436,7 +463,7 @@ if __name__ == "__main__":
     )
 
     energy = extract_frame_energy(audio_file, sampling_rate=16000)
-    save_file(energy, OUTPUT_DIR / "energy.json")
+    save_file(energy.tolist(), OUTPUT_DIR / "energy.json", verbose=False)
 
     # Generate and save energy plot
     save_energy_plot(
@@ -448,9 +475,8 @@ if __name__ == "__main__":
 
     # Reconstruct SpeechSegment objects for per-segment saving
     segments_objs = [SpeechSegment(**seg) for seg in results["segments"]]
-
     if segments_objs:
-        save_per_segment_data(
+        high_quality_segs = save_per_segment_data(
             waveform=full_waveform,
             probs=np.array(results["probs"]),
             energies=energy,
@@ -459,3 +485,11 @@ if __name__ == "__main__":
             sampling_rate=16000,
             output_dir=OUTPUT_DIR / "segments",
         )
+
+        # Save only high-quality segments as one clean list
+        if high_quality_segs:
+            high_quality_data = [seg.to_dict(timing_unit="seconds") for seg in high_quality_segs]
+            save_file(high_quality_data, OUTPUT_DIR / "high_quality_segments.json", verbose=False)
+            logger.success(f"Saved {len(high_quality_data)} high-quality segments → high_quality_segments.json")
+        else:
+            logger.warning("No high-quality segments found.")
