@@ -45,14 +45,20 @@ include_files = [
     # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/pyrightconfig.json",
 
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/manifest.json",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/popup.html",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/popup.js",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/tabs.html",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/tabs.js",
+    "",
 
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/llm.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/context_engineering/00_COURSE/10_guides_zero_to_hero/01_min_prompt.py",
+    "",
 ]
 
 structure_include = [
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/protobuf/examples/basic_sample/",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/libs/context_engineering/self_refinement_lab/practical_examples/",
+    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/whisperX",
 ]
 structure_exclude = []
 
@@ -60,22 +66,16 @@ include_content = []
 exclude_content = []
 
 # Args defaults
-SHORTEN_FUNCTS = False
+SHORTEN_FUNCTS = False 
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = r"""
-Evaluate results
+Update popup with another button that opens a history of network requests and responses. Add best search and filters on top.
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
-- Write step by step analysis
-- Provide a single diff for each updated file
 """.strip()
 
-# DEFAULT_SYSTEM_MESSAGE = """
-# You don't use prior artifact knowledge and memory.
-# You write step by step analysis before providing the new code or diff changes for updated code.
-# """.strip()
 DEFAULT_SYSTEM_MESSAGE = """
 """.strip()
 
