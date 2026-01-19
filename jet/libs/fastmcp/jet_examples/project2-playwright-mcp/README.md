@@ -69,11 +69,28 @@ playwright:
 ### 3. Run the examples
 
 ```bash
-# Basic navigation & content extraction
+# Basic navigation & content extraction (now starts on your local SearXNG)
 python clients/simple_browser.py
 
-# Chained deep research (follows links, extracts content)
-python clients/deep_research.py
+# Or pass a custom search query
+python clients/simple_browser.py --url "http://jethros-macbook-air.local:8888/search?q=python%20asyncio"
+```
+
+## Running deep research (now bypasses SearXNG challenges)
+
+```bash
+# Basic run (regex only – should now work even with challenge pages)
+python clients/deep_research.py \
+  --url "http://jethros-macbook-air.local:8888/search?q=playwright%20mcp%20agents" \
+  -t "Playwright MCP agents" \
+  --max-depth 4
+
+# Smarter run with local LLM link scoring
+python clients/deep_research.py \
+  --url "http://jethros-macbook-air.local:8888/search?q=playwright%20mcp%20agents" \
+  -t "Playwright MCP agents" \
+  --use-llm \
+  --max-depth 3
 ```
 
 ## Project Structure
@@ -115,20 +132,36 @@ mcpServers:
       TIMEOUT: "45000"
 ```
 
-## Available Tools (2026 – common ones)
+## Available Tools (current server – January 2026)
 
-Most implementations expose at minimum:
+Your current playwright-mcp server exposes the following tools:
 
-- `navigate(url)`
-- `get_page_content(max_length?)`
-- `click(selector)`
-- `type(selector, text)`
-- `screenshot(full_page?)`
-- `wait_for_selector(selector, timeout?)`
-- `evaluate_js(code)`
-- `get_links()` / `find_elements()` (varies by fork)
+```text
+browser_close
+browser_resize
+browser_console_messages
+browser_handle_dialog
+browser_evaluate
+browser_file_upload
+browser_fill_form
+browser_install
+browser_press_key
+browser_type
+browser_navigate
+browser_navigate_back
+browser_network_requests
+browser_run_code
+browser_take_screenshot
+browser_snapshot           ← most important: structured accessibility tree/text
+browser_click
+browser_drag
+browser_hover
+browser_select_option
+browser_tabs
+browser_wait_for           ← very useful for reliability!
+```
 
-→ Always run `await client.list_tools()` first to see what's actually available
+> **Tip:** Always run `await client.list_tools()` to confirm which tools are available on your connected server.
 
 ## Running Tests
 

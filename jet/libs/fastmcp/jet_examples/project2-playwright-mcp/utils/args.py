@@ -45,8 +45,8 @@ def parse_common_args(
     parser.add_argument(
         "--url",
         "-u",
-        default=os.getenv("START_URL", "https://news.ycombinator.com"),
-        help="Starting URL for the browser",
+        default=os.getenv("START_URL", "START_URL=http://jethros-macbook-air.local:8888"),
+        help="Starting URL for the browser (e.g. local SearXNG search)",
     )
 
     parser.add_argument(

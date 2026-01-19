@@ -1,0 +1,7 @@
+mcpServers:
+  playwright:
+    transport: http
+    url: http://localhost:8931
+    # Optional: if your instance has auth
+    # headers:
+    #   Authorization: Bearer your-token-here
