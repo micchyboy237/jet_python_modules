@@ -1,0 +1,19 @@
+mcpServers:
+  financial:
+    command: python
+    args: ["mcp_servers/financial_analyzer/server.py"]
+    env:
+      LOG_LEVEL: ${LOG_LEVEL}
+    cwd: "."
+  rag:
+    command: python
+    args: ["mcp_servers/rag_search/server.py"]
+    env:
+      LOG_LEVEL: ${LOG_LEVEL}
+      EMBEDDINGS_URL: ${EMBEDDINGS_URL}
+    cwd: "."
+  # Optional: if you want to connect directly to llama.cpp as a sampling source
+  # (not a real MCP server, but useful for hybrid setups)
+  llm:
+    transport: http
+    url: ${LLAMA_CPP_URL}
