@@ -1,0 +1,7 @@
+mcpServers:
+  playwright:
+    transport: http
+    url: ${PLAYWRIGHT_MCP_URL}
+    # Optional: if your instance has auth
+    # headers:
+    #   Authorization: Bearer your-token-here
