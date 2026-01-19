@@ -4,7 +4,10 @@ import argparse
 import os
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import urlencode
 from dotenv import load_dotenv
+from rich.console import Console
+console = Console()
 
 
 # ── Project root detection (robust, works from any subdirectory) ──
@@ -33,6 +36,18 @@ def parse_common_args(
     parser = argparse.ArgumentParser(
         description=description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "query",
+        nargs="?",
+        help="Search query / topic (positional or via --query)"
+    )
+
+    parser.add_argument(
+        "--query", "-q",
+        help="Search query / topic",
+        dest="query_opt"  # avoid conflict with positional
     )
 
     parser.add_argument(
@@ -67,4 +82,22 @@ def parse_common_args(
     if add_extra_args_callback is not None:
         add_extra_args_callback(parser)
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    # Determine final query value (positional > --query > error)
+    query = args.query or args.query_opt
+    if not query:
+        raise ValueError("Please provide a query (positional argument or --query / -q)")
+
+    # Better URL construction + possibility to add future params easily
+    search_params = {
+        "q": query.strip(),
+        # "format": "html",          # optional
+        # "categories": "general",
+    }
+    query_string = urlencode(search_params)
+    start_url =  f"{args.url}?{query_string}"
+
+    args.query = query
+    args.url = start_url
+
+    return args

@@ -3,9 +3,12 @@
 
 import asyncio
 import yaml
+import json
 from rich.console import Console
 from fastmcp import Client
 from utils.args import parse_common_args
+from utils.config_utils import extract_code_block_content, yaml_to_dict, yaml_to_json
+from utils.page_utils import flatten_browser_snapshot
 
 console = Console()
 
@@ -16,8 +19,9 @@ async def main():
     console.print("Flow: SearXNG search → wait for results → click first link → wait for content → snapshot\n")
 
     console.print("[dim]Configuration used:[/dim]")
-    console.print(f"  • Config   : {args.config}")
+    console.print(f"  • Query   : {args.query}")
     console.print(f"  • URL      : {args.url}")
+    console.print(f"  • Config   : {args.config}")
     console.print(f"  • Headless : {args.headless}")
     console.print(f"  • Timeout  : {args.timeout} ms\n")
 
@@ -28,29 +32,36 @@ async def main():
     async with client:
         try:
             # 1. Go to search page
-            await client.call_tool("browser_navigate", {"url": args.url})
+            browser_navigate_result = await client.call_tool("browser_navigate", {"url": args.url})
+            browser_navigate_result_text = "\n\n\n".join(c.text for c in browser_navigate_result.content)
+            yaml_config = extract_code_block_content(browser_navigate_result_text)
+            config_dict = yaml_to_dict(yaml_config)
+            config_json = yaml_to_json(yaml_config)
+            page_info = flatten_browser_snapshot(config_json)
+            console.print(f"[pink]{browser_navigate_result_text}[/pink]")
             console.print(f"[cyan]Navigated to search:[/] {args.url}")
 
             # 2. Wait for search results to appear
-            await client.call_tool("browser_wait_for", {
-                "selector": "css=.results article, css=.result",
-                "state": "visible",
-                "timeout": args.timeout
+            browser_wait_for_search_result = await client.call_tool("browser_wait_for", {
+                "text": "results",           # or "SearXNG", "Playwright", "Next page", etc.
+                "time": 10, # Wait up to 10 seconds
             })
-            console.print("[green]✓ Search results loaded[/green]")
+            browser_wait_for_search_result_text = "\n\n\n".join(c.text for c in browser_wait_for_search_result.content)
+            console.print(f"[pink]{browser_wait_for_search_result_text}[/pink]")
+            console.print("[green]✓ Waited for search results text to appear[/green]")
 
             # 3. Click the first meaningful result link
             # Common robust selectors for SearXNG results
             first_result_selector = "css=.results article:first-child a.title, css=.result:first-child a[href^='http']"
 
-            await client.call_tool("browser_click", {
-                "selector": first_result_selector,
+            browser_wait_for_first_click_result = await client.call_tool("browser_click", {
+                "element": first_result_selector,
                 "timeout": 15000
             })
             console.print("[green]✓ Clicked first result link[/green]")
 
             # 4. Wait for article/main content to load
-            await client.call_tool("browser_wait_for", {
+            browser_wait_for_page_result = await client.call_tool("browser_wait_for", {
                 "selector": "css=article, main, .content, .post-content, css=h1",
                 "state": "visible",
                 "timeout": args.timeout

@@ -1,0 +1,896 @@
+[
+  {
+    "generic [active] [ref=e1]": [
+      {
+        "main [ref=e2]": [
+          {
+            "navigation [ref=e3]": [
+              {
+                "link \"About\" [ref=e4] [cursor=pointer]": [
+                  {
+                    "/url": "/info/en/about"
+                  },
+                  "img [ref=e5]",
+                  {
+                    "generic [ref=e9]": "About"
+                  }
+                ]
+              },
+              {
+                "link \"Preferences\" [ref=e10] [cursor=pointer]": [
+                  {
+                    "/url": "/preferences"
+                  },
+                  "img [ref=e11]",
+                  {
+                    "generic [ref=e13]": "Preferences"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "search [ref=e14]": [
+              {
+                "generic [ref=e15]": [
+                  {
+                    "link \"Display the front page\" [ref=e16] [cursor=pointer]": [
+                      {
+                        "/url": "/"
+                      },
+                      "img [ref=e17]"
+                    ]
+                  },
+                  {
+                    "generic [ref=e23]": [
+                      {
+                        "textbox \"Search for...\" [ref=e24]": "Playwright MCP agents"
+                      },
+                      {
+                        "button \"clear\" [ref=e25]": ["img [ref=e27]"]
+                      },
+                      {
+                        "button \"search\" [ref=e29]": ["img [ref=e31]"]
+                      },
+                      {
+                        "generic": ["list"]
+                      }
+                    ]
+                  },
+                  {
+                    "generic [ref=e35]": [
+                      {
+                        "button \"general\" [ref=e36] [cursor=pointer]": [
+                          "img [ref=e37]",
+                          {
+                            "generic [ref=e40]": "general"
+                          }
+                        ]
+                      },
+                      {
+                        "button \"images\" [ref=e41] [cursor=pointer]": [
+                          "img [ref=e42]",
+                          {
+                            "generic [ref=e46]": "images"
+                          }
+                        ]
+                      },
+                      {
+                        "button \"videos\" [ref=e47] [cursor=pointer]": [
+                          "img [ref=e48]",
+                          {
+                            "generic [ref=e50]": "videos"
+                          }
+                        ]
+                      },
+                      {
+                        "button \"news\" [ref=e51] [cursor=pointer]": [
+                          "img [ref=e52]",
+                          {
+                            "generic [ref=e57]": "news"
+                          }
+                        ]
+                      },
+                      {
+                        "button \"science\" [ref=e58] [cursor=pointer]": [
+                          "img [ref=e59]",
+                          {
+                            "generic [ref=e62]": "science"
+                          }
+                        ]
+                      },
+                      {
+                        "button \"it\" [ref=e63] [cursor=pointer]": [
+                          "img [ref=e64]",
+                          {
+                            "generic [ref=e67]": "it"
+                          }
+                        ]
+                      },
+                      {
+                        "button \"social media\" [ref=e68] [cursor=pointer]": [
+                          "img [ref=e69]",
+                          {
+                            "generic [ref=e74]": "social media"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "generic [ref=e75]": [
+                  {
+                    "combobox \"Search language\" [ref=e76]": [
+                      "option \"Default language [all]\"",
+                      "option \"Auto-detect (en-US)\" [selected]",
+                      "option \"Afrikaans [af] 🌐\"",
+                      "option \"Català [ca] 🌐\"",
+                      "option \"Cymraeg [cy] 🌐\"",
+                      "option \"Dansk [da] 🌐\"",
+                      "option \"Dansk-Danmark [da-DK] 🇩🇰\"",
+                      "option \"Deutsch [de] 🌐\"",
+                      "option \"Deutsch-Österreich [de-AT] 🇦🇹\"",
+                      "option \"Deutsch-Belgien [de-BE] 🇧🇪\"",
+                      "option \"Deutsch-Schweiz [de-CH] 🇨🇭\"",
+                      "option \"Deutsch-Deutschland [de-DE] 🇩🇪\"",
+                      "option \"Eesti [et] 🌐\"",
+                      "option \"Eesti-Eesti [et-EE] 🇪🇪\"",
+                      "option \"English [en] 🌐\"",
+                      "option \"English-Australia [en-AU] 🇦🇺\"",
+                      "option \"English-Canada [en-CA] 🇨🇦\"",
+                      "option \"English-United Kingdom [en-GB] 🇬🇧\"",
+                      "option \"English-Ireland [en-IE] 🇮🇪\"",
+                      "option \"English-India [en-IN] 🇮🇳\"",
+                      "option \"English-New Zealand [en-NZ] 🇳🇿\"",
+                      "option \"English-Philippines [en-PH] 🇵🇭\"",
+                      "option \"English-Pakistan [en-PK] 🇵🇰\"",
+                      "option \"English-Singapore [en-SG] 🇸🇬\"",
+                      "option \"English-United States [en-US] 🇺🇸\"",
+                      "option \"English-South Africa [en-ZA] 🇿🇦\"",
+                      "option \"Español [es] 🌐\"",
+                      "option \"Español-Argentina [es-AR] 🇦🇷\"",
+                      "option \"Español-Chile [es-CL] 🇨🇱\"",
+                      "option \"Español-Colombia [es-CO] 🇨🇴\"",
+                      "option \"Español-España [es-ES] 🇪🇸\"",
+                      "option \"Español-México [es-MX] 🇲🇽\"",
+                      "option \"Español-Perú [es-PE] 🇵🇪\"",
+                      "option \"Euskara [eu] 🌐\"",
+                      "option \"Français [fr] 🌐\"",
+                      "option \"Français-Belgique [fr-BE] 🇧🇪\"",
+                      "option \"Français-Canada [fr-CA] 🇨🇦\"",
+                      "option \"Français-Suisse [fr-CH] 🇨🇭\"",
+                      "option \"Français-France [fr-FR] 🇫🇷\"",
+                      "option \"Gaeilge [ga] 🌐\"",
+                      "option \"Galego [gl] 🌐\"",
+                      "option \"Gàidhlig [gd] 🌐\"",
+                      "option \"Hrvatski [hr] 🌐\"",
+                      "option \"Indonesia [id] 🌐\"",
+                      "option \"Indonesia-Indonesia [id-ID] 🇮🇩\"",
+                      "option \"Italiano [it] 🌐\"",
+                      "option \"Italiano-Svizzera [it-CH] 🇨🇭\"",
+                      "option \"Italiano-Italia [it-IT] 🇮🇹\"",
+                      "option \"Latviešu [lv] 🌐\"",
+                      "option \"Lietuvių [lt] 🌐\"",
+                      "option \"Magyar [hu] 🌐\"",
+                      "option \"Magyar-Magyarország [hu-HU] 🇭🇺\"",
+                      "option \"Nederlands [nl] 🌐\"",
+                      "option \"Nederlands-België [nl-BE] 🇧🇪\"",
+                      "option \"Nederlands-Nederland [nl-NL] 🇳🇱\"",
+                      "option \"Norsk Bokmål [nb] 🌐\"",
+                      "option \"Norsk Bokmål-Norge [nb-NO] 🇳🇴\"",
+                      "option \"Polski [pl] 🌐\"",
+                      "option \"Polski-Polska [pl-PL] 🇵🇱\"",
+                      "option \"Português [pt] 🌐\"",
+                      "option \"Português-Brasil [pt-BR] 🇧🇷\"",
+                      "option \"Português-Portugal [pt-PT] 🇵🇹\"",
+                      "option \"Română [ro] 🌐\"",
+                      "option \"Română-România [ro-RO] 🇷🇴\"",
+                      "option \"Shqip [sq] 🌐\"",
+                      "option \"Slovenčina [sk] 🌐\"",
+                      "option \"Slovenščina [sl] 🌐\"",
+                      "option \"Suomi [fi] 🌐\"",
+                      "option \"Suomi-Suomi [fi-FI] 🇫🇮\"",
+                      "option \"Svenska [sv] 🌐\"",
+                      "option \"Svenska-Sverige [sv-SE] 🇸🇪\"",
+                      "option \"Tiếng Việt [vi] 🌐\"",
+                      "option \"Tiếng Việt-Việt Nam [vi-VN] 🇻🇳\"",
+                      "option \"Türkçe [tr] 🌐\"",
+                      "option \"Türkçe-Türkiye [tr-TR] 🇹🇷\"",
+                      "option \"Íslenska [is] 🌐\"",
+                      "option \"Čeština [cs] 🌐\"",
+                      "option \"Čeština-Česko [cs-CZ] 🇨🇿\"",
+                      "option \"Ελληνικά [el] 🌐\"",
+                      "option \"Ελληνικά-Ελλάδα [el-GR] 🇬🇷\"",
+                      "option \"Беларуская [be] 🌐\"",
+                      "option \"Български [bg] 🌐\"",
+                      "option \"Български-България [bg-BG] 🇧🇬\"",
+                      "option \"Русский [ru] 🌐\"",
+                      "option \"Русский-Россия [ru-RU] 🇷🇺\"",
+                      "option \"Українська [uk] 🌐\"",
+                      "option \"עברית [he] 🇮🇱\"",
+                      "option \"اردو [ur] 🌐\"",
+                      "option \"العربية [ar] 🌐\"",
+                      "option \"العربية-المملكة العربية السعودية [ar-SA] 🇸🇦\"",
+                      "option \"فارسی [fa] 🌐\"",
+                      "option \"मराठी [mr] 🌐\"",
+                      "option \"हिन्दी [hi] 🌐\"",
+                      "option \"தமிழ் [ta] 🌐\"",
+                      "option \"తెలుగు [te] 🌐\"",
+                      "option \"ಕನ್ನಡ [kn] 🌐\"",
+                      "option \"മലയാളം [ml] 🌐\"",
+                      "option \"ไทย [th] 🌐\"",
+                      "option \"ไทย-ไทย [th-TH] 🇹🇭\"",
+                      "option \"中文 [zh] 🌐\"",
+                      "option \"中文-中国 [zh-CN] 🇨🇳\"",
+                      "option \"中文-中國香港特別行政區 [zh-HK] 🇭🇰\"",
+                      "option \"中文-台灣 [zh-TW] 🇹🇼\"",
+                      "option \"日本語 [ja] 🌐\"",
+                      "option \"日本語-日本 [ja-JP] 🇯🇵\"",
+                      "option \"한국어 [ko] 🌐\"",
+                      "option \"한국어-대한민국 [ko-KR] 🇰🇷\""
+                    ]
+                  },
+                  {
+                    "combobox \"Time range\" [ref=e77]": [
+                      "option \"Anytime\" [selected]",
+                      "option \"Last day\"",
+                      "option \"Last week\"",
+                      "option \"Last month\"",
+                      "option \"Last year\""
+                    ]
+                  },
+                  {
+                    "combobox \"SafeSearch\" [ref=e78]": [
+                      {
+                        "option \"Strict\"": "SafeSearch: Strict"
+                      },
+                      {
+                        "option \"Moderate\"": "SafeSearch: Moderate"
+                      },
+                      {
+                        "option \"None\" [selected]": "SafeSearch: None"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "generic [ref=e79]": [
+              {
+                "generic [ref=e80]": [
+                  {
+                    "group [ref=e82]": [
+                      "generic \"Response time: 1.6 seconds\" [ref=e83] [cursor=pointer]"
+                    ]
+                  },
+                  {
+                    "complementary \"Search URL\" [ref=e84]": [
+                      {
+                        "group [ref=e85]": [
+                          "generic \"Search URL\" [ref=e86] [cursor=pointer]"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "complementary \"Download results\" [ref=e87]": [
+                      {
+                        "group [ref=e88]": [
+                          "generic \"Download results\" [ref=e89] [cursor=pointer]"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "main [ref=e91]": [
+                  {
+                    "article [ref=e92]": [
+                      {
+                        "link \"https://github.com › microsoft › playwright-mcp\" [ref=e93] [cursor=pointer]": [
+                          {
+                            "/url": "https://github.com/microsoft/playwright-mcp"
+                          },
+                          {
+                            "generic [ref=e94]": [
+                              {
+                                "generic [ref=e95]": "https://github.com"
+                              },
+                              {
+                                "generic [ref=e97]": "› microsoft › playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"GitHub - microsoft/playwright-mcp: Playwright MCP server\" [level=3] [ref=e98]": [
+                          {
+                            "link \"GitHub - microsoft/playwright-mcp: Playwright MCP server\" [ref=e99] [cursor=pointer]": [
+                              {
+                                "/url": "https://github.com/microsoft/playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e100]": "Playwright MCP server. Contribute to microsoft/playwright-mcp development by creating an account on GitHub."
+                      },
+                      {
+                        "generic [ref=e101]": [
+                          {
+                            "generic [ref=e102]": "duckduckgo"
+                          },
+                          "img [ref=e103]",
+                          {
+                            "link \"cached\" [ref=e107] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://github.com/microsoft/playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e108]": [
+                      {
+                        "link \"https://playwright.dev › docs › test-agents\" [ref=e109] [cursor=pointer]": [
+                          {
+                            "/url": "https://playwright.dev/docs/test-agents"
+                          },
+                          {
+                            "generic [ref=e110]": [
+                              {
+                                "generic [ref=e111]": "https://playwright.dev"
+                              },
+                              {
+                                "generic [ref=e113]": "› docs › test-agents"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"Agents | Playwright\" [level=3] [ref=e114]": [
+                          {
+                            "link \"Agents | Playwright\" [ref=e115] [cursor=pointer]": [
+                              {
+                                "/url": "https://playwright.dev/docs/test-agents"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e116]": "Playwright Test Agents Introduction Playwright comes with three Playwright Test Agents out of the box: 🎭 planner, 🎭 generator and 🎭 healer. These agents can be used independently, sequentially, or as the chained calls in the agentic loop. Using them sequentially will produce test coverage for your product. 🎭 planner explores the app and produces a Markdown test plan 🎭 generator ..."
+                      },
+                      {
+                        "generic [ref=e117]": [
+                          {
+                            "generic [ref=e118]": "duckduckgo"
+                          },
+                          "img [ref=e119]",
+                          {
+                            "link \"cached\" [ref=e123] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://playwright.dev/docs/test-agents"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e124]": [
+                      {
+                        "link \"https://www.awesome-testing.com › 2025 › 10 › playwright-agents\" [ref=e125] [cursor=pointer]": [
+                          {
+                            "/url": "https://www.awesome-testing.com/2025/10/playwright-agents"
+                          },
+                          {
+                            "generic [ref=e126]": [
+                              {
+                                "generic [ref=e127]": "https://www.awesome-testing.com"
+                              },
+                              {
+                                "generic [ref=e129]": "› 2025 › 10 › playwright-agents"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"Understanding Playwright Agents | Awesome Testing\" [level=3] [ref=e130]": [
+                          {
+                            "link \"Understanding Playwright Agents | Awesome Testing\" [ref=e131] [cursor=pointer]": [
+                              {
+                                "/url": "https://www.awesome-testing.com/2025/10/playwright-agents"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e132]": "A deep dive into Playwright Agents and the Model Context Protocol (MCP) — how Microsoft\'s latest AI-powered Playwright release automates test planning, script generation, and self-healing browser tests across Chrome, Firefox, and WebKit."
+                      },
+                      {
+                        "generic [ref=e133]": [
+                          {
+                            "generic [ref=e134]": "duckduckgo"
+                          },
+                          "img [ref=e135]",
+                          {
+                            "link \"cached\" [ref=e139] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://www.awesome-testing.com/2025/10/playwright-agents"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e140]": [
+                      {
+                        "link \"https://techcommunity.microsoft.com › blog › azuredevcommunityblog › how-to-integrate-playwright-mcp-for-ai-driven-test-automation › 4470372\" [ref=e141] [cursor=pointer]": [
+                          {
+                            "/url": "https://techcommunity.microsoft.com/blog/azuredevcommunityblog/how-to-integrate-playwright-mcp-for-ai-driven-test-automation/4470372"
+                          },
+                          {
+                            "generic [ref=e142]": [
+                              {
+                                "generic [ref=e143]": "https://techcommunity.microsoft.com"
+                              },
+                              {
+                                "generic [ref=e145]": "› blog › azuredevcommunityblog › how-to-integrate-playwright-mcp-for-ai-driven-test-automation › 4470372"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"How to Integrate Playwright MCP for AI-Driven Test Automation ...\" [level=3] [ref=e146]": [
+                          {
+                            "link \"How to Integrate Playwright MCP for AI-Driven Test Automation ...\" [ref=e147] [cursor=pointer]": [
+                              {
+                                "/url": "https://techcommunity.microsoft.com/blog/azuredevcommunityblog/how-to-integrate-playwright-mcp-for-ai-driven-test-automation/4470372"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e148]": "Where there will be an orchestrator agent and it has the Subagents - Test case Generator and Playwright MCP agent Goal : from the application screenshot and user requirements the agent should generate the manual test cases and execute those manual testcases using playwright MCP then it has to create the Playwright scripts in Typescript."
+                      },
+                      {
+                        "generic [ref=e149]": [
+                          {
+                            "generic [ref=e150]": "duckduckgo"
+                          },
+                          "img [ref=e151]",
+                          {
+                            "link \"cached\" [ref=e155] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://techcommunity.microsoft.com/blog/azuredevcommunityblog/how-to-integrate-playwright-mcp-for-ai-driven-test-automation/4470372"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e156]": [
+                      {
+                        "link \"https://medium.com › @bluudit › playwright-mcp-comprehensive-guide-to-ai-powered-browser-automation-in-2025-712c9fd6cffa\" [ref=e157] [cursor=pointer]": [
+                          {
+                            "/url": "https://medium.com/@bluudit/playwright-mcp-comprehensive-guide-to-ai-powered-browser-automation-in-2025-712c9fd6cffa"
+                          },
+                          {
+                            "generic [ref=e158]": [
+                              {
+                                "generic [ref=e159]": "https://medium.com"
+                              },
+                              {
+                                "generic [ref=e161]": "› @bluudit › playwright-mcp-comprehensive-guide-to-ai-powered-browser-automation-in-2025-712c9fd6cffa"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"Playwright MCP: Comprehensive Guide to AI-Powered Browser ... - Medium\" [level=3] [ref=e162]": [
+                          {
+                            "link \"Playwright MCP: Comprehensive Guide to AI-Powered Browser ... - Medium\" [ref=e163] [cursor=pointer]": [
+                              {
+                                "/url": "https://medium.com/@bluudit/playwright-mcp-comprehensive-guide-to-ai-powered-browser-automation-in-2025-712c9fd6cffa"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e164]": "Playwright MCP is a Model Context Protocol server that enables LLMs and AI agents to automate browser interactions using Playwright, an open-source tool by Microsoft for cross-browser testing."
+                      },
+                      {
+                        "generic [ref=e165]": [
+                          {
+                            "generic [ref=e166]": "duckduckgo"
+                          },
+                          "img [ref=e167]",
+                          {
+                            "link \"cached\" [ref=e171] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://medium.com/@bluudit/playwright-mcp-comprehensive-guide-to-ai-powered-browser-automation-in-2025-712c9fd6cffa"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e172]": [
+                      {
+                        "link \"https://dev.to › aykutde96 › configuring-playwright-mcp-like-a-pro-custom-headers-cookies-and-smarter-agents-237g\" [ref=e173] [cursor=pointer]": [
+                          {
+                            "/url": "https://dev.to/aykutde96/configuring-playwright-mcp-like-a-pro-custom-headers-cookies-and-smarter-agents-237g"
+                          },
+                          {
+                            "generic [ref=e174]": [
+                              {
+                                "generic [ref=e175]": "https://dev.to"
+                              },
+                              {
+                                "generic [ref=e177]": "› aykutde96 › configuring-playwright-mcp-like-a-pro-custom-headers-cookies-and-smarter-agents-237g"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"Configuring Playwright MCP Like a Pro: Custom Headers, Cookies, and ...\" [level=3] [ref=e178]": [
+                          {
+                            "link \"Configuring Playwright MCP Like a Pro: Custom Headers, Cookies, and ...\" [ref=e179] [cursor=pointer]": [
+                              {
+                                "/url": "https://dev.to/aykutde96/configuring-playwright-mcp-like-a-pro-custom-headers-cookies-and-smarter-agents-237g"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e180]": "Playwright MCP server allows you to run JavaScript evaluate commands. For example, you can add a step like the following to the Planner agent\'s MD file: When you have finished manually testing, add a thick red border around the specific areas that have been tested At the end of the analysis, the browser view looks like this:"
+                      },
+                      {
+                        "generic [ref=e181]": [
+                          {
+                            "generic [ref=e182]": "duckduckgo"
+                          },
+                          "img [ref=e183]",
+                          {
+                            "link \"cached\" [ref=e187] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://dev.to/aykutde96/configuring-playwright-mcp-like-a-pro-custom-headers-cookies-and-smarter-agents-237g"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e188]": [
+                      {
+                        "link \"https://www.youtube.com › watch\" [ref=e189] [cursor=pointer]": [
+                          {
+                            "/url": "https://www.youtube.com/watch?v=S4qzP07ZkOg"
+                          },
+                          {
+                            "generic [ref=e190]": [
+                              {
+                                "generic [ref=e191]": "https://www.youtube.com"
+                              },
+                              {
+                                "generic [ref=e193]": "› watch"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"Playwright Live - Playwright Agents & Playwright MCP\" [level=3] [ref=e194]": [
+                          {
+                            "link \"Playwright Live - Playwright Agents & Playwright MCP\" [ref=e195] [cursor=pointer]": [
+                              {
+                                "/url": "https://www.youtube.com/watch?v=S4qzP07ZkOg"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e196]": "Join us for a Playwright Live session where we show off our latest update: Playwright Agents. Let\'s walk though how to use the planner agent so you can gener..."
+                      },
+                      {
+                        "generic [ref=e197]": [
+                          {
+                            "generic [ref=e198]": "duckduckgo"
+                          },
+                          "img [ref=e199]",
+                          {
+                            "link \"cached\" [ref=e203] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://www.youtube.com/watch?v=S4qzP07ZkOg"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e204]": [
+                      {
+                        "link \"https://bestmcpserver.info › aitools › playwright-mcp\" [ref=e205] [cursor=pointer]": [
+                          {
+                            "/url": "https://bestmcpserver.info/aitools/playwright-mcp/"
+                          },
+                          {
+                            "generic [ref=e206]": [
+                              {
+                                "generic [ref=e207]": "https://bestmcpserver.info"
+                              },
+                              {
+                                "generic [ref=e209]": "› aitools › playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"Playwright MCP - Enable Browser Automation via Model Context Protocol\" [level=3] [ref=e210]": [
+                          {
+                            "link \"Playwright MCP - Enable Browser Automation via Model Context Protocol\" [ref=e211] [cursor=pointer]": [
+                              {
+                                "/url": "https://bestmcpserver.info/aitools/playwright-mcp/"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e212]": "Playwright-MCP connects AI agents to Playwright, enabling browser automation and interaction through the Model Context Protocol (MCP). Ideal for testing, crawling, and AI-based automation tasks."
+                      },
+                      {
+                        "generic [ref=e213]": [
+                          {
+                            "generic [ref=e214]": "duckduckgo"
+                          },
+                          "img [ref=e215]",
+                          {
+                            "link \"cached\" [ref=e219] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://bestmcpserver.info/aitools/playwright-mcp/"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e220]": [
+                      {
+                        "link \"https://testcollab.com › blog › playwright-mcp\" [ref=e221] [cursor=pointer]": [
+                          {
+                            "/url": "https://testcollab.com/blog/playwright-mcp"
+                          },
+                          {
+                            "generic [ref=e222]": [
+                              {
+                                "generic [ref=e223]": "https://testcollab.com"
+                              },
+                              {
+                                "generic [ref=e225]": "› blog › playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"What is Playwright MCP? and how to use it in your testing workflow?\" [level=3] [ref=e226]": [
+                          {
+                            "link \"What is Playwright MCP? and how to use it in your testing workflow?\" [ref=e227] [cursor=pointer]": [
+                              {
+                                "/url": "https://testcollab.com/blog/playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e228]": "Learn how Playwright MCP enables AI-powered browser testing with natural language and structured automation. See real-world use cases, setup steps, and how QA Copilot takes it further with smarter, app-trained test execution."
+                      },
+                      {
+                        "generic [ref=e229]": [
+                          {
+                            "generic [ref=e230]": "duckduckgo"
+                          },
+                          "img [ref=e231]",
+                          {
+                            "link \"cached\" [ref=e235] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://testcollab.com/blog/playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "article [ref=e236]": [
+                      {
+                        "link \"https://www.mcpcurator.com › mcp › playwright-mcp\" [ref=e237] [cursor=pointer]": [
+                          {
+                            "/url": "https://www.mcpcurator.com/mcp/playwright-mcp"
+                          },
+                          {
+                            "generic [ref=e238]": [
+                              {
+                                "generic [ref=e239]": "https://www.mcpcurator.com"
+                              },
+                              {
+                                "generic [ref=e241]": "› mcp › playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "heading \"Playwright MCP - Automation MCP Server | MCP Curator\" [level=3] [ref=e242]": [
+                          {
+                            "link \"Playwright MCP - Automation MCP Server | MCP Curator\" [ref=e243] [cursor=pointer]": [
+                              {
+                                "/url": "https://www.mcpcurator.com/mcp/playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "paragraph [ref=e244]": "Microsoft\'s official Playwright MCP server for browser automation and web testing Learn how to install, configure and use Playwright MCP MCP server. Includes setup instructions, configuration examples, and usage documentation."
+                      },
+                      {
+                        "generic [ref=e245]": [
+                          {
+                            "generic [ref=e246]": "duckduckgo"
+                          },
+                          "img [ref=e247]",
+                          {
+                            "link \"cached\" [ref=e251] [cursor=pointer]": [
+                              {
+                                "/url": "https://web.archive.org/web/https://www.mcpcurator.com/mcp/playwright-mcp"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "generic": [
+                  {
+                    "link \"Back to top\"": [
+                      {
+                        "/url": "#"
+                      },
+                      "img"
+                    ]
+                  }
+                ]
+              },
+              {
+                "navigation [ref=e252]": [
+                  {
+                    "link \"Next page\" [ref=e254] [cursor=pointer]": [
+                      {
+                        "text": "Next page"
+                      },
+                      "img [ref=e255]"
+                    ]
+                  },
+                  {
+                    "generic [ref=e257]": [
+                      "link \"1\" [ref=e259]",
+                      "link \"2\" [ref=e261] [cursor=pointer]",
+                      "link \"3\" [ref=e263] [cursor=pointer]",
+                      "link \"4\" [ref=e265] [cursor=pointer]",
+                      "link \"5\" [ref=e267] [cursor=pointer]",
+                      "link \"6\" [ref=e269] [cursor=pointer]",
+                      "link \"7\" [ref=e271] [cursor=pointer]",
+                      "link \"8\" [ref=e273] [cursor=pointer]",
+                      "link \"9\" [ref=e275] [cursor=pointer]",
+                      "link \"10\" [ref=e277] [cursor=pointer]"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "contentinfo [ref=e278]": [
+          {
+            "paragraph [ref=e279]": [
+              {
+                "text": "Powered by"
+              },
+              {
+                "link \"SearXNG\" [ref=e280] [cursor=pointer]": [
+                  {
+                    "/url": "/info/en/about"
+                  }
+                ]
+              },
+              {
+                "text": "- 2025.11.18+576c8ca99+dirty — a privacy-respecting, open metasearch engine"
+              },
+              {
+                "link \"Source code\" [ref=e281] [cursor=pointer]": [
+                  {
+                    "/url": "https://github.com/searxng/searxng"
+                  }
+                ]
+              },
+              {
+                "text": "|"
+              },
+              {
+                "link \"Issue tracker\" [ref=e282] [cursor=pointer]": [
+                  {
+                    "/url": "https://github.com/searxng/searxng/issues"
+                  }
+                ]
+              },
+              {
+                "text": "|"
+              },
+              {
+                "link \"Engine stats\" [ref=e283] [cursor=pointer]": [
+                  {
+                    "/url": "/stats"
+                  }
+                ]
+              },
+              {
+                "text": "|"
+              },
+              {
+                "link \"Public instances\" [ref=e284] [cursor=pointer]": [
+                  {
+                    "/url": "https://searx.space"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

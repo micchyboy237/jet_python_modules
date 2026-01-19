@@ -5,7 +5,7 @@ import asyncio
 import json
 import re
 from typing import List, Dict, Any, Tuple
-from urllib.parse import urljoin, urlparse, urlencode
+from urllib.parse import urljoin, urlparse
 
 import httpx
 import yaml
@@ -238,16 +238,6 @@ async def perform_deep_research(
 def add_deep_research_args(parser: argparse.ArgumentParser) -> None:
     """Add script-specific arguments"""
     parser.add_argument(
-        "query",
-        nargs="?",
-        help="Search query / topic (positional or via --query)"
-    )
-    parser.add_argument(
-        "--query", "-q",
-        help="Search query / topic",
-        dest="query_opt"  # avoid conflict with positional
-    )
-    parser.add_argument(
         "--max-depth", "-d",
         type=int,
         default=3,
@@ -277,20 +267,8 @@ async def main():
         add_extra_args_callback=add_deep_research_args
     )
 
-    # Determine final query value (positional > --query > error)
-    query = args.query or args.query_opt
-    if not query:
-        console.print("[red]Error:[/] Please provide a query (positional argument or --query / -q)")
-        return
-
-    # Better URL construction + possibility to add future params easily
-    search_params = {
-        "q": query.strip(),
-        # "format": "html",          # optional
-        # "categories": "general",
-    }
-    query_string = urlencode(search_params)
-    start_url =  f"http://jethros-macbook-air.local:8888/search?{query_string}"
+    query = args.query
+    start_url =  args.url
     console.print(f"[dim italic]Auto-generated starting URL:[/] {start_url}\n")
 
     console.print("[bold]Parameters[/bold]")

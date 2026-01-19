@@ -38,6 +38,9 @@ async def main():
         save_file(browser_snapshot_result, f"{BASE_OUTPUT_DIR}/browser_snapshot.json")
         console.print("[green]✓ Accessibility snapshot saved[/green]")
 
+        browser_snapshot_result_text = "\n\n\n".join(c.text for c in browser_snapshot_result.content)
+        save_file(browser_snapshot_result_text, f"{BASE_OUTPUT_DIR}/browser_snapshot.md")
+
     console.print("\n[bold bright_green]Screenshots demo completed![/bold bright_green]\n")
 
 
