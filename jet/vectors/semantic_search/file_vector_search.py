@@ -1,10 +1,12 @@
 import fnmatch
 import re
-from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
 import os
-from pathlib import Path
 import numpy as np
+import nbformat
+from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
+from pathlib import Path
 from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
 from jet.logger import logger
 # from jet.llm.utils.embeddings import generate_embeddings
 from jet.models.embeddings.base import generate_embeddings
@@ -105,12 +107,13 @@ def get_matched_files(
 
 def collect_file_chunks(
     paths: Union[str, List[str]],
-    extensions: List[str] = None,
+    extensions: Optional[List[str]] = None,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     tokenizer: Optional[Callable[[str], int]] = None,
     includes: Optional[List[str]] = None,
-    excludes: Optional[List[str]] = None
+    excludes: Optional[List[str]] = None,
+    show_progress: bool = True,
 ) -> Tuple[List[str], List[str], List[str], List[Tuple[str, str, int, int, int]]]:
     """
     Collect chunked contents for each file along with file paths, names, dirs, and token counts.
@@ -126,42 +129,77 @@ def collect_file_chunks(
         Tuple of (file_paths, file_names, parent_dirs, contents_with_indices)
         where contents_with_indices = List of (file_path, content_chunk, start_idx, end_idx, num_tokens)
     """
-    def default_tokenizer(text): return len(
-        re.findall(r'\b\w+\b|[^\w\s]', text))
+
+    def default_tokenizer(text): 
+        return len(re.findall(r'\b\w+\b|[^\w\s]', text))
+    
     tokenizer = tokenizer or default_tokenizer
     file_paths = get_matched_files(paths, extensions, includes, excludes)
+    
     file_names = []
     parent_dirs = []
     contents_with_indices = []
 
-    for file_path in file_paths:
+    # Prepare progress bar (disabled when show_progress=False)
+    file_iterator = tqdm(
+        file_paths,
+        desc="Collecting & chunking files",
+        total=len(file_paths),
+        disable=not show_progress,
+        unit="file",
+    )
+
+    for file_path in file_iterator:
         file_path_obj = Path(file_path)
         file_names.append(file_path_obj.name)
         parent_dirs.append(file_path_obj.parent.name or "root")
         try:
-            if file_path_obj.suffix in {'.txt', '.py', '.md', '.json', '.csv'}:
+            suffix = file_path_obj.suffix.lower()
+            if suffix == '.ipynb':
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    nb = nbformat.read(f, as_version=4)
+                
+                parts = []
+                for cell in nb.cells:
+                    source = cell.get('source', '')
+                    if not isinstance(source, str) or not source.strip():
+                        continue
+                    if cell.cell_type == 'markdown':
+                        parts.append(source.rstrip())
+                    elif cell.cell_type == 'code':
+                        parts.append("```python\n" + source.rstrip() + "\n```")
+                if not parts:
+                    continue
+                full_content = "\n\n".join(parts)
+            
+            elif suffix in {'.txt', '.py', '.md', '.json', '.csv'}:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     full_content = f.read()
-                # Use chunk_texts_with_data for chunking
-                chunks = chunk_texts_with_data(
-                    texts=[full_content],
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
-                    model=None,  # Using default word-based tokenization
-                    ids=[file_path],  # Use file_path as doc_id
-                    buffer=0
-                )
-                # Map ChunkResult to contents_with_indices format
-                for chunk in chunks:
-                    contents_with_indices.append(
-                        (
-                            file_path,
-                            chunk['content'],
-                            chunk['start_idx'],
-                            chunk['end_idx'],
-                            chunk['num_tokens']
-                        )
+            else:
+                continue
+
+            # Use chunk_texts_with_data for chunking
+            chunks = chunk_texts_with_data(
+                texts=[full_content],
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                model=None,
+                ids=[file_path],
+                buffer=0,
+            )
+            for chunk in chunks:
+                contents_with_indices.append(
+                    (
+                        file_path,
+                        chunk['content'],
+                        chunk['start_idx'],
+                        chunk['end_idx'],
+                        chunk['num_tokens']
                     )
+                )
+            # Optional: update description with current file (nice for long runs)
+            if show_progress:
+                file_iterator.set_postfix_str(file_path_obj.name, refresh=True)
         except (UnicodeDecodeError, IOError):
             continue
 
@@ -341,6 +379,7 @@ def search_files(
     preprocess: Optional[Callable[[str], str]] = None,
     weights: Optional[Weights] = None,
     batch_size: int = 64,
+    show_progress: bool = True
 ) -> Iterator[FileSearchResult]:
     """
     Search files using vector similarity on chunked contents + file metadata.
@@ -361,6 +400,7 @@ def search_files(
         preprocess: Optional callback to preprocess texts before embedding
         weights: Optional dictionary specifying weights for name, dir, and content similarities
         batch_size: Batch size to use when generating embeddings
+        show_progress: Display progress bar during chunking step.
     Returns:
         Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
@@ -368,7 +408,7 @@ def search_files(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
-        paths, extensions, chunk_size, chunk_overlap, tokenizer, includes, excludes)
+        paths, extensions, chunk_size, chunk_overlap, tokenizer, includes, excludes, show_progress=show_progress)
     logger.debug(f"Parent dirs:\n\n{format_json(parent_dirs)}")
     logger.debug(f"File names:\n\n{format_json(file_names)}")
     logger.debug(f"File paths:\n\n{format_json(file_paths)}")

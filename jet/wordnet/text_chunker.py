@@ -320,7 +320,7 @@ def chunk_texts_with_data(
     buffer: int = 0,
     strict_sentences: bool = False,
     min_chunk_size: int = 32,
-    show_progress: bool = True
+    show_progress: bool = False
 ) -> List[ChunkResult]:
     """Optimized, faster version of chunk_texts_with_data."""
     if min_chunk_size > chunk_size:
@@ -598,7 +598,7 @@ def chunk_texts_sliding_window_fast(
     ids: Optional[List[str]] = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
-    show_progress: bool = True
+    show_progress: bool = False
 ) -> List[ChunkResult]:
     """Optimized sliding-window chunking with minimal recomputation."""
     if step_size <= 0 or step_size >= chunk_size:

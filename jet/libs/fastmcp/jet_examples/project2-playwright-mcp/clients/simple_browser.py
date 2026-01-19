@@ -9,6 +9,9 @@ from utils.args import parse_common_args
 from utils.config_utils import extract_code_block_content, yaml_to_dict
 from utils.page_utils import extract_all_references_ordered
 
+from jet.logger import logger
+logger.info("START")
+
 console = Console()
 
 async def main():

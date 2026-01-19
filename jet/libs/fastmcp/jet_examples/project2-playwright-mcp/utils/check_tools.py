@@ -26,10 +26,23 @@ def get_entry_file_dir() -> Path:
 def get_entry_file_name() -> str:
     return Path(__file__).name
 
+
 BASE_OUTPUT_DIR = Path(get_entry_file_dir()) / "generated" / os.path.splitext(get_entry_file_name())[0]
 shutil.rmtree(BASE_OUTPUT_DIR, ignore_errors=True)
 
 console = Console()
+
+
+async def get_tools(client: Client) -> list[Tool]:
+    """
+    Fetch all available tools and return them as a list of Tool objects.
+
+    Note: These objects need to be converted with `model_dump` if you wish to export 
+    them in a JSON-serializable format.
+    """
+    raw_tools = await client.list_tools()
+    return raw_tools
+
 
 def print_tool_info(tool: Tool) -> None:
     """Print richly formatted information about a single tool."""
