@@ -1,7 +1,7 @@
 # File: demos/03_forms_and_inputs.py
 """
 Form filling demo
-Tools: browser_fill_form, browser_file_upload, browser_select_option
+Tools: browser_type, browser_click, browser_file_upload, browser_press_key
 """
 
 import asyncio
@@ -16,7 +16,7 @@ console = Console()
 async def main():
     console.print(Panel.fit(
         "[bold cyan]03 - Forms & Inputs[/bold cyan]\n"
-        "fill_form • file_upload • select_option",
+        "type • click • file_upload • press_key",
         border_style="bright_blue"
     ))
 
@@ -29,46 +29,99 @@ async def main():
     async with client:
         await client.call_tool("browser_navigate", {"url": START_URL})
 
-        # Multiple fields at once
-        console.print("[yellow]Filling multiple fields with fill_form...[/yellow]")
-        await client.call_tool("browser_fill_form", {
-            "fields": [
-                {"element": "First Name input", "value": "Robert"},
-                {"element": "Last Name input", "value": "Smith"},
-                {"element": "Email input field", "value": "robert.smith@example.com"},
-                {"element": "Mobile number field", "value": "5551234567"},
-            ]
-        })
-        console.print("[green]✓ Basic fields filled[/green]")
+        # -------------------------------------------------------------------------
+        # Basic text inputs using browser_type (more reliable than fill_form here)
+        console.print("[yellow]Filling basic text fields...[/yellow]")
 
-        # Select state and city
-        console.print("\n[yellow]Selecting State → NCR...[/yellow]")
-        await client.call_tool("browser_select_option", {
-            "element": "State dropdown",
+        browser_type_first_name = await client.call_tool("browser_type", {
+            "element": "#firstName",
+            "text": "Robert",
+            "slowly": False
+        })
+
+        browser_type_last_name = await client.call_tool("browser_type", {
+            "element": "Last Name",
+            "text": "Smith",
+            "slowly": False
+        })
+
+        await client.call_tool("browser_type", {
+            "element": "Email input field",
             "ref": "",
-            "values": ["NCR"]
+            "text": "robert.smith@example.com",
+            "slowly": False
         })
 
+        await client.call_tool("browser_type", {
+            "element": "Mobile number field",
+            "ref": "",
+            "text": "5551234567",
+            "slowly": False
+        })
+
+        console.print("[green]✓ Basic text fields filled[/green]")
+
+        # Gender selection (radio button)
+        console.print("\n[yellow]Selecting Gender → Male...[/yellow]")
+        await client.call_tool("browser_click", {
+            "element": "Male radio button",
+            "ref": ""
+        })
+        console.print("[green]✓ Gender selected[/green]")
+
+        # State → NCR (type + Enter)
+        console.print("\n[yellow]Selecting State → NCR...[/yellow]")
+        await client.call_tool("browser_click", {
+            "element": "State dropdown",
+            "ref": ""
+        })
+        await client.call_tool("browser_type", {
+            "element": "State search input",
+            "ref": "",
+            "text": "NCR"
+        })
+        await client.call_tool("browser_press_key", {"key": "Enter"})
         await asyncio.sleep(0.8)
 
+        # City → Delhi (same pattern)
         console.print("[yellow]Selecting City → Delhi...[/yellow]")
-        await client.call_tool("browser_select_option", {
+        await client.call_tool("browser_click", {
             "element": "City dropdown",
-            "ref": "",
-            "values": ["Delhi"]
+            "ref": ""
         })
+        await client.call_tool("browser_type", {
+            "element": "City search input",
+            "ref": "",
+            "text": "Delhi"
+        })
+        await client.call_tool("browser_press_key", {"key": "Enter"})
         console.print("[green]✓ State & City selected[/green]")
 
-        # File upload example (you need to have this file)
+        # File upload – first trigger the input
         picture_path = Path.home() / "Pictures" / "profile.jpg"
         if picture_path.exists():
             console.print(f"\n[yellow]Uploading picture: {picture_path.name}[/yellow]")
+            # Click the label or the hidden input to trigger file chooser
+            await client.call_tool("browser_click", {
+                "element": "Picture upload button or label",
+                "ref": ""
+            })
+            await asyncio.sleep(0.5)  # give time for file dialog
             await client.call_tool("browser_file_upload", {
                 "paths": [str(picture_path)]
             })
             console.print("[green]✓ Picture uploaded[/green]")
         else:
             console.print("\n[orange1]Skipping file upload — no profile.jpg found[/orange1]")
+
+        # Optional: fill address
+        console.print("\n[yellow]Filling Current Address...[/yellow]")
+        await client.call_tool("browser_type", {
+            "element": "Current Address textarea",
+            "ref": "",
+            "text": "123 Demo Street, Makati City"
+        })
+        console.print("[green]✓ Address filled[/green]")
 
     console.print("\n[bold bright_green]Forms demo finished![/bold bright_green]\n")
 

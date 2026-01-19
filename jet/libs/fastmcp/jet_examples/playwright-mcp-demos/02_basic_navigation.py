@@ -1,4 +1,4 @@
-# File: demos/01_basic_navigation.py
+# File: demos/02_basic_navigation.py
 """
 Basic browser control & navigation demo
 Tools used: browser_navigate, browser_resize, browser_navigate_back, browser_close
@@ -14,14 +14,13 @@ console = Console()
 
 async def main():
     console.print(Panel.fit(
-        "[bold cyan]01 - Basic Navigation & Browser Control[/bold cyan]",
+        "[bold cyan]02 - Basic Navigation & Browser Control[/bold cyan]",
         border_style="bright_blue", padding=(1, 2)
     ))
 
     START_URL = "https://demoqa.com/automation-practice-form"
     console.print(f"\n[bold]Target page:[/] [link={START_URL}]{START_URL}[/link]\n")
 
-    # You may need to adjust how you initialize the client
     from utils.base import get_client
     client = get_client()
 

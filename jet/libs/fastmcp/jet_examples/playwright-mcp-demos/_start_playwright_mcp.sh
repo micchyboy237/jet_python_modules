@@ -1,8 +1,17 @@
-# Run on custom port (good for HTTP mode / remote connections)
-npx @playwright/mcp@latest --port 8931
+#!/usr/bin/env bash
+# _start_playwright_mcp.sh
 
-# Headless mode (no visible window)
-# npx @playwright/mcp@latest --headless
+# Automatically get directory where THIS script is located
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OUTPUT_BASE="$SCRIPT_DIR/generated"
 
-# Show all available options
-# npx @playwright/mcp@latest --help
+echo "Output base : $OUTPUT_BASE"
+
+npx @playwright/mcp@latest \
+  --port 8931 \
+  --output-dir="$OUTPUT_BASE" \
+  --save-video=1280x720 \
+  --viewport-size=1280x720
+#   --shared-browser-context \
+#   --save-trace \
+#   --save-session \
