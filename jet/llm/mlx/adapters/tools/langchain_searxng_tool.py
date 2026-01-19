@@ -1,10 +1,10 @@
 # example_searx_search.py
 from langchain_community.utilities import SearxSearchWrapper
-from langchain_community.tools.searx_search.tool import SearxSearchRun, SearxSearchQueryInput
+from langchain_community.tools.searx_search.tool import SearxSearchRun
 
 # Initialize the SearxSearchWrapper with a self-hosted SearxNG instance
 # Replace with your SearxNG instance URL
-searx_host = "http://jethros-macbook-air.local:3000"
+searx_host = "http://jethros-macbook-air.local:8888"
 search_wrapper = SearxSearchWrapper(searx_host=searx_host, unsecure=True)
 
 # Initialize the SearxSearchRun tool

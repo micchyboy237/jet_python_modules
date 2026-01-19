@@ -1,21 +1,40 @@
 """Deep research pattern: follow links, extract content step-by-step."""
 
+import argparse
 import asyncio
+import yaml
 from typing import List, Dict, Any
 from rich.console import Console
-from fastmcp import Client
-from dotenv import load_dotenv
 
-load_dotenv()
+from fastmcp import Client
+from utils.args import parse_common_args
+
 
 console = Console()
+
+
+def add_deep_research_args(parser: argparse.ArgumentParser) -> None:
+    """Add script-specific arguments for deep research."""
+    parser.add_argument(
+        "--topic",
+        "-t",
+        required=True,
+        help="Topic/phrase to search for in page content",
+    )
+    parser.add_argument(
+        "--max-depth",
+        "-d",
+        type=int,
+        default=3,
+        help="Maximum crawl depth",
+    )
 
 
 async def perform_deep_research(
     client: Client,
     start_url: str,
     topic: str,
-    max_depth: int = 3
+    max_depth: int,
 ):
     """Naive breadth-first crawl looking for topic-relevant content."""
     visited = set()
@@ -36,27 +55,22 @@ async def perform_deep_research(
         console.print(f"[cyan]Depth {depth} → Visiting:[/] {url}")
 
         try:
-            # Navigate
-            await client.call_tool("playwright:navigate", {"url": url})
+            await client.call_tool("browser_navigate", {"url": url})
+            content_result = await client.call_tool("browser_snapshot", {})
+            if isinstance(content_result.data, dict):
+                text = content_result.data.get("content", "") or content_result.data.get("text", "")
+            else:
+                text = str(content_result.data)
 
-            # Get structured content
-            content_result = await client.call_tool(
-                "playwright:get_page_content",
-                {"max_length": 6000}
-            )
-            text: str = content_result.data
-
-            # Very naive relevance check — replace with LLM scoring in production
             if topic.lower() in text.lower():
                 preview = text[:300].replace("\n", " ") + "..."
                 console.print(f"[yellow]Relevant fragment found:[/] {preview}")
 
-            # Placeholder: discover next links
-            # Real version: call playwright:get_links or parse <a href> via tool
-            # Here we just simulate continuation
-            next_urls = [url.rstrip("/") + f"/page{depth+2}"]  # dummy
+            # TODO: real link discovery – this is placeholder
+            # Real version should parse snapshot/tree and find <a href=...>
+            discovered_links = []  # ← implement later
 
-            for next_url in next_urls:
+            for next_url in discovered_links[:5]:  # limit per level
                 if next_url not in visited:
                     queue.append({
                         "url": next_url,
@@ -71,13 +85,31 @@ async def perform_deep_research(
 
 
 async def main():
-    client = Client("mcp-config.yaml")
+    args = parse_common_args(
+        "Deep research crawler using Playwright-MCP",
+        add_extra_args_callback=add_deep_research_args
+    )
+
+    console.print("[bold]Deep Research Parameters[/bold]")
+    console.print(f"  • Config     : {args.config}")
+    console.print(f"  • Start URL  : {args.url}")
+    console.print(f"  • Topic      : {args.topic}")
+    console.print(f"  • Max depth  : {args.max_depth}")
+    console.print(f"  • Headless   : {args.headless}")
+    console.print(f"  • Timeout    : {args.timeout} ms\n")
+
+    # Load multi-server config explicitly (more reliable across versions)
+    with open(args.config, encoding="utf-8") as f:
+        config_dict = yaml.safe_load(f)
+
+    client = Client(config_dict)
+
     async with client:
         await perform_deep_research(
             client,
-            start_url="https://en.wikipedia.org/wiki/Artificial_intelligence",
-            topic="neural networks history",
-            max_depth=2
+            start_url=args.url,
+            topic=args.topic,
+            max_depth=args.max_depth,
         )
 
 

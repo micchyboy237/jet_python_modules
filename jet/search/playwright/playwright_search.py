@@ -139,7 +139,7 @@ class PlaywrightSearchResult(TypedDict):
 
 class PlaywrightSearchAPIWrapper(BaseModel):
     """Wrapper for Playwright-based search engine."""
-    searxng_url: str = Field(default="http://jethros-macbook-air.local:3000")
+    searxng_url: str = Field(default="http://jethros-macbook-air.local:8888")
     max_results: Optional[int] = Field(default=5)
     include_image_descriptions: Optional[bool] = Field(default=False)
     max_content_length: Optional[int] = Field(default=500)

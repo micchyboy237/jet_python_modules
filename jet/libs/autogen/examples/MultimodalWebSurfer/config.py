@@ -31,7 +31,7 @@ DEFAULT_CONFIG: SurferConfigDict = {
     "description": None,
     "debug_dir": "debug_screens",
     "headless": False,
-    "start_page": "http://jethros-macbook-air.local:3000",
+    "start_page": "http://jethros-macbook-air.local:8888",
     "animate_actions": True,
     "to_save_screenshots": True,
     "use_ocr": False,

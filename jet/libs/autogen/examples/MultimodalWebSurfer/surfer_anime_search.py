@@ -7,7 +7,6 @@ from jet.logger import CustomLogger
 from jet.adapters.autogen.ollama_client import OllamaChatCompletionClient
 from jet.libs.autogen.multimodal_web_surfer import (
     MultimodalWebSurfer,
-    MultimodalWebSurferConfig,
     MultiModalMessage,
     TextMessage
 )
@@ -110,7 +109,7 @@ async def process_response(response: Any, anime_title: str, season: str) -> List
 async def search_anime_streaming_links(
     anime_title: str,
     season: str,
-    start_page: str = "http://jethros-macbook-air.local:3000"
+    start_page: str = "http://jethros-macbook-air.local:8888"
 ) -> List[StreamingLink]:
     """
     Search for streaming links for a given anime title and season.

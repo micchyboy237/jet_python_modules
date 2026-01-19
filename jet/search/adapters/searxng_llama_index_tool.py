@@ -1,18 +1,14 @@
-import time
 from typing import List, Dict, Optional, TypedDict
-from datetime import datetime
-import requests
 from llama_index.core.tools.tool_spec.base import BaseToolSpec
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from jet.logger import logger
-from jet.search.searxng import build_query_url, fetch_search_results, SearchResult, QueryResponse, format_min_date, remove_empty_attributes
+from jet.search.searxng import build_query_url, fetch_search_results
 from jet.search.formatters import decode_encoded_characters
-from jet.search.filters import filter_relevant, filter_by_date, deduplicate_results, sort_by_score
+from jet.search.filters import filter_relevant, deduplicate_results, sort_by_score
 from jet.cache.redis import RedisConfigParams, RedisCache
-from jet.data.utils import generate_key
 
 DEFAULT_REDIS_PORT = 3101
-DEFAULT_URL = "http://jethros-macbook-air.local:3000/search"
+DEFAULT_URL = "http://jethros-macbook-air.local:8888/search"
 
 
 class SimplifiedSearchResult(TypedDict):
@@ -107,7 +103,7 @@ class SearXNGSearchToolSpec(BaseToolSpec):
                     try:
                         count = int(count)  # Attempt to convert to int
                         logger.info(f"Coerced count to integer: {count}")
-                    except (ValueError, TypeError) as e:
+                    except (ValueError, TypeError):
                         logger.error(
                             f"Invalid count type: {type(count)}, value: {count}")
                         raise TypeError("count must be an integer or None")

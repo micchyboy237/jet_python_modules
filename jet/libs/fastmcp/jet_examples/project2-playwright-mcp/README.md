@@ -52,7 +52,7 @@ pip install -r requirements.txt
 
 ```bash
 # Terminal 1 - keep this running
-npx @playwright/mcp@latest --port 8931 --headless true
+npx @playwright/mcp@latest --port 8931
 # or using popular community fork with more features:
 # npx @executeautomation/playwright-mcp-server --port 8931 --headless
 ```

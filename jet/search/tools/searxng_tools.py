@@ -1,9 +1,8 @@
 from typing import Optional, List, Dict, Any, TypedDict
-from datetime import datetime
 from jet.search.searxng import search_searxng
 from jet.logger import logger
 
-SEARCH_URL = "http://jethros-macbook-air.local:3000"
+SEARCH_URL = "http://jethros-macbook-air.local:8888"
 
 class WebSearchResult(TypedDict):
     url: str

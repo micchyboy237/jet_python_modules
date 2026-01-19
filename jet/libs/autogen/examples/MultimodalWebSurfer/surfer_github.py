@@ -27,7 +27,7 @@ async def main():
         to_save_screenshots=True,  # Enable screenshot saving
         debug_dir="./screenshots",  # Directory to save screenshots
         headless=True,  # Run browser in headless mode
-        start_page="http://jethros-macbook-air.local:3000",  # Starting URL
+        start_page="http://jethros-macbook-air.local:8888",  # Starting URL
     )
 
     # Define the task

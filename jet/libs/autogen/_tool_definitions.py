@@ -48,7 +48,7 @@ TOOL_WEB_SEARCH: ToolSchema = _load_tool(
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Performs a web search using searx engine (http://jethros-macbook-air.local:3000/search?q=<query>).",
+            "description": "Performs a web search using searx engine (http://jethros-macbook-air.local:8888/search?q=<query>).",
             "parameters": {
                 "type": "object",
                 "properties": {
