@@ -148,7 +148,7 @@ def collect_file_chunks(
                     chunk_size=chunk_size,
                     chunk_overlap=chunk_overlap,
                     model=None,  # Using default word-based tokenization
-                    doc_ids=[file_path],  # Use file_path as doc_id
+                    ids=[file_path],  # Use file_path as doc_id
                     buffer=0
                 )
                 # Map ChunkResult to contents_with_indices format

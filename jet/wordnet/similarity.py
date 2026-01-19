@@ -20,9 +20,6 @@ import numpy as np
 import torch
 from jet.data.utils import generate_key
 from jet.logger import logger, time_it
-from jet.models.embeddings.base import (
-    get_embedding_function,
-)
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.models.model_types import EmbedModelType
 from jet.vectors.clusters.cluster_types import ClusteringMode
@@ -48,6 +45,8 @@ class ClusterResult(TypedDict):
 
 
 def sentence_similarity(base_sentence: str, sentences_to_compare: Union[str, List[str]], *, model_name: EmbedModelType = DEFAULT_EMBED_MODEL) -> List[float]:
+    from jet.models.embeddings.base import get_embedding_function
+
     # Convert a single string to a list
     if isinstance(sentences_to_compare, str):
         sentences_to_compare = [sentences_to_compare]

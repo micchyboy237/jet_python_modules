@@ -1,25 +1,21 @@
-from functools import lru_cache
-import sys
 import time
 import numpy as np
 from sentence_transformers import CrossEncoder, SentenceTransformer
-from tokenizers import Tokenizer
 from typing import Callable, Literal, TypeVar, Union, List, Optional, TypeAlias
-import psutil
 import math
 from tqdm import tqdm
 import torch
-from jet.data.utils import generate_key
 from jet.models.model_registry.transformers.sentence_transformer_registry import SentenceTransformerRegistry
 from jet.models.utils import resolve_model_value
 from jet.models.model_types import EmbedModelType
 from jet.logger import logger
-import mlx.core as mx
-from jet.models.tokenizer.base import get_tokenizer, tokenize
-from jet.models.tokenizer.utils import calculate_batch_size
+# import mlx.core as mx
 
 EmbeddingOutput: TypeAlias = Union[List[int], List[List[int]],
-                                   List[float], List[List[float]], np.ndarray, 'torch.Tensor', 'mx.array']
+                                   List[float], List[List[float]],
+                                   np.ndarray, 'torch.Tensor',
+                                #    'mx.array'
+                                ]
 
 
 # Global model caches
@@ -44,14 +40,14 @@ def load_rerank_model(model: EmbedModelType) -> CrossEncoder:
     return model
 
 
-def last_token_pool(last_hidden_states: mx.array, attention_mask: mx.array) -> mx.array:
-    left_padding = mx.sum(attention_mask[:, -1]) == attention_mask.shape[0]
-    if left_padding:
-        return last_hidden_states[:, -1]
-    sequence_lengths = mx.sum(attention_mask, axis=1) - 1
-    batch_size = last_hidden_states.shape[0]
-    indices = mx.stack([mx.arange(batch_size), sequence_lengths], axis=1)
-    return last_hidden_states[indices[:, 0], indices[:, 1]]
+# def last_token_pool(last_hidden_states: mx.array, attention_mask: mx.array) -> mx.array:
+#     left_padding = mx.sum(attention_mask[:, -1]) == attention_mask.shape[0]
+#     if left_padding:
+#         return last_hidden_states[:, -1]
+#     sequence_lengths = mx.sum(attention_mask, axis=1) - 1
+#     batch_size = last_hidden_states.shape[0]
+#     indices = mx.stack([mx.arange(batch_size), sequence_lengths], axis=1)
+#     return last_hidden_states[indices[:, 0], indices[:, 1]]
 
 
 def generate_multiple(
@@ -73,8 +69,8 @@ def generate_multiple(
             return np.array(embeddings, dtype=np.float32)
         elif return_format == "torch":
             return torch.tensor(embeddings, dtype=torch.float32)
-        elif return_format == "mlx":
-            return mx.array(embeddings, dtype=mx.float32)
+        # elif return_format == "mlx":
+        #     return mx.array(embeddings, dtype=mx.float32)
         return embeddings
     else:
         result = func(query)
@@ -82,8 +78,8 @@ def generate_multiple(
             return np.array(result, dtype=np.float32)
         elif return_format == "torch":
             return torch.tensor(result, dtype=torch.float32)
-        elif return_format == "mlx":
-            return mx.array(result, dtype=mx.float32)
+        # elif return_format == "mlx":
+        #     return mx.array(result, dtype=mx.float32)
         return result
 
 
@@ -142,7 +138,7 @@ def generate_embeddings(
             else model
         )
 
-        logger.gray(f"\nGenerating embeddings...")
+        logger.gray("\nGenerating embeddings...")
         logger.debug(
             f"truncate_dim: {embedder.get_sentence_embedding_dimension()}\nmax_seq_length: {embedder.max_seq_length}")
 
