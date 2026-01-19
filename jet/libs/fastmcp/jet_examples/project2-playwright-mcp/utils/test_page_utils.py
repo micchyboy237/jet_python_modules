@@ -35,6 +35,7 @@ def test_extracts_single_ref_in_flat_dict():
     assert el["text"] == "Hello world"
     assert el["is_leaf"] is True
     assert el["children_count"] == 0
+    assert el["parent_ref"] is None
 
 
 def test_extracts_link_with_quoted_text_and_url():
@@ -58,6 +59,10 @@ def test_extracts_link_with_quoted_text_and_url():
     assert link["attributes"] == {"cursor": "pointer"}
     assert link["children_count"] == 2
     assert link["is_leaf"] is False
+    assert link["parent_ref"] is None
+
+    img = next(el for el in result if el["ref"] == "img1")
+    assert img["parent_ref"] == "abc123"
 
 
 # =============================================================================
@@ -89,10 +94,53 @@ def test_handles_deeply_nested_structure():
     refs = {el["ref"] for el in result}
     assert refs == {"m1", "nav1", "l1", "g1", "f1"}
 
+    parents = {el["ref"]: el.get("parent_ref") for el in result}
+    assert parents == {
+        "m1": None,
+        "nav1": "m1",
+        "l1": "nav1",
+        "g1": "l1",
+        "f1": "m1",
+    }
+
     home_link = next(el for el in result if el["ref"] == "l1")
     assert home_link["text"] == "Home"
     assert home_link["url"] == "/"
     assert home_link["children_count"] == 2
+
+
+# New test focused on parent_ref
+def test_parent_ref_hierarchy_with_sibling_and_nested():
+    # Given a structure with root + sibling + deep child
+    data = {
+        "main [ref=root]": [
+            {"section [ref=secA]": "Intro text"},
+            {
+                "article [ref=art1]": [
+                    {"heading [ref=h2]": "Title"},
+                    {"generic [ref=p1]": "Paragraph one"},
+                    {"generic [ref=p2]": "Paragraph two"}
+                ]
+            },
+            {"footer [ref=ft]": "© 2026"}
+        ]
+    }
+
+    result = extract_referenced_elements(data)
+
+    expected_parents = {
+        "root": None,
+        "secA": "root",
+        "art1": "root",
+        "h2":  "art1",
+        "p1":  "art1",
+        "p2":  "art1",
+        "ft":  "root",
+    }
+
+    actual_parents = {el["ref"]: el.get("parent_ref") for el in result}
+
+    assert actual_parents == expected_parents, "Parent references do not match expected hierarchy"
 
 
 # =============================================================================

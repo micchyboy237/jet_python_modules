@@ -17,6 +17,7 @@ class ExtractedElement(TypedDict, total=False):
     url: str | None                       # convenience field for /url
     children_count: int                   # how many direct children it had
     is_leaf: bool
+    parent_ref: str | None                # NEW: for parent reference
 
 def _parse_tag_key(key: str) -> tuple[str, str | None, str | None, Dict[str, str]]:
     """
@@ -67,11 +68,13 @@ def _parse_tag_key(key: str) -> tuple[str, str | None, str | None, Dict[str, str
 
 def extract_referenced_elements(
     data: Any,
-    result: List[ExtractedElement] | None = None
+    result: List[ExtractedElement] | None = None,
+    parent_ref: str | None = None,
 ) -> List[ExtractedElement]:
     """
     Recursively extracts all elements that contain [ref=xxx] into a flat list.
     Normalizes 'generic' → 'div'
+    Adds `parent_ref` for each extracted element (None for root).
     """
     if result is None:
         result = []
@@ -89,6 +92,7 @@ def extract_referenced_elements(
                     "text": text_quote,
                     "children_count": 0,
                     "is_leaf": False,
+                    "parent_ref": parent_ref,
                 }
 
                 # Find /url
@@ -113,12 +117,16 @@ def extract_referenced_elements(
 
                 result.append(element)
 
-            # Always recurse into dicts/lists
-            if isinstance(value, (dict, list)):
-                extract_referenced_elements(value, result)
+                current_ref_for_children = ref_id if ref_id else parent_ref
+                if isinstance(value, (dict, list)):
+                    extract_referenced_elements(value, result, current_ref_for_children)
+            else:
+                # non-referenced container → keep same parent
+                if isinstance(value, (dict, list)):
+                    extract_referenced_elements(value, result, parent_ref)
 
             # ── NEW: Handle strings inside list that look like tagged elements ──
-            elif isinstance(value, list):
+            if isinstance(value, list):
                 for item in value:
                     if isinstance(item, str) and "[ref=" in item:
                         tag_part2, text_quote2, ref_id2, attrs2 = _parse_tag_key(item)
@@ -131,12 +139,13 @@ def extract_referenced_elements(
                                 "text": text_quote2,
                                 "children_count": 0,
                                 "is_leaf": True,  # most inline string refs are leaves
+                                "parent_ref": parent_ref,
                             }
                             result.append(child_element)
 
     elif isinstance(data, list):
         for item in data:
-            extract_referenced_elements(item, result)
+            extract_referenced_elements(item, result, parent_ref)
 
     return result
 

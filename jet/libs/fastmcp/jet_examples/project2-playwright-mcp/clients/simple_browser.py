@@ -3,12 +3,11 @@
 
 import asyncio
 import yaml
-import json
 from rich.console import Console
 from fastmcp import Client
 from utils.args import parse_common_args
-from utils.config_utils import extract_code_block_content, yaml_to_dict, yaml_to_json
-from utils.page_utils import flatten_browser_snapshot
+from utils.config_utils import extract_code_block_content, yaml_to_dict
+from utils.page_utils import extract_all_references_ordered
 
 console = Console()
 
@@ -36,8 +35,7 @@ async def main():
             browser_navigate_result_text = "\n\n\n".join(c.text for c in browser_navigate_result.content)
             yaml_config = extract_code_block_content(browser_navigate_result_text)
             config_dict = yaml_to_dict(yaml_config)
-            config_json = yaml_to_json(yaml_config)
-            page_info = flatten_browser_snapshot(config_json)
+            page_info = extract_all_references_ordered(config_dict)
             console.print(f"[pink]{browser_navigate_result_text}[/pink]")
             console.print(f"[cyan]Navigated to search:[/] {args.url}")
 
