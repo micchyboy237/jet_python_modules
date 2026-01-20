@@ -272,24 +272,29 @@ class LlamacppEmbedding:
         use_cache: Optional[bool] = None,
         use_dynamic_batch_sizing: Optional[bool] = None
     ) -> Iterator[GenerateEmbeddingsReturnType]:
-        """Stream embeddings with per-text caching, batch processing only misses."""
+        """
+        Stream embeddings with per-text caching, yielding all cache hits first (batched, ordered),
+        then streaming batches of misses immediately as they are computed and cached.
+        """
         use_cache = use_cache if use_cache is not None else self.use_cache
-        use_dynamic_batch_sizing = use_dynamic_batch_sizing if use_dynamic_batch_sizing is not None else self.use_dynamic_batch_sizing
+        use_dynamic_batch_sizing = (
+            use_dynamic_batch_sizing
+            if use_dynamic_batch_sizing is not None
+            else self.use_dynamic_batch_sizing
+        )
 
         input_list = [inputs] if isinstance(inputs, str) else inputs
         valid_inputs = [i for i in input_list if isinstance(i, str) and i.strip()]
         if not valid_inputs:
             raise ValueError("inputs must be a non-empty string or list of non-empty strings")
 
-        # ── same validation / stats as before ──
         embedding_size = get_embedding_size(self.model)
         context_size = get_context_size(self.model)
         max_length = max_input_length if max_input_length is not None else context_size
         if max_length <= 0:
             max_length = 512
 
-        token_counts: List[int] = token_counter(valid_inputs, self.model, prevent_total=True)
-
+        token_counts = token_counter(valid_inputs, self.model, prevent_total=True)
         long_inputs = [idx for idx, cnt in enumerate(token_counts) if cnt > max_length]
         if long_inputs:
             raise InputTooLargeError(long_inputs, max_length)
@@ -298,99 +303,84 @@ class LlamacppEmbedding:
             batch_size = calculate_dynamic_batch_size(
                 token_counts=token_counts,
                 embedding_size=embedding_size,
-                context_size=context_size
+                context_size=context_size,
             )
             if self.verbose:
                 self._logger.debug(f"Dynamic batch size: {batch_size}")
 
-        # ── Per-text cache check ─────────────────────────────────────────────
-        cache_hits = 0
+        # ------------------ Phase 1: Per-text cache scan ----------------------
+        cached_embeddings: List[Optional[Union[List[float], np.ndarray]]] = [None] * len(valid_inputs)
         miss_indices: List[int] = []
         miss_texts: List[str] = []
-        cached_embeddings: List[Optional[Union[List[float], np.ndarray]]] = [None] * len(valid_inputs)
 
         if use_cache:
             for idx, text in enumerate(valid_inputs):
-                key = self.cache._generate_key([text])[0]  # single item → gets one key
+                key = self.cache._generate_key([text])[0]
                 emb = self.cache.get(key)
                 if emb is not None:
-                    cache_hits += 1
-                    if return_format == "numpy":
-                        cached_embeddings[idx] = np.array(emb, dtype=np.float32)
-                    else:
-                        cached_embeddings[idx] = emb
+                    cached_embeddings[idx] = (
+                        np.array(emb, dtype=np.float32)
+                        if return_format == "numpy"
+                        else emb
+                    )
                 else:
                     miss_indices.append(idx)
                     miss_texts.append(text)
-
-            if self.verbose:
-                self._logger.info(
-                    f"Cache stats: {cache_hits} hits / {len(valid_inputs) - cache_hits} misses "
-                    f"({cache_hits / len(valid_inputs):.0%} hit rate)"
-                )
         else:
             miss_indices = list(range(len(valid_inputs)))
             miss_texts = valid_inputs
 
-        # ── Compute missing embeddings in batches ─────────────────────────────
-        computed_embeddings: List[Union[List[float], np.ndarray]] = []
+        # ------------- Phase 2: Yield all cache hits (batched, ordered) -----------------
+        cached_pairs = [
+            (idx, emb)
+            for idx, emb in enumerate(cached_embeddings)
+            if emb is not None
+        ]
+        for start in range(0, len(cached_pairs), batch_size):
+            batch = cached_pairs[start : start + batch_size]
+            # Each batch: [(orig_idx, emb), ...]
+            if not batch:
+                continue
+            _, batch_ems = zip(*batch)
+            if return_format == "numpy":
+                yield self.transform_data(np.array(batch_ems, dtype=np.float32))
+            else:
+                yield list(batch_ems)
 
+        # ----------- Phase 3: For misses, compute + yield each batch immediately ---------
         if miss_texts:
-            if self.verbose and cache_hits > 0:
-                self._logger.info(f"Computing {len(miss_texts)} missing embeddings...")
-
             progress_bar = tqdm(
                 range(0, len(miss_texts), batch_size),
                 desc="Embedding misses",
-                disable=not show_progress
+                disable=not show_progress,
             )
 
             for start in progress_bar:
                 end = start + batch_size
                 batch_texts = miss_texts[start:end]
-                batch_original_indices = miss_indices[start:end]
-
+                batch_indices = miss_indices[start:end]
                 try:
-                    resp = self.client.embeddings.create(model=self.model, input=batch_texts)
-                    batch_embs = [d.embedding for d in resp.data]
-
+                    response = self.client.embeddings.create(model=self.model, input=batch_texts)
+                    batch_embs = [d.embedding for d in response.data]
                     if return_format == "numpy":
-                        batch_embs_np = np.array(batch_embs, dtype=np.float32)
-                        computed_embeddings.extend(batch_embs_np)
-                        for i, orig_idx in enumerate(batch_original_indices):
-                            cached_embeddings[orig_idx] = batch_embs_np[i]
+                        batch_np = np.array(batch_embs, dtype=np.float32)
+                        yield self.transform_data(batch_np)
+                        for i, orig_idx in enumerate(batch_indices):
+                            # Optionally update cache
                             if use_cache:
                                 key = self.cache._generate_key([batch_texts[i]])[0]
                                 self.cache.set(key, batch_embs[i])
                     else:
-                        computed_embeddings.extend(batch_embs)
-                        for i, orig_idx in enumerate(batch_original_indices):
-                            cached_embeddings[orig_idx] = batch_embs[i]
+                        yield batch_embs
+                        for i, orig_idx in enumerate(batch_indices):
                             if use_cache:
                                 key = self.cache._generate_key([batch_texts[i]])[0]
                                 self.cache.set(key, batch_embs[i])
-
                 except Exception as e:
-                    self._logger.error(f"Failed to embed batch {start // batch_size + 1}: {e}")
+                    self._logger.error(
+                        f"Failed to embed batch {start // batch_size + 1}: {e}"
+                    )
                     raise
-
-        # ── Now stream the final embeddings in original order ────────────────
-        all_embeddings = cached_embeddings  # already in correct order
-
-        progress_bar = tqdm(
-            range(0, len(all_embeddings), batch_size),
-            desc="Yielding stream",
-            disable=not show_progress
-        )
-
-        for start in progress_bar:
-            batch = all_embeddings[start : start + batch_size]
-
-            if return_format == "numpy":
-                final_embeddings = np.array(batch, dtype=np.float32)   # shape: (bs, dim)
-                yield self.transform_data(final_embeddings)
-            else:
-                yield batch                               # list of lists
 
     def transform_data(self, embeddings: Union[List[float], np.ndarray], truncate_dim: Optional[int] = None) -> np.ndarray:
         if isinstance(embeddings, list):
