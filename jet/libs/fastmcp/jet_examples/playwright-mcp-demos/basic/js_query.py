@@ -5,11 +5,12 @@ Tools: browser_run_code, browser_evaluate (complex)
 """
 
 import asyncio
-import os
+from urllib.parse import urlencode
 from rich.console import Console
 from rich.panel import Panel
-from jet.utils.inspect_utils import get_entry_file_name
 from utils.base import get_client, get_output_dir, BASE_OUTPUT_DIR
+from utils.config_utils import extract_code_block_content, yaml_to_dict
+from utils.page_utils import extract_all_references_ordered
 from jet.file.utils import save_file
 
 
@@ -38,6 +39,9 @@ async def fill_textarea(client, selector: str, value: str):
 
 
 async def main():
+    import os
+    from jet.utils.inspect_utils import get_entry_file_name
+
     console.print(Panel.fit(
         f"[bold cyan]Start - {os.path.splitext(get_entry_file_name())[0]}[/bold cyan]",
         border_style="bright_blue"
