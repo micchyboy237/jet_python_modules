@@ -7,7 +7,6 @@ from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
 from pathlib import Path
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS, LLAMACPP_EMBED_TYPES
-from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
 from tqdm import tqdm
 from jet.code.markdown_utils._preprocessors import remove_markdown_links
 from jet.utils.url_utils import remove_links
@@ -44,14 +43,16 @@ class Weights(TypedDict):
     content: float
 
 
-DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = 'nomic-embed-text-v2-moe'
+DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = 'embeddinggemma'
 
-model_context_size = LLAMACPP_MODEL_CONTEXTS[DEFAULT_EMBED_MODEL]
-# 'nomic-embed-text-v2-moe' context = 2048
-factor_1 = 0.70          # chunk_size = context * 0.70 → ~1433 tokens
-factor_2 = 0.18          # overlap   = chunk_size * 0.18 → ~258 tokens
-DEFAULT_CHUNK_SIZE = int(model_context_size * factor_1)
-DEFAULT_CHUNK_OVERLAP = int(DEFAULT_CHUNK_SIZE * factor_2)
+# model_context_size = LLAMACPP_MODEL_CONTEXTS[DEFAULT_EMBED_MODEL]
+# # 'nomic-embed-text-v2-moe' context = 2048
+# factor_1 = 0.70          # chunk_size = context * 0.70 → ~1433 tokens
+# factor_2 = 0.18          # overlap   = chunk_size * 0.18 → ~258 tokens
+# DEFAULT_CHUNK_SIZE = int(model_context_size * factor_1)
+# DEFAULT_CHUNK_OVERLAP = int(DEFAULT_CHUNK_SIZE * factor_2)
+DEFAULT_CHUNK_SIZE = 500
+DEFAULT_CHUNK_OVERLAP = 100
 
 DEFAULT_WEIGHTS: Weights = {
     "dir": 0.0,
@@ -62,10 +63,14 @@ DEFAULT_WEIGHTS: Weights = {
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     """Calculate cosine similarity between two vectors."""
+    vec1 = np.asarray(vec1).flatten()
+    vec2 = np.asarray(vec2).flatten()
     dot_product = np.dot(vec1, vec2)
     norm_a = np.linalg.norm(vec1)
     norm_b = np.linalg.norm(vec2)
-    return dot_product / (norm_a * norm_b) if norm_a * norm_b != 0 else 0.0
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(dot_product / (norm_a * norm_b))
 
 
 def get_matched_files(
@@ -436,6 +441,7 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
     def default_tokenizer(text): return len(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
+
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
         paths, extensions, embed_model, chunk_size, chunk_overlap, tokenizer, includes, excludes, show_progress=show_progress)
     logger.debug(f"Parent dirs:\n\n{format_json(parent_dirs)}")
@@ -447,75 +453,117 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
     name_texts = [Path(p).name for p in unique_files]
     dir_texts = [Path(p).parent.name or "root" for p in unique_files]
     chunk_texts = [chunk for _, chunk, _, _, _ in chunk_data]
-    processed_query = preprocess(query) if preprocess else query
-    processed_name_texts = [preprocess(
-        name) if preprocess else name for name in name_texts]
-    processed_dir_texts = [preprocess(
-        dir_name) if preprocess else dir_name for dir_name in dir_texts]
-    processed_chunk_texts = [preprocess(
-        chunk) if preprocess else chunk for chunk in chunk_texts]
-    logger.info(
-        f"Generating embeddings for {len(processed_name_texts + processed_dir_texts + processed_chunk_texts) + 1} texts:\n"
-        f"  1 query\n"
-        f"  {len(processed_name_texts)} names\n"
-        f"  {len(processed_dir_texts)} dirs\n"
-        f"  {len(processed_chunk_texts)} chunks"
-    )
 
-    all_texts = [processed_query] + processed_name_texts + \
-        processed_dir_texts + processed_chunk_texts
+    # ── 1. Embed query (instant) ────────────────────────
+    embedder = LlamacppEmbedding(model=embed_model, use_cache=True, verbose=True, cache_ttl=86400)
+    query_processed = preprocess(query) if preprocess else query
+    query_vector: np.ndarray = embedder(
+        query_processed,
+        return_format="numpy",
+        batch_size=1,
+        show_progress=False,
+        use_cache=True,
+    )[0]
 
-    embedder = LlamacppEmbedding(
-        model=embed_model,
-        use_cache=True,           # good default for repeated runs
-        verbose=True,
-        cache_ttl=86400,          # 1 day in seconds
-        # base_url=...,           # can be made configurable later
-        # cache_backend="sqlite", # already good default
-    )
+    # ── 2. Embed names + dirs (small → fast) ────────────
+    processed_name_texts = [preprocess(name) if preprocess else name for name in name_texts]
+    processed_dir_texts = [preprocess(dir_name) if preprocess else dir_name for dir_name in dir_texts]
 
-    all_vectors = embedder(
-        all_texts,
+    name_dir_texts = processed_name_texts + processed_dir_texts
+    if name_dir_texts:
+        name_dir_vectors: np.ndarray = embedder(
+            name_dir_texts,
+            return_format="numpy",
+            batch_size=min(128, len(name_dir_texts)),
+            show_progress=True,
+            use_cache=True,
+        )
+        name_vectors = name_dir_vectors[:len(processed_name_texts)]
+        dir_vectors = name_dir_vectors[len(processed_name_texts):]
+    else:
+        name_vectors = np.array([])
+        dir_vectors = np.array([])
+
+    # ── 3. Stream chunk embeddings ──────────────────────
+    processed_chunk_texts = [preprocess(c) if preprocess else c for c in chunk_texts]
+
+    logger.info(f"Streaming embeddings for {len(processed_chunk_texts)} chunks...")
+
+    chunk_embeddings_stream = embedder.get_embeddings_stream(
+        processed_chunk_texts,
         return_format="numpy",
         batch_size=batch_size,
         show_progress=True,
+        use_cache=True,
     )
 
-    query_vector = all_vectors[0]
-    num_names = len(name_texts)
-    num_dirs = len(dir_texts)
-    name_vectors = all_vectors[1:num_names + 1]
-    dir_vectors = all_vectors[num_names + 1:num_names + 1 + num_dirs]
-    content_vectors = all_vectors[num_names + 1 + num_dirs:]
     results: List[FileSearchResult] = []
     chunk_counts = {}
-    for i, (file_path, chunk, start_idx, end_idx, num_tokens) in enumerate(chunk_data):
-        file_index = unique_files.index(file_path)
-        content_vector = content_vectors[i]
-        weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
-            query_vector, name_vectors[file_index], dir_vectors[file_index], content_vector, weights
-        )
-        if weighted_sim >= threshold:
-            chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
-            result = {
-                "rank": 0,
-                "score": float(weighted_sim),
-                "metadata": {
-                    "file_path": file_path,
-                    "start_idx": start_idx,
-                    "end_idx": end_idx,
-                    "chunk_idx": chunk_counts[file_path],
-                    "name_similarity": float(name_sim),
-                    "dir_similarity": float(dir_sim),
-                    "content_similarity": float(content_sim),
-                    "num_tokens": num_tokens
-                },
-                "text": chunk,
-            }
-            results.append(result)
+
+    # We'll collect results in a list and yield progressively
+    # (could use heapq for top-k early cutoff if top_k is small)
+
+    yielded = 0
+    for batch_idx, batch_vectors in enumerate(chunk_embeddings_stream):
+        logger.debug(f"Received chunk embedding batch {batch_idx+1} — {len(batch_vectors)} vectors")
+
+        batch_start = batch_idx * batch_size
+        batch_end   = batch_start + len(batch_vectors)
+
+        for local_i, content_vector in enumerate(batch_vectors):
+            global_i = batch_start + local_i
+            if global_i >= len(chunk_data):
+                break  # in case the last batch is smaller than batch_size
+
+            file_path, chunk, start_idx, end_idx, num_tokens = chunk_data[global_i]
+            file_index = unique_files.index(file_path)
+
+            weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
+                query_vector,
+                name_vectors[file_index],
+                dir_vectors[file_index],
+                content_vector,
+                weights
+            )
+
+            if weighted_sim >= threshold:
+                chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
+
+                result: FileSearchResult = {
+                    "rank": 0,  # temporary — re-ranked later if needed
+                    "score": float(weighted_sim),
+                    "metadata": {
+                        "file_path": file_path,
+                        "start_idx": start_idx,
+                        "end_idx": end_idx,
+                        "chunk_idx": chunk_counts[file_path],
+                        "name_similarity": float(name_sim),
+                        "dir_similarity": float(dir_sim),
+                        "content_similarity": float(content_sim),
+                        "num_tokens": num_tokens
+                    },
+                    "text": chunk,
+                }
+                results.append(result)
+
+                # Yield immediately (progressive feedback)
+                # Note: rank is not final yet — can be post-processed if desired
+                yielded += 1
+                if top_k is None or yielded <= top_k:
+                    yield result
+                if top_k is not None and yielded >= top_k:
+                    return  # stop yielding if reached top_k
+
+    # Final sorting & rank assignment if you want complete list at the end
     results.sort(key=lambda x: x["score"], reverse=True)
+    for i, r in enumerate(results, 1):
+        r["rank"] = i
+
+    # If split_chunks=False → could run merge_results(...) here
+    # but since we want streaming → merging usually happens later / optionally
+
     if not split_chunks:
-        results = merge_results(results, tokenizer)
-    for i, result in enumerate(results if top_k is None else results[:top_k], 1):
-        result["rank"] = i
-        yield result
+        merged_results = merge_results(results, tokenizer)
+        for i, result in enumerate(merged_results if top_k is None else merged_results[:top_k], 1):
+            result["rank"] = i
+            yield result

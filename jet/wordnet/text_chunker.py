@@ -315,16 +315,17 @@ def chunk_texts_with_data(
     texts: Union[str, List[str]],
     chunk_size: int = 128,
     chunk_overlap: int = 0,
-    model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None,
+    model: Optional[Union[str, 'OLLAMA_MODEL_NAMES']] = None,
     ids: Optional[List[str]] = None,
     buffer: int = 0,
     strict_sentences: bool = False,
     min_chunk_size: int = 32,
     show_progress: bool = False
 ) -> List[ChunkResult]:
-    """Optimized, faster version of chunk_texts_with_data."""
+    """Optimized version: removed binary search + repeated decoding in token path."""
     if min_chunk_size > chunk_size:
         min_chunk_size = chunk_size
+
     if isinstance(texts, str):
         texts = [texts]
         doc_indices = [0]
@@ -334,80 +335,71 @@ def chunk_texts_with_data(
     chunks: List[ChunkResult] = []
     effective_chunk_size = chunk_size - buffer
     size_fn = get_tokenizer_fn(model) if model else get_words
-    batch_tokens = size_fn(texts, show_progress=show_progress) if model else size_fn(texts)
     tokenizer = get_tokenizer(model) if model else None
+
+    # Batch tokenize once (big win when many documents)
+    batch_tokens = size_fn(texts, show_progress=show_progress) if model else size_fn(texts)
     token_counts = [len(tokens) for tokens in batch_tokens]
-    min_token_count = min(token_counts)
-    max_token_count = max(token_counts)
+
     step = max(1, chunk_size - chunk_overlap - buffer)
 
-    logger.debug(f"chunk_texts_with_data vars: effective_chunk_size={effective_chunk_size}, "
-                 f"min_token_count={min_token_count}, max_token_count={max_token_count}, "
-                 f"step={step}, chunk_size={chunk_size}, chunk_overlap={chunk_overlap}, buffer={buffer}")
+    logger.debug(
+        f"chunk_texts_with_data vars: effective={effective_chunk_size}, "
+        f"min_chunk={min_chunk_size}, step={step}, "
+        f"chunk_size={chunk_size}, overlap={chunk_overlap}, buffer={buffer}, "
+        f"docs={len(texts)}, avg_tokens={sum(token_counts)/len(token_counts):.0f}"
+    )
 
-    for i, (doc_index, text) in enumerate(tqdm(zip(doc_indices, texts), total=len(texts), desc="Chunking texts", disable=not show_progress)):
-        sentences = split_sentences(text)
-        if not sentences:
+    for i, (doc_index, text) in enumerate(tqdm(
+        zip(doc_indices, texts),
+        total=len(texts),
+        desc="Chunking texts",
+        disable=not show_progress
+    )):
+        if not text.strip():
             continue
+
         doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
 
-        # Fast token-based path
-        if not strict_sentences and model:
-            # tokens = size_fn(text)
+        # ────────────────────────────────────────────────
+        # Fast token-based path (most documents use this)
+        # ────────────────────────────────────────────────
+        if not strict_sentences and model and tokenizer:
             tokens = batch_tokens[i]
             if not tokens:
                 continue
+
             total_len = len(tokens)
-            chunk_index = 0  # Initialize chunk_index for this document
-            for j in range(0, total_len, step):
-                # Binary search to find the largest slice <= chunk_size
-                left, right = j, min(j + effective_chunk_size, total_len)
-                chunk_tokens = []
-                chunk_content = ""
-                chunk_size_tokens = 0
-                best_size = 0
-                while left <= right:
-                    mid = (left + right) // 2
-                    temp_tokens = tokens[j:mid]
-                    if temp_tokens:
-                        temp_content = tokenizer.decode(temp_tokens).strip()
-                        temp_size = len(size_fn(temp_content))
-                        if temp_size <= chunk_size:
-                            # Keep track of the best valid slice
-                            if temp_size > best_size:
-                                chunk_tokens = temp_tokens
-                                chunk_content = temp_content
-                                chunk_size_tokens = temp_size
-                                best_size = temp_size
-                            left = mid + 1  # Try a larger slice
-                        else:
-                            right = mid - 1  # Try a smaller slice
-                    else:
-                        break
+            chunk_index = 0
+
+            j = 0
+            while j < total_len:
+                # Greedy: take up to effective_chunk_size tokens
+                end = min(j + effective_chunk_size, total_len)
+                chunk_tokens = tokens[j:end]
+
                 if not chunk_tokens:
-                    continue
-                # Handle last chunk: include remaining tokens if needed
-                is_last_chunk = j + effective_chunk_size >= total_len
-                if is_last_chunk and not chunk_tokens:
-                    chunk_tokens = tokens[j:right]
-                    if chunk_tokens:
-                        chunk_content = tokenizer.decode(chunk_tokens).strip()
-                        chunk_size_tokens = len(size_fn(chunk_content))
-                if not chunk_tokens:
-                    continue
-                # Skip min_chunk_size check for last chunk or when chunk_size <= min_chunk_size
+                    break
+
+                chunk_content = tokenizer.decode(chunk_tokens).strip()
+                chunk_size_tokens = len(size_fn(chunk_content))
+
+                is_last_chunk = end == total_len
+
+                # Skip very small chunks (except possibly last one)
                 if chunk_size_tokens < min_chunk_size and not is_last_chunk and chunk_size > min_chunk_size:
+                    j += step
                     continue
-                # Calculate overlap indices
-                overlap_start_idx = None
-                overlap_end_idx = None
-                if chunk_overlap > 0 and j + len(chunk_tokens) < total_len:
-                    overlap_start = j + len(chunk_tokens) - min(chunk_overlap, len(chunk_tokens))
-                    overlap_end = min(j + len(chunk_tokens), total_len)
-                    overlap_tokens = tokens[overlap_start:overlap_end]
+
+                # Overlap calculation
+                overlap_start_idx = overlap_end_idx = None
+                if chunk_overlap > 0 and end < total_len:
+                    overlap_start = max(j, end - chunk_overlap)
+                    overlap_tokens = tokens[overlap_start:end]
                     if overlap_tokens:
                         overlap_start_idx = overlap_start
-                        overlap_end_idx = overlap_end
+                        overlap_end_idx = end
+
                 chunks.append({
                     "id": str(uuid.uuid4()),
                     "doc_id": doc_id,
@@ -416,51 +408,64 @@ def chunk_texts_with_data(
                     "num_tokens": chunk_size_tokens,
                     "content": chunk_content,
                     "start_idx": j,
-                    "end_idx": j + len(chunk_content),
+                    "end_idx": j + len(chunk_content),  # char-based, approximate
                     "line_idx": 0,
                     "overlap_start_idx": overlap_start_idx,
                     "overlap_end_idx": overlap_end_idx
                 })
                 chunk_index += 1
-            # Merge last too-small chunk
+
+                # Advance with step (overlap-aware)
+                j += step
+
+            # Optional: merge very small last chunk into previous (same as before)
             if len(chunks) > 1 and chunks[-1]["num_tokens"] < min_chunk_size and chunk_size > min_chunk_size:
                 last = chunks.pop()
                 prev = chunks[-1]
-                prev_last_n_tokens_string = get_last_n_tokens_and_decode(prev["content"], tokenizer, last["num_tokens"])
-                is_covered_by_prev_chunk = last["content"] == prev_last_n_tokens_string
-                if not is_covered_by_prev_chunk:
+                # Warning: this still re-tokenizes → could be optimized later
+                prev_last_n = get_last_n_tokens_and_decode(prev["content"], tokenizer, last["num_tokens"])
+                if last["content"] != prev_last_n.strip():
                     prev["content"] += " " + last["content"]
                     prev["num_tokens"] = len(size_fn(prev["content"]))
                     prev["end_idx"] = last["end_idx"]
+
+            continue  # skip sentence path
+
+        # ────────────────────────────────────────────────
+        # Sentence-based fallback (when strict_sentences=True or no model)
+        # ────────────────────────────────────────────────
+        sentences = split_sentences(text)
+        if not sentences:
             continue
-        # Sentence-based path
+
         sent_sizes = [len(size_fn(s)) for s in sentences]
-        current_chunk, current_size = [], 0
+        current_chunk: List[str] = []
+        current_size = 0
         chunk_index = 0
+
         for s, s_size in zip(sentences, sent_sizes):
             if s_size > effective_chunk_size:
                 sub_sents = split_large_sentence(s, effective_chunk_size, size_fn)
                 for sub in sub_sents:
                     sub_size = len(size_fn(sub))
-                    if current_size + sub_size > effective_chunk_size:
-                        if current_chunk:
-                            chunk_content = " ".join(current_chunk)
-                            num_tokens = len(size_fn(chunk_content))
-                            if num_tokens >= min_chunk_size or not chunks:
-                                chunks.append({
-                                    "id": str(uuid.uuid4()),
-                                    "doc_id": doc_id,
-                                    "doc_index": doc_index,
-                                    "chunk_index": chunk_index,
-                                    "num_tokens": num_tokens,
-                                    "content": chunk_content,
-                                    "start_idx": 0,
-                                    "end_idx": len(chunk_content),
-                                    "line_idx": 0,
-                                    "overlap_start_idx": None,
-                                    "overlap_end_idx": None
-                                })
-                                chunk_index += 1
+                    if current_size + sub_size > effective_chunk_size and current_chunk:
+                        chunk_content = " ".join(current_chunk)
+                        num_tokens = len(size_fn(chunk_content))
+                        if num_tokens >= min_chunk_size or not chunks:
+                            chunks.append({
+                                "id": str(uuid.uuid4()),
+                                "doc_id": doc_id,
+                                "doc_index": doc_index,
+                                "chunk_index": chunk_index,
+                                "num_tokens": num_tokens,
+                                "content": chunk_content,
+                                "start_idx": 0,
+                                "end_idx": len(chunk_content),
+                                "line_idx": 0,
+                                "overlap_start_idx": None,
+                                "overlap_end_idx": None
+                            })
+                            chunk_index += 1
                         current_chunk, current_size = [], 0
                     current_chunk.append(sub)
                     current_size += sub_size
@@ -486,6 +491,8 @@ def chunk_texts_with_data(
                     current_chunk, current_size = [], 0
                 current_chunk.append(s)
                 current_size += s_size
+
+        # Final chunk
         if current_chunk:
             chunk_content = " ".join(current_chunk)
             num_tokens = len(size_fn(chunk_content))
@@ -507,6 +514,7 @@ def chunk_texts_with_data(
                     "overlap_start_idx": None,
                     "overlap_end_idx": None
                 })
+
     return chunks
 
 
