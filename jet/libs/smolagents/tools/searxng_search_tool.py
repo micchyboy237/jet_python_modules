@@ -7,15 +7,14 @@ from smolagents import Tool
 @dataclass
 class SearXNGSearchTool(Tool):
     """
-    Web search tool that uses SearXNG (open-source metasearch engine).
-    Completely free, no API key required.
+    Web search tool that performs searches using the SearXNG search engine.
     
     Args:
-        instance_url: URL of the SearXNG instance (default: a fast public one)
+        instance_url: URL of the SearXNG instance (default: self hosted url)
         max_results: Maximum number of search results to return (default: 10)
         rate_limit: Maximum queries per second (set to None for no limit)
     """
-    name = "searxng_search"
+    name = "web_search"
     description = (
         "Performs a web search using SearXNG (privacy-friendly metasearch engine) "
         "and returns the top results as formatted markdown with titles, URLs, and snippets."
