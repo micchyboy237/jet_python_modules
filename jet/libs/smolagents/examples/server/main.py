@@ -3,7 +3,7 @@ from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.routing import Route
 
-from smolagents import CodeAgent, InferenceClientModel, MCPClient
+from smolagents import CodeAgent, MCPClient, OpenAIModel
 
 
 # Create an MCP client to connect to the MCP server
@@ -14,8 +14,22 @@ mcp_server_parameters = {
 mcp_client = MCPClient(server_parameters=mcp_server_parameters)
 
 # Create a CodeAgent with a specific model and the tools from the MCP client
+# agent = CodeAgent(
+#     model=InferenceClientModel(model_id="Qwen/Qwen3-Next-80B-A3B-Thinking"),
+#     tools=mcp_client.get_tools(),
+# )
+
+# Connect to your local llama.cpp server
+model = OpenAIModel(
+    model_id="qwen3-4b-instruct-2507",           # Arbitrary but descriptive name
+    api_base="http://shawn-pc.local:8080/v1",   # Your server endpoint
+    api_key="sk-no-key-required",               # Dummy value (local servers usually don't check)
+    temperature=0.7,
+    max_tokens=2048,
+    # Optional: extra kwargs forwarded to the completions call
+)
 agent = CodeAgent(
-    model=InferenceClientModel(model_id="Qwen/Qwen3-Next-80B-A3B-Thinking"),
+    model=model,
     tools=mcp_client.get_tools(),
 )
 
