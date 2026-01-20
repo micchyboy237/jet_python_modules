@@ -12,6 +12,7 @@ npx @playwright/mcp@latest \
   --output-dir="$OUTPUT_BASE" \
   --save-video=1280x720 \
   --viewport-size=1280x720
-#   --shared-browser-context \
-#   --save-trace \
-#   --save-session \
+  # --headless
+  # --shared-browser-context \
+  # --save-trace \
+  # --save-session \

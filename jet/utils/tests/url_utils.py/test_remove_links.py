@@ -84,3 +84,45 @@ Searxng link:
         result = remove_links("/sample-with-param?q=test")
         expected = ""
         assert result == expected
+
+    def test_base64_blob_removed(self):
+        """
+        Given text containing a base64-like blob,
+        When remove_links is called,
+        Then the blob is removed and surrounding text preserved.
+        """
+        base64_blob = "a" * 100
+        text = f"Header {base64_blob} Footer"
+
+        result = remove_links(text)
+        expected = "Header  Footer"
+
+        assert result == expected
+
+    def test_jwt_token_removed(self):
+        """
+        Given text containing a JWT token,
+        When remove_links is called,
+        Then the token is removed.
+        """
+        jwt = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ."
+            "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        )
+
+        result = remove_links(jwt)
+        expected = ""
+
+        assert result == expected
+
+    def test_short_token_not_removed(self):
+        """
+        Given a short alphanumeric token,
+        When remove_links is called,
+        Then the token is preserved.
+        """
+        token = "abcDEF123456"
+        result = remove_links(token)
+
+        assert result == token

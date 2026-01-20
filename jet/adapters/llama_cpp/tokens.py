@@ -2,7 +2,6 @@ import tiktoken
 
 from typing import Callable, List, Union, Optional, Literal, overload
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
-from langchain_core.messages import BaseMessage
 
 from jet.adapters.llama_cpp.types import LLAMACPP_TYPES, LLAMACPP_VALUES
 from jet.adapters.llama_cpp.utils import resolve_model_value
@@ -59,7 +58,7 @@ def get_tokenizer_fn(
     return tokenize_fn
 
 def tokenize(
-    text: str | dict | list[str] | list[dict] | list[BaseMessage] = "",
+    text: str | dict | list[str] | list[dict] = "",
     model_name: Optional[LLAMACPP_VALUES] = None,
     add_special_tokens: bool = False
 ) -> list[int] | list[list[int]]:
@@ -94,7 +93,7 @@ def tokenize(
             tokenized = tokenizer.encode(text_str, add_special_tokens=add_special_tokens)
         return tokenized
 
-TokenizableInput = str | dict | list[str] | list[dict] | list[BaseMessage]
+TokenizableInput = str | dict | list[str] | list[dict]
 
 @overload
 def count_tokens(

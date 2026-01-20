@@ -3,6 +3,7 @@ import os
 from typing import Any, AsyncIterator, Callable, Dict, Iterator, List, Optional, Union, Literal, TypedDict
 from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel
+from jet.adapters.llama_cpp.types import LLAMACPP_LLM_TYPES
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.llm.logger_utils import ChatLogger
@@ -36,7 +37,7 @@ class LlamacppLLM:
 
     def __init__(
         self,
-        model: str = "qwen3-instruct-2507:4b",
+        model: LLAMACPP_LLM_TYPES = "qwen3-instruct-2507:4b",
         base_url: str = "http://shawn-pc.local:8080/v1",
         api_key: str = "sk-1234",
         max_retries: int = 3,

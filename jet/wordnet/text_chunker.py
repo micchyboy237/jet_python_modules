@@ -334,8 +334,16 @@ def chunk_texts_with_data(
     chunks: List[ChunkResult] = []
     effective_chunk_size = chunk_size - buffer
     size_fn = get_tokenizer_fn(model) if model else get_words
+    batch_tokens = size_fn(texts, show_progress=show_progress) if model else size_fn(texts)
     tokenizer = get_tokenizer(model) if model else None
+    token_counts = [len(tokens) for tokens in batch_tokens]
+    min_token_count = min(token_counts)
+    max_token_count = max(token_counts)
     step = max(1, chunk_size - chunk_overlap - buffer)
+
+    logger.debug(f"chunk_texts_with_data vars: effective_chunk_size={effective_chunk_size}, "
+                 f"min_token_count={min_token_count}, max_token_count={max_token_count}, "
+                 f"step={step}, chunk_size={chunk_size}, chunk_overlap={chunk_overlap}, buffer={buffer}")
 
     for i, (doc_index, text) in enumerate(tqdm(zip(doc_indices, texts), total=len(texts), desc="Chunking texts", disable=not show_progress)):
         sentences = split_sentences(text)
@@ -345,7 +353,8 @@ def chunk_texts_with_data(
 
         # Fast token-based path
         if not strict_sentences and model:
-            tokens = size_fn(text)
+            # tokens = size_fn(text)
+            tokens = batch_tokens[i]
             if not tokens:
                 continue
             total_len = len(tokens)

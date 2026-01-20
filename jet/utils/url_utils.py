@@ -113,56 +113,75 @@ def clean_links(text: str) -> str:
 def remove_links(text: str) -> str:
     """
     Remove all URLs and paths (except single "/") from text, preserving surrounding content.
+    Also remove long resource blobs such as JWTs, base64, hashes.
     """
     # Separate patterns for better debugging and reliability
     full_url_pattern = re.compile(
-        r'https?://[^\s<>"\'{}|\\^`\[\]]+', 
+        r'https?://[^\s<>"\'{}|\\^`\[\]]+',
         re.IGNORECASE
     )
-    
+
     # Path pattern: starts with /, then path chars (but not just "/"), optional query/fragment
     # Key: match / followed by at least one path character, then optional query/fragment
     path_pattern = re.compile(
         r'/(?=[^\s/])([a-zA-Z0-9\-._~:@!$&\'()*+,;=]|%[0-9a-fA-F]{2})+[^\s<>"\'{}|\\^`\[\]]*(?:\?[^\s<>"\'{}|\\^`\[\]]*)?(?:#[^\s<>"\'{}|\\^`\[\]]*)?',
         re.IGNORECASE
     )
-    
+
     # Combined pattern to match either full URLs or paths
     combined_pattern = re.compile(
         f'({full_url_pattern.pattern})|({path_pattern.pattern})',
         re.IGNORECASE
     )
-    
+
+    # Heuristic: long resource blobs (base64, JWT, hashes, etc.)
+    # - no whitespace
+    # - URL/base64-safe charset
+    # - length threshold prevents false positives
+    resource_blob_pattern = re.compile(
+        r'\b[A-Za-z0-9+/=_\-]{80,}\b'
+    )
+
+    # Explicit JWT pattern: base64url.header.base64url.payload.base64url.signature
+    jwt_pattern = re.compile(
+        r'\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b'
+    )
+
+    # First pass: remove URLs and paths
     output = ""
     last_end = 0
     matches_found = []
-    
+
     for match in combined_pattern.finditer(text):
         start, end = match.span()
         matched_text = text[start:end].strip()
         match_type = "FULL_URL" if match.group(1) else "PATH" if match.group(2) else "UNKNOWN"
-        
+
         matches_found.append({
             'start': start,
             'end': end,
             'text': matched_text,
             'type': match_type
         })
-        
+
         # Explicitly preserve single "/"
         if matched_text == "/":
             output += text[last_end:start]
             output += matched_text  # Keep the single "/"
             last_end = end
             continue
-        
+
         # Remove URL/path matches (except single "/")
         output += text[last_end:start]
         last_end = end
-    
+
     # Append remaining text
     output += text[last_end:]
-    
+
+    # Second pass: remove JWTs and long resource blobs
+    output = jwt_pattern.sub("", output)
+    output = resource_blob_pattern.sub("", output)
+
     return output
 
 

@@ -1,4 +1,5 @@
 # Option 1 – The safe & most popular way
+import re
 from typing import Optional
 import yaml
 import json
@@ -46,3 +47,35 @@ def yaml_file_to_json_file(input_path: str, output_path: str) -> None:
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+def remove_markdown_links(text: str, remove_text: bool = False) -> str:
+    """
+    Remove all markdown links and optionally their visible text content.
+    
+    Args:
+        text: Markdown text possibly containing links or images.
+        remove_text: If True, removes both the markdown link syntax and its text/alt label.
+                     If False (default), keeps the label text.
+    
+    Returns:
+        str: Text with markdown links removed or replaced by labels depending on remove_text flag.
+    """
+    pattern = re.compile(
+        r'(!)?\[([^\[\]]*?(?:\[[^\[\]]*?\])*?[^\[\]]*?)\]\((\S+?)(?:\s+"([^"]+)")?\)'
+    )
+    output = ""
+    last_end = 0
+
+    for match in pattern.finditer(text):
+        start, end = match.span()
+        label = match.group(2).strip()
+        output += text[last_end:start]
+
+        if not remove_text:
+            output += label
+        # if remove_text=True, skip adding label text entirely
+
+        last_end = end
+
+    output += text[last_end:]
+    return output.strip()

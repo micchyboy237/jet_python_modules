@@ -30,6 +30,7 @@ class MarkdownCodeExtractor:
         "go": ".go",
         "php": ".php",
         "cypher": ".cypher",
+        "yaml": ".yaml",
         "text": ".txt",  # Added for 'text' blocks.
         "unknown": "",
     }

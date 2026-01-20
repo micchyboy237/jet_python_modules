@@ -5,12 +5,13 @@ import numpy as np
 import nbformat
 from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS, LLAMACPP_EMBED_TYPES
+from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
 from tqdm import tqdm
+from jet.code.markdown_utils._preprocessors import remove_markdown_links
+from jet.utils.url_utils import remove_links
 from jet.logger import logger
-# from jet.llm.utils.embeddings import generate_embeddings
-from jet.models.embeddings.base import generate_embeddings
-from jet.models.model_types import EmbedModelType
 
 from jet.transformers.formatters import format_json
 from jet.wordnet.text_chunker import chunk_texts_with_data
@@ -43,8 +44,14 @@ class Weights(TypedDict):
     content: float
 
 
-DEFAULT_EMBED_MODEL: EmbedModelType = 'static-retrieval-mrl-en-v1'
-MAX_CONTENT_SIZE = 1000
+DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = 'nomic-embed-text-v2-moe'
+
+model_context_size = LLAMACPP_MODEL_CONTEXTS[DEFAULT_EMBED_MODEL]
+# 'nomic-embed-text-v2-moe' context = 2048
+factor_1 = 0.70          # chunk_size = context * 0.70 → ~1433 tokens
+factor_2 = 0.18          # overlap   = chunk_size * 0.18 → ~258 tokens
+DEFAULT_CHUNK_SIZE = int(model_context_size * factor_1)
+DEFAULT_CHUNK_OVERLAP = int(DEFAULT_CHUNK_SIZE * factor_2)
 
 DEFAULT_WEIGHTS: Weights = {
     "dir": 0.0,
@@ -105,16 +112,82 @@ def get_matched_files(
     return filtered_paths
 
 
+def collect_file_contents(
+    paths: Union[str, List[str]],
+    extensions: Optional[List[str]] = None,
+    includes: Optional[List[str]] = None,
+    excludes: Optional[List[str]] = None,
+    show_progress: bool = True,
+) -> Tuple[List[str], List[str], List[str], List[str]]:
+    file_paths = get_matched_files(paths, extensions, includes, excludes)
+    
+    all_file_paths = []
+    all_file_names = []
+    all_file_contents = []
+    all_parent_dirs = []
+
+    # Prepare progress bar (disabled when show_progress=False)
+    file_iterator = tqdm(
+        file_paths,
+        desc="Collecting & chunking files",
+        total=len(file_paths),
+        disable=not show_progress,
+        unit="file",
+    )
+
+    for file_path in file_iterator:
+        file_path_obj = Path(file_path)
+        file_name = file_path_obj.name
+        parent_dir = file_path_obj.parent.name or "root"
+
+        suffix = file_path_obj.suffix.lower()
+        if suffix == '.ipynb':
+            with open(file_path, 'r', encoding='utf-8') as f:
+                nb = nbformat.read(f, as_version=4)
+            
+            parts = []
+            for cell in nb.cells:
+                source = cell.get('source', '')
+                if not isinstance(source, str) or not source.strip():
+                    continue
+                if cell.cell_type == 'markdown':
+                    parts.append(source.rstrip())
+                elif cell.cell_type == 'code':
+                    parts.append("```python\n" + source.rstrip() + "\n```")
+            if not parts:
+                continue
+            full_content = "\n\n".join(parts)
+        
+        elif suffix in {'.txt', '.py', '.md', '.mdx', '.mdc', '.rst', '.json', '.csv'}:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                full_content = f.read()
+        else:
+            continue
+
+        # Remove all links
+        if suffix in {'.md', '.mdx', '.mdc', ".ipynb"}:
+            full_content = remove_markdown_links(full_content, remove_text=False)
+        full_content = remove_links(full_content)
+
+        all_file_paths.append(file_path)
+        all_file_names.append(file_name)
+        all_parent_dirs.append(parent_dir)
+        all_file_contents.append(full_content)
+
+    return all_file_paths, all_file_names, all_file_contents, all_parent_dirs
+
+
 def collect_file_chunks(
     paths: Union[str, List[str]],
     extensions: Optional[List[str]] = None,
+    embed_model: "LLAMACPP_EMBED_TYPES" = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
     tokenizer: Optional[Callable[[str], int]] = None,
     includes: Optional[List[str]] = None,
     excludes: Optional[List[str]] = None,
     show_progress: bool = True,
-) -> Tuple[List[str], List[str], List[str], List[Tuple[str, str, int, int, int]]]:
+) -> Tuple[List[str], List[str], List[str], List[str]]:
     """
     Collect chunked contents for each file along with file paths, names, dirs, and token counts.
     Args:
@@ -129,81 +202,38 @@ def collect_file_chunks(
         Tuple of (file_paths, file_names, parent_dirs, contents_with_indices)
         where contents_with_indices = List of (file_path, content_chunk, start_idx, end_idx, num_tokens)
     """
+    
+    all_file_paths, all_file_names, all_texts, all_parent_dirs = collect_file_contents(paths, extensions, includes, excludes, show_progress)
 
     def default_tokenizer(text): 
         return len(re.findall(r'\b\w+\b|[^\w\s]', text))
-    
+
     tokenizer = tokenizer or default_tokenizer
-    file_paths = get_matched_files(paths, extensions, includes, excludes)
-    
-    file_names = []
-    parent_dirs = []
+
     contents_with_indices = []
 
-    # Prepare progress bar (disabled when show_progress=False)
-    file_iterator = tqdm(
-        file_paths,
-        desc="Collecting & chunking files",
-        total=len(file_paths),
-        disable=not show_progress,
-        unit="file",
+    # Use chunk_texts_with_data for chunking
+    chunks = chunk_texts_with_data(
+        texts=all_texts,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        model=embed_model,
+        ids=all_file_paths,
+        buffer=0,
+        show_progress=show_progress,
     )
-
-    for file_path in file_iterator:
-        file_path_obj = Path(file_path)
-        file_names.append(file_path_obj.name)
-        parent_dirs.append(file_path_obj.parent.name or "root")
-        try:
-            suffix = file_path_obj.suffix.lower()
-            if suffix == '.ipynb':
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    nb = nbformat.read(f, as_version=4)
-                
-                parts = []
-                for cell in nb.cells:
-                    source = cell.get('source', '')
-                    if not isinstance(source, str) or not source.strip():
-                        continue
-                    if cell.cell_type == 'markdown':
-                        parts.append(source.rstrip())
-                    elif cell.cell_type == 'code':
-                        parts.append("```python\n" + source.rstrip() + "\n```")
-                if not parts:
-                    continue
-                full_content = "\n\n".join(parts)
-            
-            elif suffix in {'.txt', '.py', '.md', '.json', '.csv'}:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    full_content = f.read()
-            else:
-                continue
-
-            # Use chunk_texts_with_data for chunking
-            chunks = chunk_texts_with_data(
-                texts=[full_content],
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                model=None,
-                ids=[file_path],
-                buffer=0,
+    for chunk in chunks:
+        contents_with_indices.append(
+            (
+                chunk["doc_id"],
+                chunk['content'],
+                chunk['start_idx'],
+                chunk['end_idx'],
+                chunk['num_tokens']
             )
-            for chunk in chunks:
-                contents_with_indices.append(
-                    (
-                        file_path,
-                        chunk['content'],
-                        chunk['start_idx'],
-                        chunk['end_idx'],
-                        chunk['num_tokens']
-                    )
-                )
-            # Optional: update description with current file (nice for long runs)
-            if show_progress:
-                file_iterator.set_postfix_str(file_path_obj.name, refresh=True)
-        except (UnicodeDecodeError, IOError):
-            continue
+        )
 
-    return file_paths, file_names, parent_dirs, contents_with_indices
+    return all_file_paths, all_file_names, all_parent_dirs, contents_with_indices
 
 
 def compute_weighted_similarity(
@@ -362,15 +392,14 @@ def merge_results(
     return merged_results
 
 
-def search_files(
+def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
     paths: Union[str, List[str]],
     query: str,
     extensions: Optional[List[str]] = None,
     top_k: Optional[int] = None,
-    embed_model: Union[SentenceTransformer,
-                       EmbedModelType] = DEFAULT_EMBED_MODEL,
-    chunk_size: int = 500,
-    chunk_overlap: int = 100,
+    embed_model: "LLAMACPP_EMBED_TYPES" = DEFAULT_EMBED_MODEL,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
     threshold: float = 0.0,
     tokenizer: Optional[Callable[[str], int]] = None,
     split_chunks: bool = False,
@@ -389,7 +418,7 @@ def search_files(
         query: Search query string
         extensions: List of file extensions to include
         top_k: Maximum number of results to yield, or None to yield all results
-        embed_model: Embedding model or model name to use for vectorization.
+        embed_model: Embedding model name to use for vectorization (LLAMACPP_EMBED_TYPES).
         chunk_size: Size of content chunks
         chunk_overlap: Overlap between chunks
         threshold: Minimum similarity score for results
@@ -408,7 +437,7 @@ def search_files(
         re.findall(r'\b\w+\b|[^\w\s]', text))
     tokenizer = tokenizer or default_tokenizer
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
-        paths, extensions, chunk_size, chunk_overlap, tokenizer, includes, excludes, show_progress=show_progress)
+        paths, extensions, embed_model, chunk_size, chunk_overlap, tokenizer, includes, excludes, show_progress=show_progress)
     logger.debug(f"Parent dirs:\n\n{format_json(parent_dirs)}")
     logger.debug(f"File names:\n\n{format_json(file_names)}")
     logger.debug(f"File paths:\n\n{format_json(file_paths)}")
@@ -432,15 +461,26 @@ def search_files(
         f"  {len(processed_dir_texts)} dirs\n"
         f"  {len(processed_chunk_texts)} chunks"
     )
+
     all_texts = [processed_query] + processed_name_texts + \
         processed_dir_texts + processed_chunk_texts
-    all_vectors = generate_embeddings(
+
+    embedder = LlamacppEmbedding(
+        model=embed_model,
+        use_cache=True,           # good default for repeated runs
+        verbose=True,
+        cache_ttl=86400,          # 1 day in seconds
+        # base_url=...,           # can be made configurable later
+        # cache_backend="sqlite", # already good default
+    )
+
+    all_vectors = embedder(
         all_texts,
-        embed_model,
         return_format="numpy",
         batch_size=batch_size,
-        show_progress=True
+        show_progress=True,
     )
+
     query_vector = all_vectors[0]
     num_names = len(name_texts)
     num_dirs = len(dir_texts)

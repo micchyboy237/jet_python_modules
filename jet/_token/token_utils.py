@@ -1,5 +1,8 @@
 from typing import Callable, List, Literal, Optional, TypedDict, Union, overload
+
+from tqdm import tqdm
 from jet.logger import logger
+# from functools import lru_cache  # optional, not strictly used but as suggested
 # from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
 # from jet.vectors.document_types import HeaderDocument, HeaderTextNode
 # from jet.wordnet.words import get_words
@@ -18,48 +21,83 @@ from jet.llm.models import (
     OLLAMA_MODEL_NAMES,
 )
 
+# Global tokenizer cache — one instance per normalized model name
+TOKENIZER_CACHE: dict[str, Union[PreTrainedTokenizer, PreTrainedTokenizerFast, tiktoken.Encoding]] = {}
+
+def _normalize_model_key(model_name: str | None) -> str:
+    """Create consistent cache key"""
+    if model_name is None:
+        return "tiktoken::cl100k_base"
+    return model_name.lower().strip()
+
+def clear_tokenizer_cache() -> None:
+    """Clear all cached tokenizers — useful in tests / REPL"""
+    TOKENIZER_CACHE.clear()
+    logger.debug("Tokenizer cache cleared")
 
 def get_ollama_models():
     """Lazy loading of Ollama models to avoid circular imports"""
-
     return OLLAMA_HF_MODELS, OLLAMA_MODEL_CONTEXTS
 
-
-def get_ollama_tokenizer(model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
+def get_ollama_tokenizer(
+    model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES
+) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
     if model_name in OLLAMA_MODEL_NAMES.__args__:
         model_name = OLLAMA_HF_MODELS[model_name]
 
     if model_name in OLLAMA_HF_MODEL_NAMES.__args__:
-        tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
-            model_name)
-        return tokenizer
+        # We don't cache here — caching is done one level above
+        return AutoTokenizer.from_pretrained(model_name)
 
     raise ValueError(f"Model \"{model_name}\" not found")
 
-
 def get_tokenizer(
-    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None
-) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
+    model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
+    cache: bool = True,               # ← can disable for testing
+    verbose: bool = False,
+) -> Union[PreTrainedTokenizer, PreTrainedTokenizerFast, tiktoken.Encoding]:
     """
-    Get a tokenizer for a given model name, or fall back to tiktoken if none/model not found.
+    Get a tokenizer for a given model name, or fall back to tiktoken.
+    Uses global cache by default.
     """
+    if not cache:
+        # Bypass cache — mostly for testing / debugging
+        if model_name is None:
+            return tiktoken.get_encoding("cl100k_base")
+        try:
+            return AutoTokenizer.from_pretrained(model_name)
+        except Exception as e:
+            logger.warning(f"Cannot load {model_name}, falling back to tiktoken: {e}")
+            return tiktoken.get_encoding("cl100k_base")
+
+    key = _normalize_model_key(model_name)
+
+    if key in TOKENIZER_CACHE:
+        if verbose:
+            logger.debug(f"[tokenizer cache] HIT → {key}")
+        return TOKENIZER_CACHE[key]
+
+    if verbose:
+        logger.debug(f"[tokenizer cache] MISS → loading {key}")
+
     if model_name is None:
-        return tiktoken.get_encoding("cl100k_base")
+        tok = tiktoken.get_encoding("cl100k_base")
+    else:
+        try:
+            # Resolve Ollama alias → real HF name once
+            resolved_name = model_name
+            if model_name in OLLAMA_MODEL_NAMES.__args__:
+                resolved_name = OLLAMA_HF_MODELS[model_name]
 
-    if model_name in OLLAMA_MODEL_NAMES.__args__:
-        model_name = OLLAMA_HF_MODELS[model_name]
+            tok = AutoTokenizer.from_pretrained(resolved_name)
+        except Exception as e:
+            logger.warning(
+                f"Cannot load tokenizer for '{model_name}' → falling back to tiktoken: {e}"
+            )
+            tok = tiktoken.get_encoding("cl100k_base")
 
-    if model_name in OLLAMA_HF_MODEL_NAMES.__args__:
-        return get_ollama_tokenizer(model_name)
-
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        return tokenizer
-    except Exception as e:
-        logger.warning(
-            f"Model \"{model_name}\" not found, falling back to tiktoken cl100k_base: {str(e)}"
-        )
-        return tiktoken.get_encoding("cl100k_base")
+    TOKENIZER_CACHE[key] = tok
+    return tok
 
 
 # ====================== TOKENIZE ======================
@@ -69,6 +107,8 @@ def tokenize(
     text: str,
     model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
     add_special_tokens: bool = False,
+    show_progress: bool = True,
+    max_tokens_to_process: int = 128,
 ) -> list[int]: ...
 
 @overload
@@ -76,6 +116,8 @@ def tokenize(
     text: dict,
     model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
     add_special_tokens: bool = False,
+    show_progress: bool = True,
+    max_tokens_to_process: int = 128,
 ) -> list[int]: ...
 
 @overload
@@ -83,20 +125,29 @@ def tokenize(
     text: list[str] | list[dict] | list[Message],
     model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
     add_special_tokens: bool = False,
+    show_progress: bool = True,
+    max_tokens_to_process: int = 128,
 ) -> list[list[int]]: ...
 
 def tokenize(
     text: Union[str, dict, list[str], list[dict], list[Message]] = "",
     model_name: Optional[str | OLLAMA_MODEL_NAMES] = None,
     add_special_tokens: bool = False,
+    show_progress: bool = True,
+    max_tokens_to_process: int = 128,
 ) -> Union[list[int], list[list[int]]]:
     """
     Tokenize text first — most natural usage: tokenize("hello", "llama3").
+    
+    When show_progress=True and input is a list, shows a progress bar while
+    tokenizing in batches of max_tokens_to_process items.
 
     Args:
         text: Single string/dict or list of them (Message objects supported via .get('content')).
         model_name: Model identifier (falls back to tiktoken cl100k_base).
         add_special_tokens: Whether to include special tokens.
+        show_progress: Show progress bar if batch is long (default: True).
+        max_tokens_to_process: Batch size for progress bar mode. Default=128.
 
     Returns:
         list[int] for single input, list[list[int]] for batch.
@@ -110,18 +161,43 @@ def tokenize(
                 texts.append(str(t.get('content', t)))
             else:
                 texts.append(str(t))
-
-        if isinstance(tokenizer, tiktoken.Encoding):
-            tokenized = tokenizer.encode_batch(texts, allowed_special="all" if add_special_tokens else set())
+        # Show progress bar for large batches if requested
+        if show_progress and len(texts) > max_tokens_to_process:
+            result = []
+            for i in tqdm(
+                range(0, len(texts), max_tokens_to_process),
+                desc="Tokenizing",
+                unit="batch",
+                total=(len(texts) + max_tokens_to_process - 1) // max_tokens_to_process,
+            ):
+                chunk = texts[i : i + max_tokens_to_process]
+                if isinstance(tokenizer, tiktoken.Encoding):
+                    chunk_tokens = tokenizer.encode_batch(
+                        chunk,
+                        allowed_special="all" if add_special_tokens else set()
+                    )
+                else:
+                    chunk_tokens = tokenizer.batch_encode_plus(
+                        chunk,
+                        return_tensors=None,
+                        add_special_tokens=add_special_tokens
+                    )["input_ids"]
+                result.extend(chunk_tokens)
+            return result
         else:
-            tokenized = tokenizer.batch_encode_plus(
-                texts,
-                return_tensors=None,
-                add_special_tokens=add_special_tokens
-            )
-            tokenized = tokenized["input_ids"]
-        return tokenized
+            # original batch path (fast path when progress bar not needed)
+            if isinstance(tokenizer, tiktoken.Encoding):
+                tokenized = tokenizer.encode_batch(texts, allowed_special="all" if add_special_tokens else set())
+            else:
+                tokenized = tokenizer.batch_encode_plus(
+                    texts,
+                    return_tensors=None,
+                    add_special_tokens=add_special_tokens
+                )
+                tokenized = tokenized["input_ids"]
+            return tokenized
     else:
+        # single item path — unchanged
         if isinstance(text, dict):
             text_str = str(text.get('content', text))
         else:
@@ -140,6 +216,8 @@ def detokenize(
     model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
     *,
     skip_special_tokens: bool = True,
+    show_progress: bool = True,
+    max_tokens_to_process: int = 128,
 ) -> str: ...
 
 @overload
@@ -148,6 +226,8 @@ def detokenize(
     model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
     *,
     skip_special_tokens: bool = True,
+    show_progress: bool = True,
+    max_tokens_to_process: int = 128,
 ) -> list[str]: ...
 
 def detokenize(
@@ -155,14 +235,21 @@ def detokenize(
     model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
     *,
     skip_special_tokens: bool = True,
+    show_progress: bool = True,
+    max_tokens_to_process: int = 128,
 ) -> Union[str, list[str]]:
     """
     Detokenize tokens first — natural: detokenize(token_ids, "gemma2").
+
+    When show_progress=True and input is a list of token lists, shows a
+    progress bar while detokenizing in batches of max_tokens_to_process items.
 
     Args:
         tokens: Single sequence or batch of token ids.
         model_name: Model identifier (falls back to tiktoken cl100k_base).
         skip_special_tokens: Remove <bos>, <eos>, etc. (default True).
+        show_progress: Use progress bar for batch detokenization (default True).
+        max_tokens_to_process: Batch size for progress bar (default 128).
 
     Returns:
         Reconstructed string or list of strings.
@@ -171,26 +258,51 @@ def detokenize(
 
     is_batch = isinstance(tokens, list) and all(isinstance(t, list) for t in tokens)
 
-    if isinstance(tokenizer, tiktoken.Encoding):
-        if is_batch:
+    if not is_batch:
+        # single sequence path — unchanged
+        if isinstance(tokenizer, tiktoken.Encoding):
+            return tokenizer.decode(tokens, skip_special_tokens=skip_special_tokens)
+        return tokenizer.decode(
+            tokens,
+            skip_special_tokens=skip_special_tokens,
+            clean_up_tokenization_spaces=True,
+        )
+
+    # batch path
+    if show_progress and len(tokens) > max_tokens_to_process:
+        result = []
+        for i in tqdm(
+            range(0, len(tokens), max_tokens_to_process),
+            desc="Detokenizing",
+            unit="batch",
+            total=(len(tokens) + max_tokens_to_process - 1) // max_tokens_to_process,
+        ):
+            chunk = tokens[i : i + max_tokens_to_process]
+            if isinstance(tokenizer, tiktoken.Encoding):
+                chunk_decoded = [
+                    tokenizer.decode(t, skip_special_tokens=skip_special_tokens)
+                    for t in chunk
+                ]
+            else:
+                chunk_decoded = tokenizer.batch_decode(
+                    chunk,
+                    skip_special_tokens=skip_special_tokens,
+                    clean_up_tokenization_spaces=True,
+                )
+            result.extend(chunk_decoded)
+        return result
+    else:
+        # original fast batch path
+        if isinstance(tokenizer, tiktoken.Encoding):
             return [
                 tokenizer.decode(batch, skip_special_tokens=skip_special_tokens)
                 for batch in tokens
             ]
-        return tokenizer.decode(tokens, skip_special_tokens=skip_special_tokens)
-
-    # HuggingFace tokenizer
-    if is_batch:
         return tokenizer.batch_decode(
             tokens,
             skip_special_tokens=skip_special_tokens,
             clean_up_tokenization_spaces=True,
         )
-    return tokenizer.decode(
-        tokens,
-        skip_special_tokens=skip_special_tokens,
-        clean_up_tokenization_spaces=True,
-    )
 
 # ====================== FACTORY FUNCTIONS (updated order) ======================
 
@@ -198,10 +310,8 @@ def get_tokenizer_fn(
     model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
     add_special_tokens: bool = False,
 ) -> Callable[[Union[str, list[str]]], Union[list[int], list[list[int]]]]:
-    tokenizer = get_tokenizer(model_name)
-
-    def _fn(text: Union[str, list[str]]) -> Union[list[int], list[list[int]]]:
-        return tokenize(text, model_name=None, add_special_tokens=add_special_tokens)
+    def _fn(text: Union[str, list[str]], show_progress: bool = True) -> Union[list[int], list[list[int]]]:
+        return tokenize(text, model_name=model_name, add_special_tokens=add_special_tokens, show_progress=show_progress)
 
     return _fn
 
@@ -210,10 +320,8 @@ def get_detokenizer_fn(
     model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
     skip_special_tokens: bool = True,
 ) -> Callable[[Union[list[int], list[list[int]]]], Union[str, list[str]]]:
-    tokenizer = get_tokenizer(model_name)
-
-    def _fn(tokens: Union[list[int], list[list[int]]]) -> Union[str, list[str]]:
-        return detokenize(tokens, model_name=None, skip_special_tokens=skip_special_tokens)
+    def _fn(tokens: Union[list[int], list[list[int]]], show_progress: bool = True) -> Union[str, list[str]]:
+        return detokenize(tokens, model_name=model_name, skip_special_tokens=skip_special_tokens, show_progress=show_progress)
 
     return _fn
 

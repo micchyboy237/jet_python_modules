@@ -3,6 +3,7 @@ from openai import OpenAI
 from typing import Iterator, List, Union, Literal, Callable, Optional
 from tqdm import tqdm
 from jet._token.token_utils import token_counter
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_TYPES
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.models.utils import get_context_size, get_embedding_size
 from jet.models.embeddings.utils import calculate_dynamic_batch_size
@@ -19,11 +20,57 @@ class InputTooLargeError(ValueError):
         super().__init__(f"Inputs at indexes {long_input_indexes} are too long (> {max_input_length} tokens). Please reduce input size or increase server physical batch size.")
 
 class LlamacppEmbedding:
-    """A client for generating embeddings via llama-server using OpenAI API with modern caching."""
-    
+    """
+    Initialize the Llama.cpp embedding client.
+
+    This client communicates with a `llama-server` instance exposing an
+    OpenAI-compatible `/v1/embeddings` API and supports optional caching
+    and dynamic batch sizing.
+
+    Args:
+        model (LLAMACPP_EMBED_TYPES):
+            Embedding model identifier or alias resolved via
+            `resolve_model_value`. Must be compatible with llama.cpp
+            embedding endpoints.
+
+        base_url (str):
+            Base URL of the llama-server OpenAI-compatible API
+            (e.g. "http://localhost:8081/v1").
+
+        max_retries (int):
+            Maximum number of retry attempts for failed API requests.
+
+        cache_backend (Literal["memory", "file", "sqlite"]):
+            Cache storage backend:
+            - "memory": in-process LRU cache
+            - "file": compressed pickle file cache
+            - "sqlite": persistent SQLite-backed cache
+
+        cache_ttl (Optional[int]):
+            Time-to-live (in seconds) for cached embeddings.
+            If None, cached values never expire.
+
+        cache_max_size (int):
+            Maximum number of embedding entries stored in cache
+            before LRU eviction.
+
+        use_cache (bool):
+            Whether to enable embedding caching by default.
+
+        use_dynamic_batch_sizing (bool):
+            If True, batch size is automatically calculated based on
+            token counts, embedding size, and model context window.
+
+        verbose (bool):
+            Enable informational and debug logging.
+
+        logger (Optional[CustomLogger]):
+            Optional custom logger instance. If not provided,
+            a default `CustomLogger` is created.
+    """
     def __init__(
         self,
-        model: str = "embeddinggemma",
+        model: LLAMACPP_EMBED_TYPES = "embeddinggemma",
         base_url: str = "http://shawn-pc.local:8081/v1",
         max_retries: int = 3,
         cache_backend: Literal["memory", "file", "sqlite"] = "sqlite",
@@ -34,7 +81,6 @@ class LlamacppEmbedding:
         verbose: bool = True,
         logger: Optional[CustomLogger] = None,
     ):
-        """Initialize the client with server URL, model path, and cache settings."""
         self.client = OpenAI(base_url=base_url, api_key="no-key-required", max_retries=max_retries)
         self.model = resolve_model_value(model)
         self.max_retries = max_retries
