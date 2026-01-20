@@ -40,7 +40,7 @@ if __name__ == "__main__":
     # ───────────────────────────────────────────────────────────────
     run_example(
         f"Find all markdown files (*.md) under this directory: {base_dir} "
-        "that contain Python code examples (look for code blocks starting with ```python
+        "that contain Python code examples (look for code blocks starting with ```python"
     )
 
     # ───────────────────────────────────────────────────────────────
