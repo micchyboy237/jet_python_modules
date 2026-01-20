@@ -233,6 +233,7 @@ class LlamacppEmbedding:
                 raise
         
         final_embeddings = embeddings if return_format != "numpy" else np.array(embeddings, dtype=np.float32)
+        final_embeddings = self.transform_data(final_embeddings)
         
         if use_cache:
             self.cache.set(cache_key, final_embeddings.tolist() if return_format == "numpy" else final_embeddings)
@@ -386,9 +387,18 @@ class LlamacppEmbedding:
             batch = all_embeddings[start : start + batch_size]
 
             if return_format == "numpy":
-                yield np.array(batch, dtype=np.float32)   # shape: (bs, dim)
+                final_embeddings = np.array(batch, dtype=np.float32)   # shape: (bs, dim)
+                yield self.transform_data(final_embeddings)
             else:
                 yield batch                               # list of lists
+
+    def transform_data(self, embeddings: Union[List[float], np.ndarray], truncate_dim: Optional[int] = None) -> np.ndarray:
+        if isinstance(embeddings, list):
+            embeddings = np.array(embeddings, dtype=np.float32)
+        embeddings = np.ascontiguousarray(embeddings.astype(np.float32))
+        if truncate_dim is not None and embeddings.shape[-1] > truncate_dim:
+            embeddings = embeddings[:truncate_dim]
+        return embeddings
 
     def close(self) -> None:
         """Close cache (e.g., SQLite conn)."""

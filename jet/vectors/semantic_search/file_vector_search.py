@@ -63,14 +63,10 @@ DEFAULT_WEIGHTS: Weights = {
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     """Calculate cosine similarity between two vectors."""
-    vec1 = np.asarray(vec1).flatten()
-    vec2 = np.asarray(vec2).flatten()
     dot_product = np.dot(vec1, vec2)
     norm_a = np.linalg.norm(vec1)
     norm_b = np.linalg.norm(vec2)
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return float(dot_product / (norm_a * norm_b))
+    return float(dot_product / (norm_a * norm_b)) if norm_a * norm_b != 0 else 0.0
 
 
 def get_matched_files(
@@ -413,7 +409,8 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
     preprocess: Optional[Callable[[str], str]] = None,
     weights: Optional[Weights] = None,
     batch_size: int = 64,
-    show_progress: bool = True
+    show_progress: bool = True,
+    use_cache: bool = False,
 ) -> Iterator[FileSearchResult]:
     """
     Search files using vector similarity on chunked contents + file metadata.
@@ -455,14 +452,14 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
     chunk_texts = [chunk for _, chunk, _, _, _ in chunk_data]
 
     # ── 1. Embed query (instant) ────────────────────────
-    embedder = LlamacppEmbedding(model=embed_model, use_cache=True, verbose=True, cache_ttl=86400)
+    embedder = LlamacppEmbedding(model=embed_model, use_cache=use_cache, verbose=True, cache_ttl=86400)
     query_processed = preprocess(query) if preprocess else query
     query_vector: np.ndarray = embedder(
         query_processed,
         return_format="numpy",
         batch_size=1,
         show_progress=False,
-        use_cache=True,
+        use_cache=use_cache,
     )[0]
 
     # ── 2. Embed names + dirs (small → fast) ────────────
@@ -476,7 +473,7 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
             return_format="numpy",
             batch_size=min(128, len(name_dir_texts)),
             show_progress=True,
-            use_cache=True,
+            use_cache=use_cache,
         )
         name_vectors = name_dir_vectors[:len(processed_name_texts)]
         dir_vectors = name_dir_vectors[len(processed_name_texts):]
@@ -494,7 +491,7 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
         return_format="numpy",
         batch_size=batch_size,
         show_progress=True,
-        use_cache=True,
+        use_cache=use_cache,
     )
 
     results: List[FileSearchResult] = []
