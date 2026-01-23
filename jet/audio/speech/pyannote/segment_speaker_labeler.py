@@ -13,30 +13,6 @@ from pyannote.audio.pipelines.clustering import AgglomerativeClustering as Pyann
 from pyannote.audio.pipelines.clustering import KMeansClustering as PyannoteKMeansClustering
 from tqdm import tqdm
 
-# ── Silence noisy pyannote / lightning warnings ────────────────────────────────
-import warnings
-
-# 1. Lightning redirect messages
-warnings.filterwarnings(
-    "ignore",
-    message="Redirecting import of pytorch_lightning",
-    module="lightning.pytorch.utilities.migration.utils"
-)
-
-# 2. Task-dependent loss function warning
-warnings.filterwarnings(
-    "ignore",
-    message="Model has been trained with a task-dependent loss function",
-    module="pyannote.audio.core.model"
-)
-
-# 3. Chunk duration mismatch (optional – comment out if you want to keep the hint)
-warnings.filterwarnings(
-    "ignore",
-    message="Model was trained with .* chunks, and you requested .* chunks",
-    module="pyannote.audio.core.inference"
-)
-
 
 class SegmentResult(TypedDict):
     path: str
