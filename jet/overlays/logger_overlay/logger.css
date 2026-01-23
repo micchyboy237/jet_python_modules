@@ -1,0 +1,90 @@
+body {
+  margin: 0;
+  background: #0e0e11;
+  color: #e6e6eb;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+}
+
+#toolbar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #14141a;
+  border-bottom: 1px solid #222;
+}
+
+#search {
+  flex: 1;
+  background: #1e1e26;
+  border: none;
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+#filters button {
+  background: #222;
+  border: none;
+  color: #aaa;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#filters button.active {
+  color: #fff;
+}
+
+#log-container {
+  padding: 8px;
+  overflow-y: auto;
+  height: calc(100vh - 38px);
+}
+
+.log {
+  padding: 6px 8px;
+  margin-bottom: 5px;
+  border-radius: 6px;
+  line-height: 1.35;
+  animation: slideIn 0.12s ease-out;
+}
+
+.timestamp {
+  opacity: 0.5;
+  margin-right: 6px;
+}
+
+.debug {
+  background: #1b1f2a;
+  color: #9aa4ff;
+}
+.info {
+  background: #132530;
+  color: #66d9ef;
+}
+.success {
+  background: #0f2b1c;
+  color: #5af78e;
+}
+.warning {
+  background: #2b240f;
+  color: #f4bf75;
+}
+.error {
+  background: #2b1212;
+  color: #ff6b6b;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(3px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
