@@ -258,6 +258,59 @@ class SegmentSpeakerLabeler:
         np.fill_diagonal(sim_matrix, -1.0)
         return sim_matrix.max(axis=1)
 
+    def similarity(
+        self,
+        audio_a: AudioInput,
+        audio_b: AudioInput,
+    ) -> float:
+        """
+        Compute cosine similarity between two audio inputs using speaker embeddings.
+
+        Returns
+        -------
+        float
+            Cosine similarity in [-1, 1].
+        """
+        embeddings = self._extract_embeddings([audio_a, audio_b])
+        return float(np.dot(embeddings[0], embeddings[1]))
+
+    def is_same_speaker(
+        self,
+        audio_a: AudioInput,
+        audio_b: AudioInput,
+    ) -> bool:
+        """
+        Determine whether two audio inputs are likely from the same speaker.
+
+        This method intentionally reuses `cluster_segments` to stay consistent
+        with clustering-time similarity semantics.
+
+        Returns
+        -------
+        bool
+            True if both inputs are assigned the same speaker label AND
+            the similarity evidence is defined (non-singleton cluster).
+        """
+        results = self.cluster_segments([audio_a, audio_b])
+
+        if len(results) != 2:
+            return False
+
+        a, b = results
+
+        # Different cluster → definitely different speakers
+        if a["speaker_label"] != b["speaker_label"]:
+            return False
+
+        # Singleton / undefined similarity is represented as 0.0
+        if (
+            a["centroid_cosine_similarity"] <= 0.0
+            or b["centroid_cosine_similarity"] <= 0.0
+        ):
+            return False
+
+        return True
+
     def cluster_segments(
         self,
         segments: AudioInput | List[AudioInput],
@@ -345,28 +398,31 @@ class SegmentSpeakerLabeler:
 
         # ── The rest stays almost the same ──
         # Compute centroids (needed for output even in reference mode)
-        cluster_centroids = []
+        cluster_centroids: dict[int, np.ndarray] = {}
+        cluster_sizes: dict[int, int] = {}
+
         for l in np.unique(labels):
-            if np.sum(labels == l) == 0:
+            idx = labels == l
+            size = int(np.sum(idx))
+            cluster_sizes[int(l)] = size
+            if size == 0:
                 continue
-            centroid = embeddings[labels == l].mean(axis=0)
+            centroid = embeddings[idx].mean(axis=0)
             centroid /= np.linalg.norm(centroid) + 1e-12
-            cluster_centroids.append(centroid)
-        cluster_centroids = np.stack(cluster_centroids) if len(cluster_centroids) > 0 else np.array([])
+            cluster_centroids[int(l)] = centroid
 
         # nearest neighbor sim (same logic)
         nearest_neighbor_sim = np.zeros(len(embeddings), dtype=np.float32)
         for label in np.unique(labels):
             idx = np.where(labels == label)[0]
             if len(idx) <= 1:
-                nearest_neighbor_sim[idx] = 1.0
+                nearest_neighbor_sim[idx] = np.nan
                 continue
             cluster_embs = embeddings[idx]
             nn_sim = self._nearest_neighbor_similarity(cluster_embs)
             nearest_neighbor_sim[idx] = nn_sim
 
         results: List[SegmentResult] = []
-        centroid_map = {i: c for i, c in enumerate(cluster_centroids)}
 
         # For result output, try to infer path even for generic segments
         for i, (item, label) in enumerate(zip(segment_list, labels)):
@@ -380,7 +436,13 @@ class SegmentSpeakerLabeler:
                 path_str = ""
                 parent_dir = ""
 
-            centroid_sim = float(np.dot(embeddings[i], centroid_map.get(int(label), np.zeros_like(embeddings[i]))))
+            cluster_size = cluster_sizes.get(int(label), 0)
+            if cluster_size <= 1:
+                centroid_sim = np.nan
+            else:
+                centroid_sim = float(
+                    np.dot(embeddings[i], cluster_centroids[int(label)])
+                )
 
             results.append(
                 {
