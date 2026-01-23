@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 import sys
 import json
 import datetime
@@ -70,6 +71,34 @@ class LoggerOverlay(QMainWindow):
         else:
             self._pending_logs.append(js)
 
+    @staticmethod
+    def create_logger(html_path: str) -> "Logger":
+        """
+        Factory helper:
+        - creates QApplication if needed
+        - installs Ctrl+C (SIGINT) handler
+        - shows the overlay window
+        - returns a Logger instance
+        """
+
+        # Ensure QApplication exists
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+
+        # Ctrl+C handler
+        def _handle_sigint(sig, frame):
+            print("Exiting logger overlay (SIGINT)")
+            QApplication.quit()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, _handle_sigint)
+
+        # Create and show overlay
+        overlay = LoggerOverlay(html_path)
+        overlay.show()
+
+        return Logger(overlay)
 
 class Logger:
     def __init__(self, overlay: LoggerOverlay) -> None:
@@ -97,16 +126,12 @@ if __name__ == "__main__":
 
     html_file = str((Path(__file__).parent / "logger.html").resolve())
 
-    overlay = LoggerOverlay(html_file)
-    overlay.show()
+    logger = LoggerOverlay.create_logger(html_file)
 
-    logger = Logger(overlay)
-
-    # These are now SAFE even before page is ready
     logger.debug("Debug message")
     logger.info("Info message")
     logger.success("Success message")
     logger.warning("Warning message")
     logger.error("Error message")
 
-    sys.exit(app.exec())
+    sys.exit(QApplication.exec())
