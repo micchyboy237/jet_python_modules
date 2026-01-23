@@ -278,12 +278,18 @@ class SpeechAnalyzer:
         # --- Energy timeline ---------------------------------------
         energies = getattr(self, "_last_energies", None)
         if energies is not None:
-            plt.figure(figsize=(20, 4))
-            plt.plot(time_axis, energies, color="orange", linewidth=1.5)
-            plt.xlabel("Time (seconds)")
-            plt.ylabel("Normalized Energy")
-            plt.title(f"Audio Energy Over Time – {Path(audio_path).name}")
-            plt.grid(True, alpha=0.3)
+            fig, ax1 = plt.subplots(figsize=(20, 5))
+
+            ax1.plot(time_axis, probs, color="steelblue", linewidth=1.5, label="Speech Probability")
+            ax1.axhline(self.threshold, color="red", linestyle="--", alpha=0.7)
+            ax1.set_ylabel("Speech Probability")
+            ax1.set_ylim(0, 1.05)
+
+            ax2 = ax1.twinx()
+            ax2.plot(time_axis, energies, color="orange", alpha=0.7, linewidth=1.2, label="Energy")
+            ax2.set_ylabel("Normalized Energy")
+            ax2.set_ylim(0, 1.05)
+
             def set_dynamic_xticks(ax, total_seconds: float) -> None:
                 target_ticks = 12
                 interval = max(1, round(total_seconds / target_ticks, -1))
@@ -305,10 +311,17 @@ class SpeechAnalyzer:
                 ax.set_xticks(ticks)
                 ax.set_xticklabels(labels)
                 ax.grid(True, which="major", axis="x", alpha=0.4, linestyle="--")
-            set_dynamic_xticks(plt.gca(), total_sec)
-            energy_path = Path(out_dir) / f"vad_energy_{Path(audio_path).stem}.png"
-            plt.savefig(energy_path, dpi=300, bbox_inches="tight")
-            print(f"Energy plot saved → {energy_path}")
+            set_dynamic_xticks(ax1, total_sec)
+            ax1.set_xlabel("Time (seconds)")
+            ax1.set_title(f"Probability + Energy Overlay – {Path(audio_path).name}")
+
+            lines, labels = ax1.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax1.legend(lines + lines2, labels + labels2, loc="upper right")
+
+            overlay_path = Path(out_dir) / f"vad_prob_energy_overlay_{Path(audio_path).stem}.png"
+            plt.savefig(overlay_path, dpi=300, bbox_inches="tight")
+            print(f"Probability+Energy overlay saved → {overlay_path}")
             plt.close()
 
         def set_dynamic_xticks(ax, total_seconds: float) -> None:
@@ -621,6 +634,20 @@ class SpeechAnalyzer:
                 "frame_duration_ms": self.frame_duration_ms,
                 "segment_frame_count": int(round(seg.duration / self.frame_duration_ms)),
             })
+
+            # Add segment energy stats if available
+            energies = np.array(getattr(self, "_last_energies", []))
+            start_idx = int(round(seg.start / self.frame_duration_ms))
+            end_idx = int(round(seg.end / self.frame_duration_ms))
+            seg_energies = energies[start_idx:end_idx] if energies.size else None
+
+            if seg_energies is not None and len(seg_energies):
+                meta["energy_stats"] = {
+                    "avg_energy": round(float(seg_energies.mean()), 5),
+                    "peak_energy": round(float(seg_energies.max()), 5),
+                    "energy_std": round(float(seg_energies.std()), 5),
+                }
+
             if segment_type:
                 meta["segment_type"] = segment_type
             if apply_filters:
@@ -632,15 +659,18 @@ class SpeechAnalyzer:
             (seg_dir / "meta.json").write_text(json.dumps(meta, indent=2))
 
             # Per-segment probability chart
-            start_idx = int(round(seg.start / self.frame_duration_ms))
-            end_idx = int(round(seg.end / self.frame_duration_ms))
             seg_probs = prob_array[start_idx:end_idx]
             if len(seg_probs) == 0:
                 continue  # safety
             seg_time_sec = np.arange(len(seg_probs)) * (self.frame_duration_ms / 1000.0)
 
             plt.figure(figsize=(8, 4))
-            plt.plot(seg_time_sec, seg_probs, color=chart_color, linewidth=1.8)
+            plt.plot(seg_time_sec, seg_probs, color=chart_color, linewidth=1.8, label="Probability")
+
+            if seg_energies is not None and len(seg_energies) == len(seg_probs):
+                plt.plot(seg_time_sec, seg_energies, color="orange", alpha=0.6,
+                         linewidth=1.2, label="Energy")
+
             plt.axhline(self.threshold, color="red", linestyle="--", alpha=0.8,
                         label=f"Threshold = {self.threshold}")
             if show_raw_threshold:
@@ -729,6 +759,12 @@ class SpeechAnalyzer:
 
         prob_array = np.array(probs)
 
+        energies = np.array(getattr(self, "_last_energies", []))
+
+        avg_energy = float(energies.mean()) if energies.size else 0.0
+        peak_energy = float(energies.max()) if energies.size else 0.0
+        energy_std = float(energies.std()) if energies.size else 0.0
+
         # Mask for frames classified as speech (threshold-based segments)
         speech_mask = np.zeros(len(probs), dtype=bool)
         for seg in segments:
@@ -754,7 +790,7 @@ class SpeechAnalyzer:
         ] if num_segments > 1 else []
         avg_gap_sec = float(np.mean(gaps)) if gaps else 0.0
 
-        return {
+        metrics = {
             "total_duration_sec": round(total_duration_sec, 3),
             "total_speech_sec": round(total_speech_sec, 3),
             "speech_percentage": round(speech_percent, 1),
@@ -780,6 +816,23 @@ class SpeechAnalyzer:
             "total_frames": num_frames,
             "frames_per_second": round(1000.0 / self.frame_duration_ms, 1),
         }
+
+        if energies.size > 0:
+            metrics.update({
+                "energy_min": round(float(np.min(energies)), 4) if energies.size else 0,
+                "energy_max": round(float(np.max(energies)), 4) if energies.size else 0,
+                "energy_mean": round(float(np.mean(energies)), 4) if energies.size else 0,
+                "energy_std": round(float(np.std(energies)), 4) if energies.size else 0,
+            })
+        else:
+            metrics.update({
+                "energy_min": 0,
+                "energy_max": 0,
+                "energy_mean": 0,
+                "energy_std": 0,
+            })
+
+        return metrics
 
     def run_threshold_sweep(
         self,
