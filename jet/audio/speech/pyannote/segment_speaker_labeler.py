@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 from pathlib import Path
-from typing import List, Literal, TypedDict
+from typing import List, Literal, TypedDict, Union
 
 import numpy as np
 import torch
@@ -12,6 +13,8 @@ from pyannote.audio import Inference, Model
 from pyannote.audio.pipelines.clustering import AgglomerativeClustering as PyannoteAgglomerativeClustering
 from pyannote.audio.pipelines.clustering import KMeansClustering as PyannoteKMeansClustering
 from tqdm import tqdm
+
+AudioInput = Union[np.ndarray, bytes, io.BytesIO, str, Path]
 
 
 class SegmentResult(TypedDict):
@@ -40,7 +43,7 @@ class SegmentSpeakerLabeler:
 
     def __init__(
         self,
-        embedding_model_name: str = "pyannote/embedding",
+        embedding_model: str = "pyannote/embedding",
         hf_token: str | None = None,
         distance_threshold: float = 0.7,
         clustering_strategy: Literal["agglomerative", "kmeans"] = "agglomerative",
@@ -48,17 +51,20 @@ class SegmentSpeakerLabeler:
         # ── New parameters for reference-based assignment ─────────────────────
         reference_embeddings_by_speaker: dict[int | str, np.ndarray] | None = None,
         reference_paths_by_speaker: dict[int | str, list[str | Path]] | None = None,
+        use_references: bool = False,
         assignment_threshold: float = 0.68,
         assignment_strategy: Literal["centroid", "max"] = "centroid",
         # ──────────────────────────────────────────────────────────────────────
-        use_accelerator: bool = True,  # renamed for clarity (MPS/CUDA)
+        use_accelerator: bool = True,
+        device: str | torch.device | None = None,
+        verbose: bool = False,
     ) -> None:
         """
         Initialize the clusterer.
 
         Parameters
         ----------
-        embedding_model_name : str, optional
+        embedding_model : str, optional
             Hugging Face model name for speaker embedding.
         hf_token : str | None, optional
             Hugging Face authentication token (required for gated models).
@@ -70,20 +76,33 @@ class SegmentSpeakerLabeler:
             Required when using "kmeans". Ignored for "agglomerative".
         use_accelerator : bool, optional
             Use MPS (Apple), CUDA or CPU as available.
+        device : str | torch.device | None, optional
+            Overrides auto-detection if provided.
+        verbose : bool, optional
+            If True, enables verbose output for debugging.
         """
 
-        # ── Prefer MPS on Apple Silicon, then CUDA, then CPU ─────────────────────
-        if torch.backends.mps.is_available():
-            device_str = "mps"
-        elif use_accelerator and torch.cuda.is_available():
-            device_str = "cuda"
+        self.verbose = verbose
+
+        # ── Prefer provided device; otherwise, auto-select MPS, CUDA, then CPU ──────
+        if device is not None:
+            self.device = torch.device(device)
+            device_str = str(self.device)
         else:
-            device_str = "cpu"
+            if torch.backends.mps.is_available():
+                device_str = "mps"
+            elif use_accelerator and torch.cuda.is_available():
+                device_str = "cuda"
+            else:
+                device_str = "cpu"
+            self.device = torch.device(device_str)
 
-        self.device = torch.device(device_str)
+        if self.verbose:
+            print(f"Using device: {self.device} ({'MPS acceleration' if device_str == 'mps' else 'CUDA' if device_str == 'cuda' else 'CPU'})")
 
-        # Optional: log once at init so you know what's being used
-        print(f"Using device: {self.device} ({'MPS acceleration' if device_str == 'mps' else 'CUDA' if device_str == 'cuda' else 'CPU'})")
+        # ── Use HF_TOKEN from environment if not supplied ─────────────────────────
+        if hf_token is None:
+            hf_token = os.getenv("HF_TOKEN")
 
         # ── Suppress safetensors "open file:" prints during model load ─────────
         @contextlib.contextmanager
@@ -93,7 +112,7 @@ class SegmentSpeakerLabeler:
 
         with suppress_safetensors_output():
             self.model = Model.from_pretrained(
-                embedding_model_name,
+                embedding_model,
                 use_auth_token=hf_token,
                 map_location=self.device,   # ← load directly to target device
                 strict=False,
@@ -113,6 +132,7 @@ class SegmentSpeakerLabeler:
 
         self.reference_embeddings_by_speaker = reference_embeddings_by_speaker or {}
         self.reference_centroids: dict[int | str, np.ndarray] = {}
+        self.use_references = use_references
         self.assignment_threshold = assignment_threshold
         self.assignment_strategy = assignment_strategy
 
@@ -168,33 +188,63 @@ class SegmentSpeakerLabeler:
 
         return labels
 
-    def _extract_embeddings(self, segment_paths: List[Path]) -> np.ndarray:
-        """Extract and L2-normalize speaker embeddings for all segments with progress bar."""
+    def _extract_embeddings(
+        self,
+        segments: List[AudioInput]
+    ) -> np.ndarray:
+        """Extract and L2-normalize speaker embeddings with progress bar."""
         embeddings: List[np.ndarray] = []
-        for path in tqdm(segment_paths, desc="Extracting embeddings"):
-            result = self.inference(str(path))
+
+        segments_list = tqdm(segments, desc="Extracting embeddings") if self.verbose else segments
+        for item in segments_list:
+            audio = self._normalize_audio_input(item)
+            result = self.inference(audio)
+
             # When using sliding window, result is SlidingWindowFeature
             if hasattr(result, "data"):
-                emb_array = result.data  # shape: (n_windows, dim)
+                emb_array = result.data
                 if emb_array.shape[0] == 0:
-                    raise ValueError(f"No windows extracted for very short segment: {path}")
-                # Average-pool over sliding windows to get one embedding per segment
+                    raise ValueError("No windows extracted for very short/empty segment")
                 emb = np.mean(emb_array, axis=0)
             else:
-                # Fallback for whole-window mode (numpy array)
                 emb = result
                 if emb.ndim == 2:
                     emb = emb.squeeze(0)
                 elif emb.ndim > 2:
-                    raise ValueError(f"Unexpected embedding shape {emb.shape} for {path}")
+                    raise ValueError(f"Unexpected embedding shape {emb.shape}")
 
-            # L2 normalize
             norm = np.linalg.norm(emb)
             if norm == 0:
-                raise ValueError(f"Zero-norm embedding for {path} – silent or invalid audio?")
+                raise ValueError("Zero-norm embedding – silent or invalid audio?")
             emb = emb / norm
             embeddings.append(emb)
+
         return np.stack(embeddings)
+
+    def _normalize_audio_input(self, item: AudioInput) -> np.ndarray | io.BytesIO | str:
+        """Convert any AudioInput to format accepted by pyannote.audio.Inference"""
+        if isinstance(item, (str, Path)):
+            return str(Path(item))           # ensure string path
+
+        if isinstance(item, io.BytesIO):
+            item.seek(0)                     # be polite
+            return item
+
+        if isinstance(item, bytes):
+            return io.BytesIO(item)
+
+        if isinstance(item, np.ndarray):
+            if item.ndim not in (1, 2):
+                raise ValueError(f"Expected 1D or 2D waveform, got shape {item.shape}")
+            if item.ndim == 2:
+                if item.shape[1] not in (1, 2):
+                    raise ValueError("Waveform must be mono or stereo (channels last)")
+                item = item.mean(axis=1)     # quick downmix to mono
+            if item.dtype != np.float32:
+                item = item.astype(np.float32)
+            return item
+
+        raise TypeError(f"Unsupported audio input type: {type(item).__name__}")
 
     def _nearest_neighbor_similarity(
         self,
@@ -210,39 +260,53 @@ class SegmentSpeakerLabeler:
 
     def cluster_segments(
         self,
-        segment_paths: List[Path] | List[str],
+        segments: AudioInput | List[AudioInput],
     ) -> List[SegmentResult]:
         """
-        Cluster speaker embeddings from a provided list of segment file paths.
+        Cluster speaker embeddings from provided audio segments.
 
         Parameters
         ----------
-        segment_paths : List[Path] | List[str]
-            List of paths to segment audio files to be clustered.
-
-        Returns
-        -------
-        List[SegmentResult]
-            List of dictionaries with keys: "path", "parent_dir", "speaker_label", "centroid_cosine_similarity", "nearest_neighbor_cosine_similarity".
+        segments : AudioInput | List[AudioInput]
+            Single audio item or list of items. Each item can be:
+            • np.ndarray     → mono float32 waveform @ 16 kHz
+            • bytes          → raw encoded audio bytes
+            • io.BytesIO     → buffer with encoded audio
+            • str / Path     → path to audio file
+        ...
         """
-        if not segment_paths:
-            raise ValueError("No segment file paths were provided to cluster_segments.")
+        if not segments:
+            raise ValueError("No segment(s) provided to cluster_segments.")
 
-        use_references = bool(self.reference_centroids or self.reference_embeddings_by_speaker)
+        # Normalize to list
+        segment_list: List[AudioInput] = (
+            [segments] if not isinstance(segments, list) else segments
+        )
 
-        if use_references:
-            print(f"Found {len(segment_paths)} segments. Assigning using {len(self.reference_centroids)} reference speakers...")
-        else:
-            print(f"Found {len(segment_paths)} segments. Extracting embeddings...")
+        if not segment_list:
+            raise ValueError("Empty segment list provided.")
 
-        embeddings = self._extract_embeddings(segment_paths)
+        # ── Decide which path to take ───────────────────────────────────────
+        has_references = bool(self.reference_centroids or self.reference_embeddings_by_speaker)
 
-        if use_references:
+        embeddings = self._extract_embeddings(segment_list)
+
+        if self.use_references and has_references:
+            if self.verbose:
+                print(f"Found {len(segment_list)} segment(s). Assigning using provided references...")
             labels = self._assign_to_references(embeddings)
+            # No majority-size remapping in reference mode (labels come from references)
             unique_labels = np.unique(labels)
-            print(f"Assignment complete → {len(unique_labels)} speakers detected (including possible new).")
+            if self.verbose:
+                print(f"Assignment complete → {len(unique_labels)} speakers detected (including possible new).")
         else:
-            print("Clustering embeddings...")
+            if self.use_references and not has_references and self.verbose:
+                print("Warning: use_references=True but no references provided → falling back to unsupervised clustering")
+
+            if self.verbose:
+                print(f"Found {len(segment_list)} segment(s). Clustering embeddings...")
+
+            # ── existing unsupervised clustering code ──
             if self.clustering_strategy == "agglomerative":
                 if self.n_clusters is not None:
                     raise ValueError("n_clusters cannot be used with agglomerative strategy.")
@@ -271,12 +335,12 @@ class SegmentSpeakerLabeler:
             else:
                 raise ValueError(f"Unsupported clustering_strategy: {self.clustering_strategy}")
 
+            # majority-size remapping (only in unsupervised mode)
             unique_labels = np.unique(labels)
-            # (existing majority remapping code remains here)
             cluster_sizes = [(l, np.sum(labels == l)) for l in unique_labels]
             cluster_sizes.sort(key=lambda x: -x[1])
             old_label_to_priority = {old: idx for idx, (old, _) in enumerate(cluster_sizes)}
-            labels = np.array([old_label_to_priority[l] for l in labels])  # overwrite with remapped
+            labels = np.array([old_label_to_priority[l] for l in labels])
             unique_labels = np.unique(labels)
 
         # ── The rest stays almost the same ──
@@ -304,19 +368,30 @@ class SegmentSpeakerLabeler:
         results: List[SegmentResult] = []
         centroid_map = {i: c for i, c in enumerate(cluster_centroids)}
 
-        for i, (path, label) in enumerate(zip(segment_paths, labels)):
-            path_obj = Path(path)
+        # For result output, try to infer path even for generic segments
+        for i, (item, label) in enumerate(zip(segment_list, labels)):
+            # Attempt to extract a path, if possible, else empty string
+            if isinstance(item, (str, Path)):
+                path_obj = Path(item)
+                path_str = str(path_obj)
+                parent_dir = path_obj.parent.name
+            else:
+                # Not a real file path
+                path_str = ""
+                parent_dir = ""
+
             centroid_sim = float(np.dot(embeddings[i], centroid_map.get(int(label), np.zeros_like(embeddings[i]))))
 
             results.append(
                 {
-                    "path": str(path_obj),
-                    "parent_dir": path_obj.parent.name,
+                    "path": path_str,
+                    "parent_dir": parent_dir,
                     "speaker_label": int(label),
                     "centroid_cosine_similarity": centroid_sim,
                     "nearest_neighbor_cosine_similarity": float(nearest_neighbor_sim[i]),
                 }
             )
 
-        print(f"Processing complete → {len(np.unique(labels))} speakers detected.")
+        if self.verbose:
+            print(f"Processing complete → {len(np.unique(labels))} speakers detected.")
         return results
