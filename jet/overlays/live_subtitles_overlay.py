@@ -274,44 +274,44 @@ class LiveSubtitlesOverlay(QWidget):
         self.filter_toggle_btn.toggled.connect(self._toggle_filter_panel)
         self.control_bar.addWidget(self.filter_toggle_btn)
 
-        clear_btn = QPushButton("Clear")
+        clear_btn = QPushButton("🗑")
         clear_btn.setFixedSize(28, 28)
         clear_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(180, 100, 100, 0.25);
-                color: white;
+                background: rgba(200, 80, 80, 0.35);
+                color: #ffffff;
                 border-radius: 14px;
-                font-weight: bold;
-                font-size: 11px;
+                font-size: 15px;
             }
-            QPushButton:hover { background: rgba(255, 80, 80, 0.5); }
+            QPushButton:hover { background: rgba(255, 70, 70, 0.65); }
+            QPushButton:pressed { background: rgba(200, 40, 40, 0.9); }
         """)
         clear_btn.clicked.connect(self.clear)
 
-        self.min_btn = QPushButton("Minimize")
+        self.min_btn = QPushButton("−")
         self.min_btn.setFixedSize(28, 28)
         self.min_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(100, 180, 255, 0.25);
-                color: white;
+                background: rgba(90, 140, 200, 0.35);
+                color: #ffffff;
                 border-radius: 14px;
-                font-weight: bold;
-                font-size: 11px;
+                font-size: 17px;
             }
-            QPushButton:hover { background: rgba(100, 180, 255, 0.5); }
+            QPushButton:hover { background: rgba(100, 160, 220, 0.6); }
+            QPushButton:pressed { background: rgba(70, 120, 180, 0.85); }
         """)
 
-        close_btn = QPushButton("×")
+        close_btn = QPushButton("✕")
         close_btn.setFixedSize(28, 28)
         close_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(255, 80, 80, 0.7);
+                background: rgba(220, 60, 60, 0.85);
                 color: white;
                 border-radius: 14px;
-                font-weight: bold;
-                font-size: 15px;
+                font-size: 17px;
             }
-            QPushButton:hover { background: rgba(255, 50, 50, 1); }
+            QPushButton:hover { background: rgba(255, 50, 50, 1.0); }
+            QPushButton:pressed { background: rgba(180, 30, 30, 1.0); }
         """)
         close_btn.clicked.connect(QApplication.quit)
 
@@ -561,7 +561,7 @@ class LiveSubtitlesOverlay(QWidget):
             self.status_label.setText("LIVE • MINIMIZED")
             if hasattr(self, 'title_label'):
                 self.title_label.show()
-            self.min_btn.setText("Restore")
+            self.min_btn.setText("□")
             self._is_minimized = True
         else:
             if self._original_size:
@@ -575,7 +575,7 @@ class LiveSubtitlesOverlay(QWidget):
             self.content_area.layout().setEnabled(True)
             self.control_bar.layout().setContentsMargins(12, 10, 12, 10)
             self.status_label.setText("LIVE")
-            self.min_btn.setText("Minimize")
+            self.min_btn.setText("−")
             self._is_minimized = False
 
     def keyPressEvent(self, event):
