@@ -216,7 +216,10 @@ def main():
                             content = f.read()
                             content = clean_content(
                                 content, file, shorten_funcs)
-                            clipboard_content += f"{prefix}{content}\n\n"
+                            # ── NEW: Add fenced code block ───────────────────────────────
+                            lang = get_language_from_extension(file)
+                            fenced_content = f"```{lang}\n{content.rstrip()}\n```"
+                            clipboard_content += f"{prefix}{fenced_content}\n\n"
                     except Exception:
                         # Continue to the next file
                         continue
@@ -271,6 +274,48 @@ def main():
 
     # Newline
     print("\n")
+
+
+def get_language_from_extension(filename: str) -> str:
+    """
+    Simple file extension → markdown code fence language mapping
+    Returns 'text' as safe fallback
+    """
+    ext = os.path.splitext(filename.lower())[1]
+    
+    mapping = {
+        '.py':     'python',
+        '.js':     'javascript',
+        '.jsx':    'jsx',
+        '.ts':     'typescript',
+        '.tsx':    'tsx',
+        '.json':   'json',
+        '.html':   'html',
+        '.htm':    'html',
+        '.css':    'css',
+        '.scss':   'scss',
+        '.sass':   'sass',
+        '.md':     'markdown',
+        '.mdx':    'mdx',
+        '.yaml':   'yaml',
+        '.yml':    'yaml',
+        '.toml':   'toml',
+        '.sh':     'bash',
+        '.bash':   'bash',
+        '.sql':    'sql',
+        '.prisma': 'prisma',
+        '.java':   'java',
+        '.kt':     'kotlin',
+        '.go':     'go',
+        '.rs':     'rust',
+        '.cpp':    'cpp',
+        '.c':      'c',
+        '.h':      'c',
+        '.php':    'php',
+        '.rb':     'ruby',
+    }
+    
+    return mapping.get(ext, 'text')
 
 
 if __name__ == "__main__":
