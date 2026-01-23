@@ -77,6 +77,16 @@ class AudioSegmentDatabase:
             name="audio_segments",
             metadata={"hnsw:space": "cosine"}
         )  # noqa: E501
+        # Ensure underlying tables are created (Chroma creates them lazily on first write)
+        if self.collection.count() == 0:
+            dummy_id = "init_dummy"
+            self.collection.upsert(
+                ids=[dummy_id],
+                embeddings=[[0.0] * 512],  # CLAP audio embeddings are 512-dimensional
+                metadatas=[{"file": "init", "start_sec": 0.0}]
+            )
+            self.collection.delete(ids=[dummy_id])
+            console.log("[dim cyan]Initialized ChromaDB tables with dummy entry[/dim cyan]")
 
     def _compute_embeddings(self, audios: List[torch.Tensor]) -> List[List[float]]:
         console.print("[yellow][DEBUG] Computing embeddings for {} audio segments[/yellow]".format(len(audios)))

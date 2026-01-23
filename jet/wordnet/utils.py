@@ -1,4 +1,4 @@
-from typing import Any, Generator, List, Optional, Union
+from typing import Any, Generator, List, Optional, Union, Iterator, TypeVar, overload
 from bs4 import BeautifulSoup
 import bs4
 from jet.utils.text import has_non_ascii
@@ -382,31 +382,62 @@ def sliding_window_stream(text: str | list[Any], window_size: int, step_size: in
         yield data[last_index:]
 
 
+T = TypeVar("T")
+
+@overload
 def increasing_window(
-    text: Union[str, List[Any]], step_size: int = 1, max_window_size: Optional[int] = None
-) -> Generator[List[Any], None, None]:
-    """
-    Generate sequences using an increasing window approach, starting from size 1 up to max_window_size.
+    tokens: str,
+    step_size: int = 1,
+    max_window_size: Optional[int] = None
+) -> Iterator[str]: ...
 
-    :param text: A string or list of tokens (words or characters) from the text corpus.
-    :param step_size: The number of tokens to increase the window size at each step.
-    :param max_window_size: The maximum size of the window. If None, uses the length of the text.
-    :return: A generator of text sequences with increasing window sizes.
-    """
-    if isinstance(text, str):
-        text = [word for sentence in split_sentences(
-            text) for word in get_words(sentence)]
+@overload
+def increasing_window(
+    tokens: List[T],
+    step_size: int = 1,
+    max_window_size: Optional[int] = None
+) -> Iterator[List[T]]: ...
 
-    if not text:
+def increasing_window(
+    tokens: Union[str, List[Any]],
+    step_size: int = 1,
+    max_window_size: Optional[int] = None
+) -> Iterator[Union[str, List[Any]]]:
+    """
+    Generate increasing-sized windows from the beginning of the sequence.
+
+    Yields windows of size 1, 1+step, 1+2*step, ... up to min(max_window_size, len(tokens))
+
+    Args:
+        tokens: Input sequence (string or list)
+        step_size: How much to increase window size each step
+        max_window_size: Optional upper bound on window size
+
+    Yields:
+        Increasing slices of the input sequence
+
+    Raises:
+        ValueError: if step_size <= 0
+    """
+    if step_size <= 0:
+        raise ValueError("step_size must be positive")
+
+    n = len(tokens)
+
+    if n == 0:
         return
 
-    if max_window_size is None or max_window_size > len(text):
-        max_window_size = len(text)
+    # Effective maximum we can reach
+    max_possible = n
+    if max_window_size is not None:
+        if max_window_size < 1:
+            return
+        max_possible = min(max_possible, max_window_size)
 
-    data = text.copy()
-    for start_idx in range(len(data)):
-        for window_size in range(1, min(max_window_size + 1, len(data) - start_idx + 1), step_size):
-            yield data[start_idx:start_idx + window_size]
+    size = 1
+    while size <= max_possible:
+        yield tokens[:size]
+        size += step_size
 
 
 if __name__ == "__main__":
