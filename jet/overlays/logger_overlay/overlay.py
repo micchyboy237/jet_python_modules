@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 import signal
 import sys
 import json
 import datetime
-from typing import Literal, List
+from typing import Literal, List, Optional
 
 from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtCore import QUrl
@@ -72,7 +73,7 @@ class LoggerOverlay(QMainWindow):
             self._pending_logs.append(js)
 
     @staticmethod
-    def create_logger(html_path: str) -> "Logger":
+    def create_logger(html_path: Optional[str] = None) -> "Logger":
         """
         Factory helper:
         - creates QApplication if needed
@@ -80,6 +81,10 @@ class LoggerOverlay(QMainWindow):
         - shows the overlay window
         - returns a Logger instance
         """
+
+        if html_path is None:
+            # Use default html
+            html_path = str((Path(__file__).parent / "logger.html").resolve())
 
         # Ensure QApplication exists
         app = QApplication.instance()
@@ -121,12 +126,9 @@ class Logger:
 
 
 if __name__ == "__main__":
-    from pathlib import Path
     app = QApplication(sys.argv)
 
-    html_file = str((Path(__file__).parent / "logger.html").resolve())
-
-    logger = LoggerOverlay.create_logger(html_file)
+    logger = LoggerOverlay.create_logger()
 
     logger.debug("Debug message")
     logger.info("Info message")
