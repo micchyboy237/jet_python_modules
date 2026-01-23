@@ -105,6 +105,28 @@ class SpeechAnalyzer:
             probs.append(prob)
         return probs
 
+    def extract_energies(self, wav: torch.Tensor) -> List[float]:
+        """
+        Extract frame-level RMS energy aligned with VAD probability frames.
+        Energy is normalized to [0, 1] for visualization & JSON export.
+        """
+        energies: List[float] = []
+        for i in range(0, len(wav), self.window_size_samples):
+            chunk = wav[i : i + self.window_size_samples]
+            if len(chunk) < self.window_size_samples:
+                chunk = torch.nn.functional.pad(
+                    chunk, (0, self.window_size_samples - len(chunk))
+                )
+            rms = torch.sqrt(torch.mean(chunk ** 2)).item()
+            energies.append(rms)
+
+        # Normalize safely
+        max_val = max(energies) if energies else 1.0
+        if max_val > 0:
+            energies = [e / max_val for e in energies]
+
+        return energies
+
     def extract_segments(
         self,
         segments: List[Dict[str, int]],
@@ -205,7 +227,10 @@ class SpeechAnalyzer:
 
         return raw_segments
 
-    def analyze(self, audio_path: str | Path) -> Tuple[List[float], List[SpeechSegment], List[SpeechSegment], int]:
+    def analyze(
+        self,
+        audio_path: str | Path
+    ) -> Tuple[List[float], List[float], List[SpeechSegment], List[SpeechSegment], int]:
         wav = read_audio(str(audio_path), sampling_rate=self.sr).float()
 
         # Threshold-based segments from Silero
@@ -224,6 +249,8 @@ class SpeechAnalyzer:
 
         # Extract probabilities
         probs = self.extract_probs(wav)
+        energies = self.extract_energies(wav)
+        self._last_energies = energies
         prob_array = np.array(probs)
         num_frames = len(probs)
 
@@ -233,7 +260,7 @@ class SpeechAnalyzer:
         # Raw segments (independent of Silero's merging logic)
         raw_segments = self.extract_raw_segments(prob_array)
 
-        return probs, rich_segments, raw_segments, num_frames
+        return probs, energies, rich_segments, raw_segments, num_frames
 
     def plot_insights(
         self,
@@ -247,6 +274,42 @@ class SpeechAnalyzer:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
         time_axis = [i * self.step_sec for i in range(num_frames)]
         total_sec = num_frames * self.step_sec
+
+        # --- Energy timeline ---------------------------------------
+        energies = getattr(self, "_last_energies", None)
+        if energies is not None:
+            plt.figure(figsize=(20, 4))
+            plt.plot(time_axis, energies, color="orange", linewidth=1.5)
+            plt.xlabel("Time (seconds)")
+            plt.ylabel("Normalized Energy")
+            plt.title(f"Audio Energy Over Time – {Path(audio_path).name}")
+            plt.grid(True, alpha=0.3)
+            def set_dynamic_xticks(ax, total_seconds: float) -> None:
+                target_ticks = 12
+                interval = max(1, round(total_seconds / target_ticks, -1))
+                if interval <= 5: interval = 5
+                elif interval <= 12: interval = 10
+                elif interval <= 35: interval = 30
+                elif interval <= 70: interval = 60
+                elif interval <= 150: interval = 120
+                else: interval = 300
+                ticks = np.arange(0, total_seconds + interval / 2, interval)
+                labels = []
+                for t in ticks:
+                    if t >= 3600:
+                        labels.append(f"{int(t // 3600)}:{int((t % 3600) // 60):02d}:{int(t % 60):02d}")
+                    elif t >= 60:
+                        labels.append(f"{int(t // 60):02d}:{int(t % 60):02d}")
+                    else:
+                        labels.append(f"{int(t)}s")
+                ax.set_xticks(ticks)
+                ax.set_xticklabels(labels)
+                ax.grid(True, which="major", axis="x", alpha=0.4, linestyle="--")
+            set_dynamic_xticks(plt.gca(), total_sec)
+            energy_path = Path(out_dir) / f"vad_energy_{Path(audio_path).stem}.png"
+            plt.savefig(energy_path, dpi=300, bbox_inches="tight")
+            print(f"Energy plot saved → {energy_path}")
+            plt.close()
 
         def set_dynamic_xticks(ax, total_seconds: float) -> None:
             target_ticks = 12
@@ -488,6 +551,24 @@ class SpeechAnalyzer:
         json_path.write_text(json.dumps(data, indent=2))
         print(f"Raw JSON saved → {json_path}")
 
+    def save_energies_json(
+        self,
+        energies: List[float],
+        out_dir: str | Path,
+        audio_path: str | Path,
+    ) -> None:
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        data = {
+            "audio_file": Path(audio_path).name,
+            "frame_duration_ms": self.frame_duration_ms,
+            "sampling_rate": self.sr,
+            "num_frames": len(energies),
+            "energies": [round(float(e), 6) for e in energies],
+        }
+        path = Path(out_dir) / f"vad_energies_{Path(audio_path).stem}.json"
+        path.write_text(json.dumps(data, indent=2))
+        print(f"Energies JSON saved → {path}")
+
     def _save_segments_individually(
         self,
         audio_path: str | Path,
@@ -722,7 +803,7 @@ class SpeechAnalyzer:
                 min_std_prob=self.min_std_prob,
                 min_pct_threshold=self.min_pct_threshold,
             )
-            _, segments, raw_segments, _ = analyzer.analyze(audio_path)
+            _, _, segments, raw_segments, _ = analyzer.analyze(audio_path)
             metrics = analyzer.get_metrics(probs, segments, raw_segments, len(probs), total_sec)
 
             results.append({
@@ -843,7 +924,7 @@ def main():
     print(f"Analyzing: {args.audio.name}")
     print(f"Threshold: {args.threshold} | Output → {args.output_dir.resolve()}")
 
-    probs, segments, raw_segments, num_frames = analyzer.analyze(args.audio)
+    probs, energies, segments, raw_segments, num_frames = analyzer.analyze(args.audio)
     total_sec = num_frames * analyzer.step_sec
     metrics = analyzer.get_metrics(probs, segments, raw_segments, num_frames, total_sec)
     analyzer.plot_insights(probs, segments, raw_segments, num_frames, args.audio, args.output_dir)
@@ -855,6 +936,7 @@ def main():
     }
     analyzer.save_json(segments, args.output_dir, args.audio, extra_info=extra_info)
     analyzer.save_raw_json(raw_segments, args.output_dir, args.audio, extra_info=extra_info)
+    analyzer.save_energies_json(energies, args.output_dir, args.audio)
     analyzer.save_segments_individually(
         args.audio,
         segments,
@@ -893,6 +975,7 @@ def main():
     formatted_raw_segments = [seg.to_dict() for seg in raw_segments]
 
     save_file(probs, f"{str(args.output_dir)}/probs.json")
+    save_file(energies, f"{str(args.output_dir)}/energies.json")
     save_file(formatted_segments, f"{str(args.output_dir)}/segments.json")
     save_file(formatted_raw_segments, f"{str(args.output_dir)}/raw_segments.json")
     save_file(metrics, f"{str(args.output_dir)}/vad_metrics.json")
