@@ -1,6 +1,7 @@
 # jet_python_modules/jet/audio/utils.py   (new file or add to existing utils)
+from collections import Counter, defaultdict
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Literal, Protocol, Tuple, TypedDict
 
 import numpy as np
 import soundfile as sf
@@ -155,6 +156,132 @@ def has_sound(
         f"(≥ {silence_threshold:.6f}), threshold used: {silence_threshold:.6f} → {has_detected_sound}"
     )
     return has_detected_sound
+
+# Single source of truth for loudness label literals
+LoudnessLabel = Literal[
+    "Very Quiet",
+    "Quiet",
+    "Soft",
+    "Normal",
+    "Loud",
+    "Very Loud",
+    "Extremely Loud",
+    "Unknown",
+]
+
+def rms_to_loudness_labels(
+    energies: List[float],
+) -> Tuple[List[LoudnessLabel], dict]:
+    """
+    Convert RMS energies to human-readable loudness labels
+    using percentile-based normalization.
+    """
+    arr = np.asarray(energies, dtype=float)
+    percentiles = np.percentile(arr, [5, 20, 40, 60, 80, 95])
+
+    bins = [
+        (-np.inf, percentiles[0], "Very Quiet"),
+        (percentiles[0], percentiles[1], "Quiet"),
+        (percentiles[1], percentiles[2], "Soft"),
+        (percentiles[2], percentiles[3], "Normal"),
+        (percentiles[3], percentiles[4], "Loud"),
+        (percentiles[4], percentiles[5], "Very Loud"),
+        (percentiles[5], np.inf, "Extremely Loud"),
+    ]
+
+    labels: List[LoudnessLabel] = []
+    for v in arr:
+        for lo, hi, label in bins:
+            if lo <= v < hi:
+                labels.append(label)  # type: ignore
+                break
+
+    metadata = {
+        "percentile_thresholds": {
+            "p5": float(percentiles[0]),
+            "p20": float(percentiles[1]),
+            "p40": float(percentiles[2]),
+            "p60": float(percentiles[3]),
+            "p80": float(percentiles[4]),
+            "p95": float(percentiles[5]),
+        }
+    }
+
+    return labels, metadata
+
+class SegmentLike(Protocol):
+    start_frame: int
+    end_frame: int  # exclusive
+
+class SegmentLoudnessResult(TypedDict):
+    segment_index: int
+    loudness: LoudnessLabel
+
+def segment_loudness_median_label(
+    segments: List[SegmentLike],
+    frame_labels: List[LoudnessLabel],
+) -> List[SegmentLoudnessResult]:
+    """
+    Assign a loudness label to each segment using the most frequent
+    (median) frame-level label.
+    """
+    results: List[SegmentLoudnessResult] = []
+    max_len = len(frame_labels)
+
+    for idx, seg in enumerate(segments):
+        start = max(0, seg.start_frame)
+        end = min(seg.end_frame, max_len)
+        labels = frame_labels[start:end]
+
+        if not labels:
+            loudness: LoudnessLabel = "Unknown"
+        else:
+            counts = Counter(labels)
+            loudness = counts.most_common(1)[0][0]
+
+        results.append({
+            "segment_index": idx,
+            "loudness": loudness,
+        })
+
+    return results
+
+def segment_loudness_energy_weighted(
+    segments: List[SegmentLike],
+    frame_labels: List[LoudnessLabel],
+    frame_energies: List[float],
+) -> List[SegmentLoudnessResult]:
+    """
+    Assign a loudness label to each segment weighted by RMS energy.
+
+    The label whose frames contribute the most total energy
+    is selected as the segment loudness.
+    """
+    results: List[SegmentLoudnessResult] = []
+    max_len = min(len(frame_labels), len(frame_energies))
+
+    for idx, seg in enumerate(segments):
+        start = max(0, seg.start_frame)
+        end = min(seg.end_frame, max_len)
+        energy_by_label: Dict[LoudnessLabel, float] = defaultdict(float)
+
+        for lbl, eng in zip(frame_labels[start:end], frame_energies[start:end]):
+            energy_by_label[lbl] += eng
+
+        if not energy_by_label:
+            loudness: LoudnessLabel = "Unknown"
+        else:
+            loudness = max(
+                energy_by_label.items(),
+                key=lambda item: item[1],
+            )[0]
+
+        results.append({
+            "segment_index": idx,
+            "loudness": loudness,
+        })
+
+    return results
 
 if __name__ == "__main__":
     audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/silero/generated/silero_vad_stream/segment_001/sound.wav"
