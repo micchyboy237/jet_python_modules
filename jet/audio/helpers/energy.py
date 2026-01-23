@@ -1,7 +1,8 @@
 # jet_python_modules/jet/audio/utils.py   (new file or add to existing utils)
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Literal, Protocol, Tuple, TypedDict
+from typing import List, Dict, Literal, Tuple, TypedDict
 
 import numpy as np
 import soundfile as sf
@@ -209,9 +210,10 @@ def rms_to_loudness_labels(
 
     return labels, metadata
 
-class SegmentLike(Protocol):
+@dataclass(frozen=True)
+class SegmentLike:           # ← no Protocol needed here
     start_frame: int
-    end_frame: int  # exclusive
+    end_frame: int
 
 class SegmentLoudnessResult(TypedDict):
     segment_index: int
