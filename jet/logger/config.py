@@ -32,17 +32,18 @@ COLORS = {
     "BRIGHT_LIME": BOLD + "\u001b[48;5;82m",
     "CYAN": BOLD + "\u001b[38;5;51m",
     "BRIGHT_CYAN": BOLD + "\u001b[48;5;51m",
-    # Updated to a lighter magenta for iTerm2 dark theme (Color 219 is lighter than 201)
-    "MAGENTA": BOLD + "\u001b[38;5;219m",
-    "BRIGHT_MAGENTA": BOLD + "\u001b[48;5;219m",
-    # Updated to a lighter green for iTerm2 dark theme (Color 119 is lighter and more readable than 34)
-    "GREEN": BOLD + "\u001b[38;5;119m",
-    "BRIGHT_GREEN": BOLD + "\u001b[48;5;119m",
+    # Updated to more readable magenta on dark background (205 = good saturation & contrast)
+    "MAGENTA": BOLD + "\u001b[38;5;205m",
+    "BRIGHT_MAGENTA": BOLD + "\u001b[48;5;205m",
+    # better contrast & saturation on dark bg (#5fff87)
+    "GREEN": BOLD + "\u001b[38;5;84m",          
+    "BRIGHT_GREEN": BOLD + "\u001b[48;5;84m",  # or try 77 (#5fd75f) if you prefer slightly darker
     # Updated to a lighter blue for iTerm2 dark theme (Color 81 is lighter than 27)
     "BLUE": BOLD + "\u001b[38;5;81m",
     "BRIGHT_BLUE": BOLD + "\u001b[48;5;81m",
-    "PINK": BOLD + "\u001b[38;5;218m",
-    "BRIGHT_PINK": BOLD + "\u001b[48;5;218m",
+    # Updated to a more readable pink (Color 225 is lighter and has higher contrast than 218)
+    "PINK": BOLD + "\u001b[38;5;212m",          # better contrast hot pink for dark bg
+    "BRIGHT_PINK": BOLD + "\u001b[48;5;212m",  # or try 206 if you want more saturation
     "WHITE": BOLD + "\u001b[38;5;15m",
     "GRAY": "\u001b[38;5;250m",
     "LOG": BOLD + "\u001b[38;5;15m",

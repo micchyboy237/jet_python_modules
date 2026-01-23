@@ -13,9 +13,135 @@ from jet.logger import logger
 
 from jet.audio.helpers.silence import calibrate_silence_threshold
 
+
+def compute_l1_energy(audio_frame: np.ndarray) -> float:
+    """
+    Mean absolute amplitude of the frame: mean(|x|).
+
+    One-line intuition:
+        "Is there sound present, and how strong is it on average?"
+
+    Answers:
+        "How active is this signal, ignoring spikes?"
+
+    Notes:
+    - Length-independent
+    - Robust to noise and peaks
+    - Normalized ONLY if input is in [-1.0, 1.0]
+    """
+    return float(np.mean(np.abs(audio_frame)))
+
+
+def compute_rms(audio_frame: np.ndarray) -> float:
+    """
+    Root mean square amplitude of the frame: sqrt(mean(x²)).
+
+    One-line intuition:
+        "How loud is this signal on average?"
+
+    Answers:
+        "What is the average signal power?"
+
+    Notes:
+    - Length-independent
+    - Sensitive to peaks
+    - Normalized ONLY if input is in [-1.0, 1.0]
+    """
+    return float(np.sqrt(np.mean(audio_frame * audio_frame)))
+
+
+def energy(audio_frame: np.ndarray) -> float:
+    """
+    Total signal energy over the frame: sum(x²).
+
+    One-line intuition:
+        "How much sound happened over this entire frame?"
+
+    Answers:
+        "How much total power accumulated over time?"
+
+    Notes:
+    - Length-dependent
+    - Not normalized
+    - Frame-size must be fixed to compare values
+    """
+    return float(np.sum(audio_frame * audio_frame))
+
+
+def has_sound(
+    audio_frame: np.ndarray, 
+    threshold: float = 0.01
+) -> bool:
+    """
+    Determine whether an audio frame contains sound above a threshold.
+
+    One-line intuition:
+        "Is this frame loud enough to matter?"
+
+    Answers:
+        "Should this frame be considered non-silent?"
+
+    Notes:
+    - Expects normalized audio in the range [-1.0, 1.0]
+    - Typically used with l1_energy or rms
+    - Default threshold is tuned for quiet speech detection (~0.01)
+    """
+    return compute_l1_energy(audio_frame) > threshold
+
+
+# def has_sound(
+#     file_path: str | Path,
+#     silence_threshold: float | None = None,
+#     chunk_duration: float = 0.25,
+#     min_sound_chunks: int = 1,
+# ) -> bool:
+#     """
+#     Determine whether a WAV file contains any detectable speech/sound.
+    
+#     Parameters
+#     ----------
+#     file_path : str | Path
+#         Path to WAV file
+#     silence_threshold : float | None, optional
+#         Energy threshold. If None → auto-calibrate using ambient noise.
+#     chunk_duration : float, default 0.25
+#         Analysis chunk size in seconds (must match live pipeline)
+#     min_sound_chunks : int, default 1
+#         Minimum number of non-silent chunks required to classify as "has sound"
+    
+#     Returns
+#     -------
+#     bool
+#         True if at least `min_sound_chunks` chunks exceed the threshold
+#     """
+#     file_path = Path(file_path)
+#     if not file_path.is_file():
+#         raise FileNotFoundError(f"Audio file not found: {file_path}")
+
+#     if silence_threshold is None:
+#         logger.info("No silence threshold provided → auto-calibrating...")
+#         silence_threshold = calibrate_silence_threshold()
+
+#     energies = compute_energies(
+#         file_path=file_path,
+#         chunk_duration=chunk_duration,
+#         silence_threshold=silence_threshold,
+#     )
+
+#     sound_chunks = [e for e in energies if not e.get("is_silent", False)]
+#     has_detected_sound = len(sound_chunks) >= min_sound_chunks
+
+#     logger.info(
+#         f"has_sound('{file_path.name}'): {len(sound_chunks)} sound chunk(s) "
+#         f"(≥ {silence_threshold:.6f}), threshold used: {silence_threshold:.6f} → {has_detected_sound}"
+#     )
+#     return has_detected_sound
+
+
 def compute_energy(audio_frame: np.ndarray) -> float:
     """Return mean absolute amplitude of an audio frame."""
     return float(np.mean(np.abs(audio_frame)))
+
 
 def compute_energies(
     file_path: str | Path,
@@ -87,6 +213,7 @@ def compute_energies(
     logger.info(f"Computed energy for {len(results)} chunks from {file_path.name}")
     return results
 
+
 def detect_sound(audio_chunk: np.ndarray, threshold: float) -> bool:
     """
     Detect if an audio chunk contains audible sound (non-silence).
@@ -110,53 +237,6 @@ def detect_sound(audio_chunk: np.ndarray, threshold: float) -> bool:
     )
     return is_sound
 
-def has_sound(
-    file_path: str | Path,
-    silence_threshold: float | None = None,
-    chunk_duration: float = 0.25,
-    min_sound_chunks: int = 1,
-) -> bool:
-    """
-    Determine whether a WAV file contains any detectable speech/sound.
-    
-    Parameters
-    ----------
-    file_path : str | Path
-        Path to WAV file
-    silence_threshold : float | None, optional
-        Energy threshold. If None → auto-calibrate using ambient noise.
-    chunk_duration : float, default 0.25
-        Analysis chunk size in seconds (must match live pipeline)
-    min_sound_chunks : int, default 1
-        Minimum number of non-silent chunks required to classify as "has sound"
-    
-    Returns
-    -------
-    bool
-        True if at least `min_sound_chunks` chunks exceed the threshold
-    """
-    file_path = Path(file_path)
-    if not file_path.is_file():
-        raise FileNotFoundError(f"Audio file not found: {file_path}")
-
-    if silence_threshold is None:
-        logger.info("No silence threshold provided → auto-calibrating...")
-        silence_threshold = calibrate_silence_threshold()
-
-    energies = compute_energies(
-        file_path=file_path,
-        chunk_duration=chunk_duration,
-        silence_threshold=silence_threshold,
-    )
-
-    sound_chunks = [e for e in energies if not e.get("is_silent", False)]
-    has_detected_sound = len(sound_chunks) >= min_sound_chunks
-
-    logger.info(
-        f"has_sound('{file_path.name}'): {len(sound_chunks)} sound chunk(s) "
-        f"(≥ {silence_threshold:.6f}), threshold used: {silence_threshold:.6f} → {has_detected_sound}"
-    )
-    return has_detected_sound
 
 # Single source of truth for loudness label literals
 LoudnessLabel = Literal[
@@ -165,10 +245,30 @@ LoudnessLabel = Literal[
     "Soft",
     "Normal",
     "Loud",
+    "Raised",
     "Very Loud",
     "Extremely Loud",
     "Unknown",
 ]
+
+
+def rms_to_loudness_label(rms_norm: float) -> LoudnessLabel:
+    if rms_norm < 0.004:
+        return "Very Quiet"
+    if rms_norm < 0.015:
+        return "Quiet"
+    if rms_norm < 0.060:
+        return "Soft"
+    if rms_norm < 0.140:
+        return "Normal"
+    if rms_norm < 0.260:
+        return "Loud"
+    if rms_norm < 0.380:
+        return "Raised"           # ← new intermediate label (optional rename)
+    if rms_norm < 0.480:
+        return "Very Loud"
+    return "Extremely Loud"
+
 
 def rms_to_loudness_labels(
     energies: List[float],
@@ -210,14 +310,17 @@ def rms_to_loudness_labels(
 
     return labels, metadata
 
+
 @dataclass(frozen=True)
 class SegmentLike:           # ← no Protocol needed here
     start_frame: int
     end_frame: int
 
+
 class SegmentLoudnessResult(TypedDict):
     segment_index: int
     loudness: LoudnessLabel
+
 
 def segment_loudness_median_label(
     segments: List[SegmentLike],
@@ -247,6 +350,7 @@ def segment_loudness_median_label(
         })
 
     return results
+
 
 def segment_loudness_energy_weighted(
     segments: List[SegmentLike],
@@ -284,6 +388,7 @@ def segment_loudness_energy_weighted(
         })
 
     return results
+
 
 if __name__ == "__main__":
     audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/silero/generated/silero_vad_stream/segment_001/sound.wav"
