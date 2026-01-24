@@ -11,6 +11,7 @@ import threading
 from typing import Optional, Awaitable, TypedDict, Callable, Union, NotRequired
 import asyncio
 from concurrent.futures import Future
+import uuid
 
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
@@ -33,16 +34,18 @@ def _setup_logging():
 
 
 class SubtitleMessage(TypedDict):
+    id: str
     translated_text: str
     start_sec: float
     end_sec: float
     duration_sec: float
     source_text: str
+
     segment_number: NotRequired[int]
     avg_vad_confidence: NotRequired[float]
     transcription_confidence: NotRequired[float]
     transcription_quality: NotRequired[str]
-    translation_confidence: NotRequired[float]      # normalized 0.0–1.0 confidence
+    translation_confidence: NotRequired[float]
     translation_quality: NotRequired[str]
 
 
@@ -96,6 +99,9 @@ class LiveSubtitlesOverlay(QWidget):
         # Initial message
         self.logger.info("[green]Ready – use .add_message('text')[/]")
         self._process_next_task()
+
+        self._message_by_id: dict[str, SubtitleMessage] = {}
+        self._widget_by_id: dict[str, QWidget] = {}
 
     def _start_async_loop(self):
         def run_loop():
@@ -448,6 +454,7 @@ class LiveSubtitlesOverlay(QWidget):
         self,
         translated_text: str,
         *,
+        message_id: Optional[str] = None,
         start_sec: float = 0.0,
         end_sec: float = 0.0,
         duration_sec: float = 0.0,
@@ -456,20 +463,23 @@ class LiveSubtitlesOverlay(QWidget):
         avg_vad_confidence: Optional[float] = None,
         transcription_confidence: Optional[float] = None,
         transcription_quality: Optional[str] = None,
-        translation_confidence: Optional[float] = None,   # new: 0.0–1.0
+        translation_confidence: Optional[float] = None,
         translation_quality: Optional[str] = None,
-    ) -> None:
-        """Add a message thread-safely"""
+    ) -> str:
         if not translated_text or not str(translated_text).strip():
-            return
+            return ""
+
+        mid = message_id or uuid.uuid4().hex
 
         subtitle_message: SubtitleMessage = {
-            "translated_text": str(translated_text).strip(),
+            "id": mid,
+            "translated_text": translated_text.strip(),
             "start_sec": start_sec,
             "end_sec": end_sec,
             "duration_sec": duration_sec,
             "source_text": (source_text or "").strip(),
         }
+
         if segment_number is not None:
             subtitle_message["segment_number"] = segment_number
         if avg_vad_confidence is not None:
@@ -484,6 +494,7 @@ class LiveSubtitlesOverlay(QWidget):
             subtitle_message["translation_quality"] = translation_quality
 
         self.signals._add_message.emit(subtitle_message)
+        return mid
 
     FuncType = Callable[..., Union[SubtitleMessage, str, Awaitable[Union[SubtitleMessage, str]]]]
 
@@ -732,25 +743,39 @@ class LiveSubtitlesOverlay(QWidget):
         """)
 
         self.content_layout.addWidget(container)
+        
+        mid = message["id"]
+
+        self._message_by_id[mid] = message
+        self._widget_by_id[mid] = container
+        self.content_layout.addWidget(container)
 
     def _do_add_message(self, message: SubtitleMessage) -> None:
-        """Thread-safe entry point for new messages – now respects current VAD filter"""
+        mid = message["id"]
+
+        # Replace existing message
+        if mid in self._widget_by_id:
+            old_widget = self._widget_by_id[mid]
+            idx = self.content_layout.indexOf(old_widget)
+            old_widget.deleteLater()
+            self.content_layout.takeAt(idx)
+
+            self._message_by_id[mid] = message
+            self._render_message_widget(message)
+            return
+
+        # Normal insert
+        self._message_by_id[mid] = message
         self.message_history.append(message)
         self.history.append(message["translated_text"])
 
-        # Determine current minimum VAD threshold from radio buttons
-        if hasattr(self, "vad_all") and self.vad_all.isChecked():
-            min_vad = 0.0
-        elif hasattr(self, "vad_high") and self.vad_high.isChecked():
-            min_vad = 0.7
-        elif hasattr(self, "vad_med") and self.vad_med.isChecked():
-            min_vad = 0.5
-        else:
-            min_vad = 0.0  # fallback – show everything
-
         vad_conf = message.get("avg_vad_confidence", 1.0)
+        min_vad = (
+            0.7 if self.vad_high.isChecked()
+            else 0.5 if self.vad_med.isChecked()
+            else 0.0
+        )
 
-        # Only render if it meets the current filter
         if vad_conf >= min_vad:
             self._render_message_widget(message)
 
@@ -779,6 +804,19 @@ class LiveSubtitlesOverlay(QWidget):
         if e.buttons() == Qt.MouseButton.LeftButton:
             self.move(e.globalPosition().toPoint() - self._drag_pos)
             e.accept()
+
+    def update_message(self, message_id: str, **updates) -> bool:
+        """
+        Update an existing message by id.
+        Returns False if message doesn't exist.
+        """
+        msg = self._message_by_id.get(message_id)
+        if not msg:
+            return False
+
+        msg.update({k: v for k, v in updates.items() if v is not None})
+        self.signals._add_message.emit(msg)
+        return True
 
     @classmethod
     def create(cls, app: Optional[QApplication] = None, title: Optional[str] = None) -> 'LiveSubtitlesOverlay':
