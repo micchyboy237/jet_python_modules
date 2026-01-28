@@ -247,7 +247,7 @@ def main():
     model = create_local_model()
 
     # Initialize browser
-    driver = init_browser(headless=True)  # ← change to True in production
+    driver = init_browser(headless=False)  # ← change to True in production
 
     # Create agent
     agent = CodeAgent(

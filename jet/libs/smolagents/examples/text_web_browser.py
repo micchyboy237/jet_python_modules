@@ -18,6 +18,7 @@ import helium
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from seleniumbase import Driver
 
 from smolagents import CodeAgent, OpenAIModel, tool
 
@@ -143,41 +144,31 @@ def save_screenshot(memory_step, agent):
 # ────────────────────────────────────────────────
 
 
-def init_browser(headless: bool = False):
-    chrome_options = webdriver.ChromeOptions()
-
-    # Core anti-detection flags
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-
-    # Optional but helpful
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1280,800")
-    chrome_options.add_argument("--disable-gpu")  # sometimes helps
-
-    # Fake a realistic user-agent (update occasionally)
-    chrome_options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
+def init_browser(headless: bool = True) -> "Driver":
+    """
+    Initialize an anti-detection browser instance using SeleniumBase UC mode.
+    """
+    driver = Driver(
+        browser="chrome",
+        uc=True,
+        headless=headless,
+        agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        window_size="1280,800",
     )
 
-    if headless:
-        chrome_options.add_argument("--headless=new")
+    # ──── ADD THIS LINE ────
+    import helium
 
-    driver = helium.start_chrome(options=chrome_options, headless=headless)
+    helium.set_driver(driver)
+    # ───────────────────────
 
-    # Hide webdriver property via JS (very important)
+    # Optional extra stealth (already good with uc=True)
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
         {
             "source": """
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            })
-        """
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            """
         },
     )
 
@@ -237,7 +228,7 @@ def create_local_model(temperature=0.35, max_tokens=2048):
 
 def main():
     model = create_local_model()
-    driver = init_browser(headless=True)  # ← set False for debugging
+    driver = init_browser(headless=False)  # ← set False for debugging
 
     agent = CodeAgent(
         tools=[open_search_engine, go_back, close_popups, search_item_ctrl_f],
