@@ -321,8 +321,8 @@ Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence 
 
     # Optional: keep browser open for inspection (only in visible mode)
     if not headless:
-        print("Browser will stay open for 30 seconds...")
-        sleep(30)
+        print("Browser will stay open for 10 seconds...")
+        sleep(10)
 
     # Clean up
     try:
