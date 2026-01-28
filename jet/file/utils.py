@@ -1,7 +1,6 @@
 import fnmatch
 import os
 import json
-import re
 import pickle
 import pandas as pd
 from pathlib import Path
@@ -189,9 +188,12 @@ def save_file(
     from rich.console import Console
     from rich.padding import Padding
     from rich.text import Text
-    output_file = str(output_file)
-    output_file = re.sub(r"[^\w\-/\.]", "", output_file)
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    from pathlib import Path
+
+    output_path = Path(output_file).expanduser()
+    # Create parent directories if needed
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_file = str(output_path)
     try:
         ext = Path(output_file).suffix.lower()
         if ext in {".json", ".jsonl"}:
