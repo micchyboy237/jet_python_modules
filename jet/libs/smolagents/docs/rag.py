@@ -1,19 +1,19 @@
-# demo_agentic_rag_local.py
+# demo_agentic_rag_local_no_langchain.py
 """
 Demonstration of Agentic RAG using smolagents with LOCAL llama.cpp server
-Reuses create_local_model() from previous examples
+No LangChain dependencies
 """
 
 import time
+import re
+from typing import List, Dict, Any
 
 import datasets
-from langchain.docstore.document import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.retrievers import BM25Retriever
+from rank_bm25 import BM25Okapi
 
 from smolagents import CodeAgent, Tool, OpenAIModel
 
-# Reuse from previous file (you can import it if separated)
+
 def create_local_model(
     temperature: float = 0.7,
     max_tokens: int | None = None,
@@ -30,71 +30,155 @@ def create_local_model(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Knowledge base & tool preparation (run once)
+# Simple text splitter (no LangChain)
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+def simple_recursive_split(
+    text: str,
+    chunk_size: int = 500,
+    chunk_overlap: int = 50,
+    separators: List[str] = None,
+) -> List[str]:
+    if separators is None:
+        separators = ["\n\n", "\n", ".", " ", ""]
+
+    def _split(text: str, level: int = 0) -> List[str]:
+        if level >= len(separators):
+            # Final fallback: split by fixed size
+            return [
+                text[i : i + chunk_size]
+                for i in range(0, len(text), chunk_size - chunk_overlap)
+            ]
+
+        sep = separators[level]
+        if not sep:
+            return _split(text, level + 1)
+
+        parts = re.split(re.escape(sep), text)
+        chunks = []
+        current = ""
+
+        for part in parts:
+            if len(current) + len(part) + len(sep) <= chunk_size:
+                current += (sep if current else "") + part
+            else:
+                if current:
+                    chunks.append(current)
+                current = part
+                # handle overlap
+                if len(current) > chunk_size:
+                    # too big even alone → force split
+                    while len(current) > chunk_size:
+                        chunks.append(current[:chunk_size])
+                        current = current[chunk_size - chunk_overlap :]
+
+        if current:
+            chunks.append(current)
+
+        # merge very small trailing chunks
+        final = []
+        buffer = ""
+        for chunk in chunks:
+            if len(buffer) + len(chunk) <= chunk_size + chunk_overlap:
+                buffer += chunk
+            else:
+                if buffer:
+                    final.append(buffer)
+                buffer = chunk
+        if buffer:
+            final.append(buffer)
+
+        return final
+
+    return _split(text)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Knowledge base & tool preparation
+# ──────────────────────────────────────────────────────────────────────────────
+
 
 def prepare_knowledge_base_and_tool():
     """Load, filter, split HF docs and create BM25 retriever tool (run once)."""
     print("Loading & preparing knowledge base... (one-time)")
 
     # Load dataset
-    knowledge_base = datasets.load_dataset("m-ric/huggingface_doc", split="train")
+    ds = datasets.load_dataset("m-ric/huggingface_doc", split="train")
 
     # Keep only transformers docs
-    knowledge_base = knowledge_base.filter(
-        lambda row: row["source"].startswith("huggingface/transformers")
-    )
+    ds = ds.filter(lambda row: row["source"].startswith("huggingface/transformers"))
 
-    # To langchain Documents
-    source_docs = [
-        Document(page_content=doc["text"], metadata={"source": doc["source"].split("/")[1]})
-        for doc in knowledge_base
+    # Simple documents
+    source_docs: List[Dict[str, Any]] = [
+        {"content": doc["text"], "metadata": {"source": doc["source"].split("/")[1]}}
+        for doc in ds
     ]
 
-    # Split into chunks
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50,
-        add_start_index=True,
-        strip_whitespace=True,
-        separators=["\n\n", "\n", ".", " ", ""],
-    )
-    docs_processed = text_splitter.split_documents(source_docs)
+    print(f"→ Loaded {len(source_docs)} source documents")
+
+    # Split
+    docs_processed = []
+    for doc in source_docs:
+        chunks = simple_recursive_split(
+            doc["content"],
+            chunk_size=500,
+            chunk_overlap=50,
+        )
+        for i, chunk in enumerate(chunks):
+            docs_processed.append(
+                {
+                    "content": chunk.strip(),
+                    "metadata": {**doc["metadata"], "chunk_id": i},
+                }
+            )
 
     print(f"→ Prepared {len(docs_processed)} document chunks")
 
-    # Create retriever tool
+    # BM25
+    tokenized_corpus = [chunk["content"].lower().split() for chunk in docs_processed]
+    bm25 = BM25Okapi(tokenized_corpus)
+
     class RetrieverTool(Tool):
         name = "retriever"
         description = (
             "Uses lexical (BM25) search to retrieve relevant parts of Hugging Face "
             "Transformers documentation. Input should be affirmative statements, "
-            "not questions."
+            "not questions. Use natural phrasing close to documentation style."
         )
         inputs = {
             "query": {
                 "type": "string",
-                "description": "Search query – make it close to document phrasing.",
+                "description": "Search query – preferably keyword-rich and affirmative.",
             }
         }
         output_type = "string"
 
-        def __init__(self, docs, **kwargs):
+        def __init__(self, documents: List[Dict], bm25_engine, **kwargs):
             super().__init__(**kwargs)
-            self.retriever = BM25Retriever.from_documents(docs, k=6)
+            self.documents = documents
+            self.bm25 = bm25_engine
 
         def forward(self, query: str) -> str:
-            assert isinstance(query, str)
-            docs = self.retriever.invoke(query)
-            if not docs:
+            if not query or not query.strip():
+                return "No query provided."
+
+            tokenized_query = query.lower().split()
+            doc_scores = self.bm25.get_top_n(tokenized_query, self.documents, n=6)
+
+            if not doc_scores:
                 return "No relevant documents found."
-            formatted = "\nRetrieved documents:\n" + "".join(
-                f"\n\n===== Document {i+1} =====\n{doc.page_content}"
-                for i, doc in enumerate(docs)
-            )
+
+            formatted = "\nRetrieved documents:\n"
+            for i, doc in enumerate(doc_scores):
+                src = doc["metadata"].get("source", "unknown")
+                formatted += (
+                    f"\n\n===== Document {i + 1}  [{src}] =====\n{doc['content']}\n"
+                )
+
             return formatted
 
-    tool = RetrieverTool(docs_processed)
+    tool = RetrieverTool(docs_processed, bm25)
     print("→ RetrieverTool ready")
     return tool
 
@@ -108,7 +192,6 @@ def create_rag_agent(
     verbosity_level: int = 2,
     temperature: float = 0.6,
 ) -> CodeAgent:
-    """Factory for creating agent with local model + retriever tool."""
     model = create_local_model(temperature=temperature)
     return CodeAgent(
         tools=[RETRIEVER_TOOL],
@@ -119,14 +202,14 @@ def create_rag_agent(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Demos
+# Demos (unchanged)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def demo_rag_1_simple_question():
-    """Demo 1: Basic Agentic RAG question"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Demo 1: Simple question → forward vs backward pass")
-    print("="*70)
+    print("=" * 70)
 
     agent = create_rag_agent(max_steps=4, verbosity_level=2)
 
@@ -142,10 +225,9 @@ def demo_rag_1_simple_question():
 
 
 def demo_rag_2_multi_step_reasoning():
-    """Demo 2: Question that benefits from multi-step retrieval & reasoning"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Demo 2: Multi-step reasoning question")
-    print("="*70)
+    print("=" * 70)
 
     agent = create_rag_agent(max_steps=7, verbosity_level=2, temperature=0.65)
 
@@ -160,48 +242,18 @@ def demo_rag_2_multi_step_reasoning():
     print(f"\nFinal answer (took {time.time() - start:.1f}s):\n{answer}")
 
 
-def demo_rag_3_show_retrieved_docs():
-    """Demo 3: Run agent and show what documents were retrieved in last step"""
-    print("\n" + "="*70)
-    print("Demo 3: Inspect retrieved documents from last step")
-    print("="*70)
-
-    agent = create_rag_agent(max_steps=5, verbosity_level=1)  # lower verbosity
-
-    question = "What is Deepspeed integration in transformers and how do I enable it?"
-
-    print(f"\nQuestion: {question}\n")
-    answer = agent.run(question)
-
-    # Try to show last retrieval (heuristic: look in memory for last tool call output)
-    if agent.memory.steps:
-        last_step = agent.memory.steps[-1]
-        if hasattr(last_step, "observations") and isinstance(last_step.observations, str):
-            if "Retrieved documents" in last_step.observations:
-                print("\nLast retrieved content (from final step):\n")
-                print(last_step.observations)
-            else:
-                print("\nNo clear retrieval output in last step observations.")
-        else:
-            print("\nLast step has no observations string to show.")
-
-    print(f"\nFinal answer:\n{answer}")
-
-
 def main():
     print("=" * 78)
     print("  Agentic RAG Demos  —  LOCAL llama.cpp server  ".center(78))
-    print("  Using BM25 retriever on HuggingFace Transformers docs  ".center(78))
+    print("  No LangChain • BM25 retriever on HF Transformers docs  ".center(78))
     print("=" * 78 + "\n")
 
-    # Uncomment what you want to run
     demo_rag_1_simple_question()
     # demo_rag_2_multi_step_reasoning()
-    # demo_rag_3_show_retrieved_docs()
 
-    print("\n" + "="*78)
+    print("\n" + "=" * 78)
     print("Done".center(78))
-    print("="*78)
+    print("=" * 78)
 
 
 if __name__ == "__main__":
