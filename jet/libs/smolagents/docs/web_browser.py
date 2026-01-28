@@ -38,6 +38,7 @@ from smolagents.agents import ActionStep
 from smolagents.utils import make_json_serializable
 
 from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.libs.smolagents.helium_tools import ALL_TOOLS, click, go_back, go_to
 
 # ────────────────────────────────────────────────
 #  0. Load environment (API keys, etc.)
@@ -46,7 +47,7 @@ load_dotenv()
 
 
 # ────────────────────────────────────────────────
-#  1. Browser Tools
+#  1. Custom Browser Tools
 # ────────────────────────────────────────────────
 
 
@@ -70,12 +71,6 @@ def search_item_ctrl_f(text: str, nth_result: int = 1) -> str:
     helium.get_driver().execute_script("arguments[0].scrollIntoView(true);", elem)
     result += f"Focused on element {nth_result} of {len(elements)}"
     return result
-
-
-@tool
-def go_back() -> None:
-    """Goes back to previous page."""
-    helium.get_driver().back()
 
 
 @tool
@@ -332,13 +327,14 @@ def main(
 
     # Create agent
     agent = CodeAgent(
-        tools=[go_back, close_popups, search_item_ctrl_f],
         model=model,
         additional_authorized_imports=["helium"],
         step_callbacks=[lambda step: save_screenshot(step, agent, base_dir=out_dir)],
         max_steps=25,
         verbosity_level=2,  # 0 = quiet, 1 = normal, 2 = verbose
-        add_base_tools=True,
+        add_base_tools=False,  # True: include all helium tools
+        tools=[go_to, click, search_item_ctrl_f, go_back, close_popups],
+        # tools=ALL_TOOLS,
     )
 
     # Critical: preload Helium symbols into the sandboxed namespace
