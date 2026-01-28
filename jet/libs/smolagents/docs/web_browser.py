@@ -12,6 +12,7 @@ Required:
 - Optional: .env file with any API tokens if your model requires them
 """
 
+import argparse
 import json
 import os
 import random
@@ -133,12 +134,20 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
         ]  # Create a copy to ensure it persists
 
     # Update observations with current URL
-    url_info = f"Current url: {driver.current_url}"
-    memory_step.observations = (
-        url_info
-        if memory_step.observations is None
-        else memory_step.observations + "\n" + url_info
-    )
+    obs = f"Current url: {driver.current_url}"
+    prev_obs = memory_step.observations
+
+    print(f"[Observation] Step {current_step} -> {obs}")
+
+    # Save text obs under observations dir
+    texts_dir = OUTPUT_DIR / "observations"
+    texts_dir.mkdir(parents=True, exist_ok=True)
+    text_file = texts_dir / f"step_{current_step:03d}.txt"
+    with open(text_file, "w", encoding="utf-8") as f:
+        f.write(obs)
+    print(f"[Observations saved] {text_file}")
+
+    memory_step.observations = obs if prev_obs is None else prev_obs + "\n" + obs
 
 
 # ────────────────────────────────────────────────
@@ -264,7 +273,15 @@ def create_local_model(
     )
 
 
-def main():
+def main(headless: bool = False, task: str = None):
+    # Default task (Wikipedia example) if none provided
+    default_task = """
+Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence containing the word "1992" that mentions a construction accident.
+""".strip()
+
+    # Use provided task or fall back to default
+    final_task = task.strip() if task and task.strip() else default_task
+
     # You can change this model if you have access
     # model_id = "Qwen/Qwen2-VL-72B-Instruct"
     # model_id = "mistralai/Pixtral-12B-2409"   # alternative (if supported)
@@ -272,8 +289,8 @@ def main():
     # model = InferenceClientModel(model_id=model_id)
     model = create_local_model()
 
-    # Initialize browser
-    driver = init_browser(headless=False)  # ← change to True in production
+    # Initialize browser with the chosen mode
+    driver = init_browser(headless=headless)
 
     # Create agent
     agent = CodeAgent(
@@ -288,36 +305,24 @@ def main():
 
     # Critical: preload Helium symbols into the sandboxed namespace
     agent.python_executor("from helium import *")
-    # agent.python_executor("get_driver = get_driver")
-
-    # Example task 1 – Wikipedia
-    task = """
-Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence containing the word "1992" that mentions a construction accident.
-"""
-
-    # Example task 2 – GitHub trending (alternative)
-    # task = """
-    # Go to https://github.com/trending
-    # Click on the first repository in the list.
-    # Go to the contributors graph or main contributor profile if visible.
-    # Tell me the username of the top contributor and — if possible — their commit count in the last year.
-    # """
 
     print("\n" + "=" * 70)
     print("Starting agent with task:")
-    print(task.strip())
+    print(final_task)
+    print("Browser mode: " + ("HEADLESS" if headless else "VISIBLE"))
     print("=" * 70 + "\n")
 
-    final_answer = agent.run(task + "\n\n" + HELIUM_GUIDE)
+    final_answer = agent.run(final_task + "\n\n" + HELIUM_GUIDE)
 
     print("\n" + "═" * 70)
     print("FINAL AGENT OUTPUT:")
     print(final_answer)
     print("═" * 70 + "\n")
 
-    # Optional: keep browser open for inspection
-    print("Browser will stay open for 30 seconds...")
-    sleep(30)
+    # Optional: keep browser open for inspection (only in visible mode)
+    if not headless:
+        print("Browser will stay open for 30 seconds...")
+        sleep(30)
 
     # Clean up
     try:
@@ -327,4 +332,45 @@ Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence 
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Run browser agent with Helium + LLM",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python script.py                                      # default task, visible browser
+  python script.py --headless                            # default task, headless
+  python script.py -H                                    # same as --headless
+  python script.py "Go to google.com and search for xAI" # custom task, visible
+  python script.py -t "Visit example.com" -H             # custom task + headless
+  python script.py -t "Visit x.ai" --headless            # custom task + headless
+        """,
+    )
+
+    # Task – positional or -t / --task
+    parser.add_argument(
+        "task_pos",
+        nargs="?",
+        default=None,
+        help="The task for the agent (positional – optional)",
+    )
+    parser.add_argument(
+        "-t",
+        "--task",
+        dest="task_opt",
+        default=None,
+        help="The task for the agent (alternative to positional)",
+    )
+
+    parser.add_argument(
+        "-H",
+        "--headless",
+        action="store_true",
+        help="Run browser in headless mode (no visible window)",
+    )
+
+    args = parser.parse_args()
+
+    # Resolve task: prefer -t/--task if given, otherwise use positional
+    chosen_task = args.task_opt if args.task_opt is not None else args.task_pos
+
+    main(headless=args.headless, task=chosen_task)
