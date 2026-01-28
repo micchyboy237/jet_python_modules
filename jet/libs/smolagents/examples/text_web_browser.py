@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
 """
 Web Browser Automation Agent using Helium + smolagents + Selenium
-================================================================
-
-Dependencies to install:
-    pip install smolagents selenium helium pillow python-dotenv
-
-Required:
-- Chrome browser installed
-- ChromeDriver (usually auto-managed by helium)
-- Optional: .env file with any API tokens if your model requires them
+with local SearXNG support at http://searxng.local
 """
 
+from io import BytesIO
 import os
 import shutil
-from io import BytesIO
 from pathlib import Path
 from time import sleep
-from typing import List, Optional
+from typing import Optional
 
 from PIL import Image
 from dotenv import load_dotenv
@@ -26,25 +18,37 @@ import helium
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
-from smolagents import CodeAgent, OpenAIModel, tool, InferenceClientModel
-from smolagents.agents import ActionStep
+from smolagents import CodeAgent, OpenAIModel, tool
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ────────────────────────────────────────────────
-#  0. Load environment (API keys, etc.)
-# ────────────────────────────────────────────────
 load_dotenv()
 
+# ────────────────────────────────────────────────
+# Browser Tools
+# ────────────────────────────────────────────────
 
-# ────────────────────────────────────────────────
-#  1. Browser Tools
-# ────────────────────────────────────────────────
+
+@tool
+def open_search_engine(query: str = "") -> str:
+    """
+    Opens the local SearXNG instance and (optionally) performs a search with the given query.
+    Use this as the preferred way to search the web instead of Google / other engines.
+
+    Args:
+        query: The search query to pre-fill in SearXNG. Leave empty to open the homepage only.
+    """
+    url = "http://searxng.local:8888"
+    if query:
+        from urllib.parse import quote
+
+        url += f"/?q={quote(query)}"
+
+    helium.go_to(url)
+    return f"Opened local SearXNG at {url}"
 
 
 @tool
@@ -58,242 +62,219 @@ def search_item_ctrl_f(text: str, nth_result: int = 1) -> str:
     elements = helium.get_driver().find_elements(
         By.XPATH, f"//*[contains(text(), '{text}')]"
     )
+    if not elements:
+        return f"No matches found for '{text}'"
     if nth_result > len(elements):
-        raise Exception(
-            f"Match n°{nth_result} not found (only {len(elements)} matches found)"
+        return (
+            f"Only {len(elements)} matches found for '{text}' (asked for #{nth_result})"
         )
-    result = f"Found {len(elements)} matches for '{text}'."
+
     elem = elements[nth_result - 1]
-    helium.get_driver().execute_script("arguments[0].scrollIntoView(true);", elem)
-    result += f"Focused on element {nth_result} of {len(elements)}"
-    return result
+    helium.get_driver().execute_script(
+        "arguments[0].scrollIntoView({block: 'center'});", elem
+    )
+    return f"Focused match #{nth_result} of {len(elements)} for '{text}'"
 
 
 @tool
-def go_back() -> None:
+def go_back() -> str:
     """Goes back to previous page."""
     helium.get_driver().back()
+    return "Went back one page"
 
 
 @tool
 def close_popups() -> str:
-    """
-    Closes any visible modal or pop-up on the page. Use this to dismiss pop-up windows!
-    This does not work on cookie consent banners.
-    """
+    """Attempts to close modal/popups by sending ESC key."""
     webdriver.ActionChains(helium.get_driver()).send_keys(Keys.ESCAPE).perform()
-    return "Sent ESC key to attempt closing popup/modal."
+    return "Sent ESC to try closing any popup/modal"
 
 
 # ────────────────────────────────────────────────
-#  2. Screenshot callback
+# Screenshot callback (unchanged)
 # ────────────────────────────────────────────────
 
 
-# Set up screenshot callback
-def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
-    sleep(1.0)  # Give page time to settle
+def save_screenshot(memory_step, agent):
+    sleep(0.8)
     driver = helium.get_driver()
-    if driver is None:
-        memory_step.observations = (
-            memory_step.observations or ""
-        ) + "\n[Warning] No active browser driver."
+    if not driver:
         return
 
-    # ── Always save screenshot for human debugging ───────────────────────
     screenshot_dir = OUTPUT_DIR / "screenshots"
     screenshot_dir.mkdir(parents=True, exist_ok=True)
-    filename = screenshot_dir / f"step_{memory_step.step_number:03d}.png"
+    fname = screenshot_dir / f"step_{memory_step.step_number:03d}.png"
+    driver.save_screenshot(str(fname))
 
-    driver.save_screenshot(str(filename))  # simpler, no PIL needed here
-    print(f"[Debug screenshot] {filename}")
+    title = (driver.title or "(no title)").strip()[:160]
+    obs = f"URL: {driver.current_url}\nTitle: {title}\nScreenshot: {fname}"
 
-    # ── Build rich text observation (this becomes the real context) ──────
+    # Optional: selected text
     try:
-        page_title = driver.title.strip()[:180] or "(no title)"
-    except:
-        page_title = "(title fetch failed)"
-
-    url_line = f"Current URL: {driver.current_url}"
-    title_line = f"Page title: {page_title}"
-    img_line = f"Screenshot saved for inspection: {filename}"
-
-    new_text = f"{url_line}\n{title_line}\n{img_line}"
-
-    # Optional: try to get any highlighted/selected text or focused element
-    try:
-        focused_text = driver.execute_script(
-            "return window.getSelection().toString() || document.activeElement.value || '';"
-        ).strip()[:120]
-        if focused_text:
-            new_text += f'\nFocused/selected text: "{focused_text}"'
+        sel = driver.execute_script("return window.getSelection().toString().trim();")
+        if sel:
+            obs += f"\nSelected text: {sel[:100]}"
     except:
         pass
 
-    # Append to existing observations (cumulative context)
-    if memory_step.observations is None:
-        memory_step.observations = new_text
-    else:
-        memory_step.observations += "\n\n" + new_text
+    png_bytes = driver.get_screenshot_as_png()
+    image = Image.open(BytesIO(png_bytes))
 
-    # Critical: NEVER set this for text-only model
-    # memory_step.observations_images = None  # (already not set)
+    # Optional: save to disk for debugging
+    screenshot_dir = OUTPUT_DIR / "screenshots"
+    screenshot_dir.mkdir(parents=True, exist_ok=True)
+    screenshot_file = f"{str(screenshot_dir)}/step_{memory_step.step_number:03d}.png"
+    image.save(screenshot_file)
+    print(f"[Screenshot saved] {screenshot_file}")
+
+    # Save text obs under observations dir
+    texts_dir = OUTPUT_DIR / "observations"
+    texts_dir.mkdir(parents=True, exist_ok=True)
+    text_file = texts_dir / f"step_{memory_step.step_number:03d}.txt"
+    with open(text_file, "w", encoding="utf-8") as f:
+        f.write(obs)
+    print(f"[Observations saved] {text_file}")
+
+    memory_step.observations = (memory_step.observations or "") + "\n" + obs
 
 
 # ────────────────────────────────────────────────
-#  3. Browser Setup
+# Browser init
 # ────────────────────────────────────────────────
-
-
-# At the top of the file (or in if __name__ == "__main__":)
-# ChromeDriverManager().install()  # run once → downloads correct version
 
 
 def init_browser(headless: bool = False):
-    # Configure Chrome options
     chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--force-device-scale-factor=1")
-    chrome_options.add_argument("--window-size=1000,1350")
-    chrome_options.add_argument("--disable-pdf-viewer")
-    chrome_options.add_argument("--window-position=0,0")
+
+    # Core anti-detection flags
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+
+    # Optional but helpful
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1280,800")
+    chrome_options.add_argument("--disable-gpu")  # sometimes helps
+
+    # Fake a realistic user-agent (update occasionally)
+    chrome_options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    )
 
     if headless:
         chrome_options.add_argument("--headless=new")
 
-    # Initialize the browser
-    driver = helium.start_chrome(
-        options=chrome_options,
-        headless=headless,
+    driver = helium.start_chrome(options=chrome_options, headless=headless)
+
+    # Hide webdriver property via JS (very important)
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+            "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+        """
+        },
     )
+
     return driver
 
 
 # ────────────────────────────────────────────────
-#  4. Helium + Agent Instructions
+# Updated Helium + Agent Instructions
 # ────────────────────────────────────────────────
 
 HELIUM_GUIDE = """
-You can use helium to access websites. Don't bother about the helium driver, it's already managed.
-We've already ran "from helium import *"
-Then you can go to pages!
-Code:
-```py
-go_to('github.com/trending')
-```<end_code>
+You are controlling a real browser with Helium.
 
-You can directly click clickable elements by inputting the text that appears on them.
-Code:
-```py
-click("Top products")
-```<end_code>
+Preferred way to search:
+    Use the tool `open_search_engine("your question")` — it opens http://searxng.local
+    Only use Google/Bing/DuckDuckGo when explicitly asked or when SearXNG fails.
 
-If it's a link:
-Code:
-```py
-click(Link("Top products"))
-```<end_code>
+Basic commands:
+    go_to('https://example.com')
+    click("Sign in")               # text on button/link
+    click(Link("About"))           # more precise for links
+    write("search phrase", into="q")  # or into(TextField(...)))
 
-If you try to interact with an element and it's not found, you'll get a LookupError.
-In general stop your action after each button click to see what happens on your screenshot.
-Never try to login in a page.
+    scroll_down(800)   # pixels
+    scroll_up(400)
 
-To scroll up or down, use scroll_down or scroll_up with as an argument the number of pixels to scroll from.
-Code:
-```py
-scroll_down(num_pixels=1200) # This will scroll one viewport down
-```<end_code>
+    if Text("Accept all cookies").exists():
+        click("Accept all cookies")
 
-When you have pop-ups with a cross icon to close, don't try to click the close icon by finding its element or targeting an 'X' element (this most often fails).
-Just use your built-in tool `close_popups` to close them:
-Code:
-```py
-close_popups()
-```<end_code>
+Popups:
+    Use close_popups() instead of trying to click × icons
 
-You can use .exists() to check for the existence of an element. For example:
-Code:
-```py
-if Text('Accept cookies?').exists():
-    click('I accept')
-```<end_code>
+After every click / navigation / form submit → wait for next screenshot.
+Never try to log in / authenticate anywhere.
 """.strip()
 
 
 # ────────────────────────────────────────────────
-#  5. Main Agent Setup & Run
+# Local model helper
 # ────────────────────────────────────────────────
 
 
-def create_local_model(
-    temperature: float = 0.3,
-    max_tokens: Optional[int] = 2048,
-    model_id: str = "local-model",
-) -> OpenAIModel:
+def create_local_model(temperature=0.35, max_tokens=2048):
     return OpenAIModel(
-        model_id=model_id,
+        model_id="local-model",
         api_base="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
+        api_key="sk-no-need",
         temperature=temperature,
         max_tokens=max_tokens,
     )
 
 
+# ────────────────────────────────────────────────
+# Main
+# ────────────────────────────────────────────────
+
+
 def main():
-    # You can change this model if you have access
-    # model_id = "Qwen/Qwen2-VL-72B-Instruct"
-    # model_id = "mistralai/Pixtral-12B-2409"   # alternative (if supported)
-
-    # model = InferenceClientModel(model_id=model_id)
     model = create_local_model()
+    driver = init_browser(headless=True)  # ← set False for debugging
 
-    # Initialize browser
-    driver = init_browser(headless=True)  # ← change to True in production
-
-    # Create agent
     agent = CodeAgent(
-        tools=[go_back, close_popups, search_item_ctrl_f],
+        tools=[open_search_engine, go_back, close_popups, search_item_ctrl_f],
         model=model,
-        additional_authorized_imports=["helium"],
+        additional_authorized_imports=["helium", "urllib.parse"],
         step_callbacks=[save_screenshot],
-        max_steps=25,
-        verbosity_level=2,  # 0 = quiet, 1 = normal, 2 = verbose
+        max_steps=30,
+        verbosity_level=2,
         add_base_tools=True,
     )
 
-    # Critical: preload Helium symbols into the sandboxed namespace
+    # Preload Helium
     agent.python_executor("from helium import *")
-    # agent.python_executor("get_driver = get_driver")
 
-    # Example task 1 – Wikipedia
     task = """
-Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence containing the word "1992" that mentions a construction accident.
+Use the local search engine to find information about the tallest building in the Philippines as of 2026.
+Then go to the most relevant Wikipedia page (or official page) and tell me:
+- official name
+- height in meters
+- number of floors
+- city
 """
 
-    # Example task 2 – GitHub trending (alternative)
-    # task = """
-    # Go to https://github.com/trending
-    # Click on the first repository in the list.
-    # Go to the contributors graph or main contributor profile if visible.
-    # Tell me the username of the top contributor and — if possible — their commit count in the last year.
-    # """
-
-    print("\n" + "=" * 70)
-    print("Starting agent with task:")
+    print("=" * 75)
+    print("Task:")
     print(task.strip())
-    print("=" * 70 + "\n")
+    print("=" * 75 + "\n")
 
-    final_answer = agent.run(task + "\n\n" + HELIUM_GUIDE)
+    answer = agent.run(task + "\n\n" + HELIUM_GUIDE)
 
-    print("\n" + "═" * 70)
-    print("FINAL AGENT OUTPUT:")
-    print(final_answer)
-    print("═" * 70 + "\n")
+    print("\n" + "═" * 75)
+    print("FINAL ANSWER:")
+    print(answer)
+    print("═" * 75 + "\n")
 
-    # Optional: keep browser open for inspection
-    print("Browser will stay open for 30 seconds...")
-    sleep(30)
-
-    # Clean up
+    print("Browser stays open for 10 seconds...")
+    sleep(10)
     try:
         helium.kill_browser()
     except:

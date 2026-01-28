@@ -138,21 +138,43 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
 
 
 def init_browser(headless: bool = False):
-    # Configure Chrome options
     chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--force-device-scale-factor=1")
-    chrome_options.add_argument("--window-size=1000,1350")
-    chrome_options.add_argument("--disable-pdf-viewer")
-    chrome_options.add_argument("--window-position=0,0")
+
+    # Core anti-detection flags
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+
+    # Optional but helpful
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1280,800")
+    chrome_options.add_argument("--disable-gpu")  # sometimes helps
+
+    # Fake a realistic user-agent (update occasionally)
+    chrome_options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36"
+    )
 
     if headless:
         chrome_options.add_argument("--headless=new")
 
-    # Initialize the browser
-    driver = helium.start_chrome(
-        options=chrome_options,
-        headless=headless,
+    driver = helium.start_chrome(options=chrome_options, headless=headless)
+
+    # Hide webdriver property via JS (very important)
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+            "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+        """
+        },
     )
+
     return driver
 
 
