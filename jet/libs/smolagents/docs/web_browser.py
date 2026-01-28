@@ -204,9 +204,6 @@ def init_browser(headless: bool = True) -> "Driver":
     # Increase timeout for slow / strict sites like Wikipedia
     driver.set_page_load_timeout(45)
 
-    # Set default zoom
-    driver.execute_script("document.body.style.zoom = '80%'")
-
     return driver
 
 
