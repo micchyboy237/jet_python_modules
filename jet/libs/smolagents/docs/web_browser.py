@@ -14,6 +14,7 @@ Required:
 
 import os
 from io import BytesIO
+from pathlib import Path
 from time import sleep
 from typing import List, Optional
 
@@ -29,6 +30,10 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 from smolagents import CodeAgent, OpenAIModel, tool, InferenceClientModel
 from smolagents.agents import ActionStep
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+# shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ────────────────────────────────────────────────
 #  0. Load environment (API keys, etc.)
@@ -117,6 +122,14 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
         png_bytes = driver.get_screenshot_as_png()
         img = Image.open(BytesIO(png_bytes))
         print(f"[Screenshot] captured at step {memory_step.step_number} → {img.size}")
+
+        # Optional: save to disk for debugging
+        screenshot_dir = OUTPUT_DIR / "screenshots"
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{str(screenshot_dir)}/step_{memory_step.step_number:03d}.png"
+        img.save(filename)
+        print(f"[Screenshot saved] {filename}")
+
         memory_step.observations_images = [img.copy()]
 
         # Also attach current URL
