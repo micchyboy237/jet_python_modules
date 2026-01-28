@@ -239,7 +239,7 @@ def main():
 
     # Create agent
     agent = CodeAgent(
-        tools=[search_item_ctrl_f, go_back, close_popups],
+        tools=[go_back, close_popups, search_item_ctrl_f],
         model=model,
         additional_authorized_imports=["helium"],
         step_callbacks=[save_screenshot],
