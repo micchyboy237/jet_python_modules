@@ -323,6 +323,27 @@ Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence 
     print(final_answer)
     print("═" * 70 + "\n")
 
+    full_steps = agent.memory.get_full_steps()
+    succinct_steps = agent.memory.get_succinct_steps()
+    full_code = agent.memory.return_full_code()
+
+    full_steps_path = OUTPUT_DIR / "full_steps.json"
+    succinct_steps_path = OUTPUT_DIR / "succinct_steps.json"
+    full_code_path = OUTPUT_DIR / "full_code.md"
+
+    with open(full_steps_path, "w", encoding="utf-8") as f:
+        json.dump(make_json_serializable(full_steps), f, ensure_ascii=False, indent=2)
+    with open(succinct_steps_path, "w", encoding="utf-8") as f:
+        json.dump(
+            make_json_serializable(succinct_steps), f, ensure_ascii=False, indent=2
+        )
+    with open(full_code_path, "w", encoding="utf-8") as f:
+        json.dump(full_code, f, ensure_ascii=False, indent=2)
+
+    print(f"[Full steps saved] {full_steps_path}")
+    print(f"[Succinct steps saved] {succinct_steps_path}")
+    print(f"[Full code saved] {full_code_path}")
+
     # Optional: keep browser open for inspection (only in visible mode)
     if not headless:
         print("Browser will stay open for 10 seconds...")
