@@ -180,9 +180,9 @@ def main():
 
     # Select which demos to run
     demo_1_simple_run_and_replay()
-    demo_2_inspect_memory_after_run()
-    demo_3_run_one_step_at_a_time()
-    demo_4_get_full_steps_as_dicts()
+    # demo_2_inspect_memory_after_run()
+    # demo_3_run_one_step_at_a_time()
+    # demo_4_get_full_steps_as_dicts()
 
     print("\n" + "="*78)
     print("Done".center(78))
