@@ -44,6 +44,7 @@ from jet.libs.smolagents.helium_tools import (
     go_back,
     go_to,
     scroll_down,
+    scroll_up,
 )
 
 # ────────────────────────────────────────────────
@@ -339,7 +340,15 @@ def main(
         max_steps=25,
         verbosity_level=2,  # 0 = quiet, 1 = normal, 2 = verbose
         add_base_tools=False,  # True: include all helium tools
-        tools=[go_to, scroll_down, click, search_item_ctrl_f, go_back, close_popups],
+        tools=[
+            go_to,
+            scroll_down,
+            scroll_up,
+            click,
+            search_item_ctrl_f,
+            go_back,
+            close_popups,
+        ],
         # tools=ALL_TOOLS,
     )
 
