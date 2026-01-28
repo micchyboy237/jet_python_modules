@@ -123,7 +123,11 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
         messages_dir.mkdir(parents=True, exist_ok=True)
         msg_path = messages_dir / f"step_{current_step:03d}.json"
 
-        messages = [make_json_serializable(s.dict()) for s in agent.memory.steps]
+        messages = []
+        for s in agent.memory.steps:
+            d = s.dict()
+            d.pop("observations_images", None)
+            messages.append(make_json_serializable(d))
         with open(msg_path, "w", encoding="utf-8") as f:
             json.dump(messages, f, ensure_ascii=False, indent=2)
         print(f"[Messages saved] {msg_path}")
@@ -199,6 +203,9 @@ def init_browser(headless: bool = True) -> "Driver":
 
     # Increase timeout for slow / strict sites like Wikipedia
     driver.set_page_load_timeout(45)
+
+    # Set default zoom
+    driver.execute_script("document.body.style.zoom = '80%'")
 
     return driver
 
