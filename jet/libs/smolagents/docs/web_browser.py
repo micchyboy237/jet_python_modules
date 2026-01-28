@@ -45,6 +45,7 @@ from jet.libs.smolagents.helium_tools import (
     go_to,
     scroll_down,
     scroll_up,
+    close_popups,
 )
 
 # ────────────────────────────────────────────────
@@ -78,16 +79,6 @@ def search_item_ctrl_f(text: str, nth_result: int = 1) -> str:
     helium.get_driver().execute_script("arguments[0].scrollIntoView(true);", elem)
     result += f"Focused on element {nth_result} of {len(elements)}"
     return result
-
-
-@tool
-def close_popups() -> str:
-    """
-    Closes any visible modal or pop-up on the page. Use this to dismiss pop-up windows!
-    This does not work on cookie consent banners.
-    """
-    webdriver.ActionChains(helium.get_driver()).send_keys(Keys.ESCAPE).perform()
-    return "Sent ESC key to attempt closing popup/modal."
 
 
 # ────────────────────────────────────────────────

@@ -1,5 +1,7 @@
 from typing import List, Optional
 import helium
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
 from smolagents import CodeAgent, tool, InferenceClientModel
 
 # ────────────────────────────────────────────────
@@ -139,13 +141,45 @@ def refresh() -> str:
     return "Page refreshed"
 
 
-# Custom tools
+@tool
+def go_back() -> str:
+    """Navigate back to the previous page in the browser history.
+
+    Returns:
+        Confirmation message
+    """
+    helium.get_driver().back()
+    return "Navigated back to previous page"
 
 
 @tool
-def go_back() -> None:
-    """Navigate back to the previous page in history."""
-    helium.get_driver().back()
+def close_popups() -> str:
+    """
+    Closes any visible modal or pop-up on the page. Use this to dismiss pop-up windows!
+    This does not work on cookie consent banners.
+    """
+    webdriver.ActionChains(helium.get_driver()).send_keys(Keys.ESCAPE).perform()
+    return "Sent ESC key to attempt closing popup/modal."
+
+
+@tool
+def find_all_links() -> List[str]:
+    """Return a list of visible link texts present on the current page.
+
+    Returns:
+        List of non-empty link texts
+    """
+    return find_all("Link")
+
+
+@tool
+def find_all_buttons() -> List[str]:
+    """Return a list of visible button texts present on the current page.
+
+    Returns:
+        List of non-empty button texts
+    """
+    return find_all("Button")
 
 
 # Collect all tools for saving / agent registration
@@ -158,6 +192,8 @@ ALL_TOOLS = [
     scroll_down,
     scroll_up,
     find_all,
+    find_all_links,
+    find_all_buttons,
     get_current_url,
     refresh,
     # ← add more wrappers here in the future
