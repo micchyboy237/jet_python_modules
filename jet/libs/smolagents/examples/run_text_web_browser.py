@@ -119,7 +119,7 @@ def main(
 ):
     if out_dir is None:
         ts = datetime.now().strftime("%Y-%m-%d_%H%M")
-        out_dir = Path(__file__).parent / "generated" / "text_web_browser" / f"run_{ts}"
+        out_dir = Path(__file__).parent / "generated" / Path(__file__).stem
 
     out_dir = out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
