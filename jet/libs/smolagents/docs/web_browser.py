@@ -265,7 +265,7 @@ from datetime import datetime
 
 def create_local_model(
     temperature: float = 0.3,
-    max_tokens: Optional[int] = 2048,
+    max_tokens: Optional[int] = 4096,
     model_id: str = "local-model",
     logs_dir: str | Path | None = None,
 ) -> OpenAIModel:
