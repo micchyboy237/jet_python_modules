@@ -4,8 +4,8 @@ import threading
 
 from dotenv import load_dotenv
 from huggingface_hub import login
-from scripts.text_inspector_tool import TextInspectorTool
-from scripts.text_web_browser import (
+from .scripts.text_inspector_tool import TextInspectorTool
+from .scripts.text_web_browser import (
     ArchiveSearchTool,
     FinderTool,
     FindNextTool,
@@ -14,7 +14,7 @@ from scripts.text_web_browser import (
     SimpleTextBrowser,
     VisitTool,
 )
-from scripts.visual_qa import visualizer
+from .scripts.visual_qa import visualizer
 
 from smolagents import (
     CodeAgent,
