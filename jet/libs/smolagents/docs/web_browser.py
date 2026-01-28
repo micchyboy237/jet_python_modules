@@ -40,6 +40,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # ────────────────────────────────────────────────
 load_dotenv()
 
+
 # ────────────────────────────────────────────────
 #  1. Browser Tools
 # ────────────────────────────────────────────────
@@ -48,53 +49,38 @@ load_dotenv()
 @tool
 def search_item_ctrl_f(text: str, nth_result: int = 1) -> str:
     """
-    Searches for text on the current page using XPath contains(text()) and scrolls the nth matching element into view.
-
+    Searches for text on the current page via Ctrl + F and jumps to the nth occurrence.
     Args:
-        text: The exact or partial text content to search for on the page.
-        nth_result: Which occurrence to focus on (1 = first match, 2 = second, etc.). Defaults to 1.
-
-    Returns:
-        A message describing how many matches were found and which one was focused.
+        text: The text to search for
+        nth_result: Which occurrence to jump to (default: 1)
     """
     elements = helium.get_driver().find_elements(
         By.XPATH, f"//*[contains(text(), '{text}')]"
     )
-    if not elements:
-        return f"No elements containing '{text}' were found."
-
     if nth_result > len(elements):
-        return f"Only {len(elements)} matches found for '{text}'. Cannot jump to #{nth_result}."
-
+        raise Exception(
+            f"Match n°{nth_result} not found (only {len(elements)} matches found)"
+        )
+    result = f"Found {len(elements)} matches for '{text}'."
     elem = elements[nth_result - 1]
-    helium.get_driver().execute_script(
-        "arguments[0].scrollIntoView({block: 'center'});", elem
-    )
-    return f"Found {len(elements)} matches for '{text}'. Focused on occurrence #{nth_result}."
+    helium.get_driver().execute_script("arguments[0].scrollIntoView(true);", elem)
+    result += f"Focused on element {nth_result} of {len(elements)}"
+    return result
 
 
 @tool
-def go_back() -> str:
-    """
-    Navigates the browser back to the previous page in history.
-
-    Returns:
-        Confirmation message that navigation back was performed.
-    """
+def go_back() -> None:
+    """Goes back to previous page."""
     helium.get_driver().back()
-    return "Navigated back to previous page."
 
 
 @tool
 def close_popups() -> str:
     """
-    Sends ESC key to attempt closing any visible modal, popup or overlay (except cookie banners).
-
-    Returns:
-        Message confirming that ESC key was sent.
+    Closes any visible modal or pop-up on the page. Use this to dismiss pop-up windows!
+    This does not work on cookie consent banners.
     """
     webdriver.ActionChains(helium.get_driver()).send_keys(Keys.ESCAPE).perform()
-    sleep(0.4)
     return "Sent ESC key to attempt closing popup/modal."
 
 
@@ -103,45 +89,42 @@ def close_popups() -> str:
 # ────────────────────────────────────────────────
 
 
+# Set up screenshot callback
 def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
-    sleep(0.9)  # let animations / paint settle
-
+    sleep(1.0)  # Let JavaScript animations happen before taking the screenshot
+    current_step = memory_step.step_number
     driver = helium.get_driver()
-    if driver is None:
-        return
-
-    # Optional: clean up older screenshots to save memory
-    for prev_step in agent.memory.steps:
-        if (
-            isinstance(prev_step, ActionStep)
-            and prev_step.step_number <= memory_step.step_number - 3
-        ):
-            prev_step.observations_images = None
-
-    try:
+    if driver is not None:
+        for (
+            previous_memory_step
+        ) in agent.memory.steps:  # Remove previous screenshots for lean processing
+            if (
+                isinstance(previous_memory_step, ActionStep)
+                and previous_memory_step.step_number <= current_step - 2
+            ):
+                previous_memory_step.observations_images = None
         png_bytes = driver.get_screenshot_as_png()
-        img = Image.open(BytesIO(png_bytes))
-        print(f"[Screenshot] captured at step {memory_step.step_number} → {img.size}")
+        image = Image.open(BytesIO(png_bytes))
 
         # Optional: save to disk for debugging
         screenshot_dir = OUTPUT_DIR / "screenshots"
         screenshot_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{str(screenshot_dir)}/step_{memory_step.step_number:03d}.png"
-        img.save(filename)
+        image.save(filename)
         print(f"[Screenshot saved] {filename}")
 
-        memory_step.observations_images = [img.copy()]
+        print(f"Captured a browser screenshot: {image.size} pixels")
+        memory_step.observations_images = [
+            image.copy()
+        ]  # Create a copy to ensure it persists
 
-        # Also attach current URL
-        url_line = f"Current URL: {driver.current_url}"
-        print(f"[Observation] {url_line}")
-        if memory_step.observations:
-            memory_step.observations += "\n" + url_line
-        else:
-            memory_step.observations = url_line
-
-    except Exception as e:
-        print(f"[Screenshot] failed: {e}")
+    # Update observations with current URL
+    url_info = f"Current url: {driver.current_url}"
+    memory_step.observations = (
+        url_info
+        if memory_step.observations is None
+        else memory_step.observations + "\n" + url_info
+    )
 
 
 # ────────────────────────────────────────────────
@@ -154,16 +137,17 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
 
 
 def init_browser(headless: bool = False):
+    # Configure Chrome options
     chrome_options = webdriver.ChromeOptions()
     chrome_options.add_argument("--force-device-scale-factor=1")
-    chrome_options.add_argument("--window-size=1100,1400")
-    chrome_options.add_argument("--window-position=20,20")
+    chrome_options.add_argument("--window-size=1000,1350")
     chrome_options.add_argument("--disable-pdf-viewer")
+    chrome_options.add_argument("--window-position=0,0")
 
     if headless:
         chrome_options.add_argument("--headless=new")
 
-    # No need to do anything else – Helium will use the driver that webdriver-manager prepared
+    # Initialize the browser
     driver = helium.start_chrome(
         options=chrome_options,
         headless=headless,
@@ -176,32 +160,49 @@ def init_browser(headless: bool = False):
 # ────────────────────────────────────────────────
 
 HELIUM_GUIDE = """
-You are controlling a real web browser using **Helium** commands (already imported via `from helium import *`).
+You can use helium to access websites. Don't bother about the helium driver, it's already managed.
+We've already ran "from helium import *"
+Then you can go to pages!
+Code:
+```py
+go_to('github.com/trending')
+```<end_code>
 
-Important commands:
+You can directly click clickable elements by inputting the text that appears on them.
+Code:
+```py
+click("Top products")
+```<end_code>
 
-- go_to('https://example.com')               → navigate to URL
-- click("Sign in")                            → click element with exact text
-- click(Link("Blog"))                         → click link with that text
-- write("search term", into="q")              → type into input/textarea
-- write("text", into=TextField("label"))      → more precise
-- scroll_down(num_pixels=800)                 → scroll viewport
-- scroll_up(num_pixels=400)
-- S("#some-id").exists()                      → check existence (returns bool)
-- Text("some text").exists()
-- kill_browser()                              → close browser (use only at very end)
+If it's a link:
+Code:
+```py
+click(Link("Top products"))
+```<end_code>
 
-Rules:
-- After every click / write / navigation → STOP and let the screenshot show the result
-- NEVER call screenshot(), driver.get_screenshot_as_png(), print(screenshot()) or similar!
-- Screenshots are automatically taken after each step via a callback — you will see them in observations.
-- Do NOT try to take, print or save screenshots yourself — it is forbidden and will crash.
-- Never try to log in to personal accounts
-- For popups/modals with close button → prefer close_popups() tool over clicking X
-- Use search_item_ctrl_f("text") if you need to locate something by text content
-- Be conservative with number of steps — aim for clarity over speed
+If you try to interact with an element and it's not found, you'll get a LookupError.
+In general stop your action after each button click to see what happens on your screenshot.
+Never try to login in a page.
 
-Never guess element selectors — use Helium's text/link based selectors whenever possible.
+To scroll up or down, use scroll_down or scroll_up with as an argument the number of pixels to scroll from.
+Code:
+```py
+scroll_down(num_pixels=1200) # This will scroll one viewport down
+```<end_code>
+
+When you have pop-ups with a cross icon to close, don't try to click the close icon by finding its element or targeting an 'X' element (this most often fails).
+Just use your built-in tool `close_popups` to close them:
+Code:
+```py
+close_popups()
+```<end_code>
+
+You can use .exists() to check for the existence of an element. For example:
+Code:
+```py
+if Text('Accept cookies?').exists():
+    click('I accept')
+```<end_code>
 """.strip()
 
 
@@ -211,7 +212,7 @@ Never guess element selectors — use Helium's text/link based selectors wheneve
 
 
 def create_local_model(
-    temperature: float = 0.7,
+    temperature: float = 0.3,
     max_tokens: Optional[int] = 2048,
     model_id: str = "local-model",
 ) -> OpenAIModel:
@@ -248,13 +249,12 @@ def main():
 
     # Critical: preload Helium symbols into the sandboxed namespace
     agent.python_executor("from helium import *")
-    agent.python_executor("get_driver = get_driver")
+    # agent.python_executor("get_driver = get_driver")
 
     # Example task 1 – Wikipedia
     task = """
-    Navigate to https://en.wikipedia.org/wiki/Chicago
-    Find and quote one sentence that contains the word "1992" and mentions any kind of accident or disaster.
-    """
+Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence containing the word "1992" that mentions a construction accident.
+"""
 
     # Example task 2 – GitHub trending (alternative)
     # task = """
