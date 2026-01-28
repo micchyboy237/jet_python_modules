@@ -13,6 +13,7 @@ Required:
 """
 
 import os
+import shutil
 from io import BytesIO
 from pathlib import Path
 from time import sleep
@@ -32,7 +33,7 @@ from smolagents import CodeAgent, OpenAIModel, tool, InferenceClientModel
 from smolagents.agents import ActionStep
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-# shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ────────────────────────────────────────────────
