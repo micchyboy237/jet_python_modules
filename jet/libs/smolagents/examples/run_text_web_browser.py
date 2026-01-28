@@ -65,24 +65,50 @@ def save_page_observation(memory_step, agent, base_dir: Path):
     memory_step.observations_images = None
 
 
-TEXT_HELIUM_GUIDE = """You are controlling a web browser using Helium commands.
-You do NOT see screenshots — only extracted visible TEXT is provided each step.
+TEXT_HELIUM_GUIDE = """
+You can use helium to access websites. Don't bother about the helium driver, it's already managed.
+We've already ran "from helium import *"
+Then you can go to pages!
+Code:
+```py
+go_to('github.com/trending')
+```<end_code>
 
-→ Read the "Visible text content" section carefully.
-→ Links, buttons, forms, menus are described in text.
-→ If you need more content → scroll_down(800), click, etc.
-→ After every page-changing action you get fresh text.
+You can directly click clickable elements by inputting the text that appears on them.
+Code:
+```py
+click("Top products")
+```<end_code>
 
-Important commands:
-go_to('https://...')
-click("Button text")
-click(Link("Link text"))
-write("query", into="Search")
-scroll_down(1200)
-scroll_up(800)
+If it's a link:
+Code:
+```py
+click(Link("Top products"))
+```<end_code>
+
+If you try to interact with an element and it's not found, you'll get a LookupError.
+In general stop your action after each button click to see what happens on your screenshot.
+Never try to login in a page.
+
+To scroll up or down, use scroll_down or scroll_up with as an argument the number of pixels to scroll from.
+Code:
+```py
+scroll_down(num_pixels=1200) # This will scroll one viewport down
+```<end_code>
+
+When you have pop-ups with a cross icon to close, don't try to click the close icon by finding its element or targeting an 'X' element (this most often fails).
+Just use your built-in tool `close_popups` to close them:
+Code:
+```py
 close_popups()
+```<end_code>
 
-Do NOT attempt logins.
+You can use .exists() to check for the existence of an element. For example:
+Code:
+```py
+if Text('Accept cookies?').exists():
+    click('I accept')
+```<end_code>
 """.strip()
 
 
@@ -106,8 +132,8 @@ def main(
     task = (task or default_task).strip()
 
     model = create_local_model(
-        temperature=0.4,
-        max_tokens=3800,
+        temperature=0.3,
+        max_tokens=4092,
         logs_dir=out_dir / "llm_logs",
     )
 
@@ -165,7 +191,7 @@ def main(
 
 
 if __name__ == "__main__":
-    OUTPUT_DIR = Path(__file__).parent / "generated" / "text_web_browser"
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
