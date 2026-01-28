@@ -20,6 +20,7 @@ import shutil
 from io import BytesIO
 from pathlib import Path
 from time import sleep
+from datetime import datetime
 from typing import List, Optional
 
 from PIL import Image
@@ -37,10 +38,6 @@ from smolagents.agents import ActionStep
 from smolagents.utils import make_json_serializable
 
 from jet.libs.smolagents.custom_models import OpenAIModel
-
-OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ────────────────────────────────────────────────
 #  0. Load environment (API keys, etc.)
@@ -97,31 +94,29 @@ def close_popups() -> str:
 
 
 # Set up screenshot callback
-def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
+def save_screenshot(memory_step: ActionStep, agent: CodeAgent, base_dir: Path) -> None:
     sleep(1.0)  # Let JavaScript animations happen before taking the screenshot
     current_step = memory_step.step_number
     driver = helium.get_driver()
     if driver is not None:
-        for (
-            previous_memory_step
-        ) in agent.memory.steps:  # Remove previous screenshots for lean processing
+        for previous_memory_step in agent.memory.steps:
             if (
                 isinstance(previous_memory_step, ActionStep)
                 and previous_memory_step.step_number <= current_step - 2
             ):
                 previous_memory_step.observations_images = None
+
         png_bytes = driver.get_screenshot_as_png()
         image = Image.open(BytesIO(png_bytes))
 
         # Optional: save to disk for debugging
-        screenshot_dir = OUTPUT_DIR / "screenshots"
+        screenshot_dir = base_dir / "screenshots"
         screenshot_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{str(screenshot_dir)}/step_{current_step:03d}.png"
+        filename = screenshot_dir / f"step_{current_step:03d}.png"
         image.save(filename)
         print(f"[Screenshot saved] {filename}")
 
-        # Save messages as individual JSON file
-        messages_dir = OUTPUT_DIR / "messages"
+        messages_dir = base_dir / "messages"
         messages_dir.mkdir(parents=True, exist_ok=True)
         msg_path = messages_dir / f"step_{current_step:03d}.json"
 
@@ -137,9 +132,7 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
         print(f"[Messages saved] {msg_path}")
 
         print(f"Captured a browser screenshot: {image.size} pixels")
-        memory_step.observations_images = [
-            image.copy()
-        ]  # Create a copy to ensure it persists
+        memory_step.observations_images = [image.copy()]
 
     # Update observations with current URL
     obs = f"Current url: {driver.current_url}"
@@ -148,7 +141,7 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
     print(f"[Observation] Step {current_step} -> {obs}")
 
     # Save text obs under observations dir
-    texts_dir = OUTPUT_DIR / "observations"
+    texts_dir = base_dir / "observations"
     texts_dir.mkdir(parents=True, exist_ok=True)
     text_file = texts_dir / f"step_{current_step:03d}.txt"
     with open(text_file, "w", encoding="utf-8") as f:
@@ -267,10 +260,14 @@ if Text('Accept cookies?').exists():
 # ────────────────────────────────────────────────
 
 
+from datetime import datetime
+
+
 def create_local_model(
     temperature: float = 0.3,
     max_tokens: Optional[int] = 2048,
     model_id: str = "local-model",
+    logs_dir: str | Path | None = None,
 ) -> OpenAIModel:
     return OpenAIModel(
         model_id=model_id,
@@ -279,7 +276,7 @@ def create_local_model(
         temperature=temperature,
         max_tokens=max_tokens,
         verbose=True,
-        logs_dir=str(OUTPUT_DIR / "llm_logs"),
+        logs_dir=str(logs_dir) if logs_dir else None,
     )
 
 
@@ -296,11 +293,27 @@ def _strip_observations_images(steps):
     return stripped_steps
 
 
-def main(headless: bool = False, task: str = None):
+def main(
+    headless: bool = False,
+    task: str | None = None,
+    out_dir: Path | None = None,
+) -> None:
+    # Determine output directory with timestamp for this run if not provided
+    if out_dir is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+        base = Path(__file__).parent / "generated" / Path(__file__).stem
+        out_dir = base / f"run_{timestamp}"
+
+    out_dir = out_dir.resolve()  # normalize path
+    out_dir.mkdir(parents=True, exist_ok=True)  # create if missing
+
+    print(f"Output directory: {out_dir}")
+
     # Default task (Wikipedia example) if none provided
-    default_task = """
-Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence containing the word "1992" that mentions a construction accident.
-""".strip()
+    default_task = (
+        "Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence "
+        'containing the word "1992" that mentions a construction accident.'
+    )
 
     # Use provided task or fall back to default
     final_task = task.strip() if task and task.strip() else default_task
@@ -310,7 +323,9 @@ Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence 
     # model_id = "mistralai/Pixtral-12B-2409"   # alternative (if supported)
 
     # model = InferenceClientModel(model_id=model_id)
-    model = create_local_model()
+    model = create_local_model(
+        logs_dir=out_dir / "llm_logs",
+    )
 
     # Initialize browser with the chosen mode
     driver = init_browser(headless=headless)
@@ -320,7 +335,7 @@ Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence 
         tools=[go_back, close_popups, search_item_ctrl_f],
         model=model,
         additional_authorized_imports=["helium"],
-        step_callbacks=[save_screenshot],
+        step_callbacks=[lambda step: save_screenshot(step, agent, base_dir=out_dir)],
         max_steps=25,
         verbosity_level=2,  # 0 = quiet, 1 = normal, 2 = verbose
         add_base_tools=True,
@@ -346,9 +361,10 @@ Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence 
     succinct_steps = agent.memory.get_succinct_steps()
     full_code = agent.memory.return_full_code()
 
-    full_steps_path = OUTPUT_DIR / "full_steps.json"
-    succinct_steps_path = OUTPUT_DIR / "succinct_steps.json"
-    full_code_path = OUTPUT_DIR / "full_code.py"
+    # Save outputs
+    full_steps_path = out_dir / "full_steps.json"
+    succinct_steps_path = out_dir / "succinct_steps.json"
+    full_code_path = out_dir / "full_code.py"
 
     with open(full_steps_path, "w", encoding="utf-8") as f:
         json.dump(
@@ -379,11 +395,11 @@ Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence 
     # Clean up
     try:
         helium.kill_browser()
-    except:
+    except Exception:
         pass
 
 
-if __name__ == "__main__":
+def cli_args():
     parser = argparse.ArgumentParser(
         description="Run browser agent with Helium + LLM",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -419,10 +435,35 @@ Examples:
         action="store_true",
         help="Run browser in headless mode (no visible window)",
     )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Optional output directory (else timestamped path will be created).",
+    )
 
     args = parser.parse_args()
+    return args
+
+
+if __name__ == "__main__":
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    DEFAULT_HEADLESS = False
+    DEFAULT_TASK = (
+        "Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence "
+        'containing the word "1992" that mentions a construction accident.'
+    )
+
+    args = cli_args()
 
     # Resolve task: prefer -t/--task if given, otherwise use positional
     chosen_task = args.task_opt if args.task_opt is not None else args.task_pos
 
-    main(headless=args.headless, task=chosen_task)
+    main(
+        headless=args.headless or DEFAULT_HEADLESS,
+        task=chosen_task or DEFAULT_TASK,
+        out_dir=args.out_dir or OUTPUT_DIR,
+    )

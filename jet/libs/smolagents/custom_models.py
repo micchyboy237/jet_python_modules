@@ -528,11 +528,15 @@ def save_llm_call(
     # 2. final response (non-stream)
     if response_data is not None and not is_stream:
         if hasattr(response_data, "model_dump_json"):
-            (target_dir / "response.json").write_text(response_data.model_dump_json())
+            text = response_data.model_dump_json()
+        elif hasattr(response_data, "json") and callable(
+            getattr(response_data, "json")
+        ):
+            text = json.dumps(response_data.json(), indent=2, ensure_ascii=False)
         else:
-            (target_dir / "response.json").write_text(
-                json.dumps(response_data, indent=2, default=str)
-            )
+            text = json.dumps(response_data, indent=2, default=str)
+
+        (target_dir / "response.json").write_text(text)
 
     # 3. stream deltas (one line per delta)
     if is_stream and stream_deltas:
