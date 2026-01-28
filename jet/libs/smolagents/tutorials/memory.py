@@ -44,7 +44,7 @@ def demo_1_simple_run_and_replay():
     print(f"\nResult: {result}")
 
     print("\nReplaying last run:")
-    agent.replay()
+    agent.replay(detailed=True)
 
 
 def demo_2_inspect_memory_after_run():
