@@ -8,7 +8,7 @@ OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_HEADLESS = False
+DEFAULT_HEADLESS = True
 DEFAULT_TASK = (
     "Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence "
     'containing the word "1992" that mentions a construction accident.'

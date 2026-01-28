@@ -26,10 +26,6 @@ from smolagents.utils import (
 )
 
 
-if TYPE_CHECKING:
-    from transformers import StoppingCriteriaList
-
-
 logger = logging.getLogger(__name__)
 
 RETRY_WAIT = 60
