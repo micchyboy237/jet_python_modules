@@ -80,15 +80,15 @@ def create_model() -> OpenAIModel:
     return OpenAIModel(
         model_id=MODEL_ID,
         api_base=API_BASE,
-        api_key="ollama",                   # dummy key, Ollama ignores it
+        api_key="local-model",
         temperature=0.65,
         max_tokens=4096,
         top_p=0.95,
         # These are critical for reliable tool calling with local models
         extra_body={
-            "stop": None,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0,
+            # "stop": None,
+            # "frequency_penalty": 0.0,
+            # "presence_penalty": 0.0,
         },
     )
 

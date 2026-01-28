@@ -9,9 +9,7 @@ import uuid
 from typing import Any
 from urllib.parse import unquote, urljoin, urlparse
 
-import pathvalidate
 import requests
-from serpapi import GoogleSearch
 
 from smolagents import Tool
 
@@ -26,9 +24,9 @@ class SimpleTextBrowser:
         self,
         start_page: str | None = None,
         viewport_size: int | None = 1024 * 8,
-        downloads_folder: str | None | None = None,
-        serpapi_key: str | None | None = None,
-        request_kwargs: dict[str, Any] | None | None = None,
+        downloads_folder: str | None = None,
+        searxng_url: str | None = None,
+        request_kwargs: dict[str, Any] | None = None,
     ):
         self.start_page: str = start_page if start_page else "about:blank"
         self.viewport_size = viewport_size  # Applies only to the standard uri types
@@ -38,7 +36,7 @@ class SimpleTextBrowser:
         self.viewport_current_page = 0
         self.viewport_pages: list[tuple[int, int]] = list()
         self.set_address(self.start_page)
-        self.serpapi_key = serpapi_key
+        self.searxng_url = searxng_url
         self.request_kwargs = request_kwargs
         self.request_kwargs["cookies"] = COOKIES
         self._mdconvert = MarkdownConverter()
@@ -59,8 +57,8 @@ class SimpleTextBrowser:
         # Handle special URIs
         if uri_or_path == "about:blank":
             self._set_page_content("")
-        elif uri_or_path.startswith("google:"):
-            self._serpapi_search(uri_or_path[len("google:") :].strip(), filter_year=filter_year)
+        elif uri_or_path.startswith("search:"):
+            self._searxng_search(uri_or_path[len("google:") :].strip(), filter_year=filter_year)
         else:
             if (
                 not uri_or_path.startswith("http:")
@@ -181,7 +179,7 @@ class SimpleTextBrowser:
 
     def _split_pages(self) -> None:
         # Do not split search results
-        if self.address.startswith("google:"):
+        if self.address.startswith("search:"):
             self.viewport_pages = [(0, len(self._page_content))]
             return
 
@@ -201,57 +199,66 @@ class SimpleTextBrowser:
             self.viewport_pages.append((start_idx, end_idx))
             start_idx = end_idx
 
-    def _serpapi_search(self, query: str, filter_year: int | None = None) -> None:
-        if self.serpapi_key is None:
-            raise ValueError("Missing SerpAPI key.")
+    def _searxng_search(self, query: str, filter_year: int | None = None) -> None:
+        if not self.searxng_url:
+            raise ValueError(
+                "Missing SearXNG URL. Please provide searxng_url= parameter "
+                "(recommended: self-hosted instance, e.g. http://localhost:8080)"
+            )
 
         params = {
-            "engine": "google",
             "q": query,
-            "api_key": self.serpapi_key,
+            "format": "json",
+            "pageno": 1,
         }
         if filter_year is not None:
-            params["tbs"] = f"cdr:1,cd_min:01/01/{filter_year},cd_max:12/31/{filter_year}"
+            # SearXNG time_range is coarse (day/week/month/year) — best effort
+            params["time_range"] = "year"
 
-        search = GoogleSearch(params)
-        results = search.get_dict()
+        try:
+            resp = requests.get(f"{self.searxng_url.rstrip('/')}/search", params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            raise RuntimeError(f"SearXNG request failed: {e}")
+
         self.page_title = f"{query} - Search"
-        if "organic_results" not in results.keys():
-            raise Exception(f"No results found for query: '{query}'. Use a less specific query.")
-        if len(results["organic_results"]) == 0:
+        if not data.get("results"):
             year_filter_message = f" with filter year={filter_year}" if filter_year is not None else ""
             self._set_page_content(
                 f"No results found for '{query}'{year_filter_message}. Try with a more general query, or remove the year filter."
             )
             return
 
-        def _prev_visit(url):
+        def _prev_visit(url: str) -> str:
             for i in range(len(self.history) - 1, -1, -1):
                 if self.history[i][0] == url:
                     return f"You previously visited this page {round(time.time() - self.history[i][1])} seconds ago.\n"
             return ""
 
         web_snippets: list[str] = list()
-        idx = 0
-        if "organic_results" in results:
-            for page in results["organic_results"]:
-                idx += 1
-                date_published = ""
-                if "date" in page:
-                    date_published = "\nDate published: " + page["date"]
+        for idx, result in enumerate(data["results"][:15], 1):  # limit to ~first page
+            title = result.get("title", "(no title)")
+            url   = result.get("url",   "")
+            snippet = result.get("content", "") or result.get("snippet", "")
 
-                source = ""
-                if "source" in page:
-                    source = "\nSource: " + page["source"]
+            date_published = ""
+            pub = result.get("publishedDate") or result.get("published_date")
+            if pub:
+                date_published = f"\nDate published: {pub}"
 
-                snippet = ""
-                if "snippet" in page:
-                    snippet = "\n" + page["snippet"]
+            source = ""
+            src = result.get("source")
+            if src:
+                source = f"\nSource: {src}"
 
-                redacted_version = f"{idx}. [{page['title']}]({page['link']}){date_published}{source}\n{_prev_visit(page['link'])}{snippet}"
+            redacted_version = (
+                f"{idx}. [{title}]({url}){date_published}{source}\n"
+                f"{_prev_visit(url)}{snippet}"
+            )
 
-                redacted_version = redacted_version.replace("Your browser can't play this video.", "")
-                web_snippets.append(redacted_version)
+            redacted_version = redacted_version.replace("Your browser can't play this video.", "")
+            web_snippets.append(redacted_version)
 
         content = (
             f"A Google search for '{query}' found {len(web_snippets)} results:\n\n## Web Results\n"
@@ -291,6 +298,8 @@ class SimpleTextBrowser:
                     fname = None
                     download_path = None
                     try:
+                        # If pathvalidate isn't available, just get the basename directly
+                        import pathvalidate
                         fname = pathvalidate.sanitize_filename(os.path.basename(urlparse(url).path)).strip()
                         download_path = os.path.abspath(os.path.join(self.downloads_folder, fname))
 
@@ -301,7 +310,7 @@ class SimpleTextBrowser:
                             new_fname = f"{base}__{suffix}{ext}"
                             download_path = os.path.abspath(os.path.join(self.downloads_folder, new_fname))
 
-                    except NameError:
+                    except Exception:
                         pass
 
                     # No suitable name, so make one
@@ -386,7 +395,7 @@ class SearchInformationTool(Tool):
         self.browser = browser
 
     def forward(self, query: str, filter_year: int | None = None) -> str:
-        self.browser.visit_page(f"google: {query}", filter_year=filter_year)
+        self.browser.visit_page(f"search: {query}", filter_year=filter_year)
         header, content = self.browser._state()
         return header.strip() + "\n=======================\n" + content
 
@@ -436,7 +445,7 @@ DO NOT use this tool for .pdf or .txt or .htm files: for these types of files us
         with open(new_path, "wb") as f:
             f.write(response.content)
 
-        if "pdf" in extension or "txt" in extension or "htm" in extension:
+        if (extension and ("pdf" in extension or "txt" in extension or "htm" in extension)):
             raise Exception("Do not use this tool for pdf or txt or html files: use visit_page instead.")
 
         return f"File was downloaded and saved under path {new_path}."
