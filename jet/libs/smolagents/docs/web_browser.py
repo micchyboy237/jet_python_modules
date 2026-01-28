@@ -32,9 +32,11 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
 from seleniumbase import Driver
 
-from smolagents import CodeAgent, OpenAIModel, tool, InferenceClientModel
+from smolagents import CodeAgent, tool, InferenceClientModel
 from smolagents.agents import ActionStep
 from smolagents.utils import make_json_serializable
+
+from jet.libs.smolagents.custom_models import OpenAIModel
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -276,6 +278,8 @@ def create_local_model(
         api_key="not-needed",
         temperature=temperature,
         max_tokens=max_tokens,
+        verbose=True,
+        logs_dir=str(OUTPUT_DIR / "llm_logs"),
     )
 
 
