@@ -22,6 +22,8 @@ from seleniumbase import Driver
 
 from smolagents import CodeAgent, OpenAIModel, tool
 
+from random import uniform  # NEW: add for random sleep
+
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,15 +55,25 @@ def open_search_engine(query: str = "") -> str:
 
 
 @tool
-def search_item_ctrl_f(text: str, nth_result: int = 1) -> str:
+def find_text_on_page(text: str, nth_result: int = 1) -> str:
     """
-    Searches for text on the current page via Ctrl + F and jumps to the nth occurrence.
+    Finds visible DOM text on the current page and scrolls to the nth occurrence.
     Args:
         text: The text to search for
         nth_result: Which occurrence to jump to (default: 1)
     """
+
+    # Safely build XPath literal to avoid injection / syntax errors
+    def _xpath_literal(s: str) -> str:
+        if "'" not in s:
+            return f"'{s}'"
+        if '"' not in s:
+            return f'"{s}"'
+        parts = s.split("'")
+        return "concat(" + ', "\'", '.join(f"'{p}'" for p in parts) + ")"
+
     elements = helium.get_driver().find_elements(
-        By.XPATH, f"//*[contains(text(), '{text}')]"
+        By.XPATH, f"//*[contains(text(), {_xpath_literal(text)})]"
     )
     if not elements:
         return f"No matches found for '{text}'"
@@ -78,6 +90,33 @@ def search_item_ctrl_f(text: str, nth_result: int = 1) -> str:
 
 
 @tool
+def extract_visible_text(max_chars: int = 4000) -> str:
+    """
+    Extracts visible text from the current page using DOM APIs.
+    Safer and cleaner than XPath-based scraping.
+
+    Args:
+        max_chars: Maximum characters to return (default: 4000)
+    """
+    driver = helium.get_driver()
+    if not driver:
+        return "No active browser session."
+
+    try:
+        text = driver.execute_script(
+            "return document.body && document.body.innerText || '';"
+        )
+    except Exception as e:
+        return f"Failed to extract DOM text: {e}"
+
+    text = text.strip()
+    if not text:
+        return "No visible text found on page."
+
+    return text[:max_chars]
+
+
+@tool
 def go_back() -> str:
     """Goes back to previous page."""
     helium.get_driver().back()
@@ -89,6 +128,28 @@ def close_popups() -> str:
     """Attempts to close modal/popups by sending ESC key."""
     webdriver.ActionChains(helium.get_driver()).send_keys(Keys.ESCAPE).perform()
     return "Sent ESC to try closing any popup/modal"
+
+
+@tool
+def visit_webpage_safe(url: str, referer: str = "https://searxng.local:8888") -> str:
+    """
+    Navigate to the given URL with added stealth measures and human-like delays.
+
+    Args:
+        url: The webpage URL to visit (required).
+        referer: Optional HTTP Referer header to send (helps avoid some anti-bot checks).
+                 Defaults to the local SearXNG instance.
+
+    Returns:
+        A short confirmation message indicating successful navigation.
+    """
+    sleep(uniform(1.8, 4.2))
+    helium.get_driver().execute_cdp_cmd(
+        "Network.setExtraHTTPHeaders", {"headers": {"Referer": referer}}
+    )
+    helium.go_to(url)
+    sleep(uniform(2.5, 5.0))
+    return f"Navigated to {url} (safe mode)"
 
 
 # ────────────────────────────────────────────────
@@ -115,18 +176,8 @@ def save_screenshot(memory_step, agent):
         sel = driver.execute_script("return window.getSelection().toString().trim();")
         if sel:
             obs += f"\nSelected text: {sel[:100]}"
-    except:
-        pass
-
-    png_bytes = driver.get_screenshot_as_png()
-    image = Image.open(BytesIO(png_bytes))
-
-    # Optional: save to disk for debugging
-    screenshot_dir = OUTPUT_DIR / "screenshots"
-    screenshot_dir.mkdir(parents=True, exist_ok=True)
-    screenshot_file = f"{str(screenshot_dir)}/step_{memory_step.step_number:03d}.png"
-    image.save(screenshot_file)
-    print(f"[Screenshot saved] {screenshot_file}")
+    except Exception as e:
+        obs += f"\n[Selection error: {e}]"
 
     # Save text obs under observations dir
     texts_dir = OUTPUT_DIR / "observations"
@@ -136,7 +187,23 @@ def save_screenshot(memory_step, agent):
         f.write(obs)
     print(f"[Observations saved] {text_file}")
 
-    memory_step.observations = (memory_step.observations or "") + "\n" + obs
+    # ── Step-level context summarization / truncation ──
+    prev = memory_step.observations or ""
+    combined = (prev + "\n" + obs).strip()
+
+    MAX_CONTEXT_CHARS = 6000
+    KEEP_TAIL_CHARS = 2500
+
+    if len(combined) > MAX_CONTEXT_CHARS:
+        summary = (
+            "[Summary of previous steps]\n"
+            + combined[: MAX_CONTEXT_CHARS - KEEP_TAIL_CHARS].split("\n")[-20:]
+        )
+        summary_text = "\n".join(summary)
+        tail = combined[-KEEP_TAIL_CHARS:]
+        memory_step.observations = summary_text + "\n...\n" + tail
+    else:
+        memory_step.observations = combined
 
 
 # ────────────────────────────────────────────────
@@ -148,29 +215,42 @@ def init_browser(headless: bool = True) -> "Driver":
     """
     Initialize an anti-detection browser instance using SeleniumBase UC mode.
     """
+    # Optional: rotate user-agent per script run (helps long-running agents)
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    ]
+
+    selected_ua = random.choice(user_agents)
+
     driver = Driver(
         browser="chrome",
         uc=True,
         headless=headless,
-        agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        window_size="1280,800",
+        agent=selected_ua,
+        window_size="1000,1350",
+        window_position="0,0",
+        d_p_r=1.0,
+        chromium_arg="--disable-pdf-viewer",
     )
 
-    # ──── ADD THIS LINE ────
-    import helium
-
     helium.set_driver(driver)
-    # ───────────────────────
 
-    # Optional extra stealth (already good with uc=True)
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
         {
             "source": """
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
             """
         },
     )
+
+    # Increase timeout for slow / strict sites like Wikipedia
+    driver.set_page_load_timeout(45)
 
     return driver
 
@@ -231,7 +311,14 @@ def main():
     driver = init_browser(headless=False)  # ← set False for debugging
 
     agent = CodeAgent(
-        tools=[open_search_engine, go_back, close_popups, search_item_ctrl_f],
+        tools=[
+            open_search_engine,
+            go_back,
+            close_popups,
+            find_text_on_page,
+            extract_visible_text,
+            visit_webpage_safe,  # include the new "safe" navigation helper
+        ],
         model=model,
         additional_authorized_imports=["helium", "urllib.parse"],
         step_callbacks=[save_screenshot],
@@ -268,8 +355,8 @@ Then go to the most relevant Wikipedia page (or official page) and tell me:
     sleep(10)
     try:
         helium.kill_browser()
-    except:
-        pass
+    except Exception as e:
+        print(f"[Browser shutdown warning] {e}")
 
 
 if __name__ == "__main__":

@@ -12,7 +12,9 @@ Required:
 - Optional: .env file with any API tokens if your model requires them
 """
 
+import json
 import os
+import random
 import shutil
 from io import BytesIO
 from pathlib import Path
@@ -31,6 +33,7 @@ from seleniumbase import Driver
 
 from smolagents import CodeAgent, OpenAIModel, tool, InferenceClientModel
 from smolagents.agents import ActionStep
+from smolagents.utils import make_json_serializable
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -110,9 +113,19 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
         # Optional: save to disk for debugging
         screenshot_dir = OUTPUT_DIR / "screenshots"
         screenshot_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{str(screenshot_dir)}/step_{memory_step.step_number:03d}.png"
+        filename = f"{str(screenshot_dir)}/step_{current_step:03d}.png"
         image.save(filename)
         print(f"[Screenshot saved] {filename}")
+
+        # Save messages as individual JSON file
+        messages_dir = OUTPUT_DIR / "messages"
+        messages_dir.mkdir(parents=True, exist_ok=True)
+        msg_path = messages_dir / f"step_{current_step:03d}.json"
+
+        messages = [make_json_serializable(s.dict()) for s in agent.memory.steps]
+        with open(msg_path, "w", encoding="utf-8") as f:
+            json.dump(messages, f, ensure_ascii=False, indent=2)
+        print(f"[Messages saved] {msg_path}")
 
         print(f"Captured a browser screenshot: {image.size} pixels")
         memory_step.observations_images = [
@@ -141,29 +154,42 @@ def init_browser(headless: bool = True) -> "Driver":
     """
     Initialize an anti-detection browser instance using SeleniumBase UC mode.
     """
+    # Optional: rotate user-agent per script run (helps long-running agents)
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    ]
+
+    selected_ua = random.choice(user_agents)
+
     driver = Driver(
         browser="chrome",
         uc=True,
         headless=headless,
-        agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-        window_size="1280,800",
+        agent=selected_ua,
+        window_size="1000,1350",
+        window_position="0,0",
+        d_p_r=1.0,
+        chromium_arg="--disable-pdf-viewer",
     )
 
-    # ──── ADD THIS LINE ────
-    import helium
-
     helium.set_driver(driver)
-    # ───────────────────────
 
-    # Optional extra stealth (already good with uc=True)
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
         {
             "source": """
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
             """
         },
     )
+
+    # Increase timeout for slow / strict sites like Wikipedia
+    driver.set_page_load_timeout(45)
 
     return driver
 
