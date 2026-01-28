@@ -123,13 +123,15 @@ def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
         messages_dir.mkdir(parents=True, exist_ok=True)
         msg_path = messages_dir / f"step_{current_step:03d}.json"
 
-        messages = []
-        for s in agent.memory.steps:
-            d = s.dict()
-            d.pop("observations_images", None)
-            messages.append(make_json_serializable(d))
         with open(msg_path, "w", encoding="utf-8") as f:
-            json.dump(messages, f, ensure_ascii=False, indent=2)
+            json.dump(
+                _strip_observations_images(
+                    make_json_serializable([agent.memory.steps[-1]])
+                ),
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
         print(f"[Messages saved] {msg_path}")
 
         print(f"Captured a browser screenshot: {image.size} pixels")
@@ -277,6 +279,19 @@ def create_local_model(
     )
 
 
+def _strip_observations_images(steps):
+    # Remove 'observations_images' from each step before saving
+    stripped_steps = []
+    for step in steps:
+        if isinstance(step, dict):
+            step_copy = dict(step)
+        else:
+            step_copy = dict(step) if hasattr(step, "dict") else step.__dict__.copy()
+        step_copy.pop("observations_images", None)
+        stripped_steps.append(step_copy)
+    return stripped_steps
+
+
 def main(headless: bool = False, task: str = None):
     # Default task (Wikipedia example) if none provided
     default_task = """
@@ -329,13 +344,21 @@ Please navigate to https://en.wikipedia.org/wiki/Chicago and give me a sentence 
 
     full_steps_path = OUTPUT_DIR / "full_steps.json"
     succinct_steps_path = OUTPUT_DIR / "succinct_steps.json"
-    full_code_path = OUTPUT_DIR / "full_code.md"
+    full_code_path = OUTPUT_DIR / "full_code.py"
 
     with open(full_steps_path, "w", encoding="utf-8") as f:
-        json.dump(make_json_serializable(full_steps), f, ensure_ascii=False, indent=2)
+        json.dump(
+            _strip_observations_images(make_json_serializable(full_steps)),
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
     with open(succinct_steps_path, "w", encoding="utf-8") as f:
         json.dump(
-            make_json_serializable(succinct_steps), f, ensure_ascii=False, indent=2
+            _strip_observations_images(make_json_serializable(succinct_steps)),
+            f,
+            ensure_ascii=False,
+            indent=2,
         )
     with open(full_code_path, "w", encoding="utf-8") as f:
         json.dump(full_code, f, ensure_ascii=False, indent=2)
