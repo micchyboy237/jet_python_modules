@@ -1,6 +1,15 @@
 import numpy as np
 from openai import OpenAI
-from typing import Iterator, List, Union, Literal, Callable, Optional
+from typing import (
+    Iterator,
+    List,
+    Tuple,
+    Union,
+    Literal,
+    Callable,
+    Optional,
+    TypedDict,
+)
 from tqdm import tqdm
 from jet._token.token_utils import token_counter
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_TYPES
@@ -10,14 +19,68 @@ from jet.models.embeddings.utils import calculate_dynamic_batch_size
 from jet.models.embeddings.cache import EmbeddingCache
 from jet.logger import CustomLogger
 
-GenerateEmbeddingsReturnType = Union[List[List[float]], np.ndarray]
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Type Definitions
+# ────────────────────────────────────────────────────────────────────────────────
+
+EmbeddingVector = Union[List[float], np.ndarray]
+EmbeddingBatch = List[EmbeddingVector]
+EmbeddingOutput = Union[
+    EmbeddingBatch, np.ndarray
+]  # list of vectors or single 2D array
+EmbeddingInput = Union[str, List[str]]
+
+
+class EmbeddingResultItem(TypedDict):
+    object: Literal["embedding"]
+    embedding: List[float]
+    index: int
+
+
+class EmbeddingResponse(TypedDict):
+    object: Literal["list"]
+    data: List[EmbeddingResultItem]
+    model: str
+    usage: dict[str, int]
+
+
+class SearchResult(TypedDict, total=False):
+    index: int
+    text: str
+    score: float
+    embedding: Optional[EmbeddingVector]
+
+
+class SearchResultNoEmbedding(TypedDict):
+    index: int
+    text: str
+    score: float
+
+
+SearchResultType = Union[SearchResult, SearchResultNoEmbedding]
+
+
+GenerateEmbeddingsReturnType = EmbeddingOutput  # kept for backward compatibility
+
+
+def cosine_similarity(vec1: EmbeddingVector, vec2: EmbeddingVector) -> float:
+    vec1 = np.asarray(vec1)
+    vec2 = np.asarray(vec2)
+    return float(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)))
+
 
 class InputTooLargeError(ValueError):
     """Custom exception for inputs exceeding the maximum allowed length."""
+
     def __init__(self, long_input_indexes: List[int], max_input_length: int):
         self.long_input_indexes = long_input_indexes
         self.max_input_length = max_input_length
-        super().__init__(f"Inputs at indexes {long_input_indexes} are too long (> {max_input_length} tokens). Please reduce input size or increase server physical batch size.")
+        super().__init__(
+            f"Inputs at indexes {long_input_indexes} are too long (> {max_input_length} tokens). "
+            "Please reduce input size or increase server physical batch size."
+        )
+
 
 class LlamacppEmbedding:
     """
@@ -68,6 +131,7 @@ class LlamacppEmbedding:
             Optional custom logger instance. If not provided,
             a default `CustomLogger` is created.
     """
+
     def __init__(
         self,
         model: LLAMACPP_EMBED_TYPES = "embeddinggemma",
@@ -81,7 +145,9 @@ class LlamacppEmbedding:
         verbose: bool = True,
         logger: Optional[CustomLogger] = None,
     ):
-        self.client = OpenAI(base_url=base_url, api_key="no-key-required", max_retries=max_retries)
+        self.client = OpenAI(
+            base_url=base_url, api_key="no-key-required", max_retries=max_retries
+        )
         self.model = resolve_model_value(model)
         self.max_retries = max_retries
         self.use_cache = use_cache
@@ -91,7 +157,7 @@ class LlamacppEmbedding:
             backend=cache_backend,
             max_size=cache_max_size,
             ttl=cache_ttl,
-            namespace=f"llama_{self.model}"
+            namespace=f"llama_{self.model}",
         )
 
         self._logger = logger or CustomLogger()
@@ -103,7 +169,7 @@ class LlamacppEmbedding:
         batch_size: int = 32,
         show_progress: bool = True,
         use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None
+        use_dynamic_batch_sizing: Optional[bool] = None,
     ) -> GenerateEmbeddingsReturnType:
         """Make the instance callable to generate embeddings, equivalent to get_embeddings."""
         return self.get_embeddings(
@@ -112,7 +178,9 @@ class LlamacppEmbedding:
             batch_size=batch_size,
             show_progress=show_progress,
             use_cache=use_cache if use_cache is not None else self.use_cache,
-            use_dynamic_batch_sizing=use_dynamic_batch_sizing if use_dynamic_batch_sizing is not None else self.use_dynamic_batch_sizing
+            use_dynamic_batch_sizing=use_dynamic_batch_sizing
+            if use_dynamic_batch_sizing is not None
+            else self.use_dynamic_batch_sizing,
         )
 
     def encode(
@@ -123,7 +191,7 @@ class LlamacppEmbedding:
         show_progress: bool = True,
         max_input_length: Optional[int] = None,
         use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None
+        use_dynamic_batch_sizing: Optional[bool] = None,
     ) -> GenerateEmbeddingsReturnType:
         return self.get_embeddings(
             inputs,
@@ -143,33 +211,47 @@ class LlamacppEmbedding:
         show_progress: bool = True,
         max_input_length: Optional[int] = None,
         use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None
+        use_dynamic_batch_sizing: Optional[bool] = None,
     ) -> GenerateEmbeddingsReturnType:
         """Generate embeddings with caching and optional dynamic batch sizing."""
         use_cache = use_cache if use_cache is not None else self.use_cache
-        use_dynamic_batch_sizing = use_dynamic_batch_sizing if use_dynamic_batch_sizing is not None else self.use_dynamic_batch_sizing
+        use_dynamic_batch_sizing = (
+            use_dynamic_batch_sizing
+            if use_dynamic_batch_sizing is not None
+            else self.use_dynamic_batch_sizing
+        )
 
         input_list = [inputs] if isinstance(inputs, str) else inputs
         valid_inputs = [i for i in input_list if isinstance(i, str) and i.strip()]
-        invalid_inputs = [i for i in input_list if not (isinstance(i, str) and i.strip())]
-        
+        invalid_inputs = [
+            i for i in input_list if not (isinstance(i, str) and i.strip())
+        ]
+
         if invalid_inputs:
-            self._logger.warning(f"Warning: Skipped {len(invalid_inputs)} invalid inputs: {invalid_inputs}")
+            self._logger.warning(
+                f"Warning: Skipped {len(invalid_inputs)} invalid inputs: {invalid_inputs}"
+            )
         if not valid_inputs:
-            raise ValueError("No valid inputs provided: inputs must be a non-empty string or list of non-empty strings")
-        
+            raise ValueError(
+                "No valid inputs provided: inputs must be a non-empty string or list of non-empty strings"
+            )
+
         embedding_size = get_embedding_size(self.model)
         context_size = get_context_size(self.model)
         max_length = max_input_length if max_input_length is not None else context_size
-        
+
         if max_length <= 0:
-            self._logger.warning(f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512")
+            self._logger.warning(
+                f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512"
+            )
             max_length = 512
         elif max_length <= 0:
             max_length = 512
-        
-        token_counts: List[int] = token_counter(valid_inputs, self.model, prevent_total=True)
-        
+
+        token_counts: List[int] = token_counter(
+            valid_inputs, self.model, prevent_total=True
+        )
+
         # Log detailed input statistics
         if self.verbose:
             self._logger.info(
@@ -179,29 +261,37 @@ class LlamacppEmbedding:
                 f"max_length: {max_length}"
             )
             self._logger.debug(f"\nInputs: {len(input_list)}")
-            self._logger.debug(f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}")
+            self._logger.debug(
+                f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}"
+            )
 
-        long_inputs = [(count, idx) for idx, count in enumerate(token_counts) if count > max_length]
-        
+        long_inputs = [
+            (count, idx) for idx, count in enumerate(token_counts) if count > max_length
+        ]
+
         if long_inputs:
             long_input_indexes = [idx for _, idx in long_inputs]
-            self._logger.error(f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}")
+            self._logger.error(
+                f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}"
+            )
             raise InputTooLargeError(long_input_indexes, max_length)
-        
+
         # Apply dynamic batch sizing if enabled
         if use_dynamic_batch_sizing:
             dynamic_batch_size = calculate_dynamic_batch_size(
                 token_counts=token_counts,
                 embedding_size=embedding_size,
-                context_size=context_size
+                context_size=context_size,
             )
             batch_size = dynamic_batch_size
             if self.verbose:
-                self._logger.debug(f"Dynamic batch sizing enabled. Using batch_size: {batch_size}")
+                self._logger.debug(
+                    f"Dynamic batch sizing enabled. Using batch_size: {batch_size}"
+                )
         else:
             if self.verbose:
                 self._logger.debug(f"Using static batch_size: {batch_size}")
-        
+
         # Cache check
         if use_cache:
             cache_key = self.cache._generate_key(valid_inputs)
@@ -212,16 +302,24 @@ class LlamacppEmbedding:
                 else:
                     result = cached
                 if self.verbose:
-                    self._logger.debug(f"Cache hit for {len(valid_inputs)} texts (key: {cache_key[:16]}...)")
+                    self._logger.debug(
+                        f"Cache hit for {len(valid_inputs)} texts (key: {cache_key[:16]}...)"
+                    )
                 return result
             if self.verbose:
-                self._logger.debug(f"Cache miss for {len(valid_inputs)} texts (key: {cache_key[:16]}...). Computing...")
-        
+                self._logger.debug(
+                    f"Cache miss for {len(valid_inputs)} texts (key: {cache_key[:16]}...). Computing..."
+                )
+
         embeddings = []
-        progress_bar = tqdm(range(0, len(valid_inputs), batch_size), desc="Processing batches", disable=not show_progress)
-        
+        progress_bar = tqdm(
+            range(0, len(valid_inputs), batch_size),
+            desc="Processing batches",
+            disable=not show_progress,
+        )
+
         for i in progress_bar:
-            batch = valid_inputs[i:i + batch_size]
+            batch = valid_inputs[i : i + batch_size]
             try:
                 response = self.client.embeddings.create(model=self.model, input=batch)
                 batch_embeddings = [d.embedding for d in response.data]
@@ -229,17 +327,30 @@ class LlamacppEmbedding:
                     batch_embeddings = [np.array(emb) for emb in batch_embeddings]
                 embeddings.extend(batch_embeddings)
             except Exception as e:
-                self._logger.error(f"Error generating embeddings for batch {i // batch_size + 1}: {e}")
+                self._logger.error(
+                    f"Error generating embeddings for batch {i // batch_size + 1}: {e}"
+                )
                 raise
-        
-        final_embeddings = embeddings if return_format != "numpy" else np.array(embeddings, dtype=np.float32)
+
+        final_embeddings = (
+            embeddings
+            if return_format != "numpy"
+            else np.array(embeddings, dtype=np.float32)
+        )
         final_embeddings = self.transform_data(final_embeddings)
-        
+
         if use_cache:
-            self.cache.set(cache_key, final_embeddings.tolist() if return_format == "numpy" else final_embeddings)
+            self.cache.set(
+                cache_key,
+                final_embeddings.tolist()
+                if return_format == "numpy"
+                else final_embeddings,
+            )
             if self.verbose:
-                self._logger.info(f"Cached embeddings for {len(valid_inputs)} texts (key: {cache_key[:16]}...)")
-        
+                self._logger.info(
+                    f"Cached embeddings for {len(valid_inputs)} texts (key: {cache_key[:16]}...)"
+                )
+
         return final_embeddings
 
     def get_embedding_function(
@@ -248,18 +359,24 @@ class LlamacppEmbedding:
         batch_size: int = 32,
         show_progress: bool = True,
         use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None
+        use_dynamic_batch_sizing: Optional[bool] = None,
     ) -> Callable[[Union[str, List[str]]], GenerateEmbeddingsReturnType]:
         """Return callable with caching and optional dynamic batch sizing."""
-        def embedding_function(inputs: Union[str, List[str]]) -> GenerateEmbeddingsReturnType:
+
+        def embedding_function(
+            inputs: Union[str, List[str]],
+        ) -> GenerateEmbeddingsReturnType:
             return self.get_embeddings(
                 inputs,
                 return_format=return_format,
                 batch_size=batch_size,
                 show_progress=show_progress,
                 use_cache=use_cache if use_cache is not None else self.use_cache,
-                use_dynamic_batch_sizing=use_dynamic_batch_sizing if use_dynamic_batch_sizing is not None else self.use_dynamic_batch_sizing
+                use_dynamic_batch_sizing=use_dynamic_batch_sizing
+                if use_dynamic_batch_sizing is not None
+                else self.use_dynamic_batch_sizing,
             )
+
         return embedding_function
 
     def get_embeddings_stream(
@@ -270,7 +387,7 @@ class LlamacppEmbedding:
         show_progress: bool = True,
         max_input_length: Optional[int] = None,
         use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None
+        use_dynamic_batch_sizing: Optional[bool] = None,
     ) -> Iterator[GenerateEmbeddingsReturnType]:
         """
         Stream embeddings with per-text caching, yielding all cache hits first (batched, ordered),
@@ -286,7 +403,9 @@ class LlamacppEmbedding:
         input_list = [inputs] if isinstance(inputs, str) else inputs
         valid_inputs = [i for i in input_list if isinstance(i, str) and i.strip()]
         if not valid_inputs:
-            raise ValueError("inputs must be a non-empty string or list of non-empty strings")
+            raise ValueError(
+                "inputs must be a non-empty string or list of non-empty strings"
+            )
 
         embedding_size = get_embedding_size(self.model)
         context_size = get_context_size(self.model)
@@ -309,7 +428,9 @@ class LlamacppEmbedding:
                 self._logger.debug(f"Dynamic batch size: {batch_size}")
 
         # ------------------ Phase 1: Per-text cache scan ----------------------
-        cached_embeddings: List[Optional[Union[List[float], np.ndarray]]] = [None] * len(valid_inputs)
+        cached_embeddings: List[Optional[Union[List[float], np.ndarray]]] = [
+            None
+        ] * len(valid_inputs)
         miss_indices: List[int] = []
         miss_texts: List[str] = []
 
@@ -332,9 +453,7 @@ class LlamacppEmbedding:
 
         # ------------- Phase 2: Yield all cache hits (batched, ordered) -----------------
         cached_pairs = [
-            (idx, emb)
-            for idx, emb in enumerate(cached_embeddings)
-            if emb is not None
+            (idx, emb) for idx, emb in enumerate(cached_embeddings) if emb is not None
         ]
         for start in range(0, len(cached_pairs), batch_size):
             batch = cached_pairs[start : start + batch_size]
@@ -360,7 +479,9 @@ class LlamacppEmbedding:
                 batch_texts = miss_texts[start:end]
                 batch_indices = miss_indices[start:end]
                 try:
-                    response = self.client.embeddings.create(model=self.model, input=batch_texts)
+                    response = self.client.embeddings.create(
+                        model=self.model, input=batch_texts
+                    )
                     batch_embs = [d.embedding for d in response.data]
                     if return_format == "numpy":
                         batch_np = np.array(batch_embs, dtype=np.float32)
@@ -382,7 +503,11 @@ class LlamacppEmbedding:
                     )
                     raise
 
-    def transform_data(self, embeddings: Union[List[float], np.ndarray], truncate_dim: Optional[int] = None) -> np.ndarray:
+    def transform_data(
+        self,
+        embeddings: Union[List[float], np.ndarray],
+        truncate_dim: Optional[int] = None,
+    ) -> np.ndarray:
         if isinstance(embeddings, list):
             embeddings = np.array(embeddings, dtype=np.float32)
         embeddings = np.ascontiguousarray(embeddings.astype(np.float32))
@@ -393,3 +518,106 @@ class LlamacppEmbedding:
     def close(self) -> None:
         """Close cache (e.g., SQLite conn)."""
         self.cache.close()
+
+    def search(
+        self,
+        query: str,
+        documents: List[str],
+        *,
+        top_k: Optional[int] = None,
+        return_embeddings: bool = False,
+        return_format: Literal["numpy", "list"] = "numpy",
+        batch_size: int = 32,
+        show_progress: bool = True,
+        use_cache: Optional[bool] = None,
+        use_dynamic_batch_sizing: Optional[bool] = None,
+    ) -> List[SearchResultType]:
+        """
+        Semantic search — computes query + all documents embeddings in **one call**.
+        """
+        if not query or not query.strip():
+            raise ValueError("query must be a non-empty string")
+
+        if not documents:
+            return []
+
+        # Combine query + documents → single embedding call
+        all_texts = [query] + documents
+
+        all_embs_list = self.get_embeddings(
+            all_texts,
+            return_format="list",
+            batch_size=batch_size,
+            show_progress=show_progress,
+            use_cache=use_cache,
+            use_dynamic_batch_sizing=use_dynamic_batch_sizing,
+        )
+
+        # First embedding belongs to the query
+        query_emb = all_embs_list[0]
+        doc_embs = all_embs_list[1:]
+
+        results: List[SearchResultType] = []
+        for i, (text, emb) in enumerate(zip(documents, doc_embs), start=0):
+            score = cosine_similarity(query_emb, emb)
+            item: SearchResultType = {"index": i, "text": text, "score": score}
+            if return_embeddings:
+                item["embedding"] = emb if return_format == "list" else emb.tolist()
+            results.append(item)
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+        if top_k is not None:
+            results = results[:top_k]
+
+        return results
+
+    def search_stream(
+        self,
+        query: str,
+        documents: List[str],
+        *,
+        top_k: Optional[int] = None,
+        return_embeddings: bool = False,
+        return_format: Literal["numpy", "list"] = "numpy",
+        batch_size: int = 32,
+        show_progress: bool = True,
+        use_cache: Optional[bool] = None,
+        use_dynamic_batch_sizing: Optional[bool] = None,
+        yield_partial: bool = True,  # new param: whether to yield sorted partial results
+    ) -> Iterator[SearchResultType]:
+        query = "Artificial intelligence is advancing rapidly."
+        docs = [
+            "AI is changing technology.",
+            "The weather is nice today.",
+            "Deep learning models are powerful.",
+        ]
+
+        # Global counter for correct query numbering across streamed batches
+        query_embedding = None
+
+        for batch_embeddings in self.get_embeddings_stream(
+            inputs=[query] + docs,
+            return_format="numpy",
+            batch_size=2,
+            show_progress=True,
+            use_cache=False,  # Changed to False → get fresh embeddings → realistic scores
+        ):
+            if query_embedding is None:
+                query_embedding = batch_embeddings[0]
+                remaining = batch_embeddings[1:] if len(batch_embeddings) > 1 else []
+            else:
+                remaining = batch_embeddings
+
+            for orig_idx, embedding in enumerate(remaining):
+                similarity = cosine_similarity(query_embedding, embedding)
+                print(
+                    f"Similarity between query and doc {orig_idx + 1}: {similarity:.4f}"
+                )
+
+                result: SearchResultType = {
+                    "index": orig_idx,
+                    "text": documents[orig_idx],
+                    "score": similarity,
+                }
+
+                yield result
