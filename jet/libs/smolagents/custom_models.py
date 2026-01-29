@@ -25,8 +25,14 @@ from smolagents.utils import (
     parse_json_blob,
 )
 
+from jet.adapters.llama_cpp.types import LLAMACPP_LLM_TYPES
+
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_API_BASE = os.getenv("LLAMA_CPP_LLM_URL")
+DEFAULT_MODEL_ID: LLAMACPP_LLM_TYPES = "qwen3-instruct-2507:4b"
+DEFAULT_API_KEY = None
 
 RETRY_WAIT = 60
 RETRY_MAX_ATTEMPTS = 3
@@ -828,9 +834,9 @@ class OpenAIModel(ApiModel):
 
     def __init__(
         self,
-        model_id: str,
-        api_base: str | None = None,
-        api_key: str | None = None,
+        model_id: str = DEFAULT_MODEL_ID,
+        api_base: str | None = DEFAULT_API_BASE,
+        api_key: str | None = DEFAULT_API_KEY,
         organization: str | None = None,
         project: str | None = None,
         client_kwargs: dict[str, Any] | None = None,

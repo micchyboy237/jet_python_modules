@@ -1,0 +1,777 @@
+import base64
+from pathlib import Path
+import random
+import shutil
+import time
+import helium
+from typing import Optional
+import os
+from datetime import datetime
+
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.support.ui import Select
+from seleniumbase import Driver
+
+
+def init_browser(headless: bool = True) -> "Driver":
+    """
+    Initialize an anti-detection browser instance using SeleniumBase UC mode.
+    """
+    # Optional: rotate user-agent per script run (helps long-running agents)
+    user_agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    ]
+
+    selected_ua = random.choice(user_agents)
+
+    driver = Driver(
+        browser="chrome",
+        uc=True,
+        headless=headless,
+        agent=selected_ua,
+        window_size="1000,1350",
+        window_position="500,0",
+        d_p_r=1.0,
+        chromium_arg="--disable-pdf-viewer",
+    )
+
+    helium.set_driver(driver)
+
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            """
+        },
+    )
+
+    # Increase timeout for slow / strict sites
+    driver.set_page_load_timeout(45)
+
+    return driver
+
+
+class DemoHeliumActions:
+    """
+    Demonstrates the most common Helium high-level actions in a clean, reusable class.
+    Each method shows one primary action + typical usage pattern.
+    """
+
+    def __init__(self, headless: bool = True, output_dir: Optional[str] = None):
+        self.url = "https://trytestingthis.netlify.app"
+
+        self.driver: WebDriver = init_browser(headless=headless)
+        self.output_dir = output_dir or str(
+            Path(__file__).parent / "generated" / Path(__file__).stem
+        )
+
+        shutil.rmtree(self.output_dir, ignore_errors=True)
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+
+    def close(self):
+        """Clean up browser"""
+        helium.kill_browser()
+
+    def get_driver(self) -> WebDriver:
+        """Returns the current Selenium WebDriver instance"""
+        if self.driver is None:
+            raise RuntimeError("Browser driver not initialized.")
+        return self.driver
+
+    def get_current_url(self) -> str:
+        """Returns the current page URL"""
+        if self.driver is None:
+            raise RuntimeError("Browser driver not initialized.")
+        url = self.driver.current_url
+        print(f"Current URL: {url}")
+        return url
+
+    def get_page_source(self) -> str:
+        """Returns the full current HTML page source"""
+        if self.driver is None:
+            raise RuntimeError("No browser driver is currently set.")
+        source = self.driver.page_source
+        preview_len = 600
+        preview = source[:preview_len] + ("..." if len(source) > preview_len else "")
+        print(f"Page source length: {len(source)} | Preview:\n{preview}")
+        return source
+
+    def print_browser_state(self):
+        """Quick helper to log both URL and source preview"""
+        self.get_current_url()
+        self.get_page_source()
+
+    def demo_go_to(self):
+        """Action: go_to(url)"""
+        helium.go_to(self.url)
+        print("→ Navigated to trytestingthis.netlify.app demo page")
+
+    def demo_click(self):
+        """Action: click(element) — most common way to interact"""
+        helium.click("Your Sample Alert Button!")
+        print("→ Clicked 'Your Sample Alert Button!' (triggers JS alert)")
+
+        # Handle the JavaScript alert
+        helium.Alert().accept()
+        print("→ Accepted (OK'd) the alert popup")
+
+    def demo_write(self):
+        """Action: write(text, into=field)"""
+        helium.write("test", into="Username:test")
+        print("→ Typed 'test' into username field")
+
+        helium.write("test", into="Password:test")
+        print("→ Typed 'test' into password field")
+
+    def demo_press_keys(self):
+        """Action: press(*keys) — keyboard input"""
+        helium.press(helium.ENTER)
+        print("→ Pressed ENTER (should submit login form)")
+
+    def demo_select_dropdown(self):
+        """Action: select(option, element) — demonstrates single & multi dropdowns"""
+        helium.go_to(self.url)
+
+        print("→ Attempting single-select dropdown...")
+        try:
+            # Most reliable: target by ID and unwrap to WebElement
+            single_select_elem = helium.S("#option").web_element
+            Select(single_select_elem).select_by_visible_text("Option 1")
+            print("→ Successfully selected 'Option 1' from <select id='option'>")
+        except Exception as e:
+            print(f"→ Single-select failed: {e}")
+            # Fallback attempt using label + relative
+            try:
+                helium.select(
+                    "Option 1",
+                    helium.S("select", below="Lets you select only one option"),
+                )
+                print("→ Fallback success using relative locator")
+            except Exception as fallback_e:
+                print(f"→ All single-select attempts failed: {fallback_e}")
+
+        print(
+            "\n→ Attempting multi-select (note: page has <select multiple id='owc'>)..."
+        )
+        try:
+            multi_select_elem = helium.S("#owc").web_element
+            Select(multi_select_elem).select_by_visible_text("Option 2")
+            Select(multi_select_elem).select_by_visible_text(
+                "Option 3"
+            )  # multiple calls to select more
+            print("→ Selected 'Option 2' and 'Option 3' in multi-select")
+        except Exception as e:
+            print(
+                f"→ Multi-select failed: {e} (check if id='owc' is correct and multiple attribute present)"
+            )
+
+    def demo_wait_until_and_exists(self):
+        """Demonstrates explicit waiting and existence checks"""
+        helium.Config.implicit_wait_secs = 10
+        print("→ Waiting for alert button...")
+
+        # Modern / clean style:
+        alert_button = helium.S("button[onclick='alertfunction()']")
+        # or: alert_button = helium.Button(helium.S("[onclick='alertfunction()']"))
+
+        print(f"Immediate check: alert button exists? {alert_button.exists()}")
+
+        try:
+            helium.wait_until(alert_button.exists, timeout_secs=20)
+            print("→ Success: waited until alert button exists")
+            # Optional: interact
+            # alert_button.click()
+            # helium.Alert().accept()
+        except TimeoutException:
+            print("→ Timeout: alert button still not found – debug info:")
+            all_buttons = helium.find_all(helium.S("button"))
+            print(f"Found {len(all_buttons)} <button> elements:")
+            for btn in all_buttons:
+                txt = btn.web_element.text.strip()
+                onclick = btn.web_element.get_attribute("onclick") or "N/A"
+                print(f" • Text='{txt}' | onclick='{onclick}'")
+
+        print("→ Waiting for sample table legend...")
+        table_legend_text = helium.Text("This is your Sample Table:")
+        helium.wait_until(table_legend_text.exists, timeout_secs=10)
+        print("→ Success: waited until sample table legend exists")
+
+    def demo_s_selector_and_relative(self):
+        """Shows S() selector + relative positioning"""
+        uname_field = helium.S("#uname")
+        if uname_field.exists():
+            print("→ Found username field via S('#uname')")
+
+        # Example relative locator (adjust based on actual layout if needed)
+        password_label = helium.Text(to_right_of="Password:")
+        if password_label.exists():
+            print(f"→ Found relative text near password: {password_label.value}")
+
+    def demo_find_all_elements(self):
+        """Extract multiple matching elements with find_all()"""
+        # All table cells (basic)
+        table_cells = helium.find_all(helium.S("table tr td"))
+        print(f"→ Found {len(table_cells)} table cells in sample table")
+
+        # Example using relative locator with REAL existing text
+        print("\n→ Trying to find cells below an actual header ('Age')...")
+        try:
+            age_header = "Age"  # exists on the page
+            age_cells = helium.find_all(helium.S("td", below=age_header))
+            ages = [
+                cell.web_element.text.strip()
+                for cell in age_cells
+                if cell.web_element.text.strip()
+            ]
+            print(f"→ Found {len(ages)} values below 'Age' header:")
+            for age in ages:
+                print(f" • {age}")
+        except LookupError:
+            print("→ LookupError: reference text not found – check page content")
+
+        # Fallback: column by index (very reliable)
+        print("\n→ Extracting 'Occupation' column by cell index (safer)...")
+        occupations = []
+        for i, cell in enumerate(table_cells):
+            if i % 5 == 4:  # 5 columns, occupation is last
+                text = cell.web_element.text.strip()
+                if text:
+                    occupations.append(text)
+        print("→ Occupations:")
+        for occ in occupations:
+            print(f" • {occ}")
+
+    def demo_file_upload(self):
+        """Demonstrates file upload on external herokuapp demo"""
+        helium.go_to("https://the-internet.herokuapp.com/upload")
+        sample_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
+
+        if not os.path.exists(sample_file):
+            print(f"→ Error: Sample file missing at {sample_file}")
+            return
+
+        print("→ Navigating to file upload demo page")
+
+        try:
+            # Use raw Selenium find_element (by ID is rock-solid here)
+            file_input = self.driver.find_element("id", "file-upload")
+            file_input.send_keys(sample_file)
+            print("→ Successfully attached file via send_keys to #file-upload")
+
+            # Optional: If the page requires clicking an "Upload" button
+            # helium.click("Upload")
+
+            # Verify success
+            helium.wait_until(helium.Text("File Uploaded!").exists, timeout_secs=15)
+            print("→ Upload confirmed: 'File Uploaded!' visible")
+        except Exception as e:
+            print(f"→ File upload failed: {e}")
+            # Debug fallback: print current inputs
+            inputs = self.driver.find_elements("tag name", "input")
+            print(f"→ Found {len(inputs)} input elements on page")
+            for i, inp in enumerate(inputs):
+                print(
+                    f"Input {i}: outerHTML = {inp.get_attribute('outerHTML')[:200]}..."
+                )
+
+    def demo_scroll(self):
+        """Action: scroll_down() / scroll_up()"""
+        helium.go_to(self.url)
+        helium.scroll_down(400)
+        print("→ Scrolled down 400px on demo page")
+        helium.scroll_up()
+        print("→ Scrolled back to top")
+
+    # -------- New Demo Methods --------
+
+    def demo_link_element(self):
+        """Demonstrates Link element locator"""
+        helium.go_to(self.url)
+        try:
+            helium.click(
+                helium.Link("Click Here")
+            )  # replace with actual link text if exists
+            print("→ Clicked Link('Click Here')")
+        except Exception:
+            print("→ No suitable Link found for demo - check page for <a> tags")
+
+    def demo_image_element(self):
+        """Demonstrates Image locator (alt text or src)"""
+        helium.go_to(self.url)
+        img = helium.Image(alt="")  # or helium.Image(src_contains="pizza")
+        if img.exists():
+            src = img.web_element.get_attribute("src")
+            print(f"→ Found image with src: {src}")
+        else:
+            print("→ No Image with matching alt/src found - adjust locator")
+
+    def demo_double_click(self):
+        """Action: doubleclick(element) – triggers JS to update text below button"""
+        helium.go_to(self.url)
+        button = helium.Button("Double-click me")
+        if button.exists():
+            helium.doubleclick(button)
+            print("→ Double-clicked 'Double-click me' button")
+            print(
+                "→ Expected result: text 'Your Sample Double Click worked!' should appear below"
+            )
+        else:
+            print("→ Double-click button not found")
+
+    def demo_drag_and_drop(self):
+        """Action: drag(source, to=target) — uses S() with CSS/ID for reliability"""
+        helium.go_to(self.url)
+        # Best: Use S() with ID selector (most reliable, as Image doesn't support src directly)
+        source = helium.S("#drag1")
+        # Alternative: CSS for src exact match (if ID not available)
+        # source = helium.S('img[src="pizza.gif"]')
+        # For partial src: helium.S('img[src*="pizza.gif"]')  # CSS contains operator
+
+        target = helium.S("#div1")
+
+        if source.exists() and target.exists():
+            helium.drag(source, to=target)
+            print("→ Dragged pizza image to drop zone (id=div1)")
+            # Optional: Add wait to observe or verify drop (e.g., check if image moved via JS)
+            # helium.wait_until(lambda: "dropped" in helium.S("#div1 img").web_element.get_attribute("src") or similar)
+        else:
+            print("→ Drag source or target not found")
+            print(f"  • Source exists? {source.exists()}")
+            print(f"  • Target exists? {target.exists()}")
+
+    def demo_file_upload_demo_page(self):
+        """Demonstrates file upload attempt on the main demo page"""
+        helium.go_to(self.url)
+        sample_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
+
+        if not os.path.exists(sample_file):
+            print(f"→ Error: Sample file missing at {sample_file}")
+            return
+
+        try:
+            # Try common file input locators
+            file_input = self.driver.find_element("css selector", "input[type='file']")
+            file_input.send_keys(sample_file)
+            print("→ Attached file via send_keys to first <input type='file'> found")
+        except Exception as e:
+            print(f"→ No file input found or upload failed: {e}")
+            # Debug: List all inputs to confirm
+            all_inputs = self.driver.find_elements("tag name", "input")
+            print(f"→ Page has {len(all_inputs)} <input> elements:")
+            for inp in all_inputs:
+                attrs = f"id={inp.get_attribute('id') or 'N/A'}, type={inp.get_attribute('type') or 'N/A'}, name={inp.get_attribute('name') or 'N/A'}"
+                print(
+                    f" • {attrs} | outerHTML preview: {inp.get_attribute('outerHTML')[:120]}..."
+                )
+            print(
+                "→ If no type='file' input exists, this demo page simply doesn't support file upload."
+            )
+
+    def demo_login_form(self):
+        """Fills and submits the sample login form"""
+        helium.go_to(self.url)
+        helium.write("test", into="Username:test")
+        helium.write("test", into="Password:test")
+        helium.press(helium.ENTER)
+        print("→ Submitted login with test/test – expect redirect or success")
+
+    def demo_single_dropdown(self):
+        """Selects from single-select dropdown"""
+        helium.go_to(self.url)
+        helium.select("Option 2", "Choose an option:")
+        print("→ Selected 'Option 2' from single-select dropdown")
+
+    def demo_checkbox(self):
+        """Clicks checkboxes using labels – adapted for the demo page (which has none)"""
+        helium.go_to(self.url)
+        print(
+            "→ Attempting checkbox demo on main page (note: page uses dropdowns, not checkboxes)..."
+        )
+
+        # Try your original (will likely fail, but for demo)
+        try:
+            helium.click("Option 1")  # no leading space – try without
+            print("→ Clicked 'Option 1' (if it existed as checkbox)")
+        except LookupError:
+            print(
+                "→ No element with text 'Option 1' found (expected – page has no checkboxes)"
+            )
+
+        try:
+            helium.click(" Option 1")  # your original with space
+            print("→ Clicked ' Option 1'")
+        except LookupError:
+            print("→ No element with exact text ' Option 1' (leading space mismatch)")
+
+        # Better: Show that multi-select exists instead
+        print(
+            "\n→ Page has multi-select dropdown instead of checkboxes. Demonstrating selection..."
+        )
+        try:
+            multi_select = helium.S("#owc")  # from earlier multi-select ID
+            if multi_select.exists():
+                # Use raw Selenium for multi-select (Helium select() can be finicky)
+                select_elem = self.driver.find_element("id", "owc")
+                from selenium.webdriver.support.select import Select
+
+                sel = Select(select_elem)
+                sel.select_by_visible_text("Option 2")
+                sel.select_by_visible_text("Option 3")
+                print(
+                    "→ Selected 'Option 2' and 'Option 3' in multi-select (alternative to checkboxes)"
+                )
+            else:
+                print("→ Multi-select #owc not found")
+        except Exception as e:
+            print(f"→ Multi-select demo failed: {e}")
+
+        # Optional: Switch to a real checkbox demo page
+        print(
+            "\n→ For real checkbox demo, navigating to https://the-internet.herokuapp.com/checkboxes ..."
+        )
+        helium.go_to("https://the-internet.herokuapp.com/checkboxes")
+        try:
+            # Typical structure: <input type="checkbox"> with no label text, but we can click by index or CSS
+            checkboxes = helium.find_all(helium.S("input[type='checkbox']"))
+            if len(checkboxes) >= 2:
+                # Click first and second (they are usually unchecked/checked by default)
+                helium.click(checkboxes[0])
+                helium.click(checkboxes[1])
+                print("→ Clicked the two checkboxes on herokuapp demo page")
+            else:
+                print("→ Fewer than 2 checkboxes found on herokuapp page")
+        except Exception as e:
+            print(f"→ Real checkbox demo failed: {e}")
+
+    def demo_radio_button_attempt(self):
+        """Shows what happens when trying radio buttons on the main demo page (usually fails)"""
+        print("\n=== Radio Button Attempt on Main Demo Page ===\n")
+        helium.go_to(self.url)
+
+        print(
+            "→ This page has NO radio buttons – demonstrating common failure patterns..."
+        )
+
+        attempts = [
+            ("Click by text", lambda: helium.click("Male")),
+            ("Click with space", lambda: helium.click(" Male")),
+            ("Select misuse", lambda: helium.select("Male", "Gender:")),
+            (
+                "First radio input",
+                lambda: helium.click(helium.S("input[type='radio']")),
+            ),
+            ("By value", lambda: helium.click(helium.S("[value='male']"))),
+        ]
+
+        for name, action in attempts:
+            try:
+                action()
+                print(f"  ✓ {name} unexpectedly succeeded")
+            except Exception as e:
+                print(f"  ✗ {name} failed → {type(e).__name__}: {str(e)[:80]}")
+
+        radios = helium.find_all(helium.S("input[type='radio']"))
+        print(f"\n→ Found {len(radios)} radio inputs on page (should be 0)")
+
+    def demo_radio_button_real(self):
+        """Real working radio button demo on a page that actually has them"""
+        print("\n=== Real Working Radio Button Demo ===\n")
+
+        # Reliable test page with radio buttons
+        url = "https://the-internet.herokuapp.com/radio_buttons"
+        helium.go_to(url)
+        print(f"→ Navigated to: {url}")
+
+        try:
+            helium.wait_until(helium.S("input[type='radio']").exists, timeout_secs=10)
+            print("→ Radio buttons found on page")
+        except TimeoutException:
+            print("→ No radio buttons detected – page may have changed")
+            return
+
+        # Different reliable ways to select radio buttons
+        strategies = [
+            ("By visible label text", lambda: helium.click("Option 1")),
+            (
+                "By CSS value attribute",
+                lambda: helium.click(helium.S("input[value='option2']")),
+            ),
+            ("By ID (if known)", lambda: helium.click(helium.S("#radio-button-3"))),
+            ("First unselected radio", self._click_first_unselected_radio),
+        ]
+
+        for name, action in strategies:
+            try:
+                action()
+                print(f"  ✓ {name} succeeded")
+                # Brief pause to see the selection
+                helium.sleep(1.5)
+            except Exception as e:
+                print(f"  ✗ {name} failed → {type(e).__name__}")
+
+        # Show which one is selected
+        selected_value = self._get_selected_radio_value()
+        print(f"\n→ Final selected radio value: {selected_value or 'None'}")
+
+    def _click_first_unselected_radio(self):
+        for radio in helium.find_all(helium.S("input[type='radio']")):
+            if not radio.web_element.is_selected():
+                helium.click(radio)
+                print("    → Clicked first unselected radio")
+                return
+        raise LookupError("No unselected radio found")
+
+    def _get_selected_radio_value(self):
+        for radio in helium.find_all(helium.S("input[type='radio']")):
+            if radio.web_element.is_selected():
+                return radio.web_element.get_attribute("value") or "?"
+        return None
+
+    def demo_point_click(self):
+        """Action: click(Point(x, y)) - coordinate click"""
+        # Force scroll to top using JS (most reliable)
+        self.driver.execute_script("window.scrollTo(0, 0);")
+        print("→ Scrolled to top via JS for absolute coordinate reliability")
+
+        point = helium.Point(
+            x=100, y=100
+        )  # Very safe: near top-left, usually body area
+        try:
+            helium.click(point)
+            print(f"→ Successfully clicked at absolute coordinates {point}")
+        except Exception as e:
+            print(f"→ Click at {point} failed: {type(e).__name__} - {str(e)}")
+            # Fallback: raw ActionChains (relative to current mouse, but can reset)
+            from selenium.webdriver.common.action_chains import ActionChains
+
+            actions = ActionChains(self.driver)
+            actions.move_by_offset(100, 100).click().perform()
+            print("→ Fallback raw ActionChains click to (100,100) succeeded")
+
+        # Optional debug: current scroll position
+        scroll_pos = self.driver.execute_script("return window.pageYOffset;")
+        print(f"→ Current scroll Y position after attempt: {scroll_pos}")
+
+    def demo_read_values(self):
+        """Reading values from elements"""
+        helium.go_to(self.url)
+        # Read text content
+        heading = helium.Text("Try Testing This")
+        if heading.exists():
+            print(f"→ Page title text: {heading.value}")
+
+        # Read input value (after typing earlier)
+        uname_field = helium.TextField("Username:test")
+        if uname_field.exists():
+            print(f"→ Username field value: {uname_field.value}")
+
+    def demo_take_screenshot(self):
+        """Take a screenshot of a specific element (fallback to viewport)"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"helium_element_{timestamp}.png"
+        filepath = os.path.join(self.output_dir, filename)
+
+        # Example: stable element that exists on the page
+        selector = "table"  # change freely (e.g. '#uname', '.container', 'form')
+
+        try:
+            element = self.driver.find_element("css selector", selector)
+            element.screenshot(filepath)
+            print(f"→ Element screenshot saved ({selector}): {filepath}")
+        except Exception as e:
+            print(f"→ Element screenshot failed ({selector}): {e}")
+            self.driver.save_screenshot(filepath)
+            print(f"→ Fallback viewport screenshot saved: {filepath}")
+
+        print(f"   Full path: {os.path.abspath(filepath)}")
+
+    def demo_take_full_page_screenshot(self):
+        """Capture full scrollable page by resizing window to content size"""
+        print("\n=== Full-Page Screenshot (Resize Method - Reliable & No CDP) ===\n")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"full_page_resize_{timestamp}.png"
+        filepath = os.path.join(self.output_dir, filename)
+
+        try:
+            # Save original window size
+            original_size = self.driver.get_window_size()
+
+            # Get full content dimensions (most accurate combo)
+            width_script = """
+                return Math.max(
+                    document.body.scrollWidth,
+                    document.body.offsetWidth,
+                    document.documentElement.clientWidth,
+                    document.documentElement.scrollWidth,
+                    document.documentElement.offsetWidth
+                );
+            """
+            height_script = """
+                return Math.max(
+                    document.body.scrollHeight,
+                    document.body.offsetHeight,
+                    document.documentElement.clientHeight,
+                    document.documentElement.scrollHeight,
+                    document.documentElement.offsetHeight
+                );
+            """
+
+            width = self.driver.execute_script(width_script)
+            height = self.driver.execute_script(height_script)
+
+            print(f"→ Detected full page size: {width}px width × {height}px height")
+
+            # Reset scroll to avoid partial renders
+            self.driver.execute_script("window.scrollTo(0, 0);")
+
+            # Resize window (Chrome needs buffer)
+            self.driver.set_window_size(width + 120, height + 300)
+
+            # Slightly longer delay for resize to settle
+            time.sleep(1.2)
+
+            self.driver.save_screenshot(filepath)
+            print(f"→ Full-page screenshot saved: {filepath}")
+            print(f"  Full path: {os.path.abspath(filepath)}")
+
+            # Restore original window size
+            self.driver.set_window_size(original_size["width"], original_size["height"])
+
+        except Exception as e:
+            print(f"→ Resize full-page capture failed: {e}")
+            # Fallback: plain viewport screenshot
+            self.driver.save_screenshot(filepath)
+            print(f"→ Saved viewport-only screenshot instead: {filepath}")
+
+    def demo_take_full_page_overflow_screenshot(self):
+        """True full-page screenshot using Chrome DevTools Protocol"""
+        print("\n=== Full-Page Screenshot (CDP - TRUE FULL PAGE) ===\n")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"full_page_overflow_cdp_{timestamp}.png"
+        filepath = os.path.join(self.output_dir, filename)
+
+        try:
+            # Get layout metrics
+            metrics = self.driver.execute_cdp_cmd("Page.getLayoutMetrics", {})
+
+            content_size = metrics["contentSize"]
+            width = content_size["width"]
+            height = content_size["height"]
+
+            print(f"→ Layout viewport size: {width} × {height}")
+
+            screenshot = self.driver.execute_cdp_cmd(
+                "Page.captureScreenshot",
+                {
+                    "format": "png",
+                    "captureBeyondViewport": True,
+                    "clip": {
+                        "x": 0,
+                        "y": 0,
+                        "width": width,
+                        "height": height,
+                        "scale": 1,
+                    },
+                },
+            )
+
+            with open(filepath, "wb") as f:
+                f.write(base64.b64decode(screenshot["data"]))
+
+            print(f"→ TRUE full-page screenshot saved: {filepath}")
+
+        except Exception as e:
+            print(f"→ CDP full-page capture failed: {e}")
+            self.driver.save_screenshot(filepath)
+            print("→ Fallback viewport screenshot saved")
+
+    def run_all_demos(self):
+        """Run a sequence that demonstrates most actions"""
+        print("Starting Helium actions demo sequence...\n")
+
+        self.demo_go_to()
+        self.print_browser_state()
+
+        self.demo_click()
+
+        print("\nTyping credentials...")
+        self.demo_write()
+        self.demo_login_form()  # ← more specific than just press ENTER
+
+        self.print_browser_state()
+
+        print("\nDropdown selection demo...")
+        self.demo_select_dropdown()
+
+        print("\nWaiting and existence checks...")
+        self.demo_wait_until_and_exists()
+
+        print("\nAdvanced selectors and relative locators...")
+        self.demo_s_selector_and_relative()
+
+        print("\nFinding multiple elements...")
+        self.demo_find_all_elements()
+
+        print("\nFile upload demo (external site)...")
+        self.demo_file_upload()
+
+        print("\nScrolling demo...")
+        self.demo_scroll()
+
+        print("\nFile upload on demo page...")
+        self.demo_file_upload_demo_page()
+
+        print("\nCheckbox demo...")
+        self.demo_checkbox()
+
+        print("\nRadio button attempt (on main demo page – expect failures)...")
+        self.demo_radio_button_attempt()
+
+        print("\nReal radio button demo (on actual radio page)...")
+        self.demo_radio_button_real()
+
+        print("\nLink element demo...")
+        self.demo_link_element()
+
+        print("\nImage element demo...")
+        self.demo_image_element()
+
+        print("\nDouble-click demo...")
+        self.demo_double_click()
+
+        print("\nDrag and drop demo...")
+        self.demo_drag_and_drop()
+
+        print("\nCoordinate click demo...")
+        self.demo_point_click()
+
+        print("\nReading element values...")
+        self.demo_read_values()
+
+        print("\nTaking final screenshot...")
+        self.demo_take_screenshot()
+        self.demo_take_full_page_screenshot()
+        self.demo_take_full_page_overflow_screenshot()
+
+        print("\nDemo sequence finished.")
+
+
+if __name__ == "__main__":
+    # Optional: print version for debugging
+    # import helium
+    # print("Helium version:", helium.__version__)
+
+    demo = DemoHeliumActions(headless=False)  # Change to True on server
+    try:
+        demo.run_all_demos()
+    finally:
+        demo.close()

@@ -19,7 +19,7 @@ def go_to(url: str) -> str:
     Returns:
         Confirmation message with the navigated URL
     """
-    helium.go_to(url)
+    helium.get_driver()
     return f"Navigated to {url}"
 
 

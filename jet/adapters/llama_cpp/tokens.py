@@ -1,5 +1,7 @@
 import tiktoken
 
+import json
+
 from typing import Callable, List, Union, Optional, Literal, overload
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
@@ -7,8 +9,9 @@ from jet.adapters.llama_cpp.types import LLAMACPP_TYPES, LLAMACPP_VALUES
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.logger import logger
 
+
 def get_tokenizer(
-    model_name: Optional[LLAMACPP_VALUES] = None
+    model_name: Optional[LLAMACPP_VALUES] = None,
 ) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
     """
     Get a tokenizer for a given model name, or fall back to tiktoken if none/model not found.
@@ -22,13 +25,13 @@ def get_tokenizer(
         return tokenizer
     except Exception as e:
         logger.warning(
-            f"Model \"{model_name}\" not found, falling back to tiktoken cl100k_base: {str(e)}"
+            f'Model "{model_name}" not found, falling back to tiktoken cl100k_base: {str(e)}'
         )
         return tiktoken.get_encoding("cl100k_base")
 
+
 def get_tokenizer_fn(
-    model_name: Optional[LLAMACPP_VALUES] = None,
-    add_special_tokens: bool = False
+    model_name: Optional[LLAMACPP_VALUES] = None, add_special_tokens: bool = False
 ) -> Callable[[Union[str, list[str]], bool], Union[list[int], list[list[int]]]]:
     """
     Returns a tokenizer function for the specified model that tokenizes input text.
@@ -45,11 +48,15 @@ def get_tokenizer_fn(
     """
     tokenizer = get_tokenizer(model_name)
 
-    def tokenize_fn(text: Union[str, list[str]], add_special_tokens: bool = add_special_tokens) -> Union[list[int], list[list[int]]]:
+    def tokenize_fn(
+        text: Union[str, list[str]], add_special_tokens: bool = add_special_tokens
+    ) -> Union[list[int], list[list[int]]]:
         if isinstance(text, list):
             if isinstance(tokenizer, tiktoken.Encoding):
                 return tokenizer.encode_batch(text)
-            return tokenizer.batch_encode_plus(text, add_special_tokens=add_special_tokens, return_tensors=None)["input_ids"]
+            return tokenizer.batch_encode_plus(
+                text, add_special_tokens=add_special_tokens, return_tensors=None
+            )["input_ids"]
         else:
             if isinstance(tokenizer, tiktoken.Encoding):
                 return tokenizer.encode(text)
@@ -57,68 +64,127 @@ def get_tokenizer_fn(
 
     return tokenize_fn
 
+
 def tokenize(
     text: str | dict | list[str] | list[dict] = "",
     model_name: Optional[LLAMACPP_VALUES] = None,
-    add_special_tokens: bool = False
+    add_special_tokens: bool = False,
 ) -> list[int] | list[list[int]]:
     tokenizer = get_tokenizer(model_name)
 
     if isinstance(text, list):
+        # --- CHAT-AWARE PATH ---
+        # Detect chat-style messages: list[dict] with "role"
+        if text and isinstance(text[0], dict) and "role" in text[0]:
+            # Normalize tool calls into content for token counting
+            normalized_messages = []
+            for msg in text:
+                if "tool_calls" in msg:
+                    tool_payload = json.dumps(
+                        msg["tool_calls"], ensure_ascii=False, sort_keys=True
+                    )
+                    normalized_messages.append(
+                        {
+                            "role": msg.get("role", "assistant"),
+                            "content": tool_payload,
+                        }
+                    )
+                else:
+                    normalized_messages.append(
+                        {
+                            "role": msg.get("role"),
+                            "content": msg.get("content", ""),
+                        }
+                    )
+
+            if isinstance(tokenizer, tiktoken.Encoding):
+                raise ValueError(
+                    "Chat-style tokenization requires a model-specific tokenizer "
+                    "with apply_chat_template; tiktoken cannot account for roles "
+                    "or message framing."
+                )
+
+            if not hasattr(tokenizer, "apply_chat_template"):
+                raise ValueError("Tokenizer does not support chat templates.")
+
+            return tokenizer.apply_chat_template(
+                normalized_messages,
+                tokenize=True,
+                add_generation_prompt=False,
+            )
+
         texts = []
         for t in text:
             if isinstance(t, dict):
-                texts.append(str(t.get('content', t)))
+                texts.append(str(t.get("content", t)))
             else:
                 texts.append(str(t))
 
         if isinstance(tokenizer, tiktoken.Encoding):
-            tokenized = tokenizer.encode_batch(texts, allowed_special="all" if add_special_tokens else set())
+            tokenized = tokenizer.encode_batch(
+                texts, allowed_special="all" if add_special_tokens else set()
+            )
         else:
             tokenized = tokenizer.batch_encode_plus(
-                texts,
-                return_tensors=None,
-                add_special_tokens=add_special_tokens
+                texts, return_tensors=None, add_special_tokens=add_special_tokens
             )
             tokenized = tokenized["input_ids"]
         return tokenized
     else:
         if isinstance(text, dict):
-            text_str = str(text.get('content', text))
+            text_str = str(text.get("content", text))
         else:
             text_str = str(text)
         if isinstance(tokenizer, tiktoken.Encoding):
-            tokenized = tokenizer.encode(text_str, allowed_special="all" if add_special_tokens else set())
+            tokenized = tokenizer.encode(
+                text_str, allowed_special="all" if add_special_tokens else set()
+            )
         else:
-            tokenized = tokenizer.encode(text_str, add_special_tokens=add_special_tokens)
+            tokenized = tokenizer.encode(
+                text_str, add_special_tokens=add_special_tokens
+            )
         return tokenized
 
+
 TokenizableInput = str | dict | list[str] | list[dict]
+
 
 @overload
 def count_tokens(
     text: TokenizableInput,
     model: Optional[LLAMACPP_TYPES] = None,
     prevent_total: Literal[False] = False,
-    add_special_tokens: bool = False
+    add_special_tokens: bool = False,
 ) -> int: ...
+
 
 @overload
 def count_tokens(
     text: TokenizableInput,
     model: Optional[LLAMACPP_TYPES] = None,
     prevent_total: Literal[True] = True,
-    add_special_tokens: bool = False
+    add_special_tokens: bool = False,
 ) -> List[int]: ...
+
 
 def count_tokens(
     text: TokenizableInput,
     model: Optional[LLAMACPP_TYPES] = None,
     prevent_total: bool = False,
-    add_special_tokens: bool = False
+    add_special_tokens: bool = False,
 ) -> Union[int, List[int]]:
     if not text:
         return 0
+
+    # Chat-style input is fully tokenized as a single sequence
+    if (
+        isinstance(text, list)
+        and text
+        and isinstance(text[0], dict)
+        and "role" in text[0]
+    ):
+        tokenized = tokenize(text, model, add_special_tokens)
+        return len(tokenized)
 
     tokenized = tokenize(text, model, add_special_tokens)
     if isinstance(text, (str, dict)):
