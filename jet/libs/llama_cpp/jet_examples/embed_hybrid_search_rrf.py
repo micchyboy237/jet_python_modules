@@ -164,6 +164,39 @@ def reciprocal_rank_fusion(
 class HybridSearcher:
     """Hybrid BM25 + dense vector search with RRF fusion"""
 
+    @classmethod
+    def from_documents(
+        cls,
+        documents: List[Dict[str, Any]],
+        embedder: LlamaCppEmbedder,
+        **config_kwargs,
+    ) -> "HybridSearcher":
+        """
+        Convenience factory: indexes BM25 + vector retrievers automatically
+        and creates the hybrid searcher.
+        """
+        if not documents:
+            raise ValueError("No documents provided")
+
+        # Extract texts from content field
+        texts = [doc["content"] for doc in documents]
+
+        # Basic validation
+        for doc in documents:
+            if not isinstance(doc, dict) or "id" not in doc or "content" not in doc:
+                raise ValueError(
+                    "Each document must be a dict with 'id' and 'content' keys"
+                )
+
+        bm25_ret = BM25Retriever()
+        vector_ret = VectorRetriever(embedder)
+
+        bm25_ret.index(documents, texts)
+        vector_ret.index(documents, texts)
+
+        config = HybridConfig(**config_kwargs)
+        return cls(bm25_ret, vector_ret, config)
+
     def __init__(
         self,
         bm25_retriever: BM25Retriever,
@@ -196,53 +229,37 @@ if __name__ == "__main__":
     docs = [
         {
             "id": "d1",
-            "title": "Hybrid vector search best practices 2025",
-            "content": "Use RRF for combining BM25 and dense embeddings...",
+            "content": "Hybrid vector search best practices 2025. Use RRF for combining BM25 and dense embeddings. Run both retrievers in parallel and fuse with reciprocal rank fusion...",
         },
         {
             "id": "d2",
-            "title": "nomic-embed-text-v1.5 performance",
-            "content": "Very fast on llama.cpp especially with Q5_K_M quantization",
+            "content": "nomic-embed-text-v1.5 performance. Very fast on llama.cpp especially with Q5_K_M quantization. Low memory usage and excellent latency for local inference...",
         },
         {
             "id": "d3",
-            "title": "Reciprocal Rank Fusion",
-            "content": "Simple yet powerful fusion method used in Elastic and Weaviate",
+            "content": "Reciprocal Rank Fusion. Simple yet powerful fusion method used in Elastic, Weaviate, Azure Search, and many production RAG systems...",
         },
         {
             "id": "d4",
-            "title": "Local embedding servers",
-            "content": "llama.cpp provides OpenAI compatible API for embedding models",
+            "content": "Local embedding servers. llama.cpp provides OpenAI compatible API for embedding models like nomic-embed-text-v1.5. Easy to run on CPU/GPU...",
         },
         {
             "id": "d5",
-            "title": "BM25 is still very strong",
-            "content": "Especially good at rare terms, IDs, exact matches",
+            "content": "BM25 is still very strong. Especially good at rare terms, IDs, exact matches, product codes, and keyword precision in hybrid search...",
         },
     ]
 
-    texts = [d["title"] + " " + d["content"] for d in docs]
-
-    # Initialize components
     embedder = LlamaCppEmbedder(
         base_url="http://shawn-pc.local:8081/v1", model="nomic-embed-text-v1.5"
     )
 
-    bm25_ret = BM25Retriever()
-    vector_ret = VectorRetriever(embedder)
-
-    bm25_ret.index(docs, texts)
-    vector_ret.index(docs, [d["title"] + " " + d["content"] for d in docs])
-
-    hybrid = HybridSearcher(
-        bm25_ret,
-        vector_ret,
-        HybridConfig(
-            k_candidates=10,
-            k_final=5,
-            bm25_weight=1.2,  # slightly favor keyword matches
-            vector_weight=1.0,
-        ),
+    hybrid = HybridSearcher.from_documents(
+        documents=docs,
+        embedder=embedder,
+        k_candidates=10,
+        k_final=5,
+        bm25_weight=1.2,
+        vector_weight=1.0,
     )
 
     # Query
@@ -252,4 +269,7 @@ if __name__ == "__main__":
     print(f"\nResults for: {query!r}\n")
     for i, res in enumerate(results, 1):
         doc = res.item
-        print(f"{i:2d}. {res.score:6.4f}  {doc['id']}  {doc['title']}")
+        preview = (
+            doc["content"][:80] + "..." if len(doc["content"]) > 80 else doc["content"]
+        )
+        print(f"{i:2d}. {res.score:6.4f}  {doc['id']}  {preview}")
