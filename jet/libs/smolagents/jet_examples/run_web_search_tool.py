@@ -36,7 +36,7 @@ agent = ToolCallingAgent(
 
 if __name__ == "__main__":
     # You can change the query to anything you want to test
-    question = "current population of Quezon City Philippines 2025"
+    question = "current population of Quezon City Philippines 2026"
     # question = "latest news about MRT-3 rehabilitation Philippines"
 
     print(f"\nRunning query: {question}\n")
