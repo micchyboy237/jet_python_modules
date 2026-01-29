@@ -248,39 +248,6 @@ class DemoHeliumActions:
         for occ in occupations:
             print(f" • {occ}")
 
-    def demo_file_upload(self):
-        """Demonstrates file upload on external herokuapp demo"""
-        helium.go_to("https://the-internet.herokuapp.com/upload")
-        sample_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
-
-        if not os.path.exists(sample_file):
-            print(f"→ Error: Sample file missing at {sample_file}")
-            return
-
-        print("→ Navigating to file upload demo page")
-
-        try:
-            # Use raw Selenium find_element (by ID is rock-solid here)
-            file_input = self.driver.find_element("id", "file-upload")
-            file_input.send_keys(sample_file)
-            print("→ Successfully attached file via send_keys to #file-upload")
-
-            # Optional: If the page requires clicking an "Upload" button
-            # helium.click("Upload")
-
-            # Verify success
-            helium.wait_until(helium.Text("File Uploaded!").exists, timeout_secs=15)
-            print("→ Upload confirmed: 'File Uploaded!' visible")
-        except Exception as e:
-            print(f"→ File upload failed: {e}")
-            # Debug fallback: print current inputs
-            inputs = self.driver.find_elements("tag name", "input")
-            print(f"→ Found {len(inputs)} input elements on page")
-            for i, inp in enumerate(inputs):
-                print(
-                    f"Input {i}: outerHTML = {inp.get_attribute('outerHTML')[:200]}..."
-                )
-
     def demo_scroll(self):
         """Action: scroll_down() / scroll_up()"""
         helium.go_to(self.url)
@@ -346,7 +313,7 @@ class DemoHeliumActions:
             print(f"  • Source exists? {source.exists()}")
             print(f"  • Target exists? {target.exists()}")
 
-    def demo_file_upload_demo_page(self):
+    def demo_file_upload(self):
         """Demonstrates file upload attempt on the main demo page"""
         helium.go_to(self.url)
         sample_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
@@ -450,44 +417,9 @@ class DemoHeliumActions:
         except Exception as e:
             print(f"→ Real checkbox demo failed: {e}")
 
-    def demo_radio_button_attempt(self):
-        """Shows what happens when trying radio buttons on the main demo page (usually fails)"""
-        print("\n=== Radio Button Attempt on Main Demo Page ===\n")
-        helium.go_to(self.url)
-
-        print(
-            "→ This page has NO radio buttons – demonstrating common failure patterns..."
-        )
-
-        attempts = [
-            ("Click by text", lambda: helium.click("Male")),
-            ("Click with space", lambda: helium.click(" Male")),
-            ("Select misuse", lambda: helium.select("Male", "Gender:")),
-            (
-                "First radio input",
-                lambda: helium.click(helium.S("input[type='radio']")),
-            ),
-            ("By value", lambda: helium.click(helium.S("[value='male']"))),
-        ]
-
-        for name, action in attempts:
-            try:
-                action()
-                print(f"  ✓ {name} unexpectedly succeeded")
-            except Exception as e:
-                print(f"  ✗ {name} failed → {type(e).__name__}: {str(e)[:80]}")
-
-        radios = helium.find_all(helium.S("input[type='radio']"))
-        print(f"\n→ Found {len(radios)} radio inputs on page (should be 0)")
-
-    def demo_radio_button_real(self):
+    def demo_radio_button(self):
         """Real working radio button demo on a page that actually has them"""
         print("\n=== Real Working Radio Button Demo ===\n")
-
-        # Reliable test page with radio buttons
-        url = "https://the-internet.herokuapp.com/radio_buttons"
-        helium.go_to(url)
-        print(f"→ Navigated to: {url}")
 
         try:
             helium.wait_until(helium.S("input[type='radio']").exists, timeout_secs=10)
@@ -498,12 +430,12 @@ class DemoHeliumActions:
 
         # Different reliable ways to select radio buttons
         strategies = [
-            ("By visible label text", lambda: helium.click("Option 1")),
+            ("By visible label text", lambda: helium.click("Male")),
             (
                 "By CSS value attribute",
-                lambda: helium.click(helium.S("input[value='option2']")),
+                lambda: helium.click(helium.S("input[value='female']")),
             ),
-            ("By ID (if known)", lambda: helium.click(helium.S("#radio-button-3"))),
+            ("By ID (if known)", lambda: helium.click(helium.S("#other"))),
             ("First unselected radio", self._click_first_unselected_radio),
         ]
 
@@ -512,7 +444,7 @@ class DemoHeliumActions:
                 action()
                 print(f"  ✓ {name} succeeded")
                 # Brief pause to see the selection
-                helium.sleep(1.5)
+                time.sleep(1.5)
             except Exception as e:
                 print(f"  ✗ {name} failed → {type(e).__name__}")
 
@@ -721,23 +653,17 @@ class DemoHeliumActions:
         print("\nFinding multiple elements...")
         self.demo_find_all_elements()
 
-        print("\nFile upload demo (external site)...")
-        self.demo_file_upload()
-
         print("\nScrolling demo...")
         self.demo_scroll()
 
         print("\nFile upload on demo page...")
-        self.demo_file_upload_demo_page()
+        self.demo_file_upload()
 
         print("\nCheckbox demo...")
         self.demo_checkbox()
 
         print("\nRadio button attempt (on main demo page – expect failures)...")
-        self.demo_radio_button_attempt()
-
-        print("\nReal radio button demo (on actual radio page)...")
-        self.demo_radio_button_real()
+        self.demo_radio_button()
 
         print("\nLink element demo...")
         self.demo_link_element()
