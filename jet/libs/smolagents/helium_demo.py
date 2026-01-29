@@ -960,47 +960,47 @@ class DemoHeliumActions:
         print("\nType first and last name...")
         self.demo_write()
 
-        # print("\nDropdown selection demo...")
-        # self.demo_select_dropdown()
+        print("\nDropdown selection demo...")
+        self.demo_select_dropdown()
 
-        # print("\nWaiting and existence checks...")
-        # self.demo_wait_until_and_exists()
+        print("\nWaiting and existence checks...")
+        self.demo_wait_until_and_exists()
 
-        # print("\nAdvanced selectors and relative locators...")
-        # self.demo_s_selector_and_relative()
+        print("\nAdvanced selectors and relative locators...")
+        self.demo_s_selector_and_relative()
 
-        # print("\nFinding multiple elements...")
-        # self.demo_find_all_elements()
+        print("\nFinding multiple elements...")
+        self.demo_find_all_elements()
 
-        # print("\nScrolling demo...")
-        # self.demo_scroll()
+        print("\nScrolling demo...")
+        self.demo_scroll()
 
-        # print("\nFile upload on demo page...")
-        # self.demo_file_upload()
+        print("\nFile upload on demo page...")
+        self.demo_file_upload()
 
-        # print("\nCheckbox demo...")
-        # self.demo_checkbox()
+        print("\nCheckbox demo...")
+        self.demo_checkbox()
 
-        # print("\nRadio button attempt (on main demo page – expect failures)...")
-        # self.demo_radio_button()
+        print("\nRadio button attempt (on main demo page – expect failures)...")
+        self.demo_radio_button()
 
-        # print("\nLink element demo...")
-        # self.demo_link_element()
+        print("\nLink element demo...")
+        self.demo_link_element()
 
-        # print("\nImage element demo...")
-        # self.demo_image_element()
+        print("\nImage element demo...")
+        self.demo_image_element()
 
-        # print("\nDouble-click demo...")
-        # self.demo_double_click()
+        print("\nDouble-click demo...")
+        self.demo_double_click()
 
-        # print("\nDrag and drop demo...")
-        # self.demo_drag_and_drop()
+        print("\nDrag and drop demo...")
+        self.demo_drag_and_drop()
 
-        # print("\nCoordinate click demo...")
-        # self.demo_point_click()
+        print("\nCoordinate click demo...")
+        self.demo_point_click()
 
-        # print("\nReading element values...")
-        # self.demo_read_values()
+        print("\nReading element values...")
+        self.demo_read_values()
 
         print("\nReading links on page...")
         self.demo_read_links()
@@ -1014,17 +1014,17 @@ class DemoHeliumActions:
         print("\nReading list items on page...")
         self.demo_read_list_items()
 
-        # print("\nHighlighting elements (visual debug)...")
-        # self.demo_highlight_element()
+        print("\nHighlighting elements (visual debug)...")
+        self.demo_highlight_element()
 
-        # print("\nAdvanced key presses (special keys / combos)...")
-        # self.demo_press_keys_advanced()
+        print("\nAdvanced key presses (special keys / combos)...")
+        self.demo_press_keys_advanced()
 
-        # print("\nFile attachment demo...")
-        # self.demo_attach_file()
+        print("\nFile attachment demo...")
+        self.demo_attach_file()
 
-        # print("\nMouse press → hold → release demo...")
-        # self.demo_mouse_press_release()
+        print("\nMouse press → hold → release demo...")
+        self.demo_mouse_press_release()
 
         print("\nTaking final screenshot...")
         self.demo_take_screenshot()
