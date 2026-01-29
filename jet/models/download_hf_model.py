@@ -1,14 +1,15 @@
-
-from typing import List, Optional
 from huggingface_hub import snapshot_download
 from huggingface_hub.utils import HfHubHTTPError
-
 from jet.logger import logger
 from jet.models.config import MODELS_CACHE_DIR
-from jet.models.download_hf_utils import ProgressBar, get_snapshot_settings, remove_download_cache
+from jet.models.download_hf_utils import (
+    ProgressBar,
+    get_snapshot_settings,
+    remove_download_cache,
+)
 from jet.models.download_onnx_model import download_onnx_model
-from jet.models.utils import resolve_model_value
 from jet.models.onnx_model_checker import has_onnx_model_in_repo
+from jet.models.utils import resolve_model_value
 
 
 def download_hf_model(
@@ -34,9 +35,7 @@ def download_hf_model(
     repo_id_str = str(model_path)
 
     try:
-        settings = {
-            **get_snapshot_settings(repo_id_str, cache_dir)
-        }
+        settings = {**get_snapshot_settings(repo_id_str, cache_dir)}
         snapshot_download(**settings)
     except HfHubHTTPError as e:
         logger.error(f"Failed to download model from {repo_id_str}: {str(e)}")
@@ -49,8 +48,8 @@ def download_hf_model(
 def download_hf_space(
     repo_id: str,
     cache_dir: str = MODELS_CACHE_DIR,
-    allow_patterns: List[str] = ["ckpt/*"],
-    ignore_patterns: Optional[List[str]] = None,
+    allow_patterns: list[str] = ["ckpt/*"],
+    ignore_patterns: list[str] | None = None,
     clean_cache: bool = False,
     force_download: bool = False,
 ) -> None:
@@ -95,7 +94,7 @@ def download_hf_space(
 
 
 if __name__ == "__main__":
-    repo_id = "litagin/anime_speech_emotion_classification"
+    repo_id = "urchade/gliner_medium-v2.1"
     cache_dir = MODELS_CACHE_DIR
     clean_cache = False
 
