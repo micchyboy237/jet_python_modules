@@ -399,24 +399,6 @@ class DemoHeliumActions:
         except Exception as e:
             print(f"→ Multi-select demo failed: {e}")
 
-        # Optional: Switch to a real checkbox demo page
-        print(
-            "\n→ For real checkbox demo, navigating to https://the-internet.herokuapp.com/checkboxes ..."
-        )
-        helium.go_to("https://the-internet.herokuapp.com/checkboxes")
-        try:
-            # Typical structure: <input type="checkbox"> with no label text, but we can click by index or CSS
-            checkboxes = helium.find_all(helium.S("input[type='checkbox']"))
-            if len(checkboxes) >= 2:
-                # Click first and second (they are usually unchecked/checked by default)
-                helium.click(checkboxes[0])
-                helium.click(checkboxes[1])
-                print("→ Clicked the two checkboxes on herokuapp demo page")
-            else:
-                print("→ Fewer than 2 checkboxes found on herokuapp page")
-        except Exception as e:
-            print(f"→ Real checkbox demo failed: {e}")
-
     def demo_radio_button(self):
         """Real working radio button demo on a page that actually has them"""
         print("\n=== Real Working Radio Button Demo ===\n")
