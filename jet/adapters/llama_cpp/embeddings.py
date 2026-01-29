@@ -618,7 +618,7 @@ class LlamacppEmbedding:
             for batch_item_idx, embedding in enumerate(remaining):
                 similarity = cosine_similarity(query_embedding, embedding)
                 print(
-                    f"{batch_item_idx + 1}: Similarity between query and doc {doc_idx + 1}: {similarity:.4f}"
+                    f"{batch_item_idx + 1}: Similarity between query and doc {doc_idx + 1}"
                 )
 
                 result: SearchResultType = {
