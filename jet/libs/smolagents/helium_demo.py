@@ -1,24 +1,21 @@
 import base64
-from pathlib import Path
-import sys
-from datetime import datetime
+import logging
+import os
 import random
 import shutil
 import time
-import helium
-from typing import Dict, List, Literal, Optional
-import os
-from rich.console import Console
-from rich.logging import RichHandler
-import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
 
+import helium
+from jet.utils.text import format_sub_source_dir
+from rich.logging import RichHandler
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import Select
 from seleniumbase import Driver
-
-from jet.utils.text import format_sub_source_dir
 
 LinkMode = Literal["full", "fast", "smart"]
 TextMode = Literal["full", "fast", "smart"]
@@ -93,7 +90,7 @@ def setup_rich_logging(output_dir: Path) -> tuple[Path, Path]:
     # main_file_handler = FlushingFileHandler(main_log_file, encoding="utf-8")
     # ... then set level, formatter again
 
-    logging.info(f"Logging started")
+    logging.info("Logging started")
     logging.info(f"  Main log → {main_log_file}")
     logging.info(f"  Errors   → {error_log_file}")
 
@@ -151,7 +148,7 @@ class DemoHeliumActions:
     """
 
     def __init__(
-        self, url: str, headless: bool = True, output_dir: Optional[str | Path] = None
+        self, url: str, headless: bool = True, output_dir: str | Path | None = None
     ):
         self.url = url
 
@@ -800,7 +797,7 @@ class DemoHeliumActions:
         """Demonstrates extracting button texts using Button() locator"""
         logging.info("\n=== Demo: Reading all visible button labels ===\n")
         try:
-            all_buttons: List[helium.Button] = helium.find_all(helium.Button(""))
+            all_buttons: list[helium.Button] = helium.find_all(helium.Button(""))
             logging.info(f"→ Found {len(all_buttons)} Button elements via Button('')")
 
             shown = 0
@@ -865,9 +862,9 @@ class DemoHeliumActions:
             f"\n=== Demo: Reading texts (mode={mode!r}, max={max_texts or 'all'}, min_len={min_length}) ===\n"
         )
 
-        from typing import Any, Dict
+        from typing import Any
 
-        collected: List[Dict[str, Any]] = []
+        collected: list[dict[str, Any]] = []
         start = time.perf_counter()
 
         try:
@@ -1015,12 +1012,12 @@ class DemoHeliumActions:
             f"\n=== Demo: Reading list items (mode={mode!r}, max={max_items or 'all'}, min_len={min_length}) ===\n"
         )
 
-        collected: List[Dict[str, str]] = []
+        collected: list[dict[str, str]] = []
         start = time.perf_counter()
 
         try:
             if mode == "full":
-                all_items: List[helium.ListItem] = helium.find_all(helium.ListItem(""))
+                all_items: list[helium.ListItem] = helium.find_all(helium.ListItem(""))
                 logging.info(f"→ Helium ListItem('') found {len(all_items)} items")
 
                 for i, item in enumerate(all_items, 1):
@@ -1391,20 +1388,44 @@ class DemoHeliumActions:
         logging.info("\nDemo sequence finished.")
 
 
-if __name__ == "__main__":
-    base_output_dir = Path(__file__).parent / "generated" / Path(__file__).stem
-    # Optional: print version for debugging
-    # import helium
-    # logging.info("Helium version:", helium.__version__)
+import argparse
+from pathlib import Path
 
-    url = "https://trytestingthis.netlify.app"
-    # url = "https://en.wikipedia.org/wiki/Chicago"
-    output_dir = base_output_dir / format_sub_source_dir(url)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Run Helium interaction/read demos on a target webpage"
+    )
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default="https://trytestingthis.netlify.app",
+        help="Target URL to test (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--headless", action="store_true", help="Run browser in headless mode"
+    )
+    parser.add_argument(
+        "--no-interactive", action="store_true", help="Skip running interactive demos"
+    )
+    parser.add_argument(
+        "--no-read", action="store_true", help="Skip running read-only demos"
+    )
+
+    args = parser.parse_args()
+
+    base = Path(__file__).parent / "generated" / Path(__file__).stem
+    output_dir = base / format_sub_source_dir(args.url)
+
     demo = DemoHeliumActions(
-        url, headless=False, output_dir=output_dir
-    )  # Change to True on server
+        url=args.url, headless=args.headless, output_dir=output_dir
+    )
+
     try:
-        demo.run_interactive_demos()
-        demo.run_read_demos()
+        if not args.no_interactive:
+            demo.run_interactive_demos()
+
+        if not args.no_read:
+            demo.run_read_demos()
+
     finally:
         demo.close()
