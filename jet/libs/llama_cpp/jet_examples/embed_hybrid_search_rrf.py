@@ -11,14 +11,14 @@ from rank_bm25 import BM25Okapi
 
 
 @dataclass(frozen=True)
-class ScoredItem:
+class SearchResult:
     """Simple container for a retrieved item + score"""
 
     item: Any
     score: float
 
     def __lt__(self, other: object) -> bool:
-        if not isinstance(other, ScoredItem):
+        if not isinstance(other, SearchResult):
             return NotImplemented
         return self.score < other.score  # higher score = better
 
@@ -76,7 +76,7 @@ class VectorRetriever:
             else np.array(embeddings, dtype=np.float32)
         )
 
-    def search(self, query: str, k: int = 50) -> List[ScoredItem]:
+    def search(self, query: str, k: int = 50) -> List[SearchResult]:
         if self.embeddings.size == 0:
             return []
 
@@ -87,7 +87,7 @@ class VectorRetriever:
         scores = self.embeddings @ q_emb
         top_indices = np.argsort(scores)[-k:][::-1]
 
-        return [ScoredItem(self.documents[i], float(scores[i])) for i in top_indices]
+        return [SearchResult(self.documents[i], float(scores[i])) for i in top_indices]
 
 
 class BM25Retriever:
@@ -105,7 +105,7 @@ class BM25Retriever:
         self.bm25 = BM25Okapi(tokenized)
         self.documents.extend(documents)
 
-    def search(self, query: str, k: int = 50) -> List[ScoredItem]:
+    def search(self, query: str, k: int = 50) -> List[SearchResult]:
         if self.bm25 is None:
             return []
 
@@ -114,7 +114,7 @@ class BM25Retriever:
         top_indices = np.argsort(scores)[-k:][::-1]
 
         return [
-            ScoredItem(self.documents[i], float(scores[i]))
+            SearchResult(self.documents[i], float(scores[i]))
             for i in top_indices
             if scores[i] > 0
         ]
@@ -130,10 +130,10 @@ class HybridConfig:
 
 
 def reciprocal_rank_fusion(
-    result_lists: Sequence[List[ScoredItem]],
+    result_lists: Sequence[List[SearchResult]],
     rrf_k: float = 60.0,
     weights: Optional[List[float]] = None,
-) -> List[ScoredItem]:
+) -> List[SearchResult]:
     """Merge ranked lists using Reciprocal Rank Fusion"""
     if not result_lists:
         return []
@@ -155,7 +155,7 @@ def reciprocal_rank_fusion(
             id_to_doc[doc_id] = res.item
 
     fused = [
-        ScoredItem(id_to_doc[doc_id], score)
+        SearchResult(id_to_doc[doc_id], score)
         for doc_id, score in sorted(score_map.items(), key=lambda x: x[1], reverse=True)
     ]
     return fused
@@ -207,7 +207,7 @@ class HybridSearcher:
         self.vector = vector_retriever
         self.config = config
 
-    def search(self, query: str) -> List[ScoredItem]:
+    def search(self, query: str) -> List[SearchResult]:
         bm25_results = self.bm25.search(query, k=self.config.k_candidates)
         vector_results = self.vector.search(query, k=self.config.k_candidates)
 
