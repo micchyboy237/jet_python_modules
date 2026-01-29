@@ -577,47 +577,203 @@ class LlamacppEmbedding:
         query: str,
         documents: List[str],
         *,
-        top_k: Optional[int] = None,
+        top_k: int = 10,
         batch_size: int = 32,
         show_progress: bool = True,
         use_cache: Optional[bool] = None,
         use_dynamic_batch_sizing: Optional[bool] = None,
+        yield_all: bool = False,  # if True → yield every result as soon as computed
+        min_score_threshold: float = -1.0,  # optional early filtering
     ) -> Iterator[SearchResultType]:
-        # Global counter for correct query numbering across streamed batches
-        query_embedding = None
-        doc_idx = 0  # Tracks the starting document index for each batch
+        """
+        Streaming semantic search — yields best matches as soon as they are ready.
 
-        embeddings_stream = self.get_embeddings_stream(
-            inputs=[query] + documents,
-            return_format="numpy",
-            batch_size=batch_size,
-            show_progress=show_progress,
-            use_cache=use_cache,
-            use_dynamic_batch_sizing=use_dynamic_batch_sizing,
+        Behavior:
+          - First yields all cache hits (in original document order)
+          - Then computes missing embeddings in batches → yields results as soon as
+            each batch is finished (sorted within batch by score)
+          - Final yield contains remaining unsorted tail if needed
+
+        Args:
+            query: search query
+            documents: list of texts to search in
+            top_k: how many best results to eventually return (default 10)
+            batch_size: embedding batch size for uncached documents
+            show_progress: show tqdm progress bar for embedding computation
+            use_cache / use_dynamic_batch_sizing: same as in get_embeddings
+            yield_all: if True, yields EVERY result as soon as computed (not sorted)
+                       if False (default), tries to yield better results first
+            min_score_threshold: only yield results >= this cosine score
+
+        Yields:
+            SearchResultType items one by one (best first when possible)
+        """
+        if not query or not query.strip():
+            raise ValueError("query must be a non-empty string")
+
+        if not documents:
+            return
+
+        use_cache = use_cache if use_cache is not None else self.use_cache
+        use_dynamic = (
+            use_dynamic_batch_sizing
+            if use_dynamic_batch_sizing is not None
+            else self.use_dynamic_batch_sizing
         )
 
-        for batch_idx, batch_embeddings in enumerate(embeddings_stream):
-            if query_embedding is None:
-                query_embedding = batch_embeddings[0]
-                remaining = batch_embeddings[1:] if len(batch_embeddings) > 1 else []
-                doc_idx = 0
-            else:
-                remaining = batch_embeddings
+        # ─── Prepare ─────────────────────────────────────────────────────────────
+        n_docs = len(documents)
 
-            print(f"\n\n--- Batch {batch_idx + 1} ---\n")
+        # We'll keep track of (original_index, text, score) for results
+        # None score = not yet computed
+        results: List[Optional[Tuple[int, str, float]]] = [None] * n_docs
 
-            for batch_item_idx, embedding in enumerate(remaining):
-                similarity = cosine_similarity(query_embedding, embedding)
-                print(
-                    f"{batch_item_idx + 1}: Similarity between query and doc {doc_idx + 1}: {similarity:.4f}"
+        # ─── Phase 1: Quick cache lookup for all documents ───────────────────────
+        miss_indices: List[int] = []
+        miss_texts: List[str] = []
+
+        query_emb: Optional[Union[List[float], np.ndarray]] = None
+
+        if use_cache:
+            # Cache query
+            q_key = self.cache._generate_key([query])[0]
+            cached_query = self.cache.get(q_key)
+            if cached_query is not None:
+                query_emb = cached_query
+
+            # Cache documents
+            for i, doc in enumerate(documents):
+                if not doc.strip():
+                    continue
+                key = self.cache._generate_key([doc])[0]
+                emb = self.cache.get(key)
+                if emb is not None:
+                    score = cosine_similarity(
+                        query_emb if query_emb is not None else [], emb
+                    )
+                    results[i] = (i, doc, score)
+                else:
+                    miss_indices.append(i)
+                    miss_texts.append(doc)
+        else:
+            miss_indices = list(range(n_docs))
+            miss_texts = documents[:]
+
+        # If query wasn't cached → we must compute it anyway
+        if query_emb is None:
+            # We'll compute query + first batch together if possible
+            pass
+
+        # ─── Yield already cached & scored documents ─────────────────────────────
+        cached_results = [r for r in results if r is not None]
+        if cached_results:
+            cached_results.sort(key=lambda x: x[2], reverse=True)  # sort by score desc
+            for idx, text, score in cached_results:
+                if score >= min_score_threshold:
+                    yield {"index": idx, "text": text, "score": score}
+
+        # ─── If top_k already reached from cache ─────────────────────────────────
+        yielded_so_far = sum(1 for r in cached_results if r[2] >= min_score_threshold)
+        if yielded_so_far >= top_k and not yield_all:
+            return
+
+        # ─── Phase 2: Compute missing embeddings (including query if needed) ─────
+        to_embed = miss_texts
+        to_embed_indices = miss_indices
+
+        # If query not cached → prepend it
+        query_needs_compute = query_emb is None
+        if query_needs_compute:
+            to_embed = [query] + to_embed
+            # We'll treat query as virtual index -1
+            to_embed_indices = [-1] + to_embed_indices
+
+        if not to_embed:
+            # Everything was cached → sort remaining and finish
+            remaining = [r for r in results if r is not None]
+            remaining.sort(key=lambda x: x[2], reverse=True)
+            for i, text, score in remaining[yielded_so_far:]:
+                if score >= min_score_threshold:
+                    yield {"index": i, "text": text, "score": score}
+            return
+
+        # Adjust batch size dynamically if requested
+        if use_dynamic:
+            token_counts = token_counter(to_embed, self.model, prevent_total=True)
+            batch_size = calculate_dynamic_batch_size(
+                token_counts=token_counts,
+                embedding_size=get_embedding_size(self.model),
+                context_size=get_context_size(self.model),
+            )
+
+        # ─── Stream computation ──────────────────────────────────────────────────
+        yielded = yielded_so_far
+        partial_results: List[Tuple[int, str, float]] = []
+
+        pbar = tqdm(
+            range(0, len(to_embed), batch_size),
+            desc="Embedding & scoring stream",
+            disable=not show_progress,
+            total=len(to_embed),
+        )
+
+        for start in pbar:
+            end = start + batch_size
+            batch_texts = to_embed[start:end]
+            batch_orig_indices = to_embed_indices[start:end]
+
+            try:
+                resp = self.client.embeddings.create(
+                    model=self.model, input=batch_texts
                 )
+                batch_embs = [d.embedding for d in resp.data]
 
-                result: SearchResultType = {
-                    "index": doc_idx,
-                    "text": documents[doc_idx],
-                    "score": similarity,
-                }
+                # ─── Special handling if query is in this batch ─────────────────
+                query_local_idx = None
+                if query_needs_compute and -1 in batch_orig_indices:
+                    query_local_idx = batch_orig_indices.index(-1)
+                    query_emb = batch_embs[query_local_idx]
+                    # Cache query if enabled
+                    if use_cache:
+                        self.cache.set(q_key, query_emb)
+                    # Remove query from batch for scoring
+                    batch_embs = [
+                        e for i, e in zip(batch_orig_indices, batch_embs) if i != -1
+                    ]
+                    batch_orig_indices = [i for i in batch_orig_indices if i != -1]
 
-                yield result
+                # Now score documents
+                for doc_idx, doc_text, doc_emb in zip(
+                    batch_orig_indices, batch_texts, batch_embs
+                ):
+                    score = cosine_similarity(query_emb, doc_emb)
 
-                doc_idx += 1
+                    # Cache if enabled
+                    if use_cache:
+                        key = self.cache._generate_key([doc_text])[0]
+                        self.cache.set(key, doc_emb)
+
+                    # Store & consider yielding
+                    item = (doc_idx, doc_text, score)
+                    partial_results.append(item)
+
+                    if yield_all:
+                        if score >= min_score_threshold:
+                            yield {"index": doc_idx, "text": doc_text, "score": score}
+                            yielded += 1
+                            if yielded >= top_k:
+                                return
+
+            except Exception as e:
+                self._logger.error(f"Embedding batch failed: {e}")
+                raise
+
+        # ─── Final sort & yield remaining best results ───────────────────────────
+        partial_results.sort(key=lambda x: x[2], reverse=True)
+
+        for idx, text, score in partial_results:
+            if score >= min_score_threshold:
+                yield {"index": idx, "text": text, "score": score}
+                yielded += 1
+                if not yield_all and yielded >= top_k:
+                    break
