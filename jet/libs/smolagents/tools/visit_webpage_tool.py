@@ -1,7 +1,6 @@
 # visit_webpage_tool.py
 import json
 import logging
-import re
 from pathlib import Path
 
 import requests
@@ -12,9 +11,9 @@ from jet.adapters.llama_cpp.hybrid_search import (
 )
 from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
+from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.libs.smolagents._logging import structured_tool_logger
 from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
-from markdownify import markdownify
 from smolagents.tools import Tool
 
 logger = logging.getLogger(__name__)
@@ -89,38 +88,6 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
         if self.verbose:
             logger.setLevel(logging.DEBUG)
 
-    def _simple_chunk(self, text: str) -> list[str]:
-        """Very naive but fast chunker — improve later if needed"""
-        if len(text) < 1800:
-            return [text]
-
-        chunks = []
-        pos = 0
-        target_chars = (
-            self.chunk_target_tokens * 4
-        )  # very rough heuristic (avg ~4 chars/token)
-
-        while pos < len(text):
-            end = pos + target_chars
-            if end >= len(text):
-                chunks.append(text[pos:].strip())
-                break
-
-            # Try to break at paragraph or sentence
-            while end < len(text) and text[end] not in ".\n!?":
-                end += 1
-            if end < len(text):
-                end += 1  # include boundary
-
-            chunk = text[pos:end].strip()
-            if chunk:
-                chunks.append(chunk)
-
-            # Overlap
-            pos = end - (self.chunk_overlap_tokens * 4)
-
-        return [c for c in chunks if len(c.strip()) > 60]
-
     def forward(
         self,
         url: str,
@@ -160,17 +127,24 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
                     )
                 raise
 
-            md = markdownify(response.text, heading_style="ATX").strip()
-            md = re.sub(r"\n{3,}", "\n\n", md)
+            html = response.text
+
+            # Save HTML under page.html if call_dir is available
+            if call_dir:
+                (call_dir / "page.html").write_text(html, encoding="utf-8")
+
+            # md = markdownify(html, heading_style="ATX").strip()
+            # md = re.sub(r"\n{3,}", "\n\n", md)
+            headings = get_md_header_contents(html, ignore_links=True)
+            md_texts = [f"{h['header']}\n\n{h['content']}" for h in headings]
 
             if full_raw:
                 result = truncate_texts(
-                    md, model=self.embed_model, max_tokens=self.max_output_length
+                    md_texts, model=self.embed_model, max_tokens=self.max_output_length
                 )
             else:
-                # chunks = self._simple_chunk(md)
                 chunks = chunk_texts_with_data(
-                    texts=[md],
+                    texts=md_texts,
                     chunk_size=self.chunk_target_tokens,
                     chunk_overlap=self.chunk_overlap_tokens,
                     strict_sentences=False,
