@@ -4,7 +4,7 @@ import random
 import shutil
 import time
 import helium
-from typing import List, Optional
+from typing import List, Literal, Optional
 import os
 from datetime import datetime
 
@@ -14,6 +14,8 @@ from selenium.webdriver.support.ui import Select
 from seleniumbase import Driver
 
 from jet.utils.text import format_sub_source_dir
+
+LinkMode = Literal["full", "fast", "smart"]
 
 
 def init_browser(headless: bool = True) -> "Driver":
@@ -601,46 +603,94 @@ class DemoHeliumActions:
             self.driver.save_screenshot(filepath)
             print("→ Fallback viewport screenshot saved")
 
-    def demo_read_links(self):
-        """Demonstrates extracting link texts and URLs using Link() locator"""
-        print("\n=== Demo: Reading all visible links on the page ===\n")
+    from selenium.webdriver.common.by import By
+
+    LinkMode = Literal["full", "fast", "smart"]
+
+    def demo_read_links(
+        self,
+        mode: LinkMode = "full",
+        max_links: int = 0,  # 0 = no limit
+        only_textual: bool = True,  # skip <a> without text (nav icons etc.)
+    ):
+        """Extracts links from the page using different strategies/modes.
+
+        Modes:
+          - 'full'   : uses helium.Link('') → slowest, most accurate visibility/text
+          - 'fast'   : raw Selenium <a> tags → much faster, includes hidden
+          - 'smart'  : JavaScript-based → fastest, focuses on content links
+        """
+        print(f"\n=== Reading links (mode={mode!r}, max={max_links or 'all'}) ===\n")
+
+        links_data: list[dict[str, str]] = []
+
+        start = time.perf_counter()
+
         try:
-            # Find all Link elements (Helium finds <a> tags with text)
-            all_links: List[helium.Link] = helium.find_all(helium.Link(""))
-            print(f"→ Found {len(all_links)} Link elements via Link('')")
+            if mode == "full":
+                all_links = helium.find_all(helium.Link(""))
+                print(f"→ Helium Link('') found {len(all_links)} elements")
 
-            shown = 0
-            for i, link in enumerate(all_links, 1):
-                text = (
-                    link.web_element.text.strip()
-                    if link.web_element.text
-                    else "[No visible text]"
-                )
-                href = (
-                    link.href or link.web_element.get_attribute("href") or "[No href]"
-                )
-                print(f"  {i}. Text: {text:.<35} → URL: {href}")
-                shown += 1
+                for i, link in enumerate(all_links, 1):
+                    if max_links and i > max_links:
+                        break
+                    text = (link.web_element.text or "").strip()
+                    href = link.href or link.web_element.get_attribute("href") or ""
+                    if only_textual and not text:
+                        continue
+                    links_data.append({"text": text, "href": href})
+                    print(f"  {i:3d}. {text:.<40} → {href}")
 
-            if shown == 0:
-                print("→ No visible/text-based links found via Link('')")
+            elif mode == "fast":
+                raw_as = self.driver.find_elements(By.TAG_NAME, "a")
+                print(f"→ Raw <a> tags found {len(raw_as)} elements")
 
-        except Exception as e:
-            print(f"→ Error while reading links via Link(): {type(e).__name__} - {e}")
+                for i, a in enumerate(raw_as, 1):
+                    if max_links and i > max_links:
+                        break
+                    text = (a.text or "").strip()
+                    href = a.get_attribute("href") or ""
+                    if only_textual and not text:
+                        continue
+                    links_data.append({"text": text, "href": href})
+                    print(f"  {i:3d}. {text:.<40} → {href}")
 
-        if len(all_links) == 0:
-            print("\n→ No links found via Link('') → falling back to raw <a>")
-            try:
-                raw_links = helium.find_all(helium.S("a"))
-                print(f"  → Found {len(raw_links)} raw <a> elements")
-                for i, lnk in enumerate(raw_links, 1):
-                    txt = lnk.web_element.text.strip() or "[empty]"
-                    h = lnk.web_element.get_attribute("href") or "[no href]"
-                    print(f"    {i}. <a> text: {txt:.<35} → {h}")
-            except Exception as fb_e:
-                print(f"  → Fallback failed: {fb_e}")
-        else:
-            print("\n→ High-level Link locator found items → skipping raw fallback")
+            elif mode == "smart":
+                js_code = r"""
+                return Array.from(document.querySelectorAll('a[href]'))
+                    .map(a => ({
+                        text: (a.textContent || '').trim(),
+                        href: a.href || ''
+                    }))
+                    .filter(item => item.text.length > 0 && item.href);
+                """
+                if max_links:
+                    js_code = js_code.replace(
+                        ".filter(item => item.text.length > 0 && item.href);",
+                        f".slice(0, {max_links}).filter(item => item.text.length > 0 && item.href);",
+                    )
+
+                result = self.driver.execute_script(js_code)
+                print(f"→ JavaScript collected {len(result)} content links")
+
+                for i, item in enumerate(result, 1):
+                    text = item["text"]
+                    href = item["href"]
+                    links_data.append({"text": text, "href": href})
+                    print(f"  {i:3d}. {text:.<40} → {href}")
+
+            else:
+                raise ValueError(f"Unknown mode: {mode}")
+
+        except Exception as exc:
+            print(f"→ Failed in mode {mode!r}: {type(exc).__name__} - {exc}")
+
+        duration = time.perf_counter() - start
+        print(
+            f"\n→ Completed in {duration:.2f} seconds | collected {len(links_data)} links"
+        )
+
+        return links_data
 
     def demo_read_buttons(self):
         """Demonstrates extracting button texts using Button() locator"""
@@ -1021,8 +1071,16 @@ class DemoHeliumActions:
         print("\nReading element values...")
         self.demo_read_values()
 
-        print("\nReading links on page...")
-        self.demo_read_links()
+        print("\nReading links on page (very fast, content links only)...")
+        self.demo_read_links(mode="smart", max_links=300, only_textual=True)
+
+        print(
+            "\nReading links on page (quick raw dump, includes icons/JS/hidden links)..."
+        )
+        self.demo_read_links(mode="fast")
+
+        # print("\nReading links on page (original helium, slowest but best visibility/text quality)...")
+        # self.demo_read_links(mode="full")
 
         print("\nReading buttons on page...")
         self.demo_read_buttons()
