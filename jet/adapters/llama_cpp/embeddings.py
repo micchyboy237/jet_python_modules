@@ -585,39 +585,40 @@ class LlamacppEmbedding:
         use_dynamic_batch_sizing: Optional[bool] = None,
         yield_partial: bool = True,  # new param: whether to yield sorted partial results
     ) -> Iterator[SearchResultType]:
-        query = "Artificial intelligence is advancing rapidly."
-        docs = [
-            "AI is changing technology.",
-            "The weather is nice today.",
-            "Deep learning models are powerful.",
-        ]
-
         # Global counter for correct query numbering across streamed batches
         query_embedding = None
+        doc_idx = 0  # Tracks the starting document index for each batch
 
-        for batch_embeddings in self.get_embeddings_stream(
-            inputs=[query] + docs,
+        embeddings_stream = self.get_embeddings_stream(
+            inputs=[query] + documents,
             return_format="numpy",
-            batch_size=2,
+            batch_size=batch_size,
             show_progress=True,
             use_cache=False,  # Changed to False → get fresh embeddings → realistic scores
-        ):
+        )
+
+        for batch_idx, batch_embeddings in enumerate(embeddings_stream):
             if query_embedding is None:
                 query_embedding = batch_embeddings[0]
                 remaining = batch_embeddings[1:] if len(batch_embeddings) > 1 else []
+                doc_idx = 0
             else:
                 remaining = batch_embeddings
 
-            for orig_idx, embedding in enumerate(remaining):
+            print(f"\n\n--- Batch {batch_idx + 1} ---\n")
+
+            for batch_item_idx, embedding in enumerate(remaining):
                 similarity = cosine_similarity(query_embedding, embedding)
                 print(
-                    f"Similarity between query and doc {orig_idx + 1}: {similarity:.4f}"
+                    f"{batch_item_idx + 1}: Similarity between query and doc {doc_idx + 1}: {similarity:.4f}"
                 )
 
                 result: SearchResultType = {
-                    "index": orig_idx,
-                    "text": documents[orig_idx],
+                    "index": doc_idx,
+                    "text": documents[doc_idx],
                     "score": similarity,
                 }
 
                 yield result
+
+                doc_idx += 1
