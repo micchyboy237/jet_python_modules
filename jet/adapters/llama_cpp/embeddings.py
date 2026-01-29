@@ -12,7 +12,7 @@ from typing import (
 )
 from tqdm import tqdm
 from jet._token.token_utils import token_counter
-from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_TYPES
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.models.utils import get_context_size, get_embedding_size
 from jet.models.embeddings.utils import calculate_dynamic_batch_size
@@ -81,7 +81,7 @@ class LlamacppEmbedding:
     and dynamic batch sizing.
 
     Args:
-        model (LLAMACPP_EMBED_TYPES):
+        model (LLAMACPP_EMBED_KEYS):
             Embedding model identifier or alias resolved via
             `resolve_model_value`. Must be compatible with llama.cpp
             embedding endpoints.
@@ -124,7 +124,7 @@ class LlamacppEmbedding:
 
     def __init__(
         self,
-        model: LLAMACPP_EMBED_TYPES = "embeddinggemma",
+        model: LLAMACPP_EMBED_KEYS = "embeddinggemma",
         base_url: str = "http://shawn-pc.local:8081/v1",
         max_retries: int = 3,
         cache_backend: Literal["memory", "file", "sqlite"] = "sqlite",
