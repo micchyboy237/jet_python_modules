@@ -24,7 +24,7 @@ model = OpenAIModel(
 
 # Create tool instance with logging enabled
 visit_page = VisitWebpageTool(
-    max_output_length=8192,
+    max_output_length=4096,
     default_k_final=8,
     verbose=True,
     logs_dir=OUT_DIR / "visit_webpage_logs",

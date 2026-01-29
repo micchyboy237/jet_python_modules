@@ -142,15 +142,24 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
                 result = truncate_texts(
                     md_texts, model=self.embed_model, max_tokens=self.max_output_length
                 )
+                if call_dir:
+                    (call_dir / "truncated_text.md").write_text(
+                        result, encoding="utf-8"
+                    )
             else:
                 chunks = chunk_texts_with_data(
                     texts=md_texts,
                     chunk_size=self.chunk_target_tokens,
                     chunk_overlap=self.chunk_overlap_tokens,
-                    strict_sentences=False,
+                    strict_sentences=True,
                     model=self.embed_model,
                     # model=None,  # Using default word-based tokenization
                 )
+
+                if call_dir:
+                    (call_dir / "chunks.json").write_text(
+                        json.dumps(chunks, indent=2), encoding="utf-8"
+                    )
 
                 try:
                     docs = [
@@ -170,15 +179,30 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
                     if self.verbose:
                         log(f"Using hybrid search with query: {search_query}")
                     results = searcher.search(search_query)
+                    if call_dir:
+                        (call_dir / "search_results.json").write_text(
+                            json.dumps(results, indent=2), encoding="utf-8"
+                        )
+
                     excerpts = [
                         f"[{i}] Relevance {r.score:.3f}\n{r.item['content'].strip()}\n"
                         for i, r in enumerate(results[: self.hybrid_config.k_final], 1)
                     ]
+                    if call_dir:
+                        (call_dir / "excerpts.json").write_text(
+                            json.dumps(results, indent=2), encoding="utf-8"
+                        )
+
                     header = (
                         f"Most relevant excerpts from {url} "
                         f"(hybrid BM25 + embedding retrieval, query: {search_query!r})\n\n"
                     )
                     result = header + "\n".join(excerpts)
+
+                    if call_dir:
+                        (call_dir / "searched_text.md").write_text(
+                            result, encoding="utf-8"
+                        )
 
                     # if len(chunks) > 12:
                     #     result += (
