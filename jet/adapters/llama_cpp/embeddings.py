@@ -617,6 +617,9 @@ class LlamacppEmbedding:
         if not documents:
             return
 
+        # Temporarily reset cache to fix issue on same 1.000 scores in results
+        self.reset_cache()
+
         use_cache = use_cache if use_cache is not None else self.use_cache
         use_dynamic = (
             use_dynamic_batch_sizing
