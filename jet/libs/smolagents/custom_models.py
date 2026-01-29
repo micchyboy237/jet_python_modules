@@ -3,30 +3,25 @@
 import json
 import logging
 import os
-from pathlib import Path
 import re
 import uuid
-import warnings
 from collections.abc import Generator
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from enum import Enum
-from threading import Thread
-from typing import TYPE_CHECKING, Any, Optional
+from pathlib import Path
+from typing import Any
 
+from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_LLM_TYPES
 from smolagents.monitoring import TokenUsage
 from smolagents.tools import Tool
 from smolagents.utils import (
     RateLimiter,
     Retrying,
-    _is_package_available,
     encode_image_base64,
     make_image_url,
     parse_json_blob,
 )
-
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_TYPES
-
 
 logger = logging.getLogger(__name__)
 
@@ -462,7 +457,7 @@ def get_tool_call_from_text(
     )
 
 
-def supports_stop_parameter(model_id: str) -> bool:
+def supports_stop_parameter(model_id: LLAMACPP_KEYS) -> bool:
     """
     Check if the model supports the `stop` parameter.
 
@@ -531,9 +526,7 @@ def save_llm_call(
     if response_data is not None and not is_stream:
         if hasattr(response_data, "model_dump_json"):
             text = response_data.model_dump_json()
-        elif hasattr(response_data, "json") and callable(
-            getattr(response_data, "json")
-        ):
+        elif hasattr(response_data, "json") and callable(response_data.json):
             text = json.dumps(response_data.json(), indent=2, ensure_ascii=False)
         else:
             text = json.dumps(response_data, indent=2, default=str)
@@ -589,8 +582,8 @@ class Model:
         tool_name_key: str = "name",
         tool_arguments_key: str = "arguments",
         verbose: bool = False,
-        logs_dir: Optional[str] = None,
-        model_id: str | None = None,
+        logs_dir: str | None = None,
+        model_id: LLAMACPP_KEYS | None = None,
         **kwargs,
     ):
         self.flatten_messages_as_text = flatten_messages_as_text
@@ -600,7 +593,7 @@ class Model:
         self.verbose = verbose
         self.logs_dir = Path(logs_dir).resolve() if logs_dir else None
         self._call_counter: dict[bool, int] = {False: 0, True: 0}  # non-stream / stream
-        self.model_id: str | None = model_id
+        self.model_id: LLAMACPP_KEYS | None = model_id
 
     @property
     def supports_stop_parameter(self) -> bool:
@@ -774,7 +767,7 @@ class ApiModel(Model):
 
     def __init__(
         self,
-        model_id: str,
+        model_id: LLAMACPP_KEYS,
         custom_role_conversions: dict[str, str] | None = None,
         client: Any | None = None,
         requests_per_minute: float | None = None,
@@ -834,7 +827,7 @@ class OpenAIModel(ApiModel):
 
     def __init__(
         self,
-        model_id: str = DEFAULT_MODEL_ID,
+        model_id: LLAMACPP_KEYS = DEFAULT_MODEL_ID,
         api_base: str | None = DEFAULT_API_BASE,
         api_key: str | None = DEFAULT_API_KEY,
         organization: str | None = None,

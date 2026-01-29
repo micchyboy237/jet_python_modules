@@ -10,7 +10,10 @@ from jet.adapters.llama_cpp.hybrid_search import (
     HybridConfig,
     HybridSearcher,
 )
+from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.libs.smolagents._logging import structured_tool_logger
+from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
 from markdownify import markdownify
 from smolagents.tools import Tool
 
@@ -45,22 +48,30 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
 
     def __init__(
         self,
-        max_output_length: int = 32000,
+        embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
+        max_output_length: int = 8192,
         default_k_final: int = 7,
-        chunk_target_tokens: int = 380,
-        chunk_overlap_tokens: int = 80,
+        chunk_target_tokens: int = 500,
+        chunk_overlap_tokens: int = 100,
         hybrid_config: HybridConfig | None = None,
         verbose: bool = False,
         logs_dir: str | Path | None = None,
     ):
         super().__init__()
-        self.max_output_length = max_output_length
+        self.embed_model = embed_model
+
+        _max_model_context = LLAMACPP_MODEL_CONTEXTS[self.embed_model]
+        self.max_output_length = (
+            max_output_length
+            if _max_model_context > max_output_length
+            else _max_model_context
+        )
         self.default_k_final = default_k_final
         self.chunk_target_tokens = chunk_target_tokens
         self.chunk_overlap_tokens = chunk_overlap_tokens
 
         self.embedder = LlamacppEmbedding(
-            model="nomic-embed-text",
+            model=self.embed_model,
             use_cache=True,
             verbose=False,
         )
@@ -110,14 +121,6 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
 
         return [c for c in chunks if len(c.strip()) > 60]
 
-    def _truncate(self, content: str, max_len: int) -> str:
-        if len(content) <= max_len:
-            return content
-        return (
-            content[:max_len]
-            + f"\n\n… (content truncated at {max_len:,} characters — ask more focused questions or use full_raw=true if needed)"
-        )
-
     def forward(
         self,
         url: str,
@@ -161,56 +164,65 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
             md = re.sub(r"\n{3,}", "\n\n", md)
 
             if full_raw:
-                result = self._truncate(md, self.max_output_length)
+                result = truncate_texts(
+                    md, model=self.embed_model, max_tokens=self.max_output_length
+                )
             else:
-                chunks = self._simple_chunk(md)
-                if len(chunks) <= 5:
-                    result = self._truncate(md, self.max_output_length)
-                else:
-                    try:
-                        docs = [
-                            {"id": f"c{i}", "content": c} for i, c in enumerate(chunks)
-                        ]
-                        searcher = HybridSearcher.from_documents(
-                            documents=docs,
-                            model=self.embedder,
-                            **self.hybrid_config.__dict__,
-                        )
-                        search_query = (
-                            query.strip()
-                            if query and query.strip()
-                            else "main content and key information from the webpage"
-                        )
-                        if self.verbose:
-                            log(f"Using hybrid search with query: {search_query}")
-                        results = searcher.search(search_query)
-                        excerpts = [
-                            f"[{i}] Relevance {r.score:.3f}\n{r.item['content'].strip()}\n"
-                            for i, r in enumerate(
-                                results[: self.hybrid_config.k_final], 1
-                            )
-                        ]
-                        header = (
-                            f"Most relevant excerpts from {url} "
-                            f"(hybrid BM25 + embedding retrieval, query: {search_query!r})\n\n"
-                        )
-                        result = header + "\n".join(excerpts)
+                # chunks = self._simple_chunk(md)
+                chunks = chunk_texts_with_data(
+                    texts=[md],
+                    chunk_size=self.chunk_target_tokens,
+                    chunk_overlap=self.chunk_overlap_tokens,
+                    strict_sentences=False,
+                    model=self.embed_model,
+                    # model=None,  # Using default word-based tokenization
+                )
 
-                        if len(chunks) > 12:
-                            result += (
-                                "\n\n(Page had many sections. If you need information about a specific part "
-                                "(table, section title, code block…), ask a more focused follow-up question "
-                                "or call visit_webpage again with a precise query parameter. "
-                                "Use full_raw=true only if you really need the complete raw markdown."
-                            )
-                        result = self._truncate(result, self.max_output_length)
-                    except Exception as e:
-                        if self.verbose:
-                            log(f"Hybrid retrieval failed: {str(e)}")
-                        result = (
-                            self._truncate(md, min(self.max_output_length, 4800))
-                            + "\n\n(Note: smart retrieval failed — showing truncated raw content)"
-                        )
+                try:
+                    docs = [
+                        {"id": c["id"], "content": c["content"]}
+                        for i, c in enumerate(chunks)
+                    ]
+                    searcher = HybridSearcher.from_documents(
+                        documents=docs,
+                        model=self.embed_model,
+                        **self.hybrid_config.__dict__,
+                    )
+                    search_query = (
+                        query.strip()
+                        if query and query.strip()
+                        else "main content and key information from the webpage"
+                    )
+                    if self.verbose:
+                        log(f"Using hybrid search with query: {search_query}")
+                    results = searcher.search(search_query)
+                    excerpts = [
+                        f"[{i}] Relevance {r.score:.3f}\n{r.item['content'].strip()}\n"
+                        for i, r in enumerate(results[: self.hybrid_config.k_final], 1)
+                    ]
+                    header = (
+                        f"Most relevant excerpts from {url} "
+                        f"(hybrid BM25 + embedding retrieval, query: {search_query!r})\n\n"
+                    )
+                    result = header + "\n".join(excerpts)
+
+                    # if len(chunks) > 12:
+                    #     result += (
+                    #         "\n\n(Page had many sections. If you need information about a specific part "
+                    #         "(table, section title, code block…), ask a more focused follow-up question "
+                    #         "or call visit_webpage again with a precise query parameter. "
+                    #         "Use full_raw=true only if you really need the complete raw markdown."
+                    #     )
+                    # result = self._truncate(result, self.max_output_length)
+                except Exception as e:
+                    if self.verbose:
+                        log(f"Hybrid retrieval failed: {str(e)}")
+
+                    raise
+                    # result = (
+                    #     self._truncate(md, min(self.max_output_length, 4800))
+                    #     + "\n\n(Note: smart retrieval failed — showing truncated raw content)"
+                    # )
 
             if call_dir:
                 # Summary stats

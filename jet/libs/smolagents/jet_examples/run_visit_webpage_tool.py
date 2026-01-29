@@ -2,26 +2,29 @@
 import shutil
 from pathlib import Path
 
+from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.visit_webpage_tool import (
     VisitWebpageTool,  # ← adjust import path if needed
 )
-from smolagents import LogLevel, OpenAIModel, ToolCallingAgent
+from smolagents import LogLevel, ToolCallingAgent
 
 OUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUT_DIR, ignore_errors=True)
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 model = OpenAIModel(
-    model_id="local-model",
+    model_id="qwen3-instruct-2507:4b",
     api_base="http://shawn-pc.local:8080/v1",  # ← change to your local LLM endpoint
     api_key="not-needed",
     temperature=0.6,
     max_tokens=4096,
+    verbose=True,
+    logs_dir=OUT_DIR / "llm_logs",
 )
 
 # Create tool instance with logging enabled
 visit_page = VisitWebpageTool(
-    max_output_length=28000,
+    max_output_length=8192,
     default_k_final=8,
     verbose=True,
     logs_dir=OUT_DIR / "visit_webpage_logs",
