@@ -9,6 +9,7 @@ import os
 from datetime import datetime
 
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import Select
 from seleniumbase import Driver
@@ -16,6 +17,8 @@ from seleniumbase import Driver
 from jet.utils.text import format_sub_source_dir
 
 LinkMode = Literal["full", "fast", "smart"]
+TextMode = Literal["full", "fast", "smart"]
+ListItemMode = Literal["full", "fast", "smart"]
 
 
 def init_browser(headless: bool = True) -> "Driver":
@@ -84,6 +87,8 @@ class DemoHeliumActions:
         shutil.rmtree(self.output_dir, ignore_errors=True)
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
+        self.demo_go_to(url)
+
     def close(self):
         """Clean up browser"""
         helium.kill_browser()
@@ -117,9 +122,9 @@ class DemoHeliumActions:
         self.get_current_url()
         self.get_page_source()
 
-    def demo_go_to(self):
+    def demo_go_to(self, url: str):
         """Action: go_to(url)"""
-        helium.go_to(self.url)
+        helium.go_to(url)
         print("→ Navigated to trytestingthis.netlify.app demo page")
 
     def demo_click(self):
@@ -741,84 +746,244 @@ class DemoHeliumActions:
                 "\n→ High-level Button locator succeeded → skipping detailed fallback"
             )
 
-    def demo_read_texts(self):
-        print("\n=== Demo: Reading texts using find_all(Text('')) ===\n")
+    def demo_read_texts(
+        self,
+        mode: TextMode = "full",
+        max_texts: int = 0,  # 0 = no limit
+        min_length: int = 4,  # skip very short fragments
+        skip_whitespace_only: bool = True,
+    ):
+        """Demonstrates different ways of extracting text content from the page.
 
-        try:
-            all_texts = helium.find_all(helium.Text(""))
-            print(f"→ Found {len(all_texts)} Text elements")
-
-            meaningful = []
-            for t in all_texts:
-                val = t.value.strip()
-                if (
-                    val and len(val) > 3
-                ):  # skip tiny fragments like single spaces or "F"
-                    meaningful.append((val, t.x, t.y))
-
-            print(f"→ {len(meaningful)} meaningful texts (len > 3 chars)")
-
-            # Show first 12
-            for i, (val, x, y) in enumerate(meaningful[:12], 1):
-                preview = val[:75] + ("..." if len(val) > 75 else "")
-                pos = f"(x≈{x:.0f}, y≈{y:.0f})" if x and y else ""
-                print(f"  {i}. {preview!r} {pos}")
-
-            if len(meaningful) > 12:
-                print(f"  ... ({len(meaningful) - 12} more)")
-
-            # Targeted examples remain useful
-            print("\nTargeted examples:")
-            examples = [
-                ("Sample Table header", helium.Text("This is your Sample Table:")),
-                (
-                    "Below Monika, right of Occupation",
-                    helium.Text(below="Monika", to_right_of="Occupation"),
-                ),
-                ("The cat sentence", helium.Text("The cat was playing in the garden.")),
-            ]
-            for desc, t in examples:
-                try:
-                    helium.wait_until(t.exists, timeout_secs=3)
-                    print(f"  → {t.value.strip()!r}")
-                except TimeoutException:
-                    print(f"  → {desc} not found (timeout)")
-
-        except Exception as e:
-            print(f"→ Error in find_all(Text('')): {e}")
-
-    def demo_read_list_items(self):
-        """Demonstrates reading <li> items using ListItem()"""
-        print("\n=== Demo: Reading list items using ListItem() ===\n")
-        print("(Note: current demo page has NO <li> elements → expect 0 found)\n")
-
-        try:
-            all_items: List[helium.ListItem] = helium.find_all(helium.ListItem(""))
-            print(f"→ Found {len(all_items)} ListItem elements via ListItem('')")
-
-            if all_items:
-                for i, item in enumerate(all_items, 1):
-                    text = item.web_element.text.strip() or "[No text]"
-                    print(f"  {i}. List item: {text}")
-            else:
-                print("→ No list items found (expected on this page)")
-
-                # Optional: show if any <li> exist at all (raw)
-                raw_li = helium.find_all(helium.S("li"))
-                print(f"  Raw <li> count via S('li'): {len(raw_li)}")
-                if raw_li:
-                    for i, li in enumerate(raw_li, 1):
-                        print(f"    {i}. <li> text: {li.web_element.text.strip()}")
-                else:
-                    print("  Confirmed: page has zero <li> tags")
-
-        except Exception as e:
-            print(f"→ ListItem demo failed: {type(e).__name__} - {e}")
-
+        Modes:
+          - 'full'   : uses helium.find_all(Text('')) → includes coordinates, slowest
+          - 'fast'   : raw Selenium elements with text nodes → faster, no coordinates
+          - 'smart'  : JavaScript → focuses on meaningful visible text, fastest
+        """
         print(
-            "\nTip: To test ListItem() properly, navigate to a page with menus / bullet lists, e.g.:"
+            f"\n=== Demo: Reading texts (mode={mode!r}, max={max_texts or 'all'}, min_len={min_length}) ===\n"
         )
-        print("  helium.go_to('https://example.com')  # or any site with <ul>/<ol>")
+
+        from typing import Any, Dict
+
+        collected: List[Dict[str, Any]] = []
+        start = time.perf_counter()
+
+        try:
+            if mode == "full":
+                all_texts = helium.find_all(helium.Text(""))
+                print(f"→ Helium Text('') found {len(all_texts)} text elements")
+
+                for i, t in enumerate(all_texts, 1):
+                    if max_texts and i > max_texts:
+                        break
+
+                    val = (t.value or "").strip()
+                    if (
+                        not val
+                        or (skip_whitespace_only and val.isspace())
+                        or len(val) < min_length
+                    ):
+                        continue
+
+                    collected.append(
+                        {
+                            "text": val,
+                            "x": t.x,
+                            "y": t.y,
+                        }
+                    )
+
+                    preview = val[:75] + ("..." if len(val) > 75 else "")
+                    pos = (
+                        f"(x≈{t.x:.0f}, y≈{t.y:.0f})"
+                        if t.x is not None and t.y is not None
+                        else ""
+                    )
+                    print(f"  {len(collected):3d}. {preview!r} {pos}")
+
+            elif mode == "fast":
+                # Collect elements that have direct text content
+                elements = self.driver.find_elements(
+                    By.XPATH, "//*[normalize-space(text()) != '']"
+                )
+                print(f"→ Raw elements with text found {len(elements)}")
+
+                for i, el in enumerate(elements, 1):
+                    if max_texts and i > max_texts:
+                        break
+
+                    text = (el.text or "").strip()
+                    if not text or len(text) < min_length:
+                        continue
+
+                    collected.append({"text": text})
+                    preview = text[:75] + ("..." if len(text) > 75 else "")
+                    print(f"  {len(collected):3d}. {preview!r}")
+
+            elif mode == "smart":
+                js_code = r"""
+                function getVisibleText() {
+                    const walker = document.createTreeWalker(
+                        document.body,
+                        NodeFilter.SHOW_TEXT,
+                        {
+                            acceptNode: node => {
+                                const parent = node.parentElement;
+                                if (!parent) return NodeFilter.FILTER_REJECT;
+                                const style = window.getComputedStyle(parent);
+                                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                                    return NodeFilter.FILTER_REJECT;
+                                }
+                                return NodeFilter.FILTER_ACCEPT;
+                            }
+                        }
+                    );
+
+                    const texts = [];
+                    let node;
+                    while (node = walker.nextNode()) {
+                        const text = node.nodeValue.trim();
+                        if (text.length >= arguments[0]) {
+                            texts.push(text);
+                        }
+                    }
+                    return texts.slice(0, arguments[1] || texts.length);
+                }
+                return getVisibleText(arguments[0], arguments[1]);
+                """
+
+                result = self.driver.execute_script(
+                    js_code, min_length, max_texts if max_texts > 0 else 999999
+                )
+
+                print(f"→ JavaScript visible text nodes collected {len(result)} items")
+
+                for i, text in enumerate(result, 1):
+                    collected.append({"text": text})
+                    preview = text[:75] + ("..." if len(text) > 75 else "")
+                    print(f"  {i:3d}. {preview!r}")
+
+            else:
+                raise ValueError(f"Unknown mode: {mode}")
+
+        except Exception as exc:
+            print(f"→ Failed in mode {mode!r}: {type(exc).__name__} - {exc}")
+
+        duration = time.perf_counter() - start
+        print(
+            f"\n→ Completed in {duration:.2f} seconds | collected {len(collected)} texts"
+        )
+
+        # # Keep the targeted examples (they are fast and useful)
+        # print("\nTargeted examples (independent of mode):")
+        # examples = [
+        #     ("Sample Table header", helium.Text("This is your Sample Table:")),
+        #     (
+        #         "Below Monika, right of Occupation",
+        #         helium.Text(below="Monika", to_right_of="Occupation"),
+        #     ),
+        #     ("The cat sentence", helium.Text("The cat was playing in the garden.")),
+        # ]
+        # for desc, t in examples:
+        #     try:
+        #         helium.wait_until(t.exists, timeout_secs=3)
+        #         print(f"  → {desc}: {t.value.strip()!r}")
+        #     except TimeoutException:
+        #         print(f"  → {desc} not found (timeout)")
+
+        return collected
+
+    def demo_read_list_items(
+        self,
+        mode: ListItemMode = "full",
+        max_items: int = 0,  # 0 = no limit
+        min_length: int = 3,  # skip very short / empty items
+    ):
+        """
+        Demonstrates different ways of extracting <li> list items from the page.
+
+        Modes:
+          - 'full'   : uses helium.find_all(ListItem('')) → Helium semantics, slowest
+          - 'fast'   : raw Selenium <li> elements → fast, no wrapping
+          - 'smart'  : JavaScript → collects visible meaningful <li> text, fastest
+        """
+        print(
+            f"\n=== Demo: Reading list items (mode={mode!r}, max={max_items or 'all'}, min_len={min_length}) ===\n"
+        )
+
+        collected: List[Dict[str, str]] = []
+        start = time.perf_counter()
+
+        try:
+            if mode == "full":
+                all_items: List[helium.ListItem] = helium.find_all(helium.ListItem(""))
+                print(f"→ Helium ListItem('') found {len(all_items)} items")
+
+                for i, item in enumerate(all_items, 1):
+                    if max_items and i > max_items:
+                        break
+                    text = (item.web_element.text or "").strip()
+                    if len(text) < min_length:
+                        continue
+                    collected.append({"text": text})
+                    print(f"  {len(collected):3d}. {text}")
+
+            elif mode == "fast":
+                raw_li = self.driver.find_elements(By.TAG_NAME, "li")
+                print(f"→ Raw <li> elements found {len(raw_li)}")
+
+                for i, li in enumerate(raw_li, 1):
+                    if max_items and i > max_items:
+                        break
+                    text = (li.text or "").strip()
+                    if len(text) < min_length:
+                        continue
+                    collected.append({"text": text})
+                    print(f"  {len(collected):3d}. {text}")
+
+            elif mode == "smart":
+                js_code = r"""
+                return Array.from(document.querySelectorAll('li'))
+                    .map(li => li.textContent.trim())
+                    .filter(text => text.length >= arguments[0])
+                    .slice(0, arguments[1] || Infinity);
+                """
+                result = self.driver.execute_script(
+                    js_code, min_length, max_items if max_items > 0 else 999999
+                )
+
+                print(f"→ JavaScript collected {len(result)} visible list items")
+
+                for i, text in enumerate(result, 1):
+                    collected.append({"text": text})
+                    print(f"  {i:3d}. {text}")
+
+            else:
+                raise ValueError(f"Unknown mode: {mode}")
+
+        except Exception as exc:
+            print(f"→ Failed in mode {mode!r}: {type(exc).__name__} - {exc}")
+
+        duration = time.perf_counter() - start
+        print(
+            f"\n→ Completed in {duration:.2f} seconds | collected {len(collected)} items"
+        )
+
+        if not collected:
+            print("→ No list items found (or all filtered out)")
+
+            # Keep useful debug: raw count
+            raw_count = len(self.driver.find_elements(By.TAG_NAME, "li"))
+            print(f"  Raw <li> count on page: {raw_count}")
+
+        print("\nTip: To test properly, navigate to a page with lists, e.g.:")
+        print(
+            "  helium.go_to('https://en.wikipedia.org/wiki/Python_(programming_language)')"
+        )
+        print("  # or any site with <ul>, <ol>, FAQs, menus, etc.")
+
+        return collected
 
     def demo_highlight_element(self):
         """Shows highlight(element) – draws red rectangle (good for visual debug)"""
@@ -1003,7 +1168,6 @@ class DemoHeliumActions:
         """Run a sequence that demonstrates most actions"""
         print("Starting Helium actions demo sequence...\n")
 
-        self.demo_go_to()
         self.print_browser_state()
 
         self.demo_click()
@@ -1071,25 +1235,40 @@ class DemoHeliumActions:
         print("\nReading element values...")
         self.demo_read_values()
 
-        print("\nReading links on page (very fast, content links only)...")
+        print("\nReading links on page...")
+        # Very fast even on Wikipedia
         self.demo_read_links(mode="smart", max_links=300, only_textual=True)
 
-        print(
-            "\nReading links on page (quick raw dump, includes icons/JS/hidden links)..."
-        )
-        self.demo_read_links(mode="fast")
-
-        # print("\nReading links on page (original helium, slowest but best visibility/text quality)...")
+        # Original (slow but "nicest" visibility handling)
         # self.demo_read_links(mode="full")
+
+        # Quick raw dump (includes icons, js links, etc.)
+        self.demo_read_links(mode="fast")
 
         print("\nReading buttons on page...")
         self.demo_read_buttons()
 
         print("\nReading texts on page...")
-        self.demo_read_texts()
+
+        # Recommended for most real-world usage (fast + meaningful content)
+        self.demo_read_texts(mode="smart", max_texts=500, min_length=5)
+
+        # When you really need coordinates (debugging layout)
+        # self.demo_read_texts(mode="full", max_texts=100)
+
+        # Quick raw text dump
+        self.demo_read_texts(mode="fast")
 
         print("\nReading list items on page...")
-        self.demo_read_list_items()
+
+        # Most practical for large pages
+        self.demo_read_list_items(mode="smart", max_items=400, min_length=5)
+
+        # When debugging Helium behavior
+        # self.demo_read_list_items(mode="full", max_items=100)
+
+        # Quick raw check
+        self.demo_read_list_items(mode="fast")
 
         print("\nTaking final screenshot...")
         self.demo_take_screenshot()
@@ -1105,14 +1284,14 @@ if __name__ == "__main__":
     # import helium
     # print("Helium version:", helium.__version__)
 
-    url = "https://trytestingthis.netlify.app"
-    # url = "https://en.wikipedia.org/wiki/Chicago"
+    # url = "https://trytestingthis.netlify.app"
+    url = "https://en.wikipedia.org/wiki/Chicago"
     output_dir = base_output_dir / format_sub_source_dir(url)
     demo = DemoHeliumActions(
         url, headless=False, output_dir=output_dir
     )  # Change to True on server
     try:
-        demo.run_interactive_demos()
+        # demo.run_interactive_demos()
         demo.run_read_demos()
     finally:
         demo.close()
