@@ -8,6 +8,7 @@ from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.adapters.llama_cpp.hybrid_search import (
     HybridConfig,
     HybridSearcher,
+    SearchResult,
 )
 from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
@@ -17,6 +18,14 @@ from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
 from smolagents.tools import Tool
 
 logger = logging.getLogger(__name__)
+
+
+# ────────────────────────────────────────
+# Add near top of file (after imports)
+def search_result_serializer(obj):
+    if isinstance(obj, SearchResult):
+        return {"item": obj.item, "score": obj.score}
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 class VisitWebpageTool(Tool):
@@ -181,7 +190,10 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
                     results = searcher.search(search_query)
                     if call_dir:
                         (call_dir / "search_results.json").write_text(
-                            json.dumps(results, indent=2), encoding="utf-8"
+                            json.dumps(
+                                results, indent=2, default=search_result_serializer
+                            ),
+                            encoding="utf-8",
                         )
 
                     excerpts = [
@@ -190,7 +202,10 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
                     ]
                     if call_dir:
                         (call_dir / "excerpts.json").write_text(
-                            json.dumps(results, indent=2), encoding="utf-8"
+                            json.dumps(
+                                results, indent=2, default=search_result_serializer
+                            ),
+                            encoding="utf-8",
                         )
 
                     header = (
