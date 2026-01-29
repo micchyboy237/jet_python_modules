@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from openai import OpenAI
 from typing import (
@@ -30,6 +31,7 @@ EmbeddingOutput = Union[
     EmbeddingBatch, np.ndarray
 ]  # list of vectors or single 2D array
 EmbeddingInput = Union[str, List[str]]
+EmbeddingInputType = Literal["query", "document", "default"]
 
 
 class EmbeddingResultItem(TypedDict):
@@ -120,12 +122,18 @@ class LlamacppEmbedding:
         logger (Optional[CustomLogger]):
             Optional custom logger instance. If not provided,
             a default `CustomLogger` is created.
+
+        query_prefix (Optional[str]):
+            Optional prefix to prepend to query strings before embedding.
+
+        document_prefix (Optional[str]):
+            Optional prefix to prepend to document strings before embedding.
     """
 
     def __init__(
         self,
-        model: LLAMACPP_EMBED_KEYS = "embeddinggemma",
-        base_url: str = "http://shawn-pc.local:8081/v1",
+        model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
+        base_url: Optional[str] = os.getenv("LLAMA_CPP_EMBED_URL"),
         max_retries: int = 3,
         cache_backend: Literal["memory", "file", "sqlite"] = "sqlite",
         cache_ttl: Optional[int] = None,
@@ -134,7 +142,13 @@ class LlamacppEmbedding:
         use_dynamic_batch_sizing: bool = False,
         verbose: bool = True,
         logger: Optional[CustomLogger] = None,
+        query_prefix: Optional[str] = None,
+        document_prefix: Optional[str] = None,
     ):
+        if not base_url:
+            raise ValueError(
+                "base_url must be provided. Set the LLAMA_CPP_EMBED_URL environment variable or pass base_url explicitly."
+            )
         self.client = OpenAI(
             base_url=base_url, api_key="no-key-required", max_retries=max_retries
         )
@@ -151,6 +165,8 @@ class LlamacppEmbedding:
         )
 
         self._logger = logger or CustomLogger()
+        self.query_prefix = query_prefix
+        self.document_prefix = document_prefix
 
     def __call__(
         self,
@@ -173,7 +189,21 @@ class LlamacppEmbedding:
             else self.use_dynamic_batch_sizing,
         )
 
-    def encode(
+    def _apply_prefix(
+        self,
+        texts: List[str],
+        *,
+        input_type: "EmbeddingInputType" = "default",
+    ) -> List[str]:
+        if input_type == "query" and self.query_prefix:
+            return [f"{self.query_prefix}{t}" for t in texts]
+
+        if input_type == "document" and self.document_prefix:
+            return [f"{self.document_prefix}{t}" for t in texts]
+
+        return texts
+
+    def embed(
         self,
         inputs: Union[str, List[str]],
         return_format: Literal["numpy", "list"] = "numpy",
@@ -596,8 +626,19 @@ class LlamacppEmbedding:
         query_embedding = None
         doc_idx = 0  # Tracks the starting document index for each batch
 
+        formatted_queries = (
+            self._apply_prefix([query], input_type="query")
+            if self.query_prefix
+            else [query]
+        )
+        formatted_docs = (
+            self._apply_prefix(documents, input_type="document")
+            if self.document_prefix
+            else documents
+        )
+
         embeddings_stream = self.get_embeddings_stream(
-            inputs=[query] + documents,
+            inputs=formatted_queries + formatted_docs,
             return_format="numpy",
             batch_size=batch_size,
             show_progress=show_progress,

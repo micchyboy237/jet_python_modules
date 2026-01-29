@@ -5,7 +5,7 @@ import json
 from typing import Callable, List, Union, Optional, Literal, overload
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from jet.adapters.llama_cpp.types import LLAMACPP_TYPES, LLAMACPP_VALUES
+from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_VALUES
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.logger import logger
 
@@ -152,7 +152,7 @@ TokenizableInput = str | dict | list[str] | list[dict]
 @overload
 def count_tokens(
     text: TokenizableInput,
-    model: Optional[LLAMACPP_TYPES] = None,
+    model: Optional[LLAMACPP_KEYS] = None,
     prevent_total: Literal[False] = False,
     add_special_tokens: bool = False,
 ) -> int: ...
@@ -161,7 +161,7 @@ def count_tokens(
 @overload
 def count_tokens(
     text: TokenizableInput,
-    model: Optional[LLAMACPP_TYPES] = None,
+    model: Optional[LLAMACPP_KEYS] = None,
     prevent_total: Literal[True] = True,
     add_special_tokens: bool = False,
 ) -> List[int]: ...
@@ -169,7 +169,7 @@ def count_tokens(
 
 def count_tokens(
     text: TokenizableInput,
-    model: Optional[LLAMACPP_TYPES] = None,
+    model: Optional[LLAMACPP_KEYS] = None,
     prevent_total: bool = False,
     add_special_tokens: bool = False,
 ) -> Union[int, List[int]]:
