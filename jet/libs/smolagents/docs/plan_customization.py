@@ -5,22 +5,23 @@ Reuses create_local_model() from previous examples.
 Shows plan interruption, modification, resume, memory inspection.
 """
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
+from jet.libs.smolagents.custom_models import OpenAIModel
 from smolagents import (
     CodeAgent,
     DuckDuckGoSearchTool,
     PlanningStep,
-    OpenAIModel,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Reuse from previous file
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def create_local_model(
     temperature: float = 0.65,
-    max_tokens: Optional[int] = 1024,
+    max_tokens: int | None = 1024,
     model_id: str = "local-model",
 ) -> OpenAIModel:
     """Factory for creating consistently configured local llama.cpp model."""
@@ -37,6 +38,7 @@ def create_local_model(
 # Reusable HITL callback helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def create_plan_interrupt_callback(
     allow_edit: bool = True,
     show_steps_before: bool = False,
@@ -45,6 +47,7 @@ def create_plan_interrupt_callback(
     Factory that returns a step callback for PlanningStep.
     Pauses execution, shows the plan, lets user approve/edit/cancel.
     """
+
     def interrupt_after_plan(step: PlanningStep, agent: CodeAgent) -> None:
         if not isinstance(step, PlanningStep):
             return
@@ -128,6 +131,7 @@ def create_rag_like_agent(
 # Demos
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def demo_hitl_1_basic_interrupt():
     """Demo 1: Basic plan interrupt + approve/cancel only"""
     print("\n" + "=" * 78)
@@ -141,7 +145,9 @@ def demo_hitl_1_basic_interrupt():
         allow_plan_edit=False,  # only approve/cancel
     )
 
-    task = "What are the three most important AI research papers published in 2025 so far?"
+    task = (
+        "What are the three most important AI research papers published in 2025 so far?"
+    )
 
     print(f"\nTask: {task}\n")
     try:
@@ -236,6 +242,7 @@ def demo_hitl_4_inspect_memory():
     print(f"Total steps in memory: {len(agent.memory.steps)}")
     print("Steps breakdown:")
     from collections import Counter
+
     types = Counter(type(step).__name__ for step in agent.memory.steps)
     for t, count in types.most_common():
         print(f"  {t:18} : {count:2d}")

@@ -14,6 +14,7 @@ from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.libs.smolagents._logging import structured_tool_logger
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
 from smolagents.tools import Tool
 
@@ -62,7 +63,7 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
         chunk_target_tokens: int = 500,
         chunk_overlap_tokens: int = 100,
         hybrid_config: HybridConfig | None = None,
-        verbose: bool = False,
+        verbose: bool = True,
         logs_dir: str | Path | None = None,
     ):
         super().__init__()
@@ -92,7 +93,13 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
             vector_weight=1.0,
         )
         self.verbose = verbose
-        self.logs_dir = Path(logs_dir) if logs_dir else None
+        _caller_base_dir = (
+            Path(get_entry_file_dir())
+            / "generated"
+            / Path(get_entry_file_name()).stem
+            / "visit_webpage_tool_logs"
+        )
+        self.logs_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
 
         if self.verbose:
             logger.setLevel(logging.DEBUG)

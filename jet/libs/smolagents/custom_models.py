@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_LLM_TYPES
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents.monitoring import TokenUsage
 from smolagents.tools import Tool
 from smolagents.utils import (
@@ -554,7 +555,7 @@ class Model:
             The key used to extract tool names from model responses.
         tool_arguments_key (`str`, default `"arguments"`):
             The key used to extract tool arguments from model responses.
-        verbose (`bool`, default `False`):
+        verbose (`bool`, default `True`):
             Whether to enable verbose logging of model operations.
         logs_dir (`str`, optional):
             Directory for logging model call details. If None, no logs are written.
@@ -581,7 +582,7 @@ class Model:
         flatten_messages_as_text: bool = False,
         tool_name_key: str = "name",
         tool_arguments_key: str = "arguments",
-        verbose: bool = False,
+        verbose: bool = True,
         logs_dir: str | None = None,
         model_id: LLAMACPP_KEYS | None = None,
         **kwargs,
@@ -591,7 +592,14 @@ class Model:
         self.tool_arguments_key = tool_arguments_key
         self.kwargs = kwargs
         self.verbose = verbose
-        self.logs_dir = Path(logs_dir).resolve() if logs_dir else None
+
+        _caller_base_dir = (
+            Path(get_entry_file_dir())
+            / "generated"
+            / Path(get_entry_file_name()).stem
+            / "llm_logs"
+        )
+        self.logs_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
         self._call_counter: dict[bool, int] = {False: 0, True: 0}  # non-stream / stream
         self.model_id: LLAMACPP_KEYS | None = model_id
 

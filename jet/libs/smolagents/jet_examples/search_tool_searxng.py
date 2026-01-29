@@ -2,17 +2,15 @@
 import shutil
 from pathlib import Path
 
+from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
-from smolagents import LogLevel, OpenAIModel, ToolCallingAgent
+from smolagents import LogLevel, ToolCallingAgent
 
 OUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUT_DIR, ignore_errors=True)
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 model = OpenAIModel(
-    model_id="local-model",
-    api_base="http://shawn-pc.local:8080/v1",
-    api_key="not-needed",
     temperature=0.7,
     max_tokens=2048,
 )

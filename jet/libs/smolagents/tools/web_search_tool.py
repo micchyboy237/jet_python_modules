@@ -5,6 +5,7 @@ from pathlib import Path
 
 import requests
 from jet.libs.smolagents._logging import structured_tool_logger
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents.tools import Tool
 
 logger = logging.getLogger(__name__)
@@ -22,14 +23,20 @@ class WebSearchTool(Tool):
         self,
         max_results: int = 10,
         engine: str = "duckduckgo",
-        verbose: bool = False,
+        verbose: bool = True,
         logs_dir: str | Path | None = None,
     ):
         super().__init__()
         self.max_results = max_results
         self.engine = engine
         self.verbose = verbose
-        self.logs_dir = Path(logs_dir) if logs_dir else None
+        _caller_base_dir = (
+            Path(get_entry_file_dir())
+            / "generated"
+            / Path(get_entry_file_name()).stem
+            / "web_search_tool_logs"
+        )
+        self.logs_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
         if self.verbose:
             logger.setLevel(logging.DEBUG)
 

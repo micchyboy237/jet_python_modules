@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 from jet.libs.smolagents._logging import structured_tool_logger
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents import Tool
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ class SearXNGSearchTool(Tool):
         instance_url: URL of the SearXNG instance
         max_results: Maximum number of search results to return (default: 10)
         rate_limit: Maximum queries per second (None = no limit)
-        verbose: Enable detailed logging (default: False)
+        verbose: Enable detailed logging (default: True)
         logs_dir: Directory to save structured call logs + full markdown results (default: None)
         timeout: HTTP request timeout in seconds
     """
@@ -43,7 +44,7 @@ class SearXNGSearchTool(Tool):
         max_results: int = 10,
         rate_limit: float | None = 2.0,
         timeout: int = 10,
-        verbose: bool = False,
+        verbose: bool = True,
         logs_dir: str | Path | None = None,
         **kwargs,
     ):
@@ -53,7 +54,13 @@ class SearXNGSearchTool(Tool):
         self.rate_limit = rate_limit
         self.timeout = timeout
         self.verbose = verbose
-        self.logs_dir = Path(logs_dir).resolve() if logs_dir else None
+        _caller_base_dir = (
+            Path(get_entry_file_dir())
+            / "generated"
+            / Path(get_entry_file_name()).stem
+            / "searxng_tool_logs"
+        )
+        self.logs_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
 
         self._min_interval = 1.0 / rate_limit if rate_limit else 0.0
         self._last_request_time = 0.0
