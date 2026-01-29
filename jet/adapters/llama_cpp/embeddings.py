@@ -45,20 +45,10 @@ class EmbeddingResponse(TypedDict):
     usage: dict[str, int]
 
 
-class SearchResult(TypedDict, total=False):
+class SearchResultType(TypedDict):
     index: int
     text: str
     score: float
-    embedding: Optional[EmbeddingVector]
-
-
-class SearchResultNoEmbedding(TypedDict):
-    index: int
-    text: str
-    score: float
-
-
-SearchResultType = Union[SearchResult, SearchResultNoEmbedding]
 
 
 GenerateEmbeddingsReturnType = EmbeddingOutput  # kept for backward compatibility
@@ -519,14 +509,27 @@ class LlamacppEmbedding:
         """Close cache (e.g., SQLite conn)."""
         self.cache.close()
 
+    def reset_cache(self, force: bool = False) -> "LlamacppEmbedding":
+        """
+        Clear/reset all cached embeddings.
+
+        Args:
+            force: Reserved for future use (confirmation / selective reset modes)
+
+        Returns:
+            self (for method chaining)
+        """
+        self.cache.reset()
+        if getattr(self, "verbose", False):
+            self._logger.info(f"Embedding cache reset (backend: {self.cache.backend})")
+        return self
+
     def search(
         self,
         query: str,
         documents: List[str],
         *,
         top_k: Optional[int] = None,
-        return_embeddings: bool = False,
-        return_format: Literal["numpy", "list"] = "numpy",
         batch_size: int = 32,
         show_progress: bool = True,
         use_cache: Optional[bool] = None,
@@ -561,8 +564,6 @@ class LlamacppEmbedding:
         for i, (text, emb) in enumerate(zip(documents, doc_embs), start=0):
             score = cosine_similarity(query_emb, emb)
             item: SearchResultType = {"index": i, "text": text, "score": score}
-            if return_embeddings:
-                item["embedding"] = emb if return_format == "list" else emb.tolist()
             results.append(item)
 
         results.sort(key=lambda x: x["score"], reverse=True)
@@ -577,8 +578,6 @@ class LlamacppEmbedding:
         documents: List[str],
         *,
         top_k: Optional[int] = None,
-        return_embeddings: bool = False,
-        return_format: Literal["numpy", "list"] = "numpy",
         batch_size: int = 32,
         show_progress: bool = True,
         use_cache: Optional[bool] = None,
@@ -592,8 +591,9 @@ class LlamacppEmbedding:
             inputs=[query] + documents,
             return_format="numpy",
             batch_size=batch_size,
-            show_progress=True,
-            use_cache=False,  # Changed to False → get fresh embeddings → realistic scores
+            show_progress=show_progress,
+            use_cache=use_cache,
+            use_dynamic_batch_sizing=use_dynamic_batch_sizing,
         )
 
         for batch_idx, batch_embeddings in enumerate(embeddings_stream):

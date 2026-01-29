@@ -20,6 +20,7 @@ CACHE_PATH = CACHE_DIR / CACHE_FILE
 MEMORY_CACHE_MAX_SIZE = 10000
 MEMORY_CACHE_PRUNE_RATIO = 0.8
 
+
 class EmbeddingCache:
     """Modular cache for embeddings with LRU, TTL, and multi-backend support.
 
@@ -62,6 +63,7 @@ class EmbeddingCache:
         embeddings = cache.get("key3")  # Returns [[7.0, 8.0]]
         cache.close()  # No-op for memory backend
     """
+
     def __init__(
         self,
         backend: Literal["memory", "file", "sqlite"] = "sqlite",
@@ -69,7 +71,7 @@ class EmbeddingCache:
         ttl: Optional[int] = None,
         namespace: str = "",
         cache_dir: Path = CACHE_DIR,
-        overwrite: bool = False
+        overwrite: bool = False,
     ) -> None:
         self.backend: Literal["memory", "file", "sqlite"] = backend
         self.max_size: int = max_size
@@ -82,24 +84,34 @@ class EmbeddingCache:
             try:
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
                 if not self.cache_dir.is_dir():
-                    raise ValueError(f"cache_dir '{self.cache_dir}' is not a valid directory")
+                    raise ValueError(
+                        f"cache_dir '{self.cache_dir}' is not a valid directory"
+                    )
             except OSError as e:
-                raise ValueError(f"Failed to create or access cache_dir '{self.cache_dir}': {e}")
+                raise ValueError(
+                    f"Failed to create or access cache_dir '{self.cache_dir}': {e}"
+                )
 
         if backend == "memory":
-            self._store: OrderedDict[str, tuple[List[List[float]], float]] = OrderedDict()
+            self._store: OrderedDict[str, tuple[List[List[float]], float]] = (
+                OrderedDict()
+            )
             if overwrite:
                 self._store.clear()
                 logger.debug("Memory cache cleared due to overwrite=True")
         elif backend == "file":
-            self._store: OrderedDict[str, tuple[List[List[float]], float]] = OrderedDict()
+            self._store: OrderedDict[str, tuple[List[List[float]], float]] = (
+                OrderedDict()
+            )
             self._cache_file: Path = self.cache_dir / CACHE_FILE
             if overwrite and self._cache_file.exists():
                 try:
                     self._cache_file.unlink()
                     logger.debug(f"Deleted existing cache file: {self._cache_file}")
                 except OSError as e:
-                    logger.error(f"Failed to delete cache file '{self._cache_file}': {e}")
+                    logger.error(
+                        f"Failed to delete cache file '{self._cache_file}': {e}"
+                    )
             self._load_file()
         elif backend == "sqlite":
             self._db_path: Path = self.cache_dir / "embedding_cache.db"
@@ -108,7 +120,9 @@ class EmbeddingCache:
                     self._db_path.unlink()
                     logger.debug(f"Deleted existing SQLite database: {self._db_path}")
                 except OSError as e:
-                    logger.error(f"Failed to delete SQLite database '{self._db_path}': {e}")
+                    logger.error(
+                        f"Failed to delete SQLite database '{self._db_path}': {e}"
+                    )
             self._init_sqlite()
         self._lock: threading.Lock = threading.Lock()
 
@@ -133,8 +147,12 @@ class EmbeddingCache:
                 with open(self._cache_file, "rb") as f:
                     compressed: bytes = f.read()
                     data: bytes = zlib.decompress(compressed)
-                    cache_data: Dict[str, tuple[List[List[float]], float]] = pickle.loads(data)
-                    self._store = OrderedDict(sorted(cache_data.items(), key=lambda x: x[0]))
+                    cache_data: Dict[str, tuple[List[List[float]], float]] = (
+                        pickle.loads(data)
+                    )
+                    self._store = OrderedDict(
+                        sorted(cache_data.items(), key=lambda x: x[0])
+                    )
                 logger.debug(f"Loaded file cache with {len(self._store)} entries.")
         except Exception as e:
             logger.debug(f"Failed to load file cache: {e}")
@@ -189,8 +207,10 @@ class EmbeddingCache:
                     return self._store[key][0]
             elif self.backend == "sqlite":
                 cur: sqlite3.Cursor = self._conn.cursor()
-                cur.execute("SELECT embedding FROM embeddings WHERE key = ? AND (timestamp > ? OR ? IS NULL)",
-                           (key, time.time() - self.ttl if self.ttl else 0, self.ttl))
+                cur.execute(
+                    "SELECT embedding FROM embeddings WHERE key = ? AND (timestamp > ? OR ? IS NULL)",
+                    (key, time.time() - self.ttl if self.ttl else 0, self.ttl),
+                )
                 row: Optional[tuple[bytes]] = cur.fetchone()
                 if row:
                     return pickle.loads(row[0])
@@ -212,13 +232,53 @@ class EmbeddingCache:
             elif self.backend == "sqlite":
                 self._conn.execute(
                     "INSERT OR REPLACE INTO embeddings (key, embedding, timestamp) VALUES (?, ?, ?)",
-                    (key, serialized, ts)
+                    (key, serialized, ts),
                 )
                 self._conn.execute(
                     "DELETE FROM embeddings WHERE key NOT IN (SELECT key FROM embeddings ORDER BY timestamp DESC LIMIT ?)",
-                    (self.max_size,)
+                    (self.max_size,),
                 )
                 self._conn.commit()
+
+    def reset(self) -> None:
+        """
+        Completely clear/reset the entire cache (all entries removed).
+        Works for all backends: memory, file, sqlite.
+        """
+        with self._lock:
+            if self.backend == "memory":
+                self._store.clear()
+                logger.debug("Memory cache cleared")
+
+            elif self.backend == "file":
+                self._store.clear()
+                if self._cache_file.exists():
+                    try:
+                        self._cache_file.unlink()
+                        logger.debug(f"Deleted cache file: {self._cache_file}")
+                    except OSError as e:
+                        logger.error(
+                            f"Failed to delete cache file '{self._cache_file}': {e}"
+                        )
+                logger.debug("File cache reset")
+
+            elif self.backend == "sqlite":
+                try:
+                    self._conn.execute("DROP TABLE IF EXISTS embeddings")
+                    self._conn.execute("""
+                        CREATE TABLE embeddings (
+                            key TEXT PRIMARY KEY,
+                            embedding BLOB,
+                            timestamp REAL
+                        )
+                    """)
+                    self._conn.commit()
+                    logger.debug("SQLite cache table reset")
+                except sqlite3.Error as e:
+                    logger.error(f"Failed to reset SQLite table: {e}")
+                    self._conn.execute("DELETE FROM embeddings")
+                    self._conn.commit()
+                    logger.debug("SQLite cache cleared (fallback)")
 
     def close(self) -> None:
         """Cleanup."""
