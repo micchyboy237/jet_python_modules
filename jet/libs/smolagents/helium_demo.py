@@ -1243,7 +1243,7 @@ class DemoHeliumActions:
         # self.demo_read_links(mode="full")
 
         # Quick raw dump (includes icons, js links, etc.)
-        self.demo_read_links(mode="fast")
+        self.demo_read_links(mode="fast", max_links=100)
 
         print("\nReading buttons on page...")
         self.demo_read_buttons()
@@ -1257,7 +1257,7 @@ class DemoHeliumActions:
         # self.demo_read_texts(mode="full", max_texts=100)
 
         # Quick raw text dump
-        self.demo_read_texts(mode="fast")
+        self.demo_read_texts(mode="fast", max_texts=100)
 
         print("\nReading list items on page...")
 
@@ -1268,7 +1268,7 @@ class DemoHeliumActions:
         # self.demo_read_list_items(mode="full", max_items=100)
 
         # Quick raw check
-        self.demo_read_list_items(mode="fast")
+        self.demo_read_list_items(mode="fast", max_items=100)
 
         print("\nTaking final screenshot...")
         self.demo_take_screenshot()
@@ -1284,14 +1284,14 @@ if __name__ == "__main__":
     # import helium
     # print("Helium version:", helium.__version__)
 
-    # url = "https://trytestingthis.netlify.app"
-    url = "https://en.wikipedia.org/wiki/Chicago"
+    url = "https://trytestingthis.netlify.app"
+    # url = "https://en.wikipedia.org/wiki/Chicago"
     output_dir = base_output_dir / format_sub_source_dir(url)
     demo = DemoHeliumActions(
         url, headless=False, output_dir=output_dir
     )  # Change to True on server
     try:
-        # demo.run_interactive_demos()
+        demo.run_interactive_demos()
         demo.run_read_demos()
     finally:
         demo.close()
