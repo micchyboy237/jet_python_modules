@@ -124,11 +124,11 @@ class DemoHeliumActions:
 
     def demo_write(self):
         """Action: write(text, into=field)"""
-        helium.write("test", into="Username:test")
-        print("→ Typed 'test' into username field")
+        helium.write("LeBron", into="First name:")
+        print("→ Typed 'LeBron' into First name field")
 
-        helium.write("test", into="Password:test")
-        print("→ Typed 'test' into password field")
+        helium.write("James", into="Last name:")
+        print("→ Typed 'James' into last name field")
 
     def demo_press_keys(self):
         """Action: press(*keys) — keyboard input"""
@@ -137,8 +137,6 @@ class DemoHeliumActions:
 
     def demo_select_dropdown(self):
         """Action: select(option, element) — demonstrates single & multi dropdowns"""
-        helium.go_to(self.url)
-
         print("→ Attempting single-select dropdown...")
         try:
             # Most reliable: target by ID and unwrap to WebElement
@@ -250,7 +248,6 @@ class DemoHeliumActions:
 
     def demo_scroll(self):
         """Action: scroll_down() / scroll_up()"""
-        helium.go_to(self.url)
         helium.scroll_down(400)
         print("→ Scrolled down 400px on demo page")
         helium.scroll_up()
@@ -260,7 +257,6 @@ class DemoHeliumActions:
 
     def demo_link_element(self):
         """Demonstrates Link element locator"""
-        helium.go_to(self.url)
         try:
             helium.click(
                 helium.Link("Click Here")
@@ -271,7 +267,6 @@ class DemoHeliumActions:
 
     def demo_image_element(self):
         """Demonstrates Image locator (alt text or src)"""
-        helium.go_to(self.url)
         img = helium.Image(alt="")  # or helium.Image(src_contains="pizza")
         if img.exists():
             src = img.web_element.get_attribute("src")
@@ -281,7 +276,6 @@ class DemoHeliumActions:
 
     def demo_double_click(self):
         """Action: doubleclick(element) – triggers JS to update text below button"""
-        helium.go_to(self.url)
         button = helium.Button("Double-click me")
         if button.exists():
             helium.doubleclick(button)
@@ -294,7 +288,6 @@ class DemoHeliumActions:
 
     def demo_drag_and_drop(self):
         """Action: drag(source, to=target) — uses S() with CSS/ID for reliability"""
-        helium.go_to(self.url)
         # Best: Use S() with ID selector (most reliable, as Image doesn't support src directly)
         source = helium.S("#drag1")
         # Alternative: CSS for src exact match (if ID not available)
@@ -315,7 +308,6 @@ class DemoHeliumActions:
 
     def demo_file_upload(self):
         """Demonstrates file upload attempt on the main demo page"""
-        helium.go_to(self.url)
         sample_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
 
         if not os.path.exists(sample_file):
@@ -343,7 +335,6 @@ class DemoHeliumActions:
 
     def demo_login_form(self):
         """Fills and submits the sample login form"""
-        helium.go_to(self.url)
         helium.write("test", into="Username:test")
         helium.write("test", into="Password:test")
         helium.press(helium.ENTER)
@@ -351,13 +342,11 @@ class DemoHeliumActions:
 
     def demo_single_dropdown(self):
         """Selects from single-select dropdown"""
-        helium.go_to(self.url)
         helium.select("Option 2", "Choose an option:")
         print("→ Selected 'Option 2' from single-select dropdown")
 
     def demo_checkbox(self):
         """Clicks checkboxes using labels – adapted for the demo page (which has none)"""
-        helium.go_to(self.url)
         print(
             "→ Attempting checkbox demo on main page (note: page uses dropdowns, not checkboxes)..."
         )
@@ -475,7 +464,6 @@ class DemoHeliumActions:
 
     def demo_read_values(self):
         """Reading values from elements"""
-        helium.go_to(self.url)
         # Read text content
         heading = helium.Text("Try Testing This")
         if heading.exists():
@@ -567,7 +555,7 @@ class DemoHeliumActions:
 
     def demo_take_full_page_overflow_screenshot(self):
         """True full-page screenshot using Chrome DevTools Protocol"""
-        print("\n=== Full-Page Screenshot (CDP - TRUE FULL PAGE) ===\n")
+        print("\n=== Full-Page Overflow Screenshot (CDP - TRUE FULL PAGE) ===\n")
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"full_page_overflow_cdp_{timestamp}.png"
@@ -618,10 +606,12 @@ class DemoHeliumActions:
         self.demo_click()
 
         print("\nTyping credentials...")
-        self.demo_write()
         self.demo_login_form()  # ← more specific than just press ENTER
 
         self.print_browser_state()
+
+        print("\nType first and last name...")
+        self.demo_write()
 
         print("\nDropdown selection demo...")
         self.demo_select_dropdown()
