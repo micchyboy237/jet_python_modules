@@ -583,7 +583,6 @@ class LlamacppEmbedding:
         show_progress: bool = True,
         use_cache: Optional[bool] = None,
         use_dynamic_batch_sizing: Optional[bool] = None,
-        yield_partial: bool = True,  # new param: whether to yield sorted partial results
     ) -> Iterator[SearchResultType]:
         # Global counter for correct query numbering across streamed batches
         query_embedding = None
