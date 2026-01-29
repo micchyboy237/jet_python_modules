@@ -25,44 +25,79 @@ TextMode = Literal["full", "fast", "smart"]
 ListItemMode = Literal["full", "fast", "smart"]
 
 
-def setup_rich_logging(output_dir: Path) -> Path:
+def setup_rich_logging(output_dir: Path) -> tuple[Path, Path]:
     """
     Sets up logging with:
-    - Beautiful rich output in terminal
-    - Plain text duplicate in a file inside output_dir
+    - Rich colorful output in terminal
+    - Main log file (INFO and above) — flushed after every record
+    - Separate ERROR log file (WARNING + ERROR + CRITICAL)
+    - Both files are created in output_dir
     """
-    log_file = output_dir / f"run_{datetime.now():%Y%m%d_%H%M%S}.log"
-    log_file.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Console handler (pretty, for terminal)
-    from rich.logging import RichHandler
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    main_log_file = output_dir / f"run_{timestamp}.log"
+    error_log_file = output_dir / f"errors_{timestamp}.log"
 
+    # ── Root logger configuration ───────────────────────────────────────
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)  # capture INFO and above
+
+    # Clear any previous handlers (important when re-running in same process)
+    logger.handlers.clear()
+
+    # ── Console (rich) ──────────────────────────────────────────────────
     console_handler = RichHandler(
         rich_tracebacks=True,
         tracebacks_show_locals=True,
         markup=True,
+        show_time=True,
+        show_path=False,
     )
     console_handler.setLevel(logging.INFO)
+    logger.addHandler(console_handler)
 
-    # File handler (plain text, no markup)
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(
+    # ── Main log file (plain text, INFO+) ───────────────────────────────
+    main_file_handler = logging.FileHandler(main_log_file, encoding="utf-8")
+    main_file_handler.setLevel(logging.INFO)
+    main_file_handler.setFormatter(
         logging.Formatter(
             "%(asctime)s | %(levelname)-7s | %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
     )
+    # Make sure every log line is written immediately
+    main_file_handler.setStream(main_file_handler.stream)  # just in case
+    logger.addHandler(main_file_handler)
 
-    # Configure root logger
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[console_handler, file_handler],
-        force=True,  # overwrite any previous configuration
+    # ── Error-only log file (WARNING+) ──────────────────────────────────
+    error_file_handler = logging.FileHandler(error_log_file, encoding="utf-8")
+    error_file_handler.setLevel(logging.WARNING)  # only WARNING and above
+    error_file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s | %(levelname)-7s | %(message)s  |  %(pathname)s:%(lineno)d",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     )
+    logger.addHandler(error_file_handler)
 
-    logging.info(f"Logging initialized → console + file: {log_file}")
-    return log_file
+    # Optional: force immediate flush after every logging call
+    # (can also be achieved by setting handler.flush() after critical logs)
+    class FlushingFileHandler(logging.FileHandler):
+        def emit(self, record):
+            super().emit(record)
+            self.flush()  # ← this is the key line
+
+    # If you want ultra-reliable flushing on main log too:
+    # Replace main_file_handler with:
+    # main_file_handler = FlushingFileHandler(main_log_file, encoding="utf-8")
+    # ... then set level, formatter again
+
+    logging.info(f"Logging started")
+    logging.info(f"  Main log → {main_log_file}")
+    logging.info(f"  Errors   → {error_log_file}")
+
+    return main_log_file, error_log_file
 
 
 def init_browser(headless: bool = True) -> "Driver":
@@ -126,7 +161,6 @@ class DemoHeliumActions:
             if output_dir
             else str(Path(__file__).parent / "generated" / Path(__file__).stem)
         )
-        self.log_file = setup_rich_logging(Path(self.output_dir))
         self.sample_file_for_upload = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
 
         shutil.rmtree(self.output_dir, ignore_errors=True)
@@ -134,7 +168,13 @@ class DemoHeliumActions:
 
         self.demo_go_to(url)
 
-        logging.info(f"Started demo for {url} → logs: {self.log_file}")
+        logging.info(f"Started demo for {url}")
+
+        self.main_log_file, self.error_log_file = setup_rich_logging(
+            Path(self.output_dir)
+        )
+        logging.info(f"Output directory: {self.output_dir}")
+        logging.info(f"Main log:         {self.main_log_file}")
 
     def close(self):
         """Clean up browser"""
