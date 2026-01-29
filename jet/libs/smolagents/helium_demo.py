@@ -4,7 +4,7 @@ import random
 import shutil
 import time
 import helium
-from typing import Optional
+from typing import List, Optional
 import os
 from datetime import datetime
 
@@ -600,53 +600,169 @@ class DemoHeliumActions:
         print("\n=== Demo: Reading all visible links on the page ===\n")
         try:
             # Find all Link elements (Helium finds <a> tags with text)
-            all_links = helium.find_all(helium.Link(""))
-            print(f"→ Found {len(all_links)} Link elements")
-            if not all_links:
-                print(
-                    "→ No links found – page may have none or they are not visible/text-based"
-                )
-                return
+            all_links: List[helium.Link] = helium.find_all(helium.Link(""))
+            print(f"→ Found {len(all_links)} Link elements via Link('')")
+
+            shown = 0
             for i, link in enumerate(all_links, 1):
-                text = link.value.strip() if link.value else "[No text]"
-                href = link.web_element.get_attribute("href") or "[No href]"
+                text = (
+                    link.web_element.text.strip()
+                    if link.web_element.text
+                    else "[No visible text]"
+                )
+                href = (
+                    link.href or link.web_element.get_attribute("href") or "[No href]"
+                )
                 print(f"  {i}. Text: {text:.<35} → URL: {href}")
+                shown += 1
+
+            if shown == 0:
+                print("→ No visible/text-based links found via Link('')")
+
         except Exception as e:
-            print(f"→ Error while reading links: {type(e).__name__} - {e}")
-            print("→ Fallback: finding all <a> tags via S()")
-            raw_links = helium.find_all(helium.S("a"))
-            for i, lnk in enumerate(raw_links, 1):
-                txt = lnk.web_element.text.strip() or "[empty]"
-                h = lnk.web_element.get_attribute("href") or "[no href]"
-                print(f"  {i}. <a> text: {txt:.<35} → {h}")
+            print(f"→ Error while reading links via Link(): {type(e).__name__} - {e}")
+
+        if len(all_links) == 0:
+            print("\n→ No links found via Link('') → falling back to raw <a>")
+            try:
+                raw_links = helium.find_all(helium.S("a"))
+                print(f"  → Found {len(raw_links)} raw <a> elements")
+                for i, lnk in enumerate(raw_links, 1):
+                    txt = lnk.web_element.text.strip() or "[empty]"
+                    h = lnk.web_element.get_attribute("href") or "[no href]"
+                    print(f"    {i}. <a> text: {txt:.<35} → {h}")
+            except Exception as fb_e:
+                print(f"  → Fallback failed: {fb_e}")
+        else:
+            print("\n→ High-level Link locator found items → skipping raw fallback")
 
     def demo_read_buttons(self):
         """Demonstrates extracting button texts using Button() locator"""
         print("\n=== Demo: Reading all visible button labels ===\n")
         try:
-            all_buttons = helium.find_all(helium.Button(""))
-            print(f"→ Found {len(all_buttons)} Button elements")
-            if not all_buttons:
-                print("→ No buttons found via Button('') – trying fallback...")
-            for i, btn in enumerate(all_buttons, 1):
-                label = btn.value.strip() if btn.value else "[No visible text]"
-                print(f"  {i}. Button text: {label}")
-        except Exception as e:
-            print(f"→ Error reading buttons: {e}")
+            all_buttons: List[helium.Button] = helium.find_all(helium.Button(""))
+            print(f"→ Found {len(all_buttons)} Button elements via Button('')")
 
-        # Fallback: raw <button> + <input type=button/submit>
-        print("\n→ Fallback: raw <button> and input[type=button/submit]")
-        candidates = (
-            helium.find_all(helium.S("button"))
-            + helium.find_all(helium.S("input[type='button']"))
-            + helium.find_all(helium.S("input[type='submit']"))
+            shown = 0
+            for i, btn in enumerate(all_buttons, 1):
+                label = (
+                    btn.web_element.text.strip()
+                    or btn.web_element.get_attribute("value")
+                    or "[No text]"
+                )
+                enabled = btn.is_enabled()
+                print(f"  {i}. Button text: {label:.<30} (enabled: {enabled})")
+                shown += 1
+
+        except Exception as e:
+            print(f"→ Error reading buttons via Button(): {type(e).__name__} - {e}")
+
+        if len(all_buttons) == 0:
+            # Fallback: raw <button> + <input type=button/submit/reset>
+            print("  → No buttons via Button('') → showing raw candidates")
+            print("\n→ Fallback: raw <button> and input[type=button/submit]")
+            try:
+                candidates = (
+                    helium.find_all(helium.S("button"))
+                    + helium.find_all(helium.S("input[type='button']"))
+                    + helium.find_all(helium.S("input[type='submit']"))
+                    + helium.find_all(
+                        helium.S("input[type='reset']")
+                    )  # sometimes useful
+                )
+                for i, el in enumerate(candidates, 1):
+                    tag = el.web_element.tag_name
+                    txt = (
+                        el.web_element.text
+                        or el.web_element.get_attribute("value")
+                        or ""
+                    ).strip()
+                    print(f"    {i}. <{tag}> → '{txt}'")
+            except Exception as e:
+                print(f"  Fallback failed: {e}")
+        else:
+            print(
+                "\n→ High-level Button locator succeeded → skipping detailed fallback"
+            )
+
+    def demo_read_texts(self):
+        print("\n=== Demo: Reading texts using find_all(Text('')) ===\n")
+
+        try:
+            all_texts = helium.find_all(helium.Text(""))
+            print(f"→ Found {len(all_texts)} Text elements")
+
+            meaningful = []
+            for t in all_texts:
+                val = t.value.strip()
+                if (
+                    val and len(val) > 3
+                ):  # skip tiny fragments like single spaces or "F"
+                    meaningful.append((val, t.x, t.y))
+
+            print(f"→ {len(meaningful)} meaningful texts (len > 3 chars)")
+
+            # Show first 12
+            for i, (val, x, y) in enumerate(meaningful[:12], 1):
+                preview = val[:75] + ("..." if len(val) > 75 else "")
+                pos = f"(x≈{x:.0f}, y≈{y:.0f})" if x and y else ""
+                print(f"  {i}. {preview!r} {pos}")
+
+            if len(meaningful) > 12:
+                print(f"  ... ({len(meaningful) - 12} more)")
+
+            # Targeted examples remain useful
+            print("\nTargeted examples:")
+            examples = [
+                ("Sample Table header", helium.Text("This is your Sample Table:")),
+                (
+                    "Below Monika, right of Occupation",
+                    helium.Text(below="Monika", to_right_of="Occupation"),
+                ),
+                ("The cat sentence", helium.Text("The cat was playing in the garden.")),
+            ]
+            for desc, t in examples:
+                try:
+                    helium.wait_until(t.exists, timeout_secs=3)
+                    print(f"  → {t.value.strip()!r}")
+                except TimeoutException:
+                    print(f"  → {desc} not found (timeout)")
+
+        except Exception as e:
+            print(f"→ Error in find_all(Text('')): {e}")
+
+    def demo_read_list_items(self):
+        """Demonstrates reading <li> items using ListItem()"""
+        print("\n=== Demo: Reading list items using ListItem() ===\n")
+        print("(Note: current demo page has NO <li> elements → expect 0 found)\n")
+
+        try:
+            all_items: List[helium.ListItem] = helium.find_all(helium.ListItem(""))
+            print(f"→ Found {len(all_items)} ListItem elements via ListItem('')")
+
+            if all_items:
+                for i, item in enumerate(all_items, 1):
+                    text = item.web_element.text.strip() or "[No text]"
+                    print(f"  {i}. List item: {text}")
+            else:
+                print("→ No list items found (expected on this page)")
+
+                # Optional: show if any <li> exist at all (raw)
+                raw_li = helium.find_all(helium.S("li"))
+                print(f"  Raw <li> count via S('li'): {len(raw_li)}")
+                if raw_li:
+                    for i, li in enumerate(raw_li, 1):
+                        print(f"    {i}. <li> text: {li.web_element.text.strip()}")
+                else:
+                    print("  Confirmed: page has zero <li> tags")
+
+        except Exception as e:
+            print(f"→ ListItem demo failed: {type(e).__name__} - {e}")
+
+        print(
+            "\nTip: To test ListItem() properly, navigate to a page with menus / bullet lists, e.g.:"
         )
-        for i, el in enumerate(candidates, 1):
-            tag = el.web_element.tag_name
-            txt = (
-                el.web_element.text or el.web_element.get_attribute("value") or ""
-            ).strip()
-            print(f"  {i}. <{tag}> → '{txt}'")
+        print("  helium.go_to('https://example.com')  # or any site with <ul>/<ol>")
 
     def demo_highlight_element(self):
         """Shows highlight(element) – draws red rectangle (good for visual debug)"""
@@ -844,47 +960,47 @@ class DemoHeliumActions:
         print("\nType first and last name...")
         self.demo_write()
 
-        print("\nDropdown selection demo...")
-        self.demo_select_dropdown()
+        # print("\nDropdown selection demo...")
+        # self.demo_select_dropdown()
 
-        print("\nWaiting and existence checks...")
-        self.demo_wait_until_and_exists()
+        # print("\nWaiting and existence checks...")
+        # self.demo_wait_until_and_exists()
 
-        print("\nAdvanced selectors and relative locators...")
-        self.demo_s_selector_and_relative()
+        # print("\nAdvanced selectors and relative locators...")
+        # self.demo_s_selector_and_relative()
 
-        print("\nFinding multiple elements...")
-        self.demo_find_all_elements()
+        # print("\nFinding multiple elements...")
+        # self.demo_find_all_elements()
 
-        print("\nScrolling demo...")
-        self.demo_scroll()
+        # print("\nScrolling demo...")
+        # self.demo_scroll()
 
-        print("\nFile upload on demo page...")
-        self.demo_file_upload()
+        # print("\nFile upload on demo page...")
+        # self.demo_file_upload()
 
-        print("\nCheckbox demo...")
-        self.demo_checkbox()
+        # print("\nCheckbox demo...")
+        # self.demo_checkbox()
 
-        print("\nRadio button attempt (on main demo page – expect failures)...")
-        self.demo_radio_button()
+        # print("\nRadio button attempt (on main demo page – expect failures)...")
+        # self.demo_radio_button()
 
-        print("\nLink element demo...")
-        self.demo_link_element()
+        # print("\nLink element demo...")
+        # self.demo_link_element()
 
-        print("\nImage element demo...")
-        self.demo_image_element()
+        # print("\nImage element demo...")
+        # self.demo_image_element()
 
-        print("\nDouble-click demo...")
-        self.demo_double_click()
+        # print("\nDouble-click demo...")
+        # self.demo_double_click()
 
-        print("\nDrag and drop demo...")
-        self.demo_drag_and_drop()
+        # print("\nDrag and drop demo...")
+        # self.demo_drag_and_drop()
 
-        print("\nCoordinate click demo...")
-        self.demo_point_click()
+        # print("\nCoordinate click demo...")
+        # self.demo_point_click()
 
-        print("\nReading element values...")
-        self.demo_read_values()
+        # print("\nReading element values...")
+        # self.demo_read_values()
 
         print("\nReading links on page...")
         self.demo_read_links()
@@ -892,17 +1008,23 @@ class DemoHeliumActions:
         print("\nReading buttons on page...")
         self.demo_read_buttons()
 
-        print("\nHighlighting elements (visual debug)...")
-        self.demo_highlight_element()
+        print("\nReading texts on page...")
+        self.demo_read_texts()
 
-        print("\nAdvanced key presses (special keys / combos)...")
-        self.demo_press_keys_advanced()
+        print("\nReading list items on page...")
+        self.demo_read_list_items()
 
-        print("\nFile attachment demo...")
-        self.demo_attach_file()
+        # print("\nHighlighting elements (visual debug)...")
+        # self.demo_highlight_element()
 
-        print("\nMouse press → hold → release demo...")
-        self.demo_mouse_press_release()
+        # print("\nAdvanced key presses (special keys / combos)...")
+        # self.demo_press_keys_advanced()
+
+        # print("\nFile attachment demo...")
+        # self.demo_attach_file()
+
+        # print("\nMouse press → hold → release demo...")
+        # self.demo_mouse_press_release()
 
         print("\nTaking final screenshot...")
         self.demo_take_screenshot()
