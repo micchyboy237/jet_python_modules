@@ -33,13 +33,8 @@ def create_local_model(
     logs_dir: str | Path | None = None,
 ) -> OpenAIModel:
     return OpenAIModel(
-        model_id=model_id,
-        api_base="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
         temperature=temperature,
         max_tokens=max_tokens,
-        verbose=True,
-        logs_dir=str(logs_dir) if logs_dir else None,
     )
 
 
@@ -113,13 +108,9 @@ def example_simple_hierarchy(out_dir: str | Path | None = None):
         name="WebResearcher",
         description="Performs internet searches and reads webpage content when up-to-date information or external facts are needed.",
         tools=[
-            WebSearchTool(
-                max_results=10, verbose=True, logs_dir=out_dir / "web_search_tool_logs"
-            ),
+            WebSearchTool(max_results=10),
             VisitWebpageTool(
                 max_output_length=7000,
-                verbose=True,
-                logs_dir=out_dir / "visit_webpage_tool_logs",
             ),
         ],
     )
