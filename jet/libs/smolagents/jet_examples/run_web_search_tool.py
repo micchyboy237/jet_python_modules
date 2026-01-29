@@ -2,19 +2,17 @@
 import shutil
 from pathlib import Path
 
+from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.web_search_tool import (
     WebSearchTool,  # ← adjust import path if needed
 )
-from smolagents import LogLevel, OpenAIModel, ToolCallingAgent
+from smolagents import LogLevel, ToolCallingAgent
 
 OUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUT_DIR, ignore_errors=True)
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 model = OpenAIModel(
-    model_id="local-model",
-    api_base="http://shawn-pc.local:8080/v1",  # ← change to your local LLM endpoint
-    api_key="not-needed",
     temperature=0.7,
     max_tokens=2048,
 )
@@ -23,8 +21,6 @@ model = OpenAIModel(
 web_search = WebSearchTool(
     max_results=10,
     engine="duckduckgo",  # or "bing"
-    verbose=True,
-    logs_dir=OUT_DIR / "web_search_logs",
 )
 
 agent = ToolCallingAgent(

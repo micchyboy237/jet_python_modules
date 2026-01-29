@@ -22,13 +22,9 @@ from smolagents import (
 def create_local_model(
     temperature: float = 0.65,
     max_tokens: int | None = 1024,
-    model_id: str = "local-model",
 ) -> OpenAIModel:
     """Factory for creating consistently configured local llama.cpp model."""
     return OpenAIModel(
-        model_id=model_id,
-        base_url="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
         temperature=temperature,
         max_tokens=max_tokens,
     )
