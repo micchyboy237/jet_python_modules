@@ -13,6 +13,8 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import Select
 from seleniumbase import Driver
 
+from jet.utils.text import format_sub_source_dir
+
 
 def init_browser(headless: bool = True) -> "Driver":
     """
@@ -64,12 +66,16 @@ class DemoHeliumActions:
     Each method shows one primary action + typical usage pattern.
     """
 
-    def __init__(self, headless: bool = True, output_dir: Optional[str] = None):
-        self.url = "https://trytestingthis.netlify.app"
+    def __init__(
+        self, url: str, headless: bool = True, output_dir: Optional[str | Path] = None
+    ):
+        self.url = url
 
         self.driver: WebDriver = init_browser(headless=headless)
-        self.output_dir = output_dir or str(
-            Path(__file__).parent / "generated" / Path(__file__).stem
+        self.output_dir = (
+            str(output_dir)
+            if output_dir
+            else str(Path(__file__).parent / "generated" / Path(__file__).stem)
         )
         self.sample_file_for_upload = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
 
@@ -943,7 +949,7 @@ class DemoHeliumActions:
             print(f"→ Mouse press/release demo failed: {e}")
             print("  Hint: this page may not have draggable elements → test elsewhere")
 
-    def run_all_demos(self):
+    def run_interactive_demos(self):
         """Run a sequence that demonstrates most actions"""
         print("Starting Helium actions demo sequence...\n")
 
@@ -999,6 +1005,19 @@ class DemoHeliumActions:
         print("\nCoordinate click demo...")
         self.demo_point_click()
 
+        print("\nHighlighting elements (visual debug)...")
+        self.demo_highlight_element()
+
+        print("\nAdvanced key presses (special keys / combos)...")
+        self.demo_press_keys_advanced()
+
+        print("\nFile attachment demo...")
+        self.demo_attach_file()
+
+        print("\nMouse press → hold → release demo...")
+        self.demo_mouse_press_release()
+
+    def run_read_demos(self):
         print("\nReading element values...")
         self.demo_read_values()
 
@@ -1014,18 +1033,6 @@ class DemoHeliumActions:
         print("\nReading list items on page...")
         self.demo_read_list_items()
 
-        print("\nHighlighting elements (visual debug)...")
-        self.demo_highlight_element()
-
-        print("\nAdvanced key presses (special keys / combos)...")
-        self.demo_press_keys_advanced()
-
-        print("\nFile attachment demo...")
-        self.demo_attach_file()
-
-        print("\nMouse press → hold → release demo...")
-        self.demo_mouse_press_release()
-
         print("\nTaking final screenshot...")
         self.demo_take_screenshot()
         self.demo_take_full_page_screenshot()
@@ -1035,12 +1042,19 @@ class DemoHeliumActions:
 
 
 if __name__ == "__main__":
+    base_output_dir = Path(__file__).parent / "generated" / Path(__file__).stem
     # Optional: print version for debugging
     # import helium
     # print("Helium version:", helium.__version__)
 
-    demo = DemoHeliumActions(headless=False)  # Change to True on server
+    url = "https://trytestingthis.netlify.app"
+    # url = "https://en.wikipedia.org/wiki/Chicago"
+    output_dir = base_output_dir / format_sub_source_dir(url)
+    demo = DemoHeliumActions(
+        url, headless=False, output_dir=output_dir
+    )  # Change to True on server
     try:
-        demo.run_all_demos()
+        demo.run_interactive_demos()
+        demo.run_read_demos()
     finally:
         demo.close()
