@@ -71,6 +71,7 @@ class DemoHeliumActions:
         self.output_dir = output_dir or str(
             Path(__file__).parent / "generated" / Path(__file__).stem
         )
+        self.sample_file_for_upload = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
 
         shutil.rmtree(self.output_dir, ignore_errors=True)
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
@@ -308,16 +309,14 @@ class DemoHeliumActions:
 
     def demo_file_upload(self):
         """Demonstrates file upload attempt on the main demo page"""
-        sample_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/test/__sample.txt"
-
-        if not os.path.exists(sample_file):
-            print(f"→ Error: Sample file missing at {sample_file}")
+        if not os.path.exists(self.sample_file_for_upload):
+            print(f"→ Error: Sample file missing at {self.sample_file_for_upload}")
             return
 
         try:
             # Try common file input locators
             file_input = self.driver.find_element("css selector", "input[type='file']")
-            file_input.send_keys(sample_file)
+            file_input.send_keys(self.sample_file_for_upload)
             print("→ Attached file via send_keys to first <input type='file'> found")
         except Exception as e:
             print(f"→ No file input found or upload failed: {e}")
@@ -596,6 +595,238 @@ class DemoHeliumActions:
             self.driver.save_screenshot(filepath)
             print("→ Fallback viewport screenshot saved")
 
+    def demo_read_links(self):
+        """Demonstrates extracting link texts and URLs using Link() locator"""
+        print("\n=== Demo: Reading all visible links on the page ===\n")
+        try:
+            # Find all Link elements (Helium finds <a> tags with text)
+            all_links = helium.find_all(helium.Link(""))
+            print(f"→ Found {len(all_links)} Link elements")
+            if not all_links:
+                print(
+                    "→ No links found – page may have none or they are not visible/text-based"
+                )
+                return
+            for i, link in enumerate(all_links, 1):
+                text = link.value.strip() if link.value else "[No text]"
+                href = link.web_element.get_attribute("href") or "[No href]"
+                print(f"  {i}. Text: {text:.<35} → URL: {href}")
+        except Exception as e:
+            print(f"→ Error while reading links: {type(e).__name__} - {e}")
+            print("→ Fallback: finding all <a> tags via S()")
+            raw_links = helium.find_all(helium.S("a"))
+            for i, lnk in enumerate(raw_links, 1):
+                txt = lnk.web_element.text.strip() or "[empty]"
+                h = lnk.web_element.get_attribute("href") or "[no href]"
+                print(f"  {i}. <a> text: {txt:.<35} → {h}")
+
+    def demo_read_buttons(self):
+        """Demonstrates extracting button texts using Button() locator"""
+        print("\n=== Demo: Reading all visible button labels ===\n")
+        try:
+            all_buttons = helium.find_all(helium.Button(""))
+            print(f"→ Found {len(all_buttons)} Button elements")
+            if not all_buttons:
+                print("→ No buttons found via Button('') – trying fallback...")
+            for i, btn in enumerate(all_buttons, 1):
+                label = btn.value.strip() if btn.value else "[No visible text]"
+                print(f"  {i}. Button text: {label}")
+        except Exception as e:
+            print(f"→ Error reading buttons: {e}")
+
+        # Fallback: raw <button> + <input type=button/submit>
+        print("\n→ Fallback: raw <button> and input[type=button/submit]")
+        candidates = (
+            helium.find_all(helium.S("button"))
+            + helium.find_all(helium.S("input[type='button']"))
+            + helium.find_all(helium.S("input[type='submit']"))
+        )
+        for i, el in enumerate(candidates, 1):
+            tag = el.web_element.tag_name
+            txt = (
+                el.web_element.text or el.web_element.get_attribute("value") or ""
+            ).strip()
+            print(f"  {i}. <{tag}> → '{txt}'")
+
+    def demo_highlight_element(self):
+        """Shows highlight(element) – draws red rectangle (good for visual debug)"""
+        print("\n=== Demo: highlight() ===\n")
+        try:
+            # Example 1: highlight by text (looks for Button, TextField, etc.)
+            print("→ Highlighting button with text 'Your Sample Alert Button!'")
+            helium.highlight("Your Sample Alert Button!")
+            time.sleep(2.5)  # Give time to see the red border
+
+            # Example 2: highlight via S() selector
+            print("→ Highlighting username field")
+            helium.highlight(helium.S("#uname"))
+            time.sleep(2)
+            print("→ Highlight demo finished")
+        except Exception as e:
+            print(f"→ highlight() failed: {e}")
+            print("  (Note: highlight may not work in headless mode or certain pages)")
+
+    def demo_attach_file(self):
+        """Demonstrates attach_file(file_path, to=...)"""
+        print("\n=== Demo: attach_file() – file upload ===\n")
+        # You need a real file path that exists
+        if not os.path.exists(self.sample_file_for_upload):
+            print(f"→ Sample file not found at {self.sample_file_for_upload}")
+            print("  → Create a dummy file or adjust path to test this demo.")
+            return
+        try:
+            # Most common pattern: attach to label text next to file input
+            print(f"→ Trying: attach_file({self.sample_file_for_upload!r}, to=...)")
+            helium.attach_file(
+                self.sample_file_for_upload, to="Select a file"
+            )  # adjust label if needed
+            print("→ attach_file succeeded (no exception)")
+            # Optional: check if file name appears in UI after attach
+            time.sleep(1.5)
+            file_name_shown = helium.Text(os.path.basename(self.sample_file_for_upload))
+            if file_name_shown.exists():
+                print(f"→ File name '{file_name_shown.value}' appeared → looks good")
+            else:
+                print(
+                    "→ File name not visible in UI (but attach may still have worked)"
+                )
+        except LookupError:
+            print(
+                "→ Could not find file input with that label → trying first file input"
+            )
+            try:
+                helium.attach_file(
+                    self.sample_file_for_upload
+                )  # omit 'to=' → uses first <input type=file>
+                print("→ attach_file succeeded using first file input on page")
+            except Exception as e:
+                print(f"→ attach_file still failed: {e}")
+        except Exception as e:
+            print(f"→ attach_file error: {type(e).__name__} - {e}")
+
+    def demo_press_keys_advanced(self):
+        """More complete & safe demo of press(...) with special keys & combos.
+        Avoids pressing ENTER in submitting forms to prevent navigation.
+        Uses the textarea (non-submitting) where possible.
+        """
+        print(
+            "\n=== Demo: press(key) – special keys & combinations (safe version) ===\n"
+        )
+        try:
+            # Step 1: Find a safe, focusable element that doesn't submit on ENTER
+            # The textarea under "Layout two" is ideal (adds newline instead of submit)
+            print(
+                "→ Locating the description textarea (should not navigate on ENTER)..."
+            )
+            textarea = helium.S("textarea")  # there's only one on the page
+            if not textarea.exists():
+                print(
+                    "→ Textarea not found → falling back to 'First name:' field (but won't press ENTER)"
+                )
+                textarea = helium.S("#fname")  # or "First name:"
+
+            # Focus it safely
+            helium.click(textarea)
+            print("→ Focused the textarea/input field")
+            time.sleep(0.8)
+
+            # Safe actions that won't cause navigation
+            print("→ Typing some text first...")
+            helium.write("Hello")
+
+            print("→ Pressing BACK_SPACE ×3 (delete last 3 chars)")
+            helium.press(helium.BACK_SPACE * 3)
+            time.sleep(0.6)
+
+            print("→ Pressing ARROW_LEFT ×2 (move cursor left)")
+            helium.press(helium.ARROW_LEFT * 2)
+            time.sleep(0.6)
+
+            print("→ Typing more text at new cursor position")
+            helium.write(" [edited]")
+
+            print(
+                "→ Pressing ENTER — should only add newline in textarea (no navigation)"
+            )
+            helium.press(helium.ENTER)
+            time.sleep(1.0)
+
+            print("→ Pressing CONTROL + A (select all text)")
+            helium.press(helium.CONTROL + "a")
+            time.sleep(0.8)
+
+            print("→ Pressing CONTROL + C (copy)")
+            helium.press(helium.CONTROL + "c")
+            time.sleep(0.6)
+
+            print(
+                "→ Pressing ESC (usually closes popups/dialogs if any — harmless here)"
+            )
+            helium.press(helium.ESCAPE)
+            time.sleep(0.6)
+
+            # Optional: show something happened
+            current_text = textarea.web_element.get_attribute("value") or ""
+            preview = current_text[:60] + ("..." if len(current_text) > 60 else "")
+            print(f"→ Current field content preview: {preview!r}")
+
+            print("→ All key presses completed without navigation")
+
+        except Exception as e:
+            print(f"→ Key press demo issue: {type(e).__name__}: {e}")
+            print(
+                "  Hint: if navigation still occurs, the focused element may be in a submitting form."
+            )
+            print(
+                "  Try manually focusing the textarea via browser dev tools to confirm."
+            )
+
+    def demo_mouse_press_release(self):
+        """Shows press_mouse_on() + release_mouse_over() – manual drag simulation"""
+        print("\n=== Demo: press_mouse_on() & release_mouse_over() ===\n")
+        print("  (Simulates click-and-hold → drag → release)")
+        try:
+            source = helium.S("#drag1")  # adjust to real draggable id/class
+            target = helium.S("#div1")  # drop zone
+
+            if not (source.exists() and target.exists()):
+                print("→ Drag source / target not found on this page")
+                print("  (trytestingthis.netlify.app has a simple drag-drop area)")
+                return
+
+            print("→ Pressing mouse on source element")
+            helium.press_mouse_on(source)
+            time.sleep(1.2)
+
+            print("→ Moving mouse (via JS fallback if needed)")
+            # Helium does NOT have move_mouse_to() – we fake drag via JS if needed
+            self.driver.execute_script(
+                """
+                arguments[0].dispatchEvent(new MouseEvent('mousemove', {
+                    bubbles: true, cancelable: true, clientX: arguments[1], clientY: arguments[2]
+                }));
+            """,
+                target.web_element,
+                300,
+                300,
+            )  # rough approximation
+
+            time.sleep(1)
+
+            print("→ Releasing mouse over target")
+            helium.release_mouse_over(target)
+            time.sleep(1.8)
+
+            print("→ Mouse press/release sequence finished")
+
+            # Optional: alert / visual check
+            if helium.Text("dropped").exists():
+                print("→ Looks like drop succeeded!")
+
+        except Exception as e:
+            print(f"→ Mouse press/release demo failed: {e}")
+            print("  Hint: this page may not have draggable elements → test elsewhere")
+
     def run_all_demos(self):
         """Run a sequence that demonstrates most actions"""
         print("Starting Helium actions demo sequence...\n")
@@ -654,6 +885,24 @@ class DemoHeliumActions:
 
         print("\nReading element values...")
         self.demo_read_values()
+
+        print("\nReading links on page...")
+        self.demo_read_links()
+
+        print("\nReading buttons on page...")
+        self.demo_read_buttons()
+
+        print("\nHighlighting elements (visual debug)...")
+        self.demo_highlight_element()
+
+        print("\nAdvanced key presses (special keys / combos)...")
+        self.demo_press_keys_advanced()
+
+        print("\nFile attachment demo...")
+        self.demo_attach_file()
+
+        print("\nMouse press → hold → release demo...")
+        self.demo_mouse_press_release()
 
         print("\nTaking final screenshot...")
         self.demo_take_screenshot()
