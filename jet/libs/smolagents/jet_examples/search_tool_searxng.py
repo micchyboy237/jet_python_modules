@@ -1,6 +1,13 @@
 # jet_python_modules/jet/libs/smolagents/jet_examples/search_tool_searxng.py
-from smolagents import OpenAIModel, ToolCallingAgent, LogLevel, tool
+import shutil
+from pathlib import Path
+
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
+from smolagents import LogLevel, OpenAIModel, ToolCallingAgent
+
+OUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUT_DIR, ignore_errors=True)
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 model = OpenAIModel(
     model_id="local-model",
@@ -10,25 +17,14 @@ model = OpenAIModel(
     max_tokens=2048,
 )
 
-@tool
-def get_current_weather(city: str) -> str:
-    """Retrieve current weather conditions for a specified city.
-    Args:
-        city: The city name (e.g. "Makati City", "Tokyo", "London")
-    Returns:
-        A human-readable string with weather condition and approximate temperature in °C.
-    """
-    return f"The weather in {city} is sunny, 28°C."
 
 agent = ToolCallingAgent(
-    tools=[SearXNGSearchTool()],
+    tools=[SearXNGSearchTool(verbose=True, logs_dir=OUT_DIR / "searxng_logs")],
     model=model,
     add_base_tools=False,
-    verbosity_level=LogLevel.DEBUG,           # ← Add this line (or LogLevel.INFO)
+    verbosity_level=LogLevel.DEBUG,  # ← Add this line (or LogLevel.INFO)
 )
 
 if __name__ == "__main__":
-    result = agent.run(
-        "What's the weather like in Las Piñas City right now?"
-    )
+    result = agent.run("What's the weather like in Las Piñas City right now?")
     print(result)

@@ -5,23 +5,19 @@ Updated January 2026 – no separate ManagedAgent class anymore
 Just give sub-agents .name and .description → pass them directly in managed_agents=[...]
 """
 
-import os
-import json
 import datetime
+import shutil
 from pathlib import Path
-from typing import List, Optional
-
-from smolagents import (
-    CodeAgent,
-    tool,
-    LogLevel,
-)
 
 from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
-from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
-from jet.libs.smolagents.custom_tools import VisitWebpageTool, WebSearchTool
+from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
+from jet.libs.smolagents.tools.web_search_tool import WebSearchTool
+from smolagents import (
+    CodeAgent,
+    LogLevel,
+)
 
 MODEL: LLAMACPP_KEYS = "qwen3-instruct-2507:4b"
 MODEL_MAX_CONTEXT: int = LLAMACPP_MODEL_CONTEXTS[MODEL]
@@ -32,7 +28,7 @@ MODEL_MAX_CONTEXT: int = LLAMACPP_MODEL_CONTEXTS[MODEL]
 # ────────────────────────────────────────────────────────────────
 def create_local_model(
     temperature: float = 0.3,
-    max_tokens: Optional[int] = 4096,
+    max_tokens: int | None = 4096,
     model_id: str = "local-model",
     logs_dir: str | Path | None = None,
 ) -> OpenAIModel:
@@ -71,7 +67,7 @@ def rich_progress_logger(step):
 # Helper: create focused specialist agents
 # ────────────────────────────────────────────────────────────────
 def create_specialist(
-    model, name: str, description: str, tools: List = None, extra_instructions: str = ""
+    model, name: str, description: str, tools: list = None, extra_instructions: str = ""
 ) -> CodeAgent:
     system_add = (
         f"You are {name} – specialized in {description.lower()}. "
@@ -106,6 +102,9 @@ def example_simple_hierarchy(out_dir: str | Path | None = None):
         / Path(__file__).stem
         / "simple_hierarchy"
     )
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     model = create_local_model(temperature=0.4, logs_dir=out_dir / "llm_logs")
 
     # Sub-agent: focused web researcher
@@ -114,8 +113,14 @@ def example_simple_hierarchy(out_dir: str | Path | None = None):
         name="WebResearcher",
         description="Performs internet searches and reads webpage content when up-to-date information or external facts are needed.",
         tools=[
-            WebSearchTool(max_results=10),
-            VisitWebpageTool(max_output_length=7000),
+            WebSearchTool(
+                max_results=10, verbose=True, logs_dir=out_dir / "web_search_tool_logs"
+            ),
+            VisitWebpageTool(
+                max_output_length=7000,
+                verbose=True,
+                logs_dir=out_dir / "visit_webpage_tool_logs",
+            ),
         ],
     )
 
@@ -158,6 +163,9 @@ def example_advanced_coordinator(out_dir: str | Path | None = None):
         / Path(__file__).stem
         / "advanced_coordinator"
     )
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     model = create_local_model(
         temperature=0.35, max_tokens=2048, logs_dir=out_dir / "llm_logs"
     )
@@ -168,8 +176,14 @@ def example_advanced_coordinator(out_dir: str | Path | None = None):
             "Researcher",
             "gathers current facts, prices, news via web tools",
             tools=[
-                WebSearchTool(max_results=12),
-                VisitWebpageTool(max_output_length=8000),
+                WebSearchTool(
+                    max_results=12, verbose=True, logs_dir=out_dir / "llm_logs"
+                ),
+                VisitWebpageTool(
+                    max_output_length=8000,
+                    verbose=True,
+                    logs_dir=out_dir / "web_search_tool_logs",
+                ),
             ],
         ),
         create_specialist(
