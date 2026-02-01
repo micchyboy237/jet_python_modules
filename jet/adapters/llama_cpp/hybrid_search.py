@@ -1,6 +1,6 @@
 import math
-from dataclasses import dataclass
-from typing import Any, TypedDict
+from dataclasses import dataclass, field
+from typing import Any, Literal, TypedDict
 
 import nltk
 from nltk.corpus import stopwords
@@ -19,6 +19,71 @@ from jet.logger import CustomLogger
 from rank_bm25 import BM25Okapi
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Category configuration (flexible & reusable)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class RelevanceCategory:
+    label: str
+    min_score: float  # absolute threshold (used in absolute mode)
+    level: int  # 0 = worst, higher = better
+
+
+@dataclass
+class CategoryConfig:
+    """
+    Configurable mapping from hybrid score → (label, level).
+    Supports absolute thresholds or relative percentiles.
+    """
+
+    categories: list[RelevanceCategory] = field(
+        default_factory=lambda: [
+            RelevanceCategory("Very Low", 0.000, 0),
+            RelevanceCategory("Low", 0.020, 1),
+            RelevanceCategory("Medium", 0.035, 2),
+            RelevanceCategory("High", 0.045, 3),
+            RelevanceCategory("Very High", 0.055, 4),
+        ]
+    )
+    mode: Literal["absolute", "relative"] = "relative"
+    relative_fractions: list[float] | None = None  # e.g. [0.0, 0.3, 0.5, 0.7, 0.9]
+
+    def __post_init__(self):
+        self.categories = sorted(self.categories, key=lambda c: c.min_score)
+
+    def get_category(
+        self, score: float, max_score_in_results: float = 1.0
+    ) -> tuple[str, int]:
+        """
+        Returns (label, level) for the given score.
+
+        In relative mode, score is normalized against max_score_in_results.
+        """
+        if self.mode == "relative" and self.relative_fractions:
+            norm = score / max(1e-9, max_score_in_results)
+            for i, frac in enumerate(reversed(self.relative_fractions)):
+                if norm >= frac:
+                    cat = self.categories[-1 - i]  # highest first
+                    return cat.label, cat.level
+            return self.categories[0].label, self.categories[0].level
+
+        # Absolute mode
+        for cat in reversed(self.categories):
+            if score >= cat.min_score:
+                return cat.label, cat.level
+        return self.categories[0].label, self.categories[0].level
+
+
+# Predefined convenient configs
+ABSOLUTE_CATEGORY_CONFIG = CategoryConfig(mode="absolute")
+
+RELATIVE_CATEGORY_CONFIG = CategoryConfig(
+    mode="relative", relative_fractions=[0.00, 0.30, 0.55, 0.75, 0.92]
+)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Globals / Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -31,7 +96,7 @@ def better_tokenize(text: str) -> list[str]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Types (unchanged)
+# Result type
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -43,12 +108,13 @@ class HybridSearchResult(TypedDict):
     dense_score: float
     sparse_score: float
     hybrid_score: float
-    category: str  # human-readable label
-    category_level: int  # 0=Very Low ... 4=Very High (ordered)
+    category: str
+    category_level: int
+    normalized_hybrid: float | None  # only present if normalization enabled
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Fusion functions
+# Fusion function
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -59,11 +125,10 @@ def reciprocal_rank_fusion(
     limit: int | None = None,
     dense_weight: float = 1.0,
     sparse_weight: float = 1.0,
-) -> list[HybridSearchResult]:
+) -> list[dict]:
     """
     Weighted Reciprocal Rank Fusion.
-
-    Allows giving more importance to dense or sparse rankings.
+    Returns list of dicts with raw scores (no category yet).
     """
     scores: dict[int, float] = {}
     ranks_dense: dict[int, int] = {
@@ -94,7 +159,6 @@ def reciprocal_rank_fusion(
         if not ref:
             continue
 
-        cat, cat_level = get_relevance_category(round(hybrid_score, 6))
         final.append(
             {
                 "rank": pos,
@@ -106,37 +170,21 @@ def reciprocal_rank_fusion(
                     (r["score"] for r in sparse_results if r["index"] == idx), 0.0
                 ),
                 "hybrid_score": round(hybrid_score, 6),
-                "category": cat,
-                "category_level": cat_level,
             }
         )
 
     return final
 
 
-def get_relevance_category(score: float) -> tuple[str, int]:
-    """
-    Returns (label: str, level: int) based on hybrid score.
-
-    Higher level = better relevance.
-    Thresholds tuned for typical RRF scores with k≈10–15 and weights ≈1.5/0.7.
-    """
-    if score >= 0.135:
-        return "Very High", 4
-    elif score >= 0.110:
-        return "High", 3
-    elif score >= 0.080:
-        return "Medium", 2
-    elif score >= 0.040:
-        return "Low", 1
-    else:
-        return "Very Low", 0
+# ──────────────────────────────────────────────────────────────────────────────
+# Main HybridSearch class
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 @dataclass
 class HybridSearch:
     """
-    Hybrid (dense + sparse) retriever using Weighted Reciprocal Rank Fusion by default.
+    Hybrid (dense + sparse) retriever using Weighted Reciprocal Rank Fusion.
     """
 
     documents: list[str]
@@ -144,21 +192,24 @@ class HybridSearch:
     embedding_model: LlamacppEmbedding | str = "nomic-embed-text"
     bm25: BM25Okapi | None = None
     vector_search: VectorSearch | None = None
-    fusion_k: float = 60.0  # base value — will be adapted in search()
-    dense_weight: float = 1.5  # stronger semantic preference — fixes salad query
+
+    fusion_k: float = 60.0  # base value — adapted in search()
+    dense_weight: float = 1.5
     sparse_weight: float = 0.7
     min_hybrid_score: float = 0.015
+    category_config: CategoryConfig = field(
+        default_factory=lambda: RELATIVE_CATEGORY_CONFIG
+    )
+
     logger: CustomLogger | None = None
 
     def __post_init__(self):
         if self.logger is None:
             self.logger = CustomLogger()
 
-        # Build sparse index with improved tokenization
         tokenized_docs = [better_tokenize(doc) for doc in self.documents]
         self.bm25 = BM25Okapi(tokenized_docs)
 
-        # Initialize vector search (dense retriever)
         if isinstance(self.embedding_model, str):
             self.vector_search = VectorSearch(
                 model=self.embedding_model,
@@ -179,8 +230,6 @@ class HybridSearch:
     ) -> "HybridSearch":
         if ids is not None and len(ids) != len(documents):
             raise ValueError("ids must be None or same length as documents")
-
-        # Forward all extra kwargs (allows overriding weights, k, etc.)
         return cls(documents=documents, ids=ids, embedding_model=model, **kwargs)
 
     def _sparse_search(
@@ -221,17 +270,19 @@ class HybridSearch:
         dense_weight: float | None = None,
         sparse_weight: float | None = None,
         min_hybrid_score: float | None = None,
+        category_config: CategoryConfig | None = None,
+        normalize_scores: bool = False,  # add normalized_hybrid field?
         debug: bool = False,
         **search_kwargs: Any,
     ) -> list[HybridSearchResult]:
         """
-        Perform hybrid search with configurable weighting and adaptive k.
+        Perform hybrid search.
 
         Args:
-            debug: If True, print top dense/sparse candidates regardless of log level
-            **search_kwargs: Allows passing min_hybrid_score, etc. for one-off calls
+            normalize_scores: If True, adds 'normalized_hybrid' field (0.0–1.0)
+            category_config: Optional override for category mapping
+            debug: Force debug output even if logger level is not DEBUG
         """
-        # ────── Parameter resolution ──────
         use_k = fusion_k if fusion_k is not None else self.fusion_k
         use_dense_w = dense_weight if dense_weight is not None else self.dense_weight
         use_sparse_w = (
@@ -240,15 +291,18 @@ class HybridSearch:
         use_min_score = (
             min_hybrid_score if min_hybrid_score is not None else self.min_hybrid_score
         )
+        use_category_config = category_config or self.category_config
 
-        # Adaptive k: good balance for small ↔ large collections
+        # Adaptive k — smoother scaling
         n_docs = len(self.documents)
-        adaptive_k = max(9.0, min(60.0, math.log2(n_docs + 1) * 5))
-        actual_k = adaptive_k if use_k == 60.0 else use_k  # respect explicit override
+        adaptive_k = max(
+            8.0, min(40.0, math.sqrt(n_docs) * 3.5)
+        )  # lower floor for small sets
+        actual_k = adaptive_k if use_k == 60.0 else use_k
 
         self.logger.debug(
             f"Using RRF k={actual_k:.1f} (adaptive), "
-            f"dense_weight={use_dense_w}, sparse_weight={use_sparse_w}"
+            f"dense_weight={use_dense_w:.2f}, sparse_weight={use_sparse_w:.2f}"
         )
 
         dense_k = dense_top_k if dense_top_k is not None else top_k * 3
@@ -265,7 +319,7 @@ class HybridSearch:
 
         sparse_results = self._sparse_search(query, top_k=sparse_k)
 
-        # ────── Optional debug output ──────
+        # ────── Debug output ──────
         should_debug = debug or (self.logger and self.logger.level <= 10)
         if should_debug:
             self.logger.debug("Top Dense (pre-fusion):")
@@ -276,8 +330,8 @@ class HybridSearch:
             for r in sparse_results[:5]:
                 self.logger.debug(f"  {r.get('score', 0.0):.3f}  {r['text'][:68]}...")
 
-        # Fusion
-        fused = reciprocal_rank_fusion(
+        # ────── Fusion ──────
+        fused_raw = reciprocal_rank_fusion(
             dense_results=dense_results,
             sparse_results=sparse_results,
             k=actual_k,
@@ -286,14 +340,39 @@ class HybridSearch:
             sparse_weight=use_sparse_w,
         )
 
-        if not fused:
+        if not fused_raw:
             self.logger.warning(f"No results after fusion for query: {query!r}")
             return []
 
-        # Filter weak blended results
+        # Compute max once (used for normalization & relative category mode)
+        max_hybrid = max((r["hybrid_score"] for r in fused_raw), default=0.0)
+
+        fused: list[HybridSearchResult] = []
+        for raw in fused_raw:
+            label, level = use_category_config.get_category(
+                raw["hybrid_score"],
+                max_score_in_results=max_hybrid
+                if use_category_config.mode == "relative"
+                else 1.0,
+            )
+
+            result: HybridSearchResult = {
+                **raw,
+                "category": label,
+                "category_level": level,
+            }
+            fused.append(result)
+
+        # Normalize if requested (adds normalized_hybrid field)
+        if normalize_scores:
+            max_h = max((r["hybrid_score"] for r in fused), default=1.0)
+            for r in fused:
+                r["normalized_hybrid"] = round(r["hybrid_score"] / max_h, 4)
+
+        # Filter weak results
         fused = [r for r in fused if r["hybrid_score"] >= use_min_score]
 
-        # Optional: log distribution of categories for debugging
+        # Optional category distribution debug
         if should_debug:
             from collections import Counter
 
@@ -343,17 +422,23 @@ if __name__ == "__main__":
         documents=documents,
         ids=ids,
         model=model,
+        # Example: use relative mode instead
+        # category_config=RELATIVE_CATEGORY_CONFIG
     )
 
     query = "fast local embeddings with llama.cpp"
-    results = hybrid.search(query, top_k=5)
+    results = hybrid.search(
+        query,
+        top_k=5,
+        normalize_scores=True,  # adds normalized_hybrid field
+        debug=True,
+    )
 
     console = Console()
     table = Table(title=f"Hybrid Results for: {query!r}")
     table.add_column("Rank", justify="right", style="cyan")
     table.add_column("Hybrid", justify="right")
-    table.add_column("Dense", justify="right")
-    table.add_column("Sparse", justify="right")
+    table.add_column("Norm", justify="right", style="green")
     table.add_column("Category", style="bold")
     table.add_column("Level", justify="right", style="dim cyan")
     table.add_column("ID")
@@ -361,11 +446,15 @@ if __name__ == "__main__":
 
     for res in results:
         preview = res["text"][:80] + "..." if len(res["text"]) > 80 else res["text"]
+        norm_str = (
+            f"{res.get('normalized_hybrid', '-'):.3f}"
+            if "normalized_hybrid" in res
+            else "-"
+        )
         table.add_row(
             str(res["rank"]),
             f"{res['hybrid_score']:.4f}",
-            f"{res['dense_score']:.3f}",
-            f"{res['sparse_score']:.3f}",
+            norm_str,
             res["category"],
             str(res["category_level"]),
             res["id"] or "-",

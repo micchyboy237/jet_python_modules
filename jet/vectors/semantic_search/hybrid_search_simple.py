@@ -3,6 +3,8 @@ from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from rich.console import Console
 from rich.table import Table
 
+console = Console()
+
 if __name__ == "__main__":
     model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
 
@@ -22,10 +24,9 @@ if __name__ == "__main__":
     )
 
     for num, query in enumerate(queries, start=1):
-        results = hybrid.search(query, top_k=5)
+        results = hybrid.search(query, top_k=10)
 
-        console = Console()
-        table = Table(title=f"Hybrid Results for: {query!r}")
+        table = Table(title=f"\n\nHybrid Results for query {num}: {query!r}")
         table.add_column("Rank", justify="right", style="cyan")
         table.add_column("Hybrid", justify="right")
         table.add_column("Dense", justify="right")
