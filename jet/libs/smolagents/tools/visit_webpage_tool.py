@@ -12,6 +12,7 @@ from jet.adapters.llama_cpp.hybrid_search import (
     HybridSearchResult,
 )
 from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
+from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.libs.smolagents._logging import structured_tool_logger
@@ -152,8 +153,8 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
     def __init__(
         self,
         embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
-        max_output_length: int = 8192,
-        default_top_k: int = 7,
+        max_output_length: int = 3800,  # now treated as **token** limit
+        top_k: int = 7,
         chunk_target_tokens: int = 500,
         chunk_overlap_tokens: int = 100,
         verbose: bool = True,
@@ -162,20 +163,60 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         super().__init__()
         self.embed_model = embed_model
 
-        _max_model_context = LLAMACPP_MODEL_CONTEXTS.get(self.embed_model, 8192)
-        self.max_output_length = min(max_output_length, _max_model_context)
+        _max_model_context = LLAMACPP_MODEL_CONTEXTS.get(
+            self.embed_model, max_output_length
+        )
+        # We now interpret max_output_length as tokens, not characters
+        self.max_output_tokens = min(max_output_length, _max_model_context)
 
-        self.default_top_k = default_top_k
+        self.top_k = top_k
         self.chunk_target_tokens = chunk_target_tokens
         self.chunk_overlap_tokens = chunk_overlap_tokens
 
         self.verbose = verbose
 
-        # Setup DebugSaver
         self.debug_saver = DebugSaver(base_dir=Path(logs_dir) if logs_dir else None)
 
         if self.verbose:
             logger.setLevel(logging.DEBUG)
+
+    # ────────────────────────────────────────────────
+    #  Helper: final safety trim by token count
+    # ────────────────────────────────────────────────
+    def _trim_to_token_limit(self, text: str, log=None) -> str:
+        """Trim text so that count_tokens(text) ≤ self.max_output_tokens"""
+        token_count = count_tokens(text, model=self.embed_model)
+
+        if token_count <= self.max_output_tokens:
+            return text
+
+        if log and self.verbose:
+            log(
+                f"Output too long ({token_count} tokens) → trimming to ~{self.max_output_tokens} tokens"
+            )
+
+        # Very simple but effective greedy character-based trim
+        # (you can make this smarter later: sentence-aware, etc.)
+        chars = list(text)
+        low, high = 0, len(chars)
+
+        while low < high:
+            mid = (low + high + 1) // 2
+            candidate = "".join(chars[:mid])
+            if (
+                count_tokens(candidate, model=self.embed_model)
+                <= self.max_output_tokens
+            ):
+                low = mid
+            else:
+                high = mid - 1
+
+        trimmed = "".join(chars[:low])
+        if log and self.verbose:
+            log(
+                f"Trimmed from {token_count} → {count_tokens(trimmed, model=self.embed_model)} tokens"
+            )
+        return trimmed
 
     def forward(
         self,
@@ -204,16 +245,20 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
             )
 
             if full_raw:
-                result = self._process_full_raw(md_texts)
+                result = self._process_full_raw(md_texts, log)
             else:
                 result = self._process_smart_excerpts(md_texts, query, log, url)
+
+            # ─── Final safety net: enforce token limit ──────────────────
+            result = self._trim_to_token_limit(result, log)
 
             self.debug_saver.save("full_results.md", result)
 
             if self.verbose:
-                log(f"Returning {len(result)} characters")
+                final_tokens = count_tokens(result, model=self.embed_model)
+                log(f"Returning {len(result)} chars / ~{final_tokens} tokens")
                 if call_dir:
-                    log(f"Saved full markdown → {call_dir / 'full_results.md'}")
+                    log(f"Saved final result → {call_dir / 'full_results.md'}")
 
             return result
 
@@ -236,12 +281,19 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
                 log(msg)
             return PageFetchResult(html="", success=False, error_message=msg)
 
-    def _process_full_raw(self, md_texts: list[str]) -> str:
+    def _process_full_raw(self, md_texts: list[str], log) -> str:
+        # First pass: truncate individual sections
         truncated = truncate_texts(
-            md_texts, model=self.embed_model, max_tokens=self.max_output_length
+            md_texts,
+            model=self.embed_model,
+            max_tokens=self.chunk_target_tokens * 2,  # be more generous per section
         )
-        self.debug_saver.save("truncated_text.md", "\n\n".join(truncated))
-        return "\n\n".join(truncated)
+
+        joined = "\n\n".join(truncated)
+
+        # We still apply final trim later in forward()
+        self.debug_saver.save("truncated_text.md", joined)
+        return joined
 
     def chunk_sections(self, md_texts: list[str]) -> list[dict]:
         return chunk_texts_with_data(
@@ -259,17 +311,14 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         self.debug_saver.save_json("chunks.json", chunks, indent=2)
 
         documents = [chunk["content"] for chunk in chunks]
-        # Optional: preserve ids if present
         chunk_ids = [chunk.get("id", str(i)) for i, chunk in enumerate(chunks)]
 
         hybrid = HybridSearch.from_documents(
             documents=documents,
             ids=chunk_ids,
             model=self.embed_model,
-            # Tune these as needed — current defaults are good
             dense_weight=1.5,
             sparse_weight=0.7,
-            # Use relative categories for robustness
             category_config=RELATIVE_CATEGORY_CONFIG,
         )
 
@@ -280,20 +329,50 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
 
         results = hybrid.search(
             search_query,
-            top_k=self.default_top_k,
-            dense_top_k=self.default_top_k
-            * 4,  # old k_candidates ≈ 50 → ×4–5 oversampling
-            sparse_top_k=self.default_top_k * 4,
-            normalize_scores=True,  # add normalized_hybrid field
+            top_k=self.top_k,
+            dense_top_k=self.top_k * 4,
+            sparse_top_k=self.top_k * 4,
+            normalize_scores=True,
             debug=self.verbose,
         )
 
         self.debug_saver.save_json("search_results.json", results, indent=2)
 
-        excerpts = build_excerpts(results, self.default_top_k)
-
+        # ─── Optional improvement: dynamically choose how many excerpts fit ───
         header = build_result_header(url, search_query)
-        result = format_final_result(header, excerpts)
+        header_tokens = count_tokens(header, model=self.embed_model)
 
+        remaining_tokens = self.max_output_tokens - header_tokens - 200  # margin
+        if remaining_tokens < 300:
+            remaining_tokens = 300  # minimum useful content
+
+        excerpts = []
+        current_tokens = 0
+
+        for i, r in enumerate(results, 1):
+            preview = (
+                r["text"].strip()[:400] + "..."
+                if len(r["text"]) > 400
+                else r["text"].strip()
+            )
+            line = (
+                f"[{i}] Relevance {r['hybrid_score']:.3f}"
+                f"{' norm=' + f'{r['normalized_hybrid']:.3f}' if 'normalized_hybrid' in r else ''}"
+                f"{' ' + r['category'] + ' (lvl ' + str(r['category_level']) + ')' if 'category' in r else ''}\n"
+                f"{preview}\n"
+            )
+            line_tokens = count_tokens(line, model=self.embed_model)
+
+            if current_tokens + line_tokens > remaining_tokens:
+                break
+
+            excerpts.append(line)
+            current_tokens += line_tokens
+
+        if not excerpts and results:
+            # at least return the best one if nothing fits
+            excerpts = [build_excerpts(results[:1], 1)[0]]
+
+        result = header + "\n".join(excerpts)
         self.debug_saver.save("searched_text.md", result)
         return result

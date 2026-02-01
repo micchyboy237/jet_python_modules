@@ -89,7 +89,7 @@ def demo_full_raw_content():
 def demo_custom_chunk_size_and_overlap():
     """Demo 4: Custom chunk size and overlap"""
     tool = VisitWebpageTool(
-        verbose=True, chunk_target_tokens=300, chunk_overlap_tokens=80, default_top_k=6
+        verbose=True, chunk_target_tokens=300, chunk_overlap_tokens=80, top_k=6
     )
 
     result = tool.forward(
