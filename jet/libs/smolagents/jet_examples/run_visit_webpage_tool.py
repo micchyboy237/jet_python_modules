@@ -8,9 +8,9 @@ from jet.libs.smolagents.tools.visit_webpage_tool import (
 )
 from smolagents import LogLevel, ToolCallingAgent
 
-OUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-shutil.rmtree(OUT_DIR, ignore_errors=True)
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 model = OpenAIModel(
     temperature=0.6,
@@ -20,7 +20,7 @@ model = OpenAIModel(
 # Create tool instance with logging enabled
 visit_page = VisitWebpageTool(
     max_output_length=4096,
-    default_k_final=8,
+    top_k=8,
 )
 
 agent = ToolCallingAgent(
@@ -33,11 +33,11 @@ agent = ToolCallingAgent(
 if __name__ == "__main__":
     # Try different URLs and see both full_raw=True and default (smart excerpts) behavior
     question = """
-    Visit https://en.wikipedia.org/wiki/Quezon_City and tell me:
-    1. When was it founded?
-    2. What is its current population (latest estimate)?
-    3. What are the most important landmarks or districts?
-    """
+Visit https://en.wikipedia.org/wiki/Quezon_City and tell me:
+1. When was it founded?
+2. What is its current population (latest estimate)?
+3. What are the most important landmarks or districts?
+"""
 
     # Alternative test questions:
     # question = "Go to https://ph.investing.com/indices/pse and tell me the current value of PSEi and the change today."
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     print(result)
     print("=" * 80 + "\n")
 
-    print(f"Logs saved in: {OUT_DIR / 'visit_webpage_logs'}")
+    print(f"Logs saved in: {OUTPUT_DIR / 'visit_webpage_logs'}")
     print("Look for folders like call_0001/ containing:")
     print("  • request.json")
     print("  • response.json")

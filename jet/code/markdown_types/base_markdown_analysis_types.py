@@ -1,4 +1,4 @@
-from typing import List, Literal, TypedDict, Optional
+from typing import Literal, TypedDict
 
 
 class Header(TypedDict):
@@ -14,12 +14,12 @@ class CodeBlock(TypedDict):
 
 
 class TableRow(TypedDict):
-    cells: List[str]
+    cells: list[str]
 
 
 class Table(TypedDict):
-    header: List[str]
-    rows: List[TableRow]
+    header: list[str]
+    rows: list[TableRow]
 
 
 class ListItem(TypedDict):
@@ -68,10 +68,11 @@ class HtmlBlock(TypedDict):
 
 
 class TokenSequential(TypedDict):
-    checked: Optional[bool]
+    checked: bool | None
     content: str
     id: int
     type: Literal[
+        "head",
         "header",
         "paragraph",
         "blockquote",
@@ -86,9 +87,10 @@ class TokenSequential(TypedDict):
         "emphasis",
         "task_item",
         "html_inline",
-        "html_block"
+        "html_block",
     ]
-    url: Optional[str]
+    url: str | None
+    meta: dict | None
 
 
 class HeaderCounts(TypedDict):
@@ -119,19 +121,19 @@ class Analysis(TypedDict):
 
 class BaseMarkdownAnalysis(TypedDict):
     analysis: Analysis
-    header: List[Header]
-    paragraph: List[str]
-    blockquote: List[str]
-    code_block: List[CodeBlock]
-    table: List[Table]
-    unordered_list: List[List[ListItem]]
-    ordered_list: List[List[ListItem]]
-    text_link: List[TextLink]
-    image_link: List[ImageLink]
-    footnotes: List[Footnote]
-    inline_code: List[InlineCode]
-    emphasis: List[Emphasis]
-    task_items: List[TaskItem]
-    html_inline: List[str]
-    html_blocks: List[HtmlBlock]
-    tokens_sequential: List[TokenSequential]
+    header: list[Header]
+    paragraph: list[str]
+    blockquote: list[str]
+    code_block: list[CodeBlock]
+    table: list[Table]
+    unordered_list: list[ListItem]
+    ordered_list: list[ListItem]
+    text_link: list[TextLink]
+    image_link: list[ImageLink]
+    footnotes: list[Footnote]
+    inline_code: list[InlineCode]
+    emphasis: list[Emphasis]
+    task_items: list[TaskItem]
+    html_inline: list[str]
+    html_blocks: list[HtmlBlock]
+    tokens_sequential: list[TokenSequential]

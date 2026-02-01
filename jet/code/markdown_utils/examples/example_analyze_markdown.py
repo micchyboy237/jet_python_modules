@@ -2,7 +2,7 @@ import os
 import shutil
 
 from jet.code.markdown_utils import analyze_markdown
-from jet.code.markdown_utils._markdown_analyzer import get_summary
+from jet.code.markdown_utils._markdown_analyzer import summarize_markdown
 from jet.file.utils import save_file
 from jet.utils.commands import copy_to_clipboard
 from jet.utils.print_utils import print_dict_types
@@ -62,11 +62,14 @@ Use `print("Hello")` for quick debugging.
 """
 
 if __name__ == "__main__":
-    output_dir = os.path.join(os.path.dirname(
-        __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    output_dir = os.path.join(
+        os.path.dirname(__file__),
+        "generated",
+        os.path.splitext(os.path.basename(__file__))[0],
+    )
     shutil.rmtree(output_dir, ignore_errors=True)
 
-    summary = get_summary(md_content)
+    summary = summarize_markdown(md_content)
     results_ignore_links = analyze_markdown(md_content, ignore_links=True)
     results_with_links = analyze_markdown(md_content, ignore_links=False)
 

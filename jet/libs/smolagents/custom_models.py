@@ -906,8 +906,12 @@ class OpenAIModel(ApiModel):
                 if self._call_counter[True] == 1
                 else self._call_counter[True]
             )
+            formatted_messages = [
+                {"role": msg["role"].value, "content": msg["content"][0]["text"]}
+                for msg in completion_kwargs.get("messages", [])
+            ]
             input_tokens = count_tokens(
-                completion_kwargs.get("messages", []),
+                formatted_messages,
                 model=self.model_id,
             )
             request_data = {
@@ -1018,8 +1022,12 @@ class OpenAIModel(ApiModel):
                 if self._call_counter[False] == 1
                 else self._call_counter[False]
             )
+            formatted_messages = [
+                {"role": msg["role"].value, "content": msg["content"][0]["text"]}
+                for msg in completion_kwargs.get("messages", [])
+            ]
             input_tokens = count_tokens(
-                completion_kwargs.get("messages", []),
+                formatted_messages,
                 model=self.model_id,
             )
             request_data = {

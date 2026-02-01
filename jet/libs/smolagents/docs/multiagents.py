@@ -7,23 +7,21 @@ Shows manager (CodeAgent) orchestrating a web sub-agent (ToolCallingAgent).
 
 import re
 import time
-from typing import Optional
 
 import requests
+from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.libs.smolagents.tools.web_search_tool import WebSearchTool
 from markdownify import markdownify
 from requests.exceptions import RequestException
-
-from smolagents import (
-    CodeAgent,
-    ToolCallingAgent,
-    WebSearchTool,
-    tool,
-    OpenAIModel,
-)
-
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from smolagents import (
+    CodeAgent,
+    ToolCallingAgent,
+    tool,
+)
 
 console = Console()
 
@@ -32,16 +30,15 @@ console = Console()
 # Reuse from previous file
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def create_local_model(
     temperature: float = 0.7,
-    max_tokens: Optional[int] = 2048,
-    model_id: str = "local-model",
+    max_tokens: int | None = 4096,
+    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
 ) -> OpenAIModel:
     """Factory for creating consistently configured local llama.cpp model."""
     return OpenAIModel(
         model_id=model_id,
-        base_url="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
         temperature=temperature,
         max_tokens=max_tokens,
     )
@@ -50,6 +47,7 @@ def create_local_model(
 # ──────────────────────────────────────────────────────────────────────────────
 # Tools
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 @tool
 def visit_webpage(url: str) -> str:
@@ -66,8 +64,8 @@ def visit_webpage(url: str) -> str:
         response.raise_for_status()
 
         md = markdownify(response.text).strip()
-        md = re.sub(r"\n{3,}", "\n\n", md)          # collapse excessive newlines
-        md = re.sub(r"\s{2,}", " ", md)             # normalize spaces
+        md = re.sub(r"\n{3,}", "\n\n", md)  # collapse excessive newlines
+        md = re.sub(r"\s{2,}", " ", md)  # normalize spaces
 
         preview = md[:400] + "..." if len(md) > 400 else md
         console.print(f"[dim]Visited {url} → preview: {preview}[/dim]")
@@ -84,7 +82,10 @@ def visit_webpage(url: str) -> str:
 # Agent factories
 # ──────────────────────────────────────────────────────────────────────────────
 
-def create_web_sub_agent(max_steps: int = 10, verbosity_level: int = 1) -> ToolCallingAgent:
+
+def create_web_sub_agent(
+    max_steps: int = 10, verbosity_level: int = 1
+) -> ToolCallingAgent:
     """Creates the web-specialized ToolCallingAgent."""
     model = create_local_model(temperature=0.65)
 
@@ -121,6 +122,7 @@ def create_manager_agent(
 # Demos
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def demo_multi_1_simple_delegation():
     """Demo 1: Simple question that requires web lookup"""
     console.rule("Demo 1: Basic delegation to web agent")
@@ -133,13 +135,12 @@ def demo_multi_1_simple_delegation():
     console.print(f"\n[bold cyan]Question:[/bold cyan] {question}\n")
     start = time.time()
 
-    try:
-        answer = manager.run(question, reset=True)
-        duration = time.time() - start
-        console.print(Panel(answer, title="Final Answer", border_style="green", expand=False))
-        console.print(f"[dim]Completed in {duration:.1f} seconds[/dim]")
-    except Exception as e:
-        console.print(f"[bold red]Error:[/bold red] {str(e)}")
+    answer = manager.run(question, reset=True)
+    duration = time.time() - start
+    console.print(
+        Panel(answer, title="Final Answer", border_style="green", expand=False)
+    )
+    console.print(f"[dim]Completed in {duration:.1f} seconds[/dim]")
 
 
 def demo_multi_2_calculation_plus_research():
@@ -162,13 +163,12 @@ def demo_multi_2_calculation_plus_research():
     console.print(f"\n[bold cyan]Question:[/bold cyan] {question}\n")
     start = time.time()
 
-    try:
-        answer = manager.run(question, reset=True)
-        duration = time.time() - start
-        console.print(Panel(answer, title="Final Answer", border_style="green", expand=False))
-        console.print(f"[dim]Completed in {duration:.1f} seconds[/dim]")
-    except Exception as e:
-        console.print(f"[bold red]Error:[/bold red] {str(e)}")
+    answer = manager.run(question, reset=True)
+    duration = time.time() - start
+    console.print(
+        Panel(answer, title="Final Answer", border_style="green", expand=False)
+    )
+    console.print(f"[dim]Completed in {duration:.1f} seconds[/dim]")
 
 
 def demo_multi_3_inspect_agents_and_memory():
@@ -181,10 +181,7 @@ def demo_multi_3_inspect_agents_and_memory():
     question = "Who won the Nobel Prize in Physics in 2025 and what was it awarded for?"
 
     console.print(f"\n[bold cyan]Running:[/bold cyan] {question}\n")
-    try:
-        _ = manager.run(question, reset=True)
-    except Exception as e:
-        console.print(f"[yellow]Run interrupted/failed: {str(e)}[/yellow]")
+    _ = manager.run(question, reset=True)
 
     # Inspect hierarchy
     table = Table(title="Agent Hierarchy")
@@ -199,6 +196,7 @@ def demo_multi_3_inspect_agents_and_memory():
     if manager.memory.steps:
         console.print("\n[bold]Memory steps summary:[/bold]")
         from collections import Counter
+
         types = Counter(type(s).__name__ for s in manager.memory.steps)
         for t, c in types.most_common():
             console.print(f"  • {t:18} : {c:2d}x")

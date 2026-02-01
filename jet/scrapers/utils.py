@@ -1,35 +1,34 @@
+import base64
+import json
+import os
+import re
+import uuid
+from collections.abc import AsyncGenerator
+from datetime import datetime
+from pathlib import Path
+from typing import Literal, Optional, TypedDict, Union
+from urllib.parse import urljoin, urlparse
+
+import parsel
 import requests
 import validators
-import uuid
-import os
-import json
-import re
-import parsel
-import base64
-
-from datetime import datetime
+from bs4 import BeautifulSoup
+from fake_useragent import UserAgent
+from jet.file.utils import save_file
+from jet.logger import logger
+from jet.logger.config import colorize_log
+from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
+from jet.scrapers.config import JS_UTILS_PATH, TEXT_ELEMENTS
+from jet.search.formatters import decode_text_with_unidecode
+from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
+from jet.transformers.formatters import format_html
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+from jet.utils.text import fix_and_unidecode
 from lxml.etree import Comment
 from lxml.html import HtmlElement
-from typing import Literal, Optional, List, Dict, Set, TypedDict, Union
-from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from pathlib import Path
-from typing import AsyncGenerator, Tuple
-from urllib.parse import urljoin, urlparse
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 from pyquery import PyQuery as pq
-from fake_useragent import UserAgent
-
-from jet.file.utils import save_file
-from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
-from jet.transformers.formatters import format_html
-from jet.scrapers.config import TEXT_ELEMENTS, JS_UTILS_PATH
-from jet.search.formatters import decode_text_with_unidecode
-from jet.search.searxng import NoResultsFoundError, search_searxng, SearchResult
-from jet.logger.config import colorize_log
-from jet.logger import logger
-from jet.utils.text import fix_and_unidecode
-from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
-
 
 # def scrape_links(html: str, base_url: Optional[str] = None) -> List[str]:
 #     # Target attributes to extract
@@ -101,7 +100,7 @@ from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 #     return list(dict.fromkeys(filtered))
 
 
-def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
+def scrape_links(text: str, base_url: str | None = None) -> list[str]:
     """
     Scrape all URLs from text, including absolute URLs and relative paths starting with '/'.
     If base_url is provided, convert relative paths to absolute URLs using base_url's scheme and host.
@@ -114,7 +113,7 @@ def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
         List of unique URLs found in the text
     """
     # Regex pattern for URLs (absolute http(s) and relative paths starting with /)
-    url_pattern = r'(?:(?:http|https)://[\w\-\./?:=&%#]+)|(?:/[\w\-\./?:=&%#]*)'
+    url_pattern = r"(?:(?:http|https)://[\w\-\./?:=&%#]+)|(?:/[\w\-\./?:=&%#]*)"
 
     # Find all matches in text
     links = re.findall(url_pattern, text)
@@ -125,21 +124,17 @@ def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
     # Handle base_url for relative paths
     if base_url:
         # Ensure base_url ends with a slash for proper joining
-        if not base_url.endswith('/'):
-            base_url = base_url + '/'
+        if not base_url.endswith("/"):
+            base_url = base_url + "/"
 
         # Convert relative paths to absolute URLs
         links = [
-            urljoin(base_url, link) if link.startswith('/') else link
-            for link in links
+            urljoin(base_url, link) if link.startswith("/") else link for link in links
         ]
 
     # Remove duplicates while preserving order
     seen = set()
-    unique_links = [
-        link for link in links
-        if not (link in seen or seen.add(link))
-    ]
+    unique_links = [link for link in links if not (link in seen or seen.add(link))]
 
     # Validate URLs and filter out invalid ones
     valid_links = []
@@ -148,15 +143,19 @@ def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
         try:
             parsed = urlparse(link)
             # Include relative paths starting with '/' even without base_url
-            if parsed.path.startswith('/') and not parsed.scheme and not base_url:
+            if parsed.path.startswith("/") and not parsed.scheme and not base_url:
                 valid_links.append(link)
                 continue
             # Only include http/https schemes with valid netloc
-            if parsed.scheme in ('http', 'https') and parsed.netloc:
+            if parsed.scheme in ("http", "https") and parsed.netloc:
                 # Exclude URLs that are just the base_url or base_url with slash
-                if not (parsed_base and parsed.netloc == parsed_base.netloc and parsed.path in ('', '/')):
+                if not (
+                    parsed_base
+                    and parsed.netloc == parsed_base.netloc
+                    and parsed.path in ("", "/")
+                ):
                     # Basic validation for path characters
-                    if all(c not in '<>"\'' for c in link):
+                    if all(c not in "<>\"'" for c in link):
                         valid_links.append(link)
         except ValueError:
             continue
@@ -165,26 +164,44 @@ def scrape_links(text: str, base_url: Optional[str] = None) -> List[str]:
 
 
 class TitleMetadata(TypedDict):
-    title: Optional[str]
-    metadata: Dict[str, str]
+    title: str | None
+    metadata: dict[str, str]
 
 
-def scrape_title(html: str) -> Optional[str]:
+def scrape_title(html: str) -> str | None:
     """
     Scrape the title from an HTML string.
+
+    Priority order:
+    1. Content of <title> tag (most authoritative)
+    2. Content of first <h1> tag as fallback (common on modern pages)
 
     Args:
         html: The HTML content to scrape.
 
     Returns:
-        The page title as a string, or None if not found.
+        The page title as a string, or None if neither source provides a usable title.
     """
-    soup = BeautifulSoup(html, 'html.parser')
-    title_tag = soup.find('title')
-    return title_tag.get_text().strip() if title_tag else None
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Priority 1: classic <title> tag
+    title_tag = soup.find("title")
+    if title_tag:
+        title_text = title_tag.get_text().strip()
+        if title_text:
+            return title_text
+
+    # Priority 2: fallback to first <h1>
+    h1_tag = soup.find("h1")
+    if h1_tag:
+        h1_text = h1_tag.get_text().strip()
+        if h1_text:
+            return h1_text
+
+    return None
 
 
-def scrape_metadata(html: str) -> Dict[str, str]:
+def scrape_metadata(html: str) -> dict[str, str]:
     """
     Scrape metadata from an HTML string.
 
@@ -194,26 +211,26 @@ def scrape_metadata(html: str) -> Dict[str, str]:
     Returns:
         A dictionary of metadata key-value pairs.
     """
-    soup = BeautifulSoup(html, 'html.parser')
-    metadata: Dict[str, str] = {}
-    meta_tags = soup.find_all('meta')
+    soup = BeautifulSoup(html, "html.parser")
+    metadata: dict[str, str] = {}
+    meta_tags = soup.find_all("meta")
 
     for meta in meta_tags:
         # Handle name or property attributes
-        name = meta.get('name') or meta.get('property')
-        content = meta.get('content')
+        name = meta.get("name") or meta.get("property")
+        content = meta.get("content")
         if name and content:
             metadata[name] = content
 
         # Handle http-equiv meta tags
-        http_equiv = meta.get('http-equiv')
+        http_equiv = meta.get("http-equiv")
         if http_equiv and content:
-            metadata[f'http-equiv:{http_equiv}'] = content
+            metadata[f"http-equiv:{http_equiv}"] = content
 
         # Handle charset meta tags
-        charset = meta.get('charset')
+        charset = meta.get("charset")
         if charset:
-            metadata['charset'] = charset
+            metadata["charset"] = charset
 
     return metadata
 
@@ -228,10 +245,7 @@ def scrape_title_and_metadata(html: str) -> TitleMetadata:
     Returns:
         A TitleMetadata dictionary containing the page title and metadata key-value pairs.
     """
-    return {
-        'title': scrape_title(html),
-        'metadata': scrape_metadata(html)
-    }
+    return {"title": scrape_title(html), "metadata": scrape_metadata(html)}
 
 
 def scrape_published_date(html: str) -> str:
@@ -244,56 +258,57 @@ def scrape_published_date(html: str) -> str:
     Returns:
         The published date in ISO 8601 format (e.g., '2023-10-15T00:00:00Z'), or an empty string if not found or unparsable.
     """
-    soup = BeautifulSoup(html, 'html.parser')
-    meta_tags = soup.find_all('meta')
+    soup = BeautifulSoup(html, "html.parser")
+    meta_tags = soup.find_all("meta")
 
     date_keys = [
-        'article:published_time',  # Open Graph
-        'og:published_time',      # Open Graph alternative
-        'dc.date',                # Dublin Core
-        'dc.date.issued',         # Dublin Core
-        'datePublished',          # Schema.org
-        'pubdate',                # HTML5
-        'publication_date',       # Generic
-        'date'                    # Generic
+        "article:published_time",  # Open Graph
+        "og:published_time",  # Open Graph alternative
+        "dc.date",  # Dublin Core
+        "dc.date.issued",  # Dublin Core
+        "datePublished",  # Schema.org
+        "pubdate",  # HTML5
+        "publication_date",  # Generic
+        "date",  # Generic
     ]
 
     # Common date formats to try
     date_formats = [
-        '%Y-%m-%dT%H:%M:%S%z',  # 2023-10-15T12:00:00Z or 2023-10-15T12:00:00+0000
-        '%Y-%m-%d %H:%M:%S',   # 2023-10-15 12:00:00
-        '%Y-%m-%d',            # 2023-10-15
-        '%Y/%m/%d',            # 2023/10/15
+        "%Y-%m-%dT%H:%M:%S%z",  # 2023-10-15T12:00:00Z or 2023-10-15T12:00:00+0000
+        "%Y-%m-%d %H:%M:%S",  # 2023-10-15 12:00:00
+        "%Y-%m-%d",  # 2023-10-15
+        "%Y/%m/%d",  # 2023/10/15
     ]
 
     for meta in meta_tags:
-        name = meta.get('name') or meta.get('property')
-        content = meta.get('content')
+        name = meta.get("name") or meta.get("property")
+        content = meta.get("content")
         if name in date_keys and content:
             content = content.strip()
             for date_format in date_formats:
                 try:
                     parsed_date = datetime.strptime(content, date_format)
-                    return parsed_date.isoformat() + 'Z'  # Ensure UTC 'Z' suffix
+                    return parsed_date.isoformat() + "Z"  # Ensure UTC 'Z' suffix
                 except ValueError:
                     continue
 
     # Check <time> tags
-    time_tag = soup.find('time', pubdate=True) or soup.find(
-        'time', datetime=True)
-    if time_tag and time_tag.get('datetime'):
-        content = time_tag.get('datetime').strip()
+    time_tag = soup.find("time", pubdate=True) or soup.find("time", datetime=True)
+    if time_tag and time_tag.get("datetime"):
+        content = time_tag.get("datetime").strip()
         for date_format in date_formats:
             try:
                 parsed_date = datetime.strptime(content, date_format)
-                return parsed_date.isoformat() + 'Z'  # Ensure UTC 'Z' suffix
+                return parsed_date.isoformat() + "Z"  # Ensure UTC 'Z' suffix
             except ValueError:
                 continue
 
     return ""
 
 
-def get_max_prompt_char_length(context_length: int, avg_chars_per_token: float = 4.0) -> int:
+def get_max_prompt_char_length(
+    context_length: int, avg_chars_per_token: float = 4.0
+) -> int:
     """
     Calculate the maximum number of characters that can be added to a prompt.
 
@@ -315,8 +330,7 @@ def clean_tags(root: parsel.Selector) -> parsel.Selector:
     Retain only text-bearing elements.
     """
     # Exclude elements that don't contribute to visible text
-    tags_to_exclude = ["style", "script", "nav", "footer",
-                       "aside", "img", "sup", "sub"]
+    tags_to_exclude = ["style", "script", "nav", "footer", "aside", "img", "sup", "sub"]
     for tag in tags_to_exclude:
         # Remove elements with the specified tag
         root.css(tag).remove()
@@ -355,15 +369,16 @@ def clean_newlines(content, max_newlines: int = 2, strip_lines: bool = False) ->
         str: The cleaned text.
     """
     if strip_lines:
-        content = '\n'.join([line.strip() for line in content.split('\n')])
+        content = "\n".join([line.strip() for line in content.split("\n")])
     else:
-        content = '\n'.join([line.rstrip() for line in content.split('\n')])
+        content = "\n".join([line.rstrip() for line in content.split("\n")])
 
     if max_newlines == 0:
-        content = re.sub(r'\n+', ' ', content)
+        content = re.sub(r"\n+", " ", content)
     else:
         content = re.sub(
-            r'(\n{' + str(max_newlines + 1) + r',})', '\n' * max_newlines, content)
+            r"(\n{" + str(max_newlines + 1) + r",})", "\n" * max_newlines, content
+        )
 
     return content
 
@@ -381,18 +396,18 @@ def clean_markdown_formatting(content: str) -> str:
     """
 
     # Remove bold (**text**, __text__)
-    content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)
-    content = re.sub(r'__(.*?)__', r'\1', content)
+    content = re.sub(r"\*\*(.*?)\*\*", r"\1", content)
+    content = re.sub(r"__(.*?)__", r"\1", content)
 
     # Remove italic (*text*, _text_)
-    content = re.sub(r'\*(.*?)\*', r'\1', content)
-    content = re.sub(r'_(.*?)_', r'\1', content)
+    content = re.sub(r"\*(.*?)\*", r"\1", content)
+    content = re.sub(r"_(.*?)_", r"\1", content)
 
     # Remove strikethrough (~~text~~)
-    content = re.sub(r'~~(.*?)~~', r'\1', content)
+    content = re.sub(r"~~(.*?)~~", r"\1", content)
 
     # Remove horizontal rules (---, ***, ___)
-    content = re.sub(r'^\s*[-*_]{3,}\s*$', '', content, flags=re.MULTILINE)
+    content = re.sub(r"^\s*[-*_]{3,}\s*$", "", content, flags=re.MULTILINE)
 
     return content.strip()
 
@@ -416,10 +431,11 @@ def clean_punctuations(content: str) -> str:
         String with cleaned punctuation and hyphens replaced by spaces.
     """
     # Replace all hyphens with a space
-    content = re.sub(r'-', ' ', content)
+    content = re.sub(r"-", " ", content)
     # Replace consecutive punctuation with the last punctuation mark
-    content = re.sub(r'([.?!]+)', lambda match: match.group()[-1], content)
+    content = re.sub(r"([.?!]+)", lambda match: match.group()[-1], content)
     return content
+
 
 # def clean_punctuations(content: str) -> str:
 #     """
@@ -467,7 +483,7 @@ def clean_punctuations(content: str) -> str:
 #     return content
 
 
-def protect_links(text: str) -> Tuple[str, List[str]]:
+def protect_links(text: str) -> tuple[str, list[str]]:
     """
     Protect markdown links and plain URLs by replacing them with placeholders.
 
@@ -488,7 +504,7 @@ def protect_links(text: str) -> Tuple[str, List[str]]:
         replacements.append((match.start(), match.end(), full_link))
 
     # Match plain URLs (http(s):// followed by non-whitespace characters, excluding markdown links)
-    plain_url_pattern = r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]'
+    plain_url_pattern = r"(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]"
     for match in re.finditer(plain_url_pattern, text):
         full_url = match.group(0)
         if not any(full_url in link for link in links):
@@ -505,14 +521,13 @@ def protect_links(text: str) -> Tuple[str, List[str]]:
         placeholder = f"__LINK_{i}_{uuid.uuid4().hex[:8]}__"
         start += offset
         end += offset
-        protected_text = protected_text[:start] + \
-            placeholder + protected_text[end:]
+        protected_text = protected_text[:start] + placeholder + protected_text[end:]
         offset += len(placeholder) - (end - start)
 
     return protected_text, links
 
 
-def restore_links(text: str, links: List[str]) -> str:
+def restore_links(text: str, links: list[str]) -> str:
     """
     Restore protected links in the text by replacing placeholders with the original links.
 
@@ -534,16 +549,16 @@ def clean_spaces(content: str) -> str:
     content, links = protect_links(content)
 
     # Remove spaces before .?!,;:])}
-    content = re.sub(r'\s*([.?!,;:\]\)}])', r'\1', content)
+    content = re.sub(r"\s*([.?!,;:\]\)}])", r"\1", content)
 
     # Ensure single space *after* punctuation if followed by alphanum
     # content = re.sub(r'([.?!,;:\]\)}])(\w)', r'\1 \2', content)
 
     # Remove consecutive spaces
-    content = re.sub(r' +', ' ', content).strip()
+    content = re.sub(r" +", " ", content).strip()
 
     # Remove empty brackets or brackets with only spaces
-    content = re.sub(r'\[\s*\]', '', content)
+    content = re.sub(r"\[\s*\]", "", content)
 
     content = restore_links(content, links)
     return content
@@ -551,7 +566,7 @@ def clean_spaces(content: str) -> str:
 
 def clean_non_ascii(content: str) -> str:
     """Remove non-ASCII characters from the content."""
-    return ''.join(i for i in content if ord(i) < 128)
+    return "".join(i for i in content if ord(i) < 128)
 
 
 def clean_other_characters(content: str) -> str:
@@ -568,7 +583,7 @@ def clean_non_alphanumeric(text: str, include_chars: list[str] = []) -> str:
     :return: A cleaned string with only alphanumeric characters and optional included characters.
     """
     if include_chars:
-        allowed_chars = ''.join(re.escape(char) for char in include_chars)
+        allowed_chars = "".join(re.escape(char) for char in include_chars)
         pattern = f"[^a-zA-Z0-9{allowed_chars}]"
     else:
         pattern = r"[^a-zA-Z0-9]"
@@ -579,6 +594,7 @@ def clean_non_alphanumeric(text: str, include_chars: list[str] = []) -> str:
 def extract_sentences(content: str) -> list[str]:
     """Extract sentences from the content."""
     from jet.libs.txtai.pipeline import Textractor
+
     minlength = None
     textractor_sentences = Textractor(sentences=True, minlength=minlength)
     sentences = textractor_sentences(content)
@@ -588,6 +604,7 @@ def extract_sentences(content: str) -> list[str]:
 def extract_paragraphs(content: str) -> list[str]:
     """Extract paragraphs from the content."""
     from jet.libs.txtai.pipeline import Textractor
+
     minlength = None
     textractor_paragraphs = Textractor(paragraphs=True, minlength=minlength)
     paragraphs = textractor_paragraphs(content)
@@ -597,6 +614,7 @@ def extract_paragraphs(content: str) -> list[str]:
 def extract_sections(content: str) -> list[str]:
     """Extract sections from the content."""
     from jet.libs.txtai.pipeline import Textractor
+
     minlength = None
     textractor_sections = Textractor(sections=True, minlength=minlength)
     sections = textractor_sections(content)
@@ -608,7 +626,9 @@ def merge_texts(texts: list[str], max_chars_text: int) -> list[str]:
     merged_texts = []
     current_text = ""
     for text in texts:
-        if len(current_text) + len(text) + 1 < max_chars_text:  # +1 for the newline character
+        if (
+            len(current_text) + len(text) + 1 < max_chars_text
+        ):  # +1 for the newline character
             if current_text:
                 current_text += "\n"  # Separate texts by newline
             current_text += text
@@ -620,7 +640,9 @@ def merge_texts(texts: list[str], max_chars_text: int) -> list[str]:
     return merged_texts
 
 
-def merge_texts_with_overlap(texts: List[str], max_chars_overlap: int = None) -> List[str]:
+def merge_texts_with_overlap(
+    texts: list[str], max_chars_overlap: int = None
+) -> list[str]:
     merged_texts_with_overlaps = []
 
     for i in range(len(texts)):
@@ -640,7 +662,7 @@ def merge_texts_with_overlap(texts: List[str], max_chars_overlap: int = None) ->
     return merged_texts_with_overlaps
 
 
-def split_text(text: str, chunk_size: int, overlap: int) -> List[str]:
+def split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     if chunk_size <= 0:
         raise ValueError("chunk_size must be greater than 0")
     if overlap < 0:
@@ -671,16 +693,18 @@ def find_elements_with_text(html: str):
     matching_parents = []
     seen_parents = set()
 
-    for element in doc('*'):  # Iterate through all elements
+    for element in doc("*"):  # Iterate through all elements
         text = pq(element).text().strip()
         if text:  # If element contains text
             element_html = pq(element).outerHtml()
             if element_html not in seen_parents:  # Avoid duplicates
-                matching_parents.append({
-                    # PyQuery object (keeps all elements)
-                    "parent": pq(element),
-                    "text": text,           # The full text inside this element
-                })
+                matching_parents.append(
+                    {
+                        # PyQuery object (keeps all elements)
+                        "parent": pq(element),
+                        "text": text,  # The full text inside this element
+                    }
+                )
                 seen_parents.add(element_html)  # Mark as seen
 
     return matching_parents  # Returns list of dictionaries
@@ -697,7 +721,7 @@ def extract_title_and_metadata(source: str, timeout_ms: int = 1000) -> TitleMeta
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
 
-    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+    if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
     else:
@@ -728,19 +752,16 @@ def extract_title_and_metadata(source: str, timeout_ms: int = 1000) -> TitleMeta
 
         browser.close()
 
-    return {
-        "title": title,
-        "metadata": metadata
-    }
+    return {"title": title, "metadata": metadata}
 
 
-def extract_favicon_ico_link(source: str) -> Optional[str]:
+def extract_favicon_ico_link(source: str) -> str | None:
     """
     Extracts the favicon.ico link from a given URL or HTML string.
-    
+
     Args:
         source: The URL of the website or HTML string to extract the favicon from.
-        
+
     Returns:
         The absolute URL of the favicon.ico if found, None otherwise.
     """
@@ -759,32 +780,34 @@ def extract_favicon_ico_link(source: str) -> Optional[str]:
             base_url = "https://example.com"
 
         # Parse HTML content
-        soup = BeautifulSoup(html_content, 'html.parser')
-        
+        soup = BeautifulSoup(html_content, "html.parser")
+
         # Look for favicon in <link> tags
-        favicon_link = soup.find('link', rel=lambda x: x and 'icon' in x.lower())
-        
-        if favicon_link and favicon_link.get('href'):
+        favicon_link = soup.find("link", rel=lambda x: x and "icon" in x.lower())
+
+        if favicon_link and favicon_link.get("href"):
             # Convert relative URL to absolute
-            return urljoin(base_url, favicon_link['href'])
-        
+            return urljoin(base_url, favicon_link["href"])
+
         # Fallback: try default /favicon.ico path (only for valid URLs)
         if validators.url(source):
             parsed_url = urlparse(source)
             default_favicon = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
-            
+
             # Verify if default favicon exists
             favicon_response = requests.head(default_favicon, timeout=5)
             if favicon_response.status_code == 200:
                 return default_favicon
-            
+
         return None
-        
+
     except (requests.RequestException, ValueError):
         return None
 
 
-def extract_internal_links(source: str, base_url: str, timeout_ms: int = 1000) -> List[str]:
+def extract_internal_links(
+    source: str, base_url: str, timeout_ms: int = 1000
+) -> list[str]:
     """
     Extracts all internal links from the HTML or dynamic content. These are links:
     - Starting with "/"
@@ -798,7 +821,7 @@ def extract_internal_links(source: str, base_url: str, timeout_ms: int = 1000) -
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
 
-    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+    if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
     else:
@@ -842,11 +865,13 @@ def extract_internal_links(source: str, base_url: str, timeout_ms: int = 1000) -
     return sorted(internal_links)
 
 
-def extract_clickable_texts_from_rendered_page(source: str, timeout_ms: int = 1000) -> List[str]:
+def extract_clickable_texts_from_rendered_page(
+    source: str, timeout_ms: int = 1000
+) -> list[str]:
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
 
-    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+    if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
     else:
@@ -909,14 +934,14 @@ def extract_clickable_texts_from_rendered_page(source: str, timeout_ms: int = 10
 
 def extract_element_screenshots(
     source: str,
-    css_selectors: List[str] = [],
+    css_selectors: list[str] = [],
     output_dir: str = "generated/screenshots",
-    timeout_ms: int = 1000
-) -> List[str]:
+    timeout_ms: int = 1000,
+) -> list[str]:
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
 
-    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+    if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
     else:
@@ -952,8 +977,12 @@ def extract_element_screenshots(
                     except PlaywrightTimeoutError:
                         continue
 
-                    clean_selector = selector.strip('.#> ').replace(
-                        ' ', '_').replace('[', '').replace(']', '')
+                    clean_selector = (
+                        selector.strip(".#> ")
+                        .replace(" ", "_")
+                        .replace("[", "")
+                        .replace("]", "")
+                    )
                     path = f"{output_dir}/{clean_selector}_{i}.png"
                     el.screenshot(path=path)
                     screenshots.append(path)
@@ -969,11 +998,11 @@ def extract_element_screenshots(
     return screenshots
 
 
-def extract_form_elements(source: str, timeout_ms: int = 1000) -> List[str]:
+def extract_form_elements(source: str, timeout_ms: int = 1000) -> list[str]:
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
 
-    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+    if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
     else:
@@ -1023,11 +1052,11 @@ def extract_form_elements(source: str, timeout_ms: int = 1000) -> List[str]:
         return form_elements
 
 
-def extract_search_inputs(source: str, timeout_ms: int = 1000) -> List[str]:
+def extract_search_inputs(source: str, timeout_ms: int = 1000) -> list[str]:
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
 
-    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+    if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
     else:
@@ -1130,7 +1159,9 @@ def get_css_selector(element: HtmlElement) -> str:
         if el_class:
             classes = [cls for cls in el_class.split() if not cls.startswith("css-")]
             if classes:
-                safe_classes = ".".join(re.sub(r"[^A-Za-z0-9_-]", "", c) for c in classes)
+                safe_classes = ".".join(
+                    re.sub(r"[^A-Za-z0-9_-]", "", c) for c in classes
+                )
                 selector = f"{tag}.{safe_classes}"
                 path.insert(0, selector)
                 current = current.getparent()
@@ -1156,10 +1187,8 @@ def get_css_selector(element: HtmlElement) -> str:
     return " > ".join(path)
 
 
-
 def is_element_clickable(
-    element: HtmlElement,
-    js_clickables: Optional[List[Dict[str, str]]] = None
+    element: HtmlElement, js_clickables: list[dict[str, str]] | None = None
 ) -> bool:
     """
     Determines if an element is clickable using:
@@ -1225,13 +1254,14 @@ def is_element_clickable(
 
 class ElementDetails(TypedDict):
     """Complete low-level element metadata."""
+
     tag: str
     id: str
-    parent_id: Optional[str]
-    attrs: Dict[str, str]
-    direct_text: Optional[str]
-    xpath: Optional[str]
-    css_selector: Optional[str]
+    parent_id: str | None
+    attrs: dict[str, str]
+    direct_text: str | None
+    xpath: str | None
+    css_selector: str | None
     is_clickable: bool
 
 
@@ -1241,17 +1271,17 @@ class BaseNode:
     def __init__(
         self,
         tag: str,
-        text: Optional[str],
+        text: str | None,
         depth: int,
         id: str,
-        parent_class_names: List[str] = [],  # <-- NEW
-        class_names: List[str] = [],
+        parent_class_names: list[str] = [],  # <-- NEW
+        class_names: list[str] = [],
         line: int = 0,
-        xpath: Optional[str] = None,
-        css_selector: Optional[str] = None,
-        is_clickable: Optional[bool] = None,
-        html: Optional[str] = None,
-        element: Optional[HtmlElement] = None,
+        xpath: str | None = None,
+        css_selector: str | None = None,
+        is_clickable: bool | None = None,
+        html: str | None = None,
+        element: HtmlElement | None = None,
     ):
         self.tag = tag
         self.text = text
@@ -1275,10 +1305,10 @@ class BaseNode:
         """
         return self._html
 
-    def get_element(self) -> Optional[HtmlElement]:
+    def get_element(self) -> HtmlElement | None:
         return self._element
 
-    def get_element_details(self) -> Optional[ElementDetails]:
+    def get_element_details(self) -> ElementDetails | None:
         """
         Return a typed dictionary with:
         - tag
@@ -1290,18 +1320,22 @@ class BaseNode:
         - css_selector (computed)
         - is_clickable (determined via heuristic)
         """
-        element: Optional[HtmlElement] = self.get_element()
+        element: HtmlElement | None = self.get_element()
         if element is None:
             return None
 
         # Use tree-level parent reference if available (TreeNode)
-        parent_id: Optional[str] = None
+        parent_id: str | None = None
         if isinstance(self, TreeNode):
             parent_id = self.parent_id
         elif element.getparent() is not None:
             parent_elem = element.getparent()
 
-        direct_text = (element.text_content() if element.tag in TEXT_ELEMENTS else element.text or "").strip()
+        direct_text = (
+            element.text_content()
+            if element.tag in TEXT_ELEMENTS
+            else element.text or ""
+        ).strip()
 
         # Prefer cached xpath
         xpath = self.xpath or get_xpath(element)
@@ -1319,7 +1353,7 @@ class BaseNode:
             is_clickable=is_clickable,
         )
 
-    def get_node(self, node_id: str) -> Optional['BaseNode']:
+    def get_node(self, node_id: str) -> Optional["BaseNode"]:
         """
         Retrieves a node by its ID. BaseNode implementation returns self if ID matches.
 
@@ -1338,18 +1372,18 @@ class TreeNode(BaseNode):
     def __init__(
         self,
         tag: str,
-        text: Optional[str],
+        text: str | None,
         depth: int,
         id: str,
-        class_names: List[str] = [],
-        parent_class_names: List[str] = [],  # <-- NEW
-        children: Optional[List['TreeNode']] = None,
+        class_names: list[str] = [],
+        parent_class_names: list[str] = [],  # <-- NEW
+        children: list["TreeNode"] | None = None,
         line: int = 0,
-        xpath: Optional[str] = None,
-        css_selector: Optional[str] = None,
-        is_clickable: Optional[bool] = None,
-        html: Optional[str] = None,
-        element: Optional[HtmlElement] = None,
+        xpath: str | None = None,
+        css_selector: str | None = None,
+        is_clickable: bool | None = None,
+        html: str | None = None,
+        element: HtmlElement | None = None,
     ):
         super().__init__(
             tag=tag,
@@ -1366,9 +1400,9 @@ class TreeNode(BaseNode):
             element=element,
         )
         self._text = text
-        self._children: List['TreeNode'] = children if children is not None else []
-        self._parent_node: Optional['TreeNode'] = None
-        self._links: List[str] = []
+        self._children: list[TreeNode] = children if children is not None else []
+        self._parent_node: TreeNode | None = None
+        self._links: list[str] = []
         self._initialize_links()
 
     def _initialize_links(self) -> None:
@@ -1382,11 +1416,10 @@ class TreeNode(BaseNode):
         for child in self._children:
             links.extend(child._links)
         seen = set()
-        self._links = [link for link in links if not (
-            link in seen or seen.add(link))]
+        self._links = [link for link in links if not (link in seen or seen.add(link))]
 
     @property
-    def parent_id(self) -> Optional[str]:
+    def parent_id(self) -> str | None:
         """
         Returns the ID of the parent node if it exists, else None.
 
@@ -1444,7 +1477,7 @@ class TreeNode(BaseNode):
         return self._text or ""
 
     @text.setter
-    def text(self, value: Optional[str]) -> None:
+    def text(self, value: str | None) -> None:
         """
         Sets the internal text value.
 
@@ -1454,7 +1487,7 @@ class TreeNode(BaseNode):
         self._text = value
 
     @property
-    def level(self) -> Optional[int]:
+    def level(self) -> int | None:
         """
         Returns the heading level (1–6) if the node is a heading tag, else None.
 
@@ -1488,7 +1521,7 @@ class TreeNode(BaseNode):
     #     return parent.content if parent else None
 
     @property
-    def parent_level(self) -> Optional[int]:
+    def parent_level(self) -> int | None:
         """
         Returns the heading level of the parent node if it exists, else None.
 
@@ -1515,7 +1548,7 @@ class TreeNode(BaseNode):
     #     headers.sort(key=lambda x: x[1])
     #     return [header for header, _ in headers]
 
-    def get_parent_node(self) -> Optional['TreeNode']:
+    def get_parent_node(self) -> Optional["TreeNode"]:
         """
         Retrieves the parent node stored in the _parent_node attribute.
 
@@ -1524,7 +1557,7 @@ class TreeNode(BaseNode):
         """
         return self._parent_node
 
-    def get_node(self, node_id: str) -> Optional[Union['TreeNode', 'BaseNode']]:
+    def get_node(self, node_id: str) -> Union["TreeNode", "BaseNode"] | None:
         """
         Retrieves a node by its ID from the tree, searching recursively through children.
 
@@ -1568,7 +1601,7 @@ class TreeNode(BaseNode):
         """
         return len(self._children) > 0
 
-    def get_children(self) -> List['TreeNode']:
+    def get_children(self) -> list["TreeNode"]:
         """
         Returns the list of child nodes.
 
@@ -1576,7 +1609,7 @@ class TreeNode(BaseNode):
         """
         return self._children
 
-    def get_links(self) -> List[str]:
+    def get_links(self) -> list[str]:
         """
         Returns a list of all unique URLs found in this node's outer HTML and its descendants' outer HTML.
 
@@ -1585,14 +1618,14 @@ class TreeNode(BaseNode):
         return self._links
 
     @property
-    def children(self) -> List['TreeNode']:
+    def children(self) -> list["TreeNode"]:
         """
         Public read-only access to the node's children.
         """
         return self._children.copy()
 
 
-def exclude_elements(doc: pq, excludes: List[str]) -> None:
+def exclude_elements(doc: pq, excludes: list[str]) -> None:
     """
     Removes elements from the document that match the tags in the excludes list.
 
@@ -1606,7 +1639,7 @@ def exclude_elements(doc: pq, excludes: List[str]) -> None:
 
 def extract_tree_with_text(
     source: str,
-    excludes: List[str] = ["nav", "footer", "script", "style"],
+    excludes: list[str] = ["nav", "footer", "script", "style"],
     timeout_ms: int = 10000,
     with_screenshot: bool = True,
     wait_for_js: bool = True,
@@ -1678,7 +1711,9 @@ def extract_tree_with_text(
                 clickable_selectors.add(selector.strip())
 
         out_dir = f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}"
-        logger.debug(f"Prepared clickable selector set: {len(clickable_selectors)} items")
+        logger.debug(
+            f"Prepared clickable selector set: {len(clickable_selectors)} items"
+        )
         save_file(clickables, f"{out_dir}/clickables.json")
         save_file(js_clickables, f"{out_dir}/js_clickables.json")
         save_file(clickable_selectors, f"{out_dir}/clickable_selectors.json")
@@ -1721,7 +1756,11 @@ def extract_tree_with_text(
         parent_pq = pq(el) if el is not None else None
         parent_class_names = []
         if parent_pq is not None:
-            parent_class_names = [cls for cls in (parent_pq.attr("class") or "").split() if not cls.startswith("css-")]
+            parent_class_names = [
+                cls
+                for cls in (parent_pq.attr("class") or "").split()
+                if not cls.startswith("css-")
+            ]
 
         for child in el_pq.children():
             child_pq = pq(child)
@@ -1729,27 +1768,35 @@ def extract_tree_with_text(
                 continue
 
             tag = child.tag if isinstance(child.tag, str) else str(child.tag)
-            class_names = [cls for cls in (child_pq.attr("class") or "").split() if not cls.startswith("css-")]
+            class_names = [
+                cls
+                for cls in (child_pq.attr("class") or "").split()
+                if not cls.startswith("css-")
+            ]
             element_id = child_pq.attr("id") or f"auto_{uuid.uuid4().hex[:8]}"
 
             # --- Extract text ---
             if tag.lower() == "meta":
-                text = decode_text_with_unidecode((child_pq.attr("content") or "").strip())
+                text = decode_text_with_unidecode(
+                    (child_pq.attr("content") or "").strip()
+                )
             elif tag.lower() in TEXT_ELEMENTS:
                 text_parts = []
                 for item in child_pq.contents():
                     if isinstance(item, str):
                         text_parts.append(item.strip())
                     elif hasattr(item, "tag") and item.tag == "br":
-                        text_parts.append('\n')
+                        text_parts.append("\n")
                     else:
-                        text_parts.append(decode_text_with_unidecode(pq(item).text().strip()))
+                        text_parts.append(
+                            decode_text_with_unidecode(pq(item).text().strip())
+                        )
                 text = " ".join(part for part in text_parts if part)
                 # Remove whitespace surrounding newlines
-                text = re.sub(r'[ \t\r\f\v]*\n[ \t\r\f\v]*', '\n', text)
+                text = re.sub(r"[ \t\r\f\v]*\n[ \t\r\f\v]*", "\n", text)
             else:
-                direct_text_parts: List[str] = []
-                tail_text_parts: List[str] = []
+                direct_text_parts: list[str] = []
+                tail_text_parts: list[str] = []
 
                 # Collect direct text (element.text) and tail text from descendants
                 current = child
@@ -1762,8 +1809,14 @@ def extract_tree_with_text(
                     current = current.getnext()
 
                 # For non-text elements: only direct text (element.text), preserve newlines via <br>
-                direct_text = "".join(part for part in direct_text_parts if part.strip())
-                text = decode_text_with_unidecode(direct_text.strip()) if direct_text else None
+                direct_text = "".join(
+                    part for part in direct_text_parts if part.strip()
+                )
+                text = (
+                    decode_text_with_unidecode(direct_text.strip())
+                    if direct_text
+                    else None
+                )
 
             # --- Line number ---
             line_number = getattr(child, "sourceline", None)
@@ -1803,7 +1856,11 @@ def extract_tree_with_text(
             if child_node._parent_node is None:
                 child_node._parent_node = parent_node
 
-            if parent_node.text and child_node.text and child_node.text in parent_node.text:
+            if (
+                parent_node.text
+                and child_node.text
+                and child_node.text in parent_node.text
+            ):
                 parent_node.text = ""
 
             parent_node._children.append(child_node)
@@ -1816,7 +1873,7 @@ def extract_tree_with_text(
 
 def extract_by_heading_hierarchy(
     source: str,
-    tags_to_split_on: List[Tuple[str, str]] = [
+    tags_to_split_on: list[tuple[str, str]] = [
         ("#", "h1"),
         ("##", "h2"),
         ("###", "h3"),
@@ -1824,8 +1881,8 @@ def extract_by_heading_hierarchy(
         ("#####", "h5"),
         ("######", "h6"),
     ],
-    excludes: List[str] = ["nav", "footer", "script", "style"]
-) -> List[TreeNode]:
+    excludes: list[str] = ["nav", "footer", "script", "style"],
+) -> list[TreeNode]:
     """
     Extracts a list of TreeNode hierarchies split by heading tags, avoiding duplicates,
     with heading text prepended by '#' based on header level.
@@ -1839,11 +1896,13 @@ def extract_by_heading_hierarchy(
     Returns:
         A list of TreeNode objects representing heading hierarchies.
     """
-    results: List[TreeNode] = []
-    parent_stack: List[Tuple[int, TreeNode]] = []
-    seen_ids: Set[str] = set()
+    results: list[TreeNode] = []
+    parent_stack: list[tuple[int, TreeNode]] = []
+    seen_ids: set[str] = set()
 
-    def clone_node(node: TreeNode, parent_node: Optional[TreeNode] = None, new_depth: int = 0) -> TreeNode:
+    def clone_node(
+        node: TreeNode, parent_node: TreeNode | None = None, new_depth: int = 0
+    ) -> TreeNode:
         """
         Clones a node with a new parent and depth, preserving structure without duplicating IDs.
         Sets _parent_node if not already set.
@@ -1892,8 +1951,7 @@ def extract_by_heading_hierarchy(
             return
 
         if node.tag in [tag[1] for tag in tags_to_split_on]:
-            level = next(i for i, t in enumerate(
-                tags_to_split_on) if t[1] == node.tag)
+            level = next(i for i, t in enumerate(tags_to_split_on) if t[1] == node.tag)
 
             while parent_stack and parent_stack[-1][0] >= level:
                 parent_stack.pop()
@@ -1908,8 +1966,7 @@ def extract_by_heading_hierarchy(
         else:
             if parent_stack:
                 parent_node = parent_stack[-1][1]
-                child_node = clone_node(
-                    node, parent_node, parent_node.depth + 1)
+                child_node = clone_node(node, parent_node, parent_node.depth + 1)
                 parent_node._children.append(child_node)
                 seen_ids.add(child_node.id)
 
@@ -1924,13 +1981,13 @@ def extract_by_heading_hierarchy(
 
 
 def extract_text_elements(
-    source: str, 
-    excludes: list[str] = ["nav", "footer", "script", "style"], 
+    source: str,
+    excludes: list[str] = ["nav", "footer", "script", "style"],
     timeout_ms: int = 10000,
     with_screenshot: bool = True,
     wait_for_js: bool = True,
     headless: bool = True,
-) -> List[str]:
+) -> list[str]:
     """
     Extracts a flattened list of text elements from the HTML document, ignoring specific elements.
     Uses Playwright to render dynamic content with advanced browser automation.
@@ -1946,7 +2003,7 @@ def extract_text_elements(
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
 
-    if re.match(r'^https?://', source) or re.match(r'^file://', source):
+    if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
     else:
@@ -1956,26 +2013,26 @@ def extract_text_elements(
     with sync_playwright() as p:
         traces_dir = f"{get_entry_file_dir()}/playwright/traces"
         os.makedirs(traces_dir, exist_ok=True)
-        
+
         browser = p.chromium.launch(
             headless=headless,
             executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
             traces_dir=traces_dir,
         )
-        
+
         ua = UserAgent()
         page = browser.new_page(user_agent=ua.random)
-        
+
         if url:
             page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         else:
             page.set_content(html, timeout=timeout_ms, wait_until="domcontentloaded")
-        
+
         if wait_for_js:
             js_timeout = 5000
             logger.debug(f"Waiting JS content for {js_timeout // 1000}s")
             page.wait_for_timeout(js_timeout)
-        
+
         if with_screenshot:
             # Generate a random screenshot name using uuid
             screenshot_name = f"screenshot_{uuid.uuid4().hex}.png"
@@ -1983,28 +2040,28 @@ def extract_text_elements(
             os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
             screenshot = page.screenshot(full_page=True, path=screenshot_path)
             if screenshot:
-                decoded_screenshot = base64.b64encode(screenshot).decode('utf-8')
+                decoded_screenshot = base64.b64encode(screenshot).decode("utf-8")
                 logger.debug(f"Decoded screenshot, length: {len(decoded_screenshot)}")
                 logger.success(f"Screenshot saved at: {screenshot_path}")
-        
+
         page_content = page.content()
         browser.close()
-    
+
     # Format the HTML content using format_html
     formatted_html = format_html(page_content)
     doc = pq(formatted_html)
     exclude_elements(doc, excludes)
-    
-    def extract_text(element, depth: int = 0) -> List[str]:
+
+    def extract_text(element, depth: int = 0) -> list[str]:
         """Recursively extract text from elements, handling special cases."""
         el_pq = pq(element)
-        
+
         # Skip comment nodes
-        if element.tag is Comment or str(element.tag).startswith('<cyfunction Comment'):
+        if element.tag is Comment or str(element.tag).startswith("<cyfunction Comment"):
             return []
-        
+
         tag = element.tag if isinstance(element.tag, str) else str(element.tag)
-        
+
         # Handle special text extraction for certain tags
         if tag.lower() == "meta":
             text = el_pq.attr("content") or ""
@@ -2019,14 +2076,15 @@ def extract_text_elements(
                 if isinstance(item, str):
                     text_parts.append(item.strip())
                 else:
-                    text_parts.append(decode_text_with_unidecode(
-                        pq(item).text().strip()))
+                    text_parts.append(
+                        decode_text_with_unidecode(pq(item).text().strip())
+                    )
             text = " ".join(part for part in text_parts if part)
         else:
             text = decode_text_with_unidecode(el_pq.text().strip())
-        
+
         text_elements = []
-        
+
         # If element has meaningful text and no children, return it directly
         if text and len(el_pq.children()) == 0:
             text_elements.append(text)
@@ -2035,9 +2093,9 @@ def extract_text_elements(
             if tag.lower() not in TEXT_ELEMENTS:
                 for child in el_pq.children():
                     text_elements.extend(extract_text(child, depth + 1))
-        
+
         return text_elements
-    
+
     # Start extraction from root element
     text_elements = extract_text(doc[0])
     return text_elements
@@ -2072,7 +2130,7 @@ def create_node(node: TreeNode) -> TreeNode:
     return tree_node
 
 
-def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
+def flatten_tree_to_base_nodes(root: TreeNode) -> list[TreeNode]:
     """
     Flattens a TreeNode hierarchy into a list of TreeNode objects.
 
@@ -2082,12 +2140,12 @@ def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
     Returns:
         A list of TreeNode objects representing all nodes in the tree in depth-first order.
     """
-    result: List[TreeNode] = []
+    result: list[TreeNode] = []
 
     def traverse(node: TreeNode) -> None:
         node_copy = create_node(node)
         # Remove 'children' property from the copy before appending
-        if hasattr(node_copy, '_children'):
+        if hasattr(node_copy, "_children"):
             node_copy._children = []
         result.append(node_copy)
 
@@ -2099,7 +2157,7 @@ def flatten_tree_to_base_nodes(root: TreeNode) -> List[TreeNode]:
     return result
 
 
-def get_leaf_nodes(root: TreeNode, with_text: bool = False) -> List[TreeNode]:
+def get_leaf_nodes(root: TreeNode, with_text: bool = False) -> list[TreeNode]:
     """
     Returns a list of TreeNode objects for leaf nodes (nodes with no children).
 
@@ -2110,7 +2168,7 @@ def get_leaf_nodes(root: TreeNode, with_text: bool = False) -> List[TreeNode]:
     Returns:
         A list of TreeNode objects for leaf nodes.
     """
-    result: List[TreeNode] = []
+    result: list[TreeNode] = []
 
     def traverse(node: TreeNode) -> None:
         # Check if the node is a leaf (no children)
@@ -2132,7 +2190,11 @@ def get_leaf_nodes(root: TreeNode, with_text: bool = False) -> List[TreeNode]:
 def print_html(html: str):
     tree = extract_tree_with_text(html)
 
-    def print_tree(node: TreeNode, indent=0, excludes: list[str] = ["nav", "footer", "script", "style"]):
+    def print_tree(
+        node: TreeNode,
+        indent=0,
+        excludes: list[str] = ["nav", "footer", "script", "style"],
+    ):
         if node:
             if node.tag in excludes:
                 return
@@ -2148,23 +2210,25 @@ def print_html(html: str):
                     tag_text += " " + colorize_log(f"#{node.id}", "YELLOW")
                 if has_class:
                     tag_text += " " + colorize_log(
-                        ', '.join(
-                            [f".{class_name}" for class_name in node.class_names]), "ORANGE"
+                        ", ".join(
+                            [f".{class_name}" for class_name in node.class_names]
+                        ),
+                        "ORANGE",
                     )
 
                 if has_text:
                     logger.log(
-                        ('  ' * indent + f"{node.depth}:"),
+                        ("  " * indent + f"{node.depth}:"),
                         tag_text,
                         "-",
                         json.dumps(node.text[:30]),
-                        colors=["INFO", "DEBUG", "GRAY", "SUCCESS"]
+                        colors=["INFO", "DEBUG", "GRAY", "SUCCESS"],
                     )
                 else:
                     logger.log(
-                        ('  ' * indent + f"{node.depth}:"),
+                        ("  " * indent + f"{node.depth}:"),
                         tag_text,
-                        colors=["INFO", "DEBUG"]
+                        colors=["INFO", "DEBUG"],
                     )
 
             for child in node._children:
@@ -2177,12 +2241,12 @@ def safe_path_from_url(url: str, output_dir: str) -> str:
     parsed = urlparse(url)
 
     # Sanitize host
-    host = parsed.hostname or 'unknown_host'
-    safe_host = re.sub(r'\W+', '_', host)
+    host = parsed.hostname or "unknown_host"
+    safe_host = re.sub(r"\W+", "_", host)
 
     # Last path segment without extension
-    path_parts = [part for part in parsed.path.split('/') if part]
-    last_path = path_parts[-1] if path_parts else 'root'
+    path_parts = [part for part in parsed.path.split("/") if part]
+    last_path = path_parts[-1] if path_parts else "root"
     last_path_no_ext = os.path.splitext(last_path)[0]
 
     # Build final safe path: output_dir_safe_host_last_path_no_ext
@@ -2204,11 +2268,9 @@ def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResu
             query=query,
             filter_sites=filter_sites,
             engines=engines,
-            config={
-                "port": 3101
-            },
+            config={"port": 3101},
             use_cache=use_cache,
-            **kwargs
+            **kwargs,
         )
         if not results:
             raise NoResultsFoundError(f"No results found for query: '{query}'")
@@ -2216,13 +2278,16 @@ def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResu
     except NoResultsFoundError:
         if use_cache:
             logger.warning(
-                f"No results found for query: '{query}'. Recursively retrying with use_cache=False.")
+                f"No results found for query: '{query}'. Recursively retrying with use_cache=False."
+            )
             return search_data(query, use_cache=False, **kwargs)
         else:
             raise
 
 
-async def scrape_urls(urls: list[str], *, max_depth: Optional[int] = 0, query: Optional[str] = None, **kwargs) -> AsyncGenerator[tuple[str, str], None]:
+async def scrape_urls(
+    urls: list[str], *, max_depth: int | None = 0, query: str | None = None, **kwargs
+) -> AsyncGenerator[tuple[str, str], None]:
     from jet.scrapers.crawler.web_crawler import WebCrawler
 
     crawler = WebCrawler(urls=urls, max_depth=max_depth, query=query, **kwargs)
@@ -2233,9 +2298,11 @@ async def scrape_urls(urls: list[str], *, max_depth: Optional[int] = 0, query: O
         crawler.close()
 
 
-def validate_headers(html: str, min_count: int = 5, min_avg_word_count: int = 20) -> bool:
-    from jet.scrapers.preprocessor import html_to_markdown
+def validate_headers(
+    html: str, min_count: int = 5, min_avg_word_count: int = 20
+) -> bool:
     from jet.code.splitter_markdown_utils import count_md_header_contents
+    from jet.scrapers.preprocessor import html_to_markdown
 
     md_text = html_to_markdown(html)
     header_count = count_md_header_contents(md_text)
@@ -2257,17 +2324,17 @@ class SignificantNode(TreeNode):
     def __init__(
         self,
         tag: str,
-        text: Optional[str],
+        text: str | None,
         depth: int,
         id: str,
-        parent_id: Optional[str] = None,
-        class_names: List[str] = [],
-        link: Optional[str] = None,
-        children: List['TreeNode'] = [],
+        parent_id: str | None = None,
+        class_names: list[str] = [],
+        link: str | None = None,
+        children: list["TreeNode"] = [],
         line: int = 0,
-        html: Optional[str] = None,
-        element: Optional[HtmlElement] = None,
-        has_significant_descendants: bool = False
+        html: str | None = None,
+        element: HtmlElement | None = None,
+        has_significant_descendants: bool = False,
     ):
         super().__init__(
             tag=tag,
@@ -2306,8 +2373,20 @@ def _node_to_outer_html(node: TreeNode) -> str:
     tag_open = f"<{node.tag.lower()}" + (f" {attr_str}" if attr_str else "")
 
     void_elements = {
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
-        "meta", "param", "source", "track", "wbr"
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
     }
 
     if node.tag.lower() in void_elements:
@@ -2324,7 +2403,7 @@ def create_significant_node(
     node: TreeNode,
     html: str,
     has_significant_descendants: bool,
-    element: Optional[HtmlElement] = None,
+    element: HtmlElement | None = None,
 ) -> SignificantNode:
     """
     Creates a SignificantNode from a TreeNode, copying all relevant attributes.
@@ -2348,11 +2427,11 @@ def create_significant_node(
         line=node.line,
         html=html,
         element=element,
-        has_significant_descendants=has_significant_descendants
+        has_significant_descendants=has_significant_descendants,
     )
 
 
-def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
+def get_significant_nodes(root: TreeNode) -> list[SignificantNode]:
     """
     Returns a list of SignificantNode objects for nodes that either have a non-auto-generated ID
     or are one of the specified tags: footer, aside, header, main, nav, article, section.
@@ -2367,14 +2446,22 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
     Returns:
         A list of SignificantNode objects for matching nodes.
     """
-    significant_tags = {"footer", "aside", "header",
-                        "main", "nav", "article", "section"}
-    result: List[SignificantNode] = []
+    significant_tags = {
+        "footer",
+        "aside",
+        "header",
+        "main",
+        "nav",
+        "article",
+        "section",
+    }
+    result: list[SignificantNode] = []
     id_counter = {}  # Track counts for generated IDs per tag
 
-    def traverse(node: TreeNode, significant_ancestor_id: Optional[str]) -> bool:
-        is_significant = (node.id and not node.id.startswith(
-            "auto_")) or node.tag.lower() in significant_tags
+    def traverse(node: TreeNode, significant_ancestor_id: str | None) -> bool:
+        is_significant = (
+            node.id and not node.id.startswith("auto_")
+        ) or node.tag.lower() in significant_tags
 
         node_id = node.id
         if is_significant and (node.id is None or node.id == ""):
@@ -2382,8 +2469,11 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
             id_counter[tag] = id_counter.get(tag, 0) + 1
             node_id = f"generated_{tag}_{id_counter[tag]}"
 
-        current_significant_ancestor_id = node_id if is_significant and node_id and not node_id.startswith(
-            "auto_") else significant_ancestor_id
+        current_significant_ancestor_id = (
+            node_id
+            if is_significant and node_id and not node_id.startswith("auto_")
+            else significant_ancestor_id
+        )
 
         has_significant_descendants = False
         for child in node._children:
@@ -2392,12 +2482,14 @@ def get_significant_nodes(root: TreeNode) -> List[SignificantNode]:
 
         if is_significant:
             html = _node_to_outer_html(node)
-            result.append(create_significant_node(
-                node=node,
-                html=html,
-                element=node.get_element(),
-                has_significant_descendants=has_significant_descendants
-            ))
+            result.append(
+                create_significant_node(
+                    node=node,
+                    html=html,
+                    element=node.get_element(),
+                    has_significant_descendants=has_significant_descendants,
+                )
+            )
 
         return is_significant or has_significant_descendants
 
@@ -2411,18 +2503,18 @@ class ParentWithCommonClass(TreeNode):
     def __init__(
         self,
         tag: str,
-        text: Optional[str],
+        text: str | None,
         depth: int,
         id: str,
-        class_names: List[str] = [],
-        link: Optional[str] = None,
-        children: List['TreeNode'] = [],
+        class_names: list[str] = [],
+        link: str | None = None,
+        children: list["TreeNode"] = [],
         line: int = 0,
-        html: Optional[str] = None,
-        element: Optional[HtmlElement] = None,
+        html: str | None = None,
+        element: HtmlElement | None = None,
         common_class: str = "",
         common_tag: str = "",
-        children_count: int = 0
+        children_count: int = 0,
     ):
         super().__init__(
             tag=tag,
@@ -2442,9 +2534,9 @@ class ParentWithCommonClass(TreeNode):
 
 def get_parents_with_common_class(
     root: TreeNode,
-    class_name: Optional[str] = None,
-    match_type: Literal["tag", "class", "both"] = "both"
-) -> List[ParentWithCommonClass]:
+    class_name: str | None = None,
+    match_type: Literal["tag", "class", "both"] = "both",
+) -> list[ParentWithCommonClass]:
     """
     Finds parent nodes with direct children sharing a specified or common class, tag, or both, excluding parents with children having different classes/tags.
 
@@ -2466,24 +2558,29 @@ def get_parents_with_common_class(
 
         if class_name:
             matching_children = [
-                child for child in children if class_name in child.class_names]
+                child for child in children if class_name in child.class_names
+            ]
             has_different_class = any(
-                child.class_names and class_name not in child.class_names for child in children)
+                child.class_names and class_name not in child.class_names
+                for child in children
+            )
             if matching_children and not has_different_class:
-                result.append(ParentWithCommonClass(
-                    tag=node.tag,
-                    text=node.text,
-                    depth=node.depth,
-                    id=node.id,
-                    class_names=node.class_names,
-                    line=node.line,
-                    html=node.get_html(),
-                    element=node.get_element(),
-                    common_class=class_name,
-                    common_tag="",
-                    children_count=len(matching_children),
-                    children=matching_children
-                ))
+                result.append(
+                    ParentWithCommonClass(
+                        tag=node.tag,
+                        text=node.text,
+                        depth=node.depth,
+                        id=node.id,
+                        class_names=node.class_names,
+                        line=node.line,
+                        html=node.get_html(),
+                        element=node.get_element(),
+                        common_class=class_name,
+                        common_tag="",
+                        children_count=len(matching_children),
+                        children=matching_children,
+                    )
+                )
         else:
             child_classes = {}
             child_tags = {}
@@ -2500,30 +2597,33 @@ def get_parents_with_common_class(
                         if tag_count <= 1:
                             continue
                         has_different = any(
-                            (child.class_names and cls not in child.class_names) or
-                            child.tag != tag
+                            (child.class_names and cls not in child.class_names)
+                            or child.tag != tag
                             for child in children
                         )
                         if not has_different:
                             matching_children = [
-                                child for child in children
+                                child
+                                for child in children
                                 if cls in child.class_names and child.tag == tag
                             ]
                             if matching_children:
-                                result.append(ParentWithCommonClass(
-                                    tag=node.tag,
-                                    text=node.text,
-                                    depth=node.depth,
-                                    id=node.id,
-                                    class_names=node.class_names,
-                                    line=node.line,
-                                    html=node.get_html(),
-                                    element=node.get_element(),
-                                    common_class=cls,
-                                    common_tag=tag,
-                                    children_count=len(matching_children),
-                                    children=matching_children
-                                ))
+                                result.append(
+                                    ParentWithCommonClass(
+                                        tag=node.tag,
+                                        text=node.text,
+                                        depth=node.depth,
+                                        id=node.id,
+                                        class_names=node.class_names,
+                                        line=node.line,
+                                        html=node.get_html(),
+                                        element=node.get_element(),
+                                        common_class=cls,
+                                        common_tag=tag,
+                                        children_count=len(matching_children),
+                                        children=matching_children,
+                                    )
+                                )
             elif match_type == "class":
                 for cls, count in child_classes.items():
                     if count > 1:
@@ -2533,44 +2633,48 @@ def get_parents_with_common_class(
                         )
                         if not has_different_class:
                             matching_children = [
-                                child for child in children if cls in child.class_names]
-                            result.append(ParentWithCommonClass(
-                                tag=node.tag,
-                                text=node.text,
-                                depth=node.depth,
-                                id=node.id,
-                                class_names=node.class_names,
-                                line=node.line,
-                                html=node.get_html(),
-                                element=node.get_element(),
-                                common_class=cls,
-                                common_tag="",
-                                children_count=len(matching_children),
-                                children=matching_children
-                            ))
+                                child for child in children if cls in child.class_names
+                            ]
+                            result.append(
+                                ParentWithCommonClass(
+                                    tag=node.tag,
+                                    text=node.text,
+                                    depth=node.depth,
+                                    id=node.id,
+                                    class_names=node.class_names,
+                                    line=node.line,
+                                    html=node.get_html(),
+                                    element=node.get_element(),
+                                    common_class=cls,
+                                    common_tag="",
+                                    children_count=len(matching_children),
+                                    children=matching_children,
+                                )
+                            )
             elif match_type == "tag":
                 for tag, count in child_tags.items():
                     if count > 1:
-                        has_different_tag = any(
-                            child.tag != tag for child in children
-                        )
+                        has_different_tag = any(child.tag != tag for child in children)
                         if not has_different_tag:
                             matching_children = [
-                                child for child in children if child.tag == tag]
-                            result.append(ParentWithCommonClass(
-                                tag=node.tag,
-                                text=node.text,
-                                depth=node.depth,
-                                id=node.id,
-                                class_names=node.class_names,
-                                line=node.line,
-                                html=node.get_html(),
-                                element=node.get_element(),
-                                common_class="",
-                                common_tag=tag,
-                                children_count=len(matching_children),
-                                children=matching_children
-                            ))
+                                child for child in children if child.tag == tag
+                            ]
+                            result.append(
+                                ParentWithCommonClass(
+                                    tag=node.tag,
+                                    text=node.text,
+                                    depth=node.depth,
+                                    id=node.id,
+                                    class_names=node.class_names,
+                                    line=node.line,
+                                    html=node.get_html(),
+                                    element=node.get_element(),
+                                    common_class="",
+                                    common_tag=tag,
+                                    children_count=len(matching_children),
+                                    children=matching_children,
+                                )
+                            )
 
         for child in children:
             traverse(child)
@@ -2610,7 +2714,7 @@ if __name__ == "__main__":
     # max_chars = get_max_prompt_char_length(model_max_chars)
     # print(f"Maximum characters for the prompt: {max_chars}")
     context_file = "generated/drivers_license/_main.md"
-    with open(context_file, 'r') as f:
+    with open(context_file) as f:
         context = f.read()
 
     # Extract sections from the content
@@ -2632,6 +2736,8 @@ if __name__ == "__main__":
     # Get sections with the most and least number of characters
     sorted_sections = sorted(merged_sections, key=len)
     print(
-        f"Least number of characters ({len(sorted_sections[0])} characters):\n{sorted_sections[0]}")
+        f"Least number of characters ({len(sorted_sections[0])} characters):\n{sorted_sections[0]}"
+    )
     print(
-        f"Most number of characters ({len(sorted_sections[-1])} characters):\n{sorted_sections[-1]}")
+        f"Most number of characters ({len(sorted_sections[-1])} characters):\n{sorted_sections[-1]}"
+    )

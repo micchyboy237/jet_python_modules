@@ -1,9 +1,15 @@
-import pytest
-from pathlib import Path
-from typing import List, Optional, Union
 import os
-from jet.code.markdown_types import MarkdownToken, MarkdownAnalysis, SummaryDict
-from jet.code.markdown_utils import clean_markdown_text, convert_html_to_markdown, get_summary, parse_markdown, analyze_markdown
+from pathlib import Path
+
+import pytest
+from jet.code.markdown_types import MarkdownAnalysis, MarkdownToken, SummaryDict
+from jet.code.markdown_utils import (
+    analyze_markdown,
+    clean_markdown_text,
+    convert_html_to_markdown,
+    parse_markdown,
+    summarize_markdown,
+)
 
 
 class TestCleanMarkdownText:
@@ -20,8 +26,8 @@ class TestCleanMarkdownText:
 
     def test_handles_none_input(self):
         # Given: A None input
-        input_text: Optional[str] = None
-        expected: Optional[str] = None
+        input_text: str | None = None
+        expected: str | None = None
 
         # When: Cleaning the text
         result = clean_markdown_text(input_text)
@@ -94,13 +100,13 @@ class TestParseMarkdown:
     def test_parses_header_with_escaped_period(self, tmp_path: Path):
         # Given: A markdown file with a header containing an escaped period
         markdown_content = "### 10\\. The Water Magician"
-        expected: List[MarkdownToken] = [
+        expected: list[MarkdownToken] = [
             {
                 "type": "header",
                 "content": "### 10. The Water Magician",
                 "level": 3,
                 "meta": {},
-                "line": 1
+                "line": 1,
             }
         ]
         md_file = tmp_path / "test.md"
@@ -115,13 +121,13 @@ class TestParseMarkdown:
     def test_parses_string_input(self):
         # Given: A markdown string with a paragraph
         markdown_content = "Simple text"
-        expected: List[MarkdownToken] = [
+        expected: list[MarkdownToken] = [
             {
                 "type": "paragraph",
                 "content": "Simple text",
                 "level": None,
                 "meta": {},
-                "line": 1
+                "line": 1,
             }
         ]
 
@@ -146,7 +152,7 @@ class TestParseMarkdown:
     def test_handles_empty_markdown(self):
         # Given: An empty markdown string
         markdown_content = ""
-        expected: List[MarkdownToken] = []
+        expected: list[MarkdownToken] = []
 
         # When: Parsing the empty markdown
         result = parse_markdown(markdown_content)
@@ -161,13 +167,7 @@ class TestAnalyzeMarkdown:
         markdown_content = "### 10\\. The Water Magician"
         expected: MarkdownAnalysis = {
             "headers": {
-                "Header": [
-                    {
-                        "line": 1,
-                        "level": 3,
-                        "text": "10. The Water Magician"
-                    }
-                ]
+                "Header": [{"line": 1, "level": 3, "text": "10. The Water Magician"}]
             },
             "paragraphs": {"Paragraph": []},
             "blockquotes": {"Blockquote": []},
@@ -187,7 +187,7 @@ class TestAnalyzeMarkdown:
                     "content": "10. The Water Magician",
                     "level": 3,
                     "meta": {},
-                    "line": 1
+                    "line": 1,
                 }
             ],
             "word_count": {"word_count": 3},
@@ -203,8 +203,8 @@ class TestAnalyzeMarkdown:
                 "html_blocks": 0,
                 "html_inline_count": 0,
                 "words": 3,
-                "characters": 18
-            }
+                "characters": 18,
+            },
         }
         md_file = tmp_path / "test.md"
         md_file.write_text(markdown_content, encoding="utf-8")
@@ -227,7 +227,7 @@ class TestAnalyzeMarkdown:
                     {
                         "start_line": 1,
                         "content": "print('10. The Water Magician')",
-                        "language": "python"
+                        "language": "python",
                     }
                 ]
             },
@@ -246,7 +246,7 @@ class TestAnalyzeMarkdown:
                     "content": "print('10. The Water Magician')",
                     "level": None,
                     "meta": {"language": "python", "code_type": "indented"},
-                    "line": 1
+                    "line": 1,
                 }
             ],
             "word_count": {"word_count": 4},
@@ -262,8 +262,8 @@ class TestAnalyzeMarkdown:
                 "html_blocks": 0,
                 "html_inline_count": 0,
                 "words": 4,
-                "characters": 31
-            }
+                "characters": 31,
+            },
         }
         md_file = tmp_path / "test.md"
         md_file.write_text(markdown_content, encoding="utf-8")
@@ -285,14 +285,8 @@ class TestAnalyzeMarkdown:
             "lists": {
                 "Ordered list": [],
                 "Unordered list": [
-                    [
-                        {
-                            "text": "Item 1.0",
-                            "task_item": False,
-                            "checked": False
-                        }
-                    ]
-                ]
+                    [{"text": "Item 1.0", "task_item": False, "checked": False}]
+                ],
             },
             "tables": {"Table": []},
             "links": {"Text link": [], "Image link": []},
@@ -307,12 +301,8 @@ class TestAnalyzeMarkdown:
                     "type": "unordered_list",
                     "content": "Item 1.0",
                     "level": 1,
-                    "meta": {
-                        "text": "Item 1.0",
-                        "task_item": False,
-                        "checked": False
-                    },
-                    "line": 1
+                    "meta": {"text": "Item 1.0", "task_item": False, "checked": False},
+                    "line": 1,
                 }
             ],
             "word_count": {"word_count": 2},
@@ -328,8 +318,8 @@ class TestAnalyzeMarkdown:
                 "html_blocks": 0,
                 "html_inline_count": 0,
                 "words": 2,
-                "characters": 10
-            }
+                "characters": 10,
+            },
         }
         md_file = tmp_path / "test.md"
         md_file.write_text(markdown_content, encoding="utf-8")
@@ -383,8 +373,8 @@ class TestAnalyzeMarkdown:
                 "html_blocks": 0,
                 "html_inline_count": 0,
                 "words": 0,
-                "characters": 0
-            }
+                "characters": 0,
+            },
         }
         md_file = tmp_path / "test.md"
         md_file.write_text(markdown_content, encoding="utf-8")
@@ -433,7 +423,7 @@ class TestGetSummary:
         md_file.write_text(md_content, encoding="utf-8")
 
         # When: Analyzing the markdown content
-        result: SummaryDict = get_summary(md_file)
+        result: SummaryDict = summarize_markdown(md_file)
 
         # Then: Verify header counts
         expected = {
@@ -445,8 +435,9 @@ class TestGetSummary:
             "h6": 0,
         }
         for key, value in expected.items():
-            assert result["header_counts"][
-                key] == value, f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
+            assert result["header_counts"][key] == value, (
+                f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
+            )
 
     def test_empty_markdown(self, tmp_path: Path):
         # Given: An empty markdown file
@@ -454,7 +445,7 @@ class TestGetSummary:
         md_file.write_text("", encoding="utf-8")
 
         # When: Analyzing the empty markdown
-        result: SummaryDict = get_summary(md_file)
+        result: SummaryDict = summarize_markdown(md_file)
 
         # Then: Verify all header counts are zero
         expected = {
@@ -466,9 +457,12 @@ class TestGetSummary:
             "h6": 0,
         }
         for key, value in expected.items():
-            assert result["header_counts"][
-                key] == value, f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
-        assert result["headers"] == 0, f"Expected headers to be 0, but got {result['headers']}"
+            assert result["header_counts"][key] == value, (
+                f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
+            )
+        assert result["headers"] == 0, (
+            f"Expected headers to be 0, but got {result['headers']}"
+        )
 
     def test_mixed_content(self, tmp_path: Path):
         # Given: A markdown file with headers, paragraphs, and lists
@@ -484,7 +478,7 @@ class TestGetSummary:
         md_file.write_text(md_content, encoding="utf-8")
 
         # When: Analyzing the markdown content
-        result: SummaryDict = get_summary(md_file)
+        result: SummaryDict = summarize_markdown(md_file)
 
         # Then: Verify header counts and other summary fields
         expected = {
@@ -496,10 +490,15 @@ class TestGetSummary:
             "h6": 0,
         }
         for key, value in expected.items():
-            assert result["header_counts"][
-                key] == value, f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
-        assert result["headers"] == 3, f"Expected headers to be 3, but got {result['headers']}"
-        assert result[
-            "paragraphs"] == 1, f"Expected paragraphs to be 1, but got {result['paragraphs']}"
-        assert result[
-            "unordered_lists"] == 1, f"Expected unordered_lists to be 1, but got {result['unordered_lists']}"
+            assert result["header_counts"][key] == value, (
+                f"Expected header_counts[{key}] to be {value}, but got {result['header_counts'][key]}"
+            )
+        assert result["headers"] == 3, (
+            f"Expected headers to be 3, but got {result['headers']}"
+        )
+        assert result["paragraphs"] == 1, (
+            f"Expected paragraphs to be 1, but got {result['paragraphs']}"
+        )
+        assert result["unordered_lists"] == 1, (
+            f"Expected unordered_lists to be 1, but got {result['unordered_lists']}"
+        )

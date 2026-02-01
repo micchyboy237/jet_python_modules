@@ -1,3 +1,4 @@
+# hybrid_search.py
 import math
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
@@ -40,13 +41,13 @@ class CategoryConfig:
     categories: list[RelevanceCategory] = field(
         default_factory=lambda: [
             RelevanceCategory("Very Low", 0.000, 0),
-            RelevanceCategory("Low", 0.020, 1),
-            RelevanceCategory("Medium", 0.035, 2),
-            RelevanceCategory("High", 0.045, 3),
-            RelevanceCategory("Very High", 0.055, 4),
+            RelevanceCategory("Low", 0.025, 1),
+            RelevanceCategory("Medium", 0.060, 2),
+            RelevanceCategory("High", 0.095, 3),
+            RelevanceCategory("Very High", 0.140, 4),
         ]
     )
-    mode: Literal["absolute", "relative"] = "relative"
+    mode: Literal["absolute", "relative"] = "absolute"  # ← most important change
     relative_fractions: list[float] | None = None  # e.g. [0.0, 0.3, 0.5, 0.7, 0.9]
 
     def __post_init__(self):
@@ -79,7 +80,15 @@ class CategoryConfig:
 ABSOLUTE_CATEGORY_CONFIG = CategoryConfig(mode="absolute")
 
 RELATIVE_CATEGORY_CONFIG = CategoryConfig(
-    mode="relative", relative_fractions=[0.00, 0.30, 0.55, 0.75, 0.92]
+    mode="relative",
+    relative_fractions=[0.00, 0.40, 0.68, 0.85, 0.96],
+    categories=[
+        RelevanceCategory("Very Low", 0.000, 0),
+        RelevanceCategory("Low", 0.025, 1),  # ← added floor
+        RelevanceCategory("Medium", 0.065, 2),
+        RelevanceCategory("High", 0.105, 3),
+        RelevanceCategory("Very High", 0.145, 4),
+    ],
 )
 
 
@@ -193,9 +202,9 @@ class HybridSearch:
     bm25: BM25Okapi | None = None
     vector_search: VectorSearch | None = None
 
-    fusion_k: float = 60.0  # base value — adapted in search()
-    dense_weight: float = 1.5
-    sparse_weight: float = 0.7
+    fusion_k: float = 12.0  # base value — adapted in search()
+    dense_weight: float = 1.0
+    sparse_weight: float = 1.0
     min_hybrid_score: float = 0.015
     category_config: CategoryConfig = field(
         default_factory=lambda: RELATIVE_CATEGORY_CONFIG
@@ -438,10 +447,12 @@ if __name__ == "__main__":
     table = Table(title=f"Hybrid Results for: {query!r}")
     table.add_column("Rank", justify="right", style="cyan")
     table.add_column("Hybrid", justify="right")
+    table.add_column("Dense", justify="right")
+    table.add_column("Sparse", justify="right")
     table.add_column("Norm", justify="right", style="green")
     table.add_column("Category", style="bold")
-    table.add_column("Level", justify="right", style="dim cyan")
-    table.add_column("ID")
+    # table.add_column("Level", justify="right", style="dim cyan")
+    # table.add_column("ID")
     table.add_column("Preview", style="dim")
 
     for res in results:
@@ -454,10 +465,12 @@ if __name__ == "__main__":
         table.add_row(
             str(res["rank"]),
             f"{res['hybrid_score']:.4f}",
+            f"{res['dense_score']:.3f}",
+            f"{res['sparse_score']:.3f}",
             norm_str,
             res["category"],
-            str(res["category_level"]),
-            res["id"] or "-",
+            # str(res["category_level"]),
+            # res["id"] or "-",
             preview,
         )
 

@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Optional, Literal
+from typing import Literal, TypedDict
 
 
 class HeaderCountsDict(TypedDict):
@@ -42,19 +42,19 @@ class CodeBlockItemDict(TypedDict):
 class ListItemDict(TypedDict):
     text: str
     task_item: bool
-    checked: Optional[bool]
+    checked: bool | None
 
 
 class TableItemDict(TypedDict):
-    header: List[str]
-    rows: List[List[str]]
+    header: list[str]
+    rows: list[list[str]]
 
 
 class LinkItemDict(TypedDict):
     line: int
-    text: Optional[str]
+    text: str | None
     url: str
-    alt_text: Optional[str]
+    alt_text: str | None
 
 
 class FootnoteItemDict(TypedDict):
@@ -92,34 +92,49 @@ class HtmlInlineItemDict(TypedDict):
 class TokenSequentialItemDict(TypedDict):
     id: int
     type: Literal[
-        "header1", "header2", "header3", "header4", "header5", "header6",
-        "paragraph", "inline_code", "link", "blockquote", "unordered_list",
-        "task_item", "list_item", "code", "table", "italic", "html_block",
-        "ordered_list"
+        "title",
+        "header1",
+        "header2",
+        "header3",
+        "header4",
+        "header5",
+        "header6",
+        "paragraph",
+        "inline_code",
+        "link",
+        "blockquote",
+        "unordered_list",
+        "task_item",
+        "list_item",
+        "code",
+        "table",
+        "italic",
+        "html_block",
+        "ordered_list",
     ]
     content: str
-    url: Optional[str]
-    checked: Optional[bool]
+    url: str | None
+    checked: bool | None
 
 
 class MarkdownAnalysis(TypedDict):
     summary: SummaryDict
-    headers: List[HeaderItemDict]
-    paragraphs: List[str]
-    blockquotes: List[str]
-    code_blocks: List[CodeBlockItemDict]
-    unordered_lists: List[List[ListItemDict]]
-    ordered_lists: List[List[ListItemDict]]
-    tables: List[TableItemDict]
-    text_links: List[LinkItemDict]
-    image_links: List[LinkItemDict]
-    footnotes: List[FootnoteItemDict]
-    inline_code: List[InlineCodeItemDict]
-    emphasis: List[EmphasisItemDict]
-    task_items: List[TaskItemDict]
-    html_blocks: List[HtmlBlockItemDict]
-    html_inline: List[HtmlInlineItemDict]
-    tokens_sequential: List[TokenSequentialItemDict]
+    headers: list[HeaderItemDict]
+    paragraphs: list[str]
+    blockquotes: list[str]
+    code_blocks: list[CodeBlockItemDict]
+    unordered_lists: list[list[ListItemDict]]
+    ordered_lists: list[list[ListItemDict]]
+    tables: list[TableItemDict]
+    text_links: list[LinkItemDict]
+    image_links: list[LinkItemDict]
+    footnotes: list[FootnoteItemDict]
+    inline_code: list[InlineCodeItemDict]
+    emphasis: list[EmphasisItemDict]
+    task_items: list[TaskItemDict]
+    html_blocks: list[HtmlBlockItemDict]
+    html_inline: list[HtmlInlineItemDict]
+    tokens_sequential: list[TokenSequentialItemDict]
     word_count: int
     char_count: int
 

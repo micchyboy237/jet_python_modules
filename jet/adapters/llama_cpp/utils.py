@@ -1,9 +1,9 @@
 import numpy as np
-from jet.adapters.llama_cpp.embeddings import (
+from jet.adapters.llama_cpp.models import LLAMACPP_MODELS, LLAMACPP_MODELS_REVERSED
+from jet.adapters.llama_cpp.types import (
+    LLAMACPP_TYPES,
     EmbeddingVector,
 )
-from jet.adapters.llama_cpp.models import LLAMACPP_MODELS, LLAMACPP_MODELS_REVERSED
-from jet.adapters.llama_cpp.types import LLAMACPP_TYPES
 
 
 def resolve_model_key(model: LLAMACPP_TYPES) -> str:

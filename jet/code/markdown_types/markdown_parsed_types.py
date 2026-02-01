@@ -1,24 +1,24 @@
-from typing import TypedDict, List, Optional, Literal, Union
+from typing import Literal, TypedDict, Union
 
 
 class ListItem(TypedDict, total=False):
     text: str
     task_item: bool
-    checked: Optional[bool]
+    checked: bool | None
 
 
 class CodeMeta(TypedDict, total=False):
-    language: Optional[str]
-    code_type: Optional[Literal["indented"]]
+    language: str | None
+    code_type: Literal["indented"] | None
 
 
 class TableMeta(TypedDict):
-    header: List[str]
-    rows: List[List[str]]
+    header: list[str]
+    rows: list[list[str]]
 
 
 class ListMeta(TypedDict):
-    items: List[ListItem]
+    items: list[ListItem]
 
 
 MetaType = Union[ListMeta, CodeMeta, TableMeta, dict]
@@ -33,15 +33,16 @@ ContentType = Literal[
     "ordered_list",
     "html_block",
     # Custom types
-    "json"
+    "head",
+    "json",
 ]
 
 
 class MarkdownToken(TypedDict):
     type: ContentType
     content: str
-    level: Optional[int]
-    meta: Optional[MetaType]
+    level: int | None
+    meta: MetaType | None
     line: int
 
 
@@ -50,21 +51,22 @@ class HeaderDoc(TypedDict):
     doc_index: int
     header: str
     content: str
-    level: Optional[int]
-    parent_headers: List[str]
-    parent_header: Optional[str]
-    parent_level: Optional[int]
-    source: Optional[str]
-    tokens: List[MarkdownToken]
+    level: int | None
+    parent_headers: list[str]
+    parent_header: str | None
+    parent_level: int | None
+    source: str | None
+    tokens: list[MarkdownToken]
 
 
 class HeaderSearchMetadata(TypedDict):
     """Typed dictionary for search result metadata."""
+
     doc_index: int
     doc_id: str
-    level: Optional[int]
-    parent_level: Optional[int]
-    parent_headers: List[str]
+    level: int | None
+    parent_level: int | None
+    parent_headers: list[str]
     start_idx: int
     end_idx: int
     chunk_idx: int
@@ -80,11 +82,12 @@ class HeaderSearchMetadata(TypedDict):
 
 class HeaderSearchResult(TypedDict):
     """Typed dictionary for search result structure."""
+
     id: str
     rank: int
     score: float
     header: str
-    parent_header: Optional[str]
+    parent_header: str | None
     content: str
     metadata: HeaderSearchMetadata
 

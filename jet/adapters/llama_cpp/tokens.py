@@ -1,17 +1,16 @@
-import tiktoken
-
 import json
+from collections.abc import Callable
+from typing import Literal, overload
 
-from typing import Callable, List, Union, Optional, Literal, overload
-from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
-
+import tiktoken
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_VALUES
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.logger import logger
+from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
 def get_tokenizer(
-    model_name: Optional[LLAMACPP_VALUES] = None,
+    model_name: LLAMACPP_VALUES | None = None,
 ) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
     """
     Get a tokenizer for a given model name, or fall back to tiktoken if none/model not found.
@@ -31,8 +30,8 @@ def get_tokenizer(
 
 
 def get_tokenizer_fn(
-    model_name: Optional[LLAMACPP_VALUES] = None, add_special_tokens: bool = False
-) -> Callable[[Union[str, list[str]], bool], Union[list[int], list[list[int]]]]:
+    model_name: LLAMACPP_VALUES | None = None, add_special_tokens: bool = False
+) -> Callable[[str | list[str], bool], list[int] | list[list[int]]]:
     """
     Returns a tokenizer function for the specified model that tokenizes input text.
 
@@ -49,8 +48,8 @@ def get_tokenizer_fn(
     tokenizer = get_tokenizer(model_name)
 
     def tokenize_fn(
-        text: Union[str, list[str]], add_special_tokens: bool = add_special_tokens
-    ) -> Union[list[int], list[list[int]]]:
+        text: str | list[str], add_special_tokens: bool = add_special_tokens
+    ) -> list[int] | list[list[int]]:
         if isinstance(text, list):
             if isinstance(tokenizer, tiktoken.Encoding):
                 return tokenizer.encode_batch(text)
@@ -67,7 +66,7 @@ def get_tokenizer_fn(
 
 def tokenize(
     text: str | dict | list[str] | list[dict] = "",
-    model_name: Optional[LLAMACPP_VALUES] = None,
+    model_name: LLAMACPP_VALUES | None = None,
     add_special_tokens: bool = False,
 ) -> list[int] | list[list[int]]:
     tokenizer = get_tokenizer(model_name)
@@ -152,7 +151,7 @@ TokenizableInput = str | dict | list[str] | list[dict]
 @overload
 def count_tokens(
     text: TokenizableInput,
-    model: Optional[LLAMACPP_KEYS] = None,
+    model: LLAMACPP_KEYS | None = None,
     prevent_total: Literal[False] = False,
     add_special_tokens: bool = False,
 ) -> int: ...
@@ -161,18 +160,18 @@ def count_tokens(
 @overload
 def count_tokens(
     text: TokenizableInput,
-    model: Optional[LLAMACPP_KEYS] = None,
+    model: LLAMACPP_KEYS | None = None,
     prevent_total: Literal[True] = True,
     add_special_tokens: bool = False,
-) -> List[int]: ...
+) -> list[int]: ...
 
 
 def count_tokens(
     text: TokenizableInput,
-    model: Optional[LLAMACPP_KEYS] = None,
+    model: LLAMACPP_KEYS | None = None,
     prevent_total: bool = False,
     add_special_tokens: bool = False,
-) -> Union[int, List[int]]:
+) -> int | list[int]:
     if not text:
         return 0
 

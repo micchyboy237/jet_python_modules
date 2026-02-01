@@ -23,6 +23,8 @@ Markdown
 markdownify
 mrkdwn-analysis
 markdown-it-py
+# for tables, tasklists, etc.
+mdit-py-plugins
 mdit-plain
 model2vec
 fastembed

@@ -1,13 +1,17 @@
+# deep_search.py
+
 import logging
 import re
-import time
+import shutil
 from pathlib import Path
 from typing import Any
 
-import requests
+# ---- Added: Accurate token counter import
+from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
-from markdownify import markdownify
+from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
+from jet.libs.smolagents.tools.web_search_tool import WebSearchTool
 from rich.console import Console
 
 # ────────────────────────────────────────────────
@@ -21,11 +25,17 @@ from smolagents import (
     CodeAgent,
     LogLevel,
     ToolCallingAgent,
-    WebSearchTool,
     tool,
 )
 
+# ---- Added: Token threshold constants
+MAX_SAFE_PROMPT_TOKENS = 6500  # adjust for your model's window/context
+WARNING_THRESHOLD_TOKENS = 5800
+FORCE_FINAL_THRESHOLD_TOKENS = 7200  # approach model limit/cutoff
+
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 console = Console()
 logging.basicConfig(
@@ -52,48 +62,6 @@ def create_local_model(
         max_tokens=max_tokens,
         logs_dir=logs_dir,
     )
-
-
-@tool
-def visit_webpage(url: str, max_length: int = 4000) -> str:  # ← much safer default
-    """
-    Fetches the webpage at the given URL, converts it to clean markdown,
-    and returns the content (or an error message if fetching fails).
-
-    Args:
-        url: The full URL of the webpage to fetch (e.g. "https://example.com").
-        max_length: Maximum length of the returned markdown string before truncation.
-                    Defaults to 12000 characters.
-
-    Returns:
-        Clean markdown representation of the page, or an error string.
-    """
-    headers_list = [
-        {"User-Agent": "Mozilla/5.0 (compatible; DeepResearchBot/1.0)"},
-        {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-        {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
-    ]
-
-    for attempt in range(1, 5):
-        try:
-            headers = headers_list[min(attempt - 1, len(headers_list) - 1)]
-            response = requests.get(url, headers=headers, timeout=10 + attempt * 2)
-            response.raise_for_status()
-
-            md = markdownify(response.text).strip()
-            md = re.sub(r"\n{3,}", "\n\n", md)
-
-            if len(md) > max_length:
-                md += "\n\n[... truncated ...]"
-
-            return f"[Success after {attempt} attempt(s)]\n{md}"
-
-        except Exception as e:
-            time.sleep(1.2**attempt)  # backoff
-            if attempt == 4:
-                return f"[Failed after 4 attempts] {url} → {str(e)}"
-
-    return "Unreachable code path (should not happen)"
 
 
 @tool
@@ -136,8 +104,8 @@ def create_web_research_agent(model):
     return ToolCallingAgent(
         tools=[
             WebSearchTool(),
-            visit_webpage,
-            extract_key_facts,
+            VisitWebpageTool(),
+            # extract_key_facts,
         ],
         model=model,
         name="web_research_agent",
@@ -261,31 +229,39 @@ def run_deep_search(
         TextColumn("[bold]{task.completed}/{task.total} rounds"),
     )
 
-    def build_evidence_summary() -> str:
+    # --- Bonus A: Make evidence summary token aware ---
+    def build_evidence_summary(max_tokens: int = 1400) -> str:
         if not evidence_accumulator:
             return "(no evidence collected yet)"
 
-        # Keep only last N rounds + very compact representation
-        recent = evidence_accumulator[-history_window:]
         lines = []
-        start_idx = len(evidence_accumulator) - len(recent) + 1
-        for idx, ev in enumerate(recent, start_idx):
-            srcs = ", ".join(ev.get("sources", [])[:3])  # now actually used
-            facts = ev.get("raw_output", "")[:180].replace("\n", " ").strip()
-            line = f"Round {idx} (conf {ev.get('confidence', '?')}, suff {ev.get('sufficient', '?')}): {facts}"
-            if srcs:
-                line += f"  [sources: {srcs}]"
-            if len(line) > 240:
-                line = line[:237] + "..."
-            lines.append(line)
+        current_tokens = 0
+        added_omitted = False
 
-        if len(evidence_accumulator) > history_window:
-            lines.insert(
-                0,
-                f"... {len(evidence_accumulator) - history_window} earlier rounds omitted ...",
+        # Newest first, truncate oldest if needed
+        for ev in reversed(evidence_accumulator):
+            srcs = ", ".join(ev.get("sources", [])[:2])
+            facts = ev.get("raw_output", "")[:220].replace("\n", " ").strip()
+            line = (
+                f"Round {ev['round']} (conf {ev.get('confidence', '?')}, "
+                f"suff {ev.get('sufficient', '?')}): {facts}"
             )
+            if srcs:
+                line += f" [src: {srcs}]"
 
-        return "\n".join(lines) if lines else "(no usable evidence summary)"
+            line_tokens = count_tokens(line, model=model_id) + 10  # small buffer
+
+            if current_tokens + line_tokens > max_tokens:
+                if not added_omitted:
+                    lines.append("... older evidence omitted for context limit ...")
+                    added_omitted = True
+                continue
+
+            lines.append(line)
+            current_tokens += line_tokens
+
+        lines.reverse()
+        return "\n".join(lines) if lines else "(no usable evidence)"
 
     research_plan_template = """
 You are coordinating thorough, critical web research.
@@ -344,13 +320,37 @@ Start now.
 
             result = manager.run(current_plan)
 
-            # ── Rough token estimation heuristic (very approximate) ──
-            estimated_tokens = len(current_plan) // 4 + len(result) // 4 + 1500
-            if estimated_tokens > 6500:  # safety margin under 8192
+            # --- Accurate token counting (replacing old estimation) ---
+            next_prompt_tokens = count_tokens(
+                current_plan, model=model_id, add_special_tokens=False
+            )
+
+            output_tokens = count_tokens(
+                result, model=model_id, add_special_tokens=False
+            )
+
+            total_approx_for_next = next_prompt_tokens + output_tokens // 2 + 800
+
+            logger.info(
+                f"[Round {round_num}] Tokens: prompt={next_prompt_tokens:,}, "
+                f"output={output_tokens:,} → est. next={total_approx_for_next:,}"
+            )
+
+            if total_approx_for_next > FORCE_FINAL_THRESHOLD_TOKENS:
                 logger.warning(
-                    f"[Round {round_num}] Estimated tokens ≈ {estimated_tokens} → forcing early final format"
+                    f"[Round {round_num}] Approaching context limit ({total_approx_for_next:,} est.) → "
+                    f"forcing final format"
                 )
+                # Optionally force-call final_formatter here
                 break
+
+            if total_approx_for_next > WARNING_THRESHOLD_TOKENS:
+                logger.warning(
+                    f"[Round {round_num}] High token usage ({total_approx_for_next:,} est.) — "
+                    f"consider concluding soon"
+                )
+
+            # --- End accurate token counting ---
 
             # Simple best-effort parsing of evaluator output
             confidence = None
@@ -362,10 +362,7 @@ Start now.
             for line in result.split("\n"):
                 line = line.strip()
                 if line.startswith("CONFIDENCE:"):
-                    try:
-                        confidence = int(line.split(":", 1)[1].strip().split("/")[0])
-                    except Exception:
-                        pass
+                    confidence = int(line.split(":", 1)[1].strip().split("/")[0])
                 elif line.startswith("SUFFICIENT:"):
                     sufficient = "yes" if "yes" in line.lower() else "no"
                 elif line.startswith("MISSING:"):
@@ -373,18 +370,36 @@ Start now.
                 elif line.startswith("CONTRADICTIONS:"):
                     contradictions = line.split(":", 1)[1].strip()
 
-            # Keep raw_output very short for next iterations
-            evidence_accumulator.append(
-                {
-                    "round": round_num,
-                    "confidence": confidence,
-                    "sufficient": sufficient,
-                    "missing": missing,
-                    "contradictions": contradictions,
-                    "sources": sources,
-                    "raw_output": result[:240].replace("\n", " ").strip() + "...",
-                }
-            )
+            # --- Bonus B: Summarize very long results before storing ---
+            if count_tokens(result, model=model_id) > 1800:
+                # Truncate aggressively or call extract_key_facts if re-enabled
+                result_summary = (
+                    result[:900] + " [...] [truncated — full details in sources]"
+                )
+                evidence_accumulator.append(
+                    {
+                        "round": round_num,
+                        "confidence": confidence,
+                        "sufficient": sufficient,
+                        "missing": missing,
+                        "contradictions": contradictions,
+                        "sources": sources,
+                        "raw_output": result_summary,
+                    }
+                )
+            else:
+                evidence_accumulator.append(
+                    {
+                        "round": round_num,
+                        "confidence": confidence,
+                        "sufficient": sufficient,
+                        "missing": missing,
+                        "contradictions": contradictions,
+                        "sources": sources,
+                        "raw_output": result[:360] + "...",
+                    }
+                )
+            # --- End Bonus B ---
 
             round_summaries.append(
                 f"Round {round_num}: {result[:180]}... "
