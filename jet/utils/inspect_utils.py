@@ -1,16 +1,15 @@
-import sys
-import traceback
 import inspect
 import os
 import re
-
-from pathlib import Path
+import sys
+import traceback
 from collections import defaultdict
-from typing import Any, Dict, Optional, TypedDict, get_type_hints
+from pathlib import Path
+from typing import Any, TypedDict, get_type_hints
 
+from jet.logger import logger
 from jet.transformers.object import make_serializable
 from shared.setup.types import BaseEventData
-from jet.logger import logger
 
 
 class INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE(TypedDict):
@@ -43,9 +42,15 @@ def truncate_value(value):
     max_list_items = 2
 
     if isinstance(serialized, str):
-        return serialized[:MAX_LOG_LENGTH] + "..." if len(serialized) > MAX_LOG_LENGTH else serialized
+        return (
+            serialized[:MAX_LOG_LENGTH] + "..."
+            if len(serialized) > MAX_LOG_LENGTH
+            else serialized
+        )
     elif isinstance(serialized, list):
-        return [truncate_value(item) for item in serialized[:max_list_items]] + (["..."] if len(serialized) > max_list_items else [])
+        return [truncate_value(item) for item in serialized[:max_list_items]] + (
+            ["..."] if len(serialized) > max_list_items else []
+        )
     elif isinstance(serialized, dict):
         # Log first 5 key-value pairs
         return {k: truncate_value(v) for k, v in list(serialized.items())[:5]}
@@ -71,7 +76,7 @@ def log_filtered_stack_trace(exc: Exception):
 
         logger.newline()
         logger.warning(
-            f"Stack [{i}]: File \"{filename}\", line {line_number}, in {function_name}"
+            f'Stack [{i}]: File "{filename}", line {line_number}, in {function_name}'
         )
         logger.warning("Code:")  # Include line number
         logger.error(code_context)
@@ -93,19 +98,19 @@ def log_filtered_stack_trace(exc: Exception):
         #         break  # Stop after finding the matching function
 
 
-def inspect_original_script_path() -> Optional[INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE]:
+def inspect_original_script_path() -> INSPECT_ORIGINAL_SCRIPT_PATH_RESPONSE | None:
     # Get the stack frames
     stack_info = inspect.stack()
 
     matching_frames = [
-        frame for frame in stack_info
-        if validate_filepath(frame.filename)
+        frame for frame in stack_info if validate_filepath(frame.filename)
     ]
     matching_functions = [
-        frame for frame in matching_frames
-        if not frame.function.startswith('_') and
-        frame.function != "<module>" and
-        os.path.basename(__file__) not in frame.function
+        frame
+        for frame in matching_frames
+        if not frame.function.startswith("_")
+        and frame.function != "<module>"
+        and os.path.basename(__file__) not in frame.function
     ]
 
     if matching_functions:
@@ -124,19 +129,19 @@ def inspect_original_script_path() -> Optional[INSPECT_ORIGINAL_SCRIPT_PATH_RESP
         last_lineno = last_function_frame.lineno
         return {
             "first": {
-                "filepath":  os.path.abspath(first_filename),
-                "filename":  os.path.basename(first_filename),
+                "filepath": os.path.abspath(first_filename),
+                "filename": os.path.basename(first_filename),
                 "function": first_function,
                 "lineno": first_lineno,
                 "code_context": first_code_context,
             },
             "last": {
-                "filepath":  os.path.abspath(last_filename),
-                "filename":  os.path.basename(last_filename),
+                "filepath": os.path.abspath(last_filename),
+                "filename": os.path.basename(last_filename),
                 "function": last_function,
                 "lineno": last_lineno,
                 "code_context": last_code_context,
-            }
+            },
         }
     else:
         return None
@@ -148,14 +153,10 @@ def print_inspect_original_script_path():
     for idx, frame in enumerate(stack_info):
         if validate_filepath(frame.filename):
             logger.info(f"Frame #{idx}:")
-            logger.log("  File:", frame.filename,
-                       colors=["WHITE", "DEBUG"])
-            logger.log("  Function Name:", frame.function,
-                       colors=["GRAY", "DEBUG"])
-            logger.log("  Line Number:", frame.lineno,
-                       colors=["GRAY", "DEBUG"])
-            logger.log("  Code Context:", frame.code_context,
-                       colors=["GRAY", "DEBUG"])
+            logger.log("  File:", frame.filename, colors=["WHITE", "DEBUG"])
+            logger.log("  Function Name:", frame.function, colors=["GRAY", "DEBUG"])
+            logger.log("  Line Number:", frame.lineno, colors=["GRAY", "DEBUG"])
+            logger.log("  Code Context:", frame.code_context, colors=["GRAY", "DEBUG"])
             print("-" * 50)
 
 
@@ -165,14 +166,16 @@ def print_inspect_original_script_path_grouped():
 
     # Group stack frames by file name
     for idx, frame in enumerate(stack_info):
-        file_groups[frame.filename].append({
-            'frame': idx,
-            'index': frame.index,
-            'filename': frame.filename,
-            'lineno': frame.lineno,
-            'function': frame.function,
-            'code_context': frame.code_context
-        })
+        file_groups[frame.filename].append(
+            {
+                "frame": idx,
+                "index": frame.index,
+                "filename": frame.filename,
+                "lineno": frame.lineno,
+                "function": frame.function,
+                "code_context": frame.code_context,
+            }
+        )
 
     # Pretty-print grouped stack frames
     print("Inspecting stack frames (grouped by file names):\n")
@@ -180,59 +183,58 @@ def print_inspect_original_script_path_grouped():
         print(f"\nFile: {file_name}")
         for frame in frames:
             logger.info(f"Frame #{idx}:")
-            logger.log("  File:", frame["filename"],
-                       colors=["WHITE", "DEBUG"])
-            logger.log("  Function Name:", frame["function"],
-                       colors=["GRAY", "DEBUG"])
-            logger.log("  Line Number:", frame["lineno"],
-                       colors=["GRAY", "DEBUG"])
-            logger.log("  Code Context:", frame["code_context"],
-                       colors=["GRAY", "DEBUG"])
+            logger.log("  File:", frame["filename"], colors=["WHITE", "DEBUG"])
+            logger.log("  Function Name:", frame["function"], colors=["GRAY", "DEBUG"])
+            logger.log("  Line Number:", frame["lineno"], colors=["GRAY", "DEBUG"])
+            logger.log(
+                "  Code Context:", frame["code_context"], colors=["GRAY", "DEBUG"]
+            )
             print("-" * 50)
 
 
-def get_stack_frames(max_frames: Optional[int] = None):
+def get_stack_frames(max_frames: int | None = None):
     stack_info = inspect.stack()
-    frames = [
-        frame for frame in stack_info
-        if validate_filepath(frame.filename)
-    ]
+    frames = [frame for frame in stack_info if validate_filepath(frame.filename)]
     frames = frames[-max_frames:] if max_frames else frames
 
-    stack_frames = [{
-        'index': frame.index,
-        'filename': frame.filename,
-        'lineno': frame.lineno,
-        'function': frame.function,
-        'code_context': frame.code_context
-    } for frame in frames]
+    stack_frames = [
+        {
+            "index": frame.index,
+            "filename": frame.filename,
+            "lineno": frame.lineno,
+            "function": frame.function,
+            "code_context": frame.code_context,
+        }
+        for frame in frames
+    ]
 
     return stack_frames
 
 
 def find_stack_frames(text: str):
     stack_info = inspect.stack()
-    frames = [
-        frame for frame in stack_info
-        if validate_filepath(frame.filename)
-    ]
-    frames = [
-        frame for frame in frames for code in frame.code_context if text in code]
+    frames = [frame for frame in stack_info if validate_filepath(frame.filename)]
+    frames = [frame for frame in frames for code in frame.code_context if text in code]
 
-    stack_frames = [{
-        'index': frame.index,
-        'filename': frame.filename,
-        'lineno': frame.lineno,
-        'function': frame.function,
-        'code_context': frame.code_context
-    } for frame in frames]
+    stack_frames = [
+        {
+            "index": frame.index,
+            "filename": frame.filename,
+            "lineno": frame.lineno,
+            "function": frame.function,
+            "code_context": frame.code_context,
+        }
+        for frame in frames
+    ]
 
     return stack_frames
 
 
 def get_current_running_function():
     stack = inspect.stack()
-    if len(stack) > 1:  # 1 is for the current function, so anything beyond that is a caller
+    if (
+        len(stack) > 1
+    ):  # 1 is for the current function, so anything beyond that is a caller
         current_function = stack[1].function
         print(f"Currently running function: {current_function}")
         return current_function
@@ -255,7 +257,7 @@ def get_entry_file_name(remove_extension: bool = False) -> str:
         return "server"
 
 
-def get_entry_file_path(remove_extension: bool = False) -> Optional[str]:
+def get_entry_file_path(remove_extension: bool = False) -> str | None:
     """
     Returns the absolute file path of the entry point script, optionally without the file extension.
     Args:
@@ -274,22 +276,22 @@ def get_entry_file_path(remove_extension: bool = False) -> Optional[str]:
         return None
 
 
-def get_entry_file_dir() -> Optional[str]:
+def get_entry_file_dir() -> str:
     """
     Returns the absolute directory path of the entry point script.
-    Returns None if the entry point cannot be determined or is not a valid path.
+    Returns "server" if the entry point cannot be determined or is not a valid path.
 
     Returns:
-        Optional[str]: The absolute directory path of the entry point script, or None if invalid.
+        str: The absolute directory path of the entry point script, or "server" if invalid.
     """
     try:
         file_path = Path(sys.modules["__main__"].__file__).resolve()
         dir_path = file_path.parent
         if validate_filepath(str(file_path)):
             return str(dir_path)
-        return None
+        return ""
     except (KeyError, AttributeError):
-        return None
+        return ""
 
 
 class ParameterInfo(TypedDict):
@@ -300,7 +302,7 @@ class ParameterInfo(TypedDict):
 class Parameters(TypedDict):
     type: str
     required: list[str]
-    properties: Dict[str, ParameterInfo]
+    properties: dict[str, ParameterInfo]
 
 
 class MethodInfo(TypedDict):
@@ -316,7 +318,9 @@ def get_method_info(method: Any) -> MethodInfo:
         spec = method.tool_spec["function"]
         name = spec["name"]
         description = spec.get("description", "No description available")
-        parameters = spec.get("parameters", {"type": "object", "properties": {}, "required": []})
+        parameters = spec.get(
+            "parameters", {"type": "object", "properties": {}, "required": []}
+        )
         return {
             "name": name,
             "description": description,
@@ -331,13 +335,17 @@ def get_method_info(method: Any) -> MethodInfo:
         bool: "boolean",
         list: "array",
         dict: "object",
-        Any: "any"
+        Any: "any",
     }
 
     type_hints = get_type_hints(method)
     params = inspect.signature(method).parameters
-    required_params = [name for name in params if name != "self" and params[name].default is inspect.Parameter.empty]
-    properties: Dict[str, ParameterInfo] = {}
+    required_params = [
+        name
+        for name in params
+        if name != "self" and params[name].default is inspect.Parameter.empty
+    ]
+    properties: dict[str, ParameterInfo] = {}
 
     docstring = inspect.getdoc(method) or "No description available"
     param_descriptions = {}
@@ -349,7 +357,9 @@ def get_method_info(method: Any) -> MethodInfo:
             if line.startswith("Args:"):
                 in_args_section = True
                 continue
-            if in_args_section and (line.startswith(("Returns:", "Raises:", "Examples:")) or not line):
+            if in_args_section and (
+                line.startswith(("Returns:", "Raises:", "Examples:")) or not line
+            ):
                 in_args_section = False
                 continue
             match = re.match(r"^\s*(\w+)\s*(?:\([^)]*\))?:\s*(.+)$", line)
@@ -371,8 +381,8 @@ def get_method_info(method: Any) -> MethodInfo:
         "parameters": {
             "type": "object",
             "required": required_params,
-            "properties": properties
-        }
+            "properties": properties,
+        },
     }
 
 

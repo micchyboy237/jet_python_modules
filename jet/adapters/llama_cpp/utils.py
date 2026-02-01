@@ -1,3 +1,7 @@
+import numpy as np
+from jet.adapters.llama_cpp.embeddings import (
+    EmbeddingVector,
+)
 from jet.adapters.llama_cpp.models import LLAMACPP_MODELS, LLAMACPP_MODELS_REVERSED
 from jet.adapters.llama_cpp.types import LLAMACPP_TYPES
 
@@ -41,3 +45,12 @@ def resolve_model_value(model: LLAMACPP_TYPES) -> str:
     if model in LLAMACPP_MODELS:
         return LLAMACPP_MODELS[model]
     return model
+
+
+def cosine_similarity(vec1: EmbeddingVector, vec2: EmbeddingVector) -> float:
+    vec1 = np.asarray(vec1)
+    vec2 = np.asarray(vec2)
+    denom = np.linalg.norm(vec1) * np.linalg.norm(vec2)
+    if denom == 0.0:
+        return 0.0
+    return float(np.dot(vec1, vec2) / denom)

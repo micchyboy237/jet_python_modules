@@ -1,4 +1,6 @@
-from typing import Literal, Union
+from typing import Literal, TypedDict, Union
+
+import numpy as np
 
 # LLM model keys and values
 LLAMACPP_LLM_KEYS = Literal[
@@ -34,3 +36,45 @@ LLAMACPP_EMBED_TYPES = Union[LLAMACPP_EMBED_KEYS, LLAMACPP_EMBED_VALUES]
 LLAMACPP_KEYS = Union[LLAMACPP_LLM_KEYS, LLAMACPP_EMBED_KEYS]
 LLAMACPP_VALUES = Union[LLAMACPP_LLM_VALUES, LLAMACPP_EMBED_VALUES]
 LLAMACPP_TYPES = Union[LLAMACPP_KEYS, LLAMACPP_VALUES]
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Embedding Type Definitions
+# ────────────────────────────────────────────────────────────────────────────────
+
+EmbeddingVector = Union[list[float], np.ndarray]
+EmbeddingBatch = list[EmbeddingVector]
+EmbeddingOutput = Union[
+    EmbeddingBatch, np.ndarray
+]  # list of vectors or single 2D array
+EmbeddingInput = Union[str, list[str]]
+EmbeddingInputType = Literal["query", "document", "default"]
+
+
+class EmbeddingResultItem(TypedDict):
+    object: Literal["embedding"]
+    embedding: list[float]
+    index: int
+
+
+class EmbeddingResponse(TypedDict):
+    object: Literal["list"]
+    data: list[EmbeddingResultItem]
+    model: str
+    usage: dict[str, int]
+
+
+IDType = str
+MetadataType = dict
+
+
+class SearchResultType(TypedDict):
+    rank: int | None
+    index: int
+    text: str
+    score: float
+    id: IDType | None  # optional — only present when provided
+    metadata: MetadataType | None  # optional — only present when provided
+
+
+GenerateEmbeddingsReturnType = EmbeddingOutput  # kept for backward compatibility

@@ -1,242 +1,306 @@
-from __future__ import annotations
 import math
 from dataclasses import dataclass
-import os
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, TypedDict
 
-import numpy as np
-from numpy.typing import NDArray
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+
+try:
+    nltk.data.find("tokenizers/punkt")
+except LookupError:
+    nltk.download("punkt", quiet=True)
+    nltk.download("stopwords", quiet=True)
+
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS, SearchResultType
+from jet.adapters.llama_cpp.vector_search import VectorSearch
+from jet.logger import CustomLogger
 from rank_bm25 import BM25Okapi
 
-from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
-from jet.adapters.llama_cpp.embeddings import (
-    LlamacppEmbedding,
-    EmbeddingVector,
-    cosine_similarity,  # ← reused
-    SearchResultType,  # can be reused if needed later
-)
+# ──────────────────────────────────────────────────────────────────────────────
+# Globals / Helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+stop_words = set(stopwords.words("english"))
 
 
-@dataclass(frozen=True)
-class SearchResult:
-    """Simple container for a retrieved item + score"""
-
-    item: Any
-    score: float
-
-    def __lt__(self, other: object) -> bool:
-        if not isinstance(other, SearchResult):
-            return NotImplemented
-        return self.score < other.score
-
-
-def normalize_embedding(vec: EmbeddingVector) -> NDArray[np.float32]:
-    """Normalize vector to unit length (safe against zero vectors)."""
-    arr = np.asarray(vec, dtype=np.float32)
-    norm = np.linalg.norm(arr)
-    if norm < 1e-12:
-        return arr  # avoid division by zero — return as-is
-    return arr / norm
-
-
-class VectorRetriever:
-    """Simple in-memory vector store + dense retriever — aligned with embeddings.py"""
-
-    def __init__(self, embedder: LlamacppEmbedding):
-        self.embedder = embedder
-        self.documents: List[Any] = []
-        self.embeddings: NDArray[np.float32] = np.empty((0, 0), dtype=np.float32)
-
-    def index(self, documents: List[Any], texts: List[str]) -> None:
-        """Index documents with their corresponding texts"""
-        if len(documents) != len(texts):
-            raise ValueError("documents and texts must have same length")
-        if not texts:
-            return
-
-        # Reuse embedding method from embeddings.py
-        # We ask for list format → easier to stack safely
-        raw_embeddings = self.embedder.embed(
-            texts,
-            return_format="list",  # consistent with embeddings.py style
-            batch_size=32,  # can be made configurable later
-            show_progress=False,  # usually silent during indexing
-        )
-
-        # Convert to normalized numpy array
-        normalized = [normalize_embedding(emb) for emb in raw_embeddings]
-        new_emb_array = np.array(normalized, dtype=np.float32)
-
-        # Append documents & embeddings
-        self.documents.extend(documents)
-
-        if self.embeddings.size == 0:
-            self.embeddings = new_emb_array
-        else:
-            self.embeddings = np.vstack([self.embeddings, new_emb_array])
-
-    def search(self, query: str, k: int = 50) -> List[SearchResult]:
-        if self.embeddings.size == 0 or not self.documents:
-            return []
-
-        # Single query → get list of one embedding
-        [raw_q_emb] = self.embedder.embed(
-            [query],
-            return_format="list",
-            batch_size=1,
-            show_progress=False,
-        )
-
-        q_emb = normalize_embedding(raw_q_emb)
-
-        # Vectorized cosine similarity (assuming embeddings are already normalized)
-        # scores = self.embeddings @ q_emb   # faster when pre-normalized
-        scores = np.array(
-            [cosine_similarity(q_emb, doc_emb) for doc_emb in self.embeddings],
-            dtype=np.float32,
-        )
-
-        # Get top-k indices (descending order)
-        top_indices = np.argsort(scores)[-k:][::-1]
-
-        return [SearchResult(self.documents[i], float(scores[i])) for i in top_indices]
+def better_tokenize(text: str) -> list[str]:
+    tokens = word_tokenize(text.lower())
+    return [t for t in tokens if t.isalnum() and t not in stop_words]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  The rest of the file remains mostly unchanged
+# Types (unchanged)
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class BM25Retriever:
-    """BM25 retriever using rank_bm25"""
-
-    def __init__(self):
-        self.bm25: Optional[BM25Okapi] = None
-        self.documents: List[Any] = []
-
-    def index(self, documents: List[Any], texts: List[str]):
-        if len(documents) != len(texts):
-            raise ValueError("documents and texts must have same length")
-        tokenized = [doc.lower().split() for doc in texts]
-        self.bm25 = BM25Okapi(tokenized)
-        self.documents.extend(documents)
-
-    def search(self, query: str, k: int = 50) -> List[SearchResult]:
-        if self.bm25 is None:
-            return []
-        tokenized_query = query.lower().split()
-        scores = self.bm25.get_scores(tokenized_query)
-        top_indices = np.argsort(scores)[-k:][::-1]
-        return [
-            SearchResult(self.documents[i], float(scores[i]))
-            for i in top_indices
-            if scores[i] > 0
-        ]
+class HybridSearchResult(TypedDict):
+    rank: int
+    index: int
+    id: str | None
+    text: str
+    dense_score: float
+    sparse_score: float
+    hybrid_score: float
+    category: str  # human-readable label
+    category_level: int  # 0=Very Low ... 4=Very High (ordered)
 
 
-@dataclass
-class HybridConfig:
-    k_candidates: int = 80
-    k_final: int = 20
-    rrf_constant: float = 60.0
-    bm25_weight: float = 1.0
-    vector_weight: float = 1.0
+# ──────────────────────────────────────────────────────────────────────────────
+# Fusion functions
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 def reciprocal_rank_fusion(
-    result_lists: Sequence[List[SearchResult]],
-    rrf_k: float = 60.0,
-    weights: Optional[List[float]] = None,
-) -> List[SearchResult]:
-    """Merge ranked lists using Reciprocal Rank Fusion"""
-    if not result_lists:
-        return []
-    if weights is None:
-        weights = [1.0] * len(result_lists)
-    if len(weights) != len(result_lists):
-        raise ValueError("weights length must match number of lists")
+    dense_results: list[SearchResultType],
+    sparse_results: list[SearchResultType],
+    k: float = 60.0,
+    limit: int | None = None,
+    dense_weight: float = 1.0,
+    sparse_weight: float = 1.0,
+) -> list[HybridSearchResult]:
+    """
+    Weighted Reciprocal Rank Fusion.
 
-    score_map: Dict[str, float] = {}
-    id_to_doc: Dict[str, Any] = {}
+    Allows giving more importance to dense or sparse rankings.
+    """
+    scores: dict[int, float] = {}
+    ranks_dense: dict[int, int] = {
+        r.get("index"): i + 1 for i, r in enumerate(dense_results)
+    }
+    ranks_sparse: dict[int, int] = {
+        r["index"]: i + 1 for i, r in enumerate(sparse_results)
+    }
 
-    for ranked_list, weight in zip(result_lists, weights):
-        for rank, res in enumerate(ranked_list, 1):
-            doc_id = res.item["id"]
-            rrf_score = weight / (rrf_k + rank)
-            score_map[doc_id] = score_map.get(doc_id, 0.0) + rrf_score
-            id_to_doc[doc_id] = res.item
+    all_indices = set(ranks_dense) | set(ranks_sparse)
 
-    fused = [
-        SearchResult(id_to_doc[doc_id], score)
-        for doc_id, score in sorted(score_map.items(), key=lambda x: x[1], reverse=True)
-    ]
-    return fused
+    for idx in all_indices:
+        r_d = ranks_dense.get(idx, float("inf"))
+        r_s = ranks_sparse.get(idx, float("inf"))
+        contrib_dense = dense_weight / (k + r_d)
+        contrib_sparse = sparse_weight / (k + r_s)
+        scores[idx] = contrib_dense + contrib_sparse
+
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    if limit is not None:
+        ranked = ranked[:limit]
+
+    final = []
+    for pos, (idx, hybrid_score) in enumerate(ranked, 1):
+        ref = next((r for r in dense_results if r.get("index") == idx), None) or next(
+            (r for r in sparse_results if r["index"] == idx), None
+        )
+        if not ref:
+            continue
+
+        cat, cat_level = get_relevance_category(round(hybrid_score, 6))
+        final.append(
+            {
+                "rank": pos,
+                "index": idx,
+                "id": ref.get("id"),
+                "text": ref["text"],
+                "dense_score": ref["score"],
+                "sparse_score": next(
+                    (r["score"] for r in sparse_results if r["index"] == idx), 0.0
+                ),
+                "hybrid_score": round(hybrid_score, 6),
+                "category": cat,
+                "category_level": cat_level,
+            }
+        )
+
+    return final
 
 
-class HybridSearcher:
+def get_relevance_category(score: float) -> tuple[str, int]:
+    """
+    Returns (label: str, level: int) based on hybrid score.
+
+    Higher level = better relevance.
+    Thresholds tuned for typical RRF scores with k≈10–15 and weights ≈1.5/0.7.
+    """
+    if score >= 0.135:
+        return "Very High", 4
+    elif score >= 0.110:
+        return "High", 3
+    elif score >= 0.080:
+        return "Medium", 2
+    elif score >= 0.040:
+        return "Low", 1
+    else:
+        return "Very Low", 0
+
+
+@dataclass
+class HybridSearch:
+    """
+    Hybrid (dense + sparse) retriever using Weighted Reciprocal Rank Fusion by default.
+    """
+
+    documents: list[str]
+    ids: list[str] | None = None
+    embedding_model: LlamacppEmbedding | str = "nomic-embed-text"
+    bm25: BM25Okapi | None = None
+    vector_search: VectorSearch | None = None
+    fusion_k: float = 60.0  # base value — will be adapted in search()
+    dense_weight: float = 1.5  # stronger semantic preference — fixes salad query
+    sparse_weight: float = 0.7
+    min_hybrid_score: float = 0.015
+    logger: CustomLogger | None = None
+
+    def __post_init__(self):
+        if self.logger is None:
+            self.logger = CustomLogger()
+
+        # Build sparse index with improved tokenization
+        tokenized_docs = [better_tokenize(doc) for doc in self.documents]
+        self.bm25 = BM25Okapi(tokenized_docs)
+
+        # Initialize vector search (dense retriever)
+        if isinstance(self.embedding_model, str):
+            self.vector_search = VectorSearch(
+                model=self.embedding_model,
+                normalize=True,
+                query_prefix="search_query: ",
+                document_prefix="search_document: ",
+            )
+        else:
+            self.vector_search = VectorSearch(model=self.embedding_model)
+
     @classmethod
     def from_documents(
         cls,
-        documents: List[Dict[str, Any]],
+        documents: list[str],
+        ids: list[str] | None = None,
         model: LLAMACPP_EMBED_KEYS | LlamacppEmbedding = "nomic-embed-text",
-        base_url: Optional[str] = os.getenv("LLAMA_CPP_EMBED_URL"),
-        query_prefix: Optional[str] = None,
-        document_prefix: Optional[str] = None,
-        use_cache: bool = True,
-        embedder_kwargs: dict = {},
-        **config_kwargs,
-    ) -> "HybridSearcher":
-        if not documents:
-            raise ValueError("No documents provided")
+        **kwargs: Any,
+    ) -> "HybridSearch":
+        if ids is not None and len(ids) != len(documents):
+            raise ValueError("ids must be None or same length as documents")
 
-        texts = [doc["content"] for doc in documents]
-        for doc in documents:
-            if not isinstance(doc, dict) or "id" not in doc or "content" not in doc:
-                raise ValueError(
-                    "Each document must be a dict with 'id' and 'content' keys"
-                )
+        # Forward all extra kwargs (allows overriding weights, k, etc.)
+        return cls(documents=documents, ids=ids, embedding_model=model, **kwargs)
 
-        if isinstance(model, str):
-            embedder = LlamacppEmbedding(
-                base_url=base_url,
-                model=model,
-                query_prefix=query_prefix,
-                document_prefix=document_prefix,
-                use_cache=use_cache,
-                **embedder_kwargs,
-            )
-        else:
-            embedder = model
+    def _sparse_search(
+        self, query: str, top_k: int | None = None
+    ) -> list[SearchResultType]:
+        tokenized_query = better_tokenize(query)
+        scores = self.bm25.get_scores(tokenized_query)
 
-        bm25_ret = BM25Retriever()
-        vector_ret = VectorRetriever(embedder)
-
-        bm25_ret.index(documents, texts)
-        vector_ret.index(documents, texts)
-
-        config = HybridConfig(**config_kwargs)
-        return cls(bm25_ret, vector_ret, config)
-
-    def __init__(
-        self,
-        bm25_retriever: BM25Retriever,
-        vector_retriever: VectorRetriever,
-        config: HybridConfig = HybridConfig(),
-    ):
-        self.bm25 = bm25_retriever
-        self.vector = vector_retriever
-        self.config = config
-
-    def search(self, query: str) -> List[SearchResult]:
-        bm25_results = self.bm25.search(query, k=self.config.k_candidates)
-        vector_results = self.vector.search(query, k=self.config.k_candidates)
-
-        fused = reciprocal_rank_fusion(
-            [bm25_results, vector_results],
-            rrf_k=self.config.rrf_constant,
-            weights=[self.config.bm25_weight, self.config.vector_weight],
+        ranked = sorted(
+            [(i, score) for i, score in enumerate(scores) if score > 0],
+            key=lambda x: x[1],
+            reverse=True,
         )
-        return fused[: self.config.k_final]
+
+        if top_k is not None:
+            ranked = ranked[:top_k]
+
+        results: list[SearchResultType] = []
+        for idx, score in ranked:
+            item: SearchResultType = {
+                "index": idx,
+                "text": self.documents[idx],
+                "score": float(score),
+            }
+            if self.ids:
+                item["id"] = self.ids[idx]
+            results.append(item)
+
+        return results
+
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        dense_top_k: int | None = None,
+        sparse_top_k: int | None = None,
+        fusion_k: float | None = None,
+        dense_weight: float | None = None,
+        sparse_weight: float | None = None,
+        min_hybrid_score: float | None = None,
+        debug: bool = False,
+        **search_kwargs: Any,
+    ) -> list[HybridSearchResult]:
+        """
+        Perform hybrid search with configurable weighting and adaptive k.
+
+        Args:
+            debug: If True, print top dense/sparse candidates regardless of log level
+            **search_kwargs: Allows passing min_hybrid_score, etc. for one-off calls
+        """
+        # ────── Parameter resolution ──────
+        use_k = fusion_k if fusion_k is not None else self.fusion_k
+        use_dense_w = dense_weight if dense_weight is not None else self.dense_weight
+        use_sparse_w = (
+            sparse_weight if sparse_weight is not None else self.sparse_weight
+        )
+        use_min_score = (
+            min_hybrid_score if min_hybrid_score is not None else self.min_hybrid_score
+        )
+
+        # Adaptive k: good balance for small ↔ large collections
+        n_docs = len(self.documents)
+        adaptive_k = max(9.0, min(60.0, math.log2(n_docs + 1) * 5))
+        actual_k = adaptive_k if use_k == 60.0 else use_k  # respect explicit override
+
+        self.logger.debug(
+            f"Using RRF k={actual_k:.1f} (adaptive), "
+            f"dense_weight={use_dense_w}, sparse_weight={use_sparse_w}"
+        )
+
+        dense_k = dense_top_k if dense_top_k is not None else top_k * 3
+        sparse_k = sparse_top_k if sparse_top_k is not None else top_k * 3
+
+        # ────── Retrieve ──────
+        dense_results = self.vector_search.search(
+            query=query,
+            documents=self.documents,
+            ids=self.ids,
+            top_k=dense_k,
+            **search_kwargs,
+        )
+
+        sparse_results = self._sparse_search(query, top_k=sparse_k)
+
+        # ────── Optional debug output ──────
+        should_debug = debug or (self.logger and self.logger.level <= 10)
+        if should_debug:
+            self.logger.debug("Top Dense (pre-fusion):")
+            for r in dense_results[:5]:
+                self.logger.debug(f"  {r.get('score', 0.0):.3f}  {r['text'][:68]}...")
+
+            self.logger.debug("Top Sparse (pre-fusion):")
+            for r in sparse_results[:5]:
+                self.logger.debug(f"  {r.get('score', 0.0):.3f}  {r['text'][:68]}...")
+
+        # Fusion
+        fused = reciprocal_rank_fusion(
+            dense_results=dense_results,
+            sparse_results=sparse_results,
+            k=actual_k,
+            limit=top_k,
+            dense_weight=use_dense_w,
+            sparse_weight=use_sparse_w,
+        )
+
+        if not fused:
+            self.logger.warning(f"No results after fusion for query: {query!r}")
+            return []
+
+        # Filter weak blended results
+        fused = [r for r in fused if r["hybrid_score"] >= use_min_score]
+
+        # Optional: log distribution of categories for debugging
+        if should_debug:
+            from collections import Counter
+
+            cats = Counter(r["category"] for r in fused)
+            self.logger.debug(f"Result categories: {dict(cats)}")
+
+        return fused
 
 
 # ────────────────────────────────────────────────
@@ -244,8 +308,12 @@ class HybridSearcher:
 # ────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Prepare data
-    docs = [
+    from rich.console import Console
+    from rich.table import Table
+
+    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
+
+    docs_data = [
         {
             "id": "d1",
             "content": "Hybrid vector search best practices 2025. Use RRF for combining BM25 and dense embeddings. Run both retrievers in parallel and fuse with reciprocal rank fusion...",
@@ -268,25 +336,40 @@ if __name__ == "__main__":
         },
     ]
 
-    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
+    ids = [doc["id"] for doc in docs_data]
+    documents = [doc["content"] for doc in docs_data]
 
-    hybrid = HybridSearcher.from_documents(
-        documents=docs,
+    hybrid = HybridSearch.from_documents(
+        documents=documents,
+        ids=ids,
         model=model,
-        k_candidates=10,
-        k_final=5,
-        bm25_weight=1.2,
-        vector_weight=1.0,
     )
 
-    # Query
     query = "fast local embeddings with llama.cpp"
-    results = hybrid.search(query)
+    results = hybrid.search(query, top_k=5)
 
-    print(f"\nResults for: {query!r}\n")
-    for i, res in enumerate(results, 1):
-        doc = res.item
-        preview = (
-            doc["content"][:80] + "..." if len(doc["content"]) > 80 else doc["content"]
+    console = Console()
+    table = Table(title=f"Hybrid Results for: {query!r}")
+    table.add_column("Rank", justify="right", style="cyan")
+    table.add_column("Hybrid", justify="right")
+    table.add_column("Dense", justify="right")
+    table.add_column("Sparse", justify="right")
+    table.add_column("Category", style="bold")
+    table.add_column("Level", justify="right", style="dim cyan")
+    table.add_column("ID")
+    table.add_column("Preview", style="dim")
+
+    for res in results:
+        preview = res["text"][:80] + "..." if len(res["text"]) > 80 else res["text"]
+        table.add_row(
+            str(res["rank"]),
+            f"{res['hybrid_score']:.4f}",
+            f"{res['dense_score']:.3f}",
+            f"{res['sparse_score']:.3f}",
+            res["category"],
+            str(res["category_level"]),
+            res["id"] or "-",
+            preview,
         )
-        print(f"{i:2d}. {res.score:6.4f}  {doc['id']}  {preview}")
+
+    console.print(table)

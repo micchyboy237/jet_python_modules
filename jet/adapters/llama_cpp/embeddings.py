@@ -1,59 +1,23 @@
 import os
-import numpy as np
-from openai import OpenAI
+from collections.abc import Callable, Iterator
 from typing import (
-    Iterator,
-    List,
-    Tuple,
-    Union,
     Literal,
-    Callable,
-    Optional,
-    TypedDict,
 )
-from tqdm import tqdm
+
+import numpy as np
 from jet._token.token_utils import token_counter
-from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
+from jet.adapters.llama_cpp.types import (
+    LLAMACPP_EMBED_KEYS,
+    EmbeddingVector,
+    GenerateEmbeddingsReturnType,
+)
 from jet.adapters.llama_cpp.utils import resolve_model_value
-from jet.models.utils import get_context_size, get_embedding_size
-from jet.models.embeddings.utils import calculate_dynamic_batch_size
-from jet.models.embeddings.cache import EmbeddingCache
 from jet.logger import CustomLogger
-
-
-# ────────────────────────────────────────────────────────────────────────────────
-# Type Definitions
-# ────────────────────────────────────────────────────────────────────────────────
-
-EmbeddingVector = Union[List[float], np.ndarray]
-EmbeddingBatch = List[EmbeddingVector]
-EmbeddingOutput = Union[
-    EmbeddingBatch, np.ndarray
-]  # list of vectors or single 2D array
-EmbeddingInput = Union[str, List[str]]
-EmbeddingInputType = Literal["query", "document", "default"]
-
-
-class EmbeddingResultItem(TypedDict):
-    object: Literal["embedding"]
-    embedding: List[float]
-    index: int
-
-
-class EmbeddingResponse(TypedDict):
-    object: Literal["list"]
-    data: List[EmbeddingResultItem]
-    model: str
-    usage: dict[str, int]
-
-
-class SearchResultType(TypedDict):
-    index: int
-    text: str
-    score: float
-
-
-GenerateEmbeddingsReturnType = EmbeddingOutput  # kept for backward compatibility
+from jet.models.embeddings.cache import EmbeddingCache
+from jet.models.embeddings.utils import calculate_dynamic_batch_size
+from jet.models.utils import get_context_size, get_embedding_size
+from openai import OpenAI
+from tqdm import tqdm
 
 
 def cosine_similarity(vec1: EmbeddingVector, vec2: EmbeddingVector) -> float:
@@ -65,7 +29,7 @@ def cosine_similarity(vec1: EmbeddingVector, vec2: EmbeddingVector) -> float:
 class InputTooLargeError(ValueError):
     """Custom exception for inputs exceeding the maximum allowed length."""
 
-    def __init__(self, long_input_indexes: List[int], max_input_length: int):
+    def __init__(self, long_input_indexes: list[int], max_input_length: int):
         self.long_input_indexes = long_input_indexes
         self.max_input_length = max_input_length
         super().__init__(
@@ -122,28 +86,20 @@ class LlamacppEmbedding:
         logger (Optional[CustomLogger]):
             Optional custom logger instance. If not provided,
             a default `CustomLogger` is created.
-
-        query_prefix (Optional[str]):
-            Optional prefix to prepend to query strings before embedding.
-
-        document_prefix (Optional[str]):
-            Optional prefix to prepend to document strings before embedding.
     """
 
     def __init__(
         self,
         model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
-        base_url: Optional[str] = os.getenv("LLAMA_CPP_EMBED_URL"),
+        base_url: str | None = os.getenv("LLAMA_CPP_EMBED_URL"),
         max_retries: int = 3,
         cache_backend: Literal["memory", "file", "sqlite"] = "sqlite",
-        cache_ttl: Optional[int] = None,
+        cache_ttl: int | None = None,
         cache_max_size: int = 10000,
         use_cache: bool = False,
         use_dynamic_batch_sizing: bool = False,
         verbose: bool = True,
-        logger: Optional[CustomLogger] = None,
-        query_prefix: Optional[str] = None,
-        document_prefix: Optional[str] = None,
+        logger: CustomLogger | None = None,
     ):
         if not base_url:
             raise ValueError(
@@ -165,17 +121,15 @@ class LlamacppEmbedding:
         )
 
         self._logger = logger or CustomLogger()
-        self.query_prefix = query_prefix
-        self.document_prefix = document_prefix
 
     def __call__(
         self,
-        inputs: Union[str, List[str]],
+        inputs: str | list[str],
         return_format: Literal["numpy", "list"] = "numpy",
         batch_size: int = 32,
         show_progress: bool = True,
-        use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None,
+        use_cache: bool | None = None,
+        use_dynamic_batch_sizing: bool | None = None,
     ) -> GenerateEmbeddingsReturnType:
         """Make the instance callable to generate embeddings, equivalent to get_embeddings."""
         return self.get_embeddings(
@@ -189,29 +143,15 @@ class LlamacppEmbedding:
             else self.use_dynamic_batch_sizing,
         )
 
-    def _apply_prefix(
-        self,
-        texts: List[str],
-        *,
-        input_type: "EmbeddingInputType" = "default",
-    ) -> List[str]:
-        if input_type == "query" and self.query_prefix:
-            return [f"{self.query_prefix}{t}" for t in texts]
-
-        if input_type == "document" and self.document_prefix:
-            return [f"{self.document_prefix}{t}" for t in texts]
-
-        return texts
-
     def embed(
         self,
-        inputs: Union[str, List[str]],
+        inputs: str | list[str],
         return_format: Literal["numpy", "list"] = "numpy",
         batch_size: int = 32,
         show_progress: bool = True,
-        max_input_length: Optional[int] = None,
-        use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None,
+        max_input_length: int | None = None,
+        use_cache: bool | None = None,
+        use_dynamic_batch_sizing: bool | None = None,
     ) -> GenerateEmbeddingsReturnType:
         return self.get_embeddings(
             inputs,
@@ -225,13 +165,13 @@ class LlamacppEmbedding:
 
     def get_embeddings(
         self,
-        inputs: Union[str, List[str]],
+        inputs: str | list[str],
         return_format: Literal["numpy", "list"] = "numpy",
         batch_size: int = 32,
         show_progress: bool = True,
-        max_input_length: Optional[int] = None,
-        use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None,
+        max_input_length: int | None = None,
+        use_cache: bool | None = None,
+        use_dynamic_batch_sizing: bool | None = None,
     ) -> GenerateEmbeddingsReturnType:
         """Generate embeddings with caching and optional dynamic batch sizing."""
         use_cache = use_cache if use_cache is not None else self.use_cache
@@ -268,7 +208,7 @@ class LlamacppEmbedding:
         elif max_length <= 0:
             max_length = 512
 
-        token_counts: List[int] = token_counter(
+        token_counts: list[int] = token_counter(
             valid_inputs, self.model, prevent_total=True
         )
 
@@ -314,37 +254,79 @@ class LlamacppEmbedding:
 
         # Cache check
         if use_cache:
-            cache_key = self.cache._generate_key(valid_inputs)
-            cached = self.cache.get(cache_key)
-            if cached is not None:
-                if return_format == "numpy":
-                    result = np.array(cached, dtype=np.float32)
-                else:
-                    result = cached
-                if self.verbose:
-                    self._logger.debug(
-                        f"Cache hit for {len(valid_inputs)} texts (key: {cache_key[:16]}...)"
+            # ── Per-text cache lookup ───────────────────────────────────────
+            cached_embeddings: list = [None] * len(valid_inputs)
+            miss_indices: list[int] = []
+            miss_texts: list[str] = []
+
+            for idx, text in enumerate(valid_inputs):
+                key = self.cache._generate_key(text)
+                emb = self.cache.get(key)
+                # Migration / safety for old buggy multi-vector cache entries
+                if emb is not None:
+                    if (
+                        isinstance(emb, list)
+                        and emb
+                        and isinstance(emb[0], (list, tuple))
+                    ):
+                        emb = emb[0]  # take first — or you could raise / skip
+                    cached_embeddings[idx] = (
+                        np.array(emb, dtype=np.float32)
+                        if return_format == "numpy"
+                        else emb
                     )
+                else:
+                    miss_indices.append(idx)
+                    miss_texts.append(text)
+
+            # Early return if everything is cached
+            if not miss_texts:
+                result = (
+                    cached_embeddings
+                    if return_format != "numpy"
+                    else np.array(cached_embeddings, dtype=np.float32)
+                )
+                result = self.transform_data(result)
+                if self.verbose:
+                    self._logger.debug(f"Full cache hit for {len(valid_inputs)} texts")
                 return result
+
+            if self.verbose and miss_texts:
+                self._logger.debug(
+                    f"Cache hits: {len(valid_inputs) - len(miss_texts)} | misses: {len(miss_texts)}"
+                )
             if self.verbose:
                 self._logger.debug(
-                    f"Cache miss for {len(valid_inputs)} texts (key: {cache_key[:16]}...). Computing..."
+                    f"Cache miss for {len(valid_inputs)} | misses: {len(miss_texts)}. Computing..."
                 )
 
         embeddings = []
+        target_texts = miss_texts if use_cache else valid_inputs
         progress_bar = tqdm(
-            range(0, len(valid_inputs), batch_size),
-            desc="Processing batches",
+            range(0, len(target_texts), batch_size),
+            desc="Embedding cache misses" if use_cache else "Processing batches",
             disable=not show_progress,
         )
 
         for i in progress_bar:
-            batch = valid_inputs[i : i + batch_size]
+            batch = target_texts[i : i + batch_size]
             try:
                 response = self.client.embeddings.create(model=self.model, input=batch)
                 batch_embeddings = [d.embedding for d in response.data]
                 if return_format == "numpy":
                     batch_embeddings = [np.array(emb) for emb in batch_embeddings]
+
+                # If caching, store each embedding using its per-text cache key
+                if use_cache:
+                    for local_i, single_emb in enumerate(batch_embeddings):
+                        text = batch[local_i]
+                        key = self.cache._generate_key(text)
+                        stored_value = (
+                            single_emb
+                            if return_format != "numpy"
+                            else single_emb.tolist()
+                        )
+                        self.cache.set(key, stored_value)
                 embeddings.extend(batch_embeddings)
             except Exception as e:
                 self._logger.error(
@@ -359,18 +341,6 @@ class LlamacppEmbedding:
         )
         final_embeddings = self.transform_data(final_embeddings)
 
-        if use_cache:
-            self.cache.set(
-                cache_key,
-                final_embeddings.tolist()
-                if return_format == "numpy"
-                else final_embeddings,
-            )
-            if self.verbose:
-                self._logger.info(
-                    f"Cached embeddings for {len(valid_inputs)} texts (key: {cache_key[:16]}...)"
-                )
-
         return final_embeddings
 
     def get_embedding_function(
@@ -378,13 +348,13 @@ class LlamacppEmbedding:
         return_format: Literal["numpy", "list"] = "numpy",
         batch_size: int = 32,
         show_progress: bool = True,
-        use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None,
-    ) -> Callable[[Union[str, List[str]]], GenerateEmbeddingsReturnType]:
+        use_cache: bool | None = None,
+        use_dynamic_batch_sizing: bool | None = None,
+    ) -> Callable[[str | list[str]], GenerateEmbeddingsReturnType]:
         """Return callable with caching and optional dynamic batch sizing."""
 
         def embedding_function(
-            inputs: Union[str, List[str]],
+            inputs: str | list[str],
         ) -> GenerateEmbeddingsReturnType:
             return self.get_embeddings(
                 inputs,
@@ -401,13 +371,13 @@ class LlamacppEmbedding:
 
     def get_embeddings_stream(
         self,
-        inputs: Union[str, List[str]],
+        inputs: str | list[str],
         return_format: Literal["numpy", "list"] = "numpy",
         batch_size: int = 32,
         show_progress: bool = True,
-        max_input_length: Optional[int] = None,
-        use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None,
+        max_input_length: int | None = None,
+        use_cache: bool | None = None,
+        use_dynamic_batch_sizing: bool | None = None,
     ) -> Iterator[GenerateEmbeddingsReturnType]:
         """
         Stream embeddings with per-text caching, yielding all cache hits first (batched, ordered),
@@ -448,17 +418,24 @@ class LlamacppEmbedding:
                 self._logger.debug(f"Dynamic batch size: {batch_size}")
 
         # ------------------ Phase 1: Per-text cache scan ----------------------
-        cached_embeddings: List[Optional[Union[List[float], np.ndarray]]] = [
-            None
-        ] * len(valid_inputs)
-        miss_indices: List[int] = []
-        miss_texts: List[str] = []
+        cached_embeddings: list[list[float] | np.ndarray | None] = [None] * len(
+            valid_inputs
+        )
+        miss_indices: list[int] = []
+        miss_texts: list[str] = []
 
         if use_cache:
             for idx, text in enumerate(valid_inputs):
-                key = self.cache._generate_key([text])[0]
+                key = self.cache._generate_key(text)
                 emb = self.cache.get(key)
                 if emb is not None:
+                    # Migration / safety for old buggy multi-vector cache entries
+                    if (
+                        isinstance(emb, list)
+                        and emb
+                        and isinstance(emb[0], (list, tuple))
+                    ):
+                        emb = emb[0]  # take first — or you could raise / skip
                     cached_embeddings[idx] = (
                         np.array(emb, dtype=np.float32)
                         if return_format == "numpy"
@@ -509,13 +486,13 @@ class LlamacppEmbedding:
                         for i, orig_idx in enumerate(batch_indices):
                             # Optionally update cache
                             if use_cache:
-                                key = self.cache._generate_key([batch_texts[i]])[0]
+                                key = self.cache._generate_key(batch_texts[i])
                                 self.cache.set(key, batch_embs[i])
                     else:
                         yield batch_embs
                         for i, orig_idx in enumerate(batch_indices):
                             if use_cache:
-                                key = self.cache._generate_key([batch_texts[i]])[0]
+                                key = self.cache._generate_key(batch_texts[i])
                                 self.cache.set(key, batch_embs[i])
                 except Exception as e:
                     self._logger.error(
@@ -525,8 +502,8 @@ class LlamacppEmbedding:
 
     def transform_data(
         self,
-        embeddings: Union[List[float], np.ndarray],
-        truncate_dim: Optional[int] = None,
+        embeddings: list[float] | np.ndarray,
+        truncate_dim: int | None = None,
     ) -> np.ndarray:
         if isinstance(embeddings, list):
             embeddings = np.array(embeddings, dtype=np.float32)
@@ -553,121 +530,3 @@ class LlamacppEmbedding:
         if getattr(self, "verbose", False):
             self._logger.info(f"Embedding cache reset (backend: {self.cache.backend})")
         return self
-
-    def search(
-        self,
-        query: str,
-        documents: List[str],
-        *,
-        top_k: Optional[int] = None,
-        batch_size: int = 32,
-        show_progress: bool = True,
-        use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None,
-    ) -> List[SearchResultType]:
-        """
-        Semantic search — computes query + all documents embeddings in **one call**.
-        """
-        if not query or not query.strip():
-            raise ValueError("query must be a non-empty string")
-
-        if not documents:
-            return []
-
-        # Combine query + documents → single embedding call
-        all_texts = [query] + documents
-
-        all_embs_list = self.get_embeddings(
-            all_texts,
-            return_format="list",
-            batch_size=batch_size,
-            show_progress=show_progress,
-            use_cache=use_cache,
-            use_dynamic_batch_sizing=use_dynamic_batch_sizing,
-        )
-
-        # First embedding belongs to the query
-        query_emb = all_embs_list[0]
-        doc_embs = all_embs_list[1:]
-
-        results: List[SearchResultType] = []
-        for i, (text, emb) in enumerate(zip(documents, doc_embs), start=0):
-            score = cosine_similarity(query_emb, emb)
-            item: SearchResultType = {"index": i, "text": text, "score": score}
-            results.append(item)
-
-        results.sort(key=lambda x: x["score"], reverse=True)
-        if top_k is not None:
-            results = results[:top_k]
-
-        return results
-
-    def search_stream(
-        self,
-        query: str,
-        documents: List[str],
-        *,
-        top_k: Optional[int] = None,
-        batch_size: int = 32,
-        show_progress: bool = True,
-        use_cache: Optional[bool] = None,
-        use_dynamic_batch_sizing: Optional[bool] = None,
-    ) -> Iterator[SearchResultType]:
-        if not query or not query.strip():
-            raise ValueError("query must be a non-empty string")
-
-        if not documents:
-            return
-
-        # Temporarily reset cache to fix issue on same 1.000 scores in results
-        self.reset_cache()
-
-        # Global counter for correct query numbering across streamed batches
-        query_embedding = None
-        doc_idx = 0  # Tracks the starting document index for each batch
-
-        formatted_queries = (
-            self._apply_prefix([query], input_type="query")
-            if self.query_prefix
-            else [query]
-        )
-        formatted_docs = (
-            self._apply_prefix(documents, input_type="document")
-            if self.document_prefix
-            else documents
-        )
-
-        embeddings_stream = self.get_embeddings_stream(
-            inputs=formatted_queries + formatted_docs,
-            return_format="numpy",
-            batch_size=batch_size,
-            show_progress=show_progress,
-            use_cache=use_cache,
-            use_dynamic_batch_sizing=use_dynamic_batch_sizing,
-        )
-
-        for batch_idx, batch_embeddings in enumerate(embeddings_stream):
-            if query_embedding is None:
-                query_embedding = batch_embeddings[0]
-                remaining = batch_embeddings[1:] if len(batch_embeddings) > 1 else []
-                doc_idx = 0
-            else:
-                remaining = batch_embeddings
-
-            print(f"\n\n--- Batch {batch_idx + 1} ---\n")
-
-            for batch_item_idx, embedding in enumerate(remaining):
-                similarity = cosine_similarity(query_embedding, embedding)
-                print(
-                    f"{batch_item_idx + 1}: Similarity between query and doc {doc_idx + 1}"
-                )
-
-                result: SearchResultType = {
-                    "index": doc_idx,
-                    "text": documents[doc_idx],
-                    "score": similarity,
-                }
-
-                yield result
-
-                doc_idx += 1

@@ -12,6 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_LLM_TYPES
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents.monitoring import TokenUsage
@@ -505,25 +506,36 @@ def get_next_call_number(logs_dir: Path) -> int:
     return max(existing, default=0) + 1
 
 
-def save_llm_call(
-    logs_dir: Path,
-    call_number: int,
-    is_stream: bool,
-    request_data: dict,
-    response_data: Any | None = None,
-    stream_deltas: list | None = None,
-) -> None:
-    """Save complete call information in structured files"""
+def _get_llm_call_dir(logs_dir: Path, call_number: int, is_stream: bool) -> Path:
     subdir_name = f"llm_call_{call_number:04d}"
     target_dir = (
         logs_dir / ("generate_stream" if is_stream else "generate") / subdir_name
     )
     target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
 
-    # 1. request
-    (target_dir / "request.json").write_text(json.dumps(request_data, indent=2))
 
-    # 2. final response (non-stream)
+def save_request_llm_call(
+    logs_dir: Path,
+    call_number: int,
+    is_stream: bool,
+    request_data: dict,
+) -> None:
+    target_dir = _get_llm_call_dir(logs_dir, call_number, is_stream)
+    (target_dir / "request.json").write_text(
+        json.dumps(request_data, indent=2, ensure_ascii=False)
+    )
+
+
+def save_response_llm_call(
+    logs_dir: Path,
+    call_number: int,
+    is_stream: bool,
+    response_data: Any | None = None,
+    stream_deltas: list | None = None,
+) -> None:
+    target_dir = _get_llm_call_dir(logs_dir, call_number, is_stream)
+
     if response_data is not None and not is_stream:
         if hasattr(response_data, "model_dump_json"):
             text = response_data.model_dump_json()
@@ -531,10 +543,8 @@ def save_llm_call(
             text = json.dumps(response_data.json(), indent=2, ensure_ascii=False)
         else:
             text = json.dumps(response_data, indent=2, default=str)
-
         (target_dir / "response.json").write_text(text)
 
-    # 3. stream deltas (one line per delta)
     if is_stream and stream_deltas:
         with (target_dir / "stream_deltas.ndjson").open("w", encoding="utf-8") as f:
             for delta in stream_deltas:
@@ -896,9 +906,16 @@ class OpenAIModel(ApiModel):
                 if self._call_counter[True] == 1
                 else self._call_counter[True]
             )
+            input_tokens = count_tokens(
+                completion_kwargs.get("messages", []),
+                model=self.model_id,
+            )
             request_data = {
                 "model": completion_kwargs.get("model"),
                 "messages": completion_kwargs.get("messages"),
+                "token_counts": {
+                    "input_tokens": input_tokens,
+                },
                 "kwargs": {
                     k: v
                     for k, v in completion_kwargs.items()
@@ -906,6 +923,13 @@ class OpenAIModel(ApiModel):
                 },
             }
             deltas_collected = []
+            # Save request at the beginning (streaming path)
+            save_request_llm_call(
+                logs_dir=self.logs_dir,
+                call_number=call_num,
+                is_stream=True,
+                request_data=request_data,
+            )
         # --- END add logging ---
 
         self._apply_rate_limit()
@@ -955,11 +979,10 @@ class OpenAIModel(ApiModel):
                             )
         finally:
             if self.logs_dir:
-                save_llm_call(
+                save_response_llm_call(
                     logs_dir=self.logs_dir,
                     call_number=call_num,
                     is_stream=True,
-                    request_data=request_data,
                     stream_deltas=deltas_collected,
                 )
 
@@ -995,15 +1018,28 @@ class OpenAIModel(ApiModel):
                 if self._call_counter[False] == 1
                 else self._call_counter[False]
             )
+            input_tokens = count_tokens(
+                completion_kwargs.get("messages", []),
+                model=self.model_id,
+            )
             request_data = {
                 "model": completion_kwargs.get("model"),
                 "messages": completion_kwargs.get("messages"),
+                "token_counts": {
+                    "input_tokens": input_tokens,
+                },
                 "kwargs": {
                     k: v
                     for k, v in completion_kwargs.items()
                     if k not in ("messages", "model")
                 },
             }
+            save_request_llm_call(
+                logs_dir=self.logs_dir,
+                call_number=call_num,
+                is_stream=False,
+                request_data=request_data,
+            )
         # --- END add logging ---
 
         self._apply_rate_limit()
@@ -1012,11 +1048,15 @@ class OpenAIModel(ApiModel):
         )
 
         if self.logs_dir:
-            save_llm_call(
+            # Attach response input and output token count for easier debugging and analysis
+            response.token_counts = {
+                "input_tokens": response.usage.prompt_tokens,
+                "output_tokens": response.usage.completion_tokens,
+            }
+            save_response_llm_call(
                 logs_dir=self.logs_dir,
                 call_number=call_num,
                 is_stream=False,
-                request_data=request_data,
                 response_data=response,
             )
 

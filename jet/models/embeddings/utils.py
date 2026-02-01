@@ -1,8 +1,16 @@
-from typing import List
+import numpy as np
 import psutil
+from jet.adapters.llama_cpp.types import EmbeddingVector
+
+
+def normalize_embedding(vec: EmbeddingVector) -> np.ndarray:
+    arr = np.asarray(vec, dtype=np.float32)
+    norm = np.linalg.norm(arr)
+    return arr / norm if norm > 1e-12 else arr
+
 
 def calculate_dynamic_batch_size(
-    token_counts: List[int],
+    token_counts: list[int],
     embedding_size: int,
     context_size: int,
     max_memory_usage: float = 0.8,
@@ -10,7 +18,7 @@ def calculate_dynamic_batch_size(
     memory_overhead_factor: float = 1.5,
     max_batch_size_cap: int = 128,
     min_batch_size: int = 8,
-    use_dynamic_limits: bool = False
+    use_dynamic_limits: bool = False,
 ) -> int:
     """
     Calculate optimal batch size based on token counts, embedding size, and memory limits.
@@ -28,7 +36,7 @@ def calculate_dynamic_batch_size(
         Optimal batch size as an integer.
     """
     # Use dynamic limits if enabled, else use static defaults based on PC specs (16GB RAM, 6GB VRAM)
-    if use_dynamic_limits and hasattr(psutil, 'virtual_memory'):
+    if use_dynamic_limits and hasattr(psutil, "virtual_memory"):
         ram_limit = psutil.virtual_memory().available
     else:
         ram_limit = 16 * 1024 * 1024 * 1024  # 16GB
@@ -49,4 +57,6 @@ def calculate_dynamic_batch_size(
         optimal_batch_size = min(optimal_batch_size * 2, max_batch_size_cap)
 
     # Ensure batch size is within bounds
-    return max(min_batch_size, min(optimal_batch_size, max_batch_size_cap, len(token_counts)))
+    return max(
+        min_batch_size, min(optimal_batch_size, max_batch_size_cap, len(token_counts))
+    )

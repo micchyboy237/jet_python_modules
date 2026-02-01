@@ -1,10 +1,11 @@
 # visit_webpage_tool.py
+
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.adapters.llama_cpp.hybrid_search import (
     HybridConfig,
     HybridSearcher,
@@ -21,12 +22,91 @@ from smolagents.tools import Tool
 logger = logging.getLogger(__name__)
 
 
-# ────────────────────────────────────────
-# Add near top of file (after imports)
 def search_result_serializer(obj):
     if isinstance(obj, SearchResult):
         return {"item": obj.item, "score": obj.score}
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+@dataclass
+class PageFetchResult:
+    html: str
+    success: bool = True
+    error_message: str | None = None
+
+
+class DebugSaver:
+    """Handles all debug file writing – easy to mock/disable"""
+
+    def __init__(self, base_dir: Path | None = None):
+        self.base_dir = base_dir or (
+            Path(get_entry_file_dir())
+            / "generated"
+            / Path(get_entry_file_name()).stem
+            / "visit_webpage_tool_logs"
+        )
+
+    def save(self, filename: str, content: str, encoding: str = "utf-8") -> None:
+        if not self.base_dir:
+            return
+        path = self.base_dir / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding=encoding)
+
+    def save_json(self, filename: str, obj, **json_kwargs):
+        self.save(filename, json.dumps(obj, **json_kwargs, ensure_ascii=False))
+
+
+def extract_markdown_section_texts(html: str, ignore_links: bool = True) -> list[str]:
+    """Extract content grouped by headers into markdown-formatted text blocks.
+
+    Each block starts with the header (ATX style) followed by its cleaned content.
+    """
+    header_blocks = get_md_header_contents(html, ignore_links=ignore_links)
+    return [
+        f"{block['header']}\n\n{block['content']}".strip() for block in header_blocks
+    ]
+
+
+# ───────────────────────────────────────────────
+# Pure helper functions moved out of the class
+# ───────────────────────────────────────────────
+
+
+def resolve_search_query(query: str | None) -> str:
+    """Determine final search query — use provided or fallback."""
+    if query and (stripped := query.strip()):
+        return stripped
+    return "main content and key information from the webpage"
+
+
+def build_excerpts(
+    results: list[SearchResult],
+    max_count: int,
+) -> list[str]:
+    """Format top results into numbered, scored excerpts."""
+    return [
+        f"[{i}] Relevance {r.score:.3f}\n{r.item['content'].strip()}\n"
+        for i, r in enumerate(results[:max_count], 1)
+    ]
+
+
+def build_result_header(url: str, search_query: str) -> str:
+    """Create descriptive header for smart-excerpt output."""
+    return (
+        f"Most relevant excerpts from {url} "
+        f"(hybrid BM25 + embedding retrieval, query: {search_query!r})\n\n"
+    )
+
+
+def format_final_result(header: str, excerpts: list[str]) -> str:
+    """Combine header and excerpts into final string."""
+    return header + "\n".join(excerpts)
+
+
+def create_search_documents(chunks: list[dict]) -> list[dict]:
+    """Convert chunk format to documents expected by HybridSearcher."""
+    return [{"id": c["id"], "content": c["content"]} for c in chunks]
 
 
 class VisitWebpageTool(Tool):
@@ -79,12 +159,6 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
         self.chunk_target_tokens = chunk_target_tokens
         self.chunk_overlap_tokens = chunk_overlap_tokens
 
-        self.embedder = LlamacppEmbedding(
-            model=self.embed_model,
-            use_cache=True,
-            verbose=False,
-        )
-
         self.hybrid_config = hybrid_config or HybridConfig(
             k_candidates=50,
             k_final=default_k_final,
@@ -93,13 +167,12 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
             vector_weight=1.0,
         )
         self.verbose = verbose
-        _caller_base_dir = (
-            Path(get_entry_file_dir())
-            / "generated"
-            / Path(get_entry_file_name()).stem
-            / "visit_webpage_tool_logs"
-        )
-        self.logs_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
+        # Setup DebugSaver for debug/dump file writing
+        if logs_dir:
+            logs_base = Path(logs_dir).resolve()
+        else:
+            logs_base = None
+        self.debug_saver = DebugSaver(logs_base)
 
         if self.verbose:
             logger.setLevel(logging.DEBUG)
@@ -110,157 +183,33 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
         full_raw: bool = False,
         query: str | None = None,
     ) -> str:
-        request_data = {
-            "url": url,
-            "full_raw": full_raw,
-            "query": query,
-            "max_output_length": self.max_output_length,
-        }
-
         with structured_tool_logger(
-            self.logs_dir, self.name, request_data, self.verbose
+            self.debug_saver.base_dir,
+            self.name,
+            {"url": url, "full_raw": full_raw, "query": query},
+            self.verbose,
         ) as (call_dir, log):
-            if self.verbose:
-                log(f"Fetching URL: {url}")
-                if query:
-                    log(f"Focused query: {query}")
+            # Update debug_saver for per-call directory
+            self.debug_saver.base_dir = call_dir
 
-            try:
-                response = requests.get(
-                    url,
-                    timeout=18,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (compatible; VisitWebpageTool/1.0)"
-                    },
-                )
-                response.raise_for_status()
-            except Exception as e:
-                if self.verbose:
-                    log(f"Fetch failed: {str(e)}")
-                if call_dir:
-                    (call_dir / "full_results.md").write_text(
-                        f"Fetch error: {str(e)}", encoding="utf-8"
-                    )
-                raise
+            fetch_result = self._fetch_url(url, log)
+            if not fetch_result.success:
+                error_text = f"Failed to fetch page: {fetch_result.error_message}"
+                self.debug_saver.save("full_results.md", error_text)
+                return error_text
 
-            html = response.text
+            self.debug_saver.save("page.html", fetch_result.html)
 
-            # Save HTML under page.html if call_dir is available
-            if call_dir:
-                (call_dir / "page.html").write_text(html, encoding="utf-8")
-
-            # md = markdownify(html, heading_style="ATX").strip()
-            # md = re.sub(r"\n{3,}", "\n\n", md)
-            headings = get_md_header_contents(html, ignore_links=True)
-            md_texts = [f"{h['header']}\n\n{h['content']}" for h in headings]
+            md_texts = extract_markdown_section_texts(
+                fetch_result.html, ignore_links=True
+            )
 
             if full_raw:
-                result = truncate_texts(
-                    md_texts, model=self.embed_model, max_tokens=self.max_output_length
-                )
-                if call_dir:
-                    (call_dir / "truncated_text.md").write_text(
-                        result, encoding="utf-8"
-                    )
+                result = self._process_full_raw(md_texts)
             else:
-                chunks = chunk_texts_with_data(
-                    texts=md_texts,
-                    chunk_size=self.chunk_target_tokens,
-                    chunk_overlap=self.chunk_overlap_tokens,
-                    strict_sentences=True,
-                    model=self.embed_model,
-                    # model=None,  # Using default word-based tokenization
-                )
+                result = self._process_smart_excerpts(md_texts, query or None, log, url)
 
-                if call_dir:
-                    (call_dir / "chunks.json").write_text(
-                        json.dumps(chunks, indent=2), encoding="utf-8"
-                    )
-
-                try:
-                    docs = [
-                        {"id": c["id"], "content": c["content"]}
-                        for i, c in enumerate(chunks)
-                    ]
-                    searcher = HybridSearcher.from_documents(
-                        documents=docs,
-                        model=self.embed_model,
-                        **self.hybrid_config.__dict__,
-                    )
-                    search_query = (
-                        query.strip()
-                        if query and query.strip()
-                        else "main content and key information from the webpage"
-                    )
-                    if self.verbose:
-                        log(f"Using hybrid search with query: {search_query}")
-                    results = searcher.search(search_query)
-                    if call_dir:
-                        (call_dir / "search_results.json").write_text(
-                            json.dumps(
-                                results, indent=2, default=search_result_serializer
-                            ),
-                            encoding="utf-8",
-                        )
-
-                    excerpts = [
-                        f"[{i}] Relevance {r.score:.3f}\n{r.item['content'].strip()}\n"
-                        for i, r in enumerate(results[: self.hybrid_config.k_final], 1)
-                    ]
-                    if call_dir:
-                        (call_dir / "excerpts.json").write_text(
-                            json.dumps(
-                                results, indent=2, default=search_result_serializer
-                            ),
-                            encoding="utf-8",
-                        )
-
-                    header = (
-                        f"Most relevant excerpts from {url} "
-                        f"(hybrid BM25 + embedding retrieval, query: {search_query!r})\n\n"
-                    )
-                    result = header + "\n".join(excerpts)
-
-                    if call_dir:
-                        (call_dir / "searched_text.md").write_text(
-                            result, encoding="utf-8"
-                        )
-
-                    # if len(chunks) > 12:
-                    #     result += (
-                    #         "\n\n(Page had many sections. If you need information about a specific part "
-                    #         "(table, section title, code block…), ask a more focused follow-up question "
-                    #         "or call visit_webpage again with a precise query parameter. "
-                    #         "Use full_raw=true only if you really need the complete raw markdown."
-                    #     )
-                    # result = self._truncate(result, self.max_output_length)
-                except Exception as e:
-                    if self.verbose:
-                        log(f"Hybrid retrieval failed: {str(e)}")
-
-                    raise
-                    # result = (
-                    #     self._truncate(md, min(self.max_output_length, 4800))
-                    #     + "\n\n(Note: smart retrieval failed — showing truncated raw content)"
-                    # )
-
-            if call_dir:
-                # Summary stats
-                response_info = {
-                    "result_length": len(result),
-                    "full_raw": full_raw,
-                    "chunk_count": len(chunks) if "chunks" in locals() else None,
-                    "excerpt_count": len(excerpts) if "excerpts" in locals() else None,
-                    "preview": result[:600] + "..." if len(result) > 600 else result,
-                    "full_markdown_file": "full_results.md",
-                }
-                (call_dir / "response.json").write_text(
-                    json.dumps(response_info, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-
-                # Full content the agent receives
-                (call_dir / "full_results.md").write_text(result, encoding="utf-8")
+            self.debug_saver.save("full_results.md", result)
 
             if self.verbose:
                 log(f"Returning {len(result)} characters")
@@ -268,3 +217,71 @@ add "full_raw": true in the call — but prefer focused follow-up calls instead.
                     log(f"Saved full markdown → {call_dir / 'full_results.md'}")
 
             return result
+
+    def _fetch_url(self, url: str, log) -> PageFetchResult:
+        try:
+            if self.verbose:
+                log(f"Fetching URL: {url}")
+            resp = requests.get(
+                url,
+                timeout=18,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; VisitWebpageTool/1.0)"
+                },
+            )
+            resp.raise_for_status()
+            return PageFetchResult(html=resp.text)
+        except Exception as e:
+            msg = f"Fetch failed: {str(e)}"
+            if self.verbose:
+                log(msg)
+            return PageFetchResult(html="", success=False, error_message=msg)
+
+    def _process_full_raw(self, md_texts: list[str]) -> str:
+        truncated = truncate_texts(
+            md_texts, model=self.embed_model, max_tokens=self.max_output_length
+        )
+        self.debug_saver.save("truncated_text.md", truncated)
+        return " ".join(truncated)
+
+    def chunk_sections(self, md_texts: list[str]) -> list[dict]:
+        """Split markdown sections into overlapping chunks."""
+        return chunk_texts_with_data(
+            texts=md_texts,
+            chunk_size=self.chunk_target_tokens,
+            chunk_overlap=self.chunk_overlap_tokens,
+            strict_sentences=True,
+            model=self.embed_model,
+        )
+
+    def _process_smart_excerpts(
+        self, md_texts: list[str], query: str | None, log, url: str
+    ) -> str:
+        chunks = self.chunk_sections(md_texts)
+        self.debug_saver.save_json("chunks.json", chunks, indent=2)
+
+        docs = create_search_documents(chunks)
+
+        searcher = HybridSearcher.from_documents(
+            documents=docs,
+            model=self.embed_model,
+            **self.hybrid_config.__dict__,
+        )
+
+        search_query = resolve_search_query(query)
+
+        if self.verbose:
+            log(f"Using hybrid search with query: {search_query}")
+
+        results = searcher.search(search_query)
+        self.debug_saver.save_json(
+            "search_results.json", results, default=search_result_serializer, indent=2
+        )
+
+        excerpts = build_excerpts(results, self.hybrid_config.k_final)
+
+        header = build_result_header(url, search_query)
+        result = format_final_result(header, excerpts)
+
+        self.debug_saver.save("searched_text.md", result)
+        return result
