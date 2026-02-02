@@ -161,6 +161,7 @@ def main():
         # system_prompt=custom_system,      # ← uncomment only if you want static injection
     )
 
+    # task = """Search for recent developments in artificial intelligence and provide a summary of the top 3 most significant breakthroughs in 2025. Include the source of each breakthrough."""
     task = """Search for top 10 isekai anime in 2026. Include source for each."""
 
     try:
