@@ -52,17 +52,15 @@ logger = logging.getLogger("deep_research")
 def create_local_model(
     temperature: float = 0.4,
     max_tokens: int | None = 4096,
-    model_id: LLAMACPP_LLM_KEYS | None = None,
-    logs_dir: str | Path | None = None,
+    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
+    agent_name: str | None = None,
 ) -> OpenAIModel:
-    if model_id is None:
-        model_id = "qwen3-instruct-2507:4b"
-
+    """Factory for creating consistently configured local llama.cpp model."""
     return OpenAIModel(
         model_id=model_id,
         temperature=temperature,
         max_tokens=max_tokens,
-        logs_dir=logs_dir,
+        agent_name=agent_name,
     )
 
 
@@ -102,7 +100,8 @@ def extract_key_facts(content: str, query: str) -> str:
 # ────────────────────────────────────────────────
 
 
-def create_web_research_agent(model):
+def create_web_research_agent():
+    model = create_local_model(agent_name="web_research_agent")
     return ToolCallingAgent(
         tools=[
             WebSearchTool(
@@ -128,7 +127,8 @@ def create_web_research_agent(model):
     )
 
 
-def create_evidence_evaluator_agent(model):
+def create_evidence_evaluator_agent():
+    model = create_local_model(agent_name="evidence_evaluator_agent")
     # Slightly better prompt inside description (helps model output parseable text)
     description = (
         "Evaluates collected evidence. Output format:\n"
@@ -146,7 +146,8 @@ def create_evidence_evaluator_agent(model):
     )
 
 
-def create_query_refiner(model):
+def create_query_refiner():
+    model = create_local_model(agent_name="query_refiner")
     return ToolCallingAgent(
         tools=[],
         model=model,
@@ -164,7 +165,8 @@ def create_query_refiner(model):
     )
 
 
-def create_final_formatter(model):
+def create_final_formatter():
+    model = create_local_model(agent_name="final_formatter")
     return ToolCallingAgent(
         tools=[],
         model=model,
@@ -185,12 +187,13 @@ def create_final_formatter(model):
 # Update manager creation
 
 
-def create_deep_research_manager(model):
-    web_agent = create_web_research_agent(model)
-    eval_agent = create_evidence_evaluator_agent(model)
-    refiner_agent = create_query_refiner(model)
-    formatter_agent = create_final_formatter(model)
+def create_deep_research_manager():
+    web_agent = create_web_research_agent()
+    eval_agent = create_evidence_evaluator_agent()
+    refiner_agent = create_query_refiner()
+    formatter_agent = create_final_formatter()
 
+    model = create_local_model(agent_name="deep_research_manager")
     manager = CodeAgent(
         tools=[],
         model=model,
@@ -227,10 +230,7 @@ def run_deep_search(
     min_confidence: int = 7,
     history_window: int = 4,  # Controls how many recent rounds to show in full detail
 ) -> str:
-    model = create_local_model(
-        temperature=temperature, model_id=model_id, logs_dir=OUTPUT_DIR / "llm_logs"
-    )
-    manager = create_deep_research_manager(model)
+    manager = create_deep_research_manager()
 
     round_summaries: list[str] = []
     evidence_accumulator: list[dict[str, Any]] = []

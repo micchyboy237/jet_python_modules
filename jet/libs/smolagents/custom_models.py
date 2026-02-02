@@ -45,23 +45,42 @@ DEFAULT_API_KEY = None
 
 
 def get_next_call_number(logs_dir: Path) -> int:
-    """Find the next available llm_call_NNNN number"""
+    """Find the next available call number using 4-digit prefix (aligned with save_step_state)."""
     if not logs_dir.exists():
         return 1
-
     existing = [
-        int(d.name.split("_")[-1])
+        int(d.name.split("_")[0])
         for d in logs_dir.iterdir()
-        if d.is_dir() and d.name.startswith("llm_call_") and d.name[9:].isdigit()
+        if d.is_dir() and len(d.name) >= 5 and d.name[4] == "_" and d.name[:4].isdigit()
     ]
     return max(existing, default=0) + 1
 
 
-def _get_llm_call_dir(logs_dir: Path, call_number: int, is_stream: bool) -> Path:
-    subdir_name = f"llm_call_{call_number:04d}"
-    target_dir = (
-        logs_dir / ("generate_stream" if is_stream else "generate") / subdir_name
-    )
+def _get_llm_call_subdir(
+    logs_dir: Path,
+    call_number: int,
+    is_stream: bool,
+    agent_name: str | None = None,
+) -> Path:
+    # prefix = "generate_stream" if is_stream else "generate"
+    prefix = f"{call_number:04d}"
+
+    cleaned = "default"
+    if agent_name:
+        cleaned = (
+            str(agent_name)
+            .strip()
+            .replace(" ", "_")
+            .replace("-", "_")
+            .replace(".", "_")
+            .lower()
+        )
+    elif hasattr(logs_dir, "name") and "_" in logs_dir.name:
+        # fallback: try to reuse parent agent folder name if possible
+        cleaned = logs_dir.name.split("_")[-1]
+
+    subdir_name = f"{prefix}_{cleaned}"
+    target_dir = logs_dir / subdir_name
     target_dir.mkdir(parents=True, exist_ok=True)
     return target_dir
 
@@ -71,8 +90,14 @@ def save_request_llm_call(
     call_number: int,
     is_stream: bool,
     request_data: dict,
+    agent_name: str | None = None,
 ) -> None:
-    target_dir = _get_llm_call_dir(logs_dir, call_number, is_stream)
+    target_dir = _get_llm_call_subdir(
+        logs_dir,
+        call_number,
+        is_stream,
+        agent_name,
+    )
     (target_dir / "request.json").write_text(
         json.dumps(request_data, indent=2, ensure_ascii=False)
     )
@@ -84,8 +109,14 @@ def save_response_llm_call(
     is_stream: bool,
     response_data: Any | None = None,
     stream_deltas: list | None = None,
+    agent_name: str | None = None,
 ) -> None:
-    target_dir = _get_llm_call_dir(logs_dir, call_number, is_stream)
+    target_dir = _get_llm_call_subdir(
+        logs_dir,
+        call_number,
+        is_stream,
+        agent_name,
+    )
 
     if response_data is not None and not is_stream:
         if hasattr(response_data, "model_dump_json"):
@@ -121,9 +152,14 @@ class Model:
         verbose (`bool`, default `True`):
             Whether to enable verbose logging of model operations.
         logs_dir (`str`, optional):
-            Directory for logging model call details. If None, no logs are written.
-        model_id (`str`, *optional*):
+            Directory for logging model call details. If None, a default location is used
+            based on the entry script location.
+        model_id (`str`, optional):
             Identifier for the specific model being used.
+        agent_name (`str`, optional):
+            Name of the agent using this model instance. Used to create agent-specific
+            subdirectories in the logging folder (e.g. `.../my_research_agent/0001_generate_...`).
+            If not provided, a generic/default subdirectory name is used.
         **kwargs:
             Additional keyword arguments to forward to the underlying model completion call.
 
@@ -148,6 +184,7 @@ class Model:
         verbose: bool = True,
         logs_dir: str | None = None,
         model_id: LLAMACPP_KEYS | None = None,
+        agent_name: str | None = None,
         **kwargs,
     ):
         self.flatten_messages_as_text = flatten_messages_as_text
@@ -155,16 +192,37 @@ class Model:
         self.tool_arguments_key = tool_arguments_key
         self.kwargs = kwargs
         self.verbose = verbose
+        self.agent_name = agent_name
+
+        # cleaned_agent = None
+        # if agent_name:
+        #     cleaned_agent = (
+        #         str(agent_name)
+        #         .strip()
+        #         .replace(" ", "_")
+        #         .replace("-", "_")
+        #         .replace(".", "_")
+        #         .lower()
+        #     )
 
         _caller_base_dir = (
             Path(get_entry_file_dir())
             / "generated"
             / Path(get_entry_file_name()).stem
-            / "llm_logs"
+            / "llm_calls"
         )
         self.logs_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
-        self._call_counter: dict[bool, int] = {False: 0, True: 0}  # non-stream / stream
+
+        # if cleaned_agent:
+        #     self.logs_dir = self.logs_dir / cleaned_agent
+
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+
+        self._call_counter: dict[bool, int] = {False: 0, True: 0}
         self.model_id: LLAMACPP_KEYS | None = model_id
+
+    def _clean_agent_name(self, name: str) -> str:
+        return str(name).strip().replace(" ", "_").replace("-", "_").lower()
 
     @property
     def supports_stop_parameter(self) -> bool:
@@ -319,21 +377,27 @@ class ApiModel(Model):
 
     This class serves as a foundation for implementing models that interact with
     external APIs. It handles the common functionality for managing model IDs,
-    custom role mappings, and API client connections.
+    custom role mappings, rate limiting, retry logic, and API client connections.
 
     Parameters:
         model_id (`str`):
             The identifier for the model to be used with the API.
-        custom_role_conversions (`dict[str, str`], **optional**):
-            Mapping to convert  between internal role names and API-specific role names. Defaults to None.
-        client (`Any`, **optional**):
-            Pre-configured API client instance. If not provided, a default client will be created. Defaults to None.
-        requests_per_minute (`float`, **optional**):
+        custom_role_conversions (`dict[str, str]`, optional):
+            Mapping to convert between internal role names and API-specific role names.
+            Defaults to None.
+        client (`Any`, optional):
+            Pre-configured API client instance. If not provided, a default client
+            will be created. Defaults to None.
+        requests_per_minute (`float`, optional):
             Rate limit in requests per minute.
-        retry (`bool`, **optional**):
-            Wether to retry on rate limit errors, up to RETRY_MAX_ATTEMPTS times. Defaults to True.
+        retry (`bool`, default `True`):
+            Whether to retry on rate limit errors, up to `RETRY_MAX_ATTEMPTS` times.
+        agent_name (`str`, optional):
+            Name of the agent using this model. Used to organize logs into agent-specific
+            subfolders (e.g. `.../math_solver/0003_generate_stream_...`). Passed down from
+            higher-level agent configuration.
         **kwargs:
-            Additional keyword arguments to forward to the underlying model completion call.
+            Additional keyword arguments forwarded to the underlying model completion call.
     """
 
     def __init__(
@@ -343,9 +407,14 @@ class ApiModel(Model):
         client: Any | None = None,
         requests_per_minute: float | None = None,
         retry: bool = True,
+        agent_name: str | None = None,  # ← forward
         **kwargs,
     ):
-        super().__init__(model_id=model_id, **kwargs)
+        super().__init__(
+            model_id=model_id,
+            agent_name=agent_name,  # ← pass down
+            **kwargs,
+        )
         self.custom_role_conversions = custom_role_conversions or {}
         self.client = client or self.create_client()
         self.rate_limiter = RateLimiter(requests_per_minute)
@@ -372,28 +441,36 @@ class ApiModel(Model):
 
 
 class OpenAIModel(ApiModel):
-    """This model connects to an OpenAI-compatible API server.
+    """This model connects to an OpenAI-compatible API server (including local servers
+    like llama.cpp server, vLLM, LM Studio, TabbyAPI, etc.).
 
     Parameters:
-        model_id (`str`):
-            The model identifier to use on the server (e.g. "gpt-5").
-        api_base (`str`, *optional*):
+        model_id (`str`, default `"qwen3-instruct-2507:4b"`):
+            The model identifier to use on the server (e.g. "gpt-4o", "llama-3.1-8b", ...).
+        api_base (`str`, optional):
             The base URL of the OpenAI-compatible API server.
-        api_key (`str`, *optional*):
-            The API key to use for authentication.
-        organization (`str`, *optional*):
-            The organization to use for the API request.
-        project (`str`, *optional*):
-            The project to use for the API request.
-        client_kwargs (`dict[str, Any]`, *optional*):
-            Additional keyword arguments to pass to the OpenAI client (like organization, project, max_retries etc.).
-        custom_role_conversions (`dict[str, str]`, *optional*):
-            Custom role conversion mapping to convert message roles in others.
-            Useful for specific models that do not support specific message roles like "system".
+            Defaults to value of environment variable `LLAMA_CPP_LLM_URL` (if set).
+        api_key (`str`, optional):
+            The API key to use for authentication (often not needed for local servers).
+        organization (`str`, optional):
+            The organization to use for the API request (OpenAI-specific).
+        project (`str`, optional):
+            The project to use for the API request (OpenAI-specific).
+        client_kwargs (`dict[str, Any]`, optional):
+            Additional keyword arguments to pass to the OpenAI client constructor
+            (e.g. `organization`, `project`, `max_retries`, `timeout`, ...).
+        custom_role_conversions (`dict[str, str]`, optional):
+            Custom mapping to convert message roles. Useful for models/servers that
+            do not support "system" role or use different role names.
         flatten_messages_as_text (`bool`, default `False`):
-            Whether to flatten messages as text.
+            Whether to flatten structured message content into plain text before sending.
+        agent_name (`str`, optional):
+            Name of the agent using this model instance. If provided, LLM call logs
+            are saved into agent-specific subdirectories (e.g. `0004_generate_my_agent/`).
+            Helps separate logs when multiple agents run in the same process.
         **kwargs:
-            Additional keyword arguments to forward to the underlying OpenAI API completion call, for instance `temperature`.
+            Additional keyword arguments forwarded to every `chat.completions.create`
+            call (e.g. `temperature`, `max_tokens`, `top_p`, ...).
     """
 
     def __init__(
@@ -406,6 +483,7 @@ class OpenAIModel(ApiModel):
         client_kwargs: dict[str, Any] | None = None,
         custom_role_conversions: dict[str, str] | None = None,
         flatten_messages_as_text: bool = False,
+        agent_name: str | None = None,  # ← accept here too
         **kwargs,
     ):
         self.client_kwargs = {
@@ -419,6 +497,7 @@ class OpenAIModel(ApiModel):
             model_id=model_id,
             custom_role_conversions=custom_role_conversions,
             flatten_messages_as_text=flatten_messages_as_text,
+            agent_name=agent_name,  # ← forward to ApiModel → Model
             **kwargs,
         )
 
@@ -431,117 +510,6 @@ class OpenAIModel(ApiModel):
             ) from e
 
         return openai.OpenAI(**self.client_kwargs)
-
-    def generate_stream(
-        self,
-        messages: list[ChatMessage | dict],
-        stop_sequences: list[str] | None = None,
-        response_format: dict[str, str] | None = None,
-        tools_to_call_from: list[Tool] | None = None,
-        **kwargs,
-    ) -> Generator[ChatMessageStreamDelta]:
-        completion_kwargs = self._prepare_completion_kwargs(
-            messages=messages,
-            stop_sequences=stop_sequences,
-            response_format=response_format,
-            tools_to_call_from=tools_to_call_from,
-            model=self.model_id,
-            custom_role_conversions=self.custom_role_conversions,
-            convert_images_to_image_urls=True,
-            **kwargs,
-        )
-
-        # --- BEGIN add logging ---
-        if self.logs_dir:
-            self._call_counter[True] += 1
-            call_num = (
-                get_next_call_number(self.logs_dir)
-                if self._call_counter[True] == 1
-                else self._call_counter[True]
-            )
-            formatted_messages = [
-                {"role": msg["role"].value, "content": msg["content"][0]["text"]}
-                for msg in completion_kwargs.get("messages", [])
-            ]
-            input_tokens = count_tokens(
-                formatted_messages,
-                model=self.model_id,
-            )
-            request_data = {
-                "model": completion_kwargs.get("model"),
-                "messages": completion_kwargs.get("messages"),
-                "token_counts": {
-                    "input_tokens": input_tokens,
-                },
-                "kwargs": {
-                    k: v
-                    for k, v in completion_kwargs.items()
-                    if k not in ("messages", "model")
-                },
-            }
-            deltas_collected = []
-            # Save request at the beginning (streaming path)
-            save_request_llm_call(
-                logs_dir=self.logs_dir,
-                call_number=call_num,
-                is_stream=True,
-                request_data=request_data,
-            )
-        # --- END add logging ---
-
-        self._apply_rate_limit()
-        try:
-            for event in self.retryer(
-                self.client.chat.completions.create,
-                **completion_kwargs,
-                stream=True,
-                stream_options={"include_usage": True},
-            ):
-                delta = None
-                if event.usage:
-                    delta = ChatMessageStreamDelta(
-                        content="",
-                        token_usage=TokenUsage(
-                            input_tokens=event.usage.prompt_tokens,
-                            output_tokens=event.usage.completion_tokens,
-                        ),
-                    )
-                    if self.logs_dir:
-                        deltas_collected.append(delta)
-                    yield delta
-                if event.choices:
-                    choice = event.choices[0]
-                    if choice.delta:
-                        delta = ChatMessageStreamDelta(
-                            content=choice.delta.content,
-                            tool_calls=[
-                                ChatMessageToolCallStreamDelta(
-                                    index=delta_item.index,
-                                    id=delta_item.id,
-                                    type=delta_item.type,
-                                    function=delta_item.function,
-                                )
-                                for delta_item in choice.delta.tool_calls
-                            ]
-                            if choice.delta.tool_calls
-                            else None,
-                        )
-                        if self.logs_dir:
-                            deltas_collected.append(delta)
-                        yield delta
-                    else:
-                        if not getattr(choice, "finish_reason", None):
-                            raise ValueError(
-                                f"No content or tool calls in event: {event}"
-                            )
-        finally:
-            if self.logs_dir:
-                save_response_llm_call(
-                    logs_dir=self.logs_dir,
-                    call_number=call_num,
-                    is_stream=True,
-                    stream_deltas=deltas_collected,
-                )
 
     def generate(
         self,
@@ -600,6 +568,7 @@ class OpenAIModel(ApiModel):
                 call_number=call_num,
                 is_stream=False,
                 request_data=request_data,
+                agent_name=self.agent_name,
             )
         # --- END add logging ---
 
@@ -619,6 +588,7 @@ class OpenAIModel(ApiModel):
                 call_number=call_num,
                 is_stream=False,
                 response_data=response,
+                agent_name=self.agent_name,
             )
 
         content = response.choices[0].message.content
@@ -634,6 +604,118 @@ class OpenAIModel(ApiModel):
                 output_tokens=response.usage.completion_tokens,
             ),
         )
+
+    def generate_stream(
+        self,
+        messages: list[ChatMessage | dict],
+        stop_sequences: list[str] | None = None,
+        response_format: dict[str, str] | None = None,
+        tools_to_call_from: list[Tool] | None = None,
+        **kwargs,
+    ) -> Generator[ChatMessageStreamDelta]:
+        completion_kwargs = self._prepare_completion_kwargs(
+            messages=messages,
+            stop_sequences=stop_sequences,
+            response_format=response_format,
+            tools_to_call_from=tools_to_call_from,
+            model=self.model_id,
+            custom_role_conversions=self.custom_role_conversions,
+            convert_images_to_image_urls=True,
+            **kwargs,
+        )
+
+        # --- BEGIN add logging ---
+        if self.logs_dir:
+            self._call_counter[True] += 1
+            call_num = (
+                get_next_call_number(self.logs_dir)
+                if self._call_counter[True] == 1
+                else self._call_counter[True]
+            )
+            formatted_messages = [
+                {"role": msg["role"].value, "content": msg["content"][0]["text"]}
+                for msg in completion_kwargs.get("messages", [])
+            ]
+            input_tokens = count_tokens(
+                formatted_messages,
+                model=self.model_id,
+            )
+            request_data = {
+                "model": completion_kwargs.get("model"),
+                "messages": completion_kwargs.get("messages"),
+                "token_counts": {
+                    "input_tokens": input_tokens,
+                },
+                "kwargs": {
+                    k: v
+                    for k, v in completion_kwargs.items()
+                    if k not in ("messages", "model")
+                },
+            }
+            deltas_collected = []
+            save_request_llm_call(
+                logs_dir=self.logs_dir,
+                call_number=call_num,
+                is_stream=True,
+                request_data=request_data,
+                agent_name=self.agent_name,
+            )
+        # --- END add logging ---
+
+        self._apply_rate_limit()
+        try:
+            for event in self.retryer(
+                self.client.chat.completions.create,
+                **completion_kwargs,
+                stream=True,
+                stream_options={"include_usage": True},
+            ):
+                delta = None
+                if event.usage:
+                    delta = ChatMessageStreamDelta(
+                        content="",
+                        token_usage=TokenUsage(
+                            input_tokens=event.usage.prompt_tokens,
+                            output_tokens=event.usage.completion_tokens,
+                        ),
+                    )
+                    if self.logs_dir:
+                        deltas_collected.append(delta)
+                    yield delta
+                if event.choices:
+                    choice = event.choices[0]
+                    if choice.delta:
+                        delta = ChatMessageStreamDelta(
+                            content=choice.delta.content,
+                            tool_calls=[
+                                ChatMessageToolCallStreamDelta(
+                                    index=delta_item.index,
+                                    id=delta_item.id,
+                                    type=delta_item.type,
+                                    function=delta_item.function,
+                                )
+                                for delta_item in choice.delta.tool_calls
+                            ]
+                            if choice.delta.tool_calls
+                            else None,
+                        )
+                        if self.logs_dir:
+                            deltas_collected.append(delta)
+                        yield delta
+                    else:
+                        if not getattr(choice, "finish_reason", None):
+                            raise ValueError(
+                                f"No content or tool calls in event: {event}"
+                            )
+        finally:
+            if self.logs_dir:
+                save_response_llm_call(
+                    logs_dir=self.logs_dir,
+                    call_number=call_num,
+                    is_stream=True,
+                    stream_deltas=deltas_collected,
+                    agent_name=self.agent_name,
+                )
 
 
 OpenAIServerModel = OpenAIModel

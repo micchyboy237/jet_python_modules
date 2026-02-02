@@ -6,7 +6,9 @@ Shows manager (CodeAgent) orchestrating a web sub-agent (ToolCallingAgent).
 """
 
 import re
+import shutil
 import time
+from pathlib import Path
 
 import requests
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
@@ -25,6 +27,10 @@ from smolagents import (
 
 console = Console()
 
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Reuse from previous file
@@ -35,12 +41,14 @@ def create_local_model(
     temperature: float = 0.7,
     max_tokens: int | None = 4096,
     model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
+    agent_name: str | None = None,
 ) -> OpenAIModel:
     """Factory for creating consistently configured local llama.cpp model."""
     return OpenAIModel(
         model_id=model_id,
         temperature=temperature,
         max_tokens=max_tokens,
+        agent_name=agent_name,
     )
 
 
@@ -87,7 +95,7 @@ def create_web_sub_agent(
     max_steps: int = 10, verbosity_level: int = 1
 ) -> ToolCallingAgent:
     """Creates the web-specialized ToolCallingAgent."""
-    model = create_local_model(temperature=0.65)
+    model = create_local_model(temperature=0.65, agent_name="web_sub_agent")
 
     return ToolCallingAgent(
         tools=[WebSearchTool(), visit_webpage],
@@ -106,7 +114,7 @@ def create_manager_agent(
     additional_imports: list[str] | None = None,
 ) -> CodeAgent:
     """Creates the top-level CodeAgent that orchestrates sub-agents."""
-    model = create_local_model(temperature=0.7)
+    model = create_local_model(temperature=0.7, agent_name="manager_agent")
 
     return CodeAgent(
         tools=[],
