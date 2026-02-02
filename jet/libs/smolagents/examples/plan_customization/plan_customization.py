@@ -162,7 +162,7 @@ def main():
     )
 
     # task = """Search for recent developments in artificial intelligence and provide a summary of the top 3 most significant breakthroughs in 2025. Include the source of each breakthrough."""
-    task = """Search for top 10 isekai anime this year. Include source for each."""
+    task = """Search for top anime this year. Include source for each."""
 
     try:
         print(f"\n📋 Task: {task}")
