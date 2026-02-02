@@ -16,7 +16,7 @@ from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.libs.smolagents.utils.debug_saver import DebugSaver
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
-from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
+from jet.wordnet.text_chunker import chunk_texts_with_data
 from smolagents.tools import Tool
 
 logger = logging.getLogger(__name__)
@@ -98,19 +98,19 @@ def create_search_documents(chunks: list[dict]) -> list[dict]:
 
 class VisitWebpageTool(Tool):
     name = "visit_webpage"
-    description = """Visits a webpage and returns relevant content.
+    description = """Visits a webpage and returns the most relevant content excerpts.
 
-By default returns the most relevant excerpts (top 5–8 chunks) using hybrid (BM25 + embeddings) retrieval.
-This is usually much better than dumping the full page.
+Uses hybrid retrieval (BM25 + embeddings) to select the top ~5–8 most relevant chunks.
+This focused output is usually far more useful than returning the entire page.
 
-If you need the complete raw content (code, tables, legal text, etc.),
-pass "full_raw": true — but prefer focused follow-up calls instead."""
+If you need more context, make a second call with a more specific query.
+If you really need near-complete content, use a very broad or generic query."""
 
     inputs = {
         "url": {"type": "string", "description": "The url of the webpage to visit."},
         "query": {
             "type": "string",
-            "description": "(optional) Specific question/topic to focus retrieval on. Usually auto-inferred.",
+            "description": "(optional) Specific question/topic to focus retrieval on. Usually auto-inferred if omitted.",
             "nullable": True,
         },
     }
@@ -132,7 +132,6 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         _max_model_context = LLAMACPP_MODEL_CONTEXTS.get(
             self.embed_model, max_output_length
         )
-        # We now interpret max_output_length as tokens, not characters
         self.max_output_tokens = min(max_output_length, _max_model_context)
 
         self.top_k = top_k
@@ -157,18 +156,12 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         if self.verbose:
             logger.setLevel(logging.DEBUG)
 
-    # ────────────────────────────────────────────────
-    #  Helper: final safety trim by token count
-    # ────────────────────────────────────────────────
     def _trim_to_token_limit(self, text: str) -> str:
-        """Trim text so that count_tokens(text) ≤ self.max_output_tokens"""
-        # Remove use of log, and always use embed_model as LLAMACPP_EMBED_KEYS (not string)
         token_count = count_tokens(text, model=self.embed_model)
 
         if token_count <= self.max_output_tokens:
             return text
 
-        # Remove log (no logging output needed), just trim
         chars = list(text)
         low, high = 0, len(chars)
 
@@ -183,31 +176,25 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
             else:
                 high = mid - 1
 
-        trimmed = "".join(chars[:low])
-        return trimmed
+        return "".join(chars[:low])
 
     def forward(
         self,
         url: str,
         query: str | None = None,
     ) -> str:
-        full_raw = False
-
         # Determine the effective search query
-        def resolve_search_query(q: str | None) -> str:
-            return (
-                q.strip()
-                if q is not None and isinstance(q, str) and q.strip()
-                else "summary"
-            )
+        search_query = (
+            query.strip()
+            if query is not None and isinstance(query, str) and query.strip()
+            else "main content and key information from the webpage"
+        )
 
-        search_query = resolve_search_query(query)
         input_text = f"{url} {search_query}"
         input_tokens = count_tokens(input_text, model=self.embed_model)
 
         request_data = {
             "url": url,
-            "full_raw": full_raw,
             "query": query,
             "resolved_search_query": search_query,
             "input_tokens": input_tokens,
@@ -221,7 +208,6 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
                 error_text = f"Failed to fetch page: {fetch_result.error_message}"
                 logger.error(error_text)
                 self.debug_saver.save("full_results.md", error_text)
-                logger.info("Saved error message at full_results.md")
                 return error_text
 
             self.debug_saver.save("page.html", fetch_result.html)
@@ -233,19 +219,15 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
             self.debug_saver.save_json("headings.json", headings)
             logger.info("Saved headings.json")
 
-            if full_raw:
-                result = self._process_full_raw(headings)
-            else:
-                result = self._process_smart_excerpts(headings, query, url=url)
+            result = self._process_smart_excerpts(headings, query, url=url)
             self.debug_saver.save("full_results.md", result)
             logger.info("Saved result at full_results.md")
 
-            # ─── Final safety net: enforce token limit ──────────────────
+            # Final safety net: enforce token limit
             result = self._trim_to_token_limit(result)
             self.debug_saver.save("trimmed_results.md", result)
             logger.info("Saved result at trimmed_results.md")
 
-            # ── New: save the final returned string with output_tokens ─────────
             self.debug_saver.save_json(
                 "response.json",
                 {
@@ -278,20 +260,6 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
                 logger.error(msg)
             return PageFetchResult(html="", success=False, error_message=msg)
 
-    def _process_full_raw(self, md_texts: list[str]) -> str:
-        # First pass: truncate individual sections
-        truncated = truncate_texts(
-            md_texts,
-            model=self.embed_model,
-            max_tokens=self.chunk_target_tokens * 2,  # be more generous per section
-        )
-
-        joined = "\n\n".join(truncated)
-
-        # We still apply final trim later in forward()
-        self.debug_saver.save("truncated_text.md", joined)
-        return joined
-
     def _process_smart_excerpts(
         self, md_texts: list[str], query: str | None, url: str
     ) -> str:
@@ -317,7 +285,11 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
             category_config=RELATIVE_CATEGORY_CONFIG,
         )
 
-        search_query = resolve_search_query(query)
+        search_query = (
+            query.strip()
+            if query and isinstance(query, str) and query.strip()
+            else "main content and key information from the webpage"
+        )
 
         if self.verbose:
             logger.info(f"Using hybrid search with query: {search_query}")
@@ -331,13 +303,12 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
 
         self.debug_saver.save_json("search_results.json", results, indent=2)
 
-        # ─── Optional improvement: dynamically choose how many excerpts fit ───
         header = build_result_header(url, search_query)
         header_tokens = count_tokens(header, model=self.embed_model)
 
-        remaining_tokens = self.max_output_tokens - header_tokens - 200  # margin
+        remaining_tokens = self.max_output_tokens - header_tokens - 200
         if remaining_tokens < 300:
-            remaining_tokens = 300  # minimum useful content
+            remaining_tokens = 300
 
         excerpts = []
         current_tokens = 0
@@ -363,7 +334,6 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
             current_tokens += line_tokens
 
         if not excerpts and results:
-            # at least return the best one if nothing fits
             excerpts = [build_excerpts(results[:1], 1)[0]]
 
         result = header + "\n".join(excerpts)
