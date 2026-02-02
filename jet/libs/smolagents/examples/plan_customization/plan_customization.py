@@ -51,7 +51,7 @@ def get_current_datetime(timezone: str | None = "Asia/Manila") -> str:
 
 def create_local_model(
     temperature: float = 0.4,
-    max_tokens: int | None = 4096,
+    max_tokens: int | None = 8000,
     model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
     agent_name: str | None = None,
 ) -> OpenAIModel:
