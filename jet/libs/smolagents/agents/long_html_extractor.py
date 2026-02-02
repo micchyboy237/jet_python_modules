@@ -1,4 +1,6 @@
 import json
+import shutil
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -10,6 +12,10 @@ from smolagents import (
     InferenceClientModel,
     tool,
 )
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def create_local_model(
@@ -139,7 +145,7 @@ def save_partial_results(
         Status message indicating success or error
     """
     try:
-        with open(filename, "w", encoding="utf-8") as f:
+        with open(OUTPUT_DIR / filename, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         return f"Saved {len(results)} partial results to {filename}"
     except Exception as e:
@@ -178,7 +184,7 @@ class ProgressTracker:
             "total_chunks": self.total_chunks,
             "partial_results": self.results,
         }
-        with open(self.checkpoint_file, "w", encoding="utf-8") as f:
+        with open(OUTPUT_DIR / self.checkpoint_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         print(f"Checkpoint saved: {len(self.results)} passages")
 
