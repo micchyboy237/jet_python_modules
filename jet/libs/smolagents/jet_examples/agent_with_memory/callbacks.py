@@ -1,6 +1,7 @@
 # callbacks.py
 from memory.shared_state import shared_state
 from smolagents import ActionStep, CodeAgent
+from tools.memory_tools import LongTermSaveTool
 
 
 def auto_save_shared_state(step: ActionStep, agent: CodeAgent) -> None:
@@ -18,6 +19,4 @@ def auto_extract_simple_facts(step: ActionStep, agent: CodeAgent) -> None:
         text = text[:380] + "..."
     keywords = ["important:", "remember:", "note that", "fact:", "key point"]
     if any(k in text.lower() for k in keywords):
-        from tools.memory_tools import save_fact
-
-        save_fact(text, step_number=step.step_number)
+        LongTermSaveTool().forward(content=text, step_number=step.step_number)
