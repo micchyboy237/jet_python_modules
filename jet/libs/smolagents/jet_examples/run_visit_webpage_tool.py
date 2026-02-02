@@ -20,7 +20,7 @@ model = OpenAIModel(
 # Create tool instance with logging enabled
 visit_page = VisitWebpageTool(
     max_output_length=4096,
-    top_k=8,
+    top_k=None,
 )
 
 agent = ToolCallingAgent(

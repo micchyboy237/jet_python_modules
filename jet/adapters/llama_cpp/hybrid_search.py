@@ -272,7 +272,7 @@ class HybridSearch:
     def search(
         self,
         query: str,
-        top_k: int = 5,
+        top_k: int | None = None,  # ← changed: now optional + None
         dense_top_k: int | None = None,
         sparse_top_k: int | None = None,
         fusion_k: float | None = None,
@@ -280,7 +280,7 @@ class HybridSearch:
         sparse_weight: float | None = None,
         min_hybrid_score: float | None = None,
         category_config: CategoryConfig | None = None,
-        normalize_scores: bool = False,  # add normalized_hybrid field?
+        normalize_scores: bool = False,
         debug: bool = False,
         **search_kwargs: Any,
     ) -> list[HybridSearchResult]:
@@ -288,9 +288,9 @@ class HybridSearch:
         Perform hybrid search.
 
         Args:
-            normalize_scores: If True, adds 'normalized_hybrid' field (0.0–1.0)
-            category_config: Optional override for category mapping
-            debug: Force debug output even if logger level is not DEBUG
+            top_k: Maximum number of results to return.
+                   If None, returns all fused & ranked results (after min_hybrid_score filter).
+            ...
         """
         use_k = fusion_k if fusion_k is not None else self.fusion_k
         use_dense_w = dense_weight if dense_weight is not None else self.dense_weight
@@ -302,11 +302,8 @@ class HybridSearch:
         )
         use_category_config = category_config or self.category_config
 
-        # Adaptive k — smoother scaling
         n_docs = len(self.documents)
-        adaptive_k = max(
-            8.0, min(40.0, math.sqrt(n_docs) * 3.5)
-        )  # lower floor for small sets
+        adaptive_k = max(8.0, min(40.0, math.sqrt(n_docs) * 3.5))
         actual_k = adaptive_k if use_k == 60.0 else use_k
 
         self.logger.debug(
@@ -314,10 +311,19 @@ class HybridSearch:
             f"dense_weight={use_dense_w:.2f}, sparse_weight={use_sparse_w:.2f}"
         )
 
-        dense_k = dense_top_k if dense_top_k is not None else top_k * 3
-        sparse_k = sparse_top_k if sparse_top_k is not None else top_k * 3
+        # Decide how many candidates to retrieve before fusion
+        # When top_k is None → we want to be more inclusive
+        if top_k is None:
+            # Get more candidates when returning all results
+            dense_k = dense_top_k if dense_top_k is not None else max(100, n_docs // 2)
+            sparse_k = (
+                sparse_top_k if sparse_top_k is not None else max(100, n_docs // 2)
+            )
+        else:
+            # Original behavior — fetch more candidates than final top_k
+            dense_k = dense_top_k if dense_top_k is not None else top_k * 3
+            sparse_k = sparse_top_k if sparse_top_k is not None else top_k * 3
 
-        # ────── Retrieve ──────
         dense_results = self.vector_search.search(
             query=query,
             documents=self.documents,
@@ -328,23 +334,23 @@ class HybridSearch:
 
         sparse_results = self._sparse_search(query, top_k=sparse_k)
 
-        # ────── Debug output ──────
         should_debug = debug or (self.logger and self.logger.level <= 10)
         if should_debug:
             self.logger.debug("Top Dense (pre-fusion):")
             for r in dense_results[:5]:
-                self.logger.debug(f"  {r.get('score', 0.0):.3f}  {r['text'][:68]}...")
-
+                self.logger.debug(f" {r.get('score', 0.0):.3f} {r['text'][:68]}...")
             self.logger.debug("Top Sparse (pre-fusion):")
             for r in sparse_results[:5]:
-                self.logger.debug(f"  {r.get('score', 0.0):.3f}  {r['text'][:68]}...")
+                self.logger.debug(f" {r.get('score', 0.0):.3f} {r['text'][:68]}...")
 
-        # ────── Fusion ──────
+        # ────────────────────────────────────────────────
+        # Main change here
+        # ────────────────────────────────────────────────
         fused_raw = reciprocal_rank_fusion(
             dense_results=dense_results,
             sparse_results=sparse_results,
             k=actual_k,
-            limit=top_k,
+            limit=top_k,  # ← pass top_k directly (can be None)
             dense_weight=use_dense_w,
             sparse_weight=use_sparse_w,
         )
@@ -353,7 +359,6 @@ class HybridSearch:
             self.logger.warning(f"No results after fusion for query: {query!r}")
             return []
 
-        # Compute max once (used for normalization & relative category mode)
         max_hybrid = max((r["hybrid_score"] for r in fused_raw), default=0.0)
 
         fused: list[HybridSearchResult] = []
@@ -364,7 +369,6 @@ class HybridSearch:
                 if use_category_config.mode == "relative"
                 else 1.0,
             )
-
             result: HybridSearchResult = {
                 **raw,
                 "category": label,
@@ -372,21 +376,20 @@ class HybridSearch:
             }
             fused.append(result)
 
-        # Normalize if requested (adds normalized_hybrid field)
         if normalize_scores:
             max_h = max((r["hybrid_score"] for r in fused), default=1.0)
             for r in fused:
                 r["normalized_hybrid"] = round(r["hybrid_score"] / max_h, 4)
 
-        # Filter weak results
+        # Apply minimum score filter
         fused = [r for r in fused if r["hybrid_score"] >= use_min_score]
 
-        # Optional category distribution debug
         if should_debug:
             from collections import Counter
 
             cats = Counter(r["category"] for r in fused)
             self.logger.debug(f"Result categories: {dict(cats)}")
+            self.logger.debug(f"Final result count: {len(fused)}")
 
         return fused
 

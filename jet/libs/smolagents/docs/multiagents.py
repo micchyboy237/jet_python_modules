@@ -13,8 +13,9 @@ from pathlib import Path
 import requests
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.libs.smolagents.step_callbacks import save_step_state
+from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
-from jet.libs.smolagents.tools.web_search_tool import WebSearchTool
 from markdownify import markdownify
 from requests.exceptions import RequestException
 from rich.console import Console
@@ -93,17 +94,17 @@ def visit_webpage(url: str) -> str:
 
 
 def create_web_sub_agent(
-    max_steps: int = 10, verbosity_level: int = 1
+    max_steps: int = 10, verbosity_level: int = 2
 ) -> ToolCallingAgent:
     """Creates the web-specialized ToolCallingAgent."""
     model = create_local_model(temperature=0.65, agent_name="web_sub_agent")
 
     return ToolCallingAgent(
         tools=[
-            WebSearchTool(),
+            SearXNGSearchTool(max_results=10),
             VisitWebpageTool(
                 max_output_length=4096,
-                top_k=8,
+                top_k=None,
             ),
         ],
         model=model,
@@ -111,13 +112,16 @@ def create_web_sub_agent(
         name="web_agent",
         description="Performs web searches and reads webpage content when needed.",
         verbosity_level=verbosity_level,
+        step_callbacks=[
+            save_step_state("web_agent"),
+        ],
     )
 
 
 def create_manager_agent(
     managed_agents: list,
     max_steps: int = 15,
-    verbosity_level: int = 1,
+    verbosity_level: int = 2,
     additional_imports: list[str] | None = None,
 ) -> CodeAgent:
     """Creates the top-level CodeAgent that orchestrates sub-agents."""
@@ -130,6 +134,10 @@ def create_manager_agent(
         max_steps=max_steps,
         verbosity_level=verbosity_level,
         additional_authorized_imports=additional_imports or ["time", "numpy", "pandas"],
+        add_base_tools=True,
+        step_callbacks=[
+            save_step_state("manager_agent"),
+        ],
     )
 
 
@@ -229,8 +237,8 @@ def main():
     )
 
     # Uncomment demos you want to run
-    # demo_multi_1_simple_delegation()
-    demo_multi_2_calculation_plus_research()
+    demo_multi_1_simple_delegation()
+    # demo_multi_2_calculation_plus_research()
     # demo_multi_3_inspect_agents_and_memory()
 
     console.rule("Done", style="bold green")

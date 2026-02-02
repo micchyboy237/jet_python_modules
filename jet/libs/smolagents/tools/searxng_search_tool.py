@@ -5,6 +5,11 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from jet.adapters.llama_cpp.hybrid_search import (
+    RELATIVE_CATEGORY_CONFIG,
+    HybridSearch,
+)
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.libs.smolagents.utils.debug_saver import DebugSaver
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents import Tool
@@ -38,11 +43,12 @@ class SearXNGSearchTool(Tool):
     def __init__(
         self,
         instance_url: str = "http://jethros-macbook-air.local:8888",
-        max_results: int = 10,
+        max_results: int | None = 10,
         rate_limit: float | None = 2.0,
         timeout: int = 10,
         verbose: bool = True,
         logs_dir: str | Path | None = None,
+        embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -51,6 +57,7 @@ class SearXNGSearchTool(Tool):
         self.rate_limit = rate_limit
         self.timeout = timeout
         self.verbose = verbose
+        self.embed_model = embed_model
 
         _caller_base_dir = (
             Path(get_entry_file_dir())
@@ -113,15 +120,16 @@ class SearXNGSearchTool(Tool):
                 params = {
                     "q": query,
                     "format": "json",
-                    "pageno": 1,
+                    "language": "en",
                     "categories": "general",
                 }
 
                 if self.verbose:
                     logger.debug(f"GET {self.instance_url}/search | params={params}")
 
+                searxng_search_url = f"{self.instance_url}/search"
                 response = requests.get(
-                    f"{self.instance_url}/search",
+                    searxng_search_url,
                     params=params,
                     timeout=self.timeout,
                     headers={
@@ -131,16 +139,67 @@ class SearXNGSearchTool(Tool):
                 response.raise_for_status()
 
                 data = response.json()
-                results: list[dict[str, Any]] = data.get("results", [])
 
-                if not results:
+                searxng_results: list[dict[str, Any]] = data.get("results", [])
+                searxng_final_url = response.url
+                self.debug_saver.save_json(
+                    "searxng_results.json",
+                    {
+                        "query": query,
+                        "url": searxng_final_url,
+                        "count": len(searxng_results),
+                        "results": searxng_results,
+                    },
+                )
+                logger.info("Saved searxng_results.json")
+
+                if not searxng_results:
                     msg = f"No results found for query: {query!r}"
                     if self.verbose:
                         logger.warning(msg)
                     self.debug_saver.save("full_results.md", msg)
                     return msg
 
-                top_results = results[: self.max_results]
+                searxng_result_docs = [
+                    f"Title: {r['title']}\nContent: {r['content']}\nURL: {r['url']}"
+                    for r in searxng_results
+                ]
+
+                hybrid = HybridSearch.from_documents(
+                    documents=searxng_result_docs,
+                    model=self.embed_model,
+                    dense_weight=1.5,
+                    sparse_weight=0.7,
+                    category_config=RELATIVE_CATEGORY_CONFIG,
+                )
+                vector_search_results = hybrid.search(
+                    query,
+                    top_k=self.max_results,
+                    # dense_top_k=self.max_results * 4,
+                    # sparse_top_k=self.max_results * 4,
+                    normalize_scores=True,
+                    debug=self.verbose,
+                )
+                self.debug_saver.save_json(
+                    "vector_search_results.json",
+                    {
+                        "query": query,
+                        "count": len(vector_search_results),
+                        "results": vector_search_results,
+                    },
+                )
+                logger.info("Saved vector_search_results.json")
+
+                # top_results = searxng_results[: self.max_results]
+
+                # Use vector_search_results to select top_results from searxng_results using "index"
+                top_results = [
+                    searxng_results[result["index"]]
+                    for result in vector_search_results
+                    if 0 <= result["index"] < len(searxng_results)
+                ]
+                self.debug_saver.save_json("top_results.json", top_results)
+                logger.info("Saved top_results.json")
 
                 formatted_lines = []
                 for idx, result in enumerate(top_results, 1):

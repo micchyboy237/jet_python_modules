@@ -126,7 +126,7 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         self,
         embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
         max_output_length: int = 3800,  # now treated as **token** limit
-        top_k: int = 7,
+        top_k: int | None = 8,
         chunk_target_tokens: int = 500,
         chunk_overlap_tokens: int = 100,
         verbose: bool = True,
@@ -330,8 +330,6 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         results = hybrid.search(
             search_query,
             top_k=self.top_k,
-            dense_top_k=self.top_k * 4,
-            sparse_top_k=self.top_k * 4,
             normalize_scores=True,
             debug=self.verbose,
         )
