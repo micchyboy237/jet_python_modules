@@ -152,7 +152,7 @@ def main():
             # DuckDuckGoSearchTool(),
             get_current_datetime,  # ← dynamic date/time tool
             SearXNGSearchTool(max_results=20),
-            VisitWebpageTool(max_output_length=5000, chunk_target_tokens=1000),
+            VisitWebpageTool(max_output_length=5000, chunk_target_tokens=1000, top_k=8),
         ],
         planning_interval=5,
         step_callbacks={PlanningStep: interrupt_after_plan},
@@ -162,7 +162,7 @@ def main():
     )
 
     # task = """Search for recent developments in artificial intelligence and provide a summary of the top 3 most significant breakthroughs in 2025. Include the source of each breakthrough."""
-    task = """Search for top 10 isekai anime in 2026. Include source for each."""
+    task = """Search for top 10 isekai anime this year. Include source for each."""
 
     try:
         print(f"\n📋 Task: {task}")
