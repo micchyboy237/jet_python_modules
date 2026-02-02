@@ -105,8 +105,12 @@ def extract_key_facts(content: str, query: str) -> str:
 def create_web_research_agent(model):
     return ToolCallingAgent(
         tools=[
-            WebSearchTool(),
-            VisitWebpageTool(max_output_length=VISITED_PAGE_OUTPUT_TOKENS),
+            WebSearchTool(
+                embed_model=model.model_id,
+            ),
+            VisitWebpageTool(
+                embed_model=model.model_id, max_output_length=VISITED_PAGE_OUTPUT_TOKENS
+            ),
             # extract_key_facts,
         ],
         model=model,

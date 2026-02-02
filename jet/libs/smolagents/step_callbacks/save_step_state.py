@@ -30,7 +30,7 @@ def get_next_run_step_number(base_dir: Path) -> int:
 
 def save_step_state(
     agent_name: str | None = None,
-    base_dir: str | None = None,
+    base_dir: str | Path | None = None,
     save_images: bool = False,  # optional: can be enabled later
 ) -> Callable[[MemoryStep, Any], None]:
     """
@@ -65,7 +65,7 @@ def save_step_state(
     _caller_base_dir = (
         Path(get_entry_file_dir()) / "generated" / Path(get_entry_file_name()).stem
     ).resolve()
-    _caller_base_dir = _caller_base_dir / "agent_runs"
+    _caller_base_dir = _caller_base_dir / "agent_tool_runs"
     run_dir = Path(base_dir).resolve() if base_dir else _caller_base_dir
     run_dir.mkdir(parents=True, exist_ok=True)
 
