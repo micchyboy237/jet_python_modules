@@ -18,6 +18,7 @@ class LongTermSaveTool(Tool):
             "type": "integer",
             "description": "Optional step number associated with the fact.",
             "optional": True,
+            "nullable": True,
         },
     }
     output_type = "string"
