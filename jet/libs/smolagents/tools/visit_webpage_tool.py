@@ -120,7 +120,7 @@ If you really need near-complete content, use a very broad or generic query."""
         self,
         embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
         max_output_length: int = 3800,  # now treated as **token** limit
-        top_k: int | None = 7,
+        top_k: int | None = None,
         chunk_target_tokens: int = 500,
         chunk_overlap_tokens: int = 100,
         verbose: bool = True,
