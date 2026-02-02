@@ -108,12 +108,6 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
 
     inputs = {
         "url": {"type": "string", "description": "The url of the webpage to visit."},
-        "full_raw": {
-            "type": "boolean",
-            "description": "If true, return full (truncated) raw markdown instead of smart excerpts.",
-            "default": False,
-            "nullable": True,
-        },
         "query": {
             "type": "string",
             "description": "(optional) Specific question/topic to focus retrieval on. Usually auto-inferred.",
