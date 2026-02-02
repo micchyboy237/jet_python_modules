@@ -42,6 +42,7 @@ class LongTermRecallTool(Tool):
             "type": "integer",
             "description": "Maximum number of results to return.",
             "optional": True,
+            "nullable": True,
         },
     }
     output_type = "string"

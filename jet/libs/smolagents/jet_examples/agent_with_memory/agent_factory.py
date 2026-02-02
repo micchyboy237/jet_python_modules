@@ -15,7 +15,6 @@ def create_local_model(
     max_tokens: int | None = 8192,
     model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
     agent_name: str | None = None,
-    base_url: str = "http://localhost:8000/v1",  # typical llama.cpp server
 ) -> OpenAIModel:
     """
     Factory for creating a consistently configured local OpenAI-compatible model
@@ -26,37 +25,13 @@ def create_local_model(
         temperature=temperature,
         max_tokens=max_tokens,
         agent_name=agent_name,
-        base_url=base_url,
-    )
-
-
-def create_local_qwen_agent(
-    temperature: float = 0.7,
-    max_tokens: int | None = 8192,
-    max_steps: int = 40,
-    verbosity: int = 1,
-    extra_tools=None,
-    agent_name: str | None = "Qwen-Agent",
-) -> CodeAgent:
-    model = create_local_model(
-        temperature=temperature,
-        max_tokens=max_tokens,
-        model_id="qwen3-instruct-2507:4b",
-        agent_name=agent_name,
-    )
-    return create_memory_enabled_agent(
-        model=model,
-        extra_tools=extra_tools,
-        max_steps=max_steps,
-        verbosity=verbosity,
     )
 
 
 def create_memory_enabled_agent(
     model=None, extra_tools=None, max_steps: int = 40, verbosity: int = 1
 ) -> CodeAgent:
-    if model is None:  # default remote HF inference
-        model = create_local_qwen_agent()
+    model = create_local_model()
     tools = [
         LongTermSaveTool(),
         LongTermRecallTool(),
