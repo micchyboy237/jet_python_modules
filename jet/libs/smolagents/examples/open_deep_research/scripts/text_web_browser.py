@@ -10,7 +10,6 @@ from typing import Any
 from urllib.parse import unquote, urljoin, urlparse
 
 import requests
-
 from smolagents import Tool
 
 from .cookies import COOKIES
@@ -673,7 +672,7 @@ class NavigationalSearchTool(Tool):
 
     def forward(self, question: str, filter_year: str | None = None) -> str:
         # Use the same search infrastructure but phrase it to trigger direct answers
-        search_query = f"{question}  best direct answer"
+        search_query = f"{question} best direct answer"
         self.browser.visit_page(f"search: {search_query}", filter_year=filter_year)
 
         header, content = self.browser._state()
