@@ -126,7 +126,7 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         self,
         embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
         max_output_length: int = 3800,  # now treated as **token** limit
-        top_k: int | None = 8,
+        top_k: int | None = 7,
         chunk_target_tokens: int = 500,
         chunk_overlap_tokens: int = 100,
         verbose: bool = True,

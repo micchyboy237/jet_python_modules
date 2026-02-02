@@ -15,10 +15,12 @@ from datetime import datetime
 from pathlib import Path
 
 import pytz
+from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
+from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from smolagents import (
     CodeAgent,
-    DuckDuckGoSearchTool,
     PlanningStep,
     tool,
 )
@@ -48,16 +50,17 @@ def get_current_datetime(timezone: str | None = "Asia/Manila") -> str:
 
 
 def create_local_model(
-    temperature: float = 0.65,
-    max_tokens: int | None = 1024,
-    model_id: str = "local-model",
+    temperature: float = 0.4,
+    max_tokens: int | None = 4096,
+    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
+    agent_name: str | None = None,
 ) -> OpenAIModel:
-    """Factory for consistently configured local llama.cpp server model."""
+    """Factory for creating consistently configured local llama.cpp model."""
     return OpenAIModel(
+        model_id=model_id,
         temperature=temperature,
         max_tokens=max_tokens,
-        verbose=True,
-        logs_dir=OUT_DIR / "llm_logs",
+        agent_name=agent_name,
     )
 
 
@@ -136,11 +139,7 @@ def main():
     print("🚀 Starting Plan Customization Example (with dynamic date tool)")
     print("=" * 60)
 
-    model = create_local_model(
-        temperature=0.7,
-        max_tokens=2048,
-        model_id="local-llama",
-    )
+    model = create_local_model(temperature=0.7, agent_name="planning_agent")
 
     # Optional: static date injection (only if you really want it baked in)
     # today_str = datetime.now(pytz.timezone("Asia/Manila")).strftime("%Y-%m-%d")
@@ -150,13 +149,15 @@ def main():
     agent = CodeAgent(
         model=model,
         tools=[
-            DuckDuckGoSearchTool(),
-            get_current_datetime,  # ← dynamic date/time tool
+            # DuckDuckGoSearchTool(),
+            SearXNGSearchTool(max_results=20),
+            VisitWebpageTool(),
+            # get_current_datetime,  # ← dynamic date/time tool
         ],
         planning_interval=5,
         step_callbacks={PlanningStep: interrupt_after_plan},
         max_steps=15,
-        verbosity_level=1,
+        verbosity_level=2,
         # system_prompt=custom_system,      # ← uncomment only if you want static injection
     )
 
