@@ -17,7 +17,7 @@ model = OpenAIModel(
 
 
 agent = ToolCallingAgent(
-    tools=[SearXNGSearchTool(verbose=True, logs_dir=OUT_DIR / "searxng_logs")],
+    tools=[SearXNGSearchTool(max_results=10)],
     model=model,
     add_base_tools=False,
     verbosity_level=LogLevel.DEBUG,  # ← Add this line (or LogLevel.INFO)

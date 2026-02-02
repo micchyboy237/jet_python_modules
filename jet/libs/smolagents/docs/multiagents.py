@@ -13,6 +13,7 @@ from pathlib import Path
 import requests
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from jet.libs.smolagents.tools.web_search_tool import WebSearchTool
 from markdownify import markdownify
 from requests.exceptions import RequestException
@@ -98,7 +99,13 @@ def create_web_sub_agent(
     model = create_local_model(temperature=0.65, agent_name="web_sub_agent")
 
     return ToolCallingAgent(
-        tools=[WebSearchTool(), visit_webpage],
+        tools=[
+            WebSearchTool(),
+            VisitWebpageTool(
+                max_output_length=4096,
+                top_k=8,
+            ),
+        ],
         model=model,
         max_steps=max_steps,
         name="web_agent",

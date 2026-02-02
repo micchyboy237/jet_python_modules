@@ -1,5 +1,3 @@
-# searxng_search_tool.py
-import json
 import logging
 import time
 from dataclasses import dataclass
@@ -7,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
-from jet.libs.smolagents._logging import structured_tool_logger
+from jet.libs.smolagents.utils.debug_saver import DebugSaver
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents import Tool
 
@@ -18,7 +16,6 @@ logger = logging.getLogger(__name__)
 class SearXNGSearchTool(Tool):
     """
     Web search tool that performs searches using the SearXNG search engine.
-
     Args:
         instance_url: URL of the SearXNG instance
         max_results: Maximum number of search results to return (default: 10)
@@ -54,13 +51,19 @@ class SearXNGSearchTool(Tool):
         self.rate_limit = rate_limit
         self.timeout = timeout
         self.verbose = verbose
+
         _caller_base_dir = (
             Path(get_entry_file_dir())
             / "generated"
             / Path(get_entry_file_name()).stem
-            / "searxng_tool_logs"
+            / "searxng_search_tool_logs"
         )
-        self.logs_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
+        base_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
+
+        self.debug_saver = DebugSaver(
+            tool_name=self.name,
+            base_dir=base_dir,
+        )
 
         self._min_interval = 1.0 / rate_limit if rate_limit else 0.0
         self._last_request_time = 0.0
@@ -82,10 +85,10 @@ class SearXNGSearchTool(Tool):
     def forward(self, query: str) -> str:
         """
         Execute search and return formatted markdown results.
-        When logs_dir is set, also saves:
+        Saves:
           - request.json
-          - response.json (summary stats)
-          - full_results.md  ← full formatted markdown output
+          - full_results.md
+          - response.json (summary)
           - error.txt (if failed)
         """
         request_data = {
@@ -96,15 +99,13 @@ class SearXNGSearchTool(Tool):
             "rate_limit_qps": self.rate_limit,
         }
 
-        with structured_tool_logger(
-            logs_dir=self.logs_dir,
-            tool_name=self.name,
-            request_data=request_data,
-            verbose=self.verbose,
-        ) as (call_dir, log):
+        self.debug_saver.save_json("request.json", request_data, indent=2)
+        logger.info("Saved request.json")
+
+        with self.debug_saver.new_call(request_data) as call_dir:
             if self.verbose:
-                log(f"Query → {query!r}")
-                log(f"Target instance: {self.instance_url}")
+                logger.debug(f"Query → {query!r}")
+                logger.debug(f"Target instance: {self.instance_url}")
 
             self._enforce_rate_limit()
 
@@ -117,7 +118,7 @@ class SearXNGSearchTool(Tool):
                 }
 
                 if self.verbose:
-                    log(f"GET {self.instance_url}/search  |  params={params}")
+                    logger.debug(f"GET {self.instance_url}/search | params={params}")
 
                 response = requests.get(
                     f"{self.instance_url}/search",
@@ -135,9 +136,8 @@ class SearXNGSearchTool(Tool):
                 if not results:
                     msg = f"No results found for query: {query!r}"
                     if self.verbose:
-                        log(msg)
-                    if call_dir:
-                        (call_dir / "full_results.md").write_text(msg)
+                        logger.warning(msg)
+                    self.debug_saver.save("full_results.md", msg)
                     return msg
 
                 top_results = results[: self.max_results]
@@ -148,46 +148,38 @@ class SearXNGSearchTool(Tool):
                     url = result.get("url", "").strip()
                     content = result.get("content", "").strip()
 
-                    if len(content) > 500:
-                        content = content[:497] + "..."
+                    formatted_lines.append(f"**{idx}. [{title}]({url})**")
 
-                    formatted_lines.append(f"### {idx}. [{title}]({url})")
                     if content:
+                        if len(content) > 500:
+                            content = content[:497] + "..."
                         formatted_lines.append("")
                         formatted_lines.append(content)
                     formatted_lines.append("")
 
                 result_text = "\n".join(formatted_lines).strip()
 
-                # ───────────────────────────────────────────────
-                # Save full markdown results
-                # ───────────────────────────────────────────────
-                if call_dir:
-                    full_md_path = call_dir / "full_results.md"
-                    full_md_path.write_text(result_text, encoding="utf-8")
+                self.debug_saver.save("full_results.md", result_text, encoding="utf-8")
 
-                    # Also keep the compact summary stats
-                    (call_dir / "response.json").write_text(
-                        json.dumps(
-                            {
-                                "result_count": len(top_results),
-                                "formatted_length": len(result_text),
-                                "preview": result_text[:600] + "..."
-                                if len(result_text) > 600
-                                else result_text,
-                                "full_markdown_file": "full_results.md",
-                            },
-                            indent=2,
-                            ensure_ascii=False,
-                        ),
-                        encoding="utf-8",
-                    )
+                self.debug_saver.save_json(
+                    "response.json",
+                    {
+                        "result_count": len(top_results),
+                        "formatted_length": len(result_text),
+                        "preview": result_text[:600] + "..."
+                        if len(result_text) > 600
+                        else result_text,
+                        "full_markdown_file": "full_results.md",
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
 
                 if self.verbose:
-                    log(
-                        f"Saved full markdown → {full_md_path if call_dir else '(no logs_dir)'}"
+                    logger.debug(
+                        f"Saved full markdown → {call_dir / 'full_results.md'}"
                     )
-                    log(
+                    logger.debug(
                         f"Returning {len(top_results)} results ({len(result_text):,} chars)"
                     )
 
@@ -196,19 +188,17 @@ class SearXNGSearchTool(Tool):
             except requests.exceptions.RequestException as e:
                 err_msg = f"Error performing SearXNG search: {str(e)}\nTry another instance or check your network."
                 if self.verbose:
-                    log(err_msg)
-                if call_dir:
-                    (call_dir / "error.txt").write_text(str(e))
-                    (call_dir / "full_results.md").write_text(err_msg)
+                    logger.error(err_msg)
+                self.debug_saver.save("error.txt", str(e))
+                self.debug_saver.save("full_results.md", err_msg)
                 return err_msg
 
             except Exception as e:
                 err_msg = f"Unexpected error during SearXNG search: {str(e)}"
                 if self.verbose:
-                    log(err_msg, exc_info=True)
-                if call_dir:
-                    (call_dir / "error.txt").write_text(str(e))
-                    (call_dir / "full_results.md").write_text(err_msg)
+                    logger.exception(err_msg)
+                self.debug_saver.save("error.txt", str(e))
+                self.debug_saver.save("full_results.md", err_msg)
                 return err_msg
 
     @classmethod
