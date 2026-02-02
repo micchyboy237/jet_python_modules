@@ -150,8 +150,8 @@ def demo_multi_1_simple_delegation():
     """Demo 1: Simple question that requires web lookup"""
     console.rule("Demo 1: Basic delegation to web agent")
 
+    # manager = create_manager_agent([web_agent], max_steps=10)
     web_agent = create_web_sub_agent(max_steps=8)
-    manager = create_manager_agent([web_agent], max_steps=10)
 
     # question = "What is the latest stable version of the Hugging Face Transformers library as of today?"
     question = "Search for top 10 anime in 2026. Check some relevant urls until you can provide with 10 results."
@@ -159,7 +159,8 @@ def demo_multi_1_simple_delegation():
     console.print(f"\n[bold cyan]Question:[/bold cyan] {question}\n")
     start = time.time()
 
-    answer = manager.run(question, reset=True)
+    # answer = manager.run(question, reset=True)
+    answer = web_agent.run(question, reset=True)
     duration = time.time() - start
     console.print(
         Panel(answer, title="Final Answer", border_style="green", expand=False)
