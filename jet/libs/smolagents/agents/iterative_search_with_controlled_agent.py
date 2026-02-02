@@ -16,6 +16,7 @@ Run with:
 
 from __future__ import annotations
 
+import argparse
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -243,21 +244,69 @@ def answer_looks_complete(text: str) -> bool:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Iterative Research Loop: Paris Population Example",
+        # Allow extra arguments to be treated as positional
+        # (useful when people forget the --task flag)
+        allow_abbrev=False,
+    )
+
+    # Positional argument (optional - can be omitted)
+    parser.add_argument(
+        "task_positional",
+        type=str,
+        nargs="?",  # Makes it optional
+        default=None,
+        help="The research question/task (positional alternative to --task)",
+    )
+
+    # Classic named flag (still works, still has default)
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="What is the current population of Paris, France in 2026? Include latest estimates, sources, and whether it includes the metropolitan area.",
+        help="Initial research task/question. Can also be provided positionally.",
+    )
+
+    parser.add_argument(
+        "--max_rounds",
+        type=int,
+        default=8,
+        help="Maximum number of rounds for the research loop.",
+    )
+
+    parser.add_argument(
+        "--agent_type",
+        type=str,
+        choices=["toolcalling", "code"],
+        default="toolcalling",
+        help="Type of agent to use (toolcalling or code).",
+    )
+
+    parser.add_argument(
+        "--controller_type",
+        type=str,
+        choices=["summary", "last_n"],
+        default="summary",
+        help="Type of research controller.",
+    )
+
+    args = parser.parse_args()
+
+    # Decide which task to use - positional wins if provided
+    task = args.task_positional if args.task_positional is not None else args.task
+
     model = create_local_model()
 
-    # Choose agent flavor
     researcher = IterativeResearchLoop(
-        agent_type="toolcalling",  # or "code"
+        agent_type=args.agent_type,
         model=model,
-        controller_type="summary",  # or "last_n"
-        max_rounds=8,
+        controller_type=args.controller_type,
+        max_rounds=args.max_rounds,
     )
 
     final_answer = researcher.run(
-        initial_task=(
-            "What is the current population of Paris, France in 2026? "
-            "Include latest estimates, sources, and whether it includes the metropolitan area."
-        ),
+        initial_task=task,
         stop_condition=answer_looks_complete,
     )
 
