@@ -537,12 +537,7 @@ class OpenAIModel(ApiModel):
 
         # --- BEGIN add logging ---
         if self.logs_dir:
-            self._call_counter[False] += 1
-            call_num = (
-                get_next_call_number(self.logs_dir)
-                if self._call_counter[False] == 1
-                else self._call_counter[False]
-            )
+            call_num = get_next_call_number(self.logs_dir)
             formatted_messages = [
                 {"role": msg["role"].value, "content": msg["content"][0]["text"]}
                 for msg in completion_kwargs.get("messages", [])
@@ -626,12 +621,7 @@ class OpenAIModel(ApiModel):
 
         # --- BEGIN add logging ---
         if self.logs_dir:
-            self._call_counter[True] += 1
-            call_num = (
-                get_next_call_number(self.logs_dir)
-                if self._call_counter[True] == 1
-                else self._call_counter[True]
-            )
+            call_num = get_next_call_number(self.logs_dir)
             formatted_messages = [
                 {"role": msg["role"].value, "content": msg["content"][0]["text"]}
                 for msg in completion_kwargs.get("messages", [])

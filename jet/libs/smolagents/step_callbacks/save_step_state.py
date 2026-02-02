@@ -1,10 +1,18 @@
+# jet_python_modules/jet/libs/smolagents/step_callbacks/save_step_state.py
 import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
-from smolagents import ActionStep, FinalAnswerStep, MemoryStep, PlanningStep
+from smolagents import (
+    ActionStep,
+    FinalAnswerStep,
+    MemoryStep,
+    PlanningStep,
+    SystemPromptStep,
+    TaskStep,
+)
 
 
 def get_next_run_step_number(base_dir: Path) -> int:
@@ -14,6 +22,7 @@ def get_next_run_step_number(base_dir: Path) -> int:
     """
     if not base_dir.exists():
         return 1
+
     numbers = []
     for f in base_dir.iterdir():
         if not f.is_file():
@@ -24,119 +33,135 @@ def get_next_run_step_number(base_dir: Path) -> int:
                 num = int(name[:4])
                 numbers.append(num)
             except ValueError:
-                pass
+                continue
+
     return max(numbers, default=0) + 1 if numbers else 1
 
 
 def save_step_state(
     agent_name: str | None = None,
     base_dir: str | Path | None = None,
-    save_images: bool = False,  # optional: can be enabled later
+    save_images: bool = False,  # currently not implemented — placeholder for future
 ) -> Callable[[MemoryStep, Any], None]:
     """
     Factory that creates a step callback which saves step information to disk.
 
-    The returned callback uses the provided agent_name (or falls back to "unnamed_agent").
-    Intended usage:
-
-        callback = save_step_state(agent_name="research_agent_2025")
-        agent = CodeAgent(..., step_callbacks=[callback])
-
-    Or inline:
-        agent = CodeAgent(
-            ...,
-            step_callbacks=[save_step_state(agent_name="math_explorer")],
-        )
+    The returned callback saves only fields that actually exist in the smolagents
+    MemoryStep dataclasses (ActionStep, PlanningStep, TaskStep, etc.).
 
     Files are saved as:
-      {base_dir}/{cleaned_agent_name}/0001_plan_my_agent.json
+      {base_dir}/{cleaned_agent_name}/0001_task_my_agent.json
       {base_dir}/{cleaned_agent_name}/0003_action_my_agent.json
+      {base_dir}/{cleaned_agent_name}/0005_plan_my_agent.json
       {base_dir}/{cleaned_agent_name}/0007_final_my_agent.json
       ...
-    """
-    # Clean and normalize the agent name once (at creation time)
-    if agent_name:
-        cleaned_name = (
-            str(agent_name).strip().replace(" ", "_").replace("-", "_").lower()
-        )
-    else:
-        cleaned_name = "agent"
 
-    _caller_base_dir = (
+    Recommended usage:
+        from jet.libs.smolagents.step_callbacks.save_step_state import save_step_state
+
+        callback = save_step_state(agent_name="researcher-v3")
+        agent = CodeAgent(..., step_callbacks=[callback])
+    """
+    cleaned_name = (
+        str(agent_name).strip().replace(" ", "_").replace("-", "_").lower()
+        if agent_name
+        else "agent"
+    )
+
+    # Default location: next to calling script, in generated/.../agent_tool_runs/
+    caller_base_dir = (
         Path(get_entry_file_dir()) / "generated" / Path(get_entry_file_name()).stem
     ).resolve()
-    _caller_base_dir = _caller_base_dir / "agent_tool_runs"
-    run_dir = Path(base_dir).resolve() if base_dir else _caller_base_dir
+    caller_base_dir = caller_base_dir / "agent_tool_runs"
+
+    run_dir = Path(base_dir).resolve() if base_dir else caller_base_dir
     run_dir.mkdir(parents=True, exist_ok=True)
 
     def callback(memory_step: MemoryStep, agent: Any = None) -> None:
         nonlocal run_dir
 
-        # Determine prefix based on step type
-        if isinstance(memory_step, ActionStep):
+        # ── Determine prefix & filename style ────────────────────────────────
+        if isinstance(memory_step, TaskStep):
+            prefix = "task"
+        elif isinstance(memory_step, ActionStep):
             prefix = "action"
         elif isinstance(memory_step, PlanningStep):
             prefix = "plan"
         elif isinstance(memory_step, FinalAnswerStep):
             prefix = "final"
+        elif isinstance(memory_step, SystemPromptStep):
+            prefix = "system"
         else:
-            # Fallback for other / unknown step types
-            step_type_name = memory_step.__class__.__name__.lower().replace("step", "")
-            prefix = step_type_name if step_type_name else "step"
+            prefix = memory_step.__class__.__name__.lower().replace("step", "")
+            if not prefix:
+                prefix = "step"
 
-        # Get next global step number for this directory
-        next_num = get_next_run_step_number(run_dir)
-
-        # Build base filename — number comes first for natural sorting
-        base_name = f"{next_num:04d}_{prefix}_{cleaned_name}"
-
-        # Normalize: collapse consecutive underscores
+        step_number = get_next_run_step_number(run_dir)
+        base_name = f"{step_number:04d}_{prefix}_{cleaned_name}"
         normalized_name = "_".join(filter(None, base_name.split("_")))
         filename = f"{normalized_name}.json"
-
         filepath = run_dir / filename
 
+        # ── Common fields (present in most steps) ─────────────────────────────
         data: dict[str, Any] = {
-            "file_sequence_number": next_num,  # global per-run sequence
-            "step_type_prefix": prefix,
+            "file_sequence_number": step_number,
             "step_type": memory_step.__class__.__name__,
-            "timestamp": getattr(memory_step, "timestamp", None),
-            "thought": getattr(memory_step, "thought", None),
-            "llm_output": getattr(memory_step, "llm_output", None),
-            "error": getattr(memory_step, "error", None),
+            "step_prefix": prefix,
         }
 
+        # ── Type-specific rich content ───────────────────────────────────────
         if isinstance(memory_step, ActionStep):
             data.update(
                 {
-                    "code": getattr(memory_step, "code", None),
-                    "tool_name": getattr(memory_step, "tool_name", None),
-                    "tool_arguments": getattr(memory_step, "tool_arguments", None),
-                    "observations": getattr(memory_step, "observations", None),
+                    "step_number": memory_step.step_number,
+                    "is_final_answer": memory_step.is_final_answer,
+                    "code_action": memory_step.code_action,
+                    "model_output": memory_step.model_output,
+                    "observations": memory_step.observations,
+                    "action_output": memory_step.action_output,
+                    "error": (
+                        str(memory_step.error)
+                        if memory_step.error is not None
+                        else None
+                    ),
+                    "duration_seconds": memory_step.timing.duration
+                    if memory_step.timing
+                    else None,
+                }
+            )
+            # images not saved yet — placeholder
+            if save_images and memory_step.observations_images:
+                pass  # future implementation
+
+        elif isinstance(memory_step, PlanningStep):
+            data.update(
+                {
+                    "plan": memory_step.plan,
+                    "duration_seconds": memory_step.timing.duration
+                    if memory_step.timing
+                    else None,
                 }
             )
 
-        elif isinstance(memory_step, PlanningStep):
-            data["plan"] = getattr(memory_step, "plan", None)
+        elif isinstance(memory_step, TaskStep):
+            data["task"] = memory_step.task
+            # task_images not saved yet
 
         elif isinstance(memory_step, FinalAnswerStep):
-            data["final_answer"] = getattr(memory_step, "final_answer", None)
+            data["output"] = memory_step.output
 
-        # Optional: base64 images (disabled by default)
-        # if save_images and hasattr(memory_step, "observations_images") and memory_step.observations_images:
-        #     import base64
-        #     from io import BytesIO
-        #     from PIL import Image
-        #     b64_images = []
-        #     for img in memory_step.observations_images:
-        #         buffered = BytesIO()
-        #         img.save(buffered, format="PNG")
-        #         b64_images.append(base64.b64encode(buffered.getvalue()).decode("utf-8"))
-        #     data["observations_images_base64"] = b64_images
+        elif isinstance(memory_step, SystemPromptStep):
+            data["system_prompt"] = memory_step.system_prompt
 
-        # Write file
+        # ── Save ──────────────────────────────────────────────────────────────
         with filepath.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+            json.dump(
+                data,
+                f,
+                indent=2,
+                ensure_ascii=False,
+                default=str,  # fallback for non-serializable objects
+            )
 
         # Optional feedback
         if agent and hasattr(agent, "verbosity_level") and agent.verbosity_level >= 1:
