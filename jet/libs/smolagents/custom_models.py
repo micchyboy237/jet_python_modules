@@ -538,10 +538,30 @@ class OpenAIModel(ApiModel):
         # --- BEGIN add logging ---
         if self.logs_dir:
             call_num = get_next_call_number(self.logs_dir)
-            formatted_messages = [
-                {"role": msg["role"].value, "content": msg["content"][0]["text"]}
-                for msg in completion_kwargs.get("messages", [])
-            ]
+            formatted_messages = []
+            for msg in completion_kwargs.get("messages", []):
+                role = (
+                    msg["role"].value if hasattr(msg["role"], "value") else msg["role"]
+                )
+
+                content = msg["content"]
+                if isinstance(content, str):
+                    content_for_tokenizer = content
+                elif (
+                    isinstance(content, list)
+                    and content
+                    and isinstance(content[0], dict)
+                ):
+                    # extract text parts only (ignore images for token counting)
+                    content_for_tokenizer = " ".join(
+                        part["text"] for part in content if part.get("type") == "text"
+                    )
+                else:
+                    content_for_tokenizer = str(content)  # fallback
+
+                formatted_messages.append(
+                    {"role": role, "content": content_for_tokenizer}
+                )
             input_tokens = count_tokens(
                 formatted_messages,
                 model=self.model_id,
@@ -622,10 +642,30 @@ class OpenAIModel(ApiModel):
         # --- BEGIN add logging ---
         if self.logs_dir:
             call_num = get_next_call_number(self.logs_dir)
-            formatted_messages = [
-                {"role": msg["role"].value, "content": msg["content"][0]["text"]}
-                for msg in completion_kwargs.get("messages", [])
-            ]
+            formatted_messages = []
+            for msg in completion_kwargs.get("messages", []):
+                role = (
+                    msg["role"].value if hasattr(msg["role"], "value") else msg["role"]
+                )
+
+                content = msg["content"]
+                if isinstance(content, str):
+                    content_for_tokenizer = content
+                elif (
+                    isinstance(content, list)
+                    and content
+                    and isinstance(content[0], dict)
+                ):
+                    # extract text parts only (ignore images for token counting)
+                    content_for_tokenizer = " ".join(
+                        part["text"] for part in content if part.get("type") == "text"
+                    )
+                else:
+                    content_for_tokenizer = str(content)  # fallback
+
+                formatted_messages.append(
+                    {"role": role, "content": content_for_tokenizer}
+                )
             input_tokens = count_tokens(
                 formatted_messages,
                 model=self.model_id,
