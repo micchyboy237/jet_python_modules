@@ -313,7 +313,7 @@ if __name__ == "__main__":
         query=query,
         chunk_size=3500,
         overlap=700,
-        use_hf_inference=True,  # ← change to False if using local model (Ollama/vLLM/llama.cpp)
+        use_hf_inference=False,  # ← change to False if using local model (Ollama/vLLM/llama.cpp)
     )
 
     print(f"\nFound {len(results)} relevant passages:")
