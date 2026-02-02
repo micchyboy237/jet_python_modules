@@ -152,7 +152,9 @@ def main():
             # DuckDuckGoSearchTool(),
             get_current_datetime,  # ← dynamic date/time tool
             SearXNGSearchTool(max_results=20),
-            VisitWebpageTool(max_output_length=3500, chunk_target_tokens=500, top_k=7),
+            VisitWebpageTool(
+                max_output_length=3500, chunk_target_tokens=500, top_k=None
+            ),
         ],
         planning_interval=5,
         step_callbacks={PlanningStep: interrupt_after_plan},
