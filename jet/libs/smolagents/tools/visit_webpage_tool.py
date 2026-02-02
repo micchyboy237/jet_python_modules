@@ -166,7 +166,7 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
     # ────────────────────────────────────────────────
     #  Helper: final safety trim by token count
     # ────────────────────────────────────────────────
-    def _trim_to_token_limit(self, text: str, log=None) -> str:
+    def _trim_to_token_limit(self, text: str) -> str:
         """Trim text so that count_tokens(text) ≤ self.max_output_tokens"""
         # Remove use of log, and always use embed_model as LLAMACPP_EMBED_KEYS (not string)
         token_count = count_tokens(text, model=self.embed_model)
@@ -238,27 +238,15 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
             self.debug_saver.save_json("headings.json", headings)
             logger.info("Saved headings.json")
 
-            chunks = chunk_texts_with_data(
-                texts=headings,
-                chunk_size=self.chunk_target_tokens,
-                chunk_overlap=self.chunk_overlap_tokens,
-                strict_sentences=True,
-                model=self.embed_model,
-            )
-            self.debug_saver.save_json("chunks.json", chunks)
-            logger.info("Saved chunks.json")
-
             if full_raw:
-                result = self._process_full_raw(headings, log=None)
+                result = self._process_full_raw(headings)
             else:
-                result = self._process_smart_excerpts(
-                    headings, query, log=None, url=url
-                )
+                result = self._process_smart_excerpts(headings, query, url=url)
             self.debug_saver.save("full_results.md", result)
             logger.info("Saved result at full_results.md")
 
             # ─── Final safety net: enforce token limit ──────────────────
-            result = self._trim_to_token_limit(result, log=None)
+            result = self._trim_to_token_limit(result)
             self.debug_saver.save("trimmed_results.md", result)
             logger.info("Saved result at trimmed_results.md")
 
@@ -295,7 +283,7 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
                 logger.error(msg)
             return PageFetchResult(html="", success=False, error_message=msg)
 
-    def _process_full_raw(self, md_texts: list[str], log) -> str:
+    def _process_full_raw(self, md_texts: list[str]) -> str:
         # First pass: truncate individual sections
         truncated = truncate_texts(
             md_texts,
@@ -309,23 +297,21 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         self.debug_saver.save("truncated_text.md", joined)
         return joined
 
-    def chunk_sections(self, md_texts: list[str]) -> list[dict]:
-        return chunk_texts_with_data(
+    def _process_smart_excerpts(
+        self, md_texts: list[str], query: str | None, url: str
+    ) -> str:
+        chunks = chunk_texts_with_data(
             texts=md_texts,
             chunk_size=self.chunk_target_tokens,
             chunk_overlap=self.chunk_overlap_tokens,
             strict_sentences=True,
             model=self.embed_model,
         )
-
-    def _process_smart_excerpts(
-        self, md_texts: list[str], query: str | None, log, url: str
-    ) -> str:
-        chunks = self.chunk_sections(md_texts)
-        self.debug_saver.save_json("chunks.json", chunks, indent=2)
+        self.debug_saver.save_json("chunks.json", chunks)
+        logger.info("Saved chunks.json")
 
         documents = [chunk["content"] for chunk in chunks]
-        chunk_ids = [chunk.get("id", str(i)) for i, chunk in enumerate(chunks)]
+        chunk_ids = [chunk["id"] for chunk in chunks]
 
         hybrid = HybridSearch.from_documents(
             documents=documents,
