@@ -1,6 +1,5 @@
 # visit_webpage_tool.py
 
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +14,7 @@ from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
 from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.code.splitter_markdown_utils import get_md_header_contents
-from jet.libs.smolagents._logging import structured_tool_logger
+from jet.libs.smolagents.utils.debug_saver import DebugSaver
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from jet.wordnet.text_chunker import chunk_texts_with_data, truncate_texts
 from smolagents.tools import Tool
@@ -39,33 +38,6 @@ class PageFetchResult:
     html: str
     success: bool = True
     error_message: str | None = None
-
-
-class DebugSaver:
-    """Handles all debug file writing – easy to mock/disable"""
-
-    def __init__(self, base_dir: Path | None = None):
-        self.base_dir = base_dir or (
-            Path(get_entry_file_dir())
-            / "generated"
-            / Path(get_entry_file_name()).stem
-            / "visit_webpage_tool_logs"
-        )
-
-    def save(self, filename: str, content: str, encoding: str = "utf-8") -> None:
-        if not self.base_dir:
-            return
-        path = self.base_dir / filename
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding=encoding)
-
-    def save_json(self, filename: str, obj, **json_kwargs):
-        self.save(
-            filename,
-            json.dumps(
-                obj, **json_kwargs, ensure_ascii=False, default=search_result_serializer
-            ),
-        )
 
 
 def extract_markdown_section_texts(html: str, ignore_links: bool = True) -> list[str]:
@@ -175,7 +147,18 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
 
         self.verbose = verbose
 
-        self.debug_saver = DebugSaver(base_dir=Path(logs_dir) if logs_dir else None)
+        self.debug_saver = DebugSaver(
+            tool_name=self.name,
+            base_dir=Path(logs_dir)
+            if logs_dir
+            else (
+                Path(get_entry_file_dir())
+                / "generated"
+                / Path(get_entry_file_name()).stem
+                / "visit_webpage_tool_logs"
+            ),
+            serializer=search_result_serializer,
+        )
 
         if self.verbose:
             logger.setLevel(logging.DEBUG)
@@ -185,18 +168,13 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
     # ────────────────────────────────────────────────
     def _trim_to_token_limit(self, text: str, log=None) -> str:
         """Trim text so that count_tokens(text) ≤ self.max_output_tokens"""
+        # Remove use of log, and always use embed_model as LLAMACPP_EMBED_KEYS (not string)
         token_count = count_tokens(text, model=self.embed_model)
 
         if token_count <= self.max_output_tokens:
             return text
 
-        if log and self.verbose:
-            log(
-                f"Output too long ({token_count} tokens) → trimming to ~{self.max_output_tokens} tokens"
-            )
-
-        # Very simple but effective greedy character-based trim
-        # (you can make this smarter later: sentence-aware, etc.)
+        # Remove log (no logging output needed), just trim
         chars = list(text)
         low, high = 0, len(chars)
 
@@ -212,10 +190,6 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
                 high = mid - 1
 
         trimmed = "".join(chars[:low])
-        if log and self.verbose:
-            log(
-                f"Trimmed from {token_count} → {count_tokens(trimmed, model=self.embed_model)} tokens"
-            )
         return trimmed
 
     def forward(
@@ -224,41 +198,81 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         full_raw: bool = False,
         query: str | None = None,
     ) -> str:
-        with structured_tool_logger(
-            self.debug_saver.base_dir,
-            self.name,
-            {"url": url, "full_raw": full_raw, "query": query},
-            self.verbose,
-        ) as (call_dir, log):
-            self.debug_saver.base_dir = call_dir
+        # Determine the effective search query
+        def resolve_search_query(q: str | None) -> str:
+            return (
+                q.strip()
+                if q is not None and isinstance(q, str) and q.strip()
+                else "summary"
+            )
 
-            fetch_result = self._fetch_url(url, log)
+        search_query = resolve_search_query(query)
+        input_text = f"{url} {search_query}"
+        input_tokens = count_tokens(input_text, model=self.embed_model)
+
+        request_data = {
+            "url": url,
+            "full_raw": full_raw,
+            "query": query,
+            "resolved_search_query": search_query,
+            "input_tokens": input_tokens,
+        }
+        self.debug_saver.save_json("request.json", request_data)
+        logger.info("Saved request.json")
+
+        with self.debug_saver.new_call(request_data) as call_dir:
+            fetch_result = self._fetch_url(url, log=None)
             if not fetch_result.success:
                 error_text = f"Failed to fetch page: {fetch_result.error_message}"
+                logger.error(error_text)
                 self.debug_saver.save("full_results.md", error_text)
+                logger.info("Saved error message at full_results.md")
                 return error_text
 
             self.debug_saver.save("page.html", fetch_result.html)
+            logger.info("Saved page.html")
 
-            md_texts = extract_markdown_section_texts(
+            headings = extract_markdown_section_texts(
                 fetch_result.html, ignore_links=True
             )
+            self.debug_saver.save_json("headings.json", headings)
+            logger.info("Saved headings.json")
+
+            chunks = chunk_texts_with_data(
+                texts=headings,
+                chunk_size=self.chunk_target_tokens,
+                chunk_overlap=self.chunk_overlap_tokens,
+                strict_sentences=True,
+                model=self.embed_model,
+            )
+            self.debug_saver.save_json("chunks.json", chunks)
+            logger.info("Saved chunks.json")
 
             if full_raw:
-                result = self._process_full_raw(md_texts, log)
+                result = self._process_full_raw(headings, log=None)
             else:
-                result = self._process_smart_excerpts(md_texts, query, log, url)
+                result = self._process_smart_excerpts(
+                    headings, query, log=None, url=url
+                )
+            self.debug_saver.save("full_results.md", result)
+            logger.info("Saved result at full_results.md")
 
             # ─── Final safety net: enforce token limit ──────────────────
-            result = self._trim_to_token_limit(result, log)
+            result = self._trim_to_token_limit(result, log=None)
+            self.debug_saver.save("trimmed_results.md", result)
+            logger.info("Saved result at trimmed_results.md")
 
-            self.debug_saver.save("full_results.md", result)
-
-            if self.verbose:
-                final_tokens = count_tokens(result, model=self.embed_model)
-                log(f"Returning {len(result)} chars / ~{final_tokens} tokens")
-                if call_dir:
-                    log(f"Saved final result → {call_dir / 'full_results.md'}")
+            # ── New: save the final returned string with output_tokens ─────────
+            self.debug_saver.save_json(
+                "response.json",
+                {
+                    "result": result,
+                    "output_tokens": count_tokens(result, model=self.embed_model),
+                    "char_length": len(result),
+                },
+                indent=2,
+            )
+            logger.info("Saved final response.json")
 
             return result
 

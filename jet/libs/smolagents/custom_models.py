@@ -14,6 +14,7 @@ from typing import Any
 
 from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_LLM_TYPES
+from jet.transformers.object import make_serializable
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents.monitoring import TokenUsage
 from smolagents.tools import Tool
@@ -540,10 +541,12 @@ def save_response_llm_call(
         if hasattr(response_data, "model_dump_json"):
             text = response_data.model_dump_json()
         elif hasattr(response_data, "json") and callable(response_data.json):
-            text = json.dumps(response_data.json(), indent=2, ensure_ascii=False)
+            text = response_data.json()
         else:
-            text = json.dumps(response_data, indent=2, default=str)
-        (target_dir / "response.json").write_text(text)
+            text = response_data
+        (target_dir / "response.json").write_text(
+            json.dumps(make_serializable(text), indent=2, ensure_ascii=False)
+        )
 
     if is_stream and stream_deltas:
         with (target_dir / "stream_deltas.ndjson").open("w", encoding="utf-8") as f:

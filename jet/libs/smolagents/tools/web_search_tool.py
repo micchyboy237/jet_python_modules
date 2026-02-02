@@ -1,14 +1,17 @@
 # web_search_tool.py
-import json
 import logging
 from pathlib import Path
 
 import requests
-from jet.libs.smolagents._logging import structured_tool_logger
+from jet.libs.smolagents.utils.debug_saver import DebugSaver
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents.tools import Tool
 
 logger = logging.getLogger(__name__)
+
+
+from jet.adapters.llama_cpp.tokens import count_tokens
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 
 
 class WebSearchTool(Tool):
@@ -25,71 +28,72 @@ class WebSearchTool(Tool):
         engine: str = "duckduckgo",
         verbose: bool = True,
         logs_dir: str | Path | None = None,
+        embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
     ):
         super().__init__()
         self.max_results = max_results
         self.engine = engine
         self.verbose = verbose
+        self.embed_model = embed_model
         _caller_base_dir = (
             Path(get_entry_file_dir())
             / "generated"
             / Path(get_entry_file_name()).stem
             / "web_search_tool_logs"
         )
-        self.logs_dir = Path(logs_dir).resolve() if logs_dir else _caller_base_dir
+
+        self.debug_saver = DebugSaver(
+            tool_name=self.name,
+            base_dir=Path(logs_dir).resolve() if logs_dir else _caller_base_dir,
+        )
         if self.verbose:
             logger.setLevel(logging.DEBUG)
 
     def forward(self, query: str) -> str:
+        input_text_for_tokens = query.strip()
+        input_tokens = count_tokens(input_text_for_tokens, model=self.embed_model)
+
         request_data = {
             "query": query,
             "engine": self.engine,
             "max_results": self.max_results,
+            "input_tokens": input_tokens,
         }
+        self.debug_saver.save_json("request.json", request_data)
+        logger.info("Saved request.json")
 
-        with structured_tool_logger(
-            self.logs_dir, self.name, request_data, self.verbose
-        ) as (call_dir, log):
-            if self.verbose:
-                log(f"Searching with engine: {self.engine}")
-
+        with self.debug_saver.new_call(request_data) as call_dir:
             results = self.search(query)
 
             if len(results) == 0:
                 msg = "No results found! Try a less restrictive/shorter query."
-                if self.verbose:
-                    log(msg)
                 if call_dir:
-                    (call_dir / "full_results.md").write_text(msg, encoding="utf-8")
+                    self.debug_saver.save("full_results.md", msg)
                 raise Exception(msg)
+
+            # ── New: save raw search results ────────────────
+            self.debug_saver.save_json("raw_results.json", results, indent=2)
+            logger.info("Saved raw_results.json")
 
             formatted = self.parse_results(results)
 
             if call_dir:
-                # Summary stats + preview
-                (call_dir / "response.json").write_text(
-                    json.dumps(
-                        {
-                            "formatted_length": len(formatted),
-                            "result_count": len(results),
-                            "preview": formatted[:500] + "..."
-                            if len(formatted) > 500
-                            else formatted,
-                            "full_markdown_file": "full_results.md",
-                        },
-                        indent=2,
-                        ensure_ascii=False,
-                    ),
-                    encoding="utf-8",
+                output_tokens = count_tokens(formatted, model=self.embed_model)
+                # Save full formatted result as response.json (more useful)
+                self.debug_saver.save_json(
+                    "response.json",
+                    {
+                        "result": formatted,
+                        "result_length": len(formatted),
+                        "source_result_count": len(results),
+                        "output_tokens": output_tokens,
+                    },
+                    indent=2,
                 )
+                logger.info("Saved response.json (full formatted result)")
 
                 # Full markdown output — what the agent actually receives
-                (call_dir / "full_results.md").write_text(formatted, encoding="utf-8")
-
-            if self.verbose:
-                log(f"Returning {len(formatted)} characters, {len(results)} results")
-                if call_dir:
-                    log(f"Saved full markdown → {call_dir / 'full_results.md'}")
+                self.debug_saver.save("full_results.md", formatted)
 
             return formatted
 

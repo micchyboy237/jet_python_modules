@@ -10,6 +10,7 @@ from typing import Any
 from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.libs.smolagents.step_callbacks import save_step_state
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from jet.libs.smolagents.tools.web_search_tool import WebSearchTool
 from rich.console import Console
@@ -32,6 +33,7 @@ from smolagents import (
 MAX_SAFE_PROMPT_TOKENS = 6500  # adjust for your model's window/context
 WARNING_THRESHOLD_TOKENS = 5800
 FORCE_FINAL_THRESHOLD_TOKENS = 7200  # approach model limit/cutoff
+VISITED_PAGE_OUTPUT_TOKENS = 5000
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -104,11 +106,12 @@ def create_web_research_agent(model):
     return ToolCallingAgent(
         tools=[
             WebSearchTool(),
-            VisitWebpageTool(),
+            VisitWebpageTool(max_output_length=VISITED_PAGE_OUTPUT_TOKENS),
             # extract_key_facts,
         ],
         model=model,
         name="web_research_agent",
+        step_callbacks=[save_step_state("web_research_agent")],
         description=(
             "A specialized agent that performs web searches, visits pages, "
             "and extracts relevant information. Use this agent when you need "
@@ -116,8 +119,8 @@ def create_web_research_agent(model):
             "specific sources. Provide clear, specific instructions."
         ),
         max_steps=12,
-        verbosity_level=LogLevel.INFO,
         provide_run_summary=True,  # ← important for token saving
+        verbosity_level=LogLevel.DEBUG,
     )
 
 
@@ -131,10 +134,11 @@ def create_evidence_evaluator_agent(model):
         tools=[],
         model=model,
         name="evidence_evaluator",
+        step_callbacks=[save_step_state("evidence_evaluator")],
         description=description,
         max_steps=4,
-        verbosity_level=LogLevel.INFO,
         provide_run_summary=True,
+        verbosity_level=LogLevel.DEBUG,
     )
 
 
@@ -143,6 +147,7 @@ def create_query_refiner(model):
         tools=[],
         model=model,
         name="query_refiner",
+        step_callbacks=[save_step_state("query_refiner")],
         description=(
             "Reformulates the original user query into 1–3 more precise, "
             "effective search queries when initial results are poor, "
@@ -151,6 +156,7 @@ def create_query_refiner(model):
         ),
         max_steps=5,
         provide_run_summary=True,
+        verbosity_level=LogLevel.DEBUG,
     )
 
 
@@ -159,6 +165,7 @@ def create_final_formatter(model):
         tools=[],
         model=model,
         name="final_formatter",
+        step_callbacks=[save_step_state("final_formatter")],
         description=(
             "Takes raw research output, evidence summaries and sources, "
             "then produces clean, well-structured markdown with inline "
@@ -166,6 +173,7 @@ def create_final_formatter(model):
         ),
         max_steps=4,
         provide_run_summary=True,
+        verbosity_level=LogLevel.DEBUG,
     )
 
 
@@ -189,14 +197,15 @@ def create_deep_research_manager(model):
             formatter_agent,
         ],
         name="deep_research_manager",
+        step_callbacks=[save_step_state("deep_research_manager")],
         description=(
             "Top-level research coordinator. Uses specialized sub-agents to "
             "deeply investigate a question, gather evidence, evaluate it, "
             "refine queries when stuck, and produce clean final answers."
         ),
         max_steps=20,
-        verbosity_level=LogLevel.INFO,
         additional_authorized_imports=["datetime"],
+        verbosity_level=LogLevel.DEBUG,
     )
 
     return manager
