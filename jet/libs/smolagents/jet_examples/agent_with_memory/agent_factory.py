@@ -58,10 +58,10 @@ def create_memory_enabled_agent(
     if model is None:  # default remote HF inference
         model = create_local_qwen_agent()
     tools = [
-        LongTermSaveTool,
-        LongTermRecallTool,
-        SharedStateUpdateTool,
-        SharedStateReadTool,
+        LongTermSaveTool(),
+        LongTermRecallTool(),
+        SharedStateUpdateTool(),
+        SharedStateReadTool(),
     ]
     if extra_tools:
         tools.extend(extra_tools)
