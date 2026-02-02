@@ -110,7 +110,7 @@ def create_web_sub_agent(
         model=model,
         max_steps=max_steps,
         name="web_agent",
-        description="Performs web searches and reads webpage content when needed.",
+        description="Performs web searches and visits result urls to get more details when needed.",
         verbosity_level=verbosity_level,
         step_callbacks=[
             save_step_state("web_agent"),
@@ -154,7 +154,7 @@ def demo_multi_1_simple_delegation():
     manager = create_manager_agent([web_agent], max_steps=10)
 
     # question = "What is the latest stable version of the Hugging Face Transformers library as of today?"
-    question = "Search for top 10 anime in 2026. Check some relevant websites until you can provide with 10 results."
+    question = "Search for top 10 anime in 2026. Check some relevant urls until you can provide with 10 results."
 
     console.print(f"\n[bold cyan]Question:[/bold cyan] {question}\n")
     start = time.time()
