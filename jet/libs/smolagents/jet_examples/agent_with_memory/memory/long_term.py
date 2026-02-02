@@ -1,10 +1,10 @@
 import chromadb
-from config import OUTPUT_DIR
+from config import PERSIST_DIR
 from sentence_transformers import SentenceTransformer
 
 
 class LongTermMemory:
-    def __init__(self, persist_dir: str = f"{OUTPUT_DIR}/agent_longterm_db"):
+    def __init__(self, persist_dir: str = f"{PERSIST_DIR}/agent_longterm_db"):
         self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
         self.client = chromadb.PersistentClient(path=persist_dir)
         self.collection = self.client.get_or_create_collection(
