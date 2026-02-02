@@ -154,7 +154,7 @@ def demo_multi_1_simple_delegation():
     manager = create_manager_agent([web_agent], max_steps=10)
 
     question = "What is the latest stable version of the Hugging Face Transformers library as of today?"
-    # question = "Top 10 isekai anime 2026"
+    # question = "What are the top 10 anime in 2026?"
 
     console.print(f"\n[bold cyan]Question:[/bold cyan] {question}\n")
     start = time.time()
