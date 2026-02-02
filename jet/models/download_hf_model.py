@@ -94,7 +94,7 @@ def download_hf_space(
 
 
 if __name__ == "__main__":
-    repo_id = "urchade/gliner_medium-v2.1"
+    repo_id = "knowledgator/modern-gliner-bi-base-v1.0"
     cache_dir = MODELS_CACHE_DIR
     clean_cache = False
 
