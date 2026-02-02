@@ -1,7 +1,7 @@
 from callbacks import auto_extract_simple_facts, auto_save_shared_state
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
-from smolagents import CodeAgent, InferenceClientModel
+from smolagents import CodeAgent
 from tools.memory_tools import (
     LongTermRecallTool,
     LongTermSaveTool,
@@ -56,7 +56,7 @@ def create_memory_enabled_agent(
     model=None, extra_tools=None, max_steps: int = 40, verbosity: int = 1
 ) -> CodeAgent:
     if model is None:  # default remote HF inference
-        model = InferenceClientModel()
+        model = create_local_qwen_agent()
     tools = [
         LongTermSaveTool,
         LongTermRecallTool,
