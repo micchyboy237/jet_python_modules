@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional, TypedDict
+from typing import TypedDict
 
 CODE_BLOCK_PATTERN = r"```[ \t]*(\w+)?[ \t]*\n(.*?)\n```"
 FILE_PATH_PATTERN = r".*File Path: `?([^`]+)`?"
@@ -8,48 +8,78 @@ UNKNOWN = "text"
 
 class CodeBlock(TypedDict):
     """Represents a code block with associated metadata."""
+
     code: str  # The code content.
     language: str  # Programming language of the code block.
-    file_path: Optional[str]  # The file path associated with the code block.
+    file_path: str | None  # The file path associated with the code block.
     # The file extension inferred from the language or file path.
-    extension: Optional[str]
+    extension: str | None
 
 
 class MarkdownCodeExtractor:
     """Extracts code blocks from Markdown content."""
 
+    LANGUAGE_ALIASES = {
+        "py": "python",
+        "js": "javascript",
+        "ts": "typescript",
+        "jsx": "javascript",  # or "jsx"
+        "rb": "ruby",
+        "yml": "yaml",
+        "yaml": "yaml",
+        "md": "markdown",
+        "txt": "text",
+        "text": "text",
+        "sh": "bash",
+        "bash": "bash",
+        "zsh": "bash",
+        "shell": "bash",
+        "json": "json",
+        "html": "html",
+        "css": "css",
+        # add more as needed
+    }
+
     LANGUAGE_EXTENSIONS = {
         "python": ".py",
         "javascript": ".js",
-        "java": ".java",
+        "typescript": ".ts",
+        "ruby": ".rb",
+        "yaml": ".yaml",  # or .yml—choose one
+        "text": ".txt",
+        "markdown": ".md",
+        "bash": ".sh",
+        "json": ".json",
         "html": ".html",
         "css": ".css",
+        "java": ".java",
         "cpp": ".cpp",
         "c": ".c",
-        "ruby": ".rb",
         "go": ".go",
         "php": ".php",
         "cypher": ".cypher",
-        "yaml": ".yaml",
-        "text": ".txt",  # Added for 'text' blocks.
         "unknown": "",
     }
 
-    def get_extension(self, language: str, file_path: Optional[str]) -> str:
-        """Determine the file extension based on the language or file path.
+    def normalize_language(self, lang: str) -> str:
+        """Convert short alias or any case variation → canonical lowercase name"""
+        if not lang:
+            return "text"  # or "unknown"
+        lang = lang.strip().lower()
+        return self.LANGUAGE_ALIASES.get(lang, lang)
 
-        Args:
-            language (str): Programming language.
-            file_path (Optional[str]): File path if available.
-
-        Returns:
-            str: File extension.
-        """
+    def get_extension(self, language: str, file_path: str | None = None) -> str:
+        """Determine file extension based on normalized language or file path"""
         if file_path:
-            return "." + file_path.split(".")[-1] if "." in file_path else ""
-        return self.LANGUAGE_EXTENSIONS.get(language.lower(), "")
+            ext = file_path.rsplit(".", 1)[-1].lower()
+            if ext and "." in file_path:
+                return f".{ext}"
+        normalized = self.normalize_language(language)
+        return self.LANGUAGE_EXTENSIONS.get(normalized, "")
 
-    def extract_code_blocks(self, markdown: str, with_text: bool = False) -> List[CodeBlock]:
+    def extract_code_blocks(
+        self, markdown: str, with_text: bool = False
+    ) -> list[CodeBlock]:
         """Extract code blocks and associated file paths from Markdown text.
 
         Args:
@@ -60,8 +90,8 @@ class MarkdownCodeExtractor:
             List[CodeBlock]: List of extracted code blocks.
         """
         lines = markdown.strip().splitlines()
-        code_blocks: List[CodeBlock] = []
-        current_file_path: Optional[str] = None
+        code_blocks: list[CodeBlock] = []
+        current_file_path: str | None = None
         inside_code_block = False
         lang = None
         code_lines = []
@@ -74,7 +104,7 @@ class MarkdownCodeExtractor:
                 current_file_path = file_path_match.group(1)
                 continue
 
-            # Handle start of a code block
+            # Handle start or end of a code block
             if line.startswith("```"):
                 if not inside_code_block:
                     if text_content and with_text:
@@ -84,12 +114,12 @@ class MarkdownCodeExtractor:
                                 code=text_content,
                                 language=UNKNOWN,
                                 file_path=None,
-                                extension=".txt"
+                                extension=".txt",
                             )
                         )
                         text_content = ""  # Reset text content
                     inside_code_block = True
-                    lang = line.strip("`").strip() or UNKNOWN
+                    lang = self.normalize_language(line.strip("`").strip())
                     code_lines = []
                 else:
                     # End of a code block
@@ -101,7 +131,7 @@ class MarkdownCodeExtractor:
                                 code=code_content,
                                 language=lang,
                                 file_path=current_file_path,
-                                extension=extension
+                                extension=extension,
                             )
                         )
                     inside_code_block = False
@@ -122,7 +152,7 @@ class MarkdownCodeExtractor:
                     code=text_content.strip(),
                     language="text",
                     file_path=None,
-                    extension=".txt"
+                    extension=".txt",
                 )
             )
 

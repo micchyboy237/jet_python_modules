@@ -1,17 +1,17 @@
 # jet_python_modules/jet/libs/smolagents/jet_examples/search_local_files.py
-from smolagents import OpenAIModel, ToolCallingAgent, LogLevel
+from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.local_file_search_tool import LocalFileSearchTool
+from smolagents import LogLevel, ToolCallingAgent
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Same local LLM configuration as in search_tool_searxng.py
 # ────────────────────────────────────────────────────────────────────────────────
 model = OpenAIModel(
-    model_id="local-model",
-    api_base="http://shawn-pc.local:8080/v1",
-    api_key="not-needed",
-    temperature=0.7,
-    max_tokens=2048,
+    model_id="qwen3-instruct-2507:4b",
+    temperature=0.2,
+    max_tokens=8000,
 )
+
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Create the agent with only the local file search tool
@@ -37,8 +37,7 @@ def run_example(query: str):
 if __name__ == "__main__":
     # Example 1: Find all Python files in your home directory
     run_example(
-        "Find all Python files (*.py) in my home directory. "
-        "Use ~/ as base directory."
+        "Find all Python files (*.py) in my home directory. Use ~/ as base directory."
     )
 
     # Example 2: Find all markdown files containing the word "agent"
@@ -54,9 +53,7 @@ if __name__ == "__main__":
     )
 
     # Example 4: Non-existent directory (error handling)
-    run_example(
-        "Search for *.txt files in /this/path/does/not/exist"
-    )
+    run_example("Search for *.txt files in /this/path/does/not/exist")
 
     # Example 5: Very broad search with limit
     run_example(
