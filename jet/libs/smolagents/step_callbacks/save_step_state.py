@@ -7,28 +7,21 @@ from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from smolagents import ActionStep, FinalAnswerStep, MemoryStep, PlanningStep
 
 
-def get_next_step_number(base_dir: Path, prefix: str = "") -> int:
+def get_next_run_step_number(base_dir: Path) -> int:
     """
-    Find the next available number for files starting with {prefix} in base_dir.
-    Similar logic to DebugSaver.get_next_call_number but per-prefix aware.
+    Find the next available global step number in base_dir.
+    Files are expected to start with four digits followed by underscore.
     """
     if not base_dir.exists():
         return 1
     numbers = []
-    target_start = f"{prefix}_" if prefix else ""
     for f in base_dir.iterdir():
         if not f.is_file():
             continue
         name = f.name
-        if name.startswith(target_start):
-            # Try to extract number after prefix_
-            rest = name[len(target_start) :]
-            if "_" in rest:
-                num_part = rest.split("_", 1)[0]
-            else:
-                num_part = rest
+        if len(name) >= 5 and name[4] == "_" and name[:4].isdigit():
             try:
-                num = int(num_part)
+                num = int(name[:4])
                 numbers.append(num)
             except ValueError:
                 pass
@@ -56,9 +49,9 @@ def save_step_state(
         )
 
     Files are saved as:
-      {base_dir}/{cleaned_agent_name}/action_0003.json
-      {base_dir}/{cleaned_agent_name}/plan_0001.json
-      {base_dir}/{cleaned_agent_name}/final_0007.json
+      {base_dir}/{cleaned_agent_name}/0001_plan_my_agent.json
+      {base_dir}/{cleaned_agent_name}/0003_action_my_agent.json
+      {base_dir}/{cleaned_agent_name}/0007_final_my_agent.json
       ...
     """
     # Clean and normalize the agent name once (at creation time)
@@ -91,20 +84,21 @@ def save_step_state(
             step_type_name = memory_step.__class__.__name__.lower().replace("step", "")
             prefix = step_type_name if step_type_name else "step"
 
-        # Get next sequential number for this prefix and directory
-        next_num = get_next_step_number(run_dir, prefix=prefix)
+        # Get next global step number for this directory
+        next_num = get_next_run_step_number(run_dir)
 
-        # Build base filename
-        base_name = f"{prefix}_{next_num:04d}_{cleaned_name}"
+        # Build base filename — number comes first for natural sorting
+        base_name = f"{next_num:04d}_{prefix}_{cleaned_name}"
 
-        # Normalize: replace multiple underscores with single
+        # Normalize: collapse consecutive underscores
         normalized_name = "_".join(filter(None, base_name.split("_")))
         filename = f"{normalized_name}.json"
 
         filepath = run_dir / filename
 
         data: dict[str, Any] = {
-            "step_number": next_num,  # now the file-based sequence number
+            "file_sequence_number": next_num,  # global per-run sequence
+            "step_type_prefix": prefix,
             "step_type": memory_step.__class__.__name__,
             "timestamp": getattr(memory_step, "timestamp", None),
             "thought": getattr(memory_step, "thought", None),
