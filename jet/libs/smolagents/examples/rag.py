@@ -7,17 +7,23 @@ Requirements:
 """
 
 import re
+import shutil
 from collections import namedtuple
 from pathlib import Path
 
 from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.file.utils import save_file
 from jet.libs.smolagents.custom_models import OpenAIModel
 from rank_bm25 import BM25Okapi
 from smolagents import CodeAgent, Tool
 
 load_dotenv()  # loads HF_TOKEN if present in .env
+
+OUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUT_DIR, ignore_errors=True)
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
 #   1. Download and prepare knowledge base
@@ -72,6 +78,7 @@ def load_docs_from_csv() -> list[Document]:
 
 
 source_docs = load_docs_from_csv()
+save_file(source_docs, f"{OUT_DIR}/source_docs.json")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
