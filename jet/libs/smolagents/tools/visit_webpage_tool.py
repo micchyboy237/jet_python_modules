@@ -189,9 +189,10 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
     def forward(
         self,
         url: str,
-        full_raw: bool = False,
         query: str | None = None,
     ) -> str:
+        full_raw = False
+
         # Determine the effective search query
         def resolve_search_query(q: str | None) -> str:
             return (
