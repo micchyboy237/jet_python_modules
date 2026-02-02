@@ -11,6 +11,7 @@ from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.step_callbacks import save_step_state
+from jet.libs.smolagents.step_callbacks.memory_window import memory_window_limiter
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from jet.libs.smolagents.tools.web_search_tool import WebSearchTool
 from rich.console import Console
@@ -114,7 +115,10 @@ def create_web_research_agent():
         ],
         model=model,
         name="web_research_agent",
-        step_callbacks=[save_step_state("web_research_agent")],
+        step_callbacks=[
+            save_step_state("web_research_agent"),
+            memory_window_limiter(max_recent_steps=3),  # ← add here
+        ],
         description=(
             "A specialized agent that performs web searches, visits pages, "
             "and extracts relevant information. Use this agent when you need "
@@ -204,7 +208,10 @@ def create_deep_research_manager():
             formatter_agent,
         ],
         name="deep_research_manager",
-        step_callbacks=[save_step_state("deep_research_manager")],
+        step_callbacks=[
+            save_step_state("deep_research_manager"),
+            memory_window_limiter(max_recent_steps=5),  # slightly larger for manager
+        ],
         description=(
             "Top-level research coordinator. Uses specialized sub-agents to "
             "deeply investigate a question, gather evidence, evaluate it, "
