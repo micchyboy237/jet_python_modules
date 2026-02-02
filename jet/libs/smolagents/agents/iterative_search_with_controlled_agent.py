@@ -17,9 +17,11 @@ Run with:
 from __future__ import annotations
 
 import argparse
+import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
@@ -38,6 +40,10 @@ from rich.panel import Panel
 console = Console()
 
 from smolagents import tool  # or your model class
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ────────────────────────────────────────────────
 #               Search-oriented Tools
