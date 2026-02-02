@@ -66,7 +66,17 @@ def memory_window_limiter(
             preserved.extend(plans)
 
         # Recent steps (sliding window)
-        recent_start = max(0, current_len - max_recent_steps)
+        effective_recent = max_recent_steps
+        # Only reduce window if we expect to insert placeholder (i.e. truncation will happen)
+        will_insert_placeholder = insert_placeholder and (
+            current_len > max_recent_steps + len(preserved) + 4
+        )
+        if will_insert_placeholder:
+            effective_recent = max(
+                1, max_recent_steps - 1
+            )  # reserve 1 slot for placeholder
+
+        recent_start = max(0, current_len - effective_recent)
         recent = steps[recent_start:]
 
         # Build new list: preserved (in original order) + recent (deduped)
@@ -88,8 +98,7 @@ def memory_window_limiter(
                 code_action=None,
                 tool_calls=None,
             )
-            # Insert after preserved items
-            insert_pos = len(preserved) if preserved else 0
+            insert_pos = len(preserved)
             new_steps.insert(insert_pos, placeholder)
 
         # Apply

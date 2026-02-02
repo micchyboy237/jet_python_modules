@@ -117,7 +117,7 @@ def create_web_research_agent():
         name="web_research_agent",
         step_callbacks=[
             save_step_state("web_research_agent"),
-            memory_window_limiter(max_recent_steps=3),  # ← add here
+            memory_window_limiter(max_recent_steps=6),  # ← add here
         ],
         description=(
             "A specialized agent that performs web searches, visits pages, "
@@ -210,7 +210,7 @@ def create_deep_research_manager():
         name="deep_research_manager",
         step_callbacks=[
             save_step_state("deep_research_manager"),
-            memory_window_limiter(max_recent_steps=5),  # slightly larger for manager
+            memory_window_limiter(max_recent_steps=8),  # slightly larger for manager
         ],
         description=(
             "Top-level research coordinator. Uses specialized sub-agents to "
