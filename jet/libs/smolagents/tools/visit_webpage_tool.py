@@ -221,7 +221,7 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         logger.info("Saved request.json")
 
         with self.debug_saver.new_call(request_data) as call_dir:
-            fetch_result = self._fetch_url(url, log=None)
+            fetch_result = self._fetch_url(url)
             if not fetch_result.success:
                 error_text = f"Failed to fetch page: {fetch_result.error_message}"
                 logger.error(error_text)
@@ -276,10 +276,10 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
 
             return result
 
-    def _fetch_url(self, url: str, log) -> PageFetchResult:
+    def _fetch_url(self, url: str) -> PageFetchResult:
         try:
             if self.verbose:
-                log(f"Fetching URL: {url}")
+                logger.info(f"Fetching URL: {url}")
             resp = requests.get(
                 url,
                 timeout=18,
@@ -292,7 +292,7 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         except Exception as e:
             msg = f"Fetch failed: {str(e)}"
             if self.verbose:
-                log(msg)
+                logger.error(msg)
             return PageFetchResult(html="", success=False, error_message=msg)
 
     def _process_full_raw(self, md_texts: list[str], log) -> str:
@@ -339,7 +339,7 @@ pass "full_raw": true — but prefer focused follow-up calls instead."""
         search_query = resolve_search_query(query)
 
         if self.verbose:
-            log(f"Using hybrid search with query: {search_query}")
+            logger.info(f"Using hybrid search with query: {search_query}")
 
         results = hybrid.search(
             search_query,
