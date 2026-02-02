@@ -18,12 +18,12 @@ import pytz
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
 from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
-from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from smolagents import (
     CodeAgent,
     PlanningStep,
     tool,
 )
+from smolagents.default_tools import VisitWebpageTool
 
 OUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUT_DIR, ignore_errors=True)
@@ -150,9 +150,9 @@ def main():
         model=model,
         tools=[
             # DuckDuckGoSearchTool(),
+            get_current_datetime,  # ← dynamic date/time tool
             SearXNGSearchTool(max_results=20),
-            VisitWebpageTool(),
-            # get_current_datetime,  # ← dynamic date/time tool
+            VisitWebpageTool(max_output_length=8000),
         ],
         planning_interval=5,
         step_callbacks={PlanningStep: interrupt_after_plan},
