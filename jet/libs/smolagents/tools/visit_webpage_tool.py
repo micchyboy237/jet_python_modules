@@ -100,7 +100,7 @@ class VisitWebpageTool(Tool):
     name = "visit_webpage"
     description = """Visits a webpage and returns the most relevant content excerpts.
 
-Uses hybrid retrieval (BM25 + embeddings) to select the top ~5–8 most relevant chunks.
+Uses hybrid retrieval (BM25 + embeddings) to select the top relevant chunks.
 This focused output is usually far more useful than returning the entire page.
 
 If you need more context, make a second call with a more specific query.
