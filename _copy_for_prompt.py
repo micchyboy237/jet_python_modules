@@ -1,16 +1,19 @@
-import os
-import fnmatch
 import argparse
-import subprocess
+import fnmatch
 import json
+import os
+import subprocess
+
+from jet.logger import logger
+from tqdm import tqdm
+
 from _copy_file_structure import (
+    clean_content,
+    clean_newlines,
     find_files,
     format_file_structure,
-    clean_newlines,
-    clean_content,
-    remove_parent_paths
+    remove_parent_paths,
 )
-from jet.logger import logger
 
 exclude_files = [
     "**/.git/",
@@ -24,18 +27,17 @@ exclude_files = [
     "**/*.lock",
     "**/public/",
     "**/mocks/",
-    "**/.venv/",
     "**/dream/",
     "**/jupyter/",
     "**/*.png",
     "**/*.pyc",
-    # "**/_*",
-    # "**/.cache/",
     "**/_git_stats.json",
     "**/stats_results/",
-    # "**/generated/",
+    # "**/_*",
+    # "**/.cache/",
+    # "**/.venv/",
+    "**/generated/",
     # "**/.*",
-
     # Custom
     # "**/*.sh"
     # "**/__init__.py",
@@ -44,7 +46,6 @@ exclude_files = [
 include_files = [
     # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/pyrightconfig.json",
-
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/manifest.json",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/popup.html",
@@ -52,7 +53,6 @@ include_files = [
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/tabs.html",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/tabs.js",
     "",
-
     "",
 ]
 
@@ -66,11 +66,11 @@ include_content = []
 exclude_content = []
 
 # Args defaults
-SHORTEN_FUNCTS = False 
+SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = r"""
-Update popup with another button that opens a history of network requests and responses. Add best search and filters on top.
+Update helium_tools to complete all smolagent tools that can be derived from the demo code.
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
@@ -96,14 +96,16 @@ file_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(file_dir)
 
 
-def matches_content(file_path, include_patterns, exclude_patterns, case_sensitive=False):
+def matches_content(
+    file_path, include_patterns, exclude_patterns, case_sensitive=False
+):
     """
     Check if the file content matches include_patterns and does not match exclude_patterns.
     """
     if not include_patterns and not exclude_patterns:
         return True
     try:
-        with open(file_path, 'r') as f:
+        with open(file_path) as f:
             content = f.read()
             if not case_sensitive:
                 # Convert content to lowercase for case-insensitive matching
@@ -112,19 +114,37 @@ def matches_content(file_path, include_patterns, exclude_patterns, case_sensitiv
             # Check for include content patterns
             if include_patterns:
                 include_patterns = [
-                    pattern if case_sensitive else pattern.lower() for pattern in include_patterns]
-                if not any((fnmatch.fnmatch(content, pattern) if '*' in pattern or '?' in pattern else pattern in content) for pattern in include_patterns):
+                    pattern if case_sensitive else pattern.lower()
+                    for pattern in include_patterns
+                ]
+                if not any(
+                    (
+                        fnmatch.fnmatch(content, pattern)
+                        if "*" in pattern or "?" in pattern
+                        else pattern in content
+                    )
+                    for pattern in include_patterns
+                ):
                     return False
 
             # Check for exclude content patterns
             if exclude_patterns:
                 exclude_patterns = [
-                    pattern if case_sensitive else pattern.lower() for pattern in exclude_patterns]
-                if any((fnmatch.fnmatch(content, pattern) if '*' in pattern or '?' in pattern else pattern in content) for pattern in exclude_patterns):
+                    pattern if case_sensitive else pattern.lower()
+                    for pattern in exclude_patterns
+                ]
+                if any(
+                    (
+                        fnmatch.fnmatch(content, pattern)
+                        if "*" in pattern or "?" in pattern
+                        else pattern in content
+                    )
+                    for pattern in exclude_patterns
+                ):
                     return False
 
         return True
-    except (OSError, IOError) as e:
+    except OSError as e:
         print(f"Error reading {file_path}: {e}")
         return False
 
@@ -135,31 +155,87 @@ def main():
     print("Running _copy_for_prompt.py")
     # Parse command-line options
     parser = argparse.ArgumentParser(
-        description='Generate clipboard content from specified files.')
-    parser.add_argument('-b', '--base-dir', default=file_dir,
-                        help='Base directory to search files in (default: current directory)')
-    parser.add_argument('-if', '--include-files', nargs='*', default=include_files,
-                        help='Patterns of files to include (default: schema.prisma, episode)')
-    parser.add_argument('-ef', '--exclude-files', nargs='*', default=exclude_files,
-                        help='Directories or files to exclude (default: node_modules)')
-    parser.add_argument('-ic', '--include-content', nargs='*', default=include_content,
-                        help='Patterns of file content to include')
-    parser.add_argument('-ec', '--exclude-content', nargs='*', default=exclude_content,
-                        help='Patterns of file content to exclude')
-    parser.add_argument('-cs', '--case-sensitive', action='store_true', default=False,
-                        help='Make content pattern matching case-sensitive')
-    parser.add_argument('-sf', '--shorten-funcs', action='store_true', default=SHORTEN_FUNCTS,
-                        help='Shorten function and class definitions')
-    parser.add_argument('-s', '--system', default=DEFAULT_SYSTEM_MESSAGE,
-                        help='Message to include in the clipboard content')
-    parser.add_argument('-m', '--message', default=DEFAULT_QUERY_MESSAGE,
-                        help='Message to include in the clipboard content')
-    parser.add_argument('-i', '--instructions', default=DEFAULT_INSTRUCTIONS_MESSAGE,
-                        help='Instructions to include in the clipboard content')
-    parser.add_argument('-fo', '--filenames-only', action='store_true',
-                        help='Only copy the relative filenames, not their contents')
-    parser.add_argument('-nl', '--no-length', action='store_true', default=INCLUDE_FILE_STRUCTURE,
-                        help='Do not show file character length')
+        description="Generate clipboard content from specified files."
+    )
+    parser.add_argument(
+        "-b",
+        "--base-dir",
+        default=file_dir,
+        help="Base directory to search files in (default: current directory)",
+    )
+    parser.add_argument(
+        "-if",
+        "--include-files",
+        nargs="*",
+        default=include_files,
+        help="Patterns of files to include (default: schema.prisma, episode)",
+    )
+    parser.add_argument(
+        "-ef",
+        "--exclude-files",
+        nargs="*",
+        default=exclude_files,
+        help="Directories or files to exclude (default: node_modules)",
+    )
+    parser.add_argument(
+        "-ic",
+        "--include-content",
+        nargs="*",
+        default=include_content,
+        help="Patterns of file content to include",
+    )
+    parser.add_argument(
+        "-ec",
+        "--exclude-content",
+        nargs="*",
+        default=exclude_content,
+        help="Patterns of file content to exclude",
+    )
+    parser.add_argument(
+        "-cs",
+        "--case-sensitive",
+        action="store_true",
+        default=False,
+        help="Make content pattern matching case-sensitive",
+    )
+    parser.add_argument(
+        "-sf",
+        "--shorten-funcs",
+        action="store_true",
+        default=SHORTEN_FUNCTS,
+        help="Shorten function and class definitions",
+    )
+    parser.add_argument(
+        "-s",
+        "--system",
+        default=DEFAULT_SYSTEM_MESSAGE,
+        help="Message to include in the clipboard content",
+    )
+    parser.add_argument(
+        "-m",
+        "--message",
+        default=DEFAULT_QUERY_MESSAGE,
+        help="Message to include in the clipboard content",
+    )
+    parser.add_argument(
+        "-i",
+        "--instructions",
+        default=DEFAULT_INSTRUCTIONS_MESSAGE,
+        help="Instructions to include in the clipboard content",
+    )
+    parser.add_argument(
+        "-fo",
+        "--filenames-only",
+        action="store_true",
+        help="Only copy the relative filenames, not their contents",
+    )
+    parser.add_argument(
+        "-nl",
+        "--no-length",
+        action="store_true",
+        default=INCLUDE_FILE_STRUCTURE,
+        help="Do not show file character length",
+    )
 
     args = parser.parse_args()
     base_dir = args.base_dir
@@ -177,8 +253,9 @@ def main():
 
     # Find all files matching the patterns in the base directory and its subdirectories
     print("\n")
-    context_files = find_files(base_dir, include, exclude,
-                               include_content, exclude_content, case_sensitive)
+    context_files = find_files(
+        base_dir, include, exclude, include_content, exclude_content, case_sensitive
+    )
 
     print("\n")
     print(f"Include patterns: {include}")
@@ -187,8 +264,9 @@ def main():
     print(f"Exclude content patterns: {exclude_content}")
     print(f"Case sensitive: {case_sensitive}")
     print(f"Filenames only: {filenames_only}")
-    print(f"\nFound files ({len(context_files)}):\n{
-          json.dumps(context_files, indent=2)}")
+    print(
+        f"\nFound files ({len(context_files)}):\n{json.dumps(context_files, indent=2)}"
+    )
 
     print("\n")
 
@@ -198,24 +276,23 @@ def main():
     if not context_files:
         print("No context files found matching the given patterns.")
     else:
-
         # Append relative filenames to the clipboard content
-        for file in context_files:
+        for file in tqdm(
+            context_files, desc=f"Processing {len(context_files)} files..."
+        ):
             rel_path = os.path.relpath(path=file, start=file_dir)
             cleaned_rel_path = remove_parent_paths(rel_path)
 
-            prefix = (
-                f"\n# {cleaned_rel_path}\n" if not filenames_only else f"{file}\n")
+            prefix = f"\n# {cleaned_rel_path}\n" if not filenames_only else f"{file}\n"
             if filenames_only:
                 clipboard_content += f"{prefix}"
             else:
                 file_path = os.path.relpath(os.path.join(base_dir, file))
                 if os.path.isfile(file_path):
                     try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
+                        with open(file_path, encoding="utf-8") as f:
                             content = f.read()
-                            content = clean_content(
-                                content, file, shorten_funcs)
+                            content = clean_content(content, file, shorten_funcs)
                             # ── NEW: Add fenced code block ───────────────────────────────
                             lang = get_language_from_extension(file)
                             fenced_content = f"```{lang}\n{content.rstrip()}\n```"
@@ -259,18 +336,19 @@ def main():
 
     if clipboard_content:
         clipboard_content_parts.append(
-            f"Existing Files Contents\n{clipboard_content}\n")
+            f"Existing Files Contents\n{clipboard_content}\n"
+        )
 
     clipboard_content = "\n\n".join(clipboard_content_parts)
 
     # Copy the content to the clipboard
     process = subprocess.Popen(
-        'pbcopy', env={'LANG': 'en_US.UTF-8'}, stdin=subprocess.PIPE)
-    process.communicate(clipboard_content.encode('utf-8'))
+        "pbcopy", env={"LANG": "en_US.UTF-8"}, stdin=subprocess.PIPE
+    )
+    process.communicate(clipboard_content.encode("utf-8"))
 
     # Print the copied content character count
-    logger.log("Prompt Char Count:", len(clipboard_content),
-               colors=["GRAY", "SUCCESS"])
+    logger.log("Prompt Char Count:", len(clipboard_content), colors=["GRAY", "SUCCESS"])
 
     # Newline
     print("\n")
@@ -282,40 +360,40 @@ def get_language_from_extension(filename: str) -> str:
     Returns 'text' as safe fallback
     """
     ext = os.path.splitext(filename.lower())[1]
-    
+
     mapping = {
-        '.py':     'python',
-        '.js':     'javascript',
-        '.jsx':    'jsx',
-        '.ts':     'typescript',
-        '.tsx':    'tsx',
-        '.json':   'json',
-        '.html':   'html',
-        '.htm':    'html',
-        '.css':    'css',
-        '.scss':   'scss',
-        '.sass':   'sass',
-        '.md':     'markdown',
-        '.mdx':    'mdx',
-        '.yaml':   'yaml',
-        '.yml':    'yaml',
-        '.toml':   'toml',
-        '.sh':     'bash',
-        '.bash':   'bash',
-        '.sql':    'sql',
-        '.prisma': 'prisma',
-        '.java':   'java',
-        '.kt':     'kotlin',
-        '.go':     'go',
-        '.rs':     'rust',
-        '.cpp':    'cpp',
-        '.c':      'c',
-        '.h':      'c',
-        '.php':    'php',
-        '.rb':     'ruby',
+        ".py": "python",
+        ".js": "javascript",
+        ".jsx": "jsx",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".json": "json",
+        ".html": "html",
+        ".htm": "html",
+        ".css": "css",
+        ".scss": "scss",
+        ".sass": "sass",
+        ".md": "markdown",
+        ".mdx": "mdx",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".toml": "toml",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".sql": "sql",
+        ".prisma": "prisma",
+        ".java": "java",
+        ".kt": "kotlin",
+        ".go": "go",
+        ".rs": "rust",
+        ".cpp": "cpp",
+        ".c": "c",
+        ".h": "c",
+        ".php": "php",
+        ".rb": "ruby",
     }
-    
-    return mapping.get(ext, 'text')
+
+    return mapping.get(ext, "text")
 
 
 if __name__ == "__main__":

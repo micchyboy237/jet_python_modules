@@ -1,8 +1,7 @@
-from typing import List, Optional
 import helium
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
-from smolagents import CodeAgent, tool, InferenceClientModel
+from smolagents import tool
 
 # ────────────────────────────────────────────────
 #  Collect & expose more Helium actions as proper tools
@@ -40,7 +39,7 @@ def click(element: str) -> str:
 
 
 @tool
-def write(text: str, into: Optional[str] = None) -> str:
+def write(text: str, into: str | None = None) -> str:
     """Type text into the currently focused field or a specified input.
 
     Args:
@@ -102,7 +101,7 @@ def scroll_up(num_pixels: int = 800) -> str:
 
 
 @tool
-def find_all(element_type: str = "Text") -> List[str]:
+def find_all(element_type: str = "Text") -> list[str]:
     """Find all elements of the given type and return their visible texts.
 
     Args:
@@ -163,7 +162,7 @@ def close_popups() -> str:
 
 
 @tool
-def find_all_links() -> List[str]:
+def find_all_links() -> list[str]:
     """Return a list of visible link texts present on the current page.
 
     Returns:
@@ -173,7 +172,7 @@ def find_all_links() -> List[str]:
 
 
 @tool
-def find_all_buttons() -> List[str]:
+def find_all_buttons() -> list[str]:
     """Return a list of visible button texts present on the current page.
 
     Returns:
