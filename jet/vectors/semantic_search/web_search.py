@@ -767,7 +767,10 @@ async def hybrid_search(query):
         {"role": "user", "content": prompt},
     ]
     save_file(messages, f"{query_output_dir}/messages.json")
-    llm_response = llm.chat(messages, temperature=0.3)
+    llm_response_stream = llm.chat(messages, temperature=0.3, stream=True)
+    llm_response = ""
+    for chunk in llm_response_stream:
+        llm_response += chunk
     save_file(llm_response, f"{query_output_dir}/response.md")
 
     input_tokens = count_tokens(prompt, llm_model)
