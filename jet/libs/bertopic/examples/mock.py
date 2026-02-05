@@ -196,14 +196,14 @@ def load_sample_data(
     #     texts = header_md_contents
 
     if not truncate:
-        # documents = chunk_texts(
-        #     texts,
-        #     chunk_size=chunk_size,
-        #     chunk_overlap=chunk_overlap,
-        #     model=model,
-        #     strict_sentences=True,
-        # )
-        documents = texts
+        documents = chunk_texts(
+            texts,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            model=model,
+            strict_sentences=True,
+        )
+        # documents = texts
     else:
         documents = truncate_texts(
             texts, max_tokens=chunk_size, model=model, strict_sentences=True

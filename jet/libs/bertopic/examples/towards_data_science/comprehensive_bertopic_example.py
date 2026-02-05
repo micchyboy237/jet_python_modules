@@ -83,6 +83,7 @@ OUTPUT_DIR = os.path.join(
 
 CHUNK_SIZE = 128
 CHUNK_OVERLAP = 32
+EMBEDDING_MODEL = "nomic-embed-text"
 
 OUTPUT_DIR = f"{OUTPUT_DIR}/chunked_{CHUNK_SIZE}_{CHUNK_OVERLAP}"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -107,7 +108,7 @@ def create_sample_dataset() -> list[str]:
         logger.info(f"Reusing sample data cache ({len(_sample_data_cache)} documents)")
         docs = _sample_data_cache["documents"]
     else:
-        docs = load_sample_data()
+        docs = load_sample_data(EMBEDDING_MODEL)
         _sample_data_cache = {"documents": docs}
     return docs
 
@@ -292,6 +293,7 @@ def _03_demonstrate_custom_components():
         try:
             model, topics, probs = build_topic_model_with_custom_components(
                 docs,
+                embedding_model=EMBEDDING_MODEL,
                 umap_params=config["umap_params"],
                 hdbscan_params=config["hdbscan_params"],
                 calculate_probabilities=True,
@@ -400,7 +402,9 @@ def _04_demonstrate_topic_representation():
     docs = create_sample_dataset()
 
     # Train initial model
-    model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
+    model, topics, probs = topic_model_fit_transform(
+        docs, embedding_model=EMBEDDING_MODEL, calculate_probabilities=True
+    )
 
     # Store original topics
     original_topics = {}
@@ -487,6 +491,7 @@ def _05_demonstrate_topic_reduction():
     # Train model with many topics
     model, topics, probs = topic_model_fit_transform(
         docs,
+        embedding_model=EMBEDDING_MODEL,
         calculate_probabilities=True,
         nr_topics="auto",  # Let it find many topics
     )
@@ -558,7 +563,9 @@ def _06_demonstrate_similar_topics():
 
     docs = create_sample_dataset()
 
-    model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
+    model, topics, probs = topic_model_fit_transform(
+        docs, embedding_model=EMBEDDING_MODEL, calculate_probabilities=True
+    )
 
     # Test different search terms
     search_terms = ["isekai", "anime", "2025"]
@@ -638,7 +645,9 @@ def _07_demonstrate_visualizations():
     docs = create_sample_dataset()
 
     # Train model
-    model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
+    model, topics, probs = topic_model_fit_transform(
+        docs, embedding_model=EMBEDDING_MODEL, calculate_probabilities=True
+    )
 
     save_file(topics, f"{output_dir}/07_topics.json")
     save_file(probs, f"{output_dir}/07_probs.json")
@@ -683,7 +692,9 @@ def _08_demonstrate_topics_over_time():
 
     docs, timestamps = create_sample_dataset()
 
-    model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
+    model, topics, probs = topic_model_fit_transform(
+        docs, embedding_model=EMBEDDING_MODEL, calculate_probabilities=True
+    )
 
     # Analyze topics over time
     topics_time, fig = topics_over_time_analysis(
@@ -730,7 +741,9 @@ def _09_demonstrate_model_serialization():
     docs = create_sample_dataset()
 
     # Train model
-    model, topics, probs = topic_model_fit_transform(docs, calculate_probabilities=True)
+    model, topics, probs = topic_model_fit_transform(
+        docs, embedding_model=EMBEDDING_MODEL, calculate_probabilities=True
+    )
 
     # Get model information
     info = get_model_info(model)
