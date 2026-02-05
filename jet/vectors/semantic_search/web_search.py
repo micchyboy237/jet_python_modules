@@ -452,6 +452,7 @@ async def hybrid_search(
     chunk_size: int = 200,
     chunk_overlap: int = 50,
     merge_chunks: bool = False,
+    early_stop: bool = False,
 ) -> HybridSearchResult:
     """Perform hybrid search and return structured results without side-effects."""
 
@@ -575,7 +576,8 @@ async def hybrid_search(
         headers_mtld_scores.append(sub_mtld_avg)
 
         if (
-            headers_high_score_tokens >= TARGET_HIGH_SCORE_TOKENS
+            early_stop
+            and headers_high_score_tokens >= TARGET_HIGH_SCORE_TOKENS
             or (headers_high_score_tokens + headers_medium_score_tokens)
             >= TARGET_MEDIUM_SCORE_TOKENS
         ):
@@ -709,6 +711,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     use_cache = True
+    early_stop = True
 
     query_output_dir = f"{OUTPUT_DIR}/{format_sub_dir(args.query)}"
     shutil.rmtree(query_output_dir, ignore_errors=True)
@@ -716,7 +719,12 @@ if __name__ == "__main__":
     llm_log_dir = Path(query_output_dir) / "llm_calls"
 
     result = asyncio.run(
-        hybrid_search(args.query, llm_log_dir=llm_log_dir, use_cache=use_cache)
+        hybrid_search(
+            args.query,
+            llm_log_dir=llm_log_dir,
+            use_cache=use_cache,
+            early_stop=early_stop,
+        )
     )
 
     print(f"Found {len(result['filtered_results'])} relevant chunks")
