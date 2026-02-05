@@ -2,9 +2,7 @@
 
 import asyncio
 import os
-import re
 import shutil
-import string
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal, TypedDict
@@ -77,29 +75,6 @@ HIGH_QUALITY_SCORE = 0.6
 MEDIUM_QUALITY_SCORE = 0.4
 TARGET_HIGH_SCORE_TOKENS = 4000
 TARGET_MEDIUM_SCORE_TOKENS = 10000
-
-
-def format_sub_dir(text: str) -> str:
-    return (
-        text.lower()
-        .strip(".,!?")
-        .replace(" ", "_")
-        .replace(".", "_")
-        .replace(",", "_")
-        .replace("!", "_")
-        .replace("?", "_")
-        .strip()
-    )
-
-
-def format_sub_source_dir(source: str) -> str:
-    """Format a source (URL or file path) into a directory name."""
-    clean_source = re.sub(r"^(https?://|www\.)|(\?.*)", "", source)
-    clean_source = clean_source.replace(os.sep, "_")
-    trans_table = str.maketrans({p: "_" for p in string.punctuation})
-    formatted = clean_source.translate(trans_table).lower()
-    formatted = re.sub(r"_+", "_", formatted)
-    return formatted.strip("_")
 
 
 def sort_urls_by_high_and_medium_score_tokens(
