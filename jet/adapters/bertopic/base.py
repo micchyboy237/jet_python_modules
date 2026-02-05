@@ -1,40 +1,43 @@
-from typing import List, Optional, Tuple, Union
+from jet.adapters.bertopic.embeddings import BERTopicLlamacppEmbedder
+from jet.adapters.bertopic.utils import get_vectorizer
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 
 # BERTopic
 from bertopic import BERTopic as BaseBERTopic
 from bertopic.representation import BaseRepresentation
-from jet.adapters.bertopic.embeddings import BERTopicLlamacppEmbedder
-from jet.adapters.bertopic.utils import get_vectorizer
 
-DEFAULT_EMBEDDING_MODEL = "embeddinggemma"
+DEFAULT_EMBEDDING_MODEL: LLAMACPP_EMBED_KEYS = "embeddinggemma"
+
 
 class BERTopic(BaseBERTopic):
     def __init__(
         self,
         language: str = "english",
         top_n_words: int = 10,
-        n_gram_range: Tuple[int, int] = (1, 3),
+        n_gram_range: tuple[int, int] = (1, 3),
         min_topic_size: int = 2,
-        nr_topics: Optional[Union[int, str]] = None,
+        nr_topics: int | str | None = None,
         low_memory: bool = False,
         calculate_probabilities: bool = False,
-        seed_topic_list: Optional[List[List[str]]] = None,
-        zeroshot_topic_list: Optional[List[str]] = None,
+        seed_topic_list: list[list[str]] | None = None,
+        zeroshot_topic_list: list[str] | None = None,
         zeroshot_min_similarity: float = 0.7,
-        embedding_model=None,
+        embedding_model: LLAMACPP_EMBED_KEYS | None = None,
         umap_model=None,
         hdbscan_model=None,
-        vectorizer_model: Optional[CountVectorizer] = None,
-        ctfidf_model: Optional[TfidfTransformer] = None,
-        representation_model: Optional[BaseRepresentation] = None,
+        vectorizer_model: CountVectorizer | None = None,
+        ctfidf_model: TfidfTransformer | None = None,
+        representation_model: BaseRepresentation | None = None,
         verbose: bool = True,
         use_cache: bool = False,
     ):
         if not embedding_model or isinstance(embedding_model, str):
-            embedder = BERTopicLlamacppEmbedder(embedding_model or DEFAULT_EMBEDDING_MODEL, use_cache=use_cache)
+            embedder = BERTopicLlamacppEmbedder(
+                embedding_model or DEFAULT_EMBEDDING_MODEL, use_cache=use_cache
+            )
             embedding_model = embedder
-        
+
         if not vectorizer_model:
             vectorizer_model = get_vectorizer()
 

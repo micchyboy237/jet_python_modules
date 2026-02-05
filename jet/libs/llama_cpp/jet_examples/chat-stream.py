@@ -1,12 +1,13 @@
+from jet.logger import logger
 from openai import OpenAI
 
-from jet.logger import logger
-
-client = OpenAI(base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234")  # Dummy API key
+client = OpenAI(
+    base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234"
+)  # Dummy API key
 messages = [
     {
         "role": "user",
-        "content": "Why is the sky blue?",
+        "content": "Write a 2 sentence short story",
     },
 ]
 stream = client.chat.completions.create(
