@@ -2255,12 +2255,12 @@ def safe_path_from_url(url: str, output_dir: str) -> str:
 
 def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResult]:
     filter_sites = []
-    engines = [
-        "google",
-        "brave",
-        "duckduckgo",
-        "yahoo",
-    ]
+    engines = kwargs.get("engines", [
+        # "google",
+        # "brave",
+        # "duckduckgo",
+        # "yahoo",
+    ])
 
     try:
         results: list[SearchResult] = search_searxng(

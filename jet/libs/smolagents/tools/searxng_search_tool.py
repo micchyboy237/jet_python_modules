@@ -42,7 +42,7 @@ class SearXNGSearchTool(Tool):
 
     def __init__(
         self,
-        instance_url: str = "http://jethros-macbook-air.local:8888",
+        instance_url: str = "http://searxng.local:8888",
         max_results: int | None = 10,
         rate_limit: float | None = 2.0,
         timeout: int = 10,

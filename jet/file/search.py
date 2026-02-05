@@ -1,6 +1,6 @@
 import os
-import fnmatch
-from typing import Generator, Optional
+from collections.abc import Generator
+
 from jet.file.validation import validate_match
 from jet.logger import logger
 
@@ -13,10 +13,10 @@ def traverse_directory(
     base_dir: str,
     includes: list[str],
     excludes: list[str] = [],
-    limit: Optional[int] = None,
+    limit: int | None = None,
     direction: str = "forward",
-    max_backward_depth: Optional[int] = None,
-    max_forward_depth: Optional[int] = None
+    max_backward_depth: int | None = None,
+    max_forward_depth: int | None = None,
 ) -> Generator[tuple[str, int], None, None]:
     excludes = list(set(DEFAULT_EXCLUDES + excludes))
     visited_paths = set()
@@ -25,24 +25,16 @@ def traverse_directory(
     current_dir = os.path.abspath(base_dir)
     passed_dirs_dict = {}
 
-    def match_patterns(path: str, patterns: list[str]) -> bool:
-        for pattern in patterns:
-            if "<folder>" in pattern:
-                folder_path = os.path.join(
-                    path, pattern.replace("<folder>", "").lstrip("/"))
-                if os.path.exists(folder_path):
-                    return True
-            elif fnmatch.fnmatch(path, f"*{os.path.normpath(pattern.lstrip('/'))}"):
-                return True
-        return False
-
     if direction in {"forward", "both"} and max_forward_depth == 0:
         try:
             with os.scandir(base_dir) as it:
                 for entry in it:
                     if entry.is_dir():
                         path = entry.path
-                        if validate_match(path, includes, excludes) and path not in visited_paths:
+                        if (
+                            validate_match(path, includes, excludes)
+                            and path not in visited_paths
+                        ):
                             visited_paths.add(path)
                             yield path, 0
                             yielded_count += 1
@@ -59,18 +51,25 @@ def traverse_directory(
             return 0
         return max(0, len(relative_path.split(os.sep)) - 1)
 
-    def search_dir(directory: str, max_depth: Optional[int]) -> Generator[tuple[str, int], None, None]:
+    def search_dir(
+        directory: str, max_depth: int | None
+    ) -> Generator[tuple[str, int], None, None]:
         nonlocal yielded_count
         for root, dirs, _ in os.walk(directory, followlinks=False):
             root_matches_patterns = validate_match(root, includes, excludes)
             if not root_matches_patterns:
                 continue
-            root_includes_real_path = any(include in root for include in includes
-                                          if include.startswith("/") and os.path.exists(include))
-            root_excludes_real_path = any(exclude in root for exclude in excludes
-                                          if exclude.startswith("/") and os.path.exists(exclude))
-            root_already_passed = any(path.startswith(root)
-                                      for path in passed_paths)
+            root_includes_real_path = any(
+                include in root
+                for include in includes
+                if include.startswith("/") and os.path.exists(include)
+            )
+            root_excludes_real_path = any(
+                exclude in root
+                for exclude in excludes
+                if exclude.startswith("/") and os.path.exists(exclude)
+            )
+            root_already_passed = any(path.startswith(root) for path in passed_paths)
             include_passed = root_matches_patterns or root_includes_real_path
             exclude_passed = root_already_passed or root_excludes_real_path
             passes = include_passed and not exclude_passed
@@ -93,8 +92,14 @@ def traverse_directory(
             yield folder_path, current_depth
             if limit and yielded_count >= limit:
                 return
-        logger.log("Depth:", depth_key, "|", "Dirs:", len(passed_dirs_dict[depth_key]),
-                   colors=["WHITE", "DEBUG", "GRAY", "WHITE", "SUCCESS"])
+        logger.log(
+            "Depth:",
+            depth_key,
+            "|",
+            "Dirs:",
+            len(passed_dirs_dict[depth_key]),
+            colors=["WHITE", "DEBUG", "GRAY", "WHITE", "SUCCESS"],
+        )
 
 
 def main():
@@ -121,7 +126,7 @@ def main():
         limit,
         direction,
         max_backward_depth,
-        max_forward_depth
+        max_forward_depth,
     ):
         logger.success(folder)
 

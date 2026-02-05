@@ -191,7 +191,7 @@ class DemoHeliumActions:
         logging.info(f"Current URL: {url}")
         return url
 
-    def get_page_source(self) -> str:
+    def get_current_html(self) -> str:
         """Returns the full current HTML page source"""
         if self.driver is None:
             raise RuntimeError("No browser driver is currently set.")
@@ -204,7 +204,7 @@ class DemoHeliumActions:
     def print_browser_state(self):
         """Quick helper to log both URL and source preview"""
         self.get_current_url()
-        self.get_page_source()
+        self.get_current_html()
 
     def demo_go_to(self, url: str):
         """Action: go_to(url)"""
