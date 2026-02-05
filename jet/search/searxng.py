@@ -1,17 +1,20 @@
+import json
 import time
 from datetime import datetime
-import json
-import requests
-from typing import Optional, TypedDict
+from typing import TypedDict
 from urllib.parse import urlencode
-from jet.logger import logger
-from .filters import filter_relevant, deduplicate_results, sort_by_score
-from .formatters import decode_encoded_characters
-from jet.cache.redis import RedisConfigParams, RedisCache
+
+import requests
+
+from jet.cache.redis import RedisCache, RedisConfigParams
 from jet.data.utils import generate_key
+from jet.logger import logger
+
+from .filters import deduplicate_results, filter_relevant, sort_by_score
+from .formatters import decode_encoded_characters
 
 DEFAULT_REDIS_PORT = 3101
-DEFAULT_QUERY_URL = "http://jethros-macbook-air.local:8888"
+DEFAULT_QUERY_URL = "http://searxng.local:8888"
 DEFAULT_ENGINES = [
     # "google",
     # "brave",
@@ -54,6 +57,7 @@ class QueryResponse(TypedDict, total=False):
 
 class NoResultsFoundError(Exception):
     """Custom exception to be raised when no results are found."""
+
     pass
 
 
@@ -65,12 +69,16 @@ def build_query_url(base_url: str, params: dict) -> str:
 
 def remove_empty_attributes(data):
     """
-    Recursively remove keys with empty values from dictionaries and 
+    Recursively remove keys with empty values from dictionaries and
     remove empty elements from lists.
     """
     if isinstance(data, dict):
         # Return a new dictionary with only non-empty values
-        return {k: remove_empty_attributes(v) for k, v in data.items() if v not in [None, "", [], {}]}
+        return {
+            k: remove_empty_attributes(v)
+            for k, v in data.items()
+            if v not in [None, "", [], {}]
+        }
     elif isinstance(data, list):
         # Return a new list with non-empty elements
         return [remove_empty_attributes(v) for v in data if v not in [None, "", [], {}]]
@@ -79,7 +87,9 @@ def remove_empty_attributes(data):
         return data
 
 
-def fetch_search_results(headers: dict, params: dict, query_url: str = DEFAULT_QUERY_URL) -> QueryResponse:
+def fetch_search_results(
+    headers: dict, params: dict, query_url: str = DEFAULT_QUERY_URL
+) -> QueryResponse:
     """Fetches search results from SearXNG."""
 
     logger.log("Requesting URL: ", query_url, colors=["LOG", "DEBUG"])
@@ -100,24 +110,34 @@ def fetch_search_results(headers: dict, params: dict, query_url: str = DEFAULT_Q
 
 def format_min_date(min_date: datetime) -> datetime:
     # hours, minutes, and seconds set to 0
-    result = min_date.replace(hour=0,
-                              minute=0, second=0, microsecond=0)
+    result = min_date.replace(hour=0, minute=0, second=0, microsecond=0)
     return result
 
 
-def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Optional[int] = None, min_score: float = 0.1, min_date: Optional[datetime] = None, config: RedisConfigParams = {}, use_cache: bool = True, engines: Optional[list[str]] = DEFAULT_ENGINES, include_sites: Optional[list[str]] = None, exclude_sites: Optional[list[str]] = None, max_retries: int = 3, **kwargs) -> list[SearchResult]:
+def search_searxng(
+    query: str,
+    query_url: str = DEFAULT_QUERY_URL,
+    count: int | None = None,
+    min_score: float = 0.1,
+    min_date: datetime | None = None,
+    config: RedisConfigParams = {},
+    use_cache: bool = True,
+    engines: list[str] | None = DEFAULT_ENGINES,
+    include_sites: list[str] | None = None,
+    exclude_sites: list[str] | None = None,
+    max_retries: int = 3,
+    **kwargs,
+) -> list[SearchResult]:
     query = decode_encoded_characters(query)
     try:
         # Add the include_sites filter if provided
         if include_sites:
-            include_query = " OR ".join(
-                [f"site:{site}" for site in include_sites])
+            include_query = " OR ".join([f"site:{site}" for site in include_sites])
             query += " " + include_query
 
         # Add the exclude_sites filter if provided
         if exclude_sites:
-            exclude_query = " ".join(
-                [f"-site:{site}" for site in exclude_sites])
+            exclude_query = " ".join([f"-site:{site}" for site in exclude_sites])
             query += " " + exclude_query
 
         # Start building the base query params
@@ -130,12 +150,12 @@ def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Option
 
         if "pageno" in kwargs:
             params["pageno"] = kwargs["pageno"]
-        
+
         if "safesearch" in kwargs:
             params["safesearch"] = kwargs["safesearch"]
 
         if engines:
-            params["engines"] = ",".join(engines),
+            params["engines"] = (",".join(engines),)
 
         # Handling min_date (optional)
         if not min_date:
@@ -161,15 +181,20 @@ def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Option
             if cached_result and cached_result.get("results", []):
                 cached_count = len(cached_result["results"])
                 if count is None or cached_count >= count:
-                    logger.log("search_searxng: Cache hit for ",
-                               cache_key, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                    logger.log(
+                        "search_searxng: Cache hit for ",
+                        cache_key,
+                        colors=["SUCCESS", "BRIGHT_SUCCESS"],
+                    )
                 else:
                     logger.warning(
-                        f"search_searxng: Cache hit but insufficient results ({cached_count} < {count}) for {cache_key}")
+                        f"search_searxng: Cache hit but insufficient results ({cached_count} < {count}) for {cache_key}"
+                    )
                     cached_result = None
             else:
                 logger.warning(
-                    f"search_searxng: Cache miss or empty results for {cache_key}")
+                    f"search_searxng: Cache miss or empty results for {cache_key}"
+                )
 
         # Fetch search results with retries
         result = cached_result
@@ -182,9 +207,10 @@ def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Option
                 result = fetch_search_results(headers, params, query_url)
                 if not result.get("results", []):
                     if retries < max_retries:
-                        delay = 2 ** retries  # Exponential backoff: 1s, 2s, 4s
+                        delay = 2**retries  # Exponential backoff: 1s, 2s, 4s
                         logger.warning(
-                            f"No results found. Retrying {retries + 1}/{max_retries} after {delay}s delay...")
+                            f"No results found. Retrying {retries + 1}/{max_retries} after {delay}s delay..."
+                        )
                         time.sleep(delay)
                         retries += 1
                         continue
@@ -193,9 +219,10 @@ def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Option
                         return []
             except requests.exceptions.RequestException as e:
                 if retries < max_retries:
-                    delay = 2 ** retries  # Exponential backoff: 1s, 2s, 4s
+                    delay = 2**retries  # Exponential backoff: 1s, 2s, 4s
                     logger.warning(
-                        f"Request failed: {e}. Retrying {retries + 1}/{max_retries} after {delay}s delay...")
+                        f"Request failed: {e}. Retrying {retries + 1}/{max_retries} after {delay}s delay..."
+                    )
                     time.sleep(delay)
                     retries += 1
                     continue
@@ -203,7 +230,7 @@ def search_searxng(query: str, query_url: str = DEFAULT_QUERY_URL, count: Option
                     logger.error(f"Max retries reached. Error: {e}")
                     return []
 
-        result['number_of_results'] = len(result.get("results", []))
+        result["number_of_results"] = len(result.get("results", []))
         result = remove_empty_attributes(result)
 
         # Filter and sort results

@@ -9,6 +9,12 @@ def normalize_embedding(vec: EmbeddingVector) -> np.ndarray:
     return arr / norm if norm > 1e-12 else arr
 
 
+def cosine_similarity(vec1: EmbeddingVector, vec2: EmbeddingVector) -> float:
+    vec1 = np.asarray(vec1)
+    vec2 = np.asarray(vec2)
+    return float(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)))
+
+
 def calculate_dynamic_batch_size(
     token_counts: list[int],
     embedding_size: int,

@@ -8,7 +8,6 @@ import numpy as np
 from jet._token.token_utils import token_counter
 from jet.adapters.llama_cpp.types import (
     LLAMACPP_EMBED_KEYS,
-    EmbeddingVector,
     GenerateEmbeddingsReturnType,
 )
 from jet.adapters.llama_cpp.utils import resolve_model_value
@@ -18,12 +17,6 @@ from jet.models.embeddings.utils import calculate_dynamic_batch_size
 from jet.models.utils import get_context_size, get_embedding_size
 from openai import OpenAI
 from tqdm import tqdm
-
-
-def cosine_similarity(vec1: EmbeddingVector, vec2: EmbeddingVector) -> float:
-    vec1 = np.asarray(vec1)
-    vec2 = np.asarray(vec2)
-    return float(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)))
 
 
 class InputTooLargeError(ValueError):
