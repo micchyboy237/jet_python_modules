@@ -1,14 +1,16 @@
 import json
 import os
-from typing import Any, AsyncIterator, Callable, Dict, Iterator, List, Optional, Union, Literal, TypedDict
-from openai import AsyncOpenAI, OpenAI
-from pydantic import BaseModel
+from collections.abc import AsyncIterator, Callable, Iterator
+from typing import Any, Literal, TypedDict
+
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_TYPES
 from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.llm.logger_utils import ChatLogger
 from jet.logger import CustomLogger
 from jet.utils.text import format_sub_dir
+from openai import AsyncOpenAI, OpenAI
+from pydantic import BaseModel
 
 
 # === Strict TypedDict for OpenAI-compatible messages ===
@@ -22,12 +24,15 @@ class ToolCall(TypedDict):
     type: Literal["function"]
     function: ToolFunction
 
+
 class ChatMessage(TypedDict, total=False):
     """OpenAI chat message with optional tool_call_id only for role='tool'."""
+
     role: Literal["system", "user", "assistant", "tool"]
     content: str
     tool_call_id: str  # Required only when role == "tool"
-    tool_calls: List[ToolCall]
+    tool_calls: list[ToolCall]
+
 
 class LlamacppLLM:
     """
@@ -42,15 +47,22 @@ class LlamacppLLM:
         api_key: str = "sk-1234",
         max_retries: int = 3,
         verbose: bool = True,
-        agent_name: Optional[str] = None,
-        log_dir: str = DEFAULT_LOG_DIR,
-        logger: Optional[CustomLogger] = None,
+        agent_name: str | None = None,
+        log_dir: str | None = None,
+        logger: CustomLogger | None = None,
     ):
         """Initialize sync and async clients with model resolution."""
         self.model = resolve_model_value(model)
-        self.sync_client = OpenAI(base_url=base_url, api_key=api_key, max_retries=max_retries)
-        self.async_client = AsyncOpenAI(base_url=base_url, api_key=api_key, max_retries=max_retries)
+        self.sync_client = OpenAI(
+            base_url=base_url, api_key=api_key, max_retries=max_retries
+        )
+        self.async_client = AsyncOpenAI(
+            base_url=base_url, api_key=api_key, max_retries=max_retries
+        )
         self.verbose = verbose
+
+        if not log_dir:
+            log_dir = DEFAULT_LOG_DIR
 
         if agent_name:
             log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
@@ -61,12 +73,12 @@ class LlamacppLLM:
     # === Sync Chat ===
     def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         stream: bool = False,
-        stop: Optional[List[str]] = None,
-    ) -> Union[str, Iterator[str]]:
+        stop: list[str] | None = None,
+    ) -> str | Iterator[str]:
         """Generate chat response (non-streaming or streaming)."""
         response = self.sync_client.chat.completions.create(
             model=self.model,
@@ -77,6 +89,7 @@ class LlamacppLLM:
             stop=stop,
         )
         if stream:
+
             def stream_generator() -> Iterator[str]:
                 response_text = ""
                 for chunk in response:
@@ -114,9 +127,9 @@ class LlamacppLLM:
         self,
         prompt: str,
         temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         stream: bool = False,
-    ) -> Union[str, Iterator[str]]:
+    ) -> str | Iterator[str]:
         """Generate text completion from prompt."""
         response = self.sync_client.completions.create(
             model=self.model,
@@ -126,6 +139,7 @@ class LlamacppLLM:
             stream=stream,
         )
         if stream:
+
             def stream_generator() -> Iterator[str]:
                 response_text = ""
                 for chunk in response:
@@ -160,14 +174,14 @@ class LlamacppLLM:
     # === Tools (Sync) ===
     def chat_with_tools(
         self,
-        messages: List[ChatMessage],
-        tools: List[Dict[str, Any]],
-        available_functions: Dict[str, Callable[..., Any]],
+        messages: list[ChatMessage],
+        tools: list[dict[str, Any]],
+        available_functions: dict[str, Callable[..., Any]],
         temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         stream: bool = False,
         **kwargs: Any,
-    ) -> Union[str, Iterator[str]]:
+    ) -> str | Iterator[str]:
         """
         Execute tool-calling loop with optional streaming.
         When stream=True, yields partial updates including tool calls and final response.
@@ -180,7 +194,7 @@ class LlamacppLLM:
             "temperature": temperature,
             "tool_choice": tool_choice,
             "stream": stream,
-            **({ "max_tokens": max_tokens } if max_tokens is not None else {}),
+            **({"max_tokens": max_tokens} if max_tokens is not None else {}),
             **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
 
@@ -188,19 +202,21 @@ class LlamacppLLM:
             # Existing non-streaming path
             response = self.sync_client.chat.completions.create(**create_kwargs)
             message = response.choices[0].message
-            tool_calls: List[ToolCall] = getattr(message, "tool_calls", []) or []
+            tool_calls: list[ToolCall] = getattr(message, "tool_calls", []) or []
             if not tool_calls:
                 content = message.content or ""
                 if self.verbose:
                     self._logger.teal(content)
-                self._chat_logger.log_interaction(**{
-                    **create_kwargs,
-                    "response": content,
-                    "method": "chat",
-                })
+                self._chat_logger.log_interaction(
+                    **{
+                        **create_kwargs,
+                        "response": content,
+                        "method": "chat",
+                    }
+                )
                 return content
 
-            updated_messages: List[ChatMessage] = messages.copy()
+            updated_messages: list[ChatMessage] = messages.copy()
             assistant_msg: ChatMessage = {
                 "role": "assistant",
                 "content": message.content or "",
@@ -212,8 +228,8 @@ class LlamacppLLM:
                         "type": tc.type,
                         "function": {
                             "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
+                            "arguments": tc.function.arguments,
+                        },
                     }
                     for tc in tool_calls
                 ]
@@ -242,7 +258,8 @@ class LlamacppLLM:
                 updated_messages.append(tool_response)
 
             final_kwargs = {
-                k: v for k, v in create_kwargs.items()
+                k: v
+                for k, v in create_kwargs.items()
                 if k not in ["messages", "tools", "tool_choice"]
             }
             final_kwargs["messages"] = updated_messages
@@ -252,22 +269,24 @@ class LlamacppLLM:
             final_content = final_response.choices[0].message.content
             if self.verbose:
                 self._logger.teal(final_content)
-            self._chat_logger.log_interaction(**{
-                **create_kwargs,
-                "response": final_content,
-                "method": "chat",
-            })
+            self._chat_logger.log_interaction(
+                **{
+                    **create_kwargs,
+                    "response": final_content,
+                    "method": "chat",
+                }
+            )
             return final_content
 
         # === STREAMING PATH ===
         def stream_generator() -> Iterator[str]:
             response_text = ""
-            updated_messages: List[ChatMessage] = messages.copy()
+            updated_messages: list[ChatMessage] = messages.copy()
 
             # First call: detect tool calls (stream content + tool_calls)
             response = self.sync_client.chat.completions.create(**create_kwargs)
             message_content = ""
-            tool_calls: List[ToolCall] = []
+            tool_calls: list[ToolCall] = []
 
             for chunk in response:
                 if not chunk.choices or not chunk.choices[0].delta:
@@ -287,10 +306,13 @@ class LlamacppLLM:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
                         while len(tool_calls) <= idx:
-                            tool_calls.append({
-                                "id": "", "type": "function",
-                                "function": {"name": "", "arguments": ""}
-                            })
+                            tool_calls.append(
+                                {
+                                    "id": "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            )
                         tc = tool_calls[idx]
                         if tc_delta.id:
                             tc["id"] = tc_delta.id
@@ -304,7 +326,7 @@ class LlamacppLLM:
                 assistant_msg: ChatMessage = {
                     "role": "assistant",
                     "content": message_content or None,
-                    "tool_calls": tool_calls
+                    "tool_calls": tool_calls,
                 }
                 updated_messages.append(assistant_msg)
 
@@ -324,15 +346,18 @@ class LlamacppLLM:
                     if self.verbose:
                         self._logger.debug(f"[TOOL OUT] {result}")
 
-                    updated_messages.append({
-                        "role": "tool",
-                        "content": str(result),
-                        "tool_call_id": tool_call["id"],
-                    })
+                    updated_messages.append(
+                        {
+                            "role": "tool",
+                            "content": str(result),
+                            "tool_call_id": tool_call["id"],
+                        }
+                    )
 
             # === FINAL LLM CALL (STREAM ONLY CONTENT) ===
             final_kwargs = {
-                k: v for k, v in create_kwargs.items()
+                k: v
+                for k, v in create_kwargs.items()
                 if k not in ["messages", "tools", "tool_choice"]
             }
             final_kwargs["messages"] = updated_messages
@@ -349,18 +374,20 @@ class LlamacppLLM:
                     yield content
 
             # === FINAL LOG ===
-            self._chat_logger.log_interaction(**{
-                **create_kwargs,
-                "response": final_content,
-                "method": "stream_chat",
-            })
+            self._chat_logger.log_interaction(
+                **{
+                    **create_kwargs,
+                    "response": final_content,
+                    "method": "stream_chat",
+                }
+            )
 
         return stream_generator()
 
     # === Structured Outputs (Sync) ===
     def chat_structured(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         response_model: type[BaseModel],
         temperature: float = 0.0,
     ) -> BaseModel:
@@ -368,28 +395,36 @@ class LlamacppLLM:
         response = self.sync_client.chat.completions.create(
             model=self.model,
             messages=messages,  # type: ignore[arg-type]
-            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
+            response_format={
+                "type": "json_object",
+                "schema": response_model.model_json_schema(),
+            },
             temperature=temperature,
         )
         raw_json = response.choices[0].message.content or ""
         if self.verbose:
             self._logger.teal(raw_json)
 
-        self._chat_logger.log_interaction(**{
-            "messages": messages,
-            "response": raw_json,
-            "model": self.model,
-            "response_format": {"type": "json_object", "schema": response_model.model_json_schema()},
-            "method": "chat",
-            "temperature": temperature,
-        })
+        self._chat_logger.log_interaction(
+            **{
+                "messages": messages,
+                "response": raw_json,
+                "model": self.model,
+                "response_format": {
+                    "type": "json_object",
+                    "schema": response_model.model_json_schema(),
+                },
+                "method": "chat",
+                "temperature": temperature,
+            }
+        )
 
         return response_model.model_validate_json(raw_json)
 
     # === Sync Structured Stream ===
     def chat_structured_stream(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         response_model: Any,  # BaseModel or TypeAdapter(List[T])
         temperature: float = 0.0,
     ) -> Iterator[Any]:
@@ -442,7 +477,7 @@ class LlamacppLLM:
                     continue
 
                 # List mode: yield only NEW items
-                new_items = parsed[len(seen_items):]
+                new_items = parsed[len(seen_items) :]
                 for item in new_items:
                     seen_items.append(item)
                     yield item
@@ -461,7 +496,7 @@ class LlamacppLLM:
                         seen_items.append(final_parsed)
                         yield final_parsed
                 else:
-                    new_items = final_parsed[len(seen_items):]
+                    new_items = final_parsed[len(seen_items) :]
                     for item in new_items:
                         seen_items.append(item)
                         yield item
@@ -482,12 +517,12 @@ class LlamacppLLM:
     # === Async Chat ===
     async def achat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         stream: bool = False,
-        stop: Optional[List[str]] = None,
-    ) -> Union[str, AsyncIterator[str]]:
+        stop: list[str] | None = None,
+    ) -> str | AsyncIterator[str]:
         """Async chat completion (non-streaming or streaming)."""
         response = await self.async_client.chat.completions.create(
             model=self.model,
@@ -498,6 +533,7 @@ class LlamacppLLM:
             stop=stop,
         )
         if stream:
+
             async def stream_generator() -> AsyncIterator[str]:
                 response_text = ""
                 async for chunk in response:
@@ -527,9 +563,9 @@ class LlamacppLLM:
         self,
         prompt: str,
         temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         stream: bool = False,
-    ) -> Union[str, AsyncIterator[str]]:
+    ) -> str | AsyncIterator[str]:
         """Async text completion (non-streaming or streaming)."""
         response = await self.async_client.completions.create(
             model=self.model,
@@ -539,6 +575,7 @@ class LlamacppLLM:
             stream=stream,
         )
         if stream:
+
             async def stream_generator() -> AsyncIterator[str]:
                 response_text = ""
                 async for chunk in response:
@@ -566,14 +603,14 @@ class LlamacppLLM:
     # === Async Tools ===
     async def achat_with_tools(
         self,
-        messages: List[ChatMessage],
-        tools: List[Dict[str, Any]],
-        available_functions: Dict[str, Callable[..., Any]],
+        messages: list[ChatMessage],
+        tools: list[dict[str, Any]],
+        available_functions: dict[str, Callable[..., Any]],
         temperature: float = 0.0,
-        max_tokens: Optional[int] = None,
+        max_tokens: int | None = None,
         stream: bool = False,
         **kwargs: Any,
-    ) -> Union[str, AsyncIterator[str]]:
+    ) -> str | AsyncIterator[str]:
         tool_choice = kwargs.get("tool_choice") or "auto"
         create_kwargs = {
             "model": self.model,
@@ -582,7 +619,7 @@ class LlamacppLLM:
             "temperature": temperature,
             "tool_choice": tool_choice,
             "stream": stream,
-            **({ "max_tokens": max_tokens } if max_tokens is not None else {}),
+            **({"max_tokens": max_tokens} if max_tokens is not None else {}),
             **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
 
@@ -590,7 +627,7 @@ class LlamacppLLM:
             # Existing non-stream path (unchanged)
             response = await self.async_client.chat.completions.create(**create_kwargs)
             message = response.choices[0].message
-            tool_calls: List[ToolCall] = getattr(message, "tool_calls", []) or []
+            tool_calls: list[ToolCall] = getattr(message, "tool_calls", []) or []
             if not tool_calls:
                 content = message.content or ""
                 if self.verbose:
@@ -598,7 +635,10 @@ class LlamacppLLM:
                 return content
 
             updated_messages = messages.copy()
-            assistant_msg: ChatMessage = {"role": "assistant", "content": message.content or ""}
+            assistant_msg: ChatMessage = {
+                "role": "assistant",
+                "content": message.content or "",
+            }
             updated_messages.append(assistant_msg)
 
             for tool_call in tool_calls:
@@ -606,11 +646,13 @@ class LlamacppLLM:
                 if func := available_functions.get(func_name):
                     args = json.loads(tool_call.function.arguments)
                     result = func(**args)
-                    updated_messages.append({
-                        "role": "tool",
-                        "content": json.dumps({"result": result}),
-                        "tool_call_id": tool_call.id,
-                    })
+                    updated_messages.append(
+                        {
+                            "role": "tool",
+                            "content": json.dumps({"result": result}),
+                            "tool_call_id": tool_call.id,
+                        }
+                    )
 
             final_response = await self.async_client.chat.completions.create(
                 model=self.model,
@@ -629,7 +671,7 @@ class LlamacppLLM:
 
             response = await self.async_client.chat.completions.create(**create_kwargs)
             message_content = ""
-            tool_calls: List[ToolCall] = []
+            tool_calls: list[ToolCall] = []
             async for chunk in response:
                 if chunk.choices and chunk.choices[0].delta:
                     delta = chunk.choices[0].delta
@@ -643,14 +685,22 @@ class LlamacppLLM:
                         for tc_delta in delta.tool_calls:
                             idx = tc_delta.index
                             while len(tool_calls) <= idx:
-                                tool_calls.append({"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                                tool_calls.append(
+                                    {
+                                        "id": "",
+                                        "type": "function",
+                                        "function": {"name": "", "arguments": ""},
+                                    }
+                                )
                             tc = tool_calls[idx]
                             if tc_delta.id:
                                 tc["id"] = tc_delta.id
                             if tc_delta.function.name:
                                 tc["function"]["name"] += tc_delta.function.name
                             if tc_delta.function.arguments:
-                                tc["function"]["arguments"] += tc_delta.function.arguments
+                                tc["function"]["arguments"] += (
+                                    tc_delta.function.arguments
+                                )
 
             if not tool_calls:
                 self._chat_logger.log_interaction(
@@ -686,19 +736,25 @@ class LlamacppLLM:
                 tool_results.append(result_str)
                 yield f"[TOOL RESULT] {result_str}\n"
                 response_text += f"[TOOL RESULT] {result_str}\n"
-                updated_messages.append({
-                    "role": "tool",
-                    "content": result_str,
-                    "tool_call_id": tool_call["id"],
-                })
+                updated_messages.append(
+                    {
+                        "role": "tool",
+                        "content": result_str,
+                        "tool_call_id": tool_call["id"],
+                    }
+                )
 
             final_create_kwargs = {
-                k: v for k, v in create_kwargs.items() if k not in ["messages", "tools", "tool_choice"]
+                k: v
+                for k, v in create_kwargs.items()
+                if k not in ["messages", "tools", "tool_choice"]
             }
             final_create_kwargs["messages"] = updated_messages
             final_create_kwargs["stream"] = True
 
-            final_response = await self.async_client.chat.completions.create(**final_create_kwargs)
+            final_response = await self.async_client.chat.completions.create(
+                **final_create_kwargs
+            )
             final_content = ""
             async for chunk in final_response:
                 if chunk.choices and chunk.choices[0].delta.content is not None:
@@ -721,7 +777,7 @@ class LlamacppLLM:
     # === Async Structured Outputs ===
     async def achat_structured(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         response_model: type[BaseModel],
         temperature: float = 0.0,
     ) -> BaseModel:
@@ -729,28 +785,36 @@ class LlamacppLLM:
         response = await self.async_client.chat.completions.create(
             model=self.model,
             messages=messages,  # type: ignore[arg-type]
-            response_format={"type": "json_object", "schema": response_model.model_json_schema()},
+            response_format={
+                "type": "json_object",
+                "schema": response_model.model_json_schema(),
+            },
             temperature=temperature,
         )
         raw_json = response.choices[0].message.content or ""
         if self.verbose:
             self._logger.teal(raw_json)
 
-        self._chat_logger.log_interaction(**{
-            "messages": messages,
-            "response": raw_json,
-            "model": self.model,
-            "response_format": {"type": "json_object", "schema": response_model.model_json_schema()},
-            "method": "chat",
-            "temperature": temperature,
-        })
+        self._chat_logger.log_interaction(
+            **{
+                "messages": messages,
+                "response": raw_json,
+                "model": self.model,
+                "response_format": {
+                    "type": "json_object",
+                    "schema": response_model.model_json_schema(),
+                },
+                "method": "chat",
+                "temperature": temperature,
+            }
+        )
 
         return response_model.model_validate_json(raw_json)
 
     # === Async Structured Stream ===
     async def achat_structured_stream(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         response_model: Any,
         temperature: float = 0.0,
     ) -> AsyncIterator[Any]:
@@ -794,7 +858,7 @@ class LlamacppLLM:
                         yield parsed
                         buffer = ""
                         continue
-                    new_items = parsed[len(seen_items):]
+                    new_items = parsed[len(seen_items) :]
                     for item in new_items:
                         seen_items.append(item)
                         yield item
@@ -808,7 +872,7 @@ class LlamacppLLM:
                             seen_items.append(final_parsed)
                             yield final_parsed
                     else:
-                        new_items = final_parsed[len(seen_items):]
+                        new_items = final_parsed[len(seen_items) :]
                         for item in new_items:
                             seen_items.append(item)
                             yield item
@@ -818,7 +882,9 @@ class LlamacppLLM:
         finally:
             self._chat_logger.log_interaction(
                 messages=messages,
-                response=seen_items if is_list else (seen_items[0] if seen_items else None),
+                response=seen_items
+                if is_list
+                else (seen_items[0] if seen_items else None),
                 model=self.model,
                 method="stream_chat",
                 temperature=temperature,

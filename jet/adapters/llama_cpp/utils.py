@@ -1,12 +1,14 @@
 import numpy as np
 from jet.adapters.llama_cpp.models import LLAMACPP_MODELS, LLAMACPP_MODELS_REVERSED
 from jet.adapters.llama_cpp.types import (
+    LLAMACPP_KEYS,
     LLAMACPP_TYPES,
+    LLAMACPP_VALUES,
     EmbeddingVector,
 )
 
 
-def resolve_model_key(model: LLAMACPP_TYPES) -> str:
+def resolve_model_key(model: LLAMACPP_TYPES) -> LLAMACPP_KEYS:
     """
     Retrieves the model key (short name) for a given model key or path.
 
@@ -29,7 +31,7 @@ def resolve_model_key(model: LLAMACPP_TYPES) -> str:
     return model
 
 
-def resolve_model_value(model: LLAMACPP_TYPES) -> str:
+def resolve_model_value(model: LLAMACPP_TYPES) -> LLAMACPP_VALUES:
     """
     Retrieves the model value (full path) for a given model key or path.
 

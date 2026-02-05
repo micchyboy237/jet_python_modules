@@ -1,3 +1,5 @@
+# web_search.py
+
 import asyncio
 import os
 import re
@@ -6,7 +8,9 @@ import string
 from collections import defaultdict
 
 from jet.adapters.llama_cpp.llm import LlamacppLLM
+from jet.adapters.llama_cpp.tokens import count_tokens, get_tokenizer_fn
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS, LLAMACPP_LLM_KEYS
+from jet.adapters.llama_cpp.utils import resolve_model_value
 from jet.code.html_utils import preprocess_html
 from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, HeaderSearchResult
 from jet.code.markdown_utils._converters import convert_html_to_markdown
@@ -18,8 +22,6 @@ from jet.code.markdown_utils._markdown_parser import (
 from jet.code.markdown_utils._preprocessors import link_to_text_ratio
 from jet.file.utils import load_file, save_file
 from jet.logger import logger
-from jet.models.tokenizer.base import count_tokens, get_tokenizer_fn
-from jet.models.utils import resolve_model_value
 from jet.scrapers.hrequests_utils import scrape_urls
 from jet.scrapers.utils import scrape_links, search_data
 from jet.vectors.semantic_search.header_vector_search import search_headers
@@ -40,6 +42,26 @@ Context information is below.
 Given the context information, answer the query.
 
 Query: {query}
+"""
+
+SYSTEM_MESSAGE = """\
+You are an accurate, concise and helpful research assistant that answers questions using ONLY the information provided in the context below.
+
+Rules you MUST follow:
+• Base your answer exclusively on the provided context. Do NOT add information you believe is true if it is not clearly stated in the context.
+• If the context does not contain enough information to answer the question properly, say so clearly. Use one of these answers when appropriate:
+  - "The provided information is not sufficient to answer this question."
+  - "The context does not mention this."
+  - "There is conflicting or unclear information in the sources."
+• Be concise. Eliminate fluff, marketing phrases, navigation menus, cookie notices, footers, sidebars and repeated boilerplate text.
+• When multiple sources provide similar information, prefer the most detailed, most recent-looking and highest-quality version.
+• Include key facts, numbers, dates, names and direct quotes when relevant.
+• When the answer contains several aspects / steps / products / options, use bullet points or numbered lists.
+• If you refer to a specific source or section, you may add a short reference in parentheses, e.g. (source.com – section "Pricing")
+• Write in clear, natural, professional language. Avoid starting answers with "As an AI language model", "According to my last training", etc.
+• Never apologize for the limitations of the context unless the question literally cannot be answered from it.
+
+Context will be provided below, followed by the user's question.
 """
 
 HIGH_QUALITY_SCORE = 0.6
@@ -151,18 +173,19 @@ def sort_search_results_by_url_and_category(
     return sorted_high_score + sorted_medium_score + sorted_low_score
 
 
-def group_results_by_source_for_llm_context(results: list[HeaderSearchResult]) -> str:
+def group_results_by_source_for_llm_context(
+    results: list[HeaderSearchResult],
+    llm_model: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
+) -> str:
     def strip_hashtags(text: str) -> str:
         if text:
             return text.lstrip("#").strip()
         return text
 
     # Initialize tokenizer
-    tokenizer = get_tokenizer_fn(
-        "qwen3-1.7b-4bit", add_special_tokens=False, remove_pad_tokens=True
-    )
+    tokenize = get_tokenizer_fn(llm_model, add_special_tokens=False)
     separator = "\n\n"
-    separator_tokens = len(tokenizer.encode(separator))
+    separator_tokens = len(tokenize(separator))
 
     # Calculate high and medium score tokens per URL
     url_score_tokens = defaultdict(
@@ -303,14 +326,14 @@ def group_results_by_source_for_llm_context(results: list[HeaderSearchResult]) -
             # Append the last merged chunk
             block += merged_content + "\n\n"
 
-        block_tokens = len(tokenizer.encode(block))
-        if block_tokens > len(tokenizer.encode(f"<!-- Source: {url} -->\n\n")):
+        block_tokens = len(tokenize(block))
+        if block_tokens > len(tokenize(f"<!-- Source: {url} -->\n\n")):
             context_blocks.append(block.strip())
         else:
             logger.warning(f"Empty block for {url} after processing; skipping.")
 
     result = "\n\n".join(context_blocks)
-    final_token_count = len(tokenizer.encode(result))
+    final_token_count = len(tokenize(result))
     logger.debug(
         f"Grouped context created with {final_token_count} tokens for {len(grouped_temp)} sources"
     )
@@ -675,7 +698,7 @@ async def hybrid_search(query):
     filtered_results = []
     for result in sorted_results:
         content = f"{result['header']}\n{result['content']}"
-        tokens = count_tokens(llm_model, content)
+        tokens = count_tokens(content, llm_model)
         if current_tokens + tokens > max_tokens:
             break
         filtered_results.append(result)
@@ -732,15 +755,15 @@ async def hybrid_search(query):
     )
     prompt = PROMPT_TEMPLATE.format(query=query, context=context)
     messages = [
-        # {"role": "system", "content": "You are a concise assistant."},
+        {"role": "system", "content": SYSTEM_MESSAGE},
         {"role": "user", "content": prompt},
     ]
     save_file(messages, f"{query_output_dir}/messages.json")
     llm_response = llm.chat(messages, temperature=0.3)
     save_file(llm_response, f"{query_output_dir}/response.md")
 
-    input_tokens = count_tokens(llm_model, prompt)
-    output_tokens = count_tokens(llm_model, llm_response)
+    input_tokens = count_tokens(prompt, llm_model)
+    output_tokens = count_tokens(llm_response, llm_model)
 
     save_file(
         {

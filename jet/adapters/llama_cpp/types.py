@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict, Union
+from typing import Literal, TypedDict
 
 import numpy as np
 
@@ -27,27 +27,25 @@ LLAMACPP_EMBED_VALUES = Literal[
 ]
 
 # LLM models
-LLAMACPP_LLM_TYPES = Union[LLAMACPP_LLM_KEYS, LLAMACPP_LLM_VALUES]
+LLAMACPP_LLM_TYPES = LLAMACPP_LLM_KEYS | LLAMACPP_LLM_VALUES
 
 # Embedding models
-LLAMACPP_EMBED_TYPES = Union[LLAMACPP_EMBED_KEYS, LLAMACPP_EMBED_VALUES]
+LLAMACPP_EMBED_TYPES = LLAMACPP_EMBED_KEYS | LLAMACPP_EMBED_VALUES
 
 # Combined models (all keys and all values)
-LLAMACPP_KEYS = Union[LLAMACPP_LLM_KEYS, LLAMACPP_EMBED_KEYS]
-LLAMACPP_VALUES = Union[LLAMACPP_LLM_VALUES, LLAMACPP_EMBED_VALUES]
-LLAMACPP_TYPES = Union[LLAMACPP_KEYS, LLAMACPP_VALUES]
+LLAMACPP_KEYS = LLAMACPP_LLM_KEYS | LLAMACPP_EMBED_KEYS
+LLAMACPP_VALUES = LLAMACPP_LLM_VALUES | LLAMACPP_EMBED_VALUES
+LLAMACPP_TYPES = LLAMACPP_KEYS | LLAMACPP_VALUES
 
 
 # ────────────────────────────────────────────────────────────────────────────────
 # Embedding Type Definitions
 # ────────────────────────────────────────────────────────────────────────────────
 
-EmbeddingVector = Union[list[float], np.ndarray]
+EmbeddingVector = list[float] | np.ndarray
 EmbeddingBatch = list[EmbeddingVector]
-EmbeddingOutput = Union[
-    EmbeddingBatch, np.ndarray
-]  # list of vectors or single 2D array
-EmbeddingInput = Union[str, list[str]]
+EmbeddingOutput = EmbeddingBatch | np.ndarray  # list of vectors or single 2D array
+EmbeddingInput = str | list[str]
 EmbeddingInputType = Literal["query", "document", "default"]
 
 

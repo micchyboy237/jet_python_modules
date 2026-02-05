@@ -1,16 +1,17 @@
 import json
 from collections.abc import Callable
-from typing import Literal, overload
+from typing import Literal, get_args, overload
 
 import tiktoken
-from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_VALUES
-from jet.adapters.llama_cpp.utils import resolve_model_value
+from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS, LLAMACPP_MODELS
+from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_TYPES, LLAMACPP_VALUES
+from jet.adapters.llama_cpp.utils import resolve_model_key, resolve_model_value
 from jet.logger import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
 
 def get_tokenizer(
-    model_name: LLAMACPP_VALUES | None = None,
+    model_name: LLAMACPP_TYPES | None = None,
 ) -> PreTrainedTokenizer | PreTrainedTokenizerFast | tiktoken.Encoding:
     """
     Get a tokenizer for a given model name, or fall back to tiktoken if none/model not found.
@@ -30,13 +31,13 @@ def get_tokenizer(
 
 
 def get_tokenizer_fn(
-    model_name: LLAMACPP_VALUES | None = None, add_special_tokens: bool = False
+    model_name: LLAMACPP_TYPES | None = None, add_special_tokens: bool = False
 ) -> Callable[[str | list[str], bool], list[int] | list[list[int]]]:
     """
     Returns a tokenizer function for the specified model that tokenizes input text.
 
     Args:
-        model_name (LLAMACPP_VALUES | None): The name of the model to get the tokenizer for. If None, uses tiktoken's "cl100k_base" tokenizer.
+        model_name (LLAMACPP_TYPES | None): The name of the model to get the tokenizer for. If None, uses tiktoken's "cl100k_base" tokenizer.
         add_special_tokens (bool, optional): Whether to add special tokens during tokenization. Defaults to False.
 
     Returns:
@@ -66,7 +67,7 @@ def get_tokenizer_fn(
 
 def tokenize(
     text: str | dict | list[str] | list[dict] = "",
-    model_name: LLAMACPP_VALUES | None = None,
+    model_name: LLAMACPP_TYPES | None = None,
     add_special_tokens: bool = False,
 ) -> list[int] | list[list[int]]:
     tokenizer = get_tokenizer(model_name)
@@ -191,3 +192,19 @@ def count_tokens(
     else:
         token_counts = [len(item) for item in tokenized]
         return sum(token_counts) if not prevent_total else token_counts
+
+
+def get_model_max_tokens(
+    model: LLAMACPP_TYPES,
+) -> int:
+    if model in LLAMACPP_MODELS:
+        return LLAMACPP_MODEL_CONTEXTS[model]
+    elif model in get_args(LLAMACPP_VALUES):
+        return LLAMACPP_MODEL_CONTEXTS[resolve_model_key(model)]
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model)
+        return tokenizer.model_max_length
+    except Exception:
+        encoding = tiktoken.get_encoding("cl100k_base")
+        return encoding.max_token_value

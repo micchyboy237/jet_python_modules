@@ -1,17 +1,14 @@
 import os
-from datetime import datetime, UTC
-from typing import Any, Literal, Optional, Union, List
-from pydantic import BaseModel
+from datetime import UTC, datetime
+from typing import Any, Literal
 
+from jet._token.token_utils import token_counter
 from jet.file.utils import save_file
 from jet.models.model_types import CompletionResponse, Message
 from jet.transformers.formatters import format_json
 from jet.transformers.object import make_serializable
 from jet.utils.inspect_utils import get_method_info
-from jet._token.token_utils import token_counter
-
-from shared.setup.events import EventSettings
-
+from pydantic import BaseModel
 
 ChatLoggerMethod = Literal["chat", "stream_chat", "generate", "stream_generate"]
 
@@ -27,22 +24,14 @@ class ChatLogger:
     """Handles logging of chat interactions to a specified directory."""
 
     def __init__(
-        self,
-        log_dir: str,
-        method: ChatLoggerMethod = "chat",
-        limit: Optional[int] = None
+        self, log_dir: str, method: ChatLoggerMethod = "chat", limit: int | None = None
     ):
         if method not in ALLOWED_METHODS:
             raise ValueError(
                 f"Invalid method '{method}'. Allowed methods are: {sorted(ALLOWED_METHODS)}"
             )
 
-        start_time = EventSettings.get_entry_time()
-        # Format start_time as "YYYYMMDD_HHMMSS" (no colons)
-        dt = datetime.fromisoformat(start_time)
-        formatted_start_time = dt.strftime("%Y%m%d_%H%M%S")
-
-        self.log_dir = os.path.join(log_dir, formatted_start_time)
+        self.log_dir = log_dir
         self.method = method
         self.limit = limit
         self.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -52,11 +41,11 @@ class ChatLogger:
 
     def log_interaction(
         self,
-        messages: Union[str, List[dict], List[Message]],
-        response: Union[str, CompletionResponse, List[CompletionResponse]],
+        messages: str | list[dict] | list[Message],
+        response: str | CompletionResponse | list[CompletionResponse],
         model: str,
-        method: Optional[ChatLoggerMethod] = None,
-        **kwargs: Any
+        method: ChatLoggerMethod | None = None,
+        **kwargs: Any,
     ) -> None:
         """Log prompt or messages and response to a timestamped file with additional metadata."""
         effective_method = method if method is not None else self.method
@@ -79,15 +68,15 @@ class ChatLogger:
                     tools[tool_idx] = get_method_info(tool_fn)
 
         # Initialize log_data with the specified keys in order
-        log_data = {
-            "model": model
-        }
+        log_data = {"model": model}
         if isinstance(messages, str):
             log_data["prompt"] = messages
         else:
             log_data["messages"] = messages.copy()
 
-        log_data["response"] = None  # Placeholder, will be updated after processing response
+        log_data["response"] = (
+            None  # Placeholder, will be updated after processing response
+        )
         log_data["tokens"] = {}  # Placeholder, will be updated after token calculation
 
         # Add remaining metadata
@@ -109,15 +98,21 @@ class ChatLogger:
                     formatted_usage["prompt_tokens"] = usage["prompt_tokens"]
                 if "prompt_tps" in usage:
                     val = usage["prompt_tps"]
-                    formatted_usage["prompt_tps"] = f"{val:.2f} tokens/sec" if isinstance(val, float) else val
+                    formatted_usage["prompt_tps"] = (
+                        f"{val:.2f} tokens/sec" if isinstance(val, float) else val
+                    )
                 if "completion_tokens" in usage:
                     formatted_usage["completion_tokens"] = usage["completion_tokens"]
                 if "completion_tps" in usage:
                     val = usage["completion_tps"]
-                    formatted_usage["completion_tps"] = f"{val:.2f} tokens/sec" if isinstance(val, float) else val
+                    formatted_usage["completion_tps"] = (
+                        f"{val:.2f} tokens/sec" if isinstance(val, float) else val
+                    )
                 if "peak_memory" in usage:
                     val = usage["peak_memory"]
-                    formatted_usage["peak_memory"] = f"{val:.2f} GB" if isinstance(val, float) else val
+                    formatted_usage["peak_memory"] = (
+                        f"{val:.2f} GB" if isinstance(val, float) else val
+                    )
                 if "total_tokens" in usage:
                     formatted_usage["total_tokens"] = usage["total_tokens"]
                 resp_copy["usage"] = formatted_usage
@@ -150,7 +145,7 @@ class ChatLogger:
         """Remove oldest files if log count exceeds the specified limit."""
         files = sorted(
             (f for f in os.listdir(self.log_dir) if f.endswith(".json")),
-            key=lambda f: f.split('_')[0]  # Sort by timestamp prefix
+            key=lambda f: f.split("_")[0],  # Sort by timestamp prefix
         )
 
         excess = len(files) - self.limit
