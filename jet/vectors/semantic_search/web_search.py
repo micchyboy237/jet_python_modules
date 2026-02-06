@@ -4,6 +4,7 @@ import asyncio
 import os
 import shutil
 from collections import defaultdict
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -413,6 +414,44 @@ class HybridSearchResult(TypedDict):
     all_htmls_with_status: HtmlStatus
 
 
+ScrapeEventType = Literal["started", "completed", "failed", ...]  # extend as needed
+
+
+class ScrapeEvent(TypedDict, total=False):
+    url: str
+    status: ScrapeEventType
+    html: str | None
+    error: Exception | str | None
+    # can be extended later: status_code, final_url, headers, ...
+
+
+async def visit_pages(
+    urls: list[str], *, show_progress: bool = True, **scrape_urls_kwargs
+) -> AsyncIterator[ScrapeEvent]:
+    """
+    Asynchronously visits multiple URLs and yields events for each stage.
+    Thin wrapper with better typing & extensibility point around scrape_urls.
+    """
+    async for url, status_enum, content in scrape_urls(
+        urls, show_progress=show_progress, **scrape_urls_kwargs
+    ):
+        status = (
+            status_enum.value if hasattr(status_enum, "value") else str(status_enum)
+        )
+
+        event: ScrapeEvent = {
+            "url": url,
+            "status": status,  # "started", "completed", ...
+        }
+
+        if status == "completed":
+            event["html"] = content
+        elif status in ("failed", "timeout", "error"):
+            event["error"] = content  # assuming scrape_urls yields error msg / exc
+
+        yield event
+
+
 async def hybrid_search(
     query: str,
     *,
@@ -435,7 +474,9 @@ async def hybrid_search(
 
     urls = [r["url"] for r in search_engine_results][:urls_limit]
 
-    html_list: list[str] = []
+    collected_htmls: dict[str, str | None] = {}
+    statuses: dict[str, ScrapeStatus | str] = {}
+
     header_docs: list[HeaderDoc] = []
     search_results: list[HeaderSearchResult] = []
 
@@ -451,23 +492,29 @@ async def hybrid_search(
     all_urls_with_low_scores = []
     all_htmls_with_status: HtmlStatus = {}
 
-    async for url, status, html in scrape_urls(urls, show_progress=True):
-        if html:
-            all_htmls_with_status[url] = {
-                "status": status,
-                "html": html,
-            }
+    async for event in visit_pages(urls, show_progress=True):
+        url = event["url"]
+        status = event["status"]
+
+        statuses[url] = status
 
         if status == "started":
             all_started_urls.append(url)
             continue
 
-        if status != "completed" or not html:
-            continue
+        if status == "completed" and event.get("html"):
+            html = event["html"]
+            collected_htmls[url] = html
+            all_completed_urls.append(url)
+            all_searched_urls.append(url)
+            # all_htmls_with_status[url] = {"status": status, "html": html}   # keep if still needed
+        else:
+            collected_htmls[url] = None
 
-        all_completed_urls.append(url)
-        html_list.append(html)
-        all_searched_urls.append(url)
+    for url in all_completed_urls:
+        html = collected_htmls.get(url)
+        if not html:
+            continue
 
         # ── Per-page saving removed ───────────────────────────────────────
         # sub_source_dir = ...

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
-from jet.libs.smolagents.utils.debug_saver import DebugSaver
+from jet.libs.smolagents.utils import DebugSaver
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from jet.vectors.semantic_search.web_search import hybrid_search
 from smolagents import Tool
