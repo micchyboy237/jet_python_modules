@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Union
 
 from black import (
     InvalidInput,
@@ -13,10 +12,8 @@ from black import (
     format_str,
 )
 
-StrOrPath = Union[str, Path]
 
-
-def format_python(code_or_path: StrOrPath, /) -> str:
+def format_python(code_or_path: str | Path, /) -> str:
     """
     Format Python code provided either as a string or as a file path.
 
