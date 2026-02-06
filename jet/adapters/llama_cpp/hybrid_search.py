@@ -42,9 +42,9 @@ class CategoryConfig:
         default_factory=lambda: [
             RelevanceCategory("Very Low", 0.000, 0),
             RelevanceCategory("Low", 0.025, 1),
-            RelevanceCategory("Medium", 0.060, 2),
-            RelevanceCategory("High", 0.095, 3),
-            RelevanceCategory("Very High", 0.140, 4),
+            RelevanceCategory("Medium", 0.050, 2),
+            RelevanceCategory("High", 0.075, 3),
+            RelevanceCategory("Very High", 0.110, 4),
         ]
     )
     mode: Literal["absolute", "relative"] = "absolute"  # ← most important change
@@ -207,7 +207,7 @@ class HybridSearch:
     sparse_weight: float = 1.0
     min_hybrid_score: float = 0.015
     category_config: CategoryConfig = field(
-        default_factory=lambda: RELATIVE_CATEGORY_CONFIG
+        default_factory=lambda: ABSOLUTE_CATEGORY_CONFIG
     )
 
     logger: CustomLogger | None = None
@@ -474,7 +474,7 @@ if __name__ == "__main__":
     # table.add_column("ID")
     table.add_column("Preview", style="dim")
 
-    for res in results:
+    for res in results[:10]:
         preview = res["text"][:80] + "..." if len(res["text"]) > 80 else res["text"]
         norm_str = (
             f"{res.get('normalized_hybrid', '-'):.3f}"
