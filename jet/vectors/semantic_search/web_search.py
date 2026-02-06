@@ -400,7 +400,8 @@ HtmlStatus = dict[str, HtmlStatusItem]
 class HybridSearchResult(TypedDict):
     query: str
     search_engine_results: list[dict]
-    collected_urls: list[str]
+    started_urls: list[str]
+    completed_urls: list[str]
     header_docs: list[HeaderDoc]
     all_search_results: list[HeaderSearchResult]  # before final filtering
     filtered_results: list[HeaderSearchResult]  # after token budget
@@ -505,9 +506,10 @@ async def hybrid_search(
         if status == "completed" and event.get("html"):
             html = event["html"]
             collected_htmls[url] = html
+
+            all_htmls_with_status[url] = {"status": status, "html": html}
             all_completed_urls.append(url)
             all_searched_urls.append(url)
-            # all_htmls_with_status[url] = {"status": status, "html": html}   # keep if still needed
         else:
             collected_htmls[url] = None
 
@@ -679,7 +681,6 @@ async def hybrid_search(
     return {
         "query": query,
         "search_engine_results": search_engine_results,
-        "collected_urls": all_completed_urls,
         "header_docs": header_docs,
         "all_search_results": search_results,
         "filtered_results": filtered_results,
@@ -711,6 +712,8 @@ async def hybrid_search(
             "chunk_overlap": chunk_overlap,
             "max_tokens": max_tokens,
         },
+        "started_urls": all_started_urls,
+        "completed_urls": all_completed_urls,
         "all_htmls_with_status": all_htmls_with_status,
     }
 
