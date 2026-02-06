@@ -399,49 +399,65 @@ class HybridSearch:
 # ────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    from pathlib import Path
+
+    from jet.code.extraction.html_sentence_extractor import html_to_sentences
+    from jet.file.utils import save_file
     from rich.console import Console
     from rich.table import Table
 
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+
     model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
 
-    docs_data = [
-        {
-            "id": "d1",
-            "content": "Hybrid vector search best practices 2025. Use RRF for combining BM25 and dense embeddings. Run both retrievers in parallel and fuse with reciprocal rank fusion...",
-        },
-        {
-            "id": "d2",
-            "content": "nomic-embed-text-v1.5 performance. Very fast on llama.cpp especially with Q5_K_M quantization. Low memory usage and excellent latency for local inference...",
-        },
-        {
-            "id": "d3",
-            "content": "Reciprocal Rank Fusion. Simple yet powerful fusion method used in Elastic, Weaviate, Azure Search, and many production RAG systems...",
-        },
-        {
-            "id": "d4",
-            "content": "Local embedding servers. llama.cpp provides OpenAI compatible API for embedding models like nomic-embed-text-v1.5. Easy to run on CPU/GPU...",
-        },
-        {
-            "id": "d5",
-            "content": "BM25 is still very strong. Especially good at rare terms, IDs, exact matches, product codes, and keyword precision in hybrid search...",
-        },
-    ]
+    # docs_data = [
+    #     {
+    #         "id": "d1",
+    #         "content": "Hybrid vector search best practices 2025. Use RRF for combining BM25 and dense embeddings. Run both retrievers in parallel and fuse with reciprocal rank fusion...",
+    #     },
+    #     {
+    #         "id": "d2",
+    #         "content": "nomic-embed-text-v1.5 performance. Very fast on llama.cpp especially with Q5_K_M quantization. Low memory usage and excellent latency for local inference...",
+    #     },
+    #     {
+    #         "id": "d3",
+    #         "content": "Reciprocal Rank Fusion. Simple yet powerful fusion method used in Elastic, Weaviate, Azure Search, and many production RAG systems...",
+    #     },
+    #     {
+    #         "id": "d4",
+    #         "content": "Local embedding servers. llama.cpp provides OpenAI compatible API for embedding models like nomic-embed-text-v1.5. Easy to run on CPU/GPU...",
+    #     },
+    #     {
+    #         "id": "d5",
+    #         "content": "BM25 is still very strong. Especially good at rare terms, IDs, exact matches, product codes, and keyword precision in hybrid search...",
+    #     },
+    # ]
 
-    ids = [doc["id"] for doc in docs_data]
-    documents = [doc["content"] for doc in docs_data]
+    # ids = [doc["id"] for doc in docs_data]
+    # documents = [doc["content"] for doc in docs_data]
+
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+
+    # Load HTML content from the specified file
+    html_file_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/vectors/semantic_search/generated/run_web_search/top_isekai_anime_2026/pages/gamerant_com_new_isekai_anime_2026/page.html"
+    with open(html_file_path, encoding="utf-8") as file:
+        html = file.read()
+
+    sentences = html_to_sentences(html)
+    documents = sentences
 
     hybrid = HybridSearch.from_documents(
         documents=documents,
-        ids=ids,
+        # ids=ids,
         model=model,
         # Example: use relative mode instead
         # category_config=RELATIVE_CATEGORY_CONFIG
     )
 
-    query = "fast local embeddings with llama.cpp"
+    query = "Top isekai anime 2026"
     results = hybrid.search(
         query,
-        top_k=5,
+        top_k=None,
         normalize_scores=True,  # adds normalized_hybrid field
         debug=True,
     )
@@ -478,3 +494,5 @@ if __name__ == "__main__":
         )
 
     console.print(table)
+
+    save_file(results, OUTPUT_DIR / "results.json")
