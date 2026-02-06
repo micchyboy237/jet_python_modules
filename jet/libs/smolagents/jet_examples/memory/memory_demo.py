@@ -146,19 +146,11 @@ def example_1_single_long_run() -> None:
     agent = create_research_agent()
 
     task = (
-        "As of February 2026, research what is currently the most popular / trending ongoing anime airing right now. "
-        "Focus on shows that are weekly and actively releasing new episodes. "
-        "Collect and consolidate the following information: "
-        "- Title (English & Japanese if relevant) "
-        "- Studio "
-        "- Current episode count (how many aired so far) "
-        "- Scheduled next episode date/time (if available) "
-        "- Streaming platform(s) "
-        "- Indicators of popularity (e.g. trending rank on X/Twitter, MyAnimeList, AniList, views, discussion volume) "
-        "Use search tools to get up-to-date information. "
-        "Store each major finding using update_consolidated_answer with clear keys. "
-        "At the end, update a key 'most_trending_ongoing_anime_feb_2026' with your final conclusion "
-        "including the top title and main reasons it is leading."
+        "Research the current (2026) most popular lightweight Python web framework "
+        "for building APIs (not full-stack websites). "
+        "Compare at least 3 candidates. "
+        "Update consolidated_answer 'best_lightweight_api_framework_2026' "
+        "with your final reasoned choice + short justification."
     )
 
     console.print(Panel(task, title="Task", border_style="cyan"))
@@ -211,11 +203,52 @@ def example_2_multi_call_iterative() -> None:
     console.print(get_all_consolidated_answers())
 
 
+def jet_example_1() -> None:
+    """Pattern A: one long .run() — agent consolidates internally over many steps."""
+    console.rule("Example 1 — Single long run")
+    agent = create_research_agent()
+
+    task = (
+        "As of February 07, 2026, research the **top 10 most popular / trending ongoing anime** that are currently airing "
+        "(weekly releases, active episodes this season – Winter 2026). "
+        "Focus on shows that have new episodes releasing right now or very recently. "
+        "\n\n"
+        "For each of at least 10 anime, try to collect: "
+        "- English title (and Japanese / Romaji if relevant) "
+        "- Studio / Production company "
+        "- Current episode count (how many episodes have aired so far in this season) "
+        "- Scheduled date/time of the next episode (if known and upcoming) "
+        "- Main streaming platform(s) (Crunchyroll, Netflix, HIDIVE, Amazon, etc.) "
+        "- Indicators of popularity (trending rank on X/Twitter, MyAnimeList score & members, AniList ranking, "
+        "  discussion volume, viewership estimates, social media buzz) "
+        "\n\n"
+        "Use search tools, seasonal charts, MyAnimeList, AniList, livechart.me, or similar sources to get accurate, up-to-date information. "
+        "Store findings using update_consolidated_answer with clear, consistent keys, for example: "
+        "  'anime_rank_1_title', 'anime_rank_1_current_episodes', 'anime_rank_1_next_episode', etc. "
+        "or structured keys like 'top_ongoing_anime_winter_2026' if storing multiple in one value. "
+        "\n\n"
+        "At the end, update the key 'top_10_ongoing_anime_feb_2026' with a concise ranked summary "
+        "(at least top 10 titles + brief reason for their position / popularity)."
+    )
+
+    console.print(Panel(task, title="Task", border_style="cyan"))
+
+    # Single call — memory grows inside the loop
+    result = agent.run(task, max_steps=18, reset=True)
+
+    console.print("\n[bold green]Final answer:[/bold green]")
+    console.print(result)
+
+    console.print("\n[bold]Consolidated store (from tool):[/bold]")
+    print(get_all_consolidated_answers())
+
+
 if __name__ == "__main__":
     console.print(
         "[bold green]smolagents memory + consolidation demo[/bold green] (2026 style)\n"
     )
 
     # Run both patterns
-    example_1_single_long_run()
+    # example_1_single_long_run()
     # example_2_multi_call_iterative()
+    jet_example_1()
