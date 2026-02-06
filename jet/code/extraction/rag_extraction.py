@@ -19,7 +19,8 @@ def extract_rag_contexts(text: Union[str, List[str]]) -> List[str]:
     for t in text:
         sentences = extract_sentences(t, use_gpu=True)
         for s in sentences:
-            if is_valid_s
+            # if is_valid_s
+            pass
 
 if __name__ == "__main__":
     extract_rag_contexts()

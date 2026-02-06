@@ -52,8 +52,8 @@ class TestRstCodeExtractor:
         # Given: An RST file with a Python code block
         expected: List[Dict[str, str]] = [
             {'type': 'python', 'code': 'print("Hello, World!")'},
-            {'type': 'python', 'code': '>>> from textblob import TextBlob\n>>> blob = TextBlob("Hello world")\n>>> blob.words\nWordList(['Hello', 'world'])'},
-            {'type': 'text', 'code': 'This is a plain text block'},
+            {'type': 'python', 'code': ">>> from textblob import TextBlob\n>>> blob = TextBlob(\"Hello world\")\n>>> blob.words\nWordList(['Hello', 'world'])"},
+            {'type': 'text', 'code': 'This is a plain text block'}
         ]
 
         # When: We extract code blocks
