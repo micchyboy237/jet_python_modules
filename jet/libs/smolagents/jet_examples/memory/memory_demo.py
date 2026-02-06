@@ -2,6 +2,8 @@
 from typing import Any
 
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
+from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from jet.libs.smolagents.utils.model_utils import create_local_model
 from rich.console import Console
 from rich.panel import Panel
@@ -115,6 +117,12 @@ def create_research_agent(
         get_all_consolidated_answers,
         add_debug_note,
         # Add real tools here in production, e.g. DuckDuckGoSearchTool(), etc.
+        SearXNGSearchTool(max_results=10),
+        VisitWebpageTool(
+            max_output_length=3800,
+            top_k=12,
+            chunk_target_tokens=450,
+        ),
     ]
 
     agent = CodeAgent(
@@ -138,11 +146,19 @@ def example_1_single_long_run() -> None:
     agent = create_research_agent()
 
     task = (
-        "Research the current (2026) most popular lightweight Python web framework "
-        "for building APIs (not full-stack websites). "
-        "Compare at least 3 candidates. "
-        "Update consolidated_answer 'best_lightweight_api_framework_2026' "
-        "with your final reasoned choice + short justification."
+        "As of February 2026, research what is currently the most popular / trending ongoing anime airing right now. "
+        "Focus on shows that are weekly and actively releasing new episodes. "
+        "Collect and consolidate the following information: "
+        "- Title (English & Japanese if relevant) "
+        "- Studio "
+        "- Current episode count (how many aired so far) "
+        "- Scheduled next episode date/time (if available) "
+        "- Streaming platform(s) "
+        "- Indicators of popularity (e.g. trending rank on X/Twitter, MyAnimeList, AniList, views, discussion volume) "
+        "Use search tools to get up-to-date information. "
+        "Store each major finding using update_consolidated_answer with clear keys. "
+        "At the end, update a key 'most_trending_ongoing_anime_feb_2026' with your final conclusion "
+        "including the top title and main reasons it is leading."
     )
 
     console.print(Panel(task, title="Task", border_style="cyan"))
@@ -202,4 +218,4 @@ if __name__ == "__main__":
 
     # Run both patterns
     example_1_single_long_run()
-    example_2_multi_call_iterative()
+    # example_2_multi_call_iterative()
