@@ -488,7 +488,7 @@ async def hybrid_search(
     llm_log_dir: Path | str | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
     llm_model: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    max_tokens: int = 4000,
+    max_tokens: int = 2500,
     urls_limit: int = 10,
     top_k: int | None = None,
     threshold: float = 0.0,
