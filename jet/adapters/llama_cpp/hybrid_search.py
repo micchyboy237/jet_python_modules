@@ -42,8 +42,8 @@ class CategoryConfig:
         default_factory=lambda: [
             RelevanceCategory("Very Low", 0.000, 0),
             RelevanceCategory("Low", 0.025, 1),
-            RelevanceCategory("Medium", 0.050, 2),
-            RelevanceCategory("High", 0.075, 3),
+            RelevanceCategory("Medium", 0.055, 2),
+            RelevanceCategory("High", 0.080, 3),
             RelevanceCategory("Very High", 0.110, 4),
         ]
     )
