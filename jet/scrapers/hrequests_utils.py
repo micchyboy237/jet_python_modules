@@ -1,41 +1,43 @@
-import requests
-import aiohttp
 import asyncio
-import sys
 import platform
+import sys
+from collections.abc import AsyncIterator
+from typing import Literal
+
+import aiohttp
+import requests
 from fake_useragent import UserAgent
-from typing import AsyncIterator, List, Literal, Optional, Tuple
-from jet.logger import logger
-from jet.scrapers.utils import scrape_links
 from jet.cache.redis.types import RedisConfigParams
 from jet.cache.redis.utils import RedisCache
+from jet.logger import logger
+from jet.scrapers.utils import scrape_links
 from tqdm.asyncio import tqdm_asyncio
 
-ScrapeStatus = Literal["started", "completed",
-                       "failed_no_html", "failed_error"]
+ScrapeStatus = Literal["started", "completed", "failed_no_html", "failed_error"]
 
 REDIS_CONFIG = RedisConfigParams(port=6379)
 cache = RedisCache(config=REDIS_CONFIG)
 
 
-def scrape_url_sync(url: str, timeout: Optional[float] = 5.0) -> Optional[str]:
+def scrape_url_sync(url: str, timeout: float | None = 5.0) -> str | None:
     cache_key = f"html:{url}"
     cached_content = cache.get(cache_key)
 
     if cached_content:
-        return cached_content['content']
+        return cached_content["content"]
 
     try:
         ua = UserAgent()
-        headers = {'User-Agent': ua.random}
+        headers = {"User-Agent": ua.random}
         response = requests.get(url, headers=headers, timeout=timeout)
         if response.status_code == 200:
             html_content = response.text
-            cache.set(cache_key, {'content': html_content}, ttl=3600)
+            cache.set(cache_key, {"content": html_content}, ttl=3600)
             return html_content
         else:
             logger.warning(
-                f"Failed: {url} - Status Code: {response.status_code}, Reason: {response.reason}")
+                f"Failed: {url} - Status Code: {response.status_code}, Reason: {response.reason}"
+            )
             return None
     except Exception as e:
         logger.error(f"Error fetching {url}: {str(e)}")
@@ -46,43 +48,47 @@ async def scrape_url(
     session: aiohttp.ClientSession,
     url: str,
     ua: UserAgent,
-    timeout: Optional[float] = 5.0,
-    max_retries: int = 1
-) -> Optional[str]:
+    timeout: float | None = 5.0,
+    max_retries: int = 1,
+) -> str | None:
     cache_key = f"html:{url}"
     cached_content = cache.get(cache_key)
 
     if cached_content:
-        return cached_content['content']
+        return cached_content["content"]
 
     attempt = 0
     while attempt <= max_retries:
         try:
-            headers = {'User-Agent': ua.random}
-            client_timeout = aiohttp.ClientTimeout(
-                total=timeout) if timeout else None
-            async with session.get(url, headers=headers, timeout=client_timeout) as response:
+            headers = {"User-Agent": ua.random}
+            client_timeout = aiohttp.ClientTimeout(total=timeout) if timeout else None
+            async with session.get(
+                url, headers=headers, timeout=client_timeout
+            ) as response:
                 if response.status == 200:
                     html_content = await response.text()
-                    cache.set(cache_key, {'content': html_content}, ttl=3600)
+                    cache.set(cache_key, {"content": html_content}, ttl=3600)
                     return html_content
                 else:
                     logger.warning(
-                        f"Failed: {url} - Status Code: {response.status}, Reason: {response.reason}")
+                        f"Failed: {url} - Status Code: {response.status}, Reason: {response.reason}"
+                    )
                     return None
         except asyncio.TimeoutError:
             logger.error(
-                f"Timeout fetching {url}: Exceeded {timeout} seconds (Attempt {attempt + 1}/{max_retries + 1})")
+                f"Timeout fetching {url}: Exceeded {timeout} seconds (Attempt {attempt + 1}/{max_retries + 1})"
+            )
             if attempt == max_retries:
                 return None
         except Exception as e:
             logger.error(
-                f"Error fetching {url}: {str(e)} (Attempt {attempt + 1}/{max_retries + 1})")
+                f"Error fetching {url}: {str(e)} (Attempt {attempt + 1}/{max_retries + 1})"
+            )
             if attempt == max_retries:
                 return None
 
         attempt += 1
-        delay = 2 ** attempt  # Exponential backoff: 2, 4, 8 seconds
+        delay = 2**attempt  # Exponential backoff: 2, 4, 8 seconds
         logger.info(f"Retrying {url} after {delay} seconds")
         await asyncio.sleep(delay)
 
@@ -90,19 +96,21 @@ async def scrape_url(
 
 
 async def scrape_urls(
-    urls: List[str],
+    urls: list[str],
     num_parallel: int = 10,
-    limit: Optional[int] = None,
+    limit: int | None = None,
     show_progress: bool = False,
-    timeout: Optional[float] = 5.0,
-    max_retries: int = 1
-) -> AsyncIterator[Tuple[str, ScrapeStatus, Optional[str]]]:
+    timeout: float | None = 5.0,
+    max_retries: int = 1,
+) -> AsyncIterator[tuple[str, ScrapeStatus, str | None]]:
     ua = UserAgent()
     semaphore = asyncio.Semaphore(num_parallel)
     completed_count = 0
     tasks = []
 
-    async def sem_fetch_and_yield(url: str, session: aiohttp.ClientSession, pbar=None) -> List[Tuple[str, ScrapeStatus, Optional[str]]]:
+    async def sem_fetch_and_yield(
+        url: str, session: aiohttp.ClientSession, pbar=None
+    ) -> list[tuple[str, ScrapeStatus, str | None]]:
         results = []
         results.append((url, "started", None))
         async with semaphore:
@@ -111,10 +119,8 @@ async def scrape_urls(
 
                 if pbar:
                     pbar.update(1)
-                    active_tasks = min(
-                        num_parallel, len(urls)) - semaphore._value
-                    pbar.set_description(
-                        f"Scraping URLs ({active_tasks} active)")
+                    active_tasks = min(num_parallel, len(urls)) - semaphore._value
+                    pbar.set_description(f"Scraping URLs ({active_tasks} active)")
 
                 if html:
                     results.append((url, "completed", html))
@@ -132,35 +138,67 @@ async def scrape_urls(
 
     async with aiohttp.ClientSession() as session:
         try:
-            coroutines = [sem_fetch_and_yield(url, session) for url in urls]
-
+            # ────────────────────────────────────────────────
+            #  Decide once whether we pass pbar or not
+            # ────────────────────────────────────────────────
             if show_progress:
-                with tqdm_asyncio(total=len(urls), desc=f"Scraping URLs ({min(num_parallel, len(urls))} active)", file=sys.stdout, mininterval=0.1) as pbar:
-                    coroutines = [sem_fetch_and_yield(
-                        url, session, pbar) for url in urls]
+                with tqdm_asyncio(
+                    total=len(urls),
+                    desc=f"Scraping URLs ({min(num_parallel, len(urls))} active)",
+                    file=sys.stdout,
+                    mininterval=0.1,
+                ) as pbar:
+                    coroutines = [
+                        sem_fetch_and_yield(url, session, pbar) for url in urls
+                    ]
+                    tasks = [asyncio.create_task(coro) for coro in coroutines]
 
-            tasks = [asyncio.create_task(coro) for coro in coroutines]
+                    for task in asyncio.as_completed(tasks):
+                        try:
+                            result_list = await task
+                            for item in result_list:
+                                yield item
+                                if item[1] == "completed":
+                                    completed_count += 1
+                                    if limit and completed_count >= limit:
+                                        logger.info(
+                                            f"Reached limit of {limit} completed URLs."
+                                        )
+                                        for t in tasks:
+                                            if not t.done():
+                                                t.cancel()
+                                        await asyncio.gather(
+                                            *tasks, return_exceptions=True
+                                        )
+                                        return
+                        except asyncio.CancelledError:
+                            logger.info("Task processing was cancelled")
+                            raise
+            else:
+                # No progress bar
+                coroutines = [sem_fetch_and_yield(url, session) for url in urls]
+                tasks = [asyncio.create_task(coro) for coro in coroutines]
 
-            for task in asyncio.as_completed(tasks):
-                try:
-                    result = await task
-                    for item in result:
-                        yield item
-                        if item[1] == "completed":
-                            completed_count += 1
-                            if limit and completed_count >= limit:
-                                logger.info(
-                                    f"Reached limit of {limit} completed URLs.")
-                                # Cancel all remaining tasks
-                                for t in tasks:
-                                    if not t.done():
-                                        t.cancel()
-                                # Wait for tasks to be cancelled
-                                await asyncio.gather(*tasks, return_exceptions=True)
-                                return
-                except asyncio.CancelledError:
-                    logger.info("Task processing was cancelled")
-                    raise
+                for task in asyncio.as_completed(tasks):
+                    try:
+                        result_list = await task
+                        for item in result_list:
+                            yield item
+                            if item[1] == "completed":
+                                completed_count += 1
+                                if limit and completed_count >= limit:
+                                    logger.info(
+                                        f"Reached limit of {limit} completed URLs."
+                                    )
+                                    for t in tasks:
+                                        if not t.done():
+                                            t.cancel()
+                                    await asyncio.gather(*tasks, return_exceptions=True)
+                                    return
+                    except asyncio.CancelledError:
+                        logger.info("Task processing was cancelled")
+                        raise
+
         except asyncio.CancelledError:
             logger.info("Scrape_urls was cancelled, cleaning up tasks")
             for task in tasks:
@@ -169,7 +207,6 @@ async def scrape_urls(
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
         finally:
-            # Ensure all tasks are cancelled and awaited before session closes
             for task in tasks:
                 if not task.done():
                     task.cancel()
@@ -177,13 +214,13 @@ async def scrape_urls(
 
 
 def scrape_urls_sync(
-    urls: List[str],
+    urls: list[str],
     num_parallel: int = 10,
-    limit: Optional[int] = None,
+    limit: int | None = None,
     show_progress: bool = False,
-    timeout: Optional[float] = 5.0,
-    max_retries: int = 1
-) -> List[Tuple[str, ScrapeStatus, Optional[str]]]:
+    timeout: float | None = 5.0,
+    max_retries: int = 1,
+) -> list[tuple[str, ScrapeStatus, str | None]]:
     """
     Synchronously scrape multiple URLs while leveraging async parallel capabilities.
     Handles event loop creation for both standard Python and Pyodide (Emscripten).
@@ -199,10 +236,10 @@ def scrape_urls_sync(
     Returns:
         List of tuples containing (url, status, html_content)
     """
+
     async def run_scraper():
         return await consume_generator(
-            scrape_urls(urls, num_parallel, limit,
-                        show_progress, timeout, max_retries)
+            scrape_urls(urls, num_parallel, limit, show_progress, timeout, max_retries)
         )
 
     if platform.system() == "Emscripten":
@@ -224,7 +261,9 @@ def scrape_urls_sync(
                 loop.close()
 
 
-async def consume_generator(gen: AsyncIterator[Tuple[str, ScrapeStatus, Optional[str]]]) -> List[Tuple[str, ScrapeStatus, Optional[str]]]:
+async def consume_generator(
+    gen: AsyncIterator[tuple[str, ScrapeStatus, str | None]],
+) -> list[tuple[str, ScrapeStatus, str | None]]:
     return [item async for item in gen]
 
 
@@ -234,12 +273,7 @@ def main(urls):
     """
     # Use the synchronous scrape_urls_sync function to get results
     results = scrape_urls_sync(
-        urls,
-        num_parallel=3,
-        limit=5,
-        show_progress=True,
-        timeout=5.0,
-        max_retries=3
+        urls, num_parallel=3, limit=5, show_progress=True, timeout=5.0, max_retries=3
     )
     html_list = []
     for url, status, html in results:
@@ -247,25 +281,25 @@ def main(urls):
             if not html:
                 continue
             all_links = scrape_links(html, base_url=url)
-            logger.success(
-                f"Scraped {url}, links count: {len(all_links)}"
-            )
+            logger.success(f"Scraped {url}, links count: {len(all_links)}")
             html_list.append(html)
     logger.info(f"Done sync scraped {len(html_list)} htmls")
 
 
 async def amain(urls):
     html_list = []
-    async for url, status, html in scrape_urls(urls, num_parallel=3, limit=5, show_progress=True, timeout=5.0, max_retries=3):
+    async for url, status, html in scrape_urls(
+        urls, num_parallel=3, limit=5, show_progress=True, timeout=5.0, max_retries=3
+    ):
         if status == "completed":
             if not html:
                 continue
             all_links = scrape_links(html, base_url=url)
-            logger.success(
-                f"Scraped {url}, links count: {len(all_links)}")
+            logger.success(f"Scraped {url}, links count: {len(all_links)}")
             html_list.append(html)
 
     logger.info(f"Done async scraped {len(html_list)} htmls")
+
 
 if __name__ == "__main__":
     urls = [
