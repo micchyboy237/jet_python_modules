@@ -43,7 +43,7 @@ class CategoryConfig:
             RelevanceCategory("Very Low", 0.000, 0),
             RelevanceCategory("Low", 0.025, 1),
             RelevanceCategory("Medium", 0.060, 2),
-            RelevanceCategory("High", 0.085, 3),
+            RelevanceCategory("High", 0.075, 3),
             RelevanceCategory("Very High", 0.110, 4),
         ]
     )
