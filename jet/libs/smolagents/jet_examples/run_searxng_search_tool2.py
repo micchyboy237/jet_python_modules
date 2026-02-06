@@ -2,7 +2,7 @@
 import shutil
 from pathlib import Path
 
-from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
+from jet.libs.smolagents.tools.searxng_search_tool2 import SearXNGSearchTool
 from jet.libs.smolagents.utils import create_local_model
 from smolagents import LogLevel, ToolCallingAgent
 
