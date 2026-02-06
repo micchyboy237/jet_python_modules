@@ -1,217 +1,88 @@
-from typing import Optional
-import datetime
+from datetime import datetime
 
-from smolagents import (
-    CodeAgent,
-    ToolCallingAgent,
-    tool,
-    WebSearchTool,
-    VisitWebpageTool,
-    OpenAIModel,
-    load_tool,
-)
-
-# ───────────────────────────────────────────────
-#            Local model factory (as given)
-# ───────────────────────────────────────────────
-def create_local_model(
-    temperature: float = 0.7,
-    max_tokens: Optional[int] = 2048,
-    model_id: str = "local-model",
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        base_url="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+from jet.libs.smolagents.utils.model_utils import create_local_model
+from smolagents import tool
 
 
-# ───────────────────────────────────────────────
-#        Example: Better-designed tool (with logging & clear format)
-# ───────────────────────────────────────────────
+def get_weather_report_at_coordinates(coordinates, date_time):
+    # Dummy function, returns a list of [temperature in °C, risk of rain on a scale 0-1, wave height in m]
+    return [28.0, 0.35, 0.85]
+
+
+def convert_location_to_coordinates(location):
+    # Returns dummy coordinates
+    return [3.3, -42.0]
+
+
 @tool
-def get_weather_report(location: str, date_time_str: str) -> str:
+def get_weather_api(location: str, date_time: str) -> str:
     """
-    Get weather information for a surf spot.
+    Returns the weather report.
 
     Args:
-        location: Place name, preferably "spot, city, country" format
-                  Example: "Anchor Point, Taghazout, Morocco"
-        date_time_str: Date and time in format 'YYYY-MM-DD HH:MM'
-                       (24-hour clock)
-
-    Returns:
-        Formatted weather string with temperature, rain risk, wave height
+        location: the name of the place that you want the weather for. Should be a place name, followed by possibly a city name, then a country, like "Anchor Point, Taghazout, Morocco".
+        date_time: the date and time for which you want the report, formatted as '%m/%d/%y %H:%M:%S'.
     """
-    # Dummy implementation — replace with real API
+    lon, lat = convert_location_to_coordinates(location)
     try:
-        dt = datetime.datetime.strptime(date_time_str, "%Y-%m-%d %H:%M")
-    except ValueError as e:
-        error_msg = (
-            f"Date/time format error. Use 'YYYY-MM-DD HH:MM'. "
-            f"Received: '{date_time_str}'. Original error: {str(e)}"
-        )
-        print(error_msg)
-        raise ValueError(error_msg)
-
-    print(f"Fetching weather for {location} at {dt}")
-
-    # Dummy values
-    temp_c = 27.8
-    rain_prob = 0.22
-    wave_m = 1.4
-
-    result = (
-        f"Weather report for {location} on {dt:%Y-%m-%d %H:%M}:\n"
-        f"• Temperature: {temp_c} °C\n"
-        f"• Rain probability: {rain_prob*100:.0f}%\n"
-        f"• Wave height: {wave_m} m"
-    )
-    print(result)
-    return result
-
-
-# ───────────────────────────────────────────────
-#                   DEMO FUNCTIONS
-# ───────────────────────────────────────────────
-
-def demo_01_simple_local_agent_with_guidance():
-    """Demo 1: Basic local agent + custom instructions for clarity"""
-    model = create_local_model(temperature=0.65, max_tokens=3072)
-
-    agent = CodeAgent(
-        tools=[],
-        model=model,
-        instructions=(
-            "You are a precise calculator agent. "
-            "Always show intermediate steps with print(). "
-            "Use final_answer() only with the final numeric result."
-        )
-    )
-
-    result = agent.run("What is (17**8 + 94321) mod 10000019 ? Show steps.")
-    print("Result:", result)
-
-
-def demo_02_local_agent_with_better_tool():
-    """Demo 2: Using a well-designed tool (logging + strict format)"""
-    model = create_local_model(temperature=0.7, max_tokens=4096)
-
-    agent = CodeAgent(
-        tools=[get_weather_report],
-        model=model,
-        instructions="Use the weather tool with correct date format 'YYYY-MM-DD HH:MM'"
-    )
-
-    result = agent.run(
-        "What will be the wave height in Jeffreys Bay, South Africa tomorrow at 09:00?"
-    )
-    print("Final weather report:", result)
-
-
-def demo_03_local_hierarchical_with_planning():
-    """Demo 3: Manager + sub-agent + planning step every 4 actions"""
-    model = create_local_model(temperature=0.68, max_tokens=4096)
-
-    researcher = ToolCallingAgent(
-        tools=[WebSearchTool(), VisitWebpageTool()],
-        model=model,
-        name="researcher",
-        description="Performs web searches and reads pages when needed"
-    )
-
-    manager = CodeAgent(
-        model=model,
-        tools=[],
-        managed_agents=[researcher],
-        planning_interval=4,           # ← activates planning every 4 steps
-        instructions=(
-            "You are a coordinating agent. "
-            "Delegate research questions to the 'researcher' agent. "
-            "Use planning steps to reflect on progress."
-        )
-    )
-
-    result = manager.run(
-        "If US real GDP grew 2.8% in 2024, how many years to double at that rate?"
-    )
-    print("Doubling time estimate:", result)
-
-
-def demo_04_local_with_additional_args():
-    """Demo 4: Passing extra context via additional_args"""
-    model = create_local_model(temperature=0.7)
-
-    agent = CodeAgent(
-        tools=[],
-        model=model,
-        instructions="You can use variables passed via additional_args directly in your code."
-    )
-
-    extra_context = {
-        "reference_mp3": "https://example.com/surf_conditions_2025.mp3",
-        "preferred_spots": ["Supertubes", "Mundaka", "Pipeline"],
-    }
-
-    result = agent.run(
-        "Which of the preferred spots would be best tomorrow based on typical winter conditions?",
-        additional_args=extra_context
-    )
-    print(result)
-
-
-def demo_05_local_with_image_generation_and_planning():
-    """Demo 5: Planning + image generation tool from hub"""
-    model = create_local_model(temperature=0.72, max_tokens=5120)
-
-    # Example loading a community tool (text-to-image)
-    try:
-        image_gen_tool = load_tool("m-ric/text-to-image", trust_remote_code=True)
+        date_time = datetime.strptime(date_time)
     except Exception as e:
-        print("Could not load image tool:", e)
-        image_gen_tool = None
-
-    agent = CodeAgent(
-        tools=[image_gen_tool] if image_gen_tool else [],
-        model=model,
-        planning_interval=3,  # Think about next steps every 3 actions
-        instructions="When asked for images, use the image generation tool and return the path."
+        raise ValueError(
+            "Conversion of `date_time` to datetime format failed, make sure to provide a string in format '%m/%d/%y %H:%M:%S'. Full trace:"
+            + str(e)
+        )
+    temperature_celsius, risk_of_rain, wave_height = get_weather_report_at_coordinates(
+        (lon, lat), date_time
     )
-
-    result = agent.run("Generate a picture of a perfect point break at sunset in Morocco")
-    print("Execution result:", result)
+    return f"Weather report for {location}, {date_time}: Temperature will be {temperature_celsius}°C, risk of rain is {risk_of_rain * 100:.0f}%, wave height is {wave_height}m."
 
 
-def demo_06_minimal_langfuse_traced_local_agent():
-    """Demo 6: Local + Langfuse tracing (minimal)"""
-    from openinference.instrumentation.smolagents import SmolagentsInstrumentor
+from smolagents import CodeAgent
 
-    # Activate tracing
-    SmolagentsInstrumentor().instrument()
+model_id = "meta-llama/Llama-3.3-70B-Instruct"
 
-    model = create_local_model(temperature=0.7)
+model = create_local_model(agent_name="agent_1")
+agent = CodeAgent(tools=[], model=model, add_base_tools=True)
 
-    agent = ToolCallingAgent(
-        model=model,
-        tools=[WebSearchTool(), VisitWebpageTool()],
-        name="traced-web-agent"
-    )
+agent.run(
+    "Why does Mike not know many people in New York?",
+    additional_args={
+        "mp3_sound_file_url": "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/recording.mp3"
+    },
+)
 
-    agent.run("What is the current world record for biggest wave ever surfed?")
+print(agent.prompt_templates["system_prompt"])
 
+agent.prompt_templates["system_prompt"] = (
+    agent.prompt_templates["system_prompt"] + "\nHere you go!"
+)
 
-# ───────────────────────────────────────────────
-#                      Usage
-# ───────────────────────────────────────────────
+model = create_local_model(agent_name="agent_2")
+agent = CodeAgent(
+    tools=[],
+    model=model,
+    instructions="Always talk like a 5 year old.",
+)
 
-if __name__ == "__main__":
-    # Uncomment the one(s) you want to run
-    # demo_01_simple_local_agent_with_guidance()
-    # demo_02_local_agent_with_better_tool()
-    # demo_03_local_hierarchical_with_planning()
-    # demo_04_local_with_additional_args()
-    demo_05_local_with_image_generation_and_planning()
-    # demo_06_minimal_langfuse_traced_local_agent()
+from dotenv import load_dotenv
+from smolagents import CodeAgent, WebSearchTool, load_tool
+
+load_dotenv()
+
+# Import tool from Hub
+image_generation_tool = load_tool("m-ric/text-to-image", trust_remote_code=True)
+
+search_tool = WebSearchTool()
+
+model = create_local_model(agent_name="agent_3")
+
+agent = CodeAgent(
+    tools=[search_tool, image_generation_tool],
+    model=model,
+    planning_interval=3,  # This is where you activate planning!
+)
+
+# Run it!
+result = agent.run(
+    "How long would a cheetah at full speed take to run the length of Pont Alexandre III?",
+)
