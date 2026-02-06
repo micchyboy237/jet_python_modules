@@ -4,7 +4,6 @@ import asyncio
 import os
 import shutil
 from collections import defaultdict
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -71,10 +70,6 @@ Rules:
 • Ignore ads, menus, footers, boilerplate
 • Use bullets, never long paragraphs without breaks
 """
-
-TARGET_CONTEXT_TOKENS = 5800  # leave ~1500–2500 tokens for prompt + generation
-MAX_TOKENS_PER_HIGH_SOURCE = 2200
-MAX_TOKENS_PER_MEDIUM_SOURCE = 1200
 
 HIGH_QUALITY_SCORE = 0.6
 MEDIUM_QUALITY_SCORE = 0.4
@@ -165,15 +160,16 @@ def sort_search_results_by_url_and_category(
 def group_results_by_source_for_llm_context(
     results: list[HeaderSearchResult],
     llm_model: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    max_context_tokens: int = TARGET_CONTEXT_TOKENS,
 ) -> str:
+    def strip_hashtags(text: str) -> str:
+        if text:
+            return text.lstrip("#").strip()
+        return text
+
+    # Initialize tokenizer
     tokenize = get_tokenizer_fn(llm_model, add_special_tokens=False)
     separator = "\n\n"
     separator_tokens = len(tokenize(separator))
-
-    # ── NEW: track global consumption ────────────────────────
-    used_tokens = 0
-    context_blocks = []
 
     # Calculate high and medium score tokens per URL
     url_score_tokens = defaultdict(
@@ -190,6 +186,7 @@ def group_results_by_source_for_llm_context(
                 "num_tokens", 0
             )
 
+    # Sort URLs by high_score_tokens, then medium_score_tokens (descending)
     sorted_urls = sorted(
         url_score_tokens.keys(),
         key=lambda url: (
@@ -199,35 +196,20 @@ def group_results_by_source_for_llm_context(
         reverse=True,
     )
 
+    # Group results by URL and sort within each URL by score
     grouped_temp: defaultdict[str, list[HeaderSearchResult]] = defaultdict(list)
+    seen_header_text: defaultdict[str, set[str]] = defaultdict(set)
     for result in results:
         url = result["metadata"].get("source", "Unknown")
         grouped_temp[url].append(result)
 
-    seen_headers_global: dict[str, set[str]] = defaultdict(set)  # per source
-
+    context_blocks = []
     for url in sorted_urls:
-        if used_tokens >= max_context_tokens:
-            break
-
         docs = sorted(grouped_temp[url], key=lambda x: x["score"], reverse=True)
-
-        is_high_dominant = (
-            url_score_tokens[url]["high_score_tokens"]
-            >= url_score_tokens[url]["medium_score_tokens"] * 1.5
-        )
-
-        per_source_budget = (
-            MAX_TOKENS_PER_HIGH_SOURCE
-            if is_high_dominant
-            else MAX_TOKENS_PER_MEDIUM_SOURCE
-        )
-
-        source_used = 0
         block = f"<!-- Source: {url} -->\n\n"
-        seen_headers = set()
+        seen_header_text_in_block = set()
 
-        # ── Simplify header logic significantly ────────────────
+        # Group by doc_index and header to handle overlaps
         grouped_by_header: defaultdict[tuple[int, str], list[HeaderSearchResult]] = (
             defaultdict(list)
         )
@@ -238,21 +220,60 @@ def group_results_by_source_for_llm_context(
                 x["metadata"].get("start_idx", 0),
             ),
         ):
+            doc_index = doc["metadata"].get("doc_index", 0)
             header = doc.get("header", "") or ""
-            grouped_by_header[(doc["metadata"].get("doc_index", 0), header)].append(doc)
+            grouped_by_header[(doc_index, header)].append(doc)
 
         for (doc_index, header), chunks in grouped_by_header.items():
-            header_clean = header.strip("# ").strip()
-            if not header_clean:
-                header_clean = "(no header)"
+            parent_header = chunks[0].get("parent_header", "None")
+            parent_level = chunks[0]["metadata"].get("parent_level", None)
+            doc_level = (
+                chunks[0]["metadata"].get("level", 0)
+                if chunks[0]["metadata"].get("level") is not None
+                else 0
+            )
+            parent_header_key = (
+                strip_hashtags(parent_header)
+                if parent_header and parent_header != "None"
+                else None
+            )
+            header_key = strip_hashtags(header) if header else None
 
-            # Only add header once per unique cleaned header per source
-            if header_clean not in seen_headers:
+            # Check for matching child headers to avoid redundant parent headers
+            has_matching_child = any(
+                strip_hashtags(d.get("header", "")) == parent_header_key
+                for d in docs
+                if d.get("header") and d["metadata"].get("level", 0) >= 0
+            )
+
+            # Check if parent_header appears as a header in any other chunk within the same source
+            has_matching_child = any(
+                strip_hashtags(d.get("header", "")) == parent_header_key
+                for d in docs
+                if d.get("header") and strip_hashtags(d.get("header", "")) != header_key
+            )
+
+            # Add parent header only if it appears as a header in another chunk and hasn't been added
+            if (
+                parent_header_key
+                and parent_level is not None
+                and has_matching_child
+                and parent_header_key not in seen_header_text_in_block
+            ):
+                block += f"{parent_header}\n\n"
+                seen_header_text_in_block.add(parent_header_key)
+
+            # Add header if it hasn't been added
+            if (
+                header_key
+                and header_key not in seen_header_text_in_block
+                and doc_level >= 0
+            ):
                 block += f"{header}\n\n"
-                seen_headers.add(header_clean)
-                seen_headers_global[url].add(header_clean)
+                seen_header_text_in_block.add(header_key)
+                seen_header_text[url].add(header_key)
 
-            # Merge chunks (keep existing merge logic, but truncate earlier if needed)
+            # Sort chunks by start_idx and merge overlapping or adjacent chunks
             chunks.sort(key=lambda x: x["metadata"]["start_idx"])
             merged_content = ""
             start_idx = chunks[0]["metadata"]["start_idx"]
@@ -280,55 +301,25 @@ def group_results_by_source_for_llm_context(
                     end_idx = max(end_idx, next_end)
                 else:
                     # Append merged content to block
-                    candidate = merged_content + "\n\n"
-                    candidate_tokens = len(tokenize(candidate))
-
-                    if source_used + candidate_tokens > per_source_budget:
-                        # optional: could truncate content here instead of skipping
-                        merged_content = next_content
-                        start_idx = next_start
-                        end_idx = next_end
-                        continue
-
-                    if (
-                        used_tokens + source_used + candidate_tokens + separator_tokens
-                        > max_context_tokens
-                    ):
-                        break  # stop this source and all following
-
-                    block += candidate
-                    source_used += candidate_tokens
+                    block += merged_content + "\n\n"
                     # Start new merged chunk
                     merged_content = next_content
                     start_idx = next_start
                     end_idx = next_end
 
-            # Append the last merged chunk if not already added up to per_source_budget or global tokens
-            candidate = merged_content + "\n\n"
-            candidate_tokens = len(tokenize(candidate))
+            # Append the last merged chunk
+            block += merged_content + "\n\n"
 
-            if (
-                source_used + candidate_tokens <= per_source_budget
-                and used_tokens + source_used + candidate_tokens + separator_tokens
-                <= max_context_tokens
-            ):
-                block += candidate
-                source_used += candidate_tokens
-
-        # only add block if meaningful content was added
         block_tokens = len(tokenize(block))
-        if block_tokens > len(tokenize(f"<!-- Source: {url} -->\n\n")) + 30:
-            block_sep_tokens = len(tokenize(block + separator))
-            if used_tokens + block_sep_tokens <= max_context_tokens:
-                context_blocks.append(block.strip())
-                used_tokens += block_sep_tokens
-            else:
-                break
+        if block_tokens > len(tokenize(f"<!-- Source: {url} -->\n\n")):
+            context_blocks.append(block.strip())
+        else:
+            logger.warning(f"Empty block for {url} after processing; skipping.")
 
-    result = separator.join(context_blocks).strip()
+    result = "\n\n".join(context_blocks)
     final_token_count = len(tokenize(result))
-    logger.info(
-        f"Final grouped context: {final_token_count} tokens across {len(context_blocks)} sources"
+    logger.debug(
+        f"Grouped context created with {final_token_count} tokens for {len(grouped_temp)} sources"
     )
     return result
 
@@ -408,7 +399,7 @@ HtmlStatus = dict[str, HtmlStatusItem]
 class HybridSearchResult(TypedDict):
     query: str
     search_engine_results: list[dict]
-    completed_urls: list[str]
+    collected_urls: list[str]
     header_docs: list[HeaderDoc]
     all_search_results: list[HeaderSearchResult]  # before final filtering
     filtered_results: list[HeaderSearchResult]  # after token budget
@@ -420,44 +411,6 @@ class HybridSearchResult(TypedDict):
     url_stats: list[UrlTokenStat]
     settings: dict[str, Any]
     all_htmls_with_status: HtmlStatus
-
-
-ScrapeEventType = Literal["started", "completed", "failed", ...]  # extend as needed
-
-
-class ScrapeEvent(TypedDict, total=False):
-    url: str
-    status: ScrapeEventType
-    html: str | None
-    error: Exception | str | None
-    # can be extended later: status_code, final_url, headers, ...
-
-
-async def visit_pages(
-    urls: list[str], *, show_progress: bool = True, **scrape_urls_kwargs
-) -> AsyncIterator[ScrapeEvent]:
-    """
-    Asynchronously visits multiple URLs and yields events for each stage.
-    Thin wrapper with better typing & extensibility point around scrape_urls.
-    """
-    async for url, status_enum, content in scrape_urls(
-        urls, show_progress=show_progress, **scrape_urls_kwargs
-    ):
-        status = (
-            status_enum.value if hasattr(status_enum, "value") else str(status_enum)
-        )
-
-        event: ScrapeEvent = {
-            "url": url,
-            "status": status,  # "started", "completed", ...
-        }
-
-        if status == "completed":
-            event["html"] = content
-        elif status in ("failed", "timeout", "error"):
-            event["error"] = content  # assuming scrape_urls yields error msg / exc
-
-        yield event
 
 
 async def hybrid_search(
@@ -482,9 +435,7 @@ async def hybrid_search(
 
     urls = [r["url"] for r in search_engine_results][:urls_limit]
 
-    collected_htmls: dict[str, str | None] = {}
-    statuses: dict[str, ScrapeStatus | str] = {}
-
+    html_list: list[str] = []
     header_docs: list[HeaderDoc] = []
     search_results: list[HeaderSearchResult] = []
 
@@ -500,33 +451,23 @@ async def hybrid_search(
     all_urls_with_low_scores = []
     all_htmls_with_status: HtmlStatus = {}
 
-    async for event in visit_pages(urls, show_progress=True):
-        url = event["url"]
-        status = event["status"]
-        html = event.get("html")
-
-        statuses[url] = status
-
-        if status == "started":
-            all_started_urls.append(url)
-            continue
-
-        if status == "completed" and html:
-            collected_htmls[url] = html
+    async for url, status, html in scrape_urls(urls, show_progress=True):
+        if html:
             all_htmls_with_status[url] = {
                 "status": status,
                 "html": html,
             }
 
-            all_completed_urls.append(url)
-            all_searched_urls.append(url)
-        else:
-            collected_htmls[url] = None
-
-    for url in all_completed_urls:
-        html = collected_htmls.get(url)
-        if not html:
+        if status == "started":
+            all_started_urls.append(url)
             continue
+
+        if status != "completed" or not html:
+            continue
+
+        all_completed_urls.append(url)
+        html_list.append(html)
+        all_searched_urls.append(url)
 
         # ── Per-page saving removed ───────────────────────────────────────
         # sub_source_dir = ...
@@ -685,14 +626,13 @@ async def hybrid_search(
     for chunk in llm_response_stream:
         llm_response += chunk
 
-    input_tokens = count_tokens(messages, llm_model)
+    input_tokens = count_tokens(prompt, llm_model)
     output_tokens = count_tokens(llm_response, llm_model)
 
     return {
         "query": query,
         "search_engine_results": search_engine_results,
-        "started_urls": all_started_urls,
-        "completed_urls": all_completed_urls,
+        "collected_urls": all_completed_urls,
         "header_docs": header_docs,
         "all_search_results": search_results,
         "filtered_results": filtered_results,
