@@ -41,7 +41,7 @@ def create_plan_interrupt_callback(
 ) -> Callable:
     """
     Factory that returns a step callback for PlanningStep.
-    Pauses execution, shows the plan, lets user approve/edit/cancel.
+    Pauses execution, shows the plan (line by line), lets user approve/edit/cancel.
     """
 
     def interrupt_after_plan(step: PlanningStep, agent: CodeAgent) -> None:
@@ -59,8 +59,20 @@ def create_plan_interrupt_callback(
 
         print("\nProposed plan:")
         print("-" * 60)
-        for i, action in enumerate(step.plan, 1):
-            print(f"{i:2d}. {action}")
+
+        # Fix 1: split into lines instead of characters
+        plan_lines = step.plan.splitlines()
+        if not plan_lines:
+            print("  (empty plan)")
+        else:
+            for i, line in enumerate(plan_lines, 1):
+                # Optional: skip completely empty lines or show as-is
+                stripped = line.strip()
+                if stripped:
+                    print(f"{i:2d}. {stripped}")
+                else:
+                    print(f"{i:2d}. (empty line)")
+
         print("-" * 60)
 
         while True:
@@ -78,14 +90,16 @@ def create_plan_interrupt_callback(
             elif choice == "2" and allow_edit:
                 print("\nEnter the new plan (one action per line).")
                 print("End input with empty line + Enter.\n")
-                new_plan = []
+                new_plan_lines = []
                 while True:
-                    line = input("> ").strip()
-                    if not line:
+                    line = input("> ").rstrip()  # preserve indentation if any
+                    if not line.strip():  # empty or whitespace-only line ends input
                         break
-                    new_plan.append(line)
-                if new_plan:
-                    step.plan = new_plan
+                    new_plan_lines.append(line)
+
+                if new_plan_lines:
+                    # Fix 2: join back to single string (preserve newlines)
+                    step.plan = "\n".join(new_plan_lines).strip()
                     print("\n→ Plan updated.")
                 else:
                     print("→ No changes made.")

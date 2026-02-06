@@ -1,9 +1,12 @@
-
 import json
-import pyperclip
 from typing import Any
+
+import pyperclip
 from jet.transformers.object import make_serializable
-from jet.logger import logger
+from rich.console import Console
+
+console = Console()
+
 
 def copy_to_clipboard(text: Any) -> None:
     """
@@ -16,15 +19,17 @@ def copy_to_clipboard(text: Any) -> None:
             text = json.dumps(text, indent=2, ensure_ascii=False)
 
         pyperclip.copy(text)
-        logger.log("[bold green]Copied to clipboard[/] (via pyperclip)", len(text), "chars")
+        console.log(
+            f"[bold green]Copied to clipboard[/] (via pyperclip) ({len(text)} chars)"
+        )
     except Exception as e:
-        logger.print_exception()
+        console.print_exception()
         raise RuntimeError(f"Failed to copy to clipboard: {e}")
-
 
 
 def copy_test_result(result, expected, **kwargs):
     import inspect
+
     func_name = inspect.currentframe().f_back.f_code.co_name
 
     # Format additional kwargs if provided

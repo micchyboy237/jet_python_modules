@@ -6,7 +6,8 @@ based on the official guided tour
 Last major update pattern: early 2025
 """
 
-import os
+from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.libs.smolagents.custom_models import OpenAIModel
 
 # ───────────────────────────────────────────────
 #   Choose which model backends you want to support
@@ -107,40 +108,23 @@ class MostDownloadedModelTool(Tool):
 # ───────────────────────────────────────────────
 
 
+def create_local_model(
+    temperature: float = 0.4,
+    max_tokens: int | None = 8000,
+    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
+    agent_name: str | None = None,
+) -> OpenAIModel:
+    """Factory for creating consistently configured local llama.cpp model."""
+    return OpenAIModel(
+        model_id=model_id,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        agent_name=agent_name,
+    )
+
+
 def create_model() -> object | None:
-    token = os.getenv("HF_TOKEN") or "<put-your-hf-token-here>"
-
-    if SUPPORT_INFERENCE_CLIENT:
-        try:
-            return InferenceClientModel(
-                model_id="Qwen/Qwen2.5-Coder-32B-Instruct",
-                # model_id="meta-llama/Llama-3.3-70B-Instruct",
-                token=token,
-                temperature=0.3,
-                max_tokens=1800,
-            )
-        except Exception as e:
-            print("InferenceClientModel failed →", e)
-
-    if SUPPORT_TRANSFORMERS and SUPPORT_INFERENCE_CLIENT is False:
-        try:
-            return TransformersModel("meta-llama/Llama-3.2-3B-Instruct")
-        except Exception as e:
-            print("TransformersModel failed →", e)
-
-    if SUPPORT_LITELLM:
-        try:
-            return LiteLLMModel(
-                model_id="anthropic/claude-3-5-sonnet-latest",
-                # model_id="ollama_chat/llama3.1:8b",
-                api_key=os.getenv("ANTHROPIC_API_KEY"),
-                # api_base="http://localhost:11434",   # for ollama
-            )
-        except Exception as e:
-            print("LiteLLMModel failed →", e)
-
-    print("No model could be instantiated.")
-    return None
+    return create_local_model()
 
 
 # ───────────────────────────────────────────────
