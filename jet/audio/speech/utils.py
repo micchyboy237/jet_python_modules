@@ -1,118 +1,10 @@
 import numpy as np
-import json
-from typing import Optional, Tuple, TypedDict
-from datetime import datetime
-from pathlib import Path
 import torch
-from rich.table import Table
 from jet.audio.helpers.silence import (
     SAMPLE_RATE,
 )
-from jet.audio.speech.silero.speech_types import SpeechSegment
-from jet.audio.speech.wav_utils import save_wav_file
-from jet.logger import logger
+from rich.table import Table
 
-class SegmentMeta(TypedDict):
-    idx: int
-    prob: float
-    duration: float
-    segment_dir: str
-    wav_path: str
-    original_start_sample: int
-    original_end_sample: int
-    saved_start_sample: int
-    saved_end_sample: int
-    recorded_at: str
-    source: str
-    status: str
-    trimmed: bool
-    silence_threshold_used: float | None
-
-def save_completed_segment(
-    segment_root: str | Path,
-    ts: SpeechSegment,
-    audio_np: np.ndarray,
-    *,
-    trim_silence: bool = False,
-    silence_threshold: Optional[float] = None,
-) -> Tuple[SegmentMeta, np.ndarray, str]:
-    """
-    Save a single completed speech segment to disk with WAV and metadata.json.
-
-    Args:
-        segment_root: Directory where segment folders will be created.
-        ts: Timestamp dictionary from Silero VAD containing "start" and "end" in samples.
-        audio_np: Full recorded audio (untrimmed) as np.ndarray.
-        trim_silence: If True, removes leading/trailing silence from this segment only.
-        silence_threshold: Silence RMS threshold for trimming (required if trim_silence=True).
-
-    Returns:
-        SegmentMeta dictionary describing the saved segment.
-    """
-    from jet.audio.helpers.silence import trim_silent_chunks, calibrate_silence_threshold
-
-    segment_root = Path(segment_root)
-    start_sample = int(ts["start"])
-    end_sample = int(ts["end"])
-
-    # Find next available segment directory name
-    # (segment_001, segment_002, ...)
-    existing = sorted(segment_root.glob("segment_*"))
-    used_numbers = set()
-    for seg in existing:
-        try:
-            used_numbers.add(int(seg.name.split("_")[1]))
-        except Exception:
-            continue
-    # Pick smallest unused positive integer for segment id/dir
-    seg_number = 1
-    while seg_number in used_numbers:
-        seg_number += 1
-    seg_dir = segment_root / f"segment_{seg_number:03d}"
-    seg_dir.mkdir(parents=True, exist_ok=True)
-    wav_path = seg_dir / "sound.wav"
-
-    # Extract raw segment (including possible silence at edges)
-    seg_audio = audio_np[start_sample:end_sample]
-
-    # Optionally trim silence only within this segment
-    if trim_silence:
-        if silence_threshold is None:
-            silence_threshold = calibrate_silence_threshold()
-        chunk_size = int(0.1 * SAMPLE_RATE)  # 100 ms chunks
-        chunks = [seg_audio[i:i + chunk_size] for i in range(0, len(seg_audio), chunk_size)]
-        trimmed_chunks = trim_silent_chunks(chunks, silence_threshold)
-        if not trimmed_chunks:
-            seg_audio = np.array([], dtype=seg_audio.dtype)
-        else:
-            seg_audio = np.concatenate(trimmed_chunks, axis=0)
-        # start_sample is unchanged, saved_start_sample will reflect relative segment (0)
-
-    seg_sound_file = save_wav_file(wav_path, seg_audio)
-
-    # Metadata reflects the actual saved (possibly trimmed) audio
-    actual_start_sample = 0  # as saved: always begins at zero
-    actual_end_sample = len(seg_audio)
-    meta: SegmentMeta = {
-        "idx": ts["idx"],
-        "prob": ts["prob"],
-        "duration": ts["duration"],
-        "segment_dir": str(seg_dir),
-        "wav_path": str(wav_path),
-        "original_start_sample": int(ts["start"]),
-        "original_end_sample": int(ts["end"]),
-        "saved_start_sample": actual_start_sample,
-        "saved_end_sample": actual_end_sample,
-        "recorded_at": datetime.utcnow().isoformat() + "Z",
-        "source": "record_from_mic_speech_detection",
-        "status": "completed",
-        "trimmed": trim_silence,
-        "silence_threshold_used": float(silence_threshold) if trim_silence else None,
-    }
-
-    (seg_dir / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    logger.info(f"Saved complete segment → {seg_dir.name}")
-    return meta, seg_audio, seg_sound_file
 
 def display_segments(speech_ts):
     """Display detected speech segments in a clean Rich table with correct time in seconds."""
@@ -147,7 +39,9 @@ def display_segments(speech_ts):
         )
 
     from rich import print as rprint
+
     rprint("\n", table, "\n")
+
 
 def convert_audio_to_tensor(audio_data: np.ndarray | list[np.ndarray]) -> torch.Tensor:
     """
