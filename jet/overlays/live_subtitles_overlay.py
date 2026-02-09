@@ -12,18 +12,24 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
+from pathlib import Path
 from typing import NotRequired, TypedDict
 
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from PyQt6.QtCore import (
+    QDir,
     QEasingCurve,
+    QFile,
     QObject,
     QPoint,
     QPropertyAnimation,
     Qt,
     QTimer,
+    QUrl,
     pyqtSignal,
 )
 from PyQt6.QtGui import QFont
+from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -31,6 +37,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -89,6 +96,7 @@ class LiveSubtitlesOverlay(QWidget):
         parent=None,
         title: str | None = None,
         on_clear: Callable[[], None] | None = None,
+        segments_dir: str | None = None,
     ):
         super().__init__(parent)
         self.logger = _setup_logging()
@@ -127,6 +135,18 @@ class LiveSubtitlesOverlay(QWidget):
 
         self._message_by_id: dict[str, SubtitleMessage] = {}
         self._widget_by_id: dict[str, QWidget] = {}
+        # Shared media player for segment playback
+        self._player = QMediaPlayer()
+        self._audio_output = QAudioOutput()
+        self._player.setAudioOutput(self._audio_output)
+        # Base directory where segments are saved (adjust if needed)
+        self.segments_dir = str(
+            segments_dir
+            or Path(get_entry_file_dir())
+            / "generated"
+            / Path(get_entry_file_name()).stem
+            / "segments"
+        )
 
     def _start_async_loop(self):
         def run_loop():
@@ -707,6 +727,7 @@ class LiveSubtitlesOverlay(QWidget):
         meta_layout.setContentsMargins(0, 0, 0, 0)
         meta_layout.setSpacing(8)
 
+        # Segment number
         if segment_number is not None:
             seg = QLabel(f"#{segment_number}")
             seg.setStyleSheet("""
@@ -728,6 +749,7 @@ class LiveSubtitlesOverlay(QWidget):
         time_range.setStyleSheet("color: #90b0d0; font-size: 9pt;")
         meta_layout.addWidget(time_range)
 
+        # Confidence / quality labels (existing)
         quality_colors = {
             "Very High": "#4ade80",
             "High": "#a3e635",
@@ -782,6 +804,33 @@ class LiveSubtitlesOverlay(QWidget):
                 meta_layout.addWidget(tlq)
 
         meta_layout.addStretch()
+
+        # ─── Play button ────────────────────────────────────────────────────────
+        if segment_number is not None:
+            play_btn = QToolButton()
+            play_btn.setText("▶")
+            play_btn.setFixedSize(26, 26)
+            play_btn.setStyleSheet("""
+                QToolButton {
+                    background: rgba(80, 180, 120, 0.35);
+                    color: white;
+                    border-radius: 13px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+                QToolButton:hover {
+                    background: rgba(100, 220, 140, 0.65);
+                }
+                QToolButton:pressed {
+                    background: rgba(60, 160, 100, 0.85);
+                }
+            """)
+            play_btn.setToolTip(f"Play segment #{segment_number:04d}")
+            play_btn.clicked.connect(
+                lambda checked, num=segment_number: self._play_segment(num)
+            )
+            meta_layout.addWidget(play_btn)
+
         container_layout.addWidget(meta_widget)
 
         # Text area
@@ -860,6 +909,21 @@ class LiveSubtitlesOverlay(QWidget):
             self._render_message_widget(message)
 
         QTimer.singleShot(0, self._scroll_to_bottom_smooth)
+
+    def _play_segment(self, segment_num: int) -> None:
+        """Play the audio file for the given segment number."""
+        segment_dir = QDir(self.segments_dir).filePath(f"segment_{segment_num:04d}")
+        wav_path = QDir(segment_dir).filePath("sound.wav")
+
+        if not QDir(segment_dir).exists() or not QFile(wav_path).exists():
+            self.logger.warning("[play] Audio not found: %s", wav_path)
+            return
+
+        url = QUrl.fromLocalFile(wav_path)
+        self._player.stop()  # stop any previous playback
+        self._player.setSource(url)
+        self._player.play()
+        self.logger.info("[play] Started segment_%04d → %s", segment_num, wav_path)
 
     def _scroll_to_bottom_smooth(self) -> None:
         scrollbar = self.scroll.verticalScrollBar()
