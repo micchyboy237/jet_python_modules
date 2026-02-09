@@ -194,7 +194,7 @@ def create_manager_agent(
         config['instructions'] = "Your custom system prompt here..."
     """
     # Lazy import to avoid circular import at module top-level
-    from jet.libs.smolagents.agents.controlled_messages_agent import create_local_model
+    from jet.libs.smolagents.utils.model_utils import create_local_model
 
     if model is None:
         model = create_local_model(agent_name="manager_agent")
