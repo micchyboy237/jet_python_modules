@@ -3,23 +3,37 @@
 # overlay = LiveSubtitlesOverlay.create()
 # overlay.add_message("Your text here")   # Exactly what you want!
 
-import sys
-import signal
-import logging
-import time
-import threading
-from typing import Optional, Awaitable, TypedDict, Callable, Union, NotRequired
 import asyncio
-from concurrent.futures import Future
+import logging
+import signal
+import sys
+import threading
+import time
 import uuid
+from collections.abc import Awaitable, Callable
+from concurrent.futures import Future
+from typing import NotRequired, TypedDict
 
-from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QScrollArea, QSizePolicy
+from PyQt6.QtCore import (
+    QEasingCurve,
+    QObject,
+    QPoint,
+    QPropertyAnimation,
+    Qt,
+    QTimer,
+    pyqtSignal,
 )
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QObject, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont
-
+from PyQt6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 from rich.logging import RichHandler
 
 
@@ -28,7 +42,9 @@ def _setup_logging():
     logger.setLevel(logging.INFO)
     if not logger.handlers:
         handler = RichHandler(rich_tracebacks=True, markup=True, show_path=False)
-        handler.setFormatter(logging.Formatter("[bold magenta]Subtitle[/] → %(message)s"))
+        handler.setFormatter(
+            logging.Formatter("[bold magenta]Subtitle[/] → %(message)s")
+        )
         logger.addHandler(handler)
     return logger
 
@@ -68,9 +84,15 @@ class LiveSubtitlesOverlay(QWidget):
         overlay.clear()
     """
 
-    def __init__(self, parent=None, title: Optional[str] = None):
+    def __init__(
+        self,
+        parent=None,
+        title: str | None = None,
+        on_clear: Callable[[], None] | None = None,
+    ):
         super().__init__(parent)
         self.logger = _setup_logging()
+        self._on_clear_callback = on_clear
         self.signals = _Signals()
         self.history = []
         self.title = title
@@ -89,12 +111,15 @@ class LiveSubtitlesOverlay(QWidget):
 
         # Async integration/setup
         from concurrent.futures import ThreadPoolExecutor
+
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._async_loop = None
         self._async_loop_thread = None
         self._start_async_loop()
 
-        self._pending_tasks: list[tuple[Awaitable[Union[SubtitleMessage, str]], QWidget, QHBoxLayout]] = []
+        self._pending_tasks: list[
+            tuple[Awaitable[SubtitleMessage | str], QWidget, QHBoxLayout]
+        ] = []
 
         # Initial message
         self.logger.info("[green]Ready – use .add_message('text')[/]")
@@ -108,7 +133,10 @@ class LiveSubtitlesOverlay(QWidget):
             self._async_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._async_loop)
             self._async_loop.run_forever()
-        self._async_loop_thread = threading.Thread(target=run_loop, daemon=True, name="OverlayAsyncLoop")
+
+        self._async_loop_thread = threading.Thread(
+            target=run_loop, daemon=True, name="OverlayAsyncLoop"
+        )
         self._async_loop_thread.start()
         time.sleep(0.05)
 
@@ -128,13 +156,15 @@ class LiveSubtitlesOverlay(QWidget):
         self._setup_spinner_animation(spinner, loading_widget)
         processing_text = QLabel("Processing")
         processing_text.setStyleSheet("color: #4da6ff;")
-        processing_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 13))  # 15 → 13
+        processing_text.setFont(
+            QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 13)
+        )  # 15 → 13
         current_layout.addStretch()
         current_layout.addWidget(spinner)
         current_layout.addWidget(processing_text)
         current_layout.addStretch()
 
-        def run_in_thread() -> tuple[Union[SubtitleMessage, str], QWidget]:
+        def run_in_thread() -> tuple[SubtitleMessage | str, QWidget]:
             try:
                 future = asyncio.run_coroutine_threadsafe(coro, self._async_loop)
                 result = future.result()
@@ -190,11 +220,19 @@ class LiveSubtitlesOverlay(QWidget):
                 "end_sec": float(result.get("end_sec", 0.0)),
                 "duration_sec": float(result.get("duration_sec", 0.0)),
                 "source_text": str(result.get("source_text", "")),
-                **({k: v for k, v in {
-                    "segment_number": result.get("segment_number"),
-                    "avg_vad_confidence": result.get("avg_vad_confidence"),
-                    "transcription_confidence": result.get("transcription_confidence"),
-                }.items() if v is not None}),
+                **(
+                    {
+                        k: v
+                        for k, v in {
+                            "segment_number": result.get("segment_number"),
+                            "avg_vad_confidence": result.get("avg_vad_confidence"),
+                            "transcription_confidence": result.get(
+                                "transcription_confidence"
+                            ),
+                        }.items()
+                        if v is not None
+                    }
+                ),
             }
             self.message_history.append(subtitle_message)
             self.history.append(subtitle_message["translated_text"])
@@ -205,12 +243,18 @@ class LiveSubtitlesOverlay(QWidget):
             new_label.setWordWrap(True)
             new_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             new_label.setStyleSheet("color: white; padding: 4px;")
-            new_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 15))
+            new_label.setFont(
+                QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 15)
+            )
             self.content_layout.insertWidget(idx, new_label)
             self.history.append(text)
 
-        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
-            self.scroll.verticalScrollBar().maximum()))
+        QTimer.singleShot(
+            0,
+            lambda: self.scroll.verticalScrollBar().setValue(
+                self.scroll.verticalScrollBar().maximum()
+            ),
+        )
 
         if self._pending_tasks:
             self._process_next_task()
@@ -225,10 +269,16 @@ class LiveSubtitlesOverlay(QWidget):
 
     def _build_ui(self):
         # === IMPORTS LOCAL TO METHOD (to fix UnboundLocalError) ===
-        from PyQt6.QtWidgets import (
-            QHBoxLayout, QVBoxLayout, QLabel, QToolButton, QGroupBox, QRadioButton, QWidget
-        )
         from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import (
+            QGroupBox,
+            QHBoxLayout,
+            QLabel,
+            QRadioButton,
+            QToolButton,
+            QVBoxLayout,
+            QWidget,
+        )
 
         main = QVBoxLayout(self)
         main.setContentsMargins(8, 8, 8, 8)
@@ -241,7 +291,9 @@ class LiveSubtitlesOverlay(QWidget):
 
         if self.title:
             self.title_label = QLabel(self.title)
-            self.title_label.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: bold;")
+            self.title_label.setStyleSheet(
+                "color: #ffffff; font-size: 14px; font-weight: bold;"
+            )
             self.control_bar.addWidget(self.title_label)
 
         self.status_label = QLabel("LIVE")
@@ -380,7 +432,9 @@ class LiveSubtitlesOverlay(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.scroll.setStyleSheet(
+            "QScrollArea { border: none; background: transparent; }"
+        )
 
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
@@ -454,17 +508,17 @@ class LiveSubtitlesOverlay(QWidget):
         self,
         translated_text: str,
         *,
-        message_id: Optional[str] = None,
+        message_id: str | None = None,
         start_sec: float = 0.0,
         end_sec: float = 0.0,
         duration_sec: float = 0.0,
-        source_text: Optional[str] = None,
-        segment_number: Optional[int] = None,
-        avg_vad_confidence: Optional[float] = None,
-        transcription_confidence: Optional[float] = None,
-        transcription_quality: Optional[str] = None,
-        translation_confidence: Optional[float] = None,
-        translation_quality: Optional[str] = None,
+        source_text: str | None = None,
+        segment_number: int | None = None,
+        avg_vad_confidence: float | None = None,
+        transcription_confidence: float | None = None,
+        transcription_quality: str | None = None,
+        translation_confidence: float | None = None,
+        translation_quality: str | None = None,
     ) -> str:
         if not translated_text or not str(translated_text).strip():
             return ""
@@ -496,7 +550,7 @@ class LiveSubtitlesOverlay(QWidget):
         self.signals._add_message.emit(subtitle_message)
         return mid
 
-    FuncType = Callable[..., Union[SubtitleMessage, str, Awaitable[Union[SubtitleMessage, str]]]]
+    FuncType = Callable[..., SubtitleMessage | str | Awaitable[SubtitleMessage | str]]
 
     def add_task(self, func: FuncType, *args, **kwargs) -> None:
         """
@@ -504,30 +558,40 @@ class LiveSubtitlesOverlay(QWidget):
         Its return/awaited value is displayed as a message.
         Displays a "Pending" row until processing starts, then a spinner + "Processing".
         """
-        async def _wrapper() -> Union[SubtitleMessage, str]:
+
+        async def _wrapper() -> SubtitleMessage | str:
             result = func(*args, **kwargs)
             if asyncio.iscoroutine(result):
                 result = await result
             return result
+
         coro = _wrapper()
         self.signals._enqueue_task.emit(coro, kwargs)
 
-    def _on_enqueue_task(self, coro: Awaitable[Union[SubtitleMessage, str]], kwargs: dict) -> None:
+    def _on_enqueue_task(
+        self, coro: Awaitable[SubtitleMessage | str], kwargs: dict
+    ) -> None:
         loading_widget = QWidget()
         layout_pending = QHBoxLayout(loading_widget)
-        layout_pending.setContentsMargins(6, 4, 6, 4)    # reduced from 8,6,8,6
+        layout_pending.setContentsMargins(6, 4, 6, 4)  # reduced from 8,6,8,6
         layout_pending.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         pending_text = QLabel("Pending")
         pending_text.setStyleSheet("color: #aaaaaa;")
-        pending_text.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12))  # 13 → 12
+        pending_text.setFont(
+            QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 12)
+        )  # 13 → 12
         layout_pending.addStretch()
         layout_pending.addWidget(pending_text)
         layout_pending.addStretch()
 
         self.content_layout.addWidget(loading_widget)
-        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(
-            self.scroll.verticalScrollBar().maximum()))
+        QTimer.singleShot(
+            0,
+            lambda: self.scroll.verticalScrollBar().setValue(
+                self.scroll.verticalScrollBar().maximum()
+            ),
+        )
         self.history.append("Pending")
 
         with self._task_lock:
@@ -539,10 +603,19 @@ class LiveSubtitlesOverlay(QWidget):
     def clear(self):
         """Remove all messages and reset transcript state."""
         self.signals._clear.emit()
+        if hasattr(self, "_on_clear_callback") and self._on_clear_callback:
+            try:
+                self._on_clear_callback()
+            except Exception:
+                self.logger.exception("on_clear callback failed")
 
-    def _setup_spinner_animation(self, spinner_label: QLabel, parent_widget: QWidget) -> None:
+    def _setup_spinner_animation(
+        self, spinner_label: QLabel, parent_widget: QWidget
+    ) -> None:
         spinner_label.setStyleSheet("color: #ffff66;")
-        spinner_label.setFont(QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 16))  # 18 → 16
+        spinner_label.setFont(
+            QFont("Helvetica Neue" if sys.platform == "darwin" else "Segoe UI", 16)
+        )  # 18 → 16
         spinner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠇"]
         current = 0
@@ -570,7 +643,7 @@ class LiveSubtitlesOverlay(QWidget):
                     item.widget().hide()
             self.control_bar.layout().setContentsMargins(16, 12, 16, 12)
             self.status_label.setText("LIVE • MINIMIZED")
-            if hasattr(self, 'title_label'):
+            if hasattr(self, "title_label"):
                 self.title_label.show()
             self.min_btn.setText("□")
             self._is_minimized = True
@@ -620,7 +693,9 @@ class LiveSubtitlesOverlay(QWidget):
         tl_quality = message.get("translation_quality")
 
         container = QWidget()
-        container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        container.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
 
         container_layout = QVBoxLayout(container)
         container_layout.setSpacing(4)
@@ -655,11 +730,11 @@ class LiveSubtitlesOverlay(QWidget):
 
         quality_colors = {
             "Very High": "#4ade80",
-            "High":      "#a3e635",
-            "Good":      "#fbbf24",
-            "Medium":    "#fb923c",
-            "Low":       "#f87171",
-            "N/A":       "#aaaaaa",
+            "High": "#a3e635",
+            "Good": "#fbbf24",
+            "Medium": "#fb923c",
+            "Low": "#f87171",
+            "N/A": "#aaaaaa",
         }
 
         def get_quality_style(q: str | None) -> str:
@@ -667,7 +742,8 @@ class LiveSubtitlesOverlay(QWidget):
             return f"color: {color}; font-size:9pt; font-weight:bold;"
 
         def conf_color(v: float | None) -> str:
-            if v is None: return "#aaaaaa"
+            if v is None:
+                return "#aaaaaa"
             return "#4ade80" if v >= 0.90 else "#fbbf24" if v >= 0.75 else "#f87171"
 
         if vad_conf is not None:
@@ -694,7 +770,9 @@ class LiveSubtitlesOverlay(QWidget):
             tl_label = QLabel(f"TL {tl_conf:.0%}")
             tl_label.setStyleSheet(f"color:{conf_color(tl_conf)}; font-weight:bold;")
             tl_label.setFont(QFont("Segoe UI", 9))
-            tl_label.setToolTip("Translation confidence (normalized 0–1, higher = better)")
+            tl_label.setToolTip(
+                "Translation confidence (normalized 0–1, higher = better)"
+            )
             meta_layout.addWidget(tl_label)
 
             if tl_quality:
@@ -743,7 +821,7 @@ class LiveSubtitlesOverlay(QWidget):
         """)
 
         self.content_layout.addWidget(container)
-        
+
         mid = message["id"]
 
         self._message_by_id[mid] = message
@@ -771,8 +849,10 @@ class LiveSubtitlesOverlay(QWidget):
 
         vad_conf = message.get("avg_vad_confidence", 1.0)
         min_vad = (
-            0.7 if self.vad_high.isChecked()
-            else 0.5 if self.vad_med.isChecked()
+            0.7
+            if self.vad_high.isChecked()
+            else 0.5
+            if self.vad_med.isChecked()
             else 0.0
         )
 
@@ -780,7 +860,6 @@ class LiveSubtitlesOverlay(QWidget):
             self._render_message_widget(message)
 
         QTimer.singleShot(0, self._scroll_to_bottom_smooth)
-
 
     def _scroll_to_bottom_smooth(self) -> None:
         scrollbar = self.scroll.verticalScrollBar()
@@ -797,7 +876,9 @@ class LiveSubtitlesOverlay(QWidget):
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._drag_pos = (
+                e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
             e.accept()
 
     def mouseMoveEvent(self, e):
@@ -819,24 +900,32 @@ class LiveSubtitlesOverlay(QWidget):
         return True
 
     @classmethod
-    def create(cls, app: Optional[QApplication] = None, title: Optional[str] = None) -> 'LiveSubtitlesOverlay':
+    def create(
+        cls,
+        app: QApplication | None = None,
+        title: str | None = None,
+        on_clear: Callable[[], None] | None = None,
+    ) -> "LiveSubtitlesOverlay":
         """
         Instantiate the overlay, always positioned top-right, always-on-top, and thread-safe.
-        - Creates QApplication if needed
+        - Creates QApplication if needed (or reuses existing)
         - Prevents quit on close/minimize
         - Positions window right
         - Handles Ctrl+C gracefully
         - Thread-safe .add_message()
         - Optional custom title
+        - Optional on_clear callback
         """
         app = app or QApplication.instance() or QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(False)
 
         def _quit_on_sigint(sig, frame):
             app.quit()
+
         signal.signal(signal.SIGINT, _quit_on_sigint)
 
-        overlay = cls(title=title)
+        # Pass through the optional callback
+        overlay = cls(title=title, on_clear=on_clear)
         overlay.show()
         overlay.raise_()
         overlay.activateWindow()
