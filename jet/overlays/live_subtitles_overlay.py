@@ -96,6 +96,7 @@ class LiveSubtitlesOverlay(QWidget):
         parent=None,
         title: str | None = None,
         on_clear: Callable[[], None] | None = None,
+        play_volume: float = 0.5,
         segments_dir: str | None = None,
     ):
         super().__init__(parent)
@@ -138,6 +139,7 @@ class LiveSubtitlesOverlay(QWidget):
         # Shared media player for segment playback
         self._player = QMediaPlayer()
         self._audio_output = QAudioOutput()
+        self._audio_output.setVolume(play_volume)  # 0.0–1.0; tweak as needed
         self._player.setAudioOutput(self._audio_output)
         # Base directory where segments are saved (adjust if needed)
         self.segments_dir = str(
@@ -969,6 +971,7 @@ class LiveSubtitlesOverlay(QWidget):
         app: QApplication | None = None,
         title: str | None = None,
         on_clear: Callable[[], None] | None = None,
+        play_volume: float = 0.5,
     ) -> "LiveSubtitlesOverlay":
         """
         Instantiate the overlay, always positioned top-right, always-on-top, and thread-safe.
@@ -989,7 +992,7 @@ class LiveSubtitlesOverlay(QWidget):
         signal.signal(signal.SIGINT, _quit_on_sigint)
 
         # Pass through the optional callback
-        overlay = cls(title=title, on_clear=on_clear)
+        overlay = cls(title=title, on_clear=on_clear, play_volume=play_volume)
         overlay.show()
         overlay.raise_()
         overlay.activateWindow()
