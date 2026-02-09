@@ -8,24 +8,36 @@ using pyloudnorm (ITU-R BS.1770-4 compliant). Handles caching of meters for
 performance, clipping prevention, and graceful fallback for silent/failed cases.
 """
 
+# audio_types.py
 from __future__ import annotations
 
 import logging
 import os
 from io import BytesIO
-from typing import Literal
+from typing import Literal, Union
 
 import numpy as np
+import numpy.typing as npt
 import pyloudnorm as pyln
 import soundfile as sf
 import torch
-from jet.audio.audio_types import AudioInput
+
+# Allow flexible input types
+AudioInput = Union[
+    str,
+    bytes,
+    os.PathLike,
+    npt.NDArray[np.floating | np.integer],
+    "torch.Tensor",
+]
 
 logger = logging.getLogger(__name__)
 
 # Cache meters per sample rate to avoid expensive recreation
 _METER_CACHE: dict[int, pyln.Meter] = {}
 
+PEAK_TARGET_GENERAL = 0.95
+PEAK_TARGET_SPEECH = 0.99
 
 VALID_DTYPE_STRINGS = Literal["float32", "float64", "int16", "int32"]
 
@@ -77,15 +89,39 @@ def normalize_loudness(
         ValueError: If input parameters are invalid.
         RuntimeError: If audio loading fails (for path/bytes inputs).
     """
-    # Load and unify input to np.float32 ndarray
+    audio, sample_rate, original_dtype = _load_audio_input(audio, sample_rate)
+    audio = _ensure_audio_shape(audio)
+
+    meter = _get_meter(sample_rate)
+
+    effective_target_lufs, effective_headroom_factor, apply_peak_norm = _resolve_mode(
+        mode, target_lufs, headroom_factor
+    )
+
+    normalized_audio = _normalize_internal(
+        audio=audio,
+        meter=meter,
+        effective_target_lufs=effective_target_lufs,
+        min_lufs_threshold=min_lufs_threshold,
+        max_loudness_threshold=max_loudness_threshold,
+        effective_headroom_factor=effective_headroom_factor,
+        apply_peak_norm=apply_peak_norm,
+    )
+
+    return _convert_output_dtype(
+        normalized_audio,
+        return_dtype=return_dtype,
+        original_dtype=original_dtype,
+    )
+
+
+def _load_audio_input(audio: AudioInput, sample_rate: int):
     original_dtype = None
     if isinstance(audio, (str, os.PathLike)):
-        # File path input
         audio_path = str(audio)
         loaded_audio, loaded_sr = sf.read(audio_path, always_2d=False)
         sample_rate = loaded_sr
     elif isinstance(audio, bytes):
-        # Raw bytes input
         with BytesIO(audio) as buf:
             loaded_audio, loaded_sr = sf.read(buf, always_2d=False)
         sample_rate = loaded_sr
@@ -97,31 +133,28 @@ def normalize_loudness(
     else:
         raise TypeError(f"Unsupported audio input type: {type(audio)}")
 
-    # Convert to float32 for processing
-    if not isinstance(loaded_audio, np.ndarray) or loaded_audio.dtype != np.float32:
+    if loaded_audio.dtype != np.float32:
         loaded_audio = np.asarray(loaded_audio, dtype=np.float32)
 
-    audio = loaded_audio  # Now unified
+    return loaded_audio, sample_rate, original_dtype
 
+
+def _ensure_audio_shape(audio: np.ndarray) -> np.ndarray:
     if audio.ndim == 1:
-        pass  # mono – already good
-    elif audio.ndim == 2:
+        return audio
+    if audio.ndim == 2:
         if audio.shape[1] > audio.shape[0]:
-            logger.warning(
-                "Audio appears to have channels as first dimension – transposing"
-            )
-            audio = audio.T
-    else:
-        raise ValueError("Audio must be 1D (mono) or 2D (samples, channels)")
+            logger.warning("Transposing audio: channels-first detected")
+            return audio.T
+        return audio
+    raise ValueError("Audio must be 1D (mono) or 2D (samples, channels)")
 
-    # Cache meter per sample rate
-    meter = _METER_CACHE.get(sample_rate)
-    if meter is None:
-        meter = pyln.Meter(sample_rate)
-        _METER_CACHE[sample_rate] = meter
 
-    # --- main LUFS logic + short-audio fallback ---
-    # Prepare variables for fallback use
+def _get_meter(sample_rate: int) -> pyln.Meter:
+    return _METER_CACHE.setdefault(sample_rate, pyln.Meter(sample_rate))
+
+
+def _resolve_mode(mode, target_lufs, headroom_factor):
     effective_target_lufs = target_lufs
     effective_headroom_factor = headroom_factor
     apply_peak_norm = False
@@ -141,7 +174,18 @@ def normalize_loudness(
         raise ValueError(
             f"Invalid mode: {mode!r}. Allowed: 'general', 'speech', or None."
         )
+    return effective_target_lufs, effective_headroom_factor, apply_peak_norm
 
+
+def _normalize_internal(
+    audio,
+    meter,
+    effective_target_lufs,
+    min_lufs_threshold,
+    max_loudness_threshold,
+    effective_headroom_factor,
+    apply_peak_norm,
+):
     try:
         measured_lufs = meter.integrated_loudness(audio)
         logger.debug(f"Measured integrated loudness: {measured_lufs:.2f} LUFS")
@@ -152,34 +196,17 @@ def normalize_loudness(
                 "Audio too short for reliable LUFS measurement (< ~0.4s). "
                 "Falling back to peak normalization."
             )
-            # Use same headroom logic as main path
-
             peak = np.max(np.abs(audio))
             if peak == 0:
                 logger.debug("Silent audio detected in short clip fallback")
                 return audio.copy()
 
-            normalized = audio / peak  # bring peak to 1.0
-            # Apply headroom (same as main path)
+            normalized = audio / peak
             normalized /= effective_headroom_factor
-
-            # Speech mode secondary peak boost
             if apply_peak_norm:
-                current_peak = np.max(np.abs(normalized))
-                if current_peak < 0.95:
-                    target_peak = 0.99
-                    gain = target_peak / current_peak
-                    normalized *= gain
-                    logger.debug(
-                        "Speech mode (short audio): applied secondary peak normalization "
-                        "(gain=%.3f, final peak=%.3f)",
-                        gain,
-                        np.max(np.abs(normalized)),
-                    )
-                normalized = np.clip(normalized, -1.0, 1.0)
+                normalized = _apply_peak_boost(normalized, PEAK_TARGET_SPEECH)
 
-            normalized_audio = normalized.astype(np.float32).copy()
-            # Shared dtype handling is applied later
+            return normalized.astype(np.float32).copy()
         else:
             logger.warning(
                 f"Unexpected LUFS measurement failure ({exc}), returning original audio"
@@ -206,35 +233,39 @@ def normalize_loudness(
             normalized = pyln.normalize.loudness(
                 audio, measured_lufs, effective_target_lufs
             )
-        except Exception as exc:
-            logger.warning(
-                f"LUFS normalization failed ({exc}), returning original audio"
-            )
+        except Exception:
+            logger.warning("LUFS normalization failed, returning original audio")
             return audio.copy()
 
-        peak = np.max(np.abs(normalized))
-        if peak > 1.0:
-            normalized /= peak * effective_headroom_factor
-            logger.debug(
-                f"Applied headroom – post-norm peak reduced to {np.max(np.abs(normalized)):.3f}"
-            )
-        else:
-            if apply_peak_norm:
-                current_peak = np.max(np.abs(normalized))
-                if current_peak < 0.95:
-                    target_peak = 0.99
-                    gain = target_peak / current_peak
-                    normalized *= gain
-                    logger.debug(
-                        "Speech mode: applied secondary peak normalization (gain=%.3f, final peak=%.3f)",
-                        gain,
-                        np.max(np.abs(normalized)),
-                    )
-                normalized = np.clip(normalized, -1.0, 1.0)
+        normalized = _apply_peak_normalization(
+            normalized, effective_headroom_factor, apply_peak_norm
+        )
 
-        normalized_audio = normalized.astype(np.float32).copy()
+        return normalized.astype(np.float32).copy()
 
-    # Shared final dtype handling (works for both LUFS-path and peak fallback)
+
+def _apply_peak_normalization(
+    audio: np.ndarray, headroom_factor: float, apply_peak_norm: bool
+) -> np.ndarray:
+    peak = np.max(np.abs(audio))
+    if peak > 1.0:
+        audio = audio / (peak * headroom_factor)
+    elif apply_peak_norm:
+        audio = _apply_peak_boost(audio, PEAK_TARGET_SPEECH)
+    return np.clip(audio, -1.0, 1.0)
+
+
+def _apply_peak_boost(audio: np.ndarray, target_peak: float) -> np.ndarray:
+    current_peak = np.max(np.abs(audio))
+    if current_peak == 0 or current_peak >= target_peak:
+        return audio
+    gain = target_peak / current_peak
+    return audio * gain
+
+
+def _convert_output_dtype(
+    audio: np.ndarray, return_dtype, original_dtype
+) -> np.ndarray:
     ALLOWED_OUTPUT_TYPES = {np.float32, np.float64, np.int16, np.int32}
 
     if return_dtype is not None:
@@ -248,120 +279,33 @@ def normalize_loudness(
             )
 
         if target_type is np.float64:
-            normalized_audio = normalized_audio.astype(np.float64)
+            audio = audio.astype(np.float64)
         elif target_type is np.int16:
-            normalized_audio = np.clip(normalized_audio, -1.0, 1.0)
-            normalized_audio = (normalized_audio * 32767.0).astype(np.int16)
+            audio = np.clip(audio, -1.0, 1.0)
+            audio = (audio * 32767.0).astype(np.int16)
         elif target_type is np.int32:
-            normalized_audio = np.clip(normalized_audio, -1.0, 1.0)
-            normalized_audio = (normalized_audio * 2147483647.0).astype(np.int32)
+            audio = np.clip(audio, -1.0, 1.0)
+            audio = (audio * 2147483647.0).astype(np.int32)
         # else: np.float32 is default
     else:
         if original_dtype is not None:
             if np.issubdtype(original_dtype, np.floating):
-                normalized_audio = normalized_audio.astype(original_dtype)
+                audio = audio.astype(original_dtype)
             elif np.issubdtype(original_dtype, np.integer):
                 if original_dtype == np.int16:
-                    normalized_audio = np.clip(normalized_audio, -1.0, 1.0)
-                    normalized_audio = (normalized_audio * 32767.0).astype(np.int16)
+                    audio = np.clip(audio, -1.0, 1.0)
+                    audio = (audio * 32767.0).astype(np.int16)
                 elif original_dtype == np.int32:
-                    normalized_audio = np.clip(normalized_audio, -1.0, 1.0)
-                    normalized_audio = (normalized_audio * 2147483647.0).astype(
-                        np.int32
-                    )
+                    audio = np.clip(audio, -1.0, 1.0)
+                    audio = (audio * 2147483647.0).astype(np.int32)
                 else:
-                    normalized_audio = normalized_audio.astype(np.float32)
+                    audio = audio.astype(np.float32)
             else:
-                normalized_audio = normalized_audio.astype(np.float32)
+                audio = audio.astype(np.float32)
         else:
-            normalized_audio = normalized_audio.astype(np.float32)
+            audio = audio.astype(np.float32)
 
-    return normalized_audio
-
-
-def get_audio_energy(audio: AudioInput) -> float:
-    """
-    Compute the root mean square (RMS) energy of a given audio input.
-    The RMS is calculated across all samples and channels, providing a single
-    measure of overall signal energy.
-
-    Args:
-        audio: AudioInput
-            Audio signal as NumPy array, torch.Tensor, file path (str/os.PathLike),
-            or raw bytes (WAV-compatible).
-
-    Returns:
-        float: RMS energy value.
-            - For normalized audio (range [-1, 1]), typically [0.0, 0.707] for typical signals.
-            - Returns 0.0 for silent/empty audio.
-
-    Raises:
-        ValueError: If the input type is not supported.
-    """
-    import os
-    from io import BytesIO
-
-    import numpy as np
-    import soundfile as sf
-
-    try:
-        import torch
-    except ImportError:
-        torch = None
-
-    # Load audio to np.float32 array
-    if isinstance(audio, np.ndarray):
-        audio_np = np.asarray(audio, dtype=np.float32)
-    elif torch is not None and isinstance(audio, torch.Tensor):
-        audio_np = audio.detach().cpu().float().numpy()
-    elif isinstance(audio, (str, os.PathLike)):
-        audio_np, _ = sf.read(str(audio), always_2d=False)
-        audio_np = np.asarray(audio_np, dtype=np.float32)
-    elif isinstance(audio, bytes):
-        with BytesIO(audio) as buf:
-            audio_np, _ = sf.read(buf, always_2d=False)
-        audio_np = np.asarray(audio_np, dtype=np.float32)
-    else:
-        raise ValueError(f"Unsupported audio input type: {type(audio)!r}")
-
-    # Handle empty or zero-length audio
-    if audio_np.size == 0:
-        return 0.0
-
-    # Compute global RMS across all samples and all channels (standard in audio)
-    # We explicitly flatten to avoid any ambiguity
-    flattened = audio_np.reshape(-1)
-    mean_square = np.mean(np.square(flattened))
-    rms = float(np.sqrt(mean_square))
-    return rms
-
-
-def has_sound(audio: AudioInput, *, threshold: float = 0.01) -> bool:
-    """
-    Determine if the audio contains perceptible sound.
-
-    Uses RMS energy to decide. Audio with RMS energy above the threshold
-    is considered to have sound (e.g., speech, music). Below the threshold
-    it is treated as silence or near-silence.
-
-    Args:
-        audio: AudioInput
-            Same supported formats as :func:`get_audio_energy`.
-        threshold: float, optional
-            RMS threshold above which audio is considered to have sound.
-            Default is 0.01, which corresponds to approximately -40 dBFS
-            (a common practical value for distinguishing silence from content).
-
-    Returns:
-        bool: True if the audio has perceptible sound, False otherwise.
-
-    Example:
-        >>> has_sound("speech.wav")          # True for normal speech
-        >>> has_sound("silent.wav")          # False
-        >>> has_sound(noisy_but_quiet, threshold=0.005)  # more sensitive
-    """
-    rms_energy = get_audio_energy(audio)
-    return rms_energy > threshold
+    return audio
 
 
 if __name__ == "__main__":
