@@ -96,7 +96,7 @@ class LiveSubtitlesOverlay(QWidget):
         parent=None,
         title: str | None = None,
         on_clear: Callable[[], None] | None = None,
-        play_volume: float = 0.5,
+        play_volume: float = 0.35,
         segments_dir: str | None = None,
     ):
         super().__init__(parent)
@@ -986,7 +986,7 @@ class LiveSubtitlesOverlay(QWidget):
         app: QApplication | None = None,
         title: str | None = None,
         on_clear: Callable[[], None] | None = None,
-        play_volume: float = 0.5,
+        play_volume: float = 0.35,
     ) -> "LiveSubtitlesOverlay":
         """
         Instantiate the overlay, always positioned top-right, always-on-top, and thread-safe.
