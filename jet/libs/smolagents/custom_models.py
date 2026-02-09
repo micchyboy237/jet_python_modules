@@ -535,6 +535,8 @@ class OpenAIModel(ApiModel):
             **kwargs,
         )
 
+        call_num = None
+        input_tokens = None
         # --- BEGIN add logging ---
         if self.logs_dir:
             call_num = get_next_call_number(self.logs_dir)
@@ -585,6 +587,8 @@ class OpenAIModel(ApiModel):
                 request_data=request_data,
                 agent_name=self.agent_name,
             )
+            # Explicitly log the input tokens count
+            logger.info(f"Input tokens: {input_tokens}")
         # --- END add logging ---
 
         self._apply_rate_limit()
@@ -605,6 +609,8 @@ class OpenAIModel(ApiModel):
                 response_data=response,
                 agent_name=self.agent_name,
             )
+            # Again, ensure input token count is logged (could be slightly redundant, but thorough)
+            logger.info(f"Input tokens (response): {response.usage.prompt_tokens}")
 
         content = response.choices[0].message.content
         if stop_sequences is not None and not self.supports_stop_parameter:
