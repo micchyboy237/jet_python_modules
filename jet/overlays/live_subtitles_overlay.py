@@ -722,14 +722,15 @@ class LiveSubtitlesOverlay(QWidget):
         container_layout = QVBoxLayout(container)
         container_layout.setSpacing(4)
         container_layout.setContentsMargins(8, 5, 8, 5)
+        # We'll add two rows: basic info + scores
 
-        # Metadata row
-        meta_widget = QWidget()
-        meta_layout = QHBoxLayout(meta_widget)
-        meta_layout.setContentsMargins(0, 0, 0, 0)
-        meta_layout.setSpacing(8)
+        # Metadata row 1 - basic info + play button
+        meta_row1 = QWidget()
+        meta_layout1 = QHBoxLayout(meta_row1)
+        meta_layout1.setContentsMargins(0, 0, 0, 0)
+        meta_layout1.setSpacing(8)
 
-        # Segment number
+        # ─── Row 1: segment, duration, time, stretch, play ──────────────────────
         if segment_number is not None:
             seg = QLabel(f"#{segment_number}")
             seg.setStyleSheet("""
@@ -740,74 +741,20 @@ class LiveSubtitlesOverlay(QWidget):
                 font-weight: bold;
             """)
             seg.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-            meta_layout.addWidget(seg)
+            meta_layout1.addWidget(seg)
 
         dur = QLabel(f"{duration_sec:.1f}s")
         dur.setStyleSheet("color: #b0d0ff;")
         dur.setFont(QFont("Segoe UI", 9))
-        meta_layout.addWidget(dur)
+        meta_layout1.addWidget(dur)
 
         time_range = QLabel(f"{start_sec:.1f} – {end_sec:.1f}")
         time_range.setStyleSheet("color: #90b0d0; font-size: 9pt;")
-        meta_layout.addWidget(time_range)
+        meta_layout1.addWidget(time_range)
 
-        # Confidence / quality labels (existing)
-        quality_colors = {
-            "Very High": "#4ade80",
-            "High": "#a3e635",
-            "Good": "#fbbf24",
-            "Medium": "#fb923c",
-            "Low": "#f87171",
-            "N/A": "#aaaaaa",
-        }
+        meta_layout1.addStretch()
 
-        def get_quality_style(q: str | None) -> str:
-            color = quality_colors.get(q or "N/A", "#aaaaaa")
-            return f"color: {color}; font-size:9pt; font-weight:bold;"
-
-        def conf_color(v: float | None) -> str:
-            if v is None:
-                return "#aaaaaa"
-            return "#4ade80" if v >= 0.90 else "#fbbf24" if v >= 0.75 else "#f87171"
-
-        if vad_conf is not None:
-            vad = QLabel(f"VAD {vad_conf:.0%}")
-            vad.setStyleSheet(f"color:{conf_color(vad_conf)}; font-weight:bold;")
-            vad.setFont(QFont("Segoe UI", 9))
-            vad.setToolTip("Average VAD confidence during voice detection")
-            meta_layout.addWidget(vad)
-
-        if tr_conf is not None:
-            trc = QLabel(f"Tr {tr_conf:.0%}")
-            trc.setStyleSheet(f"color:{conf_color(tr_conf)}; font-weight:bold;")
-            trc.setFont(QFont("Segoe UI", 9))
-            trc.setToolTip("Transcription confidence (exp(avg logprob))")
-            meta_layout.addWidget(trc)
-
-            if tr_quality:
-                trq = QLabel(tr_quality)
-                trq.setStyleSheet(get_quality_style(tr_quality))
-                trq.setToolTip("Transcription quality assessment")
-                meta_layout.addWidget(trq)
-
-        if tl_conf is not None:
-            tl_label = QLabel(f"TL {tl_conf:.0%}")
-            tl_label.setStyleSheet(f"color:{conf_color(tl_conf)}; font-weight:bold;")
-            tl_label.setFont(QFont("Segoe UI", 9))
-            tl_label.setToolTip(
-                "Translation confidence (normalized 0–1, higher = better)"
-            )
-            meta_layout.addWidget(tl_label)
-
-            if tl_quality:
-                tlq = QLabel(tl_quality)
-                tlq.setStyleSheet(get_quality_style(tl_quality))
-                tlq.setToolTip("Translation quality assessment")
-                meta_layout.addWidget(tlq)
-
-        meta_layout.addStretch()
-
-        # ─── Play button ────────────────────────────────────────────────────────
+        # ─── Play button (always at the end of row 1) ───────────────────────────
         if segment_number is not None:
             play_btn = QToolButton()
             play_btn.setText("▶")
@@ -831,9 +778,77 @@ class LiveSubtitlesOverlay(QWidget):
             play_btn.clicked.connect(
                 lambda checked, num=segment_number: self._play_segment(num)
             )
-            meta_layout.addWidget(play_btn)
+            meta_layout1.addWidget(play_btn)
 
-        container_layout.addWidget(meta_widget)
+        container_layout.addWidget(meta_row1)
+
+        # ─── Row 2: confidence & quality scores ─────────────────────────────────
+        meta_row2 = QWidget()
+        meta_layout2 = QHBoxLayout(meta_row2)
+        meta_layout2.setContentsMargins(0, 0, 0, 0)
+        meta_layout2.setSpacing(10)
+
+        quality_colors = {
+            "Very High": "#4ade80",
+            "High": "#a3e635",
+            "Good": "#fbbf24",
+            "Medium": "#fb923c",
+            "Low": "#f87171",
+            "N/A": "#aaaaaa",
+        }
+
+        def get_quality_style(q: str | None) -> str:
+            color = quality_colors.get(q or "N/A", "#aaaaaa")
+            return f"color: {color}; font-size:9pt; font-weight:bold;"
+
+        def conf_color(v: float | None) -> str:
+            if v is None:
+                return "#aaaaaa"
+            return "#4ade80" if v >= 0.90 else "#fbbf24" if v >= 0.75 else "#f87171"
+
+        has_scores = False
+
+        if vad_conf is not None:
+            vad = QLabel(f"VAD {vad_conf:.0%}")
+            vad.setStyleSheet(f"color:{conf_color(vad_conf)}; font-weight:bold;")
+            vad.setFont(QFont("Segoe UI", 9))
+            vad.setToolTip("Average VAD confidence during voice detection")
+            meta_layout2.addWidget(vad)
+            has_scores = True
+
+        if tr_conf is not None:
+            trc = QLabel(f"Tr {tr_conf:.0%}")
+            trc.setStyleSheet(f"color:{conf_color(tr_conf)}; font-weight:bold;")
+            trc.setFont(QFont("Segoe UI", 9))
+            trc.setToolTip("Transcription confidence (exp(avg logprob))")
+            meta_layout2.addWidget(trc)
+
+            if tr_quality:
+                trq = QLabel(tr_quality)
+                trq.setStyleSheet(get_quality_style(tr_quality))
+                trq.setToolTip("Transcription quality assessment")
+                meta_layout2.addWidget(trq)
+            has_scores = True
+
+        if tl_conf is not None:
+            tl_label = QLabel(f"TL {tl_conf:.0%}")
+            tl_label.setStyleSheet(f"color:{conf_color(tl_conf)}; font-weight:bold;")
+            tl_label.setFont(QFont("Segoe UI", 9))
+            tl_label.setToolTip(
+                "Translation confidence (normalized 0–1, higher = better)"
+            )
+            meta_layout2.addWidget(tl_label)
+
+            if tl_quality:
+                tlq = QLabel(tl_quality)
+                tlq.setStyleSheet(get_quality_style(tl_quality))
+                tlq.setToolTip("Translation quality assessment")
+                meta_layout2.addWidget(tlq)
+            has_scores = True
+
+        if has_scores:
+            meta_layout2.addStretch()
+            container_layout.addWidget(meta_row2)
 
         # Text area
         text_container = QWidget()
