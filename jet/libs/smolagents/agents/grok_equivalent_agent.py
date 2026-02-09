@@ -6,11 +6,14 @@ from pathlib import Path
 from typing import Literal
 
 import requests
-from jet.libs.smolagents.agents.controlled_messages_agent import (
-    create_local_model,  # For older Python; use typing in 3.12+
-)
 from markdownify import markdownify
 from requests.exceptions import RequestException
+from tqdm import tqdm
+
+try:
+    import fitz  # pymupdf - pip install pymupdf for PDF text extraction support
+except ImportError:
+    fitz = None
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
@@ -47,16 +50,18 @@ class AgentConfig(TypedDict):
     executor_type: Literal["local", "blaxel", "e2b", "modal", "docker", "wasm"]
 
 
-def _fetch_url(url: str) -> str:
-    """Internal method to fetch raw content from a URL."""
+def _fetch_url(url: str):
+    """Internal helper to fetch raw bytes and content-type from a URL with a realistic User-Agent."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
+    }
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
-        return response.text
+        content_type = response.headers.get("Content-Type", "").lower()
+        return response.content, content_type
     except RequestException as e:
-        raise ValueError(f"Error fetching the webpage: {str(e)}") from e
-    except Exception as e:
-        raise ValueError(f"An unexpected error occurred: {str(e)}") from e
+        raise ValueError(f"Error fetching the resource: {str(e)}") from e
 
 
 def _process_to_markdown(raw_content: str) -> str:
@@ -68,21 +73,75 @@ def _process_to_markdown(raw_content: str) -> str:
 
 @tool
 def visit_webpage(url: str) -> str:
-    """Visits a webpage at the given URL and returns its content as a markdown string.
+    """
+    Visits a resource at the given URL and returns its content in a readable format.
+
+    Supported resource types:
+    • HTML pages → converted to cleaned Markdown
+    • PDF files   → text extracted with PyMuPDF (optional tqdm progress for large docs)
+    • Other types → helpful message with the direct URL (and installation note if PDF)
+
+    This handles common cases seen in search results (paywalled HTML, direct PDFs, binary attachments).
 
     Args:
-        url: The URL of the webpage to visit.
+        url (str): The full URL of the resource to visit (HTML page, PDF, etc.).
 
     Returns:
-        The content of the webpage converted to Markdown, or an error message if the request fails.
+        str: The processed content (Markdown for HTML, plain text for PDF) or an error/helpful message.
 
-    Note: For progress in loops (e.g., multiple URLs), use tqdm in your calling code: from tqdm import tqdm; for url in tqdm(urls): ...
+    Note:
+        For progress in loops (e.g., multiple URLs), use tqdm in your calling code:
+        from tqdm import tqdm
+        for url in tqdm(urls): ...
     """
     try:
-        raw_content = _fetch_url(url)
-        return _process_to_markdown(raw_content)
+        content_bytes, content_type = _fetch_url(url)
     except ValueError as e:
         return str(e)
+
+    # Primary detection via Content-Type, fallback to URL extension
+    is_pdf = ("application/pdf" in content_type) or url.lower().endswith(".pdf")
+
+    if is_pdf:
+        if fitz is None:
+            return (
+                "Detected a PDF resource, but 'pymupdf' is not installed. "
+                "Run `pip install pymupdf` to enable automatic text extraction. "
+                f"Direct download URL: {url}"
+            )
+        try:
+            doc = fitz.open(stream=content_bytes, filetype="pdf")
+            pages = []
+            # Show tqdm progress only for reasonably large PDFs to avoid clutter
+            iterator = (
+                tqdm(doc, desc="Extracting PDF pages", leave=False)
+                if doc.page_count > 10
+                else doc
+            )
+            for page in iterator:
+                pages.append(page.get_text("text"))
+            full_text = "\n\n".join(pages)
+            full_text = re.sub(r"\n{3,}", "\n\n", full_text.strip())
+            return (
+                f"# Extracted Text from PDF ({doc.page_count} pages)\n\n{full_text}"
+                if full_text
+                else "PDF processed but no extractable text found."
+            )
+        except Exception as e:
+            return f"Error extracting text from PDF: {str(e)}. Direct URL: {url}"
+
+    elif "text/html" in content_type:
+        try:
+            html_text = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            html_text = content_bytes.decode("utf-8", errors="replace")
+        return _process_to_markdown(html_text)
+
+    # Fallback for any other content type
+    return (
+        f"Resource fetched successfully but content type '{content_type}' is not directly convertible to text. "
+        f"Direct URL for manual access: {url}"
+    )
 
 
 def create_web_agent(
@@ -96,6 +155,9 @@ def create_web_agent(
 
     To override defaults: Pass custom tools list, e.g., tools=[WebSearchTool(), my_custom_tool].
     """
+    # Lazy import to avoid circular import at module top-level (since create_local_model may depend on the agent)
+    from jet.libs.smolagents.agents.controlled_messages_agent import create_local_model
+
     if model is None:
         model = create_local_model(agent_name=name)
     if tools is None:
@@ -131,6 +193,9 @@ def create_manager_agent(
     Example:
         config['instructions'] = "Your custom system prompt here..."
     """
+    # Lazy import to avoid circular import at module top-level
+    from jet.libs.smolagents.agents.controlled_messages_agent import create_local_model
+
     if model is None:
         model = create_local_model(agent_name="manager_agent")
     return CodeAgent(
