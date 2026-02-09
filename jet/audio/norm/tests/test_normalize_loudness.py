@@ -6,25 +6,27 @@ I/O/input cases: numpy, torch.Tensor, file paths, WAV bytes.
 
 from __future__ import annotations
 
-import pytest
+from io import BytesIO
+from pathlib import Path
+
 import numpy as np
 import pyloudnorm as pyln
+import pytest
 import soundfile as sf
-from pathlib import Path
-from io import BytesIO
-
-from jet.audio.audio_norm import normalize_loudness
+from jet.audio.norm import normalize_loudness
 
 try:
     import torch
+
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
 
 
-
 # Helper to generate simple test tones
-def sine_wave(freq: float, duration: float, sr: int, amplitude: float = 0.5) -> np.ndarray:
+def sine_wave(
+    freq: float, duration: float, sr: int, amplitude: float = 0.5
+) -> np.ndarray:
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
     return (amplitude * np.sin(2 * np.pi * freq * t)).astype(np.float32)
 
@@ -48,7 +50,7 @@ class TestNormalizeLoudness:
     def wav_bytes(self, sine_audio):
         """Generate in-memory WAV bytes."""
         buffer = BytesIO()
-        sf.write(buffer, sine_audio, self.SR, format='WAV')
+        sf.write(buffer, sine_audio, self.SR, format="WAV")
         return buffer.getvalue()
 
     def test_normalizes_to_target_lufs(self):
@@ -65,9 +67,11 @@ class TestNormalizeLoudness:
 
     def test_file_path_input(self, temp_wav_path):
         """Given a file path to a WAV file
-           When normalize_loudness is called with the path
-           Then it loads the audio, infers sample rate, and normalizes correctly"""
-        normalized = normalize_loudness(str(temp_wav_path), sample_rate=None)  # sample_rate ignored for path
+        When normalize_loudness is called with the path
+        Then it loads the audio, infers sample rate, and normalizes correctly"""
+        normalized = normalize_loudness(
+            str(temp_wav_path), sample_rate=None
+        )  # sample_rate ignored for path
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
         assert -14.5 <= result_lufs <= -13.5
@@ -75,8 +79,8 @@ class TestNormalizeLoudness:
 
     def test_bytes_input(self, wav_bytes):
         """Given raw WAV bytes
-           When normalize_loudness is called with the bytes
-           Then it loads the audio in-memory, infers sample rate, and normalizes"""
+        When normalize_loudness is called with the bytes
+        Then it loads the audio in-memory, infers sample rate, and normalizes"""
         normalized = normalize_loudness(wav_bytes, sample_rate=None)
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
@@ -85,8 +89,8 @@ class TestNormalizeLoudness:
     @pytest.mark.skipif(not HAS_TORCH, reason="torch not installed")
     def test_torch_tensor_input(self, sine_audio):
         """Given a torch.Tensor
-           When normalize_loudness is called with the tensor
-           Then it converts to numpy and normalizes correctly"""
+        When normalize_loudness is called with the tensor
+        Then it converts to numpy and normalizes correctly"""
         tensor = torch.from_numpy(sine_audio)
         normalized = normalize_loudness(tensor, sample_rate=self.SR)
         meter = pyln.Meter(self.SR)
@@ -157,8 +161,8 @@ class TestNormalizeLoudnessReturnDtype:
 
     def test_return_float32(self, sine_audio):
         """Given return_dtype='float32'
-           When normalize_loudness is called
-           Then output is float32, within [-1, 1], and reaches target loudness"""
+        When normalize_loudness is called
+        Then output is float32, within [-1, 1], and reaches target loudness"""
         normalized = normalize_loudness(sine_audio, self.SR, return_dtype="float32")
         expected_dtype = np.float32
         result_dtype = normalized.dtype
@@ -170,8 +174,8 @@ class TestNormalizeLoudnessReturnDtype:
 
     def test_return_float64(self, sine_audio):
         """Given return_dtype='float64'
-           When normalize_loudness is called
-           Then output is float64 with higher precision"""
+        When normalize_loudness is called
+        Then output is float64 with higher precision"""
         normalized = normalize_loudness(sine_audio, self.SR, return_dtype="float64")
         expected_dtype = np.float64
         result_dtype = normalized.dtype
@@ -183,8 +187,8 @@ class TestNormalizeLoudnessReturnDtype:
 
     def test_return_int16(self, sine_audio):
         """Given return_dtype='int16'
-           When normalize_loudness is called
-           Then output is int16, scaled correctly, no overflow, and loudness close to target"""
+        When normalize_loudness is called
+        Then output is int16, scaled correctly, no overflow, and loudness close to target"""
         normalized = normalize_loudness(sine_audio, self.SR, return_dtype="int16")
         expected_dtype = np.int16
         result_dtype = normalized.dtype
@@ -199,8 +203,8 @@ class TestNormalizeLoudnessReturnDtype:
 
     def test_return_int32(self, sine_audio):
         """Given return_dtype='int32'
-           When normalize_loudness is called
-           Then output is int32, scaled correctly, no overflow, and loudness close to target"""
+        When normalize_loudness is called
+        Then output is int32, scaled correctly, no overflow, and loudness close to target"""
         normalized = normalize_loudness(sine_audio, self.SR, return_dtype="int32")
         expected_dtype = np.int32
         result_dtype = normalized.dtype
@@ -215,8 +219,8 @@ class TestNormalizeLoudnessReturnDtype:
 
     def test_return_dtype_none_defaults_to_float32(self, sine_audio):
         """Given return_dtype=None (default)
-           When normalize_loudness is called
-           Then output remains float32 (backward compatibility)"""
+        When normalize_loudness is called
+        Then output remains float32 (backward compatibility)"""
         normalized = normalize_loudness(sine_audio, self.SR)
         expected_dtype = np.float32
         result_dtype = normalized.dtype
@@ -224,10 +228,12 @@ class TestNormalizeLoudnessReturnDtype:
 
     def test_silent_audio_preserved_across_dtypes(self, silent_audio):
         """Given nearly silent audio
-           When normalized with any return_dtype
-           Then output values remain zero (no amplification of noise)"""
+        When normalized with any return_dtype
+        Then output values remain zero (no amplification of noise)"""
         for dtype_str in ["float32", "float64", "int16", "int32"]:
-            normalized = normalize_loudness(silent_audio, self.SR, return_dtype=dtype_str)
+            normalized = normalize_loudness(
+                silent_audio, self.SR, return_dtype=dtype_str
+            )
             expected_all_zero = np.zeros_like(normalized)
             np.testing.assert_array_equal(normalized, expected_all_zero)
 
@@ -275,11 +281,11 @@ class TestNormalizeLoudnessSpeechMode:
         # 0–2s: silence
         # 2–6s: moderate speech (amplitude 0.5)
         segment = sine_wave(freq=440, duration=4.0, sr=sr, amplitude=0.5)
-        audio[2*sr:6*sr] = segment
+        audio[2 * sr : 6 * sr] = segment
 
         # 6–7s: loud burst (amplitude 0.8)
         burst = sine_wave(freq=440, duration=1.0, sr=sr, amplitude=0.8)
-        audio[6*sr:7*sr] = burst
+        audio[6 * sr : 7 * sr] = burst
 
         # 7–10s: silence
         return audio
@@ -292,8 +298,8 @@ class TestNormalizeLoudnessSpeechMode:
         mixed_speech_like_audio,
     ):
         """Given various speech recordings (quiet, normal, loud, mixed)
-           When normalized with mode='speech'
-           Then all result in integrated loudness very close to -13.0 LUFS"""
+        When normalized with mode='speech'
+        Then all result in integrated loudness very close to -13.0 LUFS"""
         inputs = [
             ("moderate", moderate_speech_like_audio),
             ("loud", loud_speech_like_audio),
@@ -306,17 +312,23 @@ class TestNormalizeLoudnessSpeechMode:
         for name, audio in inputs:
             normalized = normalize_loudness(audio, self.SR, mode="speech")
             result_lufs = meter.integrated_loudness(normalized)
-            assert -13.6 <= result_lufs <= -12.4, f"{name} speech audio failed: {result_lufs:.2f} LUFS"
+            assert -13.6 <= result_lufs <= -12.4, (
+                f"{name} speech audio failed: {result_lufs:.2f} LUFS"
+            )
 
     def test_speech_mode_allows_higher_peaks_than_general(
         self,
         low_speech_like_audio,
     ):
         """Given very quiet speech requiring strong gain
-           When normalized in speech vs general mode
-           Then speech mode allows significantly higher peak level"""
-        normalized_speech = normalize_loudness(low_speech_like_audio, self.SR, mode="speech")
-        normalized_general = normalize_loudness(low_speech_like_audio, self.SR, mode="general")
+        When normalized in speech vs general mode
+        Then speech mode allows significantly higher peak level"""
+        normalized_speech = normalize_loudness(
+            low_speech_like_audio, self.SR, mode="speech"
+        )
+        normalized_general = normalize_loudness(
+            low_speech_like_audio, self.SR, mode="general"
+        )
 
         peak_speech = np.max(np.abs(normalized_speech))
         peak_general = np.max(np.abs(normalized_general))
@@ -336,13 +348,10 @@ class TestNormalizeLoudnessSpeechMode:
         moderate_speech_like_audio,
     ):
         """Given mode='speech' but user sets custom target_lufs
-           When normalized
-           Then custom target is used, not the speech preset"""
+        When normalized
+        Then custom target is used, not the speech preset"""
         normalized = normalize_loudness(
-            moderate_speech_like_audio,
-            self.SR,
-            target_lufs=-16.0,
-            mode="speech"
+            moderate_speech_like_audio, self.SR, target_lufs=-16.0, mode="speech"
         )
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
@@ -353,9 +362,11 @@ class TestNormalizeLoudnessSpeechMode:
         moderate_speech_like_audio,
     ):
         """Given explicit mode='general'
-           When normalized
-           Then uses -14.0 LUFS and conservative headroom"""
-        normalized = normalize_loudness(moderate_speech_like_audio, self.SR, mode="general")
+        When normalized
+        Then uses -14.0 LUFS and conservative headroom"""
+        normalized = normalize_loudness(
+            moderate_speech_like_audio, self.SR, mode="general"
+        )
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
         assert -14.6 <= result_lufs <= -13.4
@@ -368,8 +379,8 @@ class TestNormalizeLoudnessSpeechMode:
         moderate_speech_like_audio,
     ):
         """Given invalid mode value
-           When calling normalize_loudness
-           Then ValueError is raised"""
+        When calling normalize_loudness
+        Then ValueError is raised"""
         with pytest.raises(ValueError, match="Invalid mode"):
             normalize_loudness(moderate_speech_like_audio, self.SR, mode="music")
 
@@ -378,20 +389,20 @@ class TestNormalizeLoudnessSpeechMode:
         mixed_speech_like_audio,
     ):
         """Given speech with silent sections in speech mode
-           When normalized
-           Then silent parts remain near zero (no noise amplification)"""
+        When normalized
+        Then silent parts remain near zero (no noise amplification)"""
         normalized = normalize_loudness(mixed_speech_like_audio, self.SR, mode="speech")
 
         # First 1 second should still be near silent
-        silent_segment = normalized[:self.SR]
+        silent_segment = normalized[: self.SR]
         assert np.max(np.abs(silent_segment)) < 1e-5
 
         # Last 2 seconds should be silent
-        tail_segment = normalized[-2*self.SR:]
+        tail_segment = normalized[-2 * self.SR :]
         assert np.max(np.abs(tail_segment)) < 1e-5
 
-
         # INSERT_YOUR_CODE
+
 
 class TestNormalizeLoudnessMaxThreshold:
     """Dedicated tests for the optional max_loudness_threshold parameter."""
@@ -418,14 +429,14 @@ class TestNormalizeLoudnessMaxThreshold:
         loud_speech_like_audio,
     ):
         """Given already loud audio and max_loudness_threshold set below measured
-           When normalized
-           Then no amplification occurs – output loudness remains close to input"""
+        When normalized
+        Then no amplification occurs – output loudness remains close to input"""
         # Set threshold to -10.0 (well below measured ~ -5 LUFS)
         normalized = normalize_loudness(
             loud_speech_like_audio,
             self.SR,
             max_loudness_threshold=-10.0,
-            mode="speech"  # speech mode targets -13.0
+            mode="speech",  # speech mode targets -13.0
         )
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
@@ -439,13 +450,13 @@ class TestNormalizeLoudnessMaxThreshold:
         low_speech_like_audio,
     ):
         """Given quiet audio and max_loudness_threshold above measured
-           When normalized
-           Then full amplification to target occurs"""
+        When normalized
+        Then full amplification to target occurs"""
         normalized = normalize_loudness(
             low_speech_like_audio,
             self.SR,
             max_loudness_threshold=-10.0,  # way above measured ~ -27
-            mode="speech"
+            mode="speech",
         )
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
@@ -456,13 +467,13 @@ class TestNormalizeLoudnessMaxThreshold:
         loud_speech_like_audio,
     ):
         """Given very loud audio exceeding both threshold and target
-           When normalized with threshold
-           Then attenuation toward target still occurs"""
+        When normalized with threshold
+        Then attenuation toward target still occurs"""
         normalized = normalize_loudness(
             loud_speech_like_audio,
             self.SR,
             max_loudness_threshold=-8.0,  # between original (~-5) and target (-13)
-            target_lufs=-14.0  # general mode for clearer attenuation
+            target_lufs=-14.0,  # general mode for clearer attenuation
         )
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
@@ -474,13 +485,9 @@ class TestNormalizeLoudnessMaxThreshold:
         low_speech_like_audio,
     ):
         """Given max_loudness_threshold=None (default)
-           When normalized
-           Then full bidirectional normalization occurs"""
-        normalized = normalize_loudness(
-            low_speech_like_audio,
-            self.SR,
-            mode="speech"
-        )
+        When normalized
+        Then full bidirectional normalization occurs"""
+        normalized = normalize_loudness(low_speech_like_audio, self.SR, mode="speech")
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
         assert -13.6 <= result_lufs <= -12.4
@@ -490,13 +497,13 @@ class TestNormalizeLoudnessMaxThreshold:
         moderate_speech_like_audio,
     ):
         """Given moderate input (~ -16 LUFS) and threshold slightly above measured
-           When in speech mode (target -13)
-           Then amplification is blocked if threshold prevents it"""
+        When in speech mode (target -13)
+        Then amplification is blocked if threshold prevents it"""
         normalized = normalize_loudness(
             moderate_speech_like_audio,
             self.SR,
             max_loudness_threshold=-15.0,  # just above measured
-            mode="speech"
+            mode="speech",
         )
         meter = pyln.Meter(self.SR)
         result_lufs = meter.integrated_loudness(normalized)
