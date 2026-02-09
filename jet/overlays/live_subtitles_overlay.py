@@ -43,6 +43,8 @@ from PyQt6.QtWidgets import (
 )
 from rich.logging import RichHandler
 
+PLAY_VOLUME = 0.35
+
 
 def _setup_logging():
     logger = logging.getLogger("LiveSubtitlesOverlay")
@@ -96,7 +98,7 @@ class LiveSubtitlesOverlay(QWidget):
         parent=None,
         title: str | None = None,
         on_clear: Callable[[], None] | None = None,
-        play_volume: float = 0.35,
+        play_volume: float = PLAY_VOLUME,
         segments_dir: str | None = None,
     ):
         super().__init__(parent)
@@ -986,7 +988,7 @@ class LiveSubtitlesOverlay(QWidget):
         app: QApplication | None = None,
         title: str | None = None,
         on_clear: Callable[[], None] | None = None,
-        play_volume: float = 0.35,
+        play_volume: float = PLAY_VOLUME,
     ) -> "LiveSubtitlesOverlay":
         """
         Instantiate the overlay, always positioned top-right, always-on-top, and thread-safe.
