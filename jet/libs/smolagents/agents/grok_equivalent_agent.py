@@ -3,7 +3,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 import requests
 from markdownify import markdownify
@@ -14,6 +14,8 @@ try:
     import fitz  # pymupdf - pip install pymupdf for PDF text extraction support
 except ImportError:
     fitz = None
+from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.libs.smolagents.utils.model_utils import create_local_model
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
@@ -44,7 +46,7 @@ with open(_instructions_path, encoding="utf-8") as f:
 
 
 class AgentConfig(TypedDict):
-    model_id: str
+    model_id: LLAMACPP_LLM_KEYS | str
     max_steps: int
     instructions: str | None
     executor_type: Literal["local", "blaxel", "e2b", "modal", "docker", "wasm"]
@@ -145,8 +147,8 @@ def visit_webpage(url: str) -> str:
 
 
 def create_web_agent(
-    model: InferenceClientModel | None,
-    tools: list = None,
+    model_id: LLAMACPP_LLM_KEYS | str = "qwen3-instruct-2507:4b",
+    tools: list = [],
     max_steps: int = 10,
     name: str = "web_search_agent",
     description: str = "Handles web searches and page browsing for gathering information.",
@@ -155,11 +157,12 @@ def create_web_agent(
 
     To override defaults: Pass custom tools list, e.g., tools=[WebSearchTool(), my_custom_tool].
     """
-    # Lazy import to avoid circular import at module top-level (since create_local_model may depend on the agent)
-    from jet.libs.smolagents.agents.controlled_messages_agent import create_local_model
 
-    if model is None:
-        model = create_local_model(agent_name=name)
+    if model_id in get_args(LLAMACPP_LLM_KEYS):
+        model = create_local_model(model_id=model_id, agent_name=name)
+    else:
+        model = InferenceClientModel(model_id=model_id)
+
     if tools is None:
         tools = [WebSearchTool(), visit_webpage]
     return ToolCallingAgent(
@@ -172,8 +175,8 @@ def create_web_agent(
 
 
 def create_manager_agent(
-    model: InferenceClientModel | None,
-    managed_agents: list,
+    model_id: LLAMACPP_LLM_KEYS | str = "qwen3-instruct-2507:4b",
+    managed_agents: list = [],
     instructions: str = FULL_INSTRUCTIONS,  # Now uses the full, detailed prompt by default
     additional_authorized_imports: list[str] = [
         "time",
@@ -196,8 +199,11 @@ def create_manager_agent(
     # Lazy import to avoid circular import at module top-level
     from jet.libs.smolagents.utils.model_utils import create_local_model
 
-    if model is None:
-        model = create_local_model(agent_name="manager_agent")
+    if model_id in get_args(LLAMACPP_LLM_KEYS):
+        model = create_local_model(model_id=model_id, agent_name="manager_agent")
+    else:
+        model = InferenceClientModel(model_id=model_id)
+
     return CodeAgent(
         tools=[],
         model=model,
@@ -229,15 +235,14 @@ def main(config: AgentConfig, query: str | None = None) -> None:
     display_config_table(config)
 
     # Initialize model (requires HF token; run huggingface_hub.login() if needed)
-    # model = InferenceClientModel(model_id=config["model_id"])
-    model = None
+    model_id = config["model_id"]
 
     # Create web agent
-    web_agent = create_web_agent(model=model, max_steps=config["max_steps"])
+    web_agent = create_web_agent(model_id=model_id, max_steps=config["max_steps"])
 
     # Create manager agent
     manager_agent = create_manager_agent(
-        model=model,
+        model_id=model_id,
         managed_agents=[web_agent],
         instructions=config.get("instructions"),
         executor_type=config.get("executor_type", "local"),
@@ -261,7 +266,7 @@ def main(config: AgentConfig, query: str | None = None) -> None:
 
 if __name__ == "__main__":
     config: AgentConfig = {
-        "model_id": "meta-llama/Meta-Llama-3-8B-Instruct",  # Free HF model; override via config['model_id'] = 'new-model'
+        "model_id": "qwen3-instruct-2507:4b",
         "max_steps": 20,
         "instructions": None,  # Override via config['instructions'] = "custom prompt"
         "executor_type": "local",

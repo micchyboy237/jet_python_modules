@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
 from rich.logging import RichHandler
 
 PLAY_VOLUME = 0.5
+MINIMIZED_HEIGHT = 600
 
 
 def _setup_logging():
@@ -465,6 +466,7 @@ class LiveSubtitlesOverlay(QWidget):
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.content_layout.setSpacing(4)
         self.content_layout.setContentsMargins(6, 6, 6, 6)
+        self.content_layout.addStretch(1)
         self.scroll.setWidget(self.content)
 
         self.content_area.addWidget(self.scroll, stretch=1)
@@ -548,6 +550,8 @@ class LiveSubtitlesOverlay(QWidget):
         transcription_quality: str | None = None,
         translation_confidence: float | None = None,
         translation_quality: str | None = None,
+        is_partial: bool = False,
+        **kwargs,
     ) -> str:
         if not translated_text or not str(translated_text).strip():
             return ""
@@ -680,7 +684,7 @@ class LiveSubtitlesOverlay(QWidget):
             if self._original_size:
                 self.setFixedSize(self._original_size)
             else:
-                self.setFixedHeight(600)
+                self.setFixedHeight(MINIMIZED_HEIGHT)
             for i in range(self.content_area.layout().count()):
                 item = self.content_area.layout().itemAt(i)
                 if item.widget():
@@ -899,7 +903,6 @@ class LiveSubtitlesOverlay(QWidget):
 
         self._message_by_id[mid] = message
         self._widget_by_id[mid] = container
-        self.content_layout.addWidget(container)
 
     def _do_add_message(self, message: SubtitleMessage) -> None:
         mid = message["id"]
