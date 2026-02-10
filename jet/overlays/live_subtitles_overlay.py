@@ -501,6 +501,9 @@ class LiveSubtitlesOverlay(QWidget):
             if widget := item.widget():
                 widget.deleteLater()
 
+        # Re-add stretch after clearing
+        self.content_layout.addStretch(1)
+
         # Re-add only those that pass the current filter
         for message in self.message_history:
             vad_conf = message.get("avg_vad_confidence", 1.0)
@@ -519,6 +522,7 @@ class LiveSubtitlesOverlay(QWidget):
             item = self.content_layout.takeAt(0)
             if widget := item.widget():
                 widget.deleteLater()
+        self.content_layout.addStretch(1)  # re-add stretch after clear
         self.history.clear()
         self.message_history.clear()
         # NEW: reset player
