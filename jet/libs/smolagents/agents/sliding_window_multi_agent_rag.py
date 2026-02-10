@@ -2,6 +2,7 @@ import logging
 import time
 from datetime import timedelta
 
+from jet.libs.smolagents.utils.model_utils import create_local_model
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
@@ -49,9 +50,6 @@ class SlidingWindowMultiAgentRAG:
 
         logger.info("[bold cyan]Initializing SlidingWindowMultiAgentRAG[/]")
         logger.debug(f"chunk_size = {chunk_size:,} chars | overlap = {overlap:,} chars")
-
-        # Import locally to avoid circular imports
-        from jet.libs.smolagents.utils.model_utils import create_local_model
 
         # Model (free HF inference by default; override with model_id for specific model)
         model = (

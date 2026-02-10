@@ -1,8 +1,10 @@
+import os
+
 from jet.logger import logger
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234"
+    base_url=os.getenv("LLAMA_CPP_LLM_URL"), api_key="sk-1234"
 )  # Dummy API key
 messages = [
     {

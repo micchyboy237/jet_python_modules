@@ -1,14 +1,16 @@
+import os
+
 import numpy as np
-from openai import OpenAI
-from tqdm import tqdm
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.logger import logger
+from openai import OpenAI
+from tqdm import tqdm
 
 
 def main():
     """Example usage of EmbeddingClient."""
     client = OpenAI(
-        base_url="http://shawn-pc.local:8081/v1",
+        base_url=os.getenv("LLAMA_CPP_EMBED_URL"),
         api_key="no-key-required",
         max_retries=3,
     )

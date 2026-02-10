@@ -43,7 +43,7 @@ from PyQt6.QtWidgets import (
 )
 from rich.logging import RichHandler
 
-PLAY_VOLUME = 0.35
+PLAY_VOLUME = 0.5
 
 
 def _setup_logging():
@@ -519,6 +519,11 @@ class LiveSubtitlesOverlay(QWidget):
                 widget.deleteLater()
         self.history.clear()
         self.message_history.clear()
+        # NEW: reset player
+        self._player.stop()
+        self._player.setSource(QUrl())  # clear source
+        self._message_by_id.clear()  # also clean up stale ids
+        self._widget_by_id.clear()
 
     def position_window_top_right(self, margin: int = 0) -> None:
         screen = QApplication.primaryScreen().availableGeometry()
