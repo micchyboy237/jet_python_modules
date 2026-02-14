@@ -50,7 +50,7 @@ class HTMLDOMTools:
         if not sections:
             body = self.parser.css_first("body")
             if body:
-                sections = list(body.iter_children())
+                sections = list(body.iter())
 
         return sections
 
@@ -181,6 +181,15 @@ class ScalableHTMLMultiAgentSummarizer:
         merged_structure = ""
         subtree_summaries = []
 
+        if not sections:
+            logger.info(
+                "[yellow]No semantic sections or body children found → empty document[/yellow]"
+            )
+            merged_structure = "The document contains no readable content."
+            final_prompt = f"Convert this into a clean summary:\n{merged_structure}"
+            final_summary = self.manager.run(final_prompt)
+            return final_summary.strip()
+
         for idx, node in enumerate(sections):
             structured = dom_tools.serialize_node(node)
             serialized_str = str(structured)
@@ -209,7 +218,19 @@ Subtree:
                 subtree_summary = self.subtree_agent.run(prompt)
 
                 if self.enable_cache:
-                    self.cache[content_hash] = subtree_summary
+                    # Ensure only plain string is cached.
+                    if hasattr(subtree_summary, "content"):
+                        self.cache[content_hash] = str(subtree_summary.content)
+                        subtree_summary = str(subtree_summary.content)
+                    else:
+                        self.cache[content_hash] = str(subtree_summary)
+                        subtree_summary = str(subtree_summary)
+                else:
+                    # Always coerce to string for downstream
+                    if hasattr(subtree_summary, "content"):
+                        subtree_summary = str(subtree_summary.content)
+                    else:
+                        subtree_summary = str(subtree_summary)
 
             subtree_summaries.append(subtree_summary)
 
