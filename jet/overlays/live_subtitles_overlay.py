@@ -69,9 +69,12 @@ class SubtitleMessage(TypedDict):
 
     segment_number: NotRequired[int]
     avg_vad_confidence: NotRequired[float]
+    normalized_rms: NotRequired[float]
+    normalized_rms_label: NotRequired[str]
     transcription_confidence: NotRequired[float]
-    transcription_quality: NotRequired[str]
     translation_confidence: NotRequired[float]
+    # Removed quality labels from display (still allowed in data)
+    transcription_quality: NotRequired[str]
     translation_quality: NotRequired[str]
 
 
@@ -555,6 +558,7 @@ class LiveSubtitlesOverlay(QWidget):
         translation_confidence: float | None = None,
         translation_quality: str | None = None,
         is_partial: bool = False,
+        # removed avg_rms_linear and avg_rms_dbfs
         **kwargs,
     ) -> str:
         if not translated_text or not str(translated_text).strip():
@@ -583,6 +587,11 @@ class LiveSubtitlesOverlay(QWidget):
             subtitle_message["translation_confidence"] = translation_confidence
         if translation_quality is not None:
             subtitle_message["translation_quality"] = translation_quality
+        # --- NEW: support normalized_rms and normalized_rms_label from kwargs ---
+        if "normalized_rms" in kwargs and kwargs["normalized_rms"] is not None:
+            subtitle_message["normalized_rms"] = kwargs["normalized_rms"]
+        if "normalized_rms_label" in kwargs and kwargs["normalized_rms_label"]:
+            subtitle_message["normalized_rms_label"] = kwargs["normalized_rms_label"]
 
         self.signals._add_message.emit(subtitle_message)
         return mid
@@ -715,41 +724,40 @@ class LiveSubtitlesOverlay(QWidget):
     # --- INTERNAL ---
 
     def _render_message_widget(self, message: SubtitleMessage) -> None:
-        """Reusable method to create and add a single message widget.
-        Extracted from _do_add_message to support filtering without duplication."""
+        """Reusable method to create and add a single message widget."""
         translated_text = message["translated_text"]
         source_text = message.get("source_text", "")
         duration_sec = message.get("duration_sec", 0.0)
         start_sec = message.get("start_sec", 0.0)
         end_sec = message.get("end_sec", 0.0)
         segment_number = message.get("segment_number")
+
+        # Score-related fields (all optional)
         vad_conf = message.get("avg_vad_confidence")
         tr_conf = message.get("transcription_confidence")
-        tr_quality = message.get("transcription_quality")
         tl_conf = message.get("translation_confidence")
-        tl_quality = message.get("translation_quality")
+        rms_dbfs = message.get("avg_rms_dbfs")
 
         container = QWidget()
         container.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
         )
-
         container_layout = QVBoxLayout(container)
         container_layout.setSpacing(4)
         container_layout.setContentsMargins(8, 5, 8, 5)
-        # We'll add two rows: basic info + scores
 
-        # Metadata row 1 - basic info + play button
+        # ───────────────────────────────────────────────
+        # Row 1: segment #, duration, time range, play button
+        # ───────────────────────────────────────────────
         meta_row1 = QWidget()
         meta_layout1 = QHBoxLayout(meta_row1)
         meta_layout1.setContentsMargins(0, 0, 0, 0)
-        meta_layout1.setSpacing(8)
+        meta_layout1.setSpacing(10)
 
-        # ─── Row 1: segment, duration, time, stretch, play ──────────────────────
         if segment_number is not None:
             seg = QLabel(f"#{segment_number}")
             seg.setStyleSheet("""
-                color: #aaffaa;
+                color: #c0ffc0;
                 background: rgba(0, 120, 0, 0.45);
                 border-radius: 5px;
                 padding: 2px 8px;
@@ -759,17 +767,16 @@ class LiveSubtitlesOverlay(QWidget):
             meta_layout1.addWidget(seg)
 
         dur = QLabel(f"{duration_sec:.1f}s")
-        dur.setStyleSheet("color: #b0d0ff;")
+        dur.setStyleSheet("color: #aaa;")
         dur.setFont(QFont("Segoe UI", 9))
         meta_layout1.addWidget(dur)
 
         time_range = QLabel(f"{start_sec:.1f} – {end_sec:.1f}")
-        time_range.setStyleSheet("color: #90b0d0; font-size: 9pt;")
+        time_range.setStyleSheet("color: #888;")
         meta_layout1.addWidget(time_range)
 
         meta_layout1.addStretch()
 
-        # ─── Play button (always at the end of row 1) ───────────────────────────
         if segment_number is not None:
             play_btn = QToolButton()
             play_btn.setText("▶")
@@ -782,14 +789,10 @@ class LiveSubtitlesOverlay(QWidget):
                     font-size: 14px;
                     font-weight: bold;
                 }
-                QToolButton:hover {
-                    background: rgba(100, 220, 140, 0.65);
-                }
-                QToolButton:pressed {
-                    background: rgba(60, 160, 100, 0.85);
-                }
+                QToolButton:hover { background: rgba(100, 220, 140, 0.65); }
+                QToolButton:pressed { background: rgba(60, 160, 100, 0.85); }
             """)
-            play_btn.setToolTip(f"Play segment #{segment_number:04d}")
+            play_btn.setToolTip(f"Play segment #{segment_number}")
             play_btn.clicked.connect(
                 lambda checked, num=segment_number: self._play_segment(num)
             )
@@ -797,75 +800,90 @@ class LiveSubtitlesOverlay(QWidget):
 
         container_layout.addWidget(meta_row1)
 
-        # ─── Row 2: confidence & quality scores ─────────────────────────────────
+        # ───────────────────────────────────────────────
+        # Row 2: VAD  TR  TL  RMS    (no | separator, just spacing)
+        # ───────────────────────────────────────────────
         meta_row2 = QWidget()
         meta_layout2 = QHBoxLayout(meta_row2)
-        meta_layout2.setContentsMargins(0, 0, 0, 0)
-        meta_layout2.setSpacing(10)
-
-        quality_colors = {
-            "Very High": "#4ade80",
-            "High": "#a3e635",
-            "Good": "#fbbf24",
-            "Medium": "#fb923c",
-            "Low": "#f87171",
-            "N/A": "#aaaaaa",
-        }
-
-        def get_quality_style(q: str | None) -> str:
-            color = quality_colors.get(q or "N/A", "#aaaaaa")
-            return f"color: {color}; font-size:9pt; font-weight:bold;"
+        meta_layout2.setContentsMargins(0, 3, 0, 5)
+        meta_layout2.setSpacing(18)  # ← increased spacing instead of explicit divider
 
         def conf_color(v: float | None) -> str:
             if v is None:
-                return "#aaaaaa"
-            return "#4ade80" if v >= 0.90 else "#fbbf24" if v >= 0.75 else "#f87171"
+                return "#777"
+            v = max(0.0, min(1.0, v))
+            if v >= 0.95:
+                return "#00ff9d"
+            if v >= 0.85:
+                return "#90ff50"
+            if v >= 0.70:
+                return "#ffd700"
+            if v >= 0.50:
+                return "#ffaa00"
+            return "#ff4d4d"
 
-        has_scores = False
+        def get_rms_style(value: float | None) -> tuple[str, str]:
+            """Returns (color, fallback_label) for normalized RMS ∈ [0, ≈1].
+            Reversed gradient per request: strong red = very quiet → cool gray-blue = extremely loud.
+            """
+            if value is None:
+                return "#777777", "N/A"
+            if value >= 0.38:
+                return "#88aaff", "Extremely loud"  # cool gray-blue
+            if value >= 0.26:
+                return "#77ddff", "Very loud"  # cyan-blue
+            if value >= 0.14:
+                return "#88ffcc", "Loud"  # cyan-green
+            if value >= 0.06:
+                return "#ffcc66", "Normal"  # yellow-orange
+            if value >= 0.015:
+                return "#ffaa55", "Soft"  # warm orange
+            if value >= 0.004:
+                return "#ff6644", "Quiet"  # orange-red
+            return "#ff3333", "Very quiet"  # strong red
+
+        items = []
 
         if vad_conf is not None:
-            vad = QLabel(f"VAD {vad_conf:.0%}")
-            vad.setStyleSheet(f"color:{conf_color(vad_conf)}; font-weight:bold;")
-            vad.setFont(QFont("Segoe UI", 9))
-            vad.setToolTip("Average VAD confidence during voice detection")
-            meta_layout2.addWidget(vad)
-            has_scores = True
+            lbl = QLabel(f"VAD {vad_conf:.0%}")
+            lbl.setStyleSheet(f"color: {conf_color(vad_conf)}; font-weight: bold;")
+            lbl.setFont(QFont("Segoe UI", 9))
+            items.append(lbl)
 
         if tr_conf is not None:
-            trc = QLabel(f"Tr {tr_conf:.0%}")
-            trc.setStyleSheet(f"color:{conf_color(tr_conf)}; font-weight:bold;")
-            trc.setFont(QFont("Segoe UI", 9))
-            trc.setToolTip("Transcription confidence (exp(avg logprob))")
-            meta_layout2.addWidget(trc)
-
-            if tr_quality:
-                trq = QLabel(tr_quality)
-                trq.setStyleSheet(get_quality_style(tr_quality))
-                trq.setToolTip("Transcription quality assessment")
-                meta_layout2.addWidget(trq)
-            has_scores = True
+            lbl = QLabel(f"TR {tr_conf:.0%}")
+            lbl.setStyleSheet(f"color: {conf_color(tr_conf)}; font-weight: bold;")
+            lbl.setFont(QFont("Segoe UI", 9))
+            items.append(lbl)
 
         if tl_conf is not None:
-            tl_label = QLabel(f"TL {tl_conf:.0%}")
-            tl_label.setStyleSheet(f"color:{conf_color(tl_conf)}; font-weight:bold;")
-            tl_label.setFont(QFont("Segoe UI", 9))
-            tl_label.setToolTip(
-                "Translation confidence (normalized 0–1, higher = better)"
-            )
-            meta_layout2.addWidget(tl_label)
+            lbl = QLabel(f"TL {tl_conf:.0%}")
+            lbl.setStyleSheet(f"color: {conf_color(tl_conf)}; font-weight: bold;")
+            lbl.setFont(QFont("Segoe UI", 9))
+            items.append(lbl)
 
-            if tl_quality:
-                tlq = QLabel(tl_quality)
-                tlq.setStyleSheet(get_quality_style(tl_quality))
-                tlq.setToolTip("Translation quality assessment")
-                meta_layout2.addWidget(tlq)
-            has_scores = True
+        norm_rms = message.get("normalized_rms")
+        norm_label = message.get("normalized_rms_label")
+        if norm_rms is not None:
+            color, fallback = get_rms_style(norm_rms)
+            display_label = norm_label or fallback
+            txt = f"Level {norm_rms:.3f}"
+            if display_label != "N/A":
+                txt += f" • {display_label}"
+            lbl = QLabel(txt)
+            lbl.setStyleSheet(f"color: {color}; font-weight: bold;")
+            lbl.setFont(QFont("Segoe UI", 9))
+            items.append(lbl)
 
-        if has_scores:
+        if items:
+            for widget in items:
+                meta_layout2.addWidget(widget)
             meta_layout2.addStretch()
             container_layout.addWidget(meta_row2)
 
-        # Text area
+        # ───────────────────────────────────────────────
+        # Main text
+        # ───────────────────────────────────────────────
         text_container = QWidget()
         text_layout = QVBoxLayout(text_container)
         text_layout.setContentsMargins(0, 2, 0, 2)
@@ -880,7 +898,7 @@ class LiveSubtitlesOverlay(QWidget):
         if source_text:
             src = QLabel(source_text)
             src.setWordWrap(True)
-            src.setStyleSheet("color: #d0d0ff; font-style: italic;")
+            src.setStyleSheet("color: #b0b0ff;")
             src.setFont(QFont("Segoe UI", 10))
             text_layout.addWidget(src)
 
@@ -904,7 +922,6 @@ class LiveSubtitlesOverlay(QWidget):
         self.content_layout.addWidget(container)
 
         mid = message["id"]
-
         self._message_by_id[mid] = message
         self._widget_by_id[mid] = container
 
@@ -920,6 +937,8 @@ class LiveSubtitlesOverlay(QWidget):
 
             self._message_by_id[mid] = message
             self._render_message_widget(message)
+
+            QTimer.singleShot(0, self._scroll_to_bottom_smooth)  # <-- ADD THIS
             return
 
         # Normal insert
@@ -959,15 +978,17 @@ class LiveSubtitlesOverlay(QWidget):
     def _scroll_to_bottom_smooth(self) -> None:
         scrollbar = self.scroll.verticalScrollBar()
         QApplication.processEvents()
-        QPropertyAnimation(
+
+        self._scroll_anim = QPropertyAnimation(
             scrollbar,
             b"value",
             self,
-            startValue=scrollbar.value(),
-            endValue=scrollbar.maximum(),
-            duration=300,
-            easingCurve=QEasingCurve.Type.OutCubic,
-        ).start()
+        )
+        self._scroll_anim.setStartValue(scrollbar.value())
+        self._scroll_anim.setEndValue(scrollbar.maximum())
+        self._scroll_anim.setDuration(300)
+        self._scroll_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._scroll_anim.start()
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:

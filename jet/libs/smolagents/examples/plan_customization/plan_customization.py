@@ -135,11 +135,53 @@ def interrupt_after_plan(memory_step, agent):
             return
 
 
+def parseargs():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Plan Customization Example (with dynamic date tool and optional user task input)"
+    )
+    parser.add_argument(
+        "task",
+        type=str,
+        nargs="?",
+        default="Find first the current year. Search for top romance and isekai anime this year. Include the plots for each. Include source for each.",
+        help="Task prompt for the agent to solve.",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.7,
+        help="Temperature for the local model (default: 0.7)",
+    )
+    parser.add_argument(
+        "--agent_name",
+        type=str,
+        default="planning_agent",
+        help="Agent name (default: planning_agent)",
+    )
+    parser.add_argument(
+        "--max_steps", type=int, default=15, help="Maximum agent steps (default: 15)"
+    )
+    parser.add_argument(
+        "--planning_interval",
+        type=int,
+        default=5,
+        help="Planning interval (default: 5)",
+    )
+    parser.add_argument(
+        "--verbosity_level", type=int, default=2, help="Verbosity level (default: 2)"
+    )
+    return parser.parse_args()
+
+
 def main():
     print("🚀 Starting Plan Customization Example (with dynamic date tool)")
     print("=" * 60)
 
-    model = create_local_model(temperature=0.7, agent_name="planning_agent")
+    args = parseargs()
+
+    model = create_local_model(temperature=args.temperature, agent_name=args.agent_name)
 
     # Optional: static date injection (only if you really want it baked in)
     # today_str = datetime.now(pytz.timezone("Asia/Manila")).strftime("%Y-%m-%d")
@@ -156,15 +198,14 @@ def main():
                 max_output_length=3500, chunk_target_tokens=500, top_k=None
             ),
         ],
-        planning_interval=5,
+        planning_interval=args.planning_interval,
         step_callbacks={PlanningStep: interrupt_after_plan},
-        max_steps=15,
-        verbosity_level=2,
+        max_steps=args.max_steps,
+        verbosity_level=args.verbosity_level,
         # system_prompt=custom_system,      # ← uncomment only if you want static injection
     )
 
-    # task = """Search for recent developments in artificial intelligence and provide a summary of the top 3 most significant breakthroughs in 2025. Include the source of each breakthrough."""
-    task = """Find first the current year. Search for top romance and isekai anime this year. Include the plots for each. Include source for each."""
+    task = args.task
 
     try:
         print(f"\n📋 Task: {task}")

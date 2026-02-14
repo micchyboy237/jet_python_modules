@@ -1,4 +1,4 @@
-from typing import Optional, TypedDict
+from typing import Any, TypedDict
 
 
 class JobEntities(TypedDict, total=False):
@@ -14,7 +14,7 @@ class Entity(TypedDict):
     score: float
 
 
-JobEntity = dict[str, list[str]]
+JobEntity = dict[str, Any]
 
 
 class JobData(TypedDict):
@@ -29,24 +29,24 @@ class JobData(TypedDict):
     entities: JobEntities
     tags: list[str]
     domain: str
-    salary: Optional[str]
-    job_type: Optional[str]
-    hours_per_week: Optional[int]
+    salary: str | None
+    job_type: str | None
+    hours_per_week: int | None
 
 
 class JobMetadata(TypedDict):
     id: str
     doc_id: str
     header_doc_id: str
-    parent_id: Optional[str]
+    parent_id: str | None
     doc_index: int
     chunk_index: int
     num_tokens: int
     header: str
-    parent_header: Optional[str]
+    parent_header: str | None
     content: str
     level: int
-    parent_level: Optional[int]
+    parent_level: int | None
     start_idx: int
     end_idx: int
 

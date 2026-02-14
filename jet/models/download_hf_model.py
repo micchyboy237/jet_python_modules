@@ -174,7 +174,7 @@ def download_dataset(
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    repo_id = "m-ric/huggingface_doc"
+    repo_id = "urchade/gliner_large-v2.1"
     cache_dir = MODELS_CACHE_DIR
     clean_cache = False
 

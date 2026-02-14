@@ -1,11 +1,20 @@
 import sounddevice as sd
 
-print(sd.query_devices())
-# Output:
-#   0 HDMI Audio, Core Audio (0 in, 2 out)
-# > 1 BlackHole 2ch, Core Audio (2 in, 2 out)
-# < 2 Mac mini Speakers, Core Audio (0 in, 2 out)
 
-device_info = sd.query_devices(sd.default.device[0], 'input')
-channels = device_info['max_input_channels']
-print(f"Detected {channels} input channels")
+def get_input_device():
+    devices = sd.query_devices()
+    input_devices = [
+        (idx, dev) for idx, dev in enumerate(devices) if dev["max_input_channels"] > 0
+    ]
+
+    if not input_devices:
+        raise RuntimeError("No input devices available.")
+
+    return input_devices[0]  # or choose by name
+
+
+print(sd.query_devices())
+device_index, device_info = get_input_device()
+
+print(f"Using device: {device_info['name']}")
+print(f"Detected {device_info['max_input_channels']} input channels")
