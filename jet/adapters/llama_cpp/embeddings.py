@@ -1,8 +1,7 @@
 import os
 from collections.abc import Callable, Iterator
-from typing import (
-    Literal,
-)
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Literal
 
 import numpy as np
 from jet._token.token_utils import token_counter
@@ -10,11 +9,14 @@ from jet.adapters.llama_cpp.types import (
     LLAMACPP_EMBED_KEYS,
     GenerateEmbeddingsReturnType,
 )
-from jet.adapters.llama_cpp.utils import resolve_model_value
+from jet.adapters.llama_cpp.utils import (
+    get_context_size,
+    get_embedding_size,
+    resolve_model_value,
+)
 from jet.logger import CustomLogger
 from jet.models.embeddings.cache import EmbeddingCache
 from jet.models.embeddings.utils import calculate_dynamic_batch_size
-from jet.models.utils import get_context_size, get_embedding_size
 from openai import OpenAI
 from tqdm import tqdm
 
@@ -93,6 +95,7 @@ class LlamacppEmbedding:
         use_dynamic_batch_sizing: bool = False,
         verbose: bool = True,
         logger: CustomLogger | None = None,
+        max_workers: int = 4,
     ):
         if not base_url:
             raise ValueError(
@@ -114,6 +117,7 @@ class LlamacppEmbedding:
         )
 
         self._logger = logger or CustomLogger()
+        self.max_workers = max_workers
 
     def __call__(
         self,
@@ -123,6 +127,7 @@ class LlamacppEmbedding:
         show_progress: bool = True,
         use_cache: bool | None = None,
         use_dynamic_batch_sizing: bool | None = None,
+        max_workers: int | None = None,
     ) -> GenerateEmbeddingsReturnType:
         """Make the instance callable to generate embeddings, equivalent to get_embeddings."""
         return self.get_embeddings(
@@ -134,6 +139,7 @@ class LlamacppEmbedding:
             use_dynamic_batch_sizing=use_dynamic_batch_sizing
             if use_dynamic_batch_sizing is not None
             else self.use_dynamic_batch_sizing,
+            max_workers=max_workers if max_workers is not None else self.max_workers,
         )
 
     def embed(
@@ -145,6 +151,7 @@ class LlamacppEmbedding:
         max_input_length: int | None = None,
         use_cache: bool | None = None,
         use_dynamic_batch_sizing: bool | None = None,
+        max_workers: int | None = None,
     ) -> GenerateEmbeddingsReturnType:
         return self.get_embeddings(
             inputs,
@@ -154,6 +161,7 @@ class LlamacppEmbedding:
             max_input_length=max_input_length,
             use_cache=use_cache,
             use_dynamic_batch_sizing=use_dynamic_batch_sizing,
+            max_workers=max_workers if max_workers is not None else self.max_workers,
         )
 
     def get_embeddings(
@@ -165,176 +173,203 @@ class LlamacppEmbedding:
         max_input_length: int | None = None,
         use_cache: bool | None = None,
         use_dynamic_batch_sizing: bool | None = None,
+        max_workers: int | None = None,
     ) -> GenerateEmbeddingsReturnType:
-        """Generate embeddings with caching and optional dynamic batch sizing."""
+        """
+        Generate embeddings for the given inputs with support for:
+        - Caching (memory/file/sqlite)
+        - Dynamic batch sizing based on token counts
+        - Concurrent batch requests via ThreadPoolExecutor
+        - Progress bars (tqdm)
+        - Input validation & token length checks
+        """
         use_cache = use_cache if use_cache is not None else self.use_cache
         use_dynamic_batch_sizing = (
             use_dynamic_batch_sizing
             if use_dynamic_batch_sizing is not None
             else self.use_dynamic_batch_sizing
         )
+        max_workers = max_workers if max_workers is not None else self.max_workers
 
+        # Normalize input to list
         input_list = [inputs] if isinstance(inputs, str) else inputs
         valid_inputs = [i for i in input_list if isinstance(i, str) and i.strip()]
-        invalid_inputs = [
-            i for i in input_list if not (isinstance(i, str) and i.strip())
-        ]
 
-        if invalid_inputs:
-            self._logger.warning(
-                f"Warning: Skipped {len(invalid_inputs)} invalid inputs: {invalid_inputs}"
-            )
         if not valid_inputs:
             raise ValueError(
-                "No valid inputs provided: inputs must be a non-empty string or list of non-empty strings"
+                "No valid inputs provided: must be a non-empty string or list of non-empty strings"
             )
 
-        embedding_size = get_embedding_size(self.model)
-        context_size = get_context_size(self.model)
-        max_length = max_input_length if max_input_length is not None else context_size
-
-        if max_length <= 0:
+        if len(valid_inputs) != len(input_list):
             self._logger.warning(
-                f"Warning: Invalid max_input_length ({max_length}) from get_context_size; falling back to 512"
+                f"Skipped {len(input_list) - len(valid_inputs)} invalid/empty inputs"
             )
-            max_length = 512
-        elif max_length <= 0:
-            max_length = 512
 
-        token_counts: list[int] = token_counter(
-            valid_inputs, self.model, prevent_total=True
+        # Model metadata
+        embedding_dim = get_embedding_size(self.model)
+        context_length = get_context_size(self.model)
+        max_tokens = (
+            max_input_length if max_input_length is not None else context_length
         )
+        if max_tokens <= 0:
+            max_tokens = 512
+            self._logger.warning("Invalid context size; using fallback max_tokens=512")
 
-        # Log detailed input statistics
+        token_counts = token_counter(valid_inputs, self.model, prevent_total=True)
+
         if self.verbose:
             self._logger.info(
-                f"Embedding stats -> model: {self.model}, "
-                f"embedding_size: {embedding_size}, "
-                f"context_size: {context_size}, "
-                f"max_length: {max_length}"
-            )
-            self._logger.debug(f"\nInputs: {len(input_list)}")
-            self._logger.debug(
-                f"Tokens\nmax: {max(token_counts)}\nmin: {min(token_counts)}"
+                f"Embedding request | model={self.model} | dim={embedding_dim} | "
+                f"ctx={context_length} | max_tokens={max_tokens} | n={len(valid_inputs)} | "
+                f"batch_size={batch_size} | workers={max_workers} | cache={use_cache}"
             )
 
-        long_inputs = [
-            (count, idx) for idx, count in enumerate(token_counts) if count > max_length
-        ]
-
+        # Check for overly long inputs
+        long_inputs = [idx for idx, cnt in enumerate(token_counts) if cnt > max_tokens]
         if long_inputs:
-            long_input_indexes = [idx for _, idx in long_inputs]
-            self._logger.error(
-                f"Error: Found {len(long_inputs)} inputs exceeding max length ({max_length} tokens): indexes {long_input_indexes}"
-            )
-            raise InputTooLargeError(long_input_indexes, max_length)
+            raise InputTooLargeError(long_inputs, max_tokens)
 
-        # Apply dynamic batch sizing if enabled
+        # Adjust batch size dynamically if enabled
         if use_dynamic_batch_sizing:
-            dynamic_batch_size = calculate_dynamic_batch_size(
+            batch_size = calculate_dynamic_batch_size(
                 token_counts=token_counts,
-                embedding_size=embedding_size,
-                context_size=context_size,
+                embedding_size=embedding_dim,
+                context_size=context_length,
             )
-            batch_size = dynamic_batch_size
             if self.verbose:
-                self._logger.debug(
-                    f"Dynamic batch sizing enabled. Using batch_size: {batch_size}"
-                )
-        else:
-            if self.verbose:
-                self._logger.debug(f"Using static batch_size: {batch_size}")
+                self._logger.debug(f"Using dynamic batch size: {batch_size}")
 
-        # Cache check
+        # ── Cache lookup phase ─────────────────────────────────────────────────
+        cached_embeddings: list[list[float] | np.ndarray | None] = [None] * len(
+            valid_inputs
+        )
+        miss_texts: list[str] = []
+
         if use_cache:
-            # ── Per-text cache lookup ───────────────────────────────────────
-            cached_embeddings: list = [None] * len(valid_inputs)
-            miss_indices: list[int] = []
-            miss_texts: list[str] = []
-
             for idx, text in enumerate(valid_inputs):
                 key = self.cache._generate_key(text)
-                emb = self.cache.get(key)
-                # Migration / safety for old buggy multi-vector cache entries
-                if emb is not None:
+                cached = self.cache.get(key)
+                if cached is not None:
+                    # Handle possible nested list (some cache backends)
                     if (
-                        isinstance(emb, list)
-                        and emb
-                        and isinstance(emb[0], (list, tuple))
+                        isinstance(cached, list)
+                        and cached
+                        and isinstance(cached[0], list)
                     ):
-                        emb = emb[0]  # take first — or you could raise / skip
+                        cached = cached[0]
                     cached_embeddings[idx] = (
-                        np.array(emb, dtype=np.float32)
+                        np.array(cached, dtype=np.float32)
                         if return_format == "numpy"
-                        else emb
+                        else cached
                     )
                 else:
-                    miss_indices.append(idx)
                     miss_texts.append(text)
 
-            # Early return if everything is cached
             if not miss_texts:
-                result = (
+                # Full cache hit → early return
+                result_array = (
                     cached_embeddings
                     if return_format != "numpy"
                     else np.array(cached_embeddings, dtype=np.float32)
                 )
-                result = self.transform_data(result)
-                if self.verbose:
-                    self._logger.debug(f"Full cache hit for {len(valid_inputs)} texts")
-                return result
+                return self.transform_data(result_array)
 
-            if self.verbose and miss_texts:
+            target_texts = miss_texts
+            if self.verbose:
                 self._logger.debug(
                     f"Cache hits: {len(valid_inputs) - len(miss_texts)} | misses: {len(miss_texts)}"
                 )
-            if self.verbose:
-                self._logger.debug(
-                    f"Cache miss for {len(valid_inputs)} | misses: {len(miss_texts)}. Computing..."
-                )
+        else:
+            target_texts = valid_inputs
 
-        embeddings = []
-        target_texts = miss_texts if use_cache else valid_inputs
-        progress_bar = tqdm(
-            range(0, len(target_texts), batch_size),
-            desc="Embedding cache misses" if use_cache else "Processing batches",
-            disable=not show_progress,
-        )
-
-        for i in progress_bar:
-            batch = target_texts[i : i + batch_size]
+        # ── Helper: embed one batch ────────────────────────────────────────────
+        def embed_batch(batch: list[str]) -> list[list[float]]:
             try:
-                response = self.client.embeddings.create(model=self.model, input=batch)
-                batch_embeddings = [d.embedding for d in response.data]
-                if return_format == "numpy":
-                    batch_embeddings = [np.array(emb) for emb in batch_embeddings]
-
-                # If caching, store each embedding using its per-text cache key
-                if use_cache:
-                    for local_i, single_emb in enumerate(batch_embeddings):
-                        text = batch[local_i]
-                        key = self.cache._generate_key(text)
-                        stored_value = (
-                            single_emb
-                            if return_format != "numpy"
-                            else single_emb.tolist()
-                        )
-                        self.cache.set(key, stored_value)
-                embeddings.extend(batch_embeddings)
-            except Exception as e:
-                self._logger.error(
-                    f"Error generating embeddings for batch {i // batch_size + 1}: {e}"
+                response = self.client.embeddings.create(
+                    model=self.model,
+                    input=batch,
                 )
+                return [d.embedding for d in response.data]
+            except Exception as e:
+                self._logger.error(f"Embedding batch failed: {e}")
                 raise
 
-        final_embeddings = (
-            embeddings
-            if return_format != "numpy"
-            else np.array(embeddings, dtype=np.float32)
-        )
-        final_embeddings = self.transform_data(final_embeddings)
+        # ── Compute missing embeddings ─────────────────────────────────────────
+        new_embeddings: list[list[float]] = []
 
-        return final_embeddings
+        if max_workers is None or max_workers <= 1:
+            # Sequential path (compatible with original behavior)
+            progress = tqdm(
+                range(0, len(target_texts), batch_size),
+                desc="Embedding (sequential)",
+                unit="batch",
+                disable=not show_progress,
+            )
+            for start in progress:
+                batch = target_texts[start : start + batch_size]
+                batch_emb = embed_batch(batch)
+                new_embeddings.extend(batch_emb)
+
+        else:
+            # Parallel path
+            batches = [
+                target_texts[i : i + batch_size]
+                for i in range(0, len(target_texts), batch_size)
+            ]
+
+            batch_results: list[list[list[float]]] = [[] for _ in batches]
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_idx = {
+                    executor.submit(embed_batch, batch): i
+                    for i, batch in enumerate(batches)
+                }
+
+                completed = tqdm(
+                    as_completed(future_to_idx),
+                    total=len(batches),
+                    desc=f"Embedding (parallel, workers={max_workers})",
+                    unit="batch",
+                    disable=not show_progress,
+                )
+
+                for future in completed:
+                    idx = future_to_idx[future]
+                    batch_results[idx] = future.result()
+
+            # Flatten preserving order
+            for batch_emb in batch_results:
+                new_embeddings.extend(batch_emb)
+
+        # ── Cache the newly computed embeddings ────────────────────────────────
+        if use_cache:
+            for text, emb_list in zip(target_texts, new_embeddings):
+                key = self.cache._generate_key(text)
+                self.cache.set(key, emb_list)  # stored as list[float]
+
+        # ── Assemble final result in original order ────────────────────────────
+        final_list: list[list[float] | np.ndarray] = []
+        new_idx = 0
+
+        for cached in cached_embeddings:
+            if cached is not None:
+                final_list.append(cached)
+            else:
+                raw_emb = new_embeddings[new_idx]
+                final_list.append(
+                    np.array(raw_emb, dtype=np.float32)
+                    if return_format == "numpy"
+                    else raw_emb
+                )
+                new_idx += 1
+
+        result = (
+            final_list
+            if return_format != "numpy"
+            else np.array(final_list, dtype=np.float32)
+        )
+
+        return self.transform_data(result)
 
     def get_embedding_function(
         self,

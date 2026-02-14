@@ -1,5 +1,10 @@
 import numpy as np
-from jet.adapters.llama_cpp.models import LLAMACPP_MODELS, LLAMACPP_MODELS_REVERSED
+from jet.adapters.llama_cpp.models import (
+    LLAMACPP_MODEL_CONTEXTS,
+    LLAMACPP_MODEL_EMBEDDING_SIZES,
+    LLAMACPP_MODELS,
+    LLAMACPP_MODELS_REVERSED,
+)
 from jet.adapters.llama_cpp.types import (
     LLAMACPP_KEYS,
     LLAMACPP_TYPES,
@@ -56,3 +61,43 @@ def cosine_similarity(vec1: EmbeddingVector, vec2: EmbeddingVector) -> float:
     if denom == 0.0:
         return 0.0
     return float(np.dot(vec1, vec2) / denom)
+
+
+def get_embedding_size(model: LLAMACPP_KEYS) -> int:
+    """
+    Returns the embedding size (hidden dimension) for the given model key or full model path.
+
+    Args:
+        model: A model key or model path.
+
+    Returns:
+        The embedding size (hidden dimension).
+
+    Raises:
+        ValueError: If the model is not recognized or missing an embedding size.
+    """
+    model_key = resolve_model_key(model)
+    if model_key not in LLAMACPP_MODEL_EMBEDDING_SIZES:
+        error_msg = f"Missing embedding size for model: {model_key}"
+        raise ValueError(error_msg)
+    return LLAMACPP_MODEL_EMBEDDING_SIZES[model_key]
+
+
+def get_context_size(model: LLAMACPP_KEYS) -> int:
+    """
+    Returns the context size (hidden dimension) for the given model key or full model path.
+
+    Args:
+        model: A model key or model path.
+
+    Returns:
+        The maximum context size.
+
+    Raises:
+        ValueError: If the model is not recognized or missing an context size.
+    """
+    model_key = resolve_model_key(model)
+    if model_key not in LLAMACPP_MODEL_CONTEXTS:
+        error_msg = f"Missing context size for model: {model_key}"
+        raise ValueError(error_msg)
+    return LLAMACPP_MODEL_CONTEXTS[model_key]
