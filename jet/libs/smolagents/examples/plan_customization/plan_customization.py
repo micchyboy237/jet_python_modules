@@ -149,28 +149,39 @@ def parseargs():
         help="Task prompt for the agent to solve.",
     )
     parser.add_argument(
+        "-t",
         "--temperature",
         type=float,
         default=0.7,
         help="Temperature for the local model (default: 0.7)",
     )
     parser.add_argument(
+        "-n",
         "--agent_name",
         type=str,
         default="planning_agent",
         help="Agent name (default: planning_agent)",
     )
     parser.add_argument(
-        "--max_steps", type=int, default=15, help="Maximum agent steps (default: 15)"
+        "-m",
+        "--max_steps",
+        type=int,
+        default=15,
+        help="Maximum agent steps (default: 15)",
     )
     parser.add_argument(
+        "-p",
         "--planning_interval",
         type=int,
         default=5,
         help="Planning interval (default: 5)",
     )
     parser.add_argument(
-        "--verbosity_level", type=int, default=2, help="Verbosity level (default: 2)"
+        "-v",
+        "--verbosity_level",
+        type=int,
+        default=2,
+        help="Verbosity level (default: 2)",
     )
     return parser.parse_args()
 
