@@ -370,9 +370,10 @@ def save_job_embeddings(
         job_texts,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        doc_ids=[job["id"] for job, _ in jobs_to_process],
+        ids=[job["id"] for job, _ in jobs_to_process],
         buffer=max_job_header_token,
         model=embed_model,
+        strict_sentences=True,
     )
     for chunk in chunks_with_data:
         chunk["id"] = generate_key(
