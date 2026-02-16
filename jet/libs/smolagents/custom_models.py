@@ -19,6 +19,8 @@ from smolagents.models import (
     RETRY_WAIT,
     ChatMessage,
     ChatMessageStreamDelta,
+    ChatMessageToolCall,
+    ChatMessageToolCallFunction,
     ChatMessageToolCallStreamDelta,
     MessageRole,
     get_clean_message_list,
@@ -108,7 +110,7 @@ def save_response_llm_call(
     call_number: int,
     is_stream: bool,
     response_data: Any | None = None,
-    stream_deltas: list | None = None,
+    stream_deltas: list[ChatMessageStreamDelta] | None = None,
     agent_name: str | None = None,
 ) -> None:
     target_dir = _get_llm_call_subdir(
@@ -130,9 +132,47 @@ def save_response_llm_call(
         )
 
     if is_stream and stream_deltas:
-        with (target_dir / "stream_deltas.ndjson").open("w", encoding="utf-8") as f:
-            for delta in stream_deltas:
-                f.write(json.dumps(delta, default=str) + "\n")
+        (target_dir / "stream_deltas.json").write_text(
+            json.dumps(make_serializable(stream_deltas), indent=2, ensure_ascii=False)
+        )
+
+        # Extract tool_calls if present in any of the stream_deltas
+        all_tool_calls = [
+            delta.tool_calls
+            for delta in stream_deltas
+            if getattr(delta, "tool_calls", None)
+        ]
+        # Flatten and filter out None values
+        flat_tool_calls = []
+        for tc_list in all_tool_calls:
+            if tc_list:
+                flat_tool_calls.extend(tc_list)
+
+        if flat_tool_calls:
+            # Accumulate the function.arguments from each tool_call into a single string
+            accumulated_args = "".join(
+                tc.function.arguments
+                if hasattr(tc, "function")
+                and tc.function
+                and hasattr(tc.function, "arguments")
+                and tc.function.arguments
+                else ""
+                for tc in flat_tool_calls
+            )
+            (target_dir / "tool_calls.json").write_text(
+                json.dumps(
+                    make_serializable(accumulated_args), indent=2, ensure_ascii=False
+                )
+            )
+        else:
+            text = "".join(
+                delta.content
+                for delta in stream_deltas
+                if getattr(delta, "content", None)
+            )
+            (target_dir / "response.json").write_text(
+                json.dumps(make_serializable(text), indent=2, ensure_ascii=False)
+            )
 
 
 class Model:
@@ -521,9 +561,81 @@ class OpenAIModel(ApiModel):
     ) -> ChatMessage:
         if self.verbose:
             print(
-                f"[OpenAIModel] Generating non-stream response for model {self.model_id}"
+                f"[OpenAIModel] Generating (streaming internally) for {self.model_id}"
             )
 
+        completion_kwargs, call_num, input_tokens = self._prepare_and_log_request(
+            messages, stop_sequences, response_format, tools_to_call_from, **kwargs
+        )
+
+        self._apply_rate_limit()
+
+        stream = self.retryer(
+            self.client.chat.completions.create,
+            **completion_kwargs,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+        content, tool_call_parts, usage, deltas = self._consume_stream_and_collect(
+            stream,
+            live_print=True,  # ← only generate prints live
+        )
+
+        message = self._build_final_message(
+            content, tool_call_parts, usage, stop_sequences
+        )
+
+        self._save_stream_log(call_num, deltas, usage)
+
+        return message
+
+    def generate_stream(
+        self,
+        messages: list[ChatMessage | dict],
+        stop_sequences: list[str] | None = None,
+        response_format: dict[str, str] | None = None,
+        tools_to_call_from: list[Tool] | None = None,
+        **kwargs,
+    ) -> Generator[ChatMessageStreamDelta, None, None]:
+        if self.verbose:
+            print(f"[OpenAIModel] Streaming generation for {self.model_id}")
+
+        completion_kwargs, call_num, input_tokens = self._prepare_and_log_request(
+            messages, stop_sequences, response_format, tools_to_call_from, **kwargs
+        )
+
+        self._apply_rate_limit()
+
+        stream = self.retryer(
+            self.client.chat.completions.create,
+            **completion_kwargs,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+        # We consume the stream ourselves so we can log deltas
+        _, _, usage, deltas = self._consume_stream_and_collect(stream, live_print=False)
+
+        # Yield all collected deltas
+        for delta in deltas:
+            yield delta
+
+        # Final save
+        self._save_stream_log(call_num, deltas, usage)
+
+    def _prepare_and_log_request(
+        self,
+        messages: list[ChatMessage | dict],
+        stop_sequences: list[str] | None = None,
+        response_format: dict[str, str] | None = None,
+        tools_to_call_from: list[Tool] | None = None,
+        **kwargs,
+    ) -> tuple[dict, int | None, int]:
+        """
+        Returns:
+            (completion_kwargs, call_number, input_tokens)
+        """
         completion_kwargs = self._prepare_completion_kwargs(
             messages=messages,
             stop_sequences=stop_sequences,
@@ -537,221 +649,209 @@ class OpenAIModel(ApiModel):
 
         call_num = None
         input_tokens = None
-        # --- BEGIN add logging ---
+
         if self.logs_dir:
             call_num = get_next_call_number(self.logs_dir)
+
             formatted_messages = []
             for msg in completion_kwargs.get("messages", []):
                 role = (
                     msg["role"].value if hasattr(msg["role"], "value") else msg["role"]
                 )
-
                 content = msg["content"]
-                if isinstance(content, str):
-                    content_for_tokenizer = content
-                elif (
-                    isinstance(content, list)
-                    and content
-                    and isinstance(content[0], dict)
-                ):
-                    # extract text parts only (ignore images for token counting)
-                    content_for_tokenizer = " ".join(
+                content_for_tokenizer = (
+                    content
+                    if isinstance(content, str)
+                    else " ".join(
                         part["text"] for part in content if part.get("type") == "text"
                     )
-                else:
-                    content_for_tokenizer = str(content)  # fallback
-
+                    if isinstance(content, list)
+                    and content
+                    and isinstance(content[0], dict)
+                    else str(content)
+                )
                 formatted_messages.append(
                     {"role": role, "content": content_for_tokenizer}
                 )
-            input_tokens = count_tokens(
-                formatted_messages,
-                model=self.model_id,
-            )
+
+            input_tokens = count_tokens(formatted_messages, model=self.model_id)
+
             request_data = {
                 "model": completion_kwargs.get("model"),
                 "messages": completion_kwargs.get("messages"),
-                "token_counts": {
-                    "input_tokens": input_tokens,
-                },
+                "token_counts": {"input_tokens": input_tokens},
                 "kwargs": {
                     k: v
                     for k, v in completion_kwargs.items()
                     if k not in ("messages", "model")
                 },
             }
+
             save_request_llm_call(
                 logs_dir=self.logs_dir,
                 call_number=call_num,
-                is_stream=False,
+                is_stream=True,  # most logging treats both as stream nowadays
                 request_data=request_data,
                 agent_name=self.agent_name,
             )
-            # Explicitly log the input tokens count
             logger.info(f"Input tokens: {input_tokens}")
-        # --- END add logging ---
 
-        self._apply_rate_limit()
-        response = self.retryer(
-            self.client.chat.completions.create, **completion_kwargs
-        )
+        return completion_kwargs, call_num, input_tokens
 
-        if self.logs_dir:
-            # Attach response input and output token count for easier debugging and analysis
-            response.token_counts = {
-                "input_tokens": response.usage.prompt_tokens,
-                "output_tokens": response.usage.completion_tokens,
-            }
-            save_response_llm_call(
-                logs_dir=self.logs_dir,
-                call_number=call_num,
-                is_stream=False,
-                response_data=response,
-                agent_name=self.agent_name,
-            )
-            # Again, ensure input token count is logged (could be slightly redundant, but thorough)
-            logger.info(f"Input tokens (response): {response.usage.prompt_tokens}")
-
-        content = response.choices[0].message.content
-        if stop_sequences is not None and not self.supports_stop_parameter:
-            content = remove_content_after_stop_sequences(content, stop_sequences)
-        return ChatMessage(
-            role=response.choices[0].message.role,
-            content=content,
-            tool_calls=response.choices[0].message.tool_calls,
-            raw=response,
-            token_usage=TokenUsage(
-                input_tokens=response.usage.prompt_tokens,
-                output_tokens=response.usage.completion_tokens,
-            ),
-        )
-
-    def generate_stream(
+    def _consume_stream_and_collect(
         self,
-        messages: list[ChatMessage | dict],
-        stop_sequences: list[str] | None = None,
-        response_format: dict[str, str] | None = None,
-        tools_to_call_from: list[Tool] | None = None,
-        **kwargs,
-    ) -> Generator[ChatMessageStreamDelta]:
-        completion_kwargs = self._prepare_completion_kwargs(
-            messages=messages,
-            stop_sequences=stop_sequences,
-            response_format=response_format,
-            tools_to_call_from=tools_to_call_from,
-            model=self.model_id,
-            custom_role_conversions=self.custom_role_conversions,
-            convert_images_to_image_urls=True,
-            **kwargs,
-        )
+        stream,
+        live_print: bool = True,
+    ) -> tuple[
+        str,  # accumulated content
+        list[dict],  # tool call parts (raw dicts)
+        TokenUsage | None,  # final usage
+        list[ChatMessageStreamDelta],  # deltas for logging
+    ]:
+        """
+        Core shared stream consumption logic.
+        Returns accumulated data + deltas for logging.
+        """
+        accumulated_content = ""
+        tool_call_parts: list[dict] = []
+        final_usage = None
+        deltas: list[ChatMessageStreamDelta] = []
 
-        # --- BEGIN add logging ---
-        if self.logs_dir:
-            call_num = get_next_call_number(self.logs_dir)
-            formatted_messages = []
-            for msg in completion_kwargs.get("messages", []):
-                role = (
-                    msg["role"].value if hasattr(msg["role"], "value") else msg["role"]
-                )
+        for chunk in stream:
+            if chunk.usage:
+                final_usage = chunk.usage
 
-                content = msg["content"]
-                if isinstance(content, str):
-                    content_for_tokenizer = content
-                elif (
-                    isinstance(content, list)
-                    and content
-                    and isinstance(content[0], dict)
-                ):
-                    # extract text parts only (ignore images for token counting)
-                    content_for_tokenizer = " ".join(
-                        part["text"] for part in content if part.get("type") == "text"
-                    )
-                else:
-                    content_for_tokenizer = str(content)  # fallback
+            if not chunk.choices:
+                continue
 
-                formatted_messages.append(
-                    {"role": role, "content": content_for_tokenizer}
-                )
-            input_tokens = count_tokens(
-                formatted_messages,
-                model=self.model_id,
-            )
-            request_data = {
-                "model": completion_kwargs.get("model"),
-                "messages": completion_kwargs.get("messages"),
-                "token_counts": {
-                    "input_tokens": input_tokens,
-                },
-                "kwargs": {
-                    k: v
-                    for k, v in completion_kwargs.items()
-                    if k not in ("messages", "model")
-                },
-            }
-            deltas_collected = []
-            save_request_llm_call(
-                logs_dir=self.logs_dir,
-                call_number=call_num,
-                is_stream=True,
-                request_data=request_data,
-                agent_name=self.agent_name,
-            )
-        # --- END add logging ---
+            delta = chunk.choices[0].delta
 
-        self._apply_rate_limit()
-        try:
-            for event in self.retryer(
-                self.client.chat.completions.create,
-                **completion_kwargs,
-                stream=True,
-                stream_options={"include_usage": True},
-            ):
-                delta = None
-                if event.usage:
-                    delta = ChatMessageStreamDelta(
-                        content="",
-                        token_usage=TokenUsage(
-                            input_tokens=event.usage.prompt_tokens,
-                            output_tokens=event.usage.completion_tokens,
-                        ),
-                    )
-                    if self.logs_dir:
-                        deltas_collected.append(delta)
-                    yield delta
-                if event.choices:
-                    choice = event.choices[0]
-                    if choice.delta:
-                        delta = ChatMessageStreamDelta(
-                            content=choice.delta.content,
+            # Content
+            if delta.content is not None:
+                if live_print:
+                    print(delta.content, end="", flush=True)
+                accumulated_content += delta.content
+                deltas.append(ChatMessageStreamDelta(content=delta.content))
+
+            # Tool calls
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index if tc_delta.index is not None else 0
+                    while len(tool_call_parts) <= idx:
+                        tool_call_parts.append(
+                            {
+                                "id": None,
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        )
+
+                    current = tool_call_parts[idx]
+
+                    if tc_delta.id is not None:
+                        current["id"] = tc_delta.id
+                    if tc_delta.type is not None:
+                        current["type"] = tc_delta.type
+                    if tc_delta.function:
+                        if tc_delta.function.name is not None:
+                            current["function"]["name"] += tc_delta.function.name
+                            if live_print and len(current["function"]["name"]) == len(
+                                tc_delta.function.name
+                            ):
+                                print(
+                                    f"\n→ Calling tool: {current['function']['name']}",
+                                    flush=True,
+                                )
+
+                        if tc_delta.function.arguments is not None:
+                            current["function"]["arguments"] += (
+                                tc_delta.function.arguments
+                            )
+
+                    # Save delta
+                    deltas.append(
+                        ChatMessageStreamDelta(
                             tool_calls=[
                                 ChatMessageToolCallStreamDelta(
-                                    index=delta_item.index,
-                                    id=delta_item.id,
-                                    type=delta_item.type,
-                                    function=delta_item.function,
+                                    index=tc_delta.index,
+                                    id=tc_delta.id,
+                                    type=tc_delta.type,
+                                    function=(
+                                        ChatMessageToolCallFunction(
+                                            name=tc_delta.function.name or "",
+                                            arguments=tc_delta.function.arguments or "",
+                                        )
+                                        if tc_delta.function
+                                        else None
+                                    ),
                                 )
-                                for delta_item in choice.delta.tool_calls
                             ]
-                            if choice.delta.tool_calls
-                            else None,
                         )
-                        if self.logs_dir:
-                            deltas_collected.append(delta)
-                        yield delta
-                    else:
-                        if not getattr(choice, "finish_reason", None):
-                            raise ValueError(
-                                f"No content or tool calls in event: {event}"
-                            )
-        finally:
-            if self.logs_dir:
-                save_response_llm_call(
-                    logs_dir=self.logs_dir,
-                    call_number=call_num,
-                    is_stream=True,
-                    stream_deltas=deltas_collected,
-                    agent_name=self.agent_name,
+                    )
+
+        if live_print:
+            print()  # final newline
+
+        usage = None
+        if final_usage:
+            usage = TokenUsage(
+                input_tokens=final_usage.prompt_tokens,
+                output_tokens=final_usage.completion_tokens,
+            )
+
+        return accumulated_content, tool_call_parts, usage, deltas
+
+    def _build_final_message(
+        self,
+        content: str,
+        tool_call_parts: list[dict],
+        usage: TokenUsage | None,
+        stop_sequences: list[str] | None = None,
+    ) -> ChatMessage:
+        if stop_sequences and not self.supports_stop_parameter:
+            content = remove_content_after_stop_sequences(content, stop_sequences)
+
+        tool_calls = None
+        if tool_call_parts:
+            tool_calls = []
+            for part in tool_call_parts:
+                args = parse_json_if_needed(part["function"]["arguments"])
+                tool_calls.append(
+                    ChatMessageToolCall(
+                        id=part["id"],
+                        type=part["type"],
+                        function=ChatMessageToolCallFunction(
+                            name=part["function"]["name"],
+                            arguments=args,
+                        ),
+                    )
                 )
+
+        return ChatMessage(
+            role=MessageRole.ASSISTANT,
+            content=content or None,
+            tool_calls=tool_calls,
+            token_usage=usage,
+        )
+
+    def _save_stream_log(
+        self,
+        call_num: int | None,
+        deltas: list[ChatMessageStreamDelta],
+        usage: TokenUsage | None,
+    ) -> None:
+        if not self.logs_dir or call_num is None:
+            return
+
+        save_response_llm_call(
+            logs_dir=self.logs_dir,
+            call_number=call_num,
+            is_stream=True,
+            stream_deltas=deltas,
+            agent_name=self.agent_name,
+        )
+        if usage:
+            logger.info(f"Output tokens: {usage.output_tokens}")
 
 
 OpenAIServerModel = OpenAIModel

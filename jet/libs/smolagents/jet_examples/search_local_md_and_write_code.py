@@ -21,7 +21,7 @@ WORK_DIR.mkdir(parents=True, exist_ok=True)
 model = OpenAIModel(
     model_id="qwen3-instruct-2507:4b",
     temperature=0.2,
-    max_tokens=8000,
+    max_tokens=12000,
 )
 
 
@@ -64,20 +64,45 @@ def extract_python_blocks(markdown: str) -> list[str]:
 # Main
 # ---------------------------------------------------------------------------
 
+import argparse
+
+
+def get_args():
+    parser = argparse.ArgumentParser(
+        description="Extract Python code blocks from Markdown files using a tool-driven agent."
+    )
+    parser.add_argument(
+        "task",
+        type=str,
+        help="Instruction for the agent (quoted string).",
+    )
+    parser.add_argument(
+        "base_dir", type=str, help="Base directory to search for markdown files."
+    )
+    parser.add_argument(
+        "target",
+        nargs="+",
+        help="One or more target markdown files (filenames or globs, space separated).",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    base_dir = "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/smolagents/docs/source/en/examples"
-    target_file = "text_to_sql.md"
+    args = get_args()
+    base_dir = args.base_dir
+    target_files = args.target
+    task = args.task
 
-    # Ask agent to discover files (tool-driven)
-    task = rf"""
-Search this file under this directory
-Base directory: {base_dir}
-File: {target_file}
+    # Adapt task so agent is told which files are being searched.
+    task_prompt = (
+        f"Search these file(s) under this directory:\n"
+        f"Base directory: {base_dir}\n"
+        f"File(s): {', '.join(target_files)}\n\n"
+        f"{task}\n"
+        "For all specified Markdown files, generate a single Python file per document containing full working reusable code with usage examples found in python code blocks."
+    )
 
-Generate the single python file containing full working reusable code with usage examples.
-"""
-    search_result = agent.run(task)
-
+    search_result = agent.run(task_prompt)
     print(search_result)
 
     # Deterministic extraction + writing
@@ -85,7 +110,19 @@ Generate the single python file containing full working reusable code with usage
     output_root = Path(write_tool.work_dir).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
 
-    for md_file in base_path.rglob("*.md"):
+    # Find matching .md files based on the provided targets
+    md_files_to_extract = set()
+    for t in target_files:
+        # Support full paths (if provided), globs, and filenames
+        local_matches = (
+            list(base_path.rglob(t)) if not Path(t).is_absolute() else [Path(t)]
+        )
+        for match in local_matches:
+            # Only include .md files (in case globs are too broad)
+            if match.is_file() and match.suffix == ".md":
+                md_files_to_extract.add(match.resolve())
+
+    for md_file in md_files_to_extract:
         try:
             text = md_file.read_text(encoding="utf-8", errors="ignore")
         except Exception:
@@ -96,7 +133,6 @@ Generate the single python file containing full working reusable code with usage
             continue
 
         stem = md_file.stem.replace("-", "_").replace(" ", "_")
-
         combined_code: list[str] = []
 
         for idx, code in enumerate(blocks, start=1):
@@ -112,7 +148,7 @@ Generate the single python file containing full working reusable code with usage
             relative_dir = md_file.parent.relative_to(base_path)
         except ValueError:
             # md_file is not under base_path
-            relative_dir = Path()  # write directly into the root
+            relative_dir = Path()
 
         # Step 2: Build output path using that directory
         relative_path = relative_dir / f"{stem}_example.py"

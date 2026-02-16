@@ -5,17 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
-from jet.adapters.llama_cpp.hybrid_search import (
-    RELATIVE_CATEGORY_CONFIG,
-    HybridSearch,
-    HybridSearchResult,
-)
 from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
 from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.libs.smolagents.utils.debug_saver import DebugSaver
-from jet.transformers.object import make_serializable
+from jet.search.heuristics.generic_search import GenericSearchEngine
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from jet.wordnet.text_chunker import chunk_texts_with_data
 from smolagents.tools import Tool
@@ -24,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def search_result_serializer(obj):
-    if isinstance(obj, dict) and "text" in obj:  # HybridSearchResult
+    if isinstance(obj, dict) and "text" in obj:
         return {
             "text": obj.get("text", ""),
             "hybrid_score": obj.get("hybrid_score"),
@@ -61,20 +56,18 @@ def resolve_search_query(query: str | None) -> str:
 
 
 def build_excerpts(
-    results: list[HybridSearchResult],
+    results,
     max_count: int,
 ) -> list[str]:
     """Format top results into numbered, scored excerpts with category info."""
     lines = []
     for i, r in enumerate(results[:max_count], 1):
         preview = (
-            r["text"].strip()[:200] + "..."
-            if len(r["text"]) > 200
-            else r["text"].strip()
+            r.item["content"].strip()[:200] + "..."
+            if len(r.item["content"]) > 200
+            else r.item["content"].strip()
         )
-        norm = f" norm={r['normalized_hybrid']:.3f}" if "normalized_hybrid" in r else ""
-        cat = f" {r['category']} (lvl {r['category_level']})" if "category" in r else ""
-        lines.append(f"[{i}] Relevance {r['hybrid_score']:.3f}{norm}{cat}\n{preview}\n")
+        lines.append(f"[{i}] Relevance {r.score:.3f}\n{preview}\n")
     return lines
 
 
@@ -119,8 +112,8 @@ If you really need near-complete content, use a very broad or generic query."""
 
     def __init__(
         self,
-        embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe",
-        max_output_length: int = 3800,  # now treated as **token** limit
+        embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
+        max_output_length: int = 3800,
         top_k: int | None = None,
         chunk_target_tokens: int = 500,
         chunk_overlap_tokens: int = 100,
@@ -274,16 +267,11 @@ If you really need near-complete content, use a very broad or generic query."""
         self.debug_saver.save_json("chunks.json", chunks)
         logger.info("Saved chunks.json")
 
-        documents = [chunk["content"] for chunk in chunks]
-        chunk_ids = [chunk["id"] for chunk in chunks]
-
-        hybrid = HybridSearch.from_documents(
-            documents=documents,
-            ids=chunk_ids,
-            model=self.embed_model,
-            dense_weight=1.5,
-            sparse_weight=0.7,
-            category_config=RELATIVE_CATEGORY_CONFIG,
+        # Generic BM25 search engine
+        engine = GenericSearchEngine(
+            items=chunks,
+            text_extractor=lambda c: {"content": c["content"]},
+            field_weights={"content": 1.0},
         )
 
         search_query = (
@@ -293,17 +281,17 @@ If you really need near-complete content, use a very broad or generic query."""
         )
 
         if self.verbose:
-            logger.info(f"Using hybrid search with query: {search_query}")
+            logger.info(f"Using generic BM25 search with query: {search_query}")
 
-        results = hybrid.search(
-            search_query,
-            top_k=self.top_k,
-            normalize_scores=True,
-            debug=self.verbose,
+        results = engine.search(
+            query=search_query,
+            limit=self.top_k or 20,
         )
 
         self.debug_saver.save_json(
-            "search_results.json", make_serializable(results), indent=2
+            "search_results.json",
+            [r.to_dict() for r in results],
+            indent=2,
         )
 
         header = build_result_header(url, search_query)
@@ -318,16 +306,13 @@ If you really need near-complete content, use a very broad or generic query."""
 
         for i, r in enumerate(results, 1):
             preview = (
-                r["text"].strip()[:400] + "..."
-                if len(r["text"]) > 400
-                else r["text"].strip()
+                r.item["content"].strip()[:400] + "..."
+                if len(r.item["content"]) > 400
+                else r.item["content"].strip()
             )
-            line = (
-                f"[{i}] Relevance {r['hybrid_score']:.3f}"
-                f"{' norm=' + f'{r['normalized_hybrid']:.3f}' if 'normalized_hybrid' in r else ''}"
-                f"{' ' + r['category'] + ' (lvl ' + str(r['category_level']) + ')' if 'category' in r else ''}\n"
-                f"{preview}\n"
-            )
+
+            line = f"[{i}] Relevance {r.score:.3f}\n{preview}\n"
+
             line_tokens = count_tokens(line, model=self.embed_model)
 
             if current_tokens + line_tokens > remaining_tokens:

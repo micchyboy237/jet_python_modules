@@ -1,23 +1,25 @@
 import fnmatch
-import re
 import os
-import numpy as np
-import nbformat
-from typing import List, Optional, Union, Tuple, TypedDict, Iterator, Callable
+import re
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import TypedDict
+
+import nbformat
+import numpy as np
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS, LLAMACPP_EMBED_TYPES
-from tqdm import tqdm
 from jet.code.markdown_utils._preprocessors import remove_markdown_links
-from jet.utils.url_utils import remove_links
 from jet.logger import logger
-
 from jet.transformers.formatters import format_json
+from jet.utils.url_utils import remove_links
 from jet.wordnet.text_chunker import chunk_texts_with_data
+from tqdm import tqdm
 
 
 class FileSearchMetadata(TypedDict):
     """Typed dictionary for search result metadata."""
+
     file_path: str
     start_idx: int
     end_idx: int
@@ -30,6 +32,7 @@ class FileSearchMetadata(TypedDict):
 
 class FileSearchResult(TypedDict):
     """Typed dictionary for search result structure."""
+
     rank: int
     score: float
     metadata: FileSearchMetadata
@@ -38,12 +41,13 @@ class FileSearchResult(TypedDict):
 
 class Weights(TypedDict):
     """Typed dictionary for similarity weights."""
+
     name: float
     dir: float
     content: float
 
 
-DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = 'embeddinggemma'
+DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
 
 # model_context_size = LLAMACPP_MODEL_CONTEXTS[DEFAULT_EMBED_MODEL]
 # # 'nomic-embed-text-v2-moe' context = 2048
@@ -55,9 +59,9 @@ DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
 
 DEFAULT_WEIGHTS: Weights = {
-    "dir": 0.0,
-    "name": 0.25,
-    "content": 0.75,
+    "dir": 0.10,
+    "name": 0.20,
+    "content": 0.70,
 }
 
 
@@ -70,11 +74,11 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
 
 
 def get_matched_files(
-    paths: Union[str, List[str]],
-    extensions: Optional[List[str]] = None,
-    includes: Optional[List[str]] = None,
-    excludes: Optional[List[str]] = None
-) -> List[str]:
+    paths: str | list[str],
+    extensions: list[str] | None = None,
+    includes: list[str] | None = None,
+    excludes: list[str] | None = None,
+) -> list[str]:
     """
     Collect file paths that match the specified extensions, includes, and excludes patterns.
     Args:
@@ -104,9 +108,13 @@ def get_matched_files(
     for file_path in matched_paths:
         if extensions and not any(file_path.endswith(ext) for ext in extensions):
             continue
-        if includes and not any(fnmatch.fnmatch(file_path, pattern) for pattern in includes):
+        if includes and not any(
+            fnmatch.fnmatch(file_path, pattern) for pattern in includes
+        ):
             continue
-        if excludes and any(fnmatch.fnmatch(file_path, pattern) for pattern in excludes):
+        if excludes and any(
+            fnmatch.fnmatch(file_path, pattern) for pattern in excludes
+        ):
             continue
         filtered_paths.append(file_path)
 
@@ -114,14 +122,14 @@ def get_matched_files(
 
 
 def collect_file_contents(
-    paths: Union[str, List[str]],
-    extensions: Optional[List[str]] = None,
-    includes: Optional[List[str]] = None,
-    excludes: Optional[List[str]] = None,
+    paths: str | list[str],
+    extensions: list[str] | None = None,
+    includes: list[str] | None = None,
+    excludes: list[str] | None = None,
     show_progress: bool = True,
-) -> Tuple[List[str], List[str], List[str], List[str]]:
+) -> tuple[list[str], list[str], list[str], list[str]]:
     file_paths = get_matched_files(paths, extensions, includes, excludes)
-    
+
     all_file_paths = []
     all_file_names = []
     all_file_contents = []
@@ -142,31 +150,31 @@ def collect_file_contents(
         parent_dir = file_path_obj.parent.name or "root"
 
         suffix = file_path_obj.suffix.lower()
-        if suffix == '.ipynb':
-            with open(file_path, 'r', encoding='utf-8') as f:
+        if suffix == ".ipynb":
+            with open(file_path, encoding="utf-8") as f:
                 nb = nbformat.read(f, as_version=4)
-            
+
             parts = []
             for cell in nb.cells:
-                source = cell.get('source', '')
+                source = cell.get("source", "")
                 if not isinstance(source, str) or not source.strip():
                     continue
-                if cell.cell_type == 'markdown':
+                if cell.cell_type == "markdown":
                     parts.append(source.rstrip())
-                elif cell.cell_type == 'code':
+                elif cell.cell_type == "code":
                     parts.append("```python\n" + source.rstrip() + "\n```")
             if not parts:
                 continue
             full_content = "\n\n".join(parts)
-        
-        elif suffix in {'.txt', '.py', '.md', '.mdx', '.mdc', '.rst', '.json', '.csv'}:
-            with open(file_path, 'r', encoding='utf-8') as f:
+
+        elif suffix in {".txt", ".py", ".md", ".mdx", ".mdc", ".rst", ".json", ".csv"}:
+            with open(file_path, encoding="utf-8") as f:
                 full_content = f.read()
         else:
             continue
 
         # Remove all links
-        if suffix in {'.md', '.mdx', '.mdc', ".ipynb"}:
+        if suffix in {".md", ".mdx", ".mdc", ".ipynb"}:
             full_content = remove_markdown_links(full_content, remove_text=False)
         full_content = remove_links(full_content)
 
@@ -179,16 +187,16 @@ def collect_file_contents(
 
 
 def collect_file_chunks(
-    paths: Union[str, List[str]],
-    extensions: Optional[List[str]] = None,
+    paths: str | list[str],
+    extensions: list[str] | None = None,
     embed_model: "LLAMACPP_EMBED_TYPES" = DEFAULT_EMBED_MODEL,
     chunk_size: int = 500,
     chunk_overlap: int = 100,
-    tokenizer: Optional[Callable[[str], int]] = None,
-    includes: Optional[List[str]] = None,
-    excludes: Optional[List[str]] = None,
+    tokenizer: Callable[[str], int] | None = None,
+    includes: list[str] | None = None,
+    excludes: list[str] | None = None,
     show_progress: bool = True,
-) -> Tuple[List[str], List[str], List[str], List[str]]:
+) -> tuple[list[str], list[str], list[str], list[str]]:
     """
     Collect chunked contents for each file along with file paths, names, dirs, and token counts.
     Args:
@@ -203,11 +211,13 @@ def collect_file_chunks(
         Tuple of (file_paths, file_names, parent_dirs, contents_with_indices)
         where contents_with_indices = List of (file_path, content_chunk, start_idx, end_idx, num_tokens)
     """
-    
-    all_file_paths, all_file_names, all_texts, all_parent_dirs = collect_file_contents(paths, extensions, includes, excludes, show_progress)
 
-    def default_tokenizer(text): 
-        return len(re.findall(r'\b\w+\b|[^\w\s]', text))
+    all_file_paths, all_file_names, all_texts, all_parent_dirs = collect_file_contents(
+        paths, extensions, includes, excludes, show_progress
+    )
+
+    def default_tokenizer(text):
+        return len(re.findall(r"\b\w+\b|[^\w\s]", text))
 
     tokenizer = tokenizer or default_tokenizer
 
@@ -227,10 +237,10 @@ def collect_file_chunks(
         contents_with_indices.append(
             (
                 chunk["doc_id"],
-                chunk['content'],
-                chunk['start_idx'],
-                chunk['end_idx'],
-                chunk['num_tokens']
+                chunk["content"],
+                chunk["start_idx"],
+                chunk["end_idx"],
+                chunk["num_tokens"],
             )
         )
 
@@ -241,9 +251,9 @@ def compute_weighted_similarity(
     query_vector: np.ndarray,
     name_vector: np.ndarray,
     dir_vector: np.ndarray,
-    content_vector: Optional[np.ndarray],
-    weights: Optional[Weights] = None
-) -> Tuple[float, float, float, float]:
+    content_vector: np.ndarray | None,
+    weights: Weights | None = None,
+) -> tuple[float, float, float, float]:
     """
     Compute weighted similarity score and individual scores for a file based on its components.
     Args:
@@ -261,22 +271,20 @@ def compute_weighted_similarity(
     if content_vector is not None:
         content_sim = cosine_similarity(query_vector, content_vector)
 
-
     # Use default weights if none provided
     active_weights = weights if weights is not None else DEFAULT_WEIGHTS
 
     weighted_sim = (
-        active_weights["name"] * name_sim +
-        active_weights["dir"] * dir_sim +
-        active_weights["content"] * content_sim
+        active_weights["name"] * name_sim
+        + active_weights["dir"] * dir_sim
+        + active_weights["content"] * content_sim
     )
     return weighted_sim, name_sim, dir_sim, content_sim
 
 
 def merge_results(
-    results: List[FileSearchResult],
-    tokenizer: Optional[Callable[[str], int]] = None
-) -> List[FileSearchResult]:
+    results: list[FileSearchResult], tokenizer: Callable[[str], int] | None = None
+) -> list[FileSearchResult]:
     """
     Merge adjacent chunks from the same file into a single result, preserving order and metadata.
     Args:
@@ -289,19 +297,20 @@ def merge_results(
         return []
 
     # Default tokenizer if none provided
-    def default_tokenizer(text): return len(
-        re.findall(r'\b\w+\b|[^\w\s]', text))
+    def default_tokenizer(text):
+        return len(re.findall(r"\b\w+\b|[^\w\s]", text))
+
     tokenizer = tokenizer or default_tokenizer
 
     # Group results by file_path
-    grouped: dict[str, List[FileSearchResult]] = {}
+    grouped: dict[str, list[FileSearchResult]] = {}
     for result in results:
         file_path = result["metadata"]["file_path"]
         if file_path not in grouped:
             grouped[file_path] = []
         grouped[file_path].append(result)
 
-    merged_results: List[FileSearchResult] = []
+    merged_results: list[FileSearchResult] = []
     for file_path, chunks in grouped.items():
         # Sort chunks by start_idx to ensure correct order
         chunks.sort(key=lambda x: x["metadata"]["start_idx"])
@@ -331,28 +340,29 @@ def merge_results(
                 end_idx = new_end
                 # Update max score
                 max_score = max(max_score, next_chunk["score"])
-                content_sims.append(
-                    next_chunk["metadata"]["content_similarity"])
+                content_sims.append(next_chunk["metadata"]["content_similarity"])
                 chunk_count += 1
                 tokens = tokenizer(merged_text)
             else:
                 # Finalize current merged chunk
                 avg_content_sim = sum(content_sims) / chunk_count
-                merged_results.append({
-                    "rank": current_chunk["rank"],
-                    "score": max_score,  # Use max score instead of avg_score
-                    "metadata": {
-                        "file_path": file_path,
-                        "start_idx": start_idx,
-                        "end_idx": end_idx,
-                        "chunk_idx": 0,
-                        "name_similarity": name_sim,
-                        "dir_similarity": dir_sim,
-                        "content_similarity": avg_content_sim,
-                        "num_tokens": tokens
-                    },
-                    "text": merged_text,
-                })
+                merged_results.append(
+                    {
+                        "rank": current_chunk["rank"],
+                        "score": max_score,  # Use max score instead of avg_score
+                        "metadata": {
+                            "file_path": file_path,
+                            "start_idx": start_idx,
+                            "end_idx": end_idx,
+                            "chunk_idx": 0,
+                            "name_similarity": name_sim,
+                            "dir_similarity": dir_sim,
+                            "content_similarity": avg_content_sim,
+                            "num_tokens": tokens,
+                        },
+                        "text": merged_text,
+                    }
+                )
                 # Start new merged chunk
                 current_chunk = next_chunk
                 merged_text = current_chunk["text"]
@@ -362,28 +372,29 @@ def merge_results(
                 max_score = current_chunk["score"]
                 name_sim = current_chunk["metadata"]["name_similarity"]
                 dir_sim = current_chunk["metadata"]["dir_similarity"]
-                content_sims = [current_chunk["metadata"]
-                                ["content_similarity"]]
+                content_sims = [current_chunk["metadata"]["content_similarity"]]
                 chunk_count = 1
                 tokens = tokenizer(merged_text)
 
         # Append the last merged chunk for this file
         avg_content_sim = sum(content_sims) / chunk_count
-        merged_results.append({
-            "rank": current_chunk["rank"],
-            "score": max_score,  # Use max score instead of avg_score
-            "metadata": {
-                "file_path": file_path,
-                "start_idx": start_idx,
-                "end_idx": end_idx,
-                "chunk_idx": 0,
-                "name_similarity": name_sim,
-                "dir_similarity": dir_sim,
-                "content_similarity": avg_content_sim,
-                "num_tokens": tokens
-            },
-            "text": merged_text,
-        })
+        merged_results.append(
+            {
+                "rank": current_chunk["rank"],
+                "score": max_score,  # Use max score instead of avg_score
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                    "chunk_idx": 0,
+                    "name_similarity": name_sim,
+                    "dir_similarity": dir_sim,
+                    "content_similarity": avg_content_sim,
+                    "num_tokens": tokens,
+                },
+                "text": merged_text,
+            }
+        )
 
     # Re-sort by score to maintain ranking
     merged_results.sort(key=lambda x: x["score"], reverse=True)
@@ -394,20 +405,20 @@ def merge_results(
 
 
 def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
-    paths: Union[str, List[str]],
+    paths: str | list[str],
     query: str,
-    extensions: Optional[List[str]] = None,
-    top_k: Optional[int] = None,
+    extensions: list[str] | None = None,
+    top_k: int | None = None,
     embed_model: "LLAMACPP_EMBED_TYPES" = DEFAULT_EMBED_MODEL,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
     threshold: float = 0.0,
-    tokenizer: Optional[Callable[[str], int]] = None,
+    tokenizer: Callable[[str], int] | None = None,
     split_chunks: bool = False,
-    includes: Optional[List[str]] = None,
-    excludes: Optional[List[str]] = None,
-    preprocess: Optional[Callable[[str], str]] = None,
-    weights: Optional[Weights] = None,
+    includes: list[str] | None = None,
+    excludes: list[str] | None = None,
+    preprocess: Callable[[str], str] | None = None,
+    weights: Weights | None = None,
     batch_size: int = 64,
     show_progress: bool = True,
     use_cache: bool = False,
@@ -435,12 +446,23 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
     Returns:
         Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
-    def default_tokenizer(text): return len(
-        re.findall(r'\b\w+\b|[^\w\s]', text))
+
+    def default_tokenizer(text):
+        return len(re.findall(r"\b\w+\b|[^\w\s]", text))
+
     tokenizer = tokenizer or default_tokenizer
 
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
-        paths, extensions, embed_model, chunk_size, chunk_overlap, tokenizer, includes, excludes, show_progress=show_progress)
+        paths,
+        extensions,
+        embed_model,
+        chunk_size,
+        chunk_overlap,
+        tokenizer,
+        includes,
+        excludes,
+        show_progress=show_progress,
+    )
     logger.debug(f"Parent dirs:\n\n{format_json(parent_dirs)}")
     logger.debug(f"File names:\n\n{format_json(file_names)}")
     logger.debug(f"File paths:\n\n{format_json(file_paths)}")
@@ -452,7 +474,9 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
     chunk_texts = [chunk for _, chunk, _, _, _ in chunk_data]
 
     # ── 1. Embed query (instant) ────────────────────────
-    embedder = LlamacppEmbedding(model=embed_model, use_cache=use_cache, verbose=True, cache_ttl=86400)
+    embedder = LlamacppEmbedding(
+        model=embed_model, use_cache=use_cache, verbose=True, cache_ttl=86400
+    )
     query_processed = preprocess(query) if preprocess else query
     query_vector: np.ndarray = embedder(
         query_processed,
@@ -463,8 +487,12 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
     )[0]
 
     # ── 2. Embed names + dirs (small → fast) ────────────
-    processed_name_texts = [preprocess(name) if preprocess else name for name in name_texts]
-    processed_dir_texts = [preprocess(dir_name) if preprocess else dir_name for dir_name in dir_texts]
+    processed_name_texts = [
+        preprocess(name) if preprocess else name for name in name_texts
+    ]
+    processed_dir_texts = [
+        preprocess(dir_name) if preprocess else dir_name for dir_name in dir_texts
+    ]
 
     name_dir_texts = processed_name_texts + processed_dir_texts
     if name_dir_texts:
@@ -475,8 +503,8 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
             show_progress=True,
             use_cache=use_cache,
         )
-        name_vectors = name_dir_vectors[:len(processed_name_texts)]
-        dir_vectors = name_dir_vectors[len(processed_name_texts):]
+        name_vectors = name_dir_vectors[: len(processed_name_texts)]
+        dir_vectors = name_dir_vectors[len(processed_name_texts) :]
     else:
         name_vectors = np.array([])
         dir_vectors = np.array([])
@@ -494,7 +522,7 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
         use_cache=use_cache,
     )
 
-    results: List[FileSearchResult] = []
+    results: list[FileSearchResult] = []
     chunk_counts = {}
 
     # We'll collect results in a list and yield progressively
@@ -502,10 +530,12 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
 
     yielded = 0
     for batch_idx, batch_vectors in enumerate(chunk_embeddings_stream):
-        logger.debug(f"Received chunk embedding batch {batch_idx+1} — {len(batch_vectors)} vectors")
+        logger.debug(
+            f"Received chunk embedding batch {batch_idx + 1} — {len(batch_vectors)} vectors"
+        )
 
         batch_start = batch_idx * batch_size
-        batch_end   = batch_start + len(batch_vectors)
+        batch_end = batch_start + len(batch_vectors)
 
         for local_i, content_vector in enumerate(batch_vectors):
             global_i = batch_start + local_i
@@ -520,7 +550,7 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
                 name_vectors[file_index],
                 dir_vectors[file_index],
                 content_vector,
-                weights
+                weights,
             )
 
             if weighted_sim >= threshold:
@@ -537,7 +567,7 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
                         "name_similarity": float(name_sim),
                         "dir_similarity": float(dir_sim),
                         "content_similarity": float(content_sim),
-                        "num_tokens": num_tokens
+                        "num_tokens": num_tokens,
                     },
                     "text": chunk,
                 }
@@ -561,6 +591,8 @@ def search_files(  # type: ignore[no-untyped-def]  # temporary until full typing
 
     if not split_chunks:
         merged_results = merge_results(results, tokenizer)
-        for i, result in enumerate(merged_results if top_k is None else merged_results[:top_k], 1):
+        for i, result in enumerate(
+            merged_results if top_k is None else merged_results[:top_k], 1
+        ):
             result["rank"] = i
             yield result

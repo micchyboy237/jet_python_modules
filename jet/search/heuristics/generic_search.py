@@ -1,25 +1,15 @@
+# jet_python_modules/jet/search/heuristics/generic_search.py
 from __future__ import annotations
 
 import math
 import re
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cached_property
-from typing import (
-    Generic,
-    Literal,
-    TypeVar,
-)
+from typing import Generic, Literal, TypeVar
 
 T = TypeVar("T")
-
-
-# ────────────────────────────────────────────────
-# Types
-# ────────────────────────────────────────────────
-
-
 SearchLogic = Literal["AND", "OR"]
 FieldWeights = dict[str, float]
 
@@ -32,16 +22,23 @@ class SearchResult(Generic[T]):
     matched_terms: dict[str, list[str]]
     highlights: dict[str, str]
 
-
-# ────────────────────────────────────────────────
-# Search Engine
-# ────────────────────────────────────────────────
+    def to_dict(self) -> dict:
+        """
+        Convert SearchResult to JSON-serializable dictionary.
+        Assumes item is already JSON-serializable.
+        """
+        return {
+            "item": self.item,
+            "score": self.score,
+            "matched_fields": self.matched_fields,
+            "matched_terms": self.matched_terms,
+            "highlights": self.highlights,
+        }
 
 
 class GenericSearchEngine(Generic[T]):
     """
-    Generic BM25-based in-memory search engine.
-
+    Generic BM25-based in-memory search engine (English-focused).
     - Works on list[T]
     - Requires text extraction function
     - Optional filter function
@@ -51,38 +48,53 @@ class GenericSearchEngine(Generic[T]):
     def __init__(
         self,
         items: Sequence[T],
-        text_extractor: Callable[[T], dict[str, str]],
+        text_extractor: Callable[[T], dict[str, str]] | None = None,
         field_weights: FieldWeights | None = None,
     ) -> None:
         self._items: list[T] = list(items)
-        self._extract = text_extractor
+        self._extract: Callable[[T], dict[str, str]] = (
+            text_extractor or self._default_extract
+        )
         self._weights: FieldWeights = field_weights or {}
         self._avg_doc_length: float = 0.0
-
         self._prepare()
 
-    # ────────────────────────────────────────────────
-    # Index Preparation
-    # ────────────────────────────────────────────────
+    def _default_extract(self, item: T) -> dict[str, str]:
+        """
+        Default extraction logic:
+
+        - If item is dict (including TypedDict), extract all string fields.
+
+        - Otherwise, require explicit extractor.
+        """
+        if isinstance(item, dict):
+            return {
+                str(key): value for key, value in item.items() if isinstance(value, str)
+            }
+
+        raise TypeError("text_extractor must be provided for non-dict items.")
 
     def _prepare(self) -> None:
         lengths: list[int] = []
-
         for item in self._items:
             doc = self._extract(item)
             tokens = self._tokenize(" ".join(doc.values()))
             lengths.append(len(tokens))
-
         self._avg_doc_length = sum(lengths) / len(lengths) if lengths else 1.0
 
     @staticmethod
     def _simple_stem(word: str) -> str:
+        # Basic English stemming rules
         if word.endswith("ies"):
             return word[:-3] + "y"
         if word.endswith("es"):
             return word[:-2]
         if word.endswith("s"):
             return word[:-1]
+        if word.endswith("ing"):
+            return word[:-3] + "e" if len(word) > 5 else word[:-3]
+        if word.endswith("ed"):
+            return word[:-2]
         return word
 
     @staticmethod
@@ -90,24 +102,27 @@ class GenericSearchEngine(Generic[T]):
         if not text:
             return []
 
-        words = re.findall(r"[a-z0-9#&/+-]+", text.lower())
-        return [GenericSearchEngine._simple_stem(w) for w in words if len(w) >= 2]
+        # English-focused pattern:
+        # - Words (a-z + digits, allowing internal . _ -)
+        # - Floating point numbers & scientific notation
+        # - Hex literals
+        pattern = (
+            r"[a-z0-9]+(?:[._-][a-z0-9]+)*"  # words, versions, identifiers
+            r"|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?"  # decimals + scientific notation
+            r"|\b0x[a-fA-F0-9]+\b"  # hex
+        )
 
-    # ────────────────────────────────────────────────
-    # Cached Index
-    # ────────────────────────────────────────────────
+        words = re.findall(pattern, text.lower())
+        return [GenericSearchEngine._simple_stem(w) for w in words if len(w) >= 2]
 
     @cached_property
     def _index(self) -> dict[str, list[tuple[int, str]]]:
         index: dict[str, list[tuple[int, str]]] = defaultdict(list)
-
         for idx, item in enumerate(self._items):
             doc = self._extract(item)
-
             for field_name, text in doc.items():
                 for token in self._tokenize(text):
                     index[token].append((idx, field_name))
-
         return index
 
     @cached_property
@@ -117,15 +132,11 @@ class GenericSearchEngine(Generic[T]):
             df[term] = len({doc_id for doc_id, _ in postings})
         return df
 
-    # ────────────────────────────────────────────────
-    # Public Search
-    # ────────────────────────────────────────────────
-
     def search(
         self,
         query: str,
         *,
-        logic: SearchLogic = "AND",
+        logic: SearchLogic = "OR",
         limit: int = 20,
         offset: int = 0,
         filter_fn: Callable[[T], bool] | None = None,
@@ -134,22 +145,18 @@ class GenericSearchEngine(Generic[T]):
             return []
 
         terms = self._tokenize(query)
-
         if not terms:
             return []
 
         candidate_ids = self._collect_candidates(terms, logic)
 
         results: list[SearchResult[T]] = []
-
         for idx in candidate_ids:
             item = self._items[idx]
-
             if filter_fn and not filter_fn(item):
                 continue
 
             score, fields, matched, highlights = self._score(idx, item, terms)
-
             if score > 0:
                 results.append(
                     SearchResult(
@@ -162,51 +169,39 @@ class GenericSearchEngine(Generic[T]):
                 )
 
         results.sort(key=lambda r: r.score, reverse=True)
-
         return results[offset : offset + limit]
-
-    # ────────────────────────────────────────────────
-    # Candidate Collection
-    # ────────────────────────────────────────────────
 
     def _collect_candidates(
         self,
         terms: list[str],
         logic: SearchLogic,
-    ) -> Iterable[int]:
-        term_sets: list[set[int]] = []
+    ) -> set[int]:
+        if not terms:
+            return set()
 
+        term_sets: list[set[int]] = []
         for term in terms:
             postings = self._index.get(term, [])
-            term_sets.append({doc_id for doc_id, _ in postings})
-
-        if not term_sets:
-            return []
+            doc_ids = {doc_id for doc_id, _ in postings}
+            term_sets.append(doc_ids)
 
         if logic == "AND":
-            return set.intersection(*term_sets)
-        return set.union(*term_sets)
+            if len(term_sets) == 1:
+                return term_sets[0]
+            return set.intersection(*term_sets) if term_sets else set()
 
-    # ────────────────────────────────────────────────
-    # Scoring (BM25 Simplified)
-    # ────────────────────────────────────────────────
+        # OR
+        return set.union(*term_sets) if term_sets else set()
 
     def _score(
         self,
         doc_id: int,
         item: T,
         terms: list[str],
-    ) -> tuple[
-        float,
-        list[str],
-        dict[str, list[str]],
-        dict[str, str],
-    ]:
+    ) -> tuple[float, list[str], dict[str, list[str]], dict[str, str]]:
         doc = self._extract(item)
-
         N = len(self._items)
         avgdl = self._avg_doc_length or 1.0
-
         total_score = 0.0
         matched_fields: set[str] = set()
         matched_terms: dict[str, list[str]] = defaultdict(list)
@@ -215,7 +210,6 @@ class GenericSearchEngine(Generic[T]):
         for field, text in doc.items():
             tokens = self._tokenize(text)
             tf = Counter(tokens)
-
             field_score = 0.0
             field_weight = self._weights.get(field, 1.0)
 
@@ -225,8 +219,9 @@ class GenericSearchEngine(Generic[T]):
 
                 df = self._doc_freq.get(term, 1)
                 idf = math.log((N - df + 0.5) / (df + 0.5) + 1)
-
                 term_freq = tf[term]
+
+                # BM25 saturation + length normalization (k1=1.5, b=0.75)
                 norm = (
                     term_freq
                     * (1.5 + 1)
@@ -240,6 +235,7 @@ class GenericSearchEngine(Generic[T]):
             if field_score > 0:
                 total_score += field_score
 
+                # Highlighting (case-insensitive, preserve original case)
                 highlighted = text
                 for term in terms:
                     highlighted = re.sub(
@@ -248,8 +244,9 @@ class GenericSearchEngine(Generic[T]):
                         highlighted,
                         flags=re.IGNORECASE,
                     )
-
-                highlights[field] = highlighted[:200]
+                highlights[field] = highlighted[:200] + (
+                    "..." if len(highlighted) > 200 else ""
+                )
 
         return (
             total_score,
@@ -259,18 +256,13 @@ class GenericSearchEngine(Generic[T]):
         )
 
 
-# ────────────────────────────────────────────────
-# Convenience Function
-# ────────────────────────────────────────────────
-
-
 def search_items(
     items: Sequence[T],
     query: str,
     *,
-    text_extractor: Callable[[T], dict[str, str]],
+    text_extractor: Callable[[T], dict[str, str]] | None = None,
     field_weights: FieldWeights | None = None,
-    logic: SearchLogic = "AND",
+    logic: SearchLogic = "OR",
     limit: int = 20,
     offset: int = 0,
     filter_fn: Callable[[T], bool] | None = None,
@@ -283,7 +275,6 @@ def search_items(
         text_extractor=text_extractor,
         field_weights=field_weights,
     )
-
     return engine.search(
         query=query,
         logic=logic,
