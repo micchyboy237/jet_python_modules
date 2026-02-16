@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import math
-from typing import Iterable, List, Sequence
+from collections.abc import Sequence
 
 import numpy as np
-from openai import OpenAI
-from tqdm import tqdm
-
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.logger import logger
+from openai import OpenAI
+from tqdm import tqdm
 
 
 def l2_normalize(vectors: np.ndarray) -> np.ndarray:
@@ -160,7 +158,7 @@ def main() -> None:
         "The quick brown fox jumps over the lazy dog.",
     ]
 
-    noisy_inputs: List[str] = [
+    noisy_inputs: list[str] = [
         "",
         "   ",
         "Short.",
@@ -177,7 +175,7 @@ def main() -> None:
         max_retries=3,
     )
 
-    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
+    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
 
     logger.info("Embedding model: %s", model)
 
@@ -192,7 +190,7 @@ def main() -> None:
     # Embed documents with progress bar
     # ------------------------------------------------------------
     logger.info("Embedding documents...")
-    doc_vectors: List[np.ndarray] = []
+    doc_vectors: list[np.ndarray] = []
 
     for text in tqdm(documents, desc="Embedding docs"):
         vec = embed_texts(client, model, [text])

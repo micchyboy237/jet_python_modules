@@ -1,7 +1,6 @@
 from jet.adapters.llama_cpp.hybrid_search import HybridSearcher
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 
-
 if __name__ == "__main__":
     # Prepare data
     docs = [
@@ -27,7 +26,7 @@ if __name__ == "__main__":
         },
     ]
 
-    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
+    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
 
     hybrid = HybridSearcher.from_documents(
         documents=docs,

@@ -1,28 +1,30 @@
 import json
-import numpy as np
 import uuid
+from typing import Any, Literal
+
+import numpy as np
 from numpy.typing import NDArray
-from psycopg import connect, sql, errors
 from pgvector.psycopg import register_vector
-from typing import Any, List, Dict, Literal, Optional, Tuple, TypedDict, Union
+from psycopg import connect, errors, sql
 from psycopg.rows import dict_row
+
 from jet.db.postgres.scoring import calculate_vector_scores
 from jet.logger import logger
-from .pg_types import (
-    Embedding,
-    EmbeddingInput,
-    DatabaseMetadata,
-    ColumnMetadata,
-    TableRow,
-    SearchResult,
-    TableMetadata,
-)
+
 from .config import (
     DEFAULT_DB,
-    DEFAULT_USER,
-    DEFAULT_PASSWORD,
     DEFAULT_HOST,
+    DEFAULT_PASSWORD,
     DEFAULT_PORT,
+    DEFAULT_USER,
+)
+from .pg_types import (
+    DatabaseMetadata,
+    Embedding,
+    EmbeddingInput,
+    SearchResult,
+    TableMetadata,
+    TableRow,
 )
 
 
@@ -34,11 +36,10 @@ class PgVectorClient:
         password: str = DEFAULT_PASSWORD,
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
-        overwrite_db: bool = False
+        overwrite_db: bool = False,
     ) -> None:
         """Ensure database exists, then connect and initialize."""
-        self._ensure_database_exists(
-            dbname, user, password, host, port, overwrite_db)
+        self._ensure_database_exists(dbname, user, password, host, port, overwrite_db)
         self.conn = connect(
             dbname=dbname,
             user=user,
@@ -46,18 +47,26 @@ class PgVectorClient:
             host=host,
             port=port,
             autocommit=True,
-            row_factory=dict_row
+            row_factory=dict_row,
         )
         self._initialize_extension()
         register_vector(self.conn)
 
-    def _to_list(self, embedding: EmbeddingInput) -> List[float]:
+    def _to_list(self, embedding: EmbeddingInput) -> list[float]:
         """Convert embedding input to list of floats."""
         if isinstance(embedding, np.ndarray):
             return embedding.tolist()
         return embedding
 
-    def _ensure_database_exists(self, dbname: str, user: str, password: str, host: str, port: int, overwrite_db: bool) -> None:
+    def _ensure_database_exists(
+        self,
+        dbname: str,
+        user: str,
+        password: str,
+        host: str,
+        port: int,
+        overwrite_db: bool,
+    ) -> None:
         """Drop the target database if it exists and overwrite_db is True, then create a new one."""
         with connect(
             dbname="postgres",
@@ -65,11 +74,10 @@ class PgVectorClient:
             password=password,
             host=host,
             port=port,
-            autocommit=True
+            autocommit=True,
         ) as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM pg_database WHERE datname = %s;", (dbname,))
+                cur.execute("SELECT 1 FROM pg_database WHERE datname = %s;", (dbname,))
                 exists = cur.fetchone()
                 if exists and overwrite_db:
                     cur.execute(
@@ -78,13 +86,17 @@ class PgVectorClient:
                             "FROM pg_stat_activity "
                             "WHERE pg_stat_activity.datname = %s AND pid <> pg_backend_pid();"
                         ),
-                        (dbname,)
+                        (dbname,),
                     )
-                    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(
-                        sql.Identifier(dbname)))
+                    cur.execute(
+                        sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                            sql.Identifier(dbname)
+                        )
+                    )
                 if not exists or overwrite_db:
-                    cur.execute(sql.SQL("CREATE DATABASE {}").format(
-                        sql.Identifier(dbname)))
+                    cur.execute(
+                        sql.SQL("CREATE DATABASE {}").format(sql.Identifier(dbname))
+                    )
 
     def _initialize_extension(self) -> None:
         """Ensure the pgvector extension is enabled only if not already present."""
@@ -92,8 +104,7 @@ class PgVectorClient:
             try:
                 cur.execute("SHOW dynamic_library_path;")
                 libdir = cur.fetchone()["dynamic_library_path"]
-                cur.execute(
-                    "SELECT 1 FROM pg_extension WHERE extname = 'vector';")
+                cur.execute("SELECT 1 FROM pg_extension WHERE extname = 'vector';")
                 exists = cur.fetchone()
                 if not exists:
                     cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
@@ -116,26 +127,30 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(
                 "SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = %s;",
-                (table_name,)
+                (table_name,),
             )
             table_exists = cur.fetchone()
             if not table_exists:
                 self.create_table(table_name, dimension)
 
-    def _ensure_columns_exist(self, table_name: str, row_data: Dict[str, Any]) -> None:
+    def _ensure_columns_exist(self, table_name: str, row_data: dict[str, Any]) -> None:
         """Ensure all columns in row_data exist in the table, adding them if necessary."""
         with self.conn.cursor() as cur:
             # Get existing columns
             cur.execute(
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
             existing_columns = {row["column_name"] for row in cur.fetchall()}
 
             # Define column types for new columns
             for column, value in row_data.items():
-                if column not in existing_columns and column != "id" and column != "embedding":
+                if (
+                    column not in existing_columns
+                    and column != "id"
+                    and column != "embedding"
+                ):
                     if isinstance(value, (dict, list)):
                         col_type = "jsonb"
                     elif isinstance(value, bool):
@@ -147,15 +162,22 @@ class PgVectorClient:
                     query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {};").format(
                         sql.Identifier(table_name),
                         sql.Identifier(column),
-                        sql.SQL(col_type)
+                        sql.SQL(col_type),
                     )
                     try:
                         cur.execute(query)
                         logger.success(
-                            "Successfully created column %s in table %s", column, table_name)
+                            "Successfully created column %s in table %s",
+                            column,
+                            table_name,
+                        )
                     except Exception as e:
                         logger.error(
-                            "Failed to create column %s in table %s: %s", column, table_name, str(e))
+                            "Failed to create column %s in table %s: %s",
+                            column,
+                            table_name,
+                            str(e),
+                        )
                         raise
 
     def __enter__(self):
@@ -202,17 +224,19 @@ class PgVectorClient:
             try:
                 cur.execute(query)
                 logger.success(
-                    f"Created table '{table_name}' with embedding dimension {dimension} and timestamp columns")
+                    f"Created table '{table_name}' with embedding dimension {dimension} and timestamp columns"
+                )
             except Exception as e:
-                logger.error(
-                    f"Failed to create table '{table_name}': {str(e)}")
+                logger.error(f"Failed to create table '{table_name}': {str(e)}")
                 raise
 
     def generate_unique_hash(self) -> str:
         """Generate a unique UUID v4 string."""
         return str(uuid.uuid4())
 
-    def create_row(self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> TableRow:
+    def create_row(
+        self, table_name: str, row_data: dict[str, Any], dimension: int | None = None
+    ) -> TableRow:
         """Insert a single row into the specified table with arbitrary column values, creating the table and columns if needed.
 
         Args:
@@ -237,10 +261,11 @@ class PgVectorClient:
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
-            column_types = {row["column_name"]: row["data_type"]
-                            for row in cur.fetchall()}
+            column_types = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
 
         row_id = row_data.get("id", self.generate_unique_hash())
         columns = ["id"] + [col for col in row_data.keys() if col != "id"]
@@ -266,7 +291,7 @@ class PgVectorClient:
         query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
             sql.Identifier(table_name),
             sql.SQL(", ").join(map(sql.Identifier, columns)),
-            sql.SQL(", ").join(map(sql.SQL, placeholders))
+            sql.SQL(", ").join(map(sql.SQL, placeholders)),
         )
 
         with self.conn.cursor() as cur:
@@ -274,17 +299,25 @@ class PgVectorClient:
                 cur.execute(query, values)
                 result = cur.fetchone()
                 return {
-                    col: result[col].tolist() if col == "embedding" and isinstance(result[col], np.ndarray)
-                    else json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    col: result[col].tolist()
+                    if col == "embedding" and isinstance(result[col], np.ndarray)
+                    else json.loads(result[col])
+                    if column_types.get(col) == "jsonb"
+                    and isinstance(result[col], str)
+                    and result[col]
                     else result[col]
                     for col in result.keys()
                 }
             except Exception as e:
-                logger.error("Failed to insert row into %s: %s",
-                             table_name, str(e))
+                logger.error("Failed to insert row into %s: %s", table_name, str(e))
                 raise
 
-    def create_rows(self, table_name: str, rows_data: List[Dict[str, Any]], dimension: Optional[int] = None) -> List[TableRow]:
+    def create_rows(
+        self,
+        table_name: str,
+        rows_data: list[dict[str, Any]],
+        dimension: int | None = None,
+    ) -> list[TableRow]:
         """Insert multiple rows into the specified table with arbitrary column values, creating the table and columns if needed.
 
         Args:
@@ -298,8 +331,11 @@ class PgVectorClient:
         if not rows_data:
             raise ValueError("Cannot insert empty rows data")
         if any("embedding" in row for row in rows_data) and dimension is None:
-            dimension = len(self._to_list(
-                next(row["embedding"] for row in rows_data if "embedding" in row)))
+            dimension = len(
+                self._to_list(
+                    next(row["embedding"] for row in rows_data if "embedding" in row)
+                )
+            )
         self._ensure_table_exists(table_name, dimension or 1536)
         self._ensure_columns_exist(table_name, rows_data[0])
         if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
@@ -310,12 +346,13 @@ class PgVectorClient:
                 row_result = self.create_row(table_name, row, dimension)
                 row_results.append(row_result)
             except Exception as e:
-                logger.error("Failed to insert row into %s: %s",
-                             table_name, str(e))
+                logger.error("Failed to insert row into %s: %s", table_name, str(e))
                 raise
         return row_results
 
-    def create_or_update_row(self, table_name: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> TableRow:
+    def create_or_update_row(
+        self, table_name: str, row_data: dict[str, Any], dimension: int | None = None
+    ) -> TableRow:
         """Create a new row or update an existing one in the specified table based on the provided ID.
 
         Args:
@@ -343,16 +380,18 @@ class PgVectorClient:
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
-            column_types = {row["column_name"]: row["data_type"]
-                            for row in cur.fetchall()}
+            column_types = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
 
             # Check if row exists
             cur.execute(
                 sql.SQL("SELECT 1 FROM {} WHERE id = %s").format(
-                    sql.Identifier(table_name)),
-                (row_data["id"],)
+                    sql.Identifier(table_name)
+                ),
+                (row_data["id"],),
             )
             exists = cur.fetchone()
 
@@ -375,14 +414,15 @@ class PgVectorClient:
                         set_clauses.append(f"{col} = %s")
 
                 values.append(row_data["id"])
-                query = sql.SQL("UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;").format(
+                query = sql.SQL(
+                    "UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;"
+                ).format(
                     sql.Identifier(table_name),
-                    sql.SQL(", ").join(map(sql.SQL, set_clauses))
+                    sql.SQL(", ").join(map(sql.SQL, set_clauses)),
                 )
             else:
                 # Insert new row
-                columns = ["id"] + \
-                    [col for col in row_data.keys() if col != "id"]
+                columns = ["id"] + [col for col in row_data.keys() if col != "id"]
                 values = [row_data["id"]]
                 placeholders = ["%s"]
 
@@ -401,7 +441,7 @@ class PgVectorClient:
                 query = sql.SQL("INSERT INTO {} ({}) VALUES ({}) RETURNING *;").format(
                     sql.Identifier(table_name),
                     sql.SQL(", ").join(map(sql.Identifier, columns)),
-                    sql.SQL(", ").join(map(sql.SQL, placeholders))
+                    sql.SQL(", ").join(map(sql.SQL, placeholders)),
                 )
 
             try:
@@ -409,24 +449,33 @@ class PgVectorClient:
                 result = cur.fetchone()
                 if not result:
                     raise ValueError(
-                        f"Failed to create or update row with id {row_data['id']} in table {table_name}")
+                        f"Failed to create or update row with id {row_data['id']} in table {table_name}"
+                    )
                 return {
-                    col: result[col].tolist() if col == "embedding" and isinstance(result[col], np.ndarray)
-                    else json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    col: result[col].tolist()
+                    if col == "embedding" and isinstance(result[col], np.ndarray)
+                    else json.loads(result[col])
+                    if column_types.get(col) == "jsonb"
+                    and isinstance(result[col], str)
+                    and result[col]
                     else result[col]
                     for col in result.keys()
                 }
             except Exception as e:
-                logger.error("Failed to create or update row %s in %s: %s",
-                             row_data["id"], table_name, str(e))
+                logger.error(
+                    "Failed to create or update row %s in %s: %s",
+                    row_data["id"],
+                    table_name,
+                    str(e),
+                )
                 raise
 
     def create_or_update_rows(
         self,
         table_name: str,
-        rows_data: List[Dict[str, Any]],
-        dimension: Optional[int] = None
-    ) -> List[TableRow]:
+        rows_data: list[dict[str, Any]],
+        dimension: int | None = None,
+    ) -> list[TableRow]:
         """Create or update multiple rows in the specified table based on ID existence.
 
         Args:
@@ -448,8 +497,11 @@ class PgVectorClient:
             raise ValueError("All rows must have the same columns")
 
         if any("embedding" in row for row in rows_data) and dimension is None:
-            dimension = len(self._to_list(
-                next(row["embedding"] for row in rows_data if "embedding" in row)))
+            dimension = len(
+                self._to_list(
+                    next(row["embedding"] for row in rows_data if "embedding" in row)
+                )
+            )
 
         self._ensure_table_exists(table_name, dimension or 1536)
         self._ensure_columns_exist(table_name, rows_data[0])
@@ -460,25 +512,28 @@ class PgVectorClient:
                 sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
                     sql.Identifier(table_name)
                 ),
-                ([row["id"] for row in rows_data],)
+                ([row["id"] for row in rows_data],),
             )
             existing_ids = {row["id"] for row in cur.fetchall()}
 
-        create_rows = [
-            row for row in rows_data if row["id"] not in existing_ids]
+        create_rows = [row for row in rows_data if row["id"] not in existing_ids]
         update_rows = [row for row in rows_data if row["id"] in existing_ids]
 
         results = []
         if create_rows:
-            results.extend(self.create_rows(
-                table_name, create_rows, dimension))
+            results.extend(self.create_rows(table_name, create_rows, dimension))
         if update_rows:
-            results.extend(self.update_rows(
-                table_name, update_rows, dimension))
+            results.extend(self.update_rows(table_name, update_rows, dimension))
 
         return results
 
-    def update_row(self, table_name: str, row_id: str, row_data: Dict[str, Any], dimension: Optional[int] = None) -> TableRow:
+    def update_row(
+        self,
+        table_name: str,
+        row_id: str,
+        row_data: dict[str, Any],
+        dimension: int | None = None,
+    ) -> TableRow:
         """Update a single row in the specified table with new column values, creating new columns if needed.
 
         Args:
@@ -506,10 +561,11 @@ class PgVectorClient:
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
-            column_types = {row["column_name"]: row["data_type"]
-                            for row in cur.fetchall()}
+            column_types = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
 
             columns = [col for col in row_data.keys()]
             values = []
@@ -529,9 +585,11 @@ class PgVectorClient:
 
             values.append(row_id)  # For WHERE clause
             # Modified query to include updated_at = NOW()
-            query = sql.SQL("UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;").format(
+            query = sql.SQL(
+                "UPDATE {} SET updated_at = NOW(), {} WHERE id = %s RETURNING *;"
+            ).format(
                 sql.Identifier(table_name),
-                sql.SQL(", ").join(map(sql.SQL, set_clauses))
+                sql.SQL(", ").join(map(sql.SQL, set_clauses)),
             )
 
             try:
@@ -539,19 +597,30 @@ class PgVectorClient:
                 result = cur.fetchone()
                 if not result:
                     raise ValueError(
-                        f"No row found with id {row_id} in table {table_name}")
+                        f"No row found with id {row_id} in table {table_name}"
+                    )
                 return {
-                    col: result[col].tolist() if col == "embedding" and isinstance(result[col], np.ndarray)
-                    else json.loads(result[col]) if column_types.get(col) == "jsonb" and isinstance(result[col], str) and result[col]
+                    col: result[col].tolist()
+                    if col == "embedding" and isinstance(result[col], np.ndarray)
+                    else json.loads(result[col])
+                    if column_types.get(col) == "jsonb"
+                    and isinstance(result[col], str)
+                    and result[col]
                     else result[col]
                     for col in result.keys()
                 }
             except Exception as e:
-                logger.error("Failed to update row %s in %s: %s",
-                             row_id, table_name, str(e))
+                logger.error(
+                    "Failed to update row %s in %s: %s", row_id, table_name, str(e)
+                )
                 raise
 
-    def update_rows(self, table_name: str, rows_data: List[Dict[str, Any]], dimension: Optional[int] = None) -> List[TableRow]:
+    def update_rows(
+        self,
+        table_name: str,
+        rows_data: list[dict[str, Any]],
+        dimension: int | None = None,
+    ) -> list[TableRow]:
         """Update multiple rows in the specified table with new column values, creating new columns if needed.
 
         Args:
@@ -570,8 +639,11 @@ class PgVectorClient:
         if not all("id" in row for row in rows_data):
             raise ValueError("All rows must include an 'id' field")
         if any("embedding" in row for row in rows_data) and dimension is None:
-            dimension = len(self._to_list(
-                next(row["embedding"] for row in rows_data if "embedding" in row)))
+            dimension = len(
+                self._to_list(
+                    next(row["embedding"] for row in rows_data if "embedding" in row)
+                )
+            )
         self._ensure_table_exists(table_name, dimension or 1536)
         self._ensure_columns_exist(table_name, rows_data[0])
         if not all(set(row.keys()) == set(rows_data[0].keys()) for row in rows_data):
@@ -580,16 +652,16 @@ class PgVectorClient:
         updated_rows = []
         for row in rows_data:
             try:
-                updated_row = self.update_row(
-                    table_name, row["id"], row, dimension)
+                updated_row = self.update_row(table_name, row["id"], row, dimension)
                 updated_rows.append(updated_row)
             except Exception as e:
-                logger.error("Failed to update row %s in %s: %s",
-                             row["id"], table_name, str(e))
+                logger.error(
+                    "Failed to update row %s in %s: %s", row["id"], table_name, str(e)
+                )
                 raise
         return updated_rows
 
-    def get_row(self, table_name: str, row_id: str) -> Optional[TableRow]:
+    def get_row(self, table_name: str, row_id: str) -> TableRow | None:
         """Retrieve a single row by ID from the specified table, excluding embedding column.
 
         Args:
@@ -604,41 +676,44 @@ class PgVectorClient:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
             columns = [row["column_name"] for row in cur.fetchall()]
             if not columns:
                 raise ValueError(
-                    f"No columns found for table {table_name} (excluding embedding)")
+                    f"No columns found for table {table_name} (excluding embedding)"
+                )
 
             # Build query with dynamic columns
             query = sql.SQL("SELECT {} FROM {} WHERE id = %s").format(
                 sql.SQL(", ").join(map(sql.Identifier, columns)),
-                sql.Identifier(table_name)
+                sql.Identifier(table_name),
             )
             cur.execute(query, (row_id,))
             result = cur.fetchone()
             if not result:
                 return None
             return {
-                col: result[col] if not (col == "details" and isinstance(
-                    result[col], str)) else json.loads(result[col]) if result[col] else None
+                col: result[col]
+                if not (col == "details" and isinstance(result[col], str))
+                else json.loads(result[col])
+                if result[col]
+                else None
                 for col in columns
             }
 
     def get_rows(
         self,
         table_name: str,
-        ids: Optional[List[str]] = None,
+        ids: list[str] | None = None,
         id_column: str = "id",
-        where_conditions: Optional[Dict[str, Any]] = None,
-        limit: Optional[int] = None,
-        order_by: Optional[Tuple[str, Literal["ASC", "DESC"]]] = None,
-        group_by: Optional[List[str]] = None,
-        aggregates: Optional[
-            Dict[str, Tuple[str, Literal["COUNT", "SUM", "AVG", "MIN", "MAX"]]]
-        ] = None
-    ) -> List[TableRow]:
+        where_conditions: dict[str, Any] | None = None,
+        limit: int | None = None,
+        order_by: tuple[str, Literal["ASC", "DESC"]] | None = None,
+        group_by: list[str] | None = None,
+        aggregates: dict[str, tuple[str, Literal["COUNT", "SUM", "AVG", "MIN", "MAX"]]]
+        | None = None,
+    ) -> list[TableRow]:
         """Retrieve rows from the specified table, optionally filtered by IDs, where conditions, limited, ordered, and grouped, excluding embedding column.
 
         Args:
@@ -662,13 +737,15 @@ class PgVectorClient:
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
-                (table_name,)
+                (table_name,),
             )
-            column_info = {row["column_name"]: row["data_type"]
-                           for row in cur.fetchall()}
+            column_info = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
             if not column_info:
                 raise ValueError(
-                    f"No columns found for table {table_name} (excluding embedding)")
+                    f"No columns found for table {table_name} (excluding embedding)"
+                )
 
             columns = list(column_info.keys())
             # Build select clause
@@ -680,27 +757,27 @@ class PgVectorClient:
                 for col in group_by:
                     if col not in columns:
                         raise ValueError(
-                            f"Group by column {col} not found in table {table_name}")
-                    formatted_columns.append(
-                        sql.SQL("{}").format(sql.Identifier(col)))
+                            f"Group by column {col} not found in table {table_name}"
+                        )
+                    formatted_columns.append(sql.SQL("{}").format(sql.Identifier(col)))
                     select_columns.append(col)
 
             # Handle aggregate functions
             if aggregates:
                 if not group_by:
-                    raise ValueError(
-                        "Aggregates require at least one group_by column")
+                    raise ValueError("Aggregates require at least one group_by column")
                 for alias, (col, agg_func) in aggregates.items():
                     if col not in columns:
                         raise ValueError(
-                            f"Aggregate column {col} not found in table {table_name}")
+                            f"Aggregate column {col} not found in table {table_name}"
+                        )
                     if agg_func not in ("COUNT", "SUM", "AVG", "MIN", "MAX"):
-                        raise ValueError(
-                            f"Unsupported aggregate function {agg_func}")
+                        raise ValueError(f"Unsupported aggregate function {agg_func}")
                     formatted_columns.append(
                         sql.SQL("{}({}) AS {}").format(
-                            sql.SQL(agg_func), sql.Identifier(
-                                col), sql.Identifier(alias)
+                            sql.SQL(agg_func),
+                            sql.Identifier(col),
+                            sql.Identifier(alias),
                         )
                     )
                     select_columns.append(alias)
@@ -708,17 +785,17 @@ class PgVectorClient:
                 # If no aggregates, select all columns (or group_by columns if specified)
                 if not group_by:
                     formatted_columns = [
-                        sql.SQL("TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}").format(
-                            sql.Identifier(col), sql.Identifier(col)
-                        ) if column_info[col] == "timestamp with time zone"
+                        sql.SQL(
+                            "TO_CHAR({}, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS') AS {}"
+                        ).format(sql.Identifier(col), sql.Identifier(col))
+                        if column_info[col] == "timestamp with time zone"
                         else sql.Identifier(col)
                         for col in columns
                     ]
                     select_columns = columns
 
             query = sql.SQL("SELECT {} FROM {}").format(
-                sql.SQL(", ").join(formatted_columns),
-                sql.Identifier(table_name)
+                sql.SQL(", ").join(formatted_columns), sql.Identifier(table_name)
             )
             params = []
 
@@ -726,15 +803,16 @@ class PgVectorClient:
             where_clauses = []
             if ids is not None:
                 where_clauses.append(
-                    sql.SQL("{} = ANY(%s)").format(sql.Identifier(id_column)))
+                    sql.SQL("{} = ANY(%s)").format(sql.Identifier(id_column))
+                )
                 params.append(ids)
             if where_conditions:
                 for col, value in where_conditions.items():
                     if col not in columns:
                         raise ValueError(
-                            f"Column {col} not found in table {table_name}")
-                    where_clauses.append(
-                        sql.SQL("{} = %s").format(sql.Identifier(col)))
+                            f"Column {col} not found in table {table_name}"
+                        )
+                    where_clauses.append(sql.SQL("{} = %s").format(sql.Identifier(col)))
                     params.append(value)
 
             if where_clauses:
@@ -752,14 +830,17 @@ class PgVectorClient:
             if order_by:
                 if not isinstance(order_by, tuple) or len(order_by) != 2:
                     raise ValueError(
-                        "order_by must be a tuple of (column_name, 'ASC' or 'DESC')")
+                        "order_by must be a tuple of (column_name, 'ASC' or 'DESC')"
+                    )
                 order_col, direction = order_by
-                if order_col not in (columns + list(aggregates.keys()) if aggregates else columns):
+                if order_col not in (
+                    columns + list(aggregates.keys()) if aggregates else columns
+                ):
                     raise ValueError(
-                        f"Column {order_col} not found in table {table_name} or aggregates")
+                        f"Column {order_col} not found in table {table_name} or aggregates"
+                    )
                 if direction not in ("ASC", "DESC"):
-                    raise ValueError(
-                        "order_by direction must be 'ASC' or 'DESC'")
+                    raise ValueError("order_by direction must be 'ASC' or 'DESC'")
                 query = sql.SQL("{} ORDER BY {} {}").format(
                     query, sql.Identifier(order_col), sql.SQL(direction)
                 )
@@ -775,14 +856,21 @@ class PgVectorClient:
             results = cur.fetchall()
             return [
                 {
-                    col: row[col] if not (column_info.get(col) == "jsonb" and isinstance(
-                        row[col], str)) else json.loads(row[col]) if row[col] else None
+                    col: row[col]
+                    if not (
+                        column_info.get(col) == "jsonb" and isinstance(row[col], str)
+                    )
+                    else json.loads(row[col])
+                    if row[col]
+                    else None
                     for col in select_columns
                 }
                 for row in results
             ]
 
-    def get_embeddings(self, table_name: str, ids: Optional[List[str]] = None) -> Dict[str, Embedding]:
+    def get_embeddings(
+        self, table_name: str, ids: list[str] | None = None
+    ) -> dict[str, Embedding]:
         """Retrieve embeddings with their IDs from the specified table, optionally filtered by IDs.
 
         Args:
@@ -803,7 +891,7 @@ class PgVectorClient:
             results = cur.fetchall()
             return {row["id"]: np.array(row["embedding"]) for row in results}
 
-    def count_embeddings(self, table_name: str) -> Optional[int]:
+    def count_embeddings(self, table_name: str) -> int | None:
         """Count the total number of embeddings in the table."""
         query = f"SELECT COUNT(*) FROM {table_name};"
         with self.conn.cursor() as cur:
@@ -811,7 +899,9 @@ class PgVectorClient:
             result = cur.fetchone()
             return result["count"] if result else None
 
-    def get_embedding_by_id(self, table_name: str, embedding_id: str) -> Optional[NDArray[np.float64]]:
+    def get_embedding_by_id(
+        self, table_name: str, embedding_id: str
+    ) -> NDArray[np.float64] | None:
         """Retrieve an embedding by its hash ID."""
         query = f"SELECT embedding FROM {table_name} WHERE id = %s;"
         with self.conn.cursor() as cur:
@@ -819,7 +909,9 @@ class PgVectorClient:
             result = cur.fetchone()
             return np.array(result["embedding"]) if result else None
 
-    def insert_embedding(self, table_name: str, embedding: EmbeddingInput, dimension: Optional[int] = None) -> str:
+    def insert_embedding(
+        self, table_name: str, embedding: EmbeddingInput, dimension: int | None = None
+    ) -> str:
         """Insert an embedding into the table with a hash-based ID, creating the table if needed."""
         if dimension is None:
             dimension = len(self._to_list(embedding))
@@ -831,7 +923,12 @@ class PgVectorClient:
             cur.execute(query, (embedding_id, embedding_list))
         return embedding_id
 
-    def insert_embeddings(self, table_name: str, embeddings: List[EmbeddingInput], dimension: Optional[int] = None) -> List[str]:
+    def insert_embeddings(
+        self,
+        table_name: str,
+        embeddings: list[EmbeddingInput],
+        dimension: int | None = None,
+    ) -> list[str]:
         """Insert multiple embeddings into the table and return their generated hash-based IDs, creating the table if needed."""
         if not embeddings:
             raise ValueError("Cannot insert empty embedding list")
@@ -840,13 +937,20 @@ class PgVectorClient:
         self._ensure_table_exists(table_name, dimension)
         embedding_ids = [self.generate_unique_hash() for _ in embeddings]
         formatted_embeddings = [
-            f"[{', '.join(map(str, self._to_list(v)))}]" for v in embeddings]
+            f"[{', '.join(map(str, self._to_list(v)))}]" for v in embeddings
+        ]
         query = f"INSERT INTO {table_name} (id, embedding) SELECT UNNEST(%s::text[]), UNNEST(%s::vector[]);"
         with self.conn.cursor() as cur:
             cur.execute(query, (embedding_ids, formatted_embeddings))
         return embedding_ids
 
-    def insert_embedding_by_id(self, table_name: str, embedding_id: str, embedding: EmbeddingInput, dimension: Optional[int] = None) -> None:
+    def insert_embedding_by_id(
+        self,
+        table_name: str,
+        embedding_id: str,
+        embedding: EmbeddingInput,
+        dimension: int | None = None,
+    ) -> None:
         """Insert an embedding with a specific ID, creating the table if limited to one change per filetable if needed."""
         if dimension is None:
             dimension = len(self._to_list(embedding))
@@ -856,7 +960,12 @@ class PgVectorClient:
         with self.conn.cursor() as cur:
             cur.execute(query, (embedding_id, formatted_embedding))
 
-    def insert_embeddings_by_ids(self, table_name: str, embedding_data: Dict[str, EmbeddingInput], dimension: Optional[int] = None) -> None:
+    def insert_embeddings_by_ids(
+        self,
+        table_name: str,
+        embedding_data: dict[str, EmbeddingInput],
+        dimension: int | None = None,
+    ) -> None:
         """Insert multiple embeddings with specific IDs, creating the table if needed."""
         if not embedding_data:
             raise ValueError("Cannot insert empty embedding data")
@@ -865,22 +974,29 @@ class PgVectorClient:
         self._ensure_table_exists(table_name, dimension)
         ids = list(embedding_data.keys())
         formatted_embeddings = [
-            f"[{', '.join(map(str, self._to_list(v)))}]" for v in embedding_data.values()]
+            f"[{', '.join(map(str, self._to_list(v)))}]"
+            for v in embedding_data.values()
+        ]
         query = f"INSERT INTO {table_name} (id, embedding) SELECT UNNEST(%s::text[]), UNNEST(%s::vector[]);"
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, formatted_embeddings))
 
-    def update_embedding_by_id(self, table_name: str, embedding_id: str, new_embedding: EmbeddingInput) -> None:
+    def update_embedding_by_id(
+        self, table_name: str, embedding_id: str, new_embedding: EmbeddingInput
+    ) -> None:
         """Update an embedding by its hash ID."""
         query = f"UPDATE {table_name} SET embedding = %s WHERE id = %s;"
         with self.conn.cursor() as cur:
             cur.execute(query, (self._to_list(new_embedding), embedding_id))
 
-    def update_embedding_by_ids(self, table_name: str, updates: Dict[str, EmbeddingInput]) -> None:
+    def update_embedding_by_ids(
+        self, table_name: str, updates: dict[str, EmbeddingInput]
+    ) -> None:
         """Update multiple embeddings by their hash-based IDs."""
         ids = list(updates.keys())
         embeddings = [
-            f"[{', '.join(map(str, self._to_list(v)))}]" for v in updates.values()]
+            f"[{', '.join(map(str, self._to_list(v)))}]" for v in updates.values()
+        ]
         query = f"UPDATE {table_name} SET embedding = data.embedding FROM (SELECT UNNEST(%s::text[]) AS id, UNNEST(%s::vector[]) AS embedding) AS data WHERE {table_name}.id = data.id;"
         with self.conn.cursor() as cur:
             cur.execute(query, (ids, embeddings))
@@ -889,21 +1005,23 @@ class PgVectorClient:
         self,
         table_name: str,
         query_embedding: EmbeddingInput,
-        top_k: Optional[int] = None,
-        threshold: Optional[float] = None
-    ) -> List[SearchResult]:
+        top_k: int | None = None,
+        threshold: float | None = None,
+    ) -> list[SearchResult]:
         with self.conn.cursor() as cur:
             # Get all column names except embedding
             cur.execute(
                 "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s AND column_name != 'embedding';",
-                (table_name,)
+                (table_name,),
             )
-            column_info = {row["column_name"]: row["data_type"]
-                           for row in cur.fetchall()}
+            column_info = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
             if not column_info:
                 raise ValueError(
-                    f"No columns found for table {table_name} (excluding embedding)")
+                    f"No columns found for table {table_name} (excluding embedding)"
+                )
 
             columns = list(column_info.keys())
             # Build query with dynamic columns and distance calculation
@@ -915,11 +1033,16 @@ class PgVectorClient:
                 query_template += " LIMIT %s"
             query = sql.SQL(query_template).format(
                 sql.SQL(", ").join(map(sql.Identifier, columns + ["id"])),
-                sql.Identifier(table_name)
+                sql.Identifier(table_name),
             )
-            formatted_embedding = f"[{', '.join(map(str, self._to_list(query_embedding)))}]"
-            params = (formatted_embedding,) if top_k is None else (
-                formatted_embedding, top_k)
+            formatted_embedding = (
+                f"[{', '.join(map(str, self._to_list(query_embedding)))}]"
+            )
+            params = (
+                (formatted_embedding,)
+                if top_k is None
+                else (formatted_embedding, top_k)
+            )
             cur.execute(query, params)
             db_results = cur.fetchall()
 
@@ -929,10 +1052,15 @@ class PgVectorClient:
                     "id": row["id"],
                     "distance": row["distance"],
                     **{
-                        col: row[col] if not (column_info[col] == "jsonb" and isinstance(row[col], str))
-                        else json.loads(row[col]) if row[col] else None
+                        col: row[col]
+                        if not (
+                            column_info[col] == "jsonb" and isinstance(row[col], str)
+                        )
+                        else json.loads(row[col])
+                        if row[col]
+                        else None
                         for col in columns
-                    }
+                    },
                 }
                 for row in db_results
             ]
@@ -940,7 +1068,7 @@ class PgVectorClient:
             scores = calculate_vector_scores(distances)
 
             # Build final results with rank and score, applying threshold if specified
-            final_results: List[SearchResult] = []
+            final_results: list[SearchResult] = []
             for rank, (res, score) in enumerate(zip(results, scores), start=1):
                 if threshold is not None and score < threshold:
                     continue
@@ -951,7 +1079,7 @@ class PgVectorClient:
                 final_results.append(ordered_entry)
             return final_results
 
-    def drop_all_rows(self, table_name: Optional[str] = None) -> None:
+    def drop_all_rows(self, table_name: str | None = None) -> None:
         """Delete all rows from a specific table or all tables if no table is provided."""
         with self.conn.cursor() as cur:
             if table_name:
@@ -959,7 +1087,8 @@ class PgVectorClient:
                 cur.execute(query)
             else:
                 cur.execute(
-                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public';")
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public';"
+                )
                 tables = [row["tablename"] for row in cur.fetchall()]
                 for table in tables:
                     cur.execute(f"DELETE FROM {table};")
@@ -967,17 +1096,20 @@ class PgVectorClient:
     def delete_all_tables(self) -> None:
         """Drop all tables in the database."""
         with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT tablename FROM pg_tables WHERE schemaname = 'public';")
+            cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public';")
             tables = [row["tablename"] for row in cur.fetchall()]
             for table in tables:
-                cur.execute(sql.SQL("DROP TABLE IF EXISTS {} CASCADE;").format(
-                    sql.Identifier(table)))
+                cur.execute(
+                    sql.SQL("DROP TABLE IF EXISTS {} CASCADE;").format(
+                        sql.Identifier(table)
+                    )
+                )
 
     def delete_db(self, confirm: bool = False) -> None:
         if not confirm:
             raise ValueError(
-                "Database deletion requires explicit confirmation by setting confirm=True")
+                "Database deletion requires explicit confirmation by setting confirm=True"
+            )
         dbname = self.conn.info.dbname
         user = self.conn.info.user
         password = self.conn.info.password
@@ -992,7 +1124,7 @@ class PgVectorClient:
                 password=password,
                 host=host,
                 port=port,
-                autocommit=True
+                autocommit=True,
             ) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -1001,13 +1133,15 @@ class PgVectorClient:
                             "FROM pg_stat_activity "
                             "WHERE pg_stat_activity.datname = %s AND pid <> pg_backend_pid();"
                         ),
-                        (dbname,)
+                        (dbname,),
                     )
-                    cur.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(
-                        sql.Identifier(dbname)))
+                    cur.execute(
+                        sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                            sql.Identifier(dbname)
+                        )
+                    )
         except Exception as e:
-            raise RuntimeError(
-                f"Failed to delete database {dbname}: {str(e)}") from e
+            raise RuntimeError(f"Failed to delete database {dbname}: {str(e)}") from e
         self.conn = None
 
     def get_database_metadata(self) -> DatabaseMetadata:
@@ -1023,8 +1157,7 @@ class PgVectorClient:
             cur.execute(query, (self.conn.info.dbname,))
             result = cur.fetchone()
             if not result:
-                raise RuntimeError(
-                    f"Database {self.conn.info.dbname} not found")
+                raise RuntimeError(f"Database {self.conn.info.dbname} not found")
             return {
                 "dbname": result["dbname"],
                 "owner": result["owner"],
@@ -1034,7 +1167,7 @@ class PgVectorClient:
                 "size_mb": round(result["size_mb"], 2),
             }
 
-    def get_all_tables(self) -> List[str]:
+    def get_all_tables(self) -> list[str]:
         """Retrieve a list of all table names in the public schema."""
         with self.conn.cursor() as cur:
             query = (
@@ -1056,12 +1189,12 @@ class PgVectorClient:
                 "WHERE t.table_schema = 'public' AND t.table_name = %s;"
             )
             formatted_table_query = sql.SQL(table_query).format(
-                table_name=sql.Identifier(table_name))
+                table_name=sql.Identifier(table_name)
+            )
             cur.execute(formatted_table_query, (table_name,))
             table_result = cur.fetchone()
             if not table_result:
-                raise RuntimeError(
-                    f"Table {table_name} not found in public schema")
+                raise RuntimeError(f"Table {table_name} not found in public schema")
             column_query = (
                 "SELECT column_name, data_type, is_nullable, "
                 "character_maximum_length, numeric_precision, numeric_scale "
@@ -1069,14 +1202,17 @@ class PgVectorClient:
                 "WHERE table_schema = 'public' AND table_name = %s;"
             )
             cur.execute(column_query, (table_name,))
-            columns = [{
-                "column_name": row["column_name"],
-                "data_type": row["data_type"],
-                "is_nullable": row["is_nullable"],
-                "character_maximum_length": row["character_maximum_length"],
-                "numeric_precision": row["numeric_precision"],
-                "numeric_scale": row["numeric_scale"],
-            } for row in cur.fetchall()]
+            columns = [
+                {
+                    "column_name": row["column_name"],
+                    "data_type": row["data_type"],
+                    "is_nullable": row["is_nullable"],
+                    "character_maximum_length": row["character_maximum_length"],
+                    "numeric_precision": row["numeric_precision"],
+                    "numeric_scale": row["numeric_scale"],
+                }
+                for row in cur.fetchall()
+            ]
             return {
                 "table_name": table_result["table_name"],
                 "table_type": table_result["table_type"],
@@ -1085,7 +1221,7 @@ class PgVectorClient:
                 "columns": columns,
             }
 
-    def get_database_summary(self) -> Dict[str, Union[DatabaseMetadata, List[TableMetadata]]]:
+    def get_database_summary(self) -> dict[str, DatabaseMetadata | list[TableMetadata]]:
         """Retrieve a comprehensive summary of the database including metadata and all tables."""
         tables = self.get_all_tables()
         table_metadata = [self.get_table_metadata(table) for table in tables]
