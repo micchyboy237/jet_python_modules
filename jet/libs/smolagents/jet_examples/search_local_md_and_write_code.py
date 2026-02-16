@@ -74,7 +74,7 @@ Search this file under this directory
 Base directory: {base_dir}
 File: {target_file}
 
-Generate the python file containing the full working code.
+Generate the single python file containing full working reusable code with usage examples.
 """
     search_result = agent.run(task)
 
