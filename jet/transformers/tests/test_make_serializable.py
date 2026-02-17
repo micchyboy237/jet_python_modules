@@ -1,6 +1,7 @@
 import abc
 import json
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
 from typing import TypeVar
 
@@ -569,6 +570,108 @@ def test_recursion_guard_activates_on_deep_structure():
     assert isinstance(result, str) or "RECURSION" in str(result).upper(), (
         "Deep recursion should be guarded"
     )
+
+
+def test_serializable_datetime_naive():
+    # Given
+    dt = datetime(2026, 2, 17, 14, 35, 22, 450123)
+
+    # When
+    result = make_serializable(dt)
+
+    # Then
+    expected = "2026-02-17T14:35:22.450123"
+    assert result == expected
+    assert json.dumps(result) == f'"{expected}"'
+
+
+def test_serializable_datetime_utc():
+    # Given
+    dt_utc = datetime(2026, 3, 14, 9, 26, 53, tzinfo=timezone.utc)
+
+    # When
+    result = make_serializable(dt_utc)
+
+    # Then
+    expected = "2026-03-14T09:26:53+00:00"
+    assert result == expected
+    assert json.dumps({"event": result}) == f'{{"event": "{expected}"}}'
+
+
+def test_serializable_datetime_with_offset():
+    # Given - simulate +02:00 timezone (e.g. Helsinki, Kyiv, etc.)
+    tz = timezone(timedelta(hours=2))
+    dt = datetime(2026, 6, 30, 23, 59, 59, 999999, tzinfo=tz)
+
+    # When
+    result = make_serializable(dt)
+
+    # Then
+    expected = "2026-06-30T23:59:59.999999+02:00"
+    assert result == expected
+
+
+def test_serializable_date():
+    # Given
+    d = date(2026, 12, 25)
+
+    # When
+    result = make_serializable(d)
+
+    # Then
+    expected = "2026-12-25"
+    assert result == expected
+    assert json.dumps({"christmas": result}) == '{"christmas": "2026-12-25"}'
+
+
+def test_serializable_time():
+    # Given
+    cases = [
+        (time(14, 30), "14:30:00"),
+        (time(9, 5, 3, 270000), "09:05:03.270000"),
+        (time(23, 59, 59, 999999), "23:59:59.999999"),
+    ]
+
+    for t, expected_str in cases:
+        # When
+        result = make_serializable(t)
+
+        # Then
+        assert result == expected_str, (
+            f"time {t} → expected {expected_str!r}, got {result!r}"
+        )
+
+
+def test_serializable_datetime_nested():
+    # Given
+    payload = {
+        "created_at": datetime(2026, 1, 15, 10, 0, tzinfo=timezone.utc),
+        "updated_at": datetime(2026, 1, 16, 14, 20),
+        "deadline": date(2026, 3, 1),
+        "meeting_time": time(11, 0),
+        "history": [
+            {"when": datetime(2025, 12, 1, 8, 45)},
+            {"when": datetime(2025, 12, 2, 15, 10, tzinfo=timezone.utc)},
+        ],
+    }
+
+    # When
+    result = make_serializable(payload)
+
+    # Then
+    expected = {
+        "created_at": "2026-01-15T10:00:00+00:00",
+        "updated_at": "2026-01-16T14:20:00",
+        "deadline": "2026-03-01",
+        "meeting_time": "11:00:00",
+        "history": [
+            {"when": "2025-12-01T08:45:00"},
+            {"when": "2025-12-02T15:10:00+00:00"},
+        ],
+    }
+    assert result == expected
+    # Also confirm it's JSON safe
+    json.dumps(result)
 
 
 @pytest.fixture(autouse=True)

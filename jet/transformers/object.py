@@ -1,5 +1,6 @@
 import base64
 import collections.abc
+import datetime
 import json
 import types
 from dataclasses import asdict, is_dataclass
@@ -121,6 +122,14 @@ def make_serializable(obj, seen=None):
             return value
         elif isinstance(inner_obj, np.ndarray):
             return inner_obj.tolist()
+
+        # ──── datetime family ───────────────────────────────────────────────
+        elif isinstance(inner_obj, datetime.datetime):
+            return inner_obj.isoformat()
+        elif isinstance(inner_obj, (datetime.date, datetime.time)):
+            return inner_obj.isoformat()
+        # ────────────────────────────────────────────────────────────────────
+
         elif isinstance(inner_obj, BaseModel):
             try:
                 return _serialize_inner(inner_obj.model_dump(), seen.copy())

@@ -1,7 +1,9 @@
+import hashlib
 import json
 import uuid
-import hashlib
 from typing import Any
+
+from jet.transformers.object import make_serializable
 
 
 def generate_unique_id() -> str:
@@ -18,7 +20,7 @@ def generate_hash(*args, max_length=24, **kwargs):
     """Generate a consistent, truncated hash for given arguments."""
     # Combine positional and keyword arguments into a single dict for hashing
     input_data = {"args": args, "kwargs": kwargs}
-    item_str = json.dumps(input_data, sort_keys=True)
+    item_str = json.dumps(make_serializable(input_data), sort_keys=True)
     hash_key = hashlib.sha256(item_str.encode("utf-8")).hexdigest()
     return hash_key[:max_length]
 
@@ -41,7 +43,8 @@ def generate_key(*args: Any, **kwargs: Any) -> str:
         # Serialize inputs to JSON for deterministic hashing
         input_data = {"args": args, "kwargs": kwargs}
         serialized_data = json.dumps(
-            input_data, sort_keys=True, separators=(',', ':'))
+            make_serializable(input_data), sort_keys=True, separators=(",", ":")
+        )
 
         # Generate UUID v5 using a namespace and the serialized input
         namespace = uuid.NAMESPACE_DNS  # Standard namespace for consistency

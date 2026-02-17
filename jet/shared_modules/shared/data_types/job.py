@@ -1,13 +1,6 @@
 from typing import Any, TypedDict
 
 
-class JobEntities(TypedDict, total=False):
-    technology_stack: list[str]
-    role: list[str]
-    application: list[str]
-    qualifications: list[str]
-
-
 class Entity(TypedDict):
     text: str
     label: str
@@ -15,6 +8,21 @@ class Entity(TypedDict):
 
 
 JobEntity = dict[str, Any]
+
+
+class JobEntities(TypedDict, total=False):
+    company_name: list[str]
+    job_location: list[str]
+    salary_range: list[str]
+    experience_level: list[str]
+    employment_type: list[str]
+    work_schedule: list[str]
+    required_skills: list[str]
+    used_technologies: list[str]
+    programming_languages: list[str]
+    key_responsibilities: list[str]
+    requirements_qualifications: list[str]
+    employee_benefits: list[str]
 
 
 class JobData(TypedDict):
@@ -25,7 +33,6 @@ class JobData(TypedDict):
     posted_date: str
     keywords: list[str]
     details: str
-    # entities: JobEntity
     entities: JobEntities
     tags: list[str]
     domain: str
@@ -35,20 +42,22 @@ class JobData(TypedDict):
 
 
 class JobMetadata(TypedDict):
-    id: str
-    doc_id: str
-    header_doc_id: str
-    parent_id: str | None
-    doc_index: int
+    job_id: str
     chunk_index: int
     num_tokens: int
-    header: str
-    parent_header: str | None
-    content: str
-    level: int
-    parent_level: int | None
     start_idx: int
     end_idx: int
+    line_idx: int
+    overlap_start_idx: int | None
+    overlap_end_idx: int | None
+
+
+class JobChunk(TypedDict):
+    id: str
+    header: str
+    content: str
+    metadata: JobMetadata
+    embedding: list[float] | None
 
 
 class JobSearchResultData(JobData):
