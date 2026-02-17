@@ -7,7 +7,6 @@ from crawl4ai import AdaptiveConfig, LLMConfig
 def get_llm_config(
     *,
     strategy: Literal["statistical", "embedding", "llm"] = "statistical",
-    temperature=0.7,
     **kwargs,
 ):
     settings = {**kwargs}
@@ -15,16 +14,22 @@ def get_llm_config(
         settings = {
             "provider": "openai/nomic-embed-text-v2-moe",
             "base_url": os.getenv("LLAMA_CPP_EMBED_URL"),
-            "max_tokens": 2048,
             **settings,
+            "max_tokens": settings["max_tokens"]
+            if settings.get("max_tokens") is not None
+            else 2048,
         }
     elif strategy == "llm":
         settings = {
             "provider": "openai/qwen3-instruct-2507:4b",
             "base_url": os.getenv("LLAMA_CPP_LLM_URL"),
-            "temperature": temperature,
-            "max_tokens": 12000,
             **settings,
+            "temperature": settings["temperature"]
+            if settings.get("temperature") is not None
+            else 0.7,
+            "max_tokens": settings["max_tokens"]
+            if settings.get("max_tokens") is not None
+            else 12000,
         }
 
     config = LLMConfig(**settings)
@@ -34,10 +39,13 @@ def get_llm_config(
 def get_adaptive_config(
     *,
     strategy: Literal["statistical", "embedding", "llm"] = "statistical",
-    temperature=0.7,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
     **kwargs,
 ):
-    config = get_llm_config(strategy=strategy, temperature=temperature)
+    config = get_llm_config(
+        strategy=strategy, temperature=temperature, max_tokens=max_tokens
+    )
 
     settings = {"embedding_llm_config": config, **kwargs}
     adaptive_config = AdaptiveConfig(**settings)

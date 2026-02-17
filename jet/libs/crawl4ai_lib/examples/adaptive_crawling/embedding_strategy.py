@@ -6,7 +6,6 @@ for semantic understanding and intelligent crawling.
 """
 
 import asyncio
-import os
 
 from crawl4ai import AdaptiveCrawler, AsyncWebCrawler
 from jet.libs.crawl4ai_lib.adaptive_config import get_adaptive_config
@@ -28,16 +27,6 @@ async def main():
         embedding_min_confidence_threshold=0.1,  # Stop if <10% relevant
         embedding_validation_min_score=0.4,  # Validation threshold
     )
-
-    # Optional: Use OpenAI embeddings instead
-    if os.getenv("OPENAI_API_KEY"):
-        config.embedding_llm_config = {
-            "provider": "openai/text-embedding-3-small",
-            "api_token": os.getenv("OPENAI_API_KEY"),
-        }
-        print("Using OpenAI embeddings")
-    else:
-        print("Using sentence-transformers (local embeddings)")
 
     async with AsyncWebCrawler(verbose=True) as crawler:
         adaptive = AdaptiveCrawler(crawler, config)
