@@ -37,8 +37,8 @@ def get_adaptive_config(
     temperature=0.7,
     **kwargs,
 ):
-    settings = {"strategy": strategy, **kwargs}
     config = get_llm_config(strategy=strategy, temperature=temperature)
 
-    adaptive_config = AdaptiveConfig(**config, **settings)
+    settings = {"embedding_llm_config": config, **kwargs}
+    adaptive_config = AdaptiveConfig(**settings)
     return adaptive_config
