@@ -1073,9 +1073,10 @@ class PgVectorClient:
                 if threshold is not None and score < threshold:
                     continue
                 # Ensure 'rank' and 'score' are the first keys in the result dict
-                ordered_entry = {"rank": rank, "score": score, "id": res["id"]}
+                ordered_entry = {"id": res["id"], "rank": rank, "score": score}
                 for col in columns:
-                    ordered_entry[col] = res[col]
+                    if col != "id":
+                        ordered_entry[col] = res[col]
                 final_results.append(ordered_entry)
             return final_results
 

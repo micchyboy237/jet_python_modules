@@ -174,7 +174,7 @@ def download_dataset(
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    repo_id = "urchade/gliner_large-v2.1"
+    repo_id = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     cache_dir = MODELS_CACHE_DIR
     clean_cache = False
 
