@@ -97,6 +97,10 @@ class RetrievalPipeline:
         # BM25 search
         bm25_results = self.bm25.search(query, top_k=100)
 
+        # Filter BM25 results to only include documents that pass metadata filter
+        filtered_bm25 = [(idx, score) for idx, score in bm25_results if idx in indices]
+        bm25_results = filtered_bm25[:100]  # keep same budget
+
         # RRF fusion
         fused = reciprocal_rank_fusion(vector_results, bm25_results)
 
