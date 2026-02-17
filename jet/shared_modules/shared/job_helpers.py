@@ -10,6 +10,7 @@ from jet.db.postgres.pg_types import TableRow
 from jet.db.postgres.pgvector import PgVectorClient
 from jet.logger import logger
 from jet.models.tokenizer.base import count_tokens
+from jet.vectors.reranker.bm25 import rerank_bm25
 from jet.wordnet.text_chunker import chunk_texts_with_data
 from numpy.typing import NDArray
 from psycopg import sql
@@ -18,7 +19,6 @@ from shared.data_types.job import JobData, JobSearchResult
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
 DEFAULT_EMBEDDING_DIM = get_embedding_size(DEFAULT_EMBED_MODEL)
 DEFAULT_JOBS_DB_NAME = "jobs_db1"
-DEFAULT_TABLE_EMBEDDINGS = "embeddings"
 DEFAULT_TABLE_DATA = "jobs"
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
@@ -93,7 +93,8 @@ def load_jobs_list(
 
 
 def load_jobs_embeddings(
-    chunk_ids: list[str] | None = None, db_client: PgVectorClient | None = None
+    chunk_ids: list[str] | None = None,
+    db_client: PgVectorClient | None = None,
 ) -> dict[str, NDArray[np.float64]]:
     """
     Load job embeddings for given chunk IDs or all embeddings if no IDs provided.
@@ -103,15 +104,17 @@ def load_jobs_embeddings(
         db_client: Optional PgVectorClient instance
 
     Returns:
-        Dictionary mapping chunk IDs to their embedding vectors as numpy arrays
+        Dictionary mapping chunk IDs to their embedding vectors as numpy arrays.
     """
+    logger.warning(
+        "load_jobs_embeddings() is deprecated - embeddings are now in 'jobs' table"
+    )
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
     with db_client:
-        embeddings = db_client.get_embeddings(DEFAULT_TABLE_EMBEDDINGS, chunk_ids)
-
-        return embeddings
+        rows = db_client.get_rows(DEFAULT_TABLE_DATA, ids=chunk_ids)
+        return {r["id"]: np.array(r["embedding"]) for r in rows if "embedding" in r}
 
 
 def generate_embeddings(
@@ -172,10 +175,17 @@ def save_job_to_db(
     job: JobData,
     db_client: PgVectorClient | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
+    generate_embedding: bool = False,
 ) -> JobData:
     """
-    Upsert one job into the vector database, generating embedding if needed.
+    Upsert one job into the vector database, optionally generating embedding if requested.
     Always returns the JobData as it exists in the database after the operation.
+
+    Args:
+        job: The JobData object to save.
+        db_client: (Optional) PgVectorClient for DB access.
+        embed_model: (Optional) The embedding model to use.
+        generate_embedding: (Optional, default False) If True, generate and store embeddings.
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
@@ -192,15 +202,18 @@ def save_job_to_db(
             existing = db_client.get_row(DEFAULT_TABLE_DATA, job_id)
             if existing and existing.get("content_hash") == job_hash:
                 logger.debug(f"Job {job_id} unchanged → skipping DB update")
-                return False
+                return table_row_to_jobdata(existing)
     except Exception as e:
         logger.warning(f"Error checking existing job in DB: {e}")
 
     # Build embedding text (same logic as in save_job_embeddings)
     text = f"{job['title'].strip()}\n{job['details'].strip()}".strip()
 
-    logger.info(f"Generating embedding for job {job_id}")
-    embedding_array = generate_embeddings([text], embed_model=embed_model)[0]
+    # Generate embedding if requested, else store as None
+    embedding_array = None
+    if generate_embedding:
+        embedding_array = generate_embeddings([text], embed_model=embed_model)[0]
+
     num_tokens = count_tokens(embed_model, [text], prevent_total=True)[0]
 
     company = job.get("company", "").strip()
@@ -228,7 +241,7 @@ def save_job_to_db(
         "text_hash": compute_text_hash(text),
         "posted_date": job.get("posted_date"),
         "metadata": metadata,
-        "embedding": embedding_array.tolist(),
+        "embedding": embedding_array.tolist() if embedding_array is not None else None,
     }
 
     with db_client:
@@ -290,13 +303,6 @@ def save_job_embeddings(
             logger.debug(
                 f"Created or verified '{DEFAULT_TABLE_DATA}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
             )
-
-        # Create or verify embeddings table
-        embedding_dimension = get_embedding_size(embed_model)
-        db_client.create_table(DEFAULT_TABLE_EMBEDDINGS, dimension=embedding_dimension)
-        logger.debug(
-            f"Created or verified '{DEFAULT_TABLE_EMBEDDINGS}' table with dimension {embedding_dimension}."
-        )
 
         # Fetch existing job metadata with hashes, filtering by doc_id
         existing_jobs = db_client.get_rows(
@@ -569,35 +575,6 @@ def save_job_embeddings(
                     f"Created or verified '{DEFAULT_TABLE_DATA}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
                 )
 
-            # Log whether rows are created or updated for embeddings table
-            with db_client.conn.cursor() as cur:
-                cur.execute(
-                    sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
-                        sql.Identifier(DEFAULT_TABLE_EMBEDDINGS)
-                    ),
-                    ([row["id"] for row in rows_data],),
-                )
-                existing_ids = {row["id"] for row in cur.fetchall()}
-            create_count = sum(1 for row in rows_data if row["id"] not in existing_ids)
-            update_count = len(rows_data) - create_count
-            if create_count > 0:
-                logger.info(
-                    f"Creating {create_count} new rows in '{DEFAULT_TABLE_EMBEDDINGS}' table"
-                )
-            if update_count > 0:
-                logger.info(
-                    f"Updating {update_count} existing rows in '{DEFAULT_TABLE_EMBEDDINGS}' table"
-                )
-
-            results = db_client.create_or_update_rows(
-                DEFAULT_TABLE_EMBEDDINGS,
-                rows_data,
-                dimension=embeddings.shape[1] if embeddings.size > 0 else None,
-            )
-            logger.success(
-                f"Saved {len(results)} chunked job embeddings to '{DEFAULT_TABLE_EMBEDDINGS}' table."
-            )
-
             # Log whether rows are created or updated for metadata table
             with db_client.conn.cursor() as cur:
                 cur.execute(
@@ -628,6 +605,8 @@ def save_job_embeddings(
             metadata_results = db_client.create_or_update_rows(
                 DEFAULT_TABLE_DATA, metadata_rows
             )
+            db_client.commit()
+
             logger.success(
                 f"Saved {len(metadata_results)} metadata records to '{DEFAULT_TABLE_DATA}' table."
             )
@@ -677,10 +656,32 @@ def search_jobs(
 
     with db_client:
         results = db_client.search(
-            table_name=DEFAULT_TABLE_EMBEDDINGS,
+            table_name=DEFAULT_TABLE_DATA,
             query_embedding=query_embedding,
             top_k=top_k,
             threshold=threshold,
         )
 
         return results
+
+
+def hybrid_search_jobs(
+    query: str,
+    top_k: int | None = 10,
+    threshold: float | None = None,
+    embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
+    db_client: PgVectorClient | None = None,
+) -> list[JobSearchResult]:
+    raw_results = search_jobs(
+        query=query,
+        top_k=top_k,
+        threshold=threshold,
+        embed_model=embed_model,
+        db_client=db_client,
+    )
+
+    ids = [result["id"] for result in raw_results]
+    documents = [result["text"] for result in raw_results]
+    query_candidates, reranked_results = rerank_bm25(query, documents, ids)
+
+    return reranked_results
