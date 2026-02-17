@@ -102,7 +102,10 @@ class LlamacppEmbedding:
                 "base_url must be provided. Set the LLAMA_CPP_EMBED_URL environment variable or pass base_url explicitly."
             )
         self.client = OpenAI(
-            base_url=base_url, api_key="no-key-required", max_retries=max_retries
+            base_url=base_url,
+            api_key="no-key-required",
+            max_retries=max_retries,
+            timeout=300.0,  # 5 mins timeout (in seconds)
         )
         self.model = resolve_model_value(model)
         self.max_retries = max_retries
