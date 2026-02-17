@@ -360,7 +360,7 @@ def search_jobs(
 
 def hybrid_search_jobs(
     query: str,
-    top_k: int | None = None,
+    top_k: int | None = 10,
     threshold: float | None = None,
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
