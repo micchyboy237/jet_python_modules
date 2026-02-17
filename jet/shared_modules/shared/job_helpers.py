@@ -18,8 +18,8 @@ from shared.data_types.job import JobData, JobSearchResult
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
 DEFAULT_EMBEDDING_DIM = get_embedding_size(DEFAULT_EMBED_MODEL)
 DEFAULT_JOBS_DB_NAME = "jobs_db1"
-DEFAULT_TABLE_NAME = "embeddings"
-DEFAULT_TABLE_DATA_NAME = "jobs"
+DEFAULT_TABLE_EMBEDDINGS = "embeddings"
+DEFAULT_TABLE_DATA = "jobs"
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
 
@@ -48,14 +48,14 @@ def load_jobs(
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
     with db_client:
-        jobs: list[JobData] = db_client.get_rows(DEFAULT_TABLE_DATA_NAME, ids=chunk_ids)
+        jobs: list[JobData] = db_client.get_rows(DEFAULT_TABLE_DATA, ids=chunk_ids)
 
     return jobs
 
 
 def load_jobs_list(
     db_client: PgVectorClient | None = None,
-    table_name: str = DEFAULT_TABLE_DATA_NAME,
+    table_name: str = DEFAULT_TABLE_DATA,
 ) -> list[JobData]:
     """
     Load all existing jobs from the PostgreSQL vector database.
@@ -109,7 +109,7 @@ def load_jobs_embeddings(
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
     with db_client:
-        embeddings = db_client.get_embeddings(DEFAULT_TABLE_NAME, chunk_ids)
+        embeddings = db_client.get_embeddings(DEFAULT_TABLE_EMBEDDINGS, chunk_ids)
 
         return embeddings
 
@@ -189,7 +189,7 @@ def save_job_to_db(
     # Optional: check if already exists and unchanged
     try:
         with db_client:
-            existing = db_client.get_row(DEFAULT_TABLE_DATA_NAME, job_id)
+            existing = db_client.get_row(DEFAULT_TABLE_DATA, job_id)
             if existing and existing.get("content_hash") == job_hash:
                 logger.debug(f"Job {job_id} unchanged → skipping DB update")
                 return False
@@ -204,6 +204,10 @@ def save_job_to_db(
     num_tokens = count_tokens(embed_model, [text], prevent_total=True)[0]
 
     company = job.get("company", "").strip()
+
+    metadata = {
+        key: value for key, value in job.items() if key not in ["title", "details"]
+    }
 
     row = {
         "id": job_id,
@@ -223,12 +227,13 @@ def save_job_to_db(
         "content_hash": job_hash,
         "text_hash": compute_text_hash(text),
         "posted_date": job.get("posted_date"),
+        "metadata": metadata,
         "embedding": embedding_array.tolist(),
     }
 
     with db_client:
         saved_row = db_client.create_or_update_row(
-            table_name=DEFAULT_TABLE_DATA_NAME,
+            table_name=DEFAULT_TABLE_DATA,
             row_data=row,
             dimension=embedding_dimension,
         )
@@ -258,7 +263,7 @@ def save_job_embeddings(
     with db_client:
         # Create or verify metadata table
         metadata_table_query = f"""
-        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA_NAME} (
+        CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
             id              TEXT PRIMARY KEY,
             doc_id          TEXT,
             header_doc_id   TEXT,
@@ -276,25 +281,26 @@ def save_job_embeddings(
             content_hash    TEXT,
             text_hash       TEXT,
             posted_date     TIMESTAMPTZ,
+            metadata        JSONB,
             embedding       vector({embedding_dimension})
         );
         """
         with db_client.conn.cursor() as cur:
             cur.execute(metadata_table_query)
             logger.debug(
-                f"Created or verified '{DEFAULT_TABLE_DATA_NAME}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
+                f"Created or verified '{DEFAULT_TABLE_DATA}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
             )
 
         # Create or verify embeddings table
         embedding_dimension = get_embedding_size(embed_model)
-        db_client.create_table(DEFAULT_TABLE_NAME, dimension=embedding_dimension)
+        db_client.create_table(DEFAULT_TABLE_EMBEDDINGS, dimension=embedding_dimension)
         logger.debug(
-            f"Created or verified '{DEFAULT_TABLE_NAME}' table with dimension {embedding_dimension}."
+            f"Created or verified '{DEFAULT_TABLE_EMBEDDINGS}' table with dimension {embedding_dimension}."
         )
 
         # Fetch existing job metadata with hashes, filtering by doc_id
         existing_jobs = db_client.get_rows(
-            DEFAULT_TABLE_DATA_NAME,
+            DEFAULT_TABLE_DATA,
             ids=[compute_job_hash(job) for job in jobs],
             id_column="content_hash",
         )
@@ -430,7 +436,7 @@ def save_job_embeddings(
             # Retrieve existing embedding
             with db_client:
                 embedding = db_client.get_embedding_by_id(
-                    DEFAULT_TABLE_NAME, chunk["id"]
+                    DEFAULT_TABLE_EMBEDDINGS, chunk["id"]
                 )
                 if embedding is not None:
                     existing_embeddings[chunk["id"]] = embedding
@@ -526,6 +532,7 @@ def save_job_embeddings(
             "content_hash": job_hash,
             "text_hash": chunk["text_hash"],
             "posted_date": job["posted_date"],
+            "metadata": metadata,
             "embedding": embedding.tolist(),
         }
         metadata_rows.append(metadata_row)
@@ -534,7 +541,7 @@ def save_job_embeddings(
         try:
             # Ensure metadata table includes content_hash, text_hash, and posted_date columns
             metadata_table_query = f"""
-            CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA_NAME} (
+            CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
                 id              TEXT PRIMARY KEY,
                 doc_id          TEXT,
                 header_doc_id   TEXT,
@@ -552,20 +559,21 @@ def save_job_embeddings(
                 content_hash    TEXT,
                 text_hash       TEXT,
                 posted_date     TIMESTAMPTZ,
+                metadata        JSONB,
                 embedding       vector({embedding_dimension})
             );
             """
             with db_client.conn.cursor() as cur:
                 cur.execute(metadata_table_query)
                 logger.debug(
-                    f"Created or verified '{DEFAULT_TABLE_DATA_NAME}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
+                    f"Created or verified '{DEFAULT_TABLE_DATA}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
                 )
 
             # Log whether rows are created or updated for embeddings table
             with db_client.conn.cursor() as cur:
                 cur.execute(
                     sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
-                        sql.Identifier(DEFAULT_TABLE_NAME)
+                        sql.Identifier(DEFAULT_TABLE_EMBEDDINGS)
                     ),
                     ([row["id"] for row in rows_data],),
                 )
@@ -574,27 +582,27 @@ def save_job_embeddings(
             update_count = len(rows_data) - create_count
             if create_count > 0:
                 logger.info(
-                    f"Creating {create_count} new rows in '{DEFAULT_TABLE_NAME}' table"
+                    f"Creating {create_count} new rows in '{DEFAULT_TABLE_EMBEDDINGS}' table"
                 )
             if update_count > 0:
                 logger.info(
-                    f"Updating {update_count} existing rows in '{DEFAULT_TABLE_NAME}' table"
+                    f"Updating {update_count} existing rows in '{DEFAULT_TABLE_EMBEDDINGS}' table"
                 )
 
             results = db_client.create_or_update_rows(
-                DEFAULT_TABLE_NAME,
+                DEFAULT_TABLE_EMBEDDINGS,
                 rows_data,
                 dimension=embeddings.shape[1] if embeddings.size > 0 else None,
             )
             logger.success(
-                f"Saved {len(results)} chunked job embeddings to '{DEFAULT_TABLE_NAME}' table."
+                f"Saved {len(results)} chunked job embeddings to '{DEFAULT_TABLE_EMBEDDINGS}' table."
             )
 
             # Log whether rows are created or updated for metadata table
             with db_client.conn.cursor() as cur:
                 cur.execute(
                     sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
-                        sql.Identifier(DEFAULT_TABLE_DATA_NAME)
+                        sql.Identifier(DEFAULT_TABLE_DATA)
                     ),
                     ([row["id"] for row in metadata_rows],),
                 )
@@ -605,11 +613,11 @@ def save_job_embeddings(
             metadata_update_count = len(metadata_rows) - metadata_create_count
             if metadata_create_count > 0:
                 logger.info(
-                    f"Creating {metadata_create_count} new rows in '{DEFAULT_TABLE_DATA_NAME}' table"
+                    f"Creating {metadata_create_count} new rows in '{DEFAULT_TABLE_DATA}' table"
                 )
             if metadata_update_count > 0:
                 logger.info(
-                    f"Updating {metadata_update_count} existing rows in '{DEFAULT_TABLE_DATA_NAME}' table"
+                    f"Updating {metadata_update_count} existing rows in '{DEFAULT_TABLE_DATA}' table"
                 )
 
             logger.debug(f"Metadata rows to save: {len(metadata_rows)}")
@@ -618,10 +626,10 @@ def save_job_embeddings(
                     logger.error(f"Row {idx} missing id: {row}")
                     raise ValueError(f"Row {idx} missing id")
             metadata_results = db_client.create_or_update_rows(
-                DEFAULT_TABLE_DATA_NAME, metadata_rows
+                DEFAULT_TABLE_DATA, metadata_rows
             )
             logger.success(
-                f"Saved {len(metadata_results)} metadata records to '{DEFAULT_TABLE_DATA_NAME}' table."
+                f"Saved {len(metadata_results)} metadata records to '{DEFAULT_TABLE_DATA}' table."
             )
         except Exception as e:
             logger.error(f"Failed to save data: {str(e)}")
@@ -669,7 +677,7 @@ def search_jobs(
 
     with db_client:
         results = db_client.search(
-            table_name=DEFAULT_TABLE_NAME,
+            table_name=DEFAULT_TABLE_EMBEDDINGS,
             query_embedding=query_embedding,
             top_k=top_k,
             threshold=threshold,
