@@ -6,7 +6,6 @@ strategies for adaptive crawling, showing when to use each approach.
 """
 
 import asyncio
-import os
 import time
 
 from crawl4ai import AdaptiveCrawler, AsyncWebCrawler
@@ -61,14 +60,6 @@ async def main():
         },
     ]
 
-    # Configure embedding strategy
-    embedding_config = {}
-    if os.getenv("OPENAI_API_KEY"):
-        embedding_config["embedding_llm_config"] = {
-            "provider": "openai/text-embedding-3-small",
-            "api_token": os.getenv("OPENAI_API_KEY"),
-        }
-
     for test in test_cases:
         print("\n" + "=" * 70)
         print(f"TEST: {test['name']}")
@@ -102,7 +93,9 @@ async def main():
         # Run embedding strategy
         print("\n🧠 Embedding Strategy:")
         emb_result = await crawl_with_strategy(
-            test["url"], test["query"], "embedding", **embedding_config
+            test["url"],
+            test["query"],
+            "embedding",
         )
 
         print(f"  Pages crawled: {emb_result['pages']}")
