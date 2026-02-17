@@ -128,26 +128,25 @@ async def main():
     )
 
     # 6. Custom Embedding Provider
-    if os.getenv("OPENAI_API_KEY"):
-        config_openai = get_adaptive_config(
-            strategy="embedding",
-            max_pages=10,
-            # Use OpenAI embeddings
-            embedding_llm_config={
-                "provider": "openai/text-embedding-3-small",
-                "api_token": os.getenv("OPENAI_API_KEY"),
-            },
-            # OpenAI embeddings are high quality, can be stricter
-            embedding_k_exp=4.0,
-            n_query_variations=12,
-        )
+    config_openai = get_adaptive_config(
+        strategy="embedding",
+        max_pages=10,
+        # Use OpenAI embeddings
+        embedding_llm_config={
+            "provider": "openai/text-embedding-3-small",
+            "api_token": os.getenv("OPENAI_API_KEY"),
+        },
+        # OpenAI embeddings are high quality, can be stricter
+        embedding_k_exp=4.0,
+        n_query_variations=12,
+    )
 
-        await test_configuration(
-            "OpenAI Embeddings",
-            config_openai,
-            test_url,
-            "event-driven architecture patterns",
-        )
+    await test_configuration(
+        "OpenAI Embeddings",
+        config_openai,
+        test_url,
+        "event-driven architecture patterns",
+    )
 
     # Parameter Guide
     print("\n" + "=" * 60)
