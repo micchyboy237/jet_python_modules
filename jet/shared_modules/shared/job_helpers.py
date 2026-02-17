@@ -341,7 +341,7 @@ def search_jobs(
     query_embedding = embedder.get_embeddings(
         [query],
         return_format="numpy",
-        show_progress=False,
+        show_progress=True,
     )[0]
 
     if not db_client:
