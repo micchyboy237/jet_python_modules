@@ -1,6 +1,8 @@
 import os
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import count
+from threading import Lock
 from typing import Literal
 
 import numpy as np
@@ -220,12 +222,26 @@ class LlamacppEmbedding:
 
         token_counts = token_counter(valid_inputs, self.model, prevent_total=True)
 
+        # --- Calculate batch count ---
+        total_inputs = len(valid_inputs)
+        batch_count = (
+            (total_inputs + batch_size - 1) // batch_size if batch_size > 0 else 1
+        )
+
         if self.verbose:
-            self._logger.info(
-                f"Embedding request | model={self.model} | dim={embedding_dim} | "
-                f"ctx={context_length} | max_tokens={max_tokens} | n={len(valid_inputs)} | "
-                f"batch_size={batch_size} | workers={max_workers} | cache={use_cache}"
+            log_message = (
+                f"\n[LLAMACPP-EMBED] Embedding request initiated\n"
+                f"  • Model                 : {self.model}\n"
+                f"  • Embedding dimensions  : {embedding_dim}\n"
+                f"  • Context size (tokens) : {context_length}\n"
+                f"  • Max allowed tokens    : {max_tokens}\n"
+                f"  • # Input texts         : {total_inputs}\n"
+                f"  • Batch size            : {batch_size}\n"
+                f"  • # Batches             : {batch_count}\n"
+                f"  • Parallel workers      : {max_workers}\n"
+                f"  • Cache enabled         : {use_cache}\n"
             )
+            self._logger.info(log_message)
 
         # Check for overly long inputs
         long_inputs = [idx for idx, cnt in enumerate(token_counts) if cnt > max_tokens]
@@ -314,7 +330,6 @@ class LlamacppEmbedding:
                 new_embeddings.extend(batch_emb)
 
         else:
-            # Parallel path
             batches = [
                 target_texts[i : i + batch_size]
                 for i in range(0, len(target_texts), batch_size)
@@ -322,23 +337,63 @@ class LlamacppEmbedding:
 
             batch_results: list[list[list[float]]] = [[] for _ in batches]
 
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_idx = {
-                    executor.submit(embed_batch, batch): i
-                    for i, batch in enumerate(batches)
-                }
+            total_docs = len(target_texts)
+            processed_lock = Lock()
+            worker_counter = count()
 
-                completed = tqdm(
-                    as_completed(future_to_idx),
-                    total=len(batches),
+            if show_progress:
+                global_bar = tqdm(
+                    total=total_docs,
                     desc=f"Embedding (parallel, workers={max_workers})",
-                    unit="batch",
+                    unit="doc",
+                    position=0,
+                    leave=True,
+                )
+            else:
+                global_bar = None
+
+            def worker_wrapper(batch_idx: int, batch: list[str]):
+                worker_id = next(worker_counter)
+
+                local_bar = tqdm(
+                    total=len(batch),
+                    desc=f"Worker-{worker_id}",
+                    unit="doc",
+                    position=worker_id + 1,
+                    leave=False,
                     disable=not show_progress,
                 )
 
-                for future in completed:
-                    idx = future_to_idx[future]
-                    batch_results[idx] = future.result()
+                try:
+                    response = self.client.embeddings.create(
+                        model=self.model,
+                        input=batch,
+                    )
+                    embeddings = [d.embedding for d in response.data]
+
+                    local_bar.update(len(batch))
+
+                    if global_bar:
+                        with processed_lock:
+                            global_bar.update(len(batch))
+
+                    return batch_idx, embeddings
+
+                finally:
+                    local_bar.close()
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [
+                    executor.submit(worker_wrapper, idx, batch)
+                    for idx, batch in enumerate(batches)
+                ]
+
+                for future in as_completed(futures):
+                    idx, result = future.result()
+                    batch_results[idx] = result
+
+            if global_bar:
+                global_bar.close()
 
             # Flatten preserving order
             for batch_emb in batch_results:

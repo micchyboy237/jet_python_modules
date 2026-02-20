@@ -44,11 +44,6 @@ def clean_newlines(content):
     return re.sub(r"\n\s*\n+", "\n", content)
 
 
-def clean_comments(content):
-    """Removes comments from the given content."""
-    return re.sub(r"#.*", "", content)
-
-
 # Much safer version — avoids nested quantifier explosion
 _LOGGING_CALL_RE = re.compile(
     r"logging\.(?:info|debug|error|warning|critical|exception|log|basicConfig|getLogger|disable|shutdown)\s*\("
@@ -111,8 +106,6 @@ def clean_content(
         content = strip_comments(content, remove_triple_quoted_definitions)
         if shorten_funcs:
             content = shorten_functions(content)
-    if not file_path.endswith(".md"):
-        content = clean_comments(content)
     content = clean_logging(content)
     # content = clean_print(content)
     return content

@@ -7,9 +7,6 @@ class Entity(TypedDict):
     score: float
 
 
-JobEntity = dict[str, Any]
-
-
 class JobEntities(TypedDict, total=False):
     company_name: list[str]
     job_location: list[str]
@@ -23,8 +20,10 @@ class JobEntities(TypedDict, total=False):
     key_responsibilities: list[str]
     requirements_qualifications: list[str]
     employee_benefits: list[str]
-    technology_stack: NotRequired[list[str]]
-    meta: NotRequired[dict[str, Any]]
+    technology_stack: list[str]
+
+
+JobEntity = JobEntities
 
 
 class JobData(TypedDict):
