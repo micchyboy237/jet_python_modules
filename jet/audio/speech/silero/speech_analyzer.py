@@ -15,20 +15,22 @@ Features:
 - Fully typed, clean, no global state
 """
 from __future__ import annotations
+
 import argparse
+import itertools
 import json
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import List, Literal, Tuple, Dict
-from typing import TypedDict
-import numpy as np
+from typing import Dict, List, Literal, Tuple, TypedDict
+
 import matplotlib.pyplot as plt
+import numpy as np
+import soundfile as sf
+import torch
+from jet.audio.norm.norm_speech_loudness import normalize_speech_loudness
 from rich.console import Console
 from rich.table import Table
-import torch
-import soundfile as sf
-import itertools
 
 console = Console()
 
@@ -72,6 +74,7 @@ class SpeechAnalyzer:
         self,
         threshold: float = 0.3,
         raw_threshold: float = 0.10,  # new: for more granular raw segments
+        neg_threshold: float = 0.04,  # new: for more granular raw segments
         min_speech_duration_ms: int = 250,
         min_silence_duration_ms: int = 100,
         # Increased speech_pad_ms for clear rise → peak → fall pattern on each segment
@@ -83,6 +86,7 @@ class SpeechAnalyzer:
     ):
         self.threshold = threshold
         self.raw_threshold = raw_threshold
+        self.neg_threshold = neg_threshold
         self.min_speech_duration_ms = min_speech_duration_ms
         self.min_silence_duration_ms = min_silence_duration_ms
         self.speech_pad_ms = speech_pad_ms
@@ -186,15 +190,15 @@ class SpeechAnalyzer:
             core_start = indices[0]
             core_end = indices[-1] + 1  # exclusive
 
-            # Step 3: Expand backward until low prob or silence
+            # Step 3: Expand backward until low prob or silence (use neg_threshold)
             expand_start = core_start
-            while expand_start > 0 and prob_array[expand_start - 1] > self.raw_threshold:
+            while expand_start > 0 and prob_array[expand_start - 1] > self.neg_threshold:
                 expand_start -= 1
 
-            # Step 4: Expand forward
+            # Step 4: Expand forward (use neg_threshold)
             expand_end = core_end
             max_frames = len(prob_array)
-            while expand_end < max_frames and prob_array[expand_end] > self.raw_threshold:
+            while expand_end < max_frames and prob_array[expand_end] > self.neg_threshold:
                 expand_end += 1
 
             # Now the segment starts/ends near or in low-probability zones
@@ -218,9 +222,13 @@ class SpeechAnalyzer:
                     std_prob=round(float(raw_probs.std()), 3),
                     pct_above_threshold=round(
                         float(np.sum(raw_probs > self.threshold)) / len(raw_probs) * 100, 1
-                    ),
+                    ) if len(raw_probs) > 0 else 0.0,
                 ),
             )
+
+            # Optional: richer stats (helps debugging & tuning)
+            raw_seg.stats["pct_above_raw"] = round(float(np.sum(raw_probs > self.raw_threshold)) / len(raw_probs) * 100, 1) if len(raw_probs) > 0 else 0.0
+            raw_seg.stats["pct_above_neg"] = round(float(np.sum(raw_probs > self.neg_threshold)) / len(raw_probs) * 100, 1) if len(raw_probs) > 0 else 0.0
 
             if self._segment_passes_filters(raw_seg):
                 raw_segments.append(raw_seg)
@@ -229,9 +237,26 @@ class SpeechAnalyzer:
 
     def analyze(
         self,
-        audio_path: str | Path
+        audio_path: str | Path,
+        normalize: bool = True,           # ← new optional flag
     ) -> Tuple[List[float], List[float], List[SpeechSegment], List[SpeechSegment], int]:
-        wav = read_audio(str(audio_path), sampling_rate=self.sr).float()
+        wav = read_audio(str(audio_path), sampling_rate=self.sr)
+
+        if normalize:
+            # Apply speech-aware loudness normalization as preprocessing
+            wav = normalize_speech_loudness(
+                wav.numpy(),                    # expects numpy array
+                sample_rate=self.sr,
+                target_lufs=-14.0,              # common podcast/YouTube speech target
+                # You can tune the parameters below if needed:
+                # min_lufs_threshold=-60.0,
+                # max_loudness_threshold=-8.0,
+                # peak_target=0.98,
+                return_dtype=np.float32
+            )
+            wav = torch.from_numpy(wav).float()
+        else:
+            wav = wav.float()
 
         # Threshold-based segments from Silero
         segments = get_speech_timestamps(
@@ -939,6 +964,7 @@ class SpeechAnalyzer:
 
 def main():
     import shutil
+
     from jet.file.utils import save_file
 
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
@@ -1003,8 +1029,8 @@ def main():
         probs,  # Pass full probs for per-segment charts
     )
 
-    from rich.table import Table
     from rich.console import Console
+    from rich.table import Table
     console = Console()
     table = Table(title=f"[bold]VAD Metrics – {args.audio.name}[/bold]")
     table.add_column("Metric")

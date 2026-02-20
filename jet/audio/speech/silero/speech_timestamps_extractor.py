@@ -152,6 +152,7 @@ def extract_speech_timestamps(
     audio: str | Path | np.ndarray | torch.Tensor,
     model=None,
     threshold: float = 0.3,
+    neg_threshold: float | None = None,
     sampling_rate: int = 16000,
     min_speech_duration_ms: int = 250,
     max_speech_duration_s: float = float("inf"),
@@ -193,6 +194,7 @@ def extract_speech_timestamps(
         max_speech_duration_s=max_speech_duration_s,
         min_silence_duration_ms=min_silence_duration_ms,
         speech_pad_ms=speech_pad_ms,
+        neg_threshold=neg_threshold,
         return_seconds=False,
     )
 
