@@ -10,10 +10,11 @@ Features shown:
 """
 
 import json
+import re
 from pathlib import Path
 
 from unstructured.chunking.title import chunk_by_title
-from unstructured.cleaners.core import clean_extra_whitespace, clean_non_ascii_chars
+from unstructured.cleaners.core import clean_non_ascii_chars
 from unstructured.partition.auto import partition
 
 # Comprehensive list based on unstructured docs[](https://docs.unstructured.io/open-source/core-functionality/partitioning)
@@ -67,6 +68,8 @@ def process_document(
     include_metadata: bool = True,
     strategy: str = "auto",  # allow "hi_res", "fast", "ocr_only" for pdf/images
     partition_kwargs: dict | None = None,
+    clean_whitespace: bool = True,  # ← NEW: toggle whitespace cleaning
+    combine_under_chars: int = 100,  # ← NEW: make tunable
 ) -> list[dict]:
     path = Path(filepath)
     if not path.exists() or not path.is_file():
@@ -84,18 +87,31 @@ def process_document(
         **(partition_kwargs or {}),
     )
 
-    # Basic cleaning
-    for el in elements:
-        if hasattr(el, "text") and el.text:
-            el.text = clean_extra_whitespace(el.text)
-            el.text = clean_non_ascii_chars(el.text)
+    # Mild whitespace cleaning: preserve newlines, collapse horizontal whitespace
+    def mild_clean_whitespace(text: str) -> str:
+        if not text:
+            return text
+        # Collapse multiple spaces/tabs → single space
+        text = re.sub(r"[ \t]+", " ", text)
+        # Normalize multiple newlines → double newline (paragraph break)
+        text = re.sub(r"\n\s*\n+", "\n\n", text)
+        # Optional: strip leading/trailing whitespace per line
+        text = "\n".join(line.strip() for line in text.splitlines())
+        return text.strip()
+
+    # Apply cleaning only if requested
+    if clean_whitespace:
+        for el in elements:
+            if hasattr(el, "text") and el.text:
+                el.text = mild_clean_whitespace(el.text)
+                el.text = clean_non_ascii_chars(el.text)
 
     # Semantic chunking
     chunks = chunk_by_title(
         elements,
         max_characters=chunk_size * 4,  # rough tokens → chars
         new_after_n_chars=chunk_size * 4,
-        combine_text_under_n_chars=100,  # lower = more splits on small docs
+        combine_text_under_n_chars=combine_under_chars,
         multipage_sections=True,
     )
 

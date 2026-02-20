@@ -136,6 +136,90 @@ Charlie,35,Tokyo
     return p
 
 
+# --- New fixtures and newline/code block tests for whitespace/newline preservation ---
+
+
+@pytest.fixture
+def sample_code_md_file(tmp_path: Path):
+    """Fixture with multi-line code block to test newline preservation."""
+    content = """# Code Example Document
+
+Here is a SQL snippet:
+
+```sql
+SELECT id, name, value
+FROM items
+WHERE value > 10
+  AND status = 'active'
+ORDER BY id DESC;
+```
+
+And a Python function:
+
+```python
+def greet(name):
+    print(f"Hello, {name}!")
+    return True
+```
+
+Normal paragraph after code.
+"""
+    p = tmp_path / "code_example.md"
+    p.write_text(content, encoding="utf-8")
+    return p
+
+
+def test_default_cleaning_collapses_newlines_in_code(sample_code_md_file):
+    chunks = process_document(sample_code_md_file, chunk_size=800)
+
+    assert len(chunks) >= 1
+    full_text = " ".join(c["text"] for c in chunks)  # ← this flattens for search
+
+    # Use collapsed version for search, since join uses space
+    assert "SELECT id, name, value\nFROM items\nWHERE" in full_text
+    assert 'print(f"Hello, {name}!")' in full_text
+    assert "ORDER BY id DESC;" in full_text
+
+
+def test_disabling_whitespace_cleaning_preserves_newlines(sample_code_md_file):
+    """
+    With clean_whitespace=False, expect original newlines in code blocks.
+    This requires your process_document to support the clean_whitespace param.
+    """
+    chunks = process_document(
+        sample_code_md_file,
+        chunk_size=800,
+        clean_whitespace=False,  # ← key: disable cleaning
+    )
+
+    assert len(chunks) >= 1
+    full_text = "\n".join(c["text"] for c in chunks)  # join with \n for inspection
+
+    # Expect preserved formatting in code sections
+    assert "SELECT id, name, value" in full_text
+    assert "FROM items" in full_text
+    assert "  AND status = 'active'" in full_text  # indentation preserved
+    assert "ORDER BY id DESC;" in full_text
+
+    assert "def greet(name):" in full_text
+    assert '    print(f"Hello, {name}!")' in full_text
+    assert "    return True" in full_text
+
+    # Optional: count approximate newlines (rough heuristic)
+    assert full_text.count("\n") >= 8  # at least several from code blocks
+
+
+def test_list_indentation_preserved_when_cleaning_disabled(sample_md_file):
+    chunks = process_document(sample_md_file, chunk_size=300, clean_whitespace=False)
+
+    full = "\n".join(c["text"] for c in chunks)
+    assert "bullet 1" in full
+    assert "bullet 2" in full
+    # Optional: check for some separation
+    assert "Subsection A" in full
+    assert "bullet 1" in full  # already there
+
+
 def test_supported_extensions_is_reasonable():
     # Basic sanity — should contain core ones
     required = {
