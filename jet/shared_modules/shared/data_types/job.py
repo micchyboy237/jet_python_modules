@@ -1,4 +1,4 @@
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
 class Entity(TypedDict):
@@ -23,6 +23,8 @@ class JobEntities(TypedDict, total=False):
     key_responsibilities: list[str]
     requirements_qualifications: list[str]
     employee_benefits: list[str]
+    technology_stack: NotRequired[list[str]]
+    meta: NotRequired[dict[str, Any]]
 
 
 class JobData(TypedDict):
@@ -39,6 +41,7 @@ class JobData(TypedDict):
     salary: str | None
     job_type: str | None
     hours_per_week: int | None
+    meta: NotRequired[dict[str, Any]]
 
 
 class JobMetadata(TypedDict):
@@ -70,3 +73,48 @@ class JobSearchResult(JobData):
     id: str
     text: str
     metadata: JobSearchResultData
+
+
+# Database row representations for jobs.json
+
+
+class TableJobRow(TypedDict, total=False):
+    id: str
+    level: int
+    doc_id: str
+    header: str
+    content: str
+    end_idx: int
+    metadata: "TableJobMetadata"
+    doc_index: int
+    embedding: list[float] | None
+    parent_id: str
+    start_idx: int
+    text_hash: str
+    created_at: str
+    num_tokens: int
+    updated_at: str
+    chunk_index: int
+    posted_date: str
+    content_hash: str
+    parent_level: int
+    header_doc_id: str
+    parent_header: str
+
+
+class TableJobMetadata(TypedDict, total=False):
+    id: str
+    link: str
+    meta: dict[str, Any]
+    tags: list[str]
+    domain: str
+    salary: str | None
+    company: str
+    entities: JobEntities
+    job_type: str | None
+    keywords: list[str]
+    posted_date: str
+    hours_per_week: int | None
+
+    # These match the nested layout seen in the sample
+    # of jobs.json under the "metadata" field
