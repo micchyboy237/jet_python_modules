@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import io
 import logging
+import os
+from typing import Optional, Tuple
 
 import numpy as np
 import pyloudnorm as pyln
+import soundfile as sf
 import torch
+from jet.audio.audio_types import AudioInput
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +26,32 @@ def _load_silero_vad():
         )
         _SILERO_MODEL = (model, utils)
     return _SILERO_MODEL
+
+
+def _load_audio_input(
+    audio_input: AudioInput,
+) -> Tuple[np.ndarray, Optional[int]]:
+    """
+    Load and normalize any AudioInput to float32 mono [-1,1] numpy array.
+    Returns (audio, sample_rate) — sample_rate is None for pure array inputs.
+    """
+    if isinstance(audio_input, (str, os.PathLike)):
+        data, sr = sf.read(str(audio_input), always_2d=True, dtype="float32")
+        return data, int(sr)
+
+    elif isinstance(audio_input, bytes):
+        with io.BytesIO(audio_input) as buf:
+            data, sr = sf.read(buf, always_2d=True, dtype="float32")
+        return data, int(sr)
+
+    elif isinstance(audio_input, torch.Tensor):
+        return audio_input.numpy(), None
+
+    elif isinstance(audio_input, np.ndarray):
+        return audio_input, None
+
+    else:
+        raise TypeError(f"Unsupported AudioInput type: {type(audio_input).__name__}")
 
 
 def _speech_probability(
@@ -73,8 +104,8 @@ def _speech_probability(
 
 
 def normalize_speech_loudness(
-    audio: np.ndarray,
-    sample_rate: int,
+    audio: AudioInput,
+    sample_rate: Optional[int] = None,
     target_lufs: float = -13.0,
     min_lufs_threshold: float = -70.0,
     max_loudness_threshold: float | None = -10.0,
@@ -83,70 +114,86 @@ def normalize_speech_loudness(
 ) -> np.ndarray:
     """
     Normalize speech audio using speech-probability-weighted LUFS.
+    Now accepts broader AudioInput types (files, bytes, torch, arrays).
+
+    Returns
+    -------
+    np.ndarray
+        Normalized audio in [-1, 1] range.
+        dtype is np.float32 by default, or the requested return_dtype if provided.
     """
 
-    # Accept and repair common multichannel input
-    if audio.ndim == 2:
-        if audio.shape[1] == 1:
-            audio = audio[:, 0]  # squeeze trivial stereo
-        else:
-            # Average channels → simple downmix
-            audio = np.mean(audio.astype(np.float64), axis=1).astype(audio.dtype)
-    elif audio.ndim > 2:
-        raise ValueError(
-            f"Unsupported audio shape {audio.shape} — "
-            "expected 1D (mono) or 2D (frames, channels)"
-        )
+    # ── Load / convert input ───────────────────────────────────────
+    audio_np, loaded_sr = _load_audio_input(audio)
 
-    orig_dtype = audio.dtype
+    # Determine final sample rate
+    if loaded_sr is not None:
+        if sample_rate is not None and sample_rate != loaded_sr:
+            raise ValueError(
+                f"Provided sample_rate={sample_rate} does not match loaded rate {loaded_sr} "
+                f"from {type(audio).__name__} input"
+            )
+        final_sr = loaded_sr
+    else:
+        # Array-like input (np.ndarray or torch.Tensor)
+        if sample_rate is None:
+            if isinstance(audio, torch.Tensor):
+                raise NotImplementedError(
+                    "torch.Tensor input requires explicit sample_rate argument. "
+                    "Example: normalize_speech_loudness(audio_tensor, sample_rate=16000, ...)"
+                )
+            else:
+                raise ValueError(
+                    "When passing numpy array directly, sample_rate must be provided"
+                )
+        final_sr = sample_rate
 
-    meter = pyln.Meter(sample_rate)
+    orig_dtype = audio_np.dtype
+    meter = pyln.Meter(final_sr)
 
-    # 1. Speech probabilities
-    probs = _speech_probability(audio, sample_rate)
+    probs = _speech_probability(audio_np, final_sr)
 
     if np.max(probs) < 0.1:
-        return audio.astype(return_dtype or orig_dtype, copy=True)
+        result = audio_np.copy()
+    else:
+        weighted_audio = audio_np * probs
 
-    # 2. Weighted audio for LUFS measurement
-    weighted_audio = audio * probs
-
-    try:
-        speech_lufs = meter.integrated_loudness(weighted_audio)
-    except Exception:
-        peak = np.max(np.abs(audio))
-        if peak == 0:
-            result = audio.copy()
+        try:
+            speech_lufs = meter.integrated_loudness(weighted_audio)
+        except Exception:
+            peak = np.max(np.abs(audio_np))
+            if peak == 0:
+                result = audio_np.copy()
+            else:
+                result = audio_np / peak * peak_target
         else:
-            result = audio / peak * peak_target
+            if speech_lufs <= min_lufs_threshold:
+                result = audio_np.copy()
+            else:
+                target = target_lufs
 
-        target_dtype = return_dtype or orig_dtype
-        return _cast_audio_dtype(result, target_dtype)
+                if max_loudness_threshold is not None:
+                    target = min(target, speech_lufs, max_loudness_threshold)
 
-    if speech_lufs <= min_lufs_threshold:
-        return audio.astype(return_dtype or orig_dtype, copy=True)
+                normalized = pyln.normalize.loudness(
+                    audio_np,
+                    speech_lufs,
+                    target,
+                )
 
-    if max_loudness_threshold is not None:
-        target_lufs = min(target_lufs, speech_lufs, max_loudness_threshold)
+                peak = np.max(np.abs(normalized))
+                if peak > 0:
+                    normalized *= peak_target / peak
 
-    # 3. Normalize ORIGINAL audio using speech LUFS
-    normalized = pyln.normalize.loudness(
-        audio,
-        speech_lufs,
-        target_lufs,
-    )
+                result = np.clip(normalized, -1.0, 1.0)
 
-    # 4. Speech peak normalization (AMPLIFICATION ALLOWED)
-    peak = np.max(np.abs(normalized))
-    if peak > 0:
-        gain = peak_target / peak
-        normalized *= gain
+    # ── Final dtype handling ───────────────────────────────────────
+    if return_dtype is None:
+        # Most common / expected case: return float32 [-1,1]
+        return result.astype(np.float32, copy=False)
 
-    normalized = np.clip(normalized, -1.0, 1.0)
-
-    # 5. Respect return dtype
-    target_dtype = return_dtype or orig_dtype
-    return _cast_audio_dtype(normalized, target_dtype)
+    # User explicitly requested a dtype → respect it
+    return _cast_audio_dtype(result, return_dtype)
 
 
 def _cast_audio_dtype(audio: np.ndarray, dtype: np.dtype) -> np.ndarray:

@@ -1,34 +1,23 @@
 # audio_levels.py
 
 from pathlib import Path
-from typing import Union, Tuple
+from typing import Tuple
 
-import os
 import numpy as np
-import numpy.typing as npt
+from jet.audio.audio_types import AudioInput
 from scipy.io import wavfile
 
 try:
     import torch
+
     HAS_TORCH = True
 except ImportError:
     HAS_TORCH = False
     torch = None
 
-AudioInput = Union[
-    str,
-    bytes,
-    os.PathLike,
-    npt.NDArray,
-    "torch.Tensor",
-]
-
 
 def load_audio_mono_float32(
-    source: AudioInput,
-    *,
-    target_sr: int | None = None,
-    normalize: bool = False
+    source: AudioInput, *, target_sr: int | None = None, normalize: bool = False
 ) -> Tuple[np.ndarray, int]:
     """
     Unified audio loader supporting many input types.
@@ -45,6 +34,7 @@ def load_audio_mono_float32(
         sample_rate = 44100
     elif isinstance(source, bytes):
         from io import BytesIO
+
         sample_rate, data = wavfile.read(BytesIO(source))
     else:
         raise TypeError(f"Unsupported audio input type: {type(source)}")
@@ -98,12 +88,14 @@ def rms_to_dbfs(rms: float) -> float:
     if rms < 0:
         raise ValueError("RMS value cannot be negative")
     if rms == 0:
-        return float('-inf')
+        return float("-inf")
     # dBFS relative to full-scale sine (RMS=1/sqrt(2) -> 0 dBFS)
     return 20.0 * np.log10(rms * np.sqrt(2))
 
 
-def get_audio_levels(audio: AudioInput, *, normalize: bool = False, **load_kwargs) -> dict:
+def get_audio_levels(
+    audio: AudioInput, *, normalize: bool = False, **load_kwargs
+) -> dict:
     """
     Most commonly used convenience function
 
@@ -132,28 +124,26 @@ def has_sound(
     threshold_db: float = -60.0,
     min_duration_sec: float = 0.02,
     normalize: bool = False,
-    **load_options
+    **load_options,
 ) -> bool:
     """
     Check if audio contains meaningful sound.
-    
+
     This is a high-level convenience function that accepts the same flexible
     AudioInput types as load_audio_mono_float32 and get_audio_levels.
-    
+
     Args:
         source: AudioInput - path, bytes, numpy array, torch tensor, etc.
         threshold_db: RMS must be louder than this value to be considered sound
         min_duration_sec: Minimum length for signal to be considered meaningful
         normalize: If True, normalization to 1.0 peak is applied for detection
         **load_options: Passed directly to load_audio_mono_float32 (target_sr, ...)
-    
+
     Returns:
         bool: True if the audio contains sound above threshold for sufficient duration
     """
     samples, sample_rate = load_audio_mono_float32(
-        source,
-        normalize=normalize,
-        **load_options
+        source, normalize=normalize, **load_options
     )
 
     if len(samples) == 0:

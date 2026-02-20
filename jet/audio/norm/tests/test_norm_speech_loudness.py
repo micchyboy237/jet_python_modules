@@ -1,5 +1,11 @@
+import io
+import os
+import tempfile
+
 import numpy as np
 import pytest
+import soundfile as sf
+import torch
 from jet.audio.norm import normalize_speech_loudness
 
 
@@ -84,6 +90,30 @@ def mock_silero_partial_speech(monkeypatch):
         "jet.audio.norm.norm_speech_loudness._speech_probability",
         fake_probs,
     )
+
+
+@pytest.fixture
+def temp_wav_file(sample_rate):
+    """Create real small WAV file on disk"""
+    data = (
+        0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, 0.5, sample_rate // 2))
+    ).astype(np.float32)
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        sf.write(tmp.name, data, sample_rate)
+        yield tmp.name
+    os.unlink(tmp.name)
+
+
+@pytest.fixture
+def wav_bytes(sample_rate):
+    """Simulated WAV bytes in memory"""
+    data = (
+        0.25 * np.sin(2 * np.pi * 300 * np.linspace(0, 0.3, sample_rate // 3))
+    ).astype(np.float32)
+    buf = io.BytesIO()
+    sf.write(buf, data, sample_rate, format="WAV")
+    buf.seek(0)
+    return buf.read()
 
 
 class TestNormalizeSpeechLoudness:
@@ -198,3 +228,73 @@ class TestNormalizeSpeechLoudness:
         )
 
         assert result.dtype == np.float64
+
+
+class TestNormalizeSpeechLoudnessExtended:
+    def test_accepts_file_path(
+        self, temp_wav_file, sample_rate, mock_silero_all_speech
+    ):
+        """
+        Given a path to a valid WAV file
+        When normalize_speech_loudness is called with path
+        Then processes audio correctly without error
+        """
+        result = normalize_speech_loudness(
+            audio=temp_wav_file,
+            sample_rate=sample_rate,
+            peak_target=0.95,
+        )
+        assert isinstance(result, np.ndarray)
+        assert np.max(np.abs(result)) <= 0.95 + 0.01
+        assert result.dtype == np.float32  # default
+
+    def test_accepts_wav_bytes(self, wav_bytes, sample_rate, mock_silero_all_speech):
+        """
+        Given audio as bytes (in-memory WAV)
+        When passed to normalize_speech_loudness
+        Then normalizes correctly
+        """
+        result = normalize_speech_loudness(
+            audio=wav_bytes,
+            sample_rate=sample_rate,
+        )
+        assert result.shape[0] > 0
+        assert np.max(np.abs(result)) <= 1.0
+
+    def test_accepts_torch_tensor(
+        self, simple_speech_like_signal, sample_rate, mock_silero_all_speech
+    ):
+        """
+        Given torch.Tensor audio
+        When normalize_speech_loudness called with sample_rate
+        Then processes correctly
+        """
+        audio_t = torch.from_numpy(simple_speech_like_signal)
+        result = normalize_speech_loudness(
+            audio=audio_t,
+            sample_rate=sample_rate,
+            return_dtype=np.float64,
+        )
+        assert result.dtype == np.float64
+        assert len(result) == len(simple_speech_like_signal)
+
+    def test_accepts_int16_array(
+        self, simple_speech_like_signal, sample_rate, mock_silero_all_speech
+    ):
+        """
+        Given int16 audio array (common microphone/WAV format)
+        When normalized
+        Then output is correctly scaled and normalized
+        """
+        int16_audio = (simple_speech_like_signal * 32767).astype(np.int16)
+        result = normalize_speech_loudness(
+            audio=int16_audio,
+            sample_rate=sample_rate,
+        )
+        assert result.dtype == np.float32
+        assert np.max(np.abs(result)) <= 1.0
+
+    def test_raises_on_tensor_without_sample_rate(self, simple_speech_like_signal):
+        audio_t = torch.from_numpy(simple_speech_like_signal)
+        with pytest.raises(NotImplementedError):
+            normalize_speech_loudness(audio=audio_t)  # no sample_rate

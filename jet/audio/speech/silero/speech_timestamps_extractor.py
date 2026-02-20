@@ -63,6 +63,7 @@ def _preprocess_for_vad(
     sampling_rate: int,
     target_lufs: float = -14.0,
     peak_target: float = 0.98,
+    normalize_loudness: bool = True,
 ) -> torch.Tensor:
     """
     Preprocess audio specifically for better VAD performance:
@@ -88,19 +89,20 @@ def _preprocess_for_vad(
     if audio.ndim != 1:
         raise ValueError(f"Audio must be 1D after downmix, got {audio.shape}")
 
-    # Loudness normalization (speech-prob weighted)
-    try:
-        audio = normalize_speech_loudness(
-            audio=audio,
-            sample_rate=sampling_rate,
-            target_lufs=target_lufs,
-            peak_target=peak_target,
-        )
-    except Exception as e:
-        console.print(
-            f"[yellow]Pre-VAD loudness normalization failed: {e} → falling back to original[/yellow]"
-        )
-        # Keep original (already float32 from earlier steps)
+    # Loudness normalization (speech-prob weighted, optional)
+    if normalize_loudness:
+        try:
+            audio = normalize_speech_loudness(
+                audio=audio,
+                sample_rate=sampling_rate,
+                target_lufs=target_lufs,
+                peak_target=peak_target,
+            )
+        except Exception as e:
+            console.print(
+                f"[yellow]Pre-VAD loudness normalization failed: {e} → falling back to original[/yellow]"
+            )
+            # Keep original (already float32 from earlier steps)
 
     # Final safety: clip to reasonable range
     max_abs = np.max(np.abs(audio))
@@ -161,6 +163,7 @@ def extract_speech_timestamps(
     return_seconds: bool = False,
     time_resolution: int = 1,
     with_scores: bool = False,
+    normalize_loudness: bool = True,
 ) -> list[SpeechSegment] | tuple[list[SpeechSegment], list[float]]:
     """
     Extract speech timestamps using Silero VAD with enhanced preprocessing.
@@ -177,6 +180,7 @@ def extract_speech_timestamps(
         sampling_rate=sampling_rate,
         target_lufs=-14.0,
         peak_target=0.98,
+        normalize_loudness=normalize_loudness,
     )
 
     # 3. Run inference on the preprocessed audio

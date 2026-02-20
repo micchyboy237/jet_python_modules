@@ -14,22 +14,13 @@ from __future__ import annotations
 import logging
 import os
 from io import BytesIO
-from typing import Literal, Union
+from typing import Literal
 
 import numpy as np
-import numpy.typing as npt
 import pyloudnorm as pyln
 import soundfile as sf
 import torch
-
-# Allow flexible input types
-AudioInput = Union[
-    str,
-    bytes,
-    os.PathLike,
-    npt.NDArray[np.floating | np.integer],
-    "torch.Tensor",
-]
+from jet.audio.audio_types import AudioInput
 
 logger = logging.getLogger(__name__)
 

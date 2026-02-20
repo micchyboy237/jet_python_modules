@@ -1,30 +1,34 @@
 from __future__ import annotations
-import io
-from pathlib import Path
-import sys
-import subprocess
-import os
+
 import glob
+import io
+import os
 import re
-from typing import Iterator, List, Sequence, Tuple, TypedDict, Union
-import librosa
-import sounddevice as sd
-import numpy as np
-from tqdm import tqdm
-from jet.logger import logger
-import soundfile as sf  # <-- fast, supports many formats, free & popular
-from numpy.typing import NDArray
-from typing import Literal, Optional
+import subprocess
+import sys
 from collections import defaultdict
+from pathlib import Path
+from typing import Iterator, List, Literal, Optional, Sequence, Tuple, TypedDict, Union
+
+import librosa
+import numpy as np
+import sounddevice as sd
+import soundfile as sf  # <-- fast, supports many formats, free & popular
+from jet.audio.audio_duration import get_audio_duration
+from jet.logger import logger
+from numpy.typing import NDArray
+from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
-from rich.console import Console
+from tqdm import tqdm
+
 
 # === Strongly typed structure ===
 class SegmentGroup(TypedDict):
-    root: Optional[str]                  # absolute path string or None
-    strong_chunks: list[str]             # list of absolute path strings
-    weak_chunks: list[str]               # list of absolute path strings
+    root: Optional[str]  # absolute path string or None
+    strong_chunks: list[str]  # list of absolute path strings
+    weak_chunks: list[str]  # list of absolute path strings
+
 
 CategoryKey = Literal["root", "strong_chunks", "weak_chunks"]
 
@@ -35,10 +39,12 @@ def group_audio_by_segment(paths: list[str]) -> dict[str, SegmentGroup]:
     Returns SegmentGroup with absolute path strings only.
     """
     console = Console()
-    grouped: defaultdict[str, dict[CategoryKey, list[Path] | Path | None]] = defaultdict(dict)
+    grouped: defaultdict[str, dict[CategoryKey, list[Path] | Path | None]] = (
+        defaultdict(dict)
+    )
 
     for path_str in paths:
-        p = Path(path_str).resolve()        # resolve once, work with real path
+        p = Path(path_str).resolve()  # resolve once, work with real path
         parts = p.parts
 
         if "strong_chunks" in parts:
@@ -57,7 +63,9 @@ def group_audio_by_segment(paths: list[str]) -> dict[str, SegmentGroup]:
             # File directly inside segment folder → root
             segment_name = p.parent.name
             if segment_name in grouped and grouped[segment_name].get("root"):
-                console.log(f"[yellow]Warning: Multiple root files in {segment_name}, keeping first[/]")
+                console.log(
+                    f"[yellow]Warning: Multiple root files in {segment_name}, keeping first[/]"
+                )
             else:
                 grouped[segment_name]["root"] = p
 
@@ -78,14 +86,25 @@ def group_audio_by_segment(paths: list[str]) -> dict[str, SegmentGroup]:
 
 # Supported audio extensions
 AUDIO_EXTENSIONS = {
-    ".wav", ".mp3", ".m4a", ".flac", ".ogg", ".aac", ".wma",
-    ".webm", ".mp4", ".mkv", ".avi"
+    ".wav",
+    ".mp3",
+    ".m4a",
+    ".flac",
+    ".ogg",
+    ".aac",
+    ".wma",
+    ".webm",
+    ".mp4",
+    ".mkv",
+    ".avi",
 }
 
 ResolveAudioInput = Union[str, Path, Sequence[Union[str, Path]]]
 
 
-def resolve_audio_paths(audio_inputs: ResolveAudioInput, recursive: bool = False) -> list[str]:
+def resolve_audio_paths(
+    audio_inputs: ResolveAudioInput, recursive: bool = False
+) -> list[str]:
     """
     Resolve single file, list, or directory into a sorted list of absolute audio file paths as strings.
     """
@@ -114,7 +133,9 @@ def resolve_audio_paths(audio_inputs: ResolveAudioInput, recursive: bool = False
     return sorted(str(p) for p in resolved_paths)
 
 
-def resolve_audio_paths_by_groups(audio_dir: Union[str, Path]) -> dict[str, SegmentGroup]:
+def resolve_audio_paths_by_groups(
+    audio_dir: Union[str, Path],
+) -> dict[str, SegmentGroup]:
     console = Console()
     audio_dir_path = Path(audio_dir).resolve()
 
@@ -127,8 +148,14 @@ def resolve_audio_paths_by_groups(audio_dir: Union[str, Path]) -> dict[str, Segm
     tree = Tree(f"[bold green]Base directory:[/] {audio_dir}")
 
     for segment_name, group in grouped_paths.items():
-        total = (1 if group["root"] else 0) + len(group["strong_chunks"]) + len(group["weak_chunks"])
-        seg_branch = tree.add(f"[bold magenta]Segment: {segment_name}[/] – {total} file(s)")
+        total = (
+            (1 if group["root"] else 0)
+            + len(group["strong_chunks"])
+            + len(group["weak_chunks"])
+        )
+        seg_branch = tree.add(
+            f"[bold magenta]Segment: {segment_name}[/] – {total} file(s)"
+        )
 
         if group["root"]:
             rel = Path(group["root"]).relative_to(audio_dir_path)
@@ -137,7 +164,9 @@ def resolve_audio_paths_by_groups(audio_dir: Union[str, Path]) -> dict[str, Segm
         for category in ("strong_chunks", "weak_chunks"):
             files = group[category]
             if files:
-                cat_branch = seg_branch.add(f"[bold yellow]{category}[/] – {len(files)} file(s)")
+                cat_branch = seg_branch.add(
+                    f"[bold yellow]{category}[/] – {len(files)} file(s)"
+                )
                 for f in files:
                     rel = Path(f).relative_to(audio_dir_path)
                     cat_branch.add(f"[dim]{rel}[/]")
@@ -145,7 +174,9 @@ def resolve_audio_paths_by_groups(audio_dir: Union[str, Path]) -> dict[str, Segm
     console.print(tree)
 
     # === Summary Table ===
-    table = Table(title="Summary by Segment", show_header=True, header_style="bold cyan")
+    table = Table(
+        title="Summary by Segment", show_header=True, header_style="bold cyan"
+    )
     table.add_column("Segment", style="magenta")
     table.add_column("Root", justify="center")
     table.add_column("Strong", justify="right")
@@ -159,7 +190,11 @@ def resolve_audio_paths_by_groups(audio_dir: Union[str, Path]) -> dict[str, Segm
             root_status,
             str(len(g["strong_chunks"])),
             str(len(g["weak_chunks"])),
-            str((1 if g["root"] else 0) + len(g["strong_chunks"]) + len(g["weak_chunks"])),
+            str(
+                (1 if g["root"] else 0)
+                + len(g["strong_chunks"])
+                + len(g["weak_chunks"])
+            ),
         )
 
     console.print(table)
@@ -167,8 +202,8 @@ def resolve_audio_paths_by_groups(audio_dir: Union[str, Path]) -> dict[str, Segm
 
 
 def get_input_channels() -> int:
-    device_info = sd.query_devices(sd.default.device[0], 'input')
-    channels = device_info['max_input_channels']
+    device_info = sd.query_devices(sd.default.device[0], "input")
+    channels = device_info["max_input_channels"]
     logger.debug(f"Detected {channels} input channels")
     return channels
 
@@ -177,20 +212,33 @@ def list_avfoundation_devices() -> str:
     """List available avfoundation devices and return the output."""
     try:
         result = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-f", "avfoundation",
-                "-list_devices", "true", "-i", ""],
-            capture_output=True, text=True, check=True, timeout=10
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-f",
+                "avfoundation",
+                "-list_devices",
+                "true",
+                "-i",
+                "",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
         )
         output = result.stderr
         if not output or "AVFoundation" not in output:
             logger.error(
-                "Unexpected FFmpeg output format: No AVFoundation devices found.")
+                "Unexpected FFmpeg output format: No AVFoundation devices found."
+            )
             sys.exit(1)
         return output
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to list avfoundation devices: {e.stderr}")
         logger.info(
-            "Ensure FFmpeg is installed and has microphone access in System Settings > Privacy & Security > Microphone.")
+            "Ensure FFmpeg is installed and has microphone access in System Settings > Privacy & Security > Microphone."
+        )
         sys.exit(1)
 
 
@@ -206,10 +254,11 @@ def get_next_file_suffix(file_prefix: str) -> int:
         match = re.match(rf"{file_prefix}_(\d+)\.wav$", base)
         if not match:
             logger.warning(
-                f"Skipping file {base}: does not match expected pattern {file_prefix}_[number].wav")
+                f"Skipping file {base}: does not match expected pattern {file_prefix}_[number].wav"
+            )
             continue
         number_part = match.group(1)
-        suffix = int(number_part.lstrip('0') or '0')
+        suffix = int(number_part.lstrip("0") or "0")
         logger.debug(f"Valid suffix found: {suffix}")
         suffixes.append(suffix)
     next_suffix = max(suffixes) + 1 if suffixes else 0
@@ -225,36 +274,63 @@ def capture_and_save_audio(
     output_file = f"{file_prefix}_{start_suffix:05d}.wav"
     if os.path.exists(output_file):
         logger.error(
-            f"Output file {output_file} already exists. Please use a different file prefix or remove existing files.")
+            f"Output file {output_file} already exists. Please use a different file prefix or remove existing files."
+        )
         sys.exit(1)
     cmd = [
-        "ffmpeg", "-loglevel", "debug", "-re", "-fflags", "+flush_packets", "-flush_packets", "1",
+        "ffmpeg",
+        "-loglevel",
+        "debug",
+        "-re",
+        "-fflags",
+        "+flush_packets",
+        "-flush_packets",
+        "1",
         "-report",
-        "-f", "avfoundation", "-i", f"none:{device_index}",
-        "-ar", str(sample_rate), "-ac", str(channels),
-        "-c:a", "pcm_s16le",
-        "-map", "0:a",
-        "-f", "wav",
-        output_file
+        "-f",
+        "avfoundation",
+        "-i",
+        f"none:{device_index}",
+        "-ar",
+        str(sample_rate),
+        "-ac",
+        str(channels),
+        "-c:a",
+        "pcm_s16le",
+        "-map",
+        "0:a",
+        "-f",
+        "wav",
+        output_file,
     ]
     try:
         process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
         )
         logger.info(
-            f"Started FFmpeg process {process.pid} for audio capture to {output_file}")
+            f"Started FFmpeg process {process.pid} for audio capture to {output_file}"
+        )
         return process
     except FileNotFoundError:
         logger.error(
-            "FFmpeg not found. Please ensure it is installed and in your PATH.")
+            "FFmpeg not found. Please ensure it is installed and in your PATH."
+        )
         sys.exit(1)
 
-def load_audio(audio_path, sample_rate: int = 16000, **kwargs) -> Tuple[np.ndarray, Union[int, float]]:
+
+def load_audio(
+    audio_path, sample_rate: int = 16000, **kwargs
+) -> Tuple[np.ndarray, Union[int, float]]:
     settings = {
         "path": audio_path,
         "sr": sample_rate,
-        "mono": False, # Keep stereo if present
-        **kwargs
+        "mono": False,  # Keep stereo if present
+        **kwargs,
     }
     audio, sr = librosa.load(**settings)
     if audio.ndim == 1:
@@ -264,14 +340,14 @@ def load_audio(audio_path, sample_rate: int = 16000, **kwargs) -> Tuple[np.ndarr
 
 class AudioSegment(TypedDict):
     segment: np.ndarray
-    start_time: float       # absolute start time in the original audio (seconds)
-    end_time: float         # absolute end time in the original audio (seconds)
-    segment_index: int      # 0-based index of this chunk
-    is_first: bool          # True only for the very first segment
-    is_last: bool           # True only for the final segment (may be shorter)
-    overlaps_previous: bool # True if this segment overlaps with the previous chunk
-    overlaps_next: bool     # True if this segment will overlap with the next chunk
-                            # (always True except possibly the last one when overlap > 0)
+    start_time: float  # absolute start time in the original audio (seconds)
+    end_time: float  # absolute end time in the original audio (seconds)
+    segment_index: int  # 0-based index of this chunk
+    is_first: bool  # True only for the very first segment
+    is_last: bool  # True only for the final segment (may be shorter)
+    overlaps_previous: bool  # True if this segment overlaps with the previous chunk
+    overlaps_next: bool  # True if this segment will overlap with the next chunk
+    # (always True except possibly the last one when overlap > 0)
 
 
 def split_audio(
@@ -309,8 +385,8 @@ def split_audio(
         end_sec = end / sr
 
         # Determine overlap flags
-        is_first = (segment_index == 0)
-        is_last = (end == total_samples)
+        is_first = segment_index == 0
+        is_last = end == total_samples
         overlaps_previous = (not is_first) and (ovl_samples > 0)
         overlaps_next = (not is_last) and (ovl_samples > 0)
 
@@ -337,38 +413,46 @@ def save_audio_chunks(
     chunks: Iterator[Tuple[np.ndarray, float, float]],
     output_dir: Union[str, Path],
     prefix: str = "chunk",
-    format: str = "wav",          # or "flac", "ogg", etc.
-    subtype: str = "PCM_16",      # good quality/default for wav
-    sample_rate: int = 16000
+    format: str = "wav",  # or "flac", "ogg", etc.
+    subtype: str = "PCM_16",  # good quality/default for wav
+    sample_rate: int = 16000,
 ) -> list[Path]:
     """
     Save all chunks yielded by split_audio() to individual files.
-    
+
     Returns list of created file paths (useful for downstream processing or testing).
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     saved_paths = []
-    
+
     for i, (segment, start_sec, end_sec) in enumerate(chunks):
         # Human-readable filename with zero-padded index and time range
         filename = f"{prefix}_{i:04d}_{start_sec:.2f}-{end_sec:.2f}s.{format}"
         filepath = output_dir / filename
-        
+
         sf.write(filepath, segment, samplerate=sample_rate, subtype=subtype)
         saved_paths.append(filepath)
 
-        logger.log("\nSaved audio chunk to: ", str(filepath), colors=["SUCCESS", "BRIGHT_SUCCESS"])
-    
+        logger.log(
+            "\nSaved audio chunk to: ",
+            str(filepath),
+            colors=["SUCCESS", "BRIGHT_SUCCESS"],
+        )
+
     return saved_paths
 
 
 AudioChunk = NDArray[np.floating]  # covers float32/float64 from librosa/sf
 
+
 def _natural_sort_key(path: Path) -> list:
     """Natural sort: chunk_9.wav before chunk_10.wav"""
-    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', path.name)]
+    return [
+        int(text) if text.isdigit() else text.lower()
+        for text in re.split(r"(\d+)", path.name)
+    ]
 
 
 def _load_audio(path: Path, target_sr: int) -> np.ndarray:
@@ -381,11 +465,12 @@ def _load_audio(path: Path, target_sr: int) -> np.ndarray:
 
 def merge_audio_chunks(
     chunks: Union[
-        str, Path,                              # single file or directory
-        AudioChunk,                             # single in-memory array
-        Sequence[Union[str, Path]],             # list of files
-        Iterator[Union[str, Path]],             # iterator of files
-        Sequence[AudioChunk],                   # list of in-memory arrays
+        str,
+        Path,  # single file or directory
+        AudioChunk,  # single in-memory array
+        Sequence[Union[str, Path]],  # list of files
+        Iterator[Union[str, Path]],  # iterator of files
+        Sequence[AudioChunk],  # list of in-memory arrays
     ],
     output_path: Union[str, Path] = "merged_output.wav",
     *,
@@ -394,7 +479,14 @@ def merge_audio_chunks(
     expected_channels: int = 2,
     subtype: str = "PCM_16",
     recursive: bool = True,
-    audio_extensions: Tuple[str, ...] = (".wav", ".flac", ".ogg", ".mp3", ".m4a", ".aac"),
+    audio_extensions: Tuple[str, ...] = (
+        ".wav",
+        ".flac",
+        ".ogg",
+        ".mp3",
+        ".m4a",
+        ".aac",
+    ),
 ) -> Path:
     """
     Universal audio chunk merger.
@@ -421,7 +513,8 @@ def merge_audio_chunks(
             # Directory mode
             pattern = "**/*.*" if recursive else "*.*"
             files = [
-                f for ext in audio_extensions
+                f
+                for ext in audio_extensions
                 for f in path.glob(pattern)
                 if f.suffix.lower() in ext
             ]
@@ -445,7 +538,9 @@ def merge_audio_chunks(
         paths = [Path(p).resolve() for p in chunks]
         if not all(p.exists() for p in paths):
             missing = [p for p in paths if not p.exists()]
-            raise FileNotFoundError(f"Missing files: {missing[:5]}{'...' if len(missing)>5 else ''}")
+            raise FileNotFoundError(
+                f"Missing files: {missing[:5]}{'...' if len(missing) > 5 else ''}"
+            )
         arrays = [_load_audio(p, sample_rate) for p in paths]
         source = f"{len(paths)} explicit file(s)"
 
@@ -470,7 +565,9 @@ def merge_audio_chunks(
             if keep > 0:
                 processed.append(audio[:keep])
             else:
-                logger.warning(f"Chunk {i} too short for overlap ({len(audio)} < {overlap_samples} samples), keeping full")
+                logger.warning(
+                    f"Chunk {i} too short for overlap ({len(audio)} < {overlap_samples} samples), keeping full"
+                )
                 processed.append(audio)
 
     merged = np.concatenate(processed, axis=0)
@@ -478,7 +575,11 @@ def merge_audio_chunks(
     # ------------------- Write -------------------
     sf.write(str(output_path), merged, samplerate=sample_rate, subtype=subtype)
     duration = len(merged) / sample_rate
-    logger.log(f"Merged ({duration:.2f}s, {merged.shape}): ", str(output_path), colors=["SUCCESS", "BRIGHT_SUCCESS"])
+    logger.log(
+        f"Merged ({duration:.2f}s, {merged.shape}): ",
+        str(output_path),
+        colors=["SUCCESS", "BRIGHT_SUCCESS"],
+    )
 
     return output_path
 
@@ -526,7 +627,9 @@ def extract_audio_segment(
 
     elif isinstance(audio_path, np.ndarray):
         if sample_rate is None:
-            raise ValueError("sample_rate must be provided when audio_path is np.ndarray")
+            raise ValueError(
+                "sample_rate must be provided when audio_path is np.ndarray"
+            )
         data = audio_path.astype(np.float32, copy=False)
         sr = sample_rate
 
@@ -540,17 +643,17 @@ def extract_audio_segment(
         raise ValueError("start is beyond audio duration")
 
     if end is None:
-        end_frame = total_frames
-    else:
-        if end <= start:
-            raise ValueError("end must be greater than start")
-        end_frame = min(int(end * sr), total_frames)
+        end = get_audio_duration(audio_path)
+
+    if end <= start:
+        raise ValueError("end must be greater than start")
+    end_frame = min(int(end * sr), total_frames)
 
     return data[start_frame:end_frame], sr
 
 
 def load_audio_files_to_bytes(
-    audio_files: Union[str, Path, List[Union[str, Path]]]
+    audio_files: Union[str, Path, List[Union[str, Path]]],
 ) -> List[bytes]:
     """
     Load one or more audio file paths (as str or Path, or list of such)
