@@ -70,6 +70,7 @@
   "window.newWindowProfile": "Jet Profile",
   "window.zoomLevel": -1,
   // Workbench
+  "workbench.externalBrowser": "chrome", // comment to use system default
   "workbench.activityBar.location": "top",
   "workbench.activityBar.orientation": "vertical",
   "workbench.colorTheme": "Default Dark Modern",
@@ -114,102 +115,188 @@
   "search.quickOpen.history.filterSortOrder": "recency",
   "search.useIgnoreFiles": true,
   // Python interpreter
-  "python.defaultInterpreterPath": "/Users/jethroestrada/.pyenv/shims/python",
-  "python.pythonPath": "/Users/jethroestrada/.pyenv/shims/python",
-  // Optimize Pylance for autocomplete and performance
-  "python.languageServer": "Pylance",
-  "python.analysis.indexing": false,
-  "python.analysis.persistAllIndices": false,
-  "python.analysis.typeCheckingMode": "basic",
-  "python.analysis.diagnosticMode": "openFilesOnly",
-  "python.analysis.completeFunctionParens": false,
-  "python.analysis.logLevel": "Warning",
-  "python.analysis.autoFormatStrings": false,
-  "python.analysis.autoIndent": false,
-  "python.analysis.enablePytestSupport": false,
-  "python.analysis.diagnosticSeverityOverrides": {
-    "reportMissingImports": "warning",
-    "reportUndefinedVariable": "error",
-    "reportGeneralTypeIssues": "warning",
-    "reportOptionalMemberAccess": "warning"
-  },
-  "python.analysis.packageIndexDepths": [
-    { "name": "transformers", "depth": 1 },
-    { "name": "django", "depth": 2 },
-    { "name": "fastapi", "depth": 2 },
-    { "name": "flask", "depth": 2 },
-    { "name": "matplotlib", "depth": 2 },
-    { "name": "pathlib", "depth": 1 },
-    { "name": "pydantic", "depth": 2 },
-    { "name": "scipy", "depth": 2 },
-    { "name": "sklearn", "depth": 2 }
-  ],
-  "python.analysis.showOnlyDirectDependenciesInAutoImport": false,
-  "python.analysis.ignore": [
-    "**/.git",
-    "**/__pycache__",
-    "**/.?cache*",
-    "**/.?venv*",
-    "**/build",
-    "**/dist",
-    "**/node_modules",
-    "**/public",
-    "**/site-packages",
-    "**/venv",
-    "**/vector_db",
-    "**/generated"
-  ],
-  "python.analysis.exclude": [
-    "**/.git",
-    "**/__pycache__",
-    "**/.?cache*",
-    "**/.?venv*",
-    "**/build",
-    "**/dist",
-    "**/public",
-    "**/vector_db",
-    "**/generated",
-    "**/node_modules",
-    "**/site-packages",
-    "**/venv"
-  ],
-  "python.analysis.include": [
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules"
-  ],
-  "python.analysis.extraPaths": [
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules"
-  ],
+  "python.venvPath": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv",
+  "python.defaultInterpreterPath": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv/bin/python",
+  "python.languageServer": "Pylance", // Enables semantic tokens → proper Python color theme in Default Dark Modern
+  // // Optimize Pylance for autocomplete and performance
+  // "python.analysis.indexing": false, // already good
+  // "python.analysis.persistAllIndices": false, // already good
+  // "python.analysis.typeCheckingMode": "basic",
+  // "python.analysis.diagnosticMode": "openFilesOnly",
+  // "python.analysis.autoSearchPaths": false, // optional: lighter on large workspaces
+  // "python.analysis.completeFunctionParens": false,
+  // "python.analysis.logLevel": "Warning",
+  // "python.analysis.autoFormatStrings": false,
+  // "python.analysis.autoIndent": false,
+  // "python.analysis.enablePytestSupport": false,
+  // "python.analysis.diagnosticSeverityOverrides": {
+  //   "reportMissingImports": "warning",
+  //   "reportUndefinedVariable": "error",
+  //   "reportGeneralTypeIssues": "warning",
+  //   "reportOptionalMemberAccess": "warning"
+  // },
+  // "python.analysis.packageIndexDepths": [
+  //   { "name": "transformers", "depth": 1 },
+  //   { "name": "django", "depth": 2 },
+  //   { "name": "fastapi", "depth": 2 },
+  //   { "name": "flask", "depth": 2 },
+  //   { "name": "matplotlib", "depth": 2 },
+  //   { "name": "pathlib", "depth": 1 },
+  //   { "name": "pydantic", "depth": 2 },
+  //   { "name": "scipy", "depth": 2 },
+  //   { "name": "sklearn", "depth": 2 }
+  // ],
+  // "python.analysis.showOnlyDirectDependenciesInAutoImport": false,
+  // "python.analysis.ignore": [
+  //   "**/.git",
+  //   "**/__pycache__",
+  //   "**/.?cache*",
+  //   "**/.?venv*",
+  //   "**/build",
+  //   "**/dist",
+  //   "**/node_modules",
+  //   "**/public",
+  //   "**/site-packages",
+  //   "**/venv",
+  //   "**/vector_db",
+  //   "**/generated"
+  // ],
+  // "python.analysis.exclude": [
+  //   "**/.git",
+  //   "**/__pycache__",
+  //   "**/.?cache*",
+  //   "**/.?venv*",
+  //   "**/build",
+  //   "**/dist",
+  //   "**/public",
+  //   "**/vector_db",
+  //   "**/generated",
+  //   "**/node_modules",
+  //   "**/site-packages",
+  //   "**/venv"
+  // ],
+  // "python.analysis.include": [
+  //   "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules",
+  //   "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules"
+  // ],
+  // "python.analysis.extraPaths": [
+  //   "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
+  //   "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules"
+  // ],
   "python.autoComplete.extraPaths": [
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
     "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules"
   ],
+
+  // Cursor Pyright Settings
+  // // Use Cursor Pyright (Anysphere's fork of BasedPyright)
+  // "python.languageServer": "None",
+
+  // // ----------------------------------------------------------------
+  // // Core analysis / type checking behavior
+  // // ----------------------------------------------------------------
+  // "cursorpyright.analysis.typeCheckingMode": "basic",
+  // "cursorpyright.analysis.diagnosticMode": "openFilesOnly",
+  // "cursorpyright.analysis.autoSearchPaths": false,
+  // // "cursorpyright.analysis.disableWorkspaceSymbol": false,
+
+  // // Performance / indexing (Pyright is generally lighter than Pylance)
+  // "cursorpyright.analysis.logLevel": "Warning",
+
+  // // Auto-import / completion behavior
+  // "cursorpyright.analysis.autoImportCompletions": true,
+
+  // // Reduce noise from very common diagnostics
+  // "cursorpyright.analysis.diagnosticSeverityOverrides": {
+  //   "reportMissingImports": "warning",
+  //   "reportUndefinedVariable": "error",
+  //   "reportGeneralTypeIssues": "warning",
+  //   "reportOptionalMemberAccess": "warning"
+  // },
+
+  // Extra paths — most important setting for custom/shared modules
+  "cursorpyright.analysis.extraPaths": [
+    // "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
+    // "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules",
+  ],
+
+  // // Keep python. prefix versions too (some completions still read them)
+  // "python.autoComplete.extraPaths": [
+  //   "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
+  //   "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules"
+  // ],
+
+  // Optional: if you want to be very strict about which folders are scanned
+  // "cursorpyright.analysis.include": [
+  //   "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai",
+  // ],
+
+  // "cursorpyright.analysis.exclude": [
+  //   "**/.git",
+  //   "**/__pycache__",
+  //   "**/.?cache*",
+  //   "**/.?venv*",
+  //   "**/build",
+  //   "**/dist",
+  //   "**/node_modules",
+  //   "**/public",
+  //   "**/site-packages",
+  //   "**/venv",
+  //   "**/vector_db",
+  //   "**/generated"
+  // ],
+
+  // // Optional: very similar ignore list (used in some contexts)
+  // "cursorpyright.analysis.ignore": [
+  //   "**/.git",
+  //   "**/__pycache__",
+  //   "**/.?cache*",
+  //   "**/.?venv*",
+  //   "**/build",
+  //   "**/dist",
+  //   "**/node_modules",
+  //   "**/public",
+  //   "**/site-packages",
+  //   "**/venv",
+  //   "**/vector_db",
+  //   "**/generated"
+  // ],
+
   // Python integration with Ruff (updated for native server: disable ms-python overlaps, enable Ruff fixes)
   "[python]": {
-    "editor.defaultFormatter": "astral-sh.ruff", // Updated extension ID for native server (if using charliermarsh.ruff, keep but update extension)
+    "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.formatOnSave": true,
     "editor.semanticHighlighting.enabled": true,
+
     "editor.codeActionsOnSave": {
-      "source.organizeImports": "never", // Keep disabled for speed
-      "source.fixAll": "never", // Disable Pylance fixes
-      "source.fixAll.ruff": "explicit" // Enable Ruff fixes on save (trailing whitespace, EOF, etc.)
+      "source.fixAll.ruff": "explicit", // optional but recommended: auto-apply all safe fixes (e.g. whitespace, unused vars, etc.)
+      "source.organizeImports.ruff": "explicit" // ← this is the key line: enables Ruff's import sorting + unused import removal on save
     }
   },
 
-  // Ruff settings for formatting and linting (migrated to native server: no deprecated args/run)
+  // Ruff settings
+  "ruff.trace.server": "verbose",
   "ruff.lint.enable": true,
-  "ruff.lint.select": ["W291", "W293", "D205"], // Select specific rules for trailing whitespace, blank lines, EOF newline (mimics autopep8)
-  "ruff.lint.ignore": ["E501", "E402"], // Ignore line length (formatter handles) and module import errors (Pylance handles)
-  "ruff.lineLength": 88, // Line length for both linting and formatting
-  "ruff.configuration": {
-    // Nested config for advanced formatter options (flexible, can reference ruff.toml)
-    "format": {
-      "indent-style": "space", // Use spaces for indentation
-      "indent-width": 4, // 4-space indents to match editor.tabSize
-      "quote-style": "single" // Use single quotes for strings (PEP 8)
-    }
-  },
+  // "ruff.lint.select": ["ALL"],
+  // "ruff.lint.ignore": ["E501", "E402"],
+  "ruff.lint.select": ["E", "F", "I", "UP", "B"],
+  "ruff.lint.ignore": [
+    "E501", // line-too-long (handled by formatter)
+    "E402", // module-level import not at top (intentional side effects / env setup)
+    "I001" // import order warnings (use isort or ordered by formatter)
+  ],
+  "ruff.lineLength": 88,
+  "ruff.exclude": [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "*.pyc",
+    ".pyenv",
+    "**/lib/python*/"
+  ],
+  // Uncomment to use ruff.toml file
+  // "ruff.configurationPreference": "filesystemFirst",
+  // "ruff.configuration": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.vscode/ruff.toml",
 
   // Autocomplete settings for Ctrl+Space
   "editor.quickSuggestions": {
@@ -242,5 +329,25 @@
     "**/site-packages": true,
     "**/venv": true
   },
-  "cmake.additionalCompilerSearchDirs": ["/opt/homebrew/bin", "/usr/bin"]
+  // "cmake.additionalCompilerSearchDirs": ["/opt/homebrew/bin", "/usr/bin"],
+  "cmake.cmakePath": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv/bin/cmake",
+  "protoc": {
+    "path": "/opt/homebrew/bin/protoc", // Full path if not in PATH
+    "options": [
+      "--proto_path=${workspaceFolder}" // Scans entire workspace
+    ]
+  },
+  "clang-format.style": "Google", // Optional: Use Google style for formatting
+  "clang-format.executable": "/opt/homebrew/bin/clang-format",
+  "[proto]": {
+    "editor.defaultFormatter": "xaver.clang-format",
+    // "editor.defaultFormatter": "zxh404.vscode-proto3",
+    "editor.formatOnSave": true
+  },
+  "[proto3]": {
+    "editor.defaultFormatter": "xaver.clang-format",
+    // "editor.defaultFormatter": "zxh404.vscode-proto3",
+    "editor.formatOnSave": true
+  },
+  "workbench.secondarySideBar.showLabels": false
 }
