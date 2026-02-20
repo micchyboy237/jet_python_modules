@@ -1,5 +1,6 @@
 """ChromaVectorStore: generic local vector store using pre-computed embeddings."""
 
+from typing import Any
 from uuid import uuid4
 
 import chromadb
@@ -21,20 +22,33 @@ class ChromaVectorStore:
         self.client = chromadb.PersistentClient(path=persist_directory)
         self.collection = self.client.get_or_create_collection(name=collection_name)
 
+    def _sanitize_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Private helper: convert lists/dicts to primitives so ChromaDB accepts them (generic, DRY)."""
+        if not metadata:
+            return {}
+        sanitized: dict[str, Any] = {}
+        for k, v in metadata.items():
+            if isinstance(v, (list, tuple)):
+                sanitized[k] = ", ".join(str(item) for item in v)
+            elif isinstance(v, dict):
+                sanitized[k] = str(v)
+            else:
+                sanitized[k] = v
+        return sanitized
+
     def add_documents(
         self, documents: ChunkList, embeddings: list[list[float]]
     ) -> None:
         """Add with pre-computed embeds - DRY, handles empty."""
         if not documents:
             return
-        # temporary debug
+        # temporary debug (remove after you confirm working)
         console.print(
-            f"[yellow]DEBUG ChromaVectorStore.add_documents: {len(documents)} chunks[/yellow]"
+            f"[yellow]DEBUG ChromaVectorStore.add_documents: sanitizing {len(documents)} chunks[/yellow]"
         )
         ids = [str(uuid4()) for _ in documents]
         texts = [d["text"] for d in documents]
-        # Normalize empty dicts – fixes ChromaDB "0 metadata attributes" error
-        metas = [d.get("metadata") or None for d in documents]
+        metas = [self._sanitize_metadata(d.get("metadata") or {}) for d in documents]
         self.collection.add(
             ids=ids,
             embeddings=embeddings,

@@ -72,7 +72,7 @@ class DocumentProcessor:
         """Reusable batch processor with progress (tqdm + rich)."""
         all_chunks: ChunkList = []
         paths = list(Path(directory).glob("**/*.*"))
-        for path in tqdm(paths, desc="Processing files", console=console):
+        for path in tqdm(paths, desc="Processing files"):
             if path.is_file():
                 chunks = self.process_file(str(path))
                 all_chunks.extend(chunks)
