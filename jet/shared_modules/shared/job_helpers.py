@@ -152,22 +152,23 @@ def table_row_to_jobdata(row: TableRow) -> JobData:
     Handles the known mapping between stored DB column names and JobData attributes.
     Uses safe .get() access with defaults to avoid KeyError on partial rows.
     """
+    metadata = row.get("metadata") or {}
+
     return {
         "id": row.get("id", ""),
+        "link": metadata.get("link", ""),
         "title": row.get("header", ""),
         "company": row.get("parent_header", ""),
+        "posted_date": row.get("posted_date"),
+        "keywords": metadata.get("keywords", []),
         "details": row.get("content", ""),
-        "posted_date": row["posted_date"],
-        # Add additional JobData fields as stored in your database row
-        "link": row.get("link", ""),
-        "keywords": row.get("keywords", []),
-        "entities": row.get("entities", {}),
-        "tags": row.get("tags", []),
-        "domain": row.get("domain", ""),
-        "salary": row.get("salary"),
-        "job_type": row.get("job_type"),
-        "hours_per_week": row.get("hours_per_week"),
-        # Optionally provide sensible defaults for missing fields
+        "entities": metadata.get("entities"),
+        "domain": metadata.get("domain"),
+        "salary": metadata.get("salary"),
+        "job_type": metadata.get("job_type"),
+        "hours_per_week": metadata.get("hours_per_week"),
+        "tags": metadata.get("tags"),
+        "meta": metadata,
     }
 
 
