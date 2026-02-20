@@ -2,6 +2,7 @@ import abc
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from enum import Enum
 from typing import TypeVar
 
@@ -672,6 +673,74 @@ def test_serializable_datetime_nested():
     assert result == expected
     # Also confirm it's JSON safe
     json.dumps(result)
+
+
+def test_serializable_string_that_looks_like_decimal():
+    # Regression check: plain strings should NOT be converted
+    input_data = {
+        "price_str": "19.99",
+        "quantity_str": "5",
+        "decimal_obj": Decimal("19.99"),
+    }
+    expected = {
+        "price_str": "19.99",
+        "quantity_str": "5",
+        "decimal_obj": 19.99,
+    }
+    result = make_serializable(input_data)
+    assert result == pytest.approx(expected, rel=1e-10)
+
+
+def test_serializable_decimal_becomes_int_when_whole():
+    # Given
+    cases = [
+        (Decimal("123"), 123),  # int
+        (Decimal("123.0"), 123),  # int
+        (Decimal("123.00"), 123),  # int
+        (Decimal("0"), 0),  # int
+        (Decimal("-42"), -42),  # int
+        (Decimal("19.99"), 19.99),  # float
+        (Decimal("0.5"), 0.5),  # float
+        (Decimal("1.000"), 1),  # int
+    ]
+
+    for d, expected in cases:
+        # When
+        result = make_serializable(d)
+
+        # Then
+        if expected == int(expected):
+            assert isinstance(result, int), f"Whole Decimal {d} should be int"
+            assert result == expected
+        else:
+            assert isinstance(result, float), f"Fractional Decimal {d} should be float"
+            assert result == pytest.approx(expected)
+
+
+def test_serializable_decimal_int_when_whole_in_nested_structure():
+    # Given
+    data = {
+        "order": {
+            "id": Decimal("1001"),
+            "total": Decimal("45.50"),
+            "items_count": Decimal("3"),
+            "tax": Decimal("0.00"),
+        }
+    }
+
+    # When
+    result = make_serializable(data)
+
+    # Then
+    expected = {
+        "order": {
+            "id": 1001,  # int
+            "total": 45.50,  # float
+            "items_count": 3,  # int
+            "tax": 0.0,  # float (we keep 0.0 because original had .00)
+        }
+    }
+    assert result == expected
 
 
 @pytest.fixture(autouse=True)

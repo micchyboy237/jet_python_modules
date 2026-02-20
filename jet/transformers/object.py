@@ -29,6 +29,7 @@ def convert_dict_keys_to_snake_case(d: dict[str, Any]) -> dict[str, Any]:
 
 
 import math  # ← Add this import
+from decimal import Decimal  # Added for Decimal serialization
 
 
 def make_serializable(obj, seen=None):
@@ -75,6 +76,13 @@ def make_serializable(obj, seen=None):
 
         if isinstance(inner_obj, Enum):
             return inner_obj.value
+
+        if isinstance(inner_obj, Decimal):
+            if inner_obj == inner_obj.to_integral_value(rounding="ROUND_DOWN"):
+                return int(inner_obj)
+            else:
+                return float(inner_obj)
+
         elif isinstance(inner_obj, bytes):
             try:
                 decoded_str = inner_obj.decode("utf-8")
@@ -83,7 +91,10 @@ def make_serializable(obj, seen=None):
             return _serialize_inner(decoded_str, seen.copy())
 
         elif isinstance(inner_obj, complex):
-            return {"real": inner_obj.real, "imag": inner_obj.imag}
+            return {
+                "real": _serialize_inner(inner_obj.real, seen.copy()),
+                "imag": _serialize_inner(inner_obj.imag, seen.copy()),
+            }
 
         # ──── Quick recursion depth guard ─────────────────────────────────────
         recursion_depth = len(seen)

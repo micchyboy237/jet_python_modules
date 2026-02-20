@@ -1,4 +1,4 @@
-from typing import Any, NotRequired, TypedDict
+from typing import Any, TypedDict
 
 
 class Entity(TypedDict):
@@ -40,18 +40,18 @@ class JobData(TypedDict):
     salary: str | None
     job_type: str | None
     hours_per_week: int | None
-    meta: NotRequired[dict[str, Any]]
+    meta: "JobMetadata"
 
 
 class JobMetadata(TypedDict):
     job_id: str
     chunk_index: int
-    num_tokens: int
     start_idx: int
     end_idx: int
-    line_idx: int
-    overlap_start_idx: int | None
-    overlap_end_idx: int | None
+    num_tokens: int
+    # line_idx: int
+    # overlap_start_idx: int | None
+    # overlap_end_idx: int | None
 
 
 class JobChunk(TypedDict):

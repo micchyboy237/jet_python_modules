@@ -6,7 +6,6 @@ from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.adapters.llama_cpp.utils import get_embedding_size
 from jet.data.utils import generate_hash, generate_key
-from jet.db.postgres.pg_types import TableRow
 from jet.db.postgres.pgvector import PgVectorClient
 from jet.logger import logger
 from jet.models.tokenizer.base import count_tokens
@@ -14,7 +13,7 @@ from jet.vectors.reranker.bm25 import rerank_bm25
 from jet.wordnet.text_chunker import chunk_texts_with_data
 from numpy.typing import NDArray
 from psycopg import sql
-from shared.data_types.job import JobData, JobSearchResult
+from shared.data_types.job import JobData, JobSearchResult, TableJobRow
 
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
 DEFAULT_EMBEDDING_DIM = get_embedding_size(DEFAULT_EMBED_MODEL)
@@ -145,7 +144,7 @@ def compute_text_hash(text: str) -> str:
     return generate_hash(text)
 
 
-def table_row_to_jobdata(row: TableRow) -> JobData:
+def table_row_to_jobdata(row: TableJobRow) -> JobData:
     """
     Convert a database row (from get_row or create_or_update_row) back into a JobData object.
 
@@ -168,7 +167,13 @@ def table_row_to_jobdata(row: TableRow) -> JobData:
         "job_type": metadata.get("job_type"),
         "hours_per_week": metadata.get("hours_per_week"),
         "tags": metadata.get("tags"),
-        "meta": metadata,
+        "meta": {
+            "doc_id": row.get("doc_id", ""),
+            "chunk_index": row.get("chunk_index", ""),
+            "start_idx": row.get("start_idx", ""),
+            "end_idx": row.get("end_idx", ""),
+            "num_tokens": row.get("num_tokens", ""),
+        },
     }
 
 
