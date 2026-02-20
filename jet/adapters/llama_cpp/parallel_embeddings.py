@@ -12,9 +12,7 @@ console = Console()
 
 # === CONFIG ===
 SERVER_URL = os.getenv("LLAMA_CPP_EMBED_URL")
-MODEL_NAME: LLAMACPP_EMBED_KEYS = os.getenv(
-    "LLAMA_CPP_EMBED_MODEL", "nomic-embed-text-v2-moe"
-)
+MODEL_NAME: LLAMACPP_EMBED_KEYS = os.getenv("LLAMA_CPP_EMBED_MODEL")
 
 client = OpenAI(
     base_url=SERVER_URL,
