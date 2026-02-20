@@ -1,0 +1,82 @@
+"""DocumentProcessor: small, focused class for loading + smart chunking with unstructured."""
+
+from pathlib import Path
+from typing import Any
+
+from rich.console import Console
+from tqdm import tqdm
+from unstructured.chunking.title import chunk_by_title
+from unstructured.partition.auto import partition
+
+from .rag_document import ChunkList
+
+console = Console()
+
+
+class DocumentProcessor:
+    """Generic processor - configurable strategy/chunk size, no hard-coded paths or logic."""
+
+    def __init__(
+        self,
+        max_characters: int = 1000,
+        new_after_n_chars: int = 500,
+        combine_text_under_n_chars: int = 200,
+        strategy: str = "fast",  # "fast" = lightweight cross-platform (M1/Win); override to "hi_res" after deps
+    ):
+        self.max_characters = max_characters
+        self.new_after_n_chars = new_after_n_chars
+        # Defensive clamp – satisfies unstructured.chunk_by_title requirement
+        self.combine_text_under_n_chars = min(
+            combine_text_under_n_chars, max_characters
+        )
+        self.strategy = strategy
+
+        # temporary debug (remove after all tests pass)
+        console.print(
+            f"[yellow]DEBUG DocumentProcessor__init__: max={max_characters} combine={self.combine_text_under_n_chars}[/yellow]"
+        )
+
+    def _partition(self, file_path: str, **kwargs: Any) -> list:
+        """Tiny private method: partition single file."""
+        return partition(filename=file_path, strategy=self.strategy, **kwargs)
+
+    def _chunk(self, elements: list) -> list:
+        """Tiny private method: structure-aware chunking (preserves titles/sections for RAG)."""
+        return chunk_by_title(
+            elements,
+            max_characters=self.max_characters,
+            new_after_n_chars=self.new_after_n_chars,
+            combine_text_under_n_chars=self.combine_text_under_n_chars,
+        )
+
+    def process_file(self, file_path: str, **kwargs: Any) -> ChunkList:
+        """Public API: partition + chunk + convert to reusable Chunk."""
+        elements = self._partition(file_path, **kwargs)
+        chunked_elements = self._chunk(elements)
+        console.print(
+            f"[yellow]DEBUG process_file: produced {len(chunked_elements)} chunks from {Path(file_path).name}[/yellow]"
+        )
+        chunks: ChunkList = []
+        for el in chunked_elements:
+            text = getattr(el, "text", str(el)).strip()
+            if text:
+                metadata = (
+                    getattr(el.metadata, "to_dict", lambda: dict(el.metadata))()
+                    if el.metadata
+                    else {}
+                )
+                chunks.append({"text": text, "metadata": metadata})
+        return chunks
+
+    def process_directory(self, directory: str) -> ChunkList:
+        """Reusable batch processor with progress (tqdm + rich)."""
+        all_chunks: ChunkList = []
+        paths = list(Path(directory).glob("**/*.*"))
+        for path in tqdm(paths, desc="Processing files", console=console):
+            if path.is_file():
+                chunks = self.process_file(str(path))
+                all_chunks.extend(chunks)
+        console.print(
+            f"[green]Processed {len(all_chunks)} chunks from {directory}[/green]"
+        )
+        return all_chunks
