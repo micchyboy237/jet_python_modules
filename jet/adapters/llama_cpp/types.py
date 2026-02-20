@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, Union
 
 import numpy as np
 
@@ -44,7 +44,7 @@ LLAMACPP_TYPES = LLAMACPP_KEYS | LLAMACPP_VALUES
 
 EmbeddingVector = list[float] | np.ndarray
 EmbeddingBatch = list[EmbeddingVector]
-EmbeddingOutput = EmbeddingBatch | np.ndarray  # list of vectors or single 2D array
+EmbeddingOutput = Union[list[float], list[list[float]], np.ndarray]
 EmbeddingInput = str | list[str]
 EmbeddingInputType = Literal["query", "document", "default"]
 
@@ -75,4 +75,4 @@ class SearchResultType(TypedDict):
     metadata: MetadataType | None  # optional — only present when provided
 
 
-GenerateEmbeddingsReturnType = EmbeddingOutput  # kept for backward compatibility
+GenerateEmbeddingsReturnType = EmbeddingOutput

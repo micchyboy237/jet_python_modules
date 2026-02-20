@@ -58,6 +58,7 @@ def embed_chunk(
 
 def embed_batch(
     texts: list[str],
+    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
     max_workers: int = 4,
     show_progress: bool = True,
     return_format: Literal["numpy", "list"] = "numpy",
@@ -99,7 +100,10 @@ def embed_batch(
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_info = {
-            executor.submit(embed_chunk, batch_texts): (start_idx, len(batch_texts))
+            executor.submit(embed_chunk, batch_texts, model): (
+                start_idx,
+                len(batch_texts),
+            )
             for start_idx, batch_texts in batches
         }
 
