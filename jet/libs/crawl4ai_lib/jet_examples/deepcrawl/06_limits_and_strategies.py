@@ -67,20 +67,32 @@ if __name__ == "__main__":
     )
     parser.add_argument("url", nargs="?", default="https://docs.crawl4ai.com")
     parser.add_argument(
-        "--max-pages", type=int, default=50, help="Base max_pages limit"
+        "-p",
+        "--max-pages",
+        type=int,
+        default=20,
+        help="Base max_pages limit",
     )
     parser.add_argument(
+        "-d",
         "--max-depth",
         type=int,
         default=3,
         help="Maximum depth for deep crawling strategies (default: 3)",
     )
     parser.add_argument(
-        "--keywords",
         "-k",
+        "--keywords",
         type=str,
         default=None,
         help="Comma-separated keywords for scoring (e.g. crawl,async,config)",
+    )
+    parser.add_argument(
+        "-t",
+        "--threshold",
+        type=float,
+        default=0.3,
+        help="Score threshold for DFSDeepCrawlStrategy (default: 0.3)",
     )
     args = parser.parse_args()
 
@@ -104,8 +116,8 @@ if __name__ == "__main__":
             "DFS + threshold",
             DFSDeepCrawlStrategy(
                 max_depth=args.max_depth,
-                score_threshold=0.6,
-                max_pages=args.max_pages * 2,
+                score_threshold=args.threshold,
+                max_pages=args.max_pages,
                 url_scorer=scorer,
             ),
             {},  # no streaming / extra config needed
@@ -114,7 +126,7 @@ if __name__ == "__main__":
             "Best-First + limit",
             BestFirstCrawlingStrategy(
                 max_depth=args.max_depth,
-                max_pages=args.max_pages + 3,
+                max_pages=args.max_pages,
                 url_scorer=scorer,
             ),
             {"stream": True},
@@ -143,7 +155,7 @@ if __name__ == "__main__":
             )
             console.print(f"Avg score: {avg:.2f}")
 
-    save_file(results, OUTPUT_DIR / "comparison.json")
+    save_file(results, OUTPUT_DIR / "results.json")
     console.print(
         f"\n[bold green]Comparison saved → {OUTPUT_DIR / 'comparison.json'}[/]"
     )

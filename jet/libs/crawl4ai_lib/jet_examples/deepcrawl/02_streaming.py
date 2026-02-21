@@ -62,26 +62,48 @@ def print_summary(mode: str, count: int, first_time: float | None, total_time: f
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Compare streaming vs non-streaming deep crawl"
+        description="Run deep crawl in streaming or non-streaming mode"
     )
     parser.add_argument("url", nargs="?", default="https://docs.crawl4ai.com")
     parser.add_argument("--max-depth", type=int, default=1)
+    parser.add_argument(
+        "--non-stream",
+        action="store_true",
+        help="Run in non-streaming mode instead of streaming (default: streaming)",
+    )
     args = parser.parse_args()
 
-    console.rule("NON-STREAMING")
-    results_non, _, time_non = asyncio.run(
-        crawl_with_mode(args.url, False, args.max_depth)
-    )
-    print_summary("Non-stream", len(results_non), None, time_non)
+    stream_mode = not args.non_stream
+    mode_name = "STREAMING" if stream_mode else "NON-STREAMING"
 
-    console.rule("STREAMING")
-    results_stream, first_t, time_stream = asyncio.run(
-        crawl_with_mode(args.url, True, args.max_depth)
-    )
-    print_summary("Streaming", len(results_stream), first_t, time_stream)
+    console.rule(mode_name)
 
+    if stream_mode:
+        results, first_time, total_time = asyncio.run(
+            crawl_with_mode(args.url, True, args.max_depth)
+        )
+        print_summary("Streaming", len(results), first_time, total_time)
+        summary_data = {
+            "mode": "streaming",
+            "pages": len(results),
+            "time_to_first": first_time,
+            "total_time": total_time,
+        }
+    else:
+        results, _, total_time = asyncio.run(
+            crawl_with_mode(args.url, False, args.max_depth)
+        )
+        print_summary("Non-streaming", len(results), None, total_time)
+        summary_data = {
+            "mode": "non-streaming",
+            "pages": len(results),
+            "time_to_first": None,
+            "total_time": total_time,
+        }
+
+    save_file(results, OUTPUT_DIR / "results.json")
     save_file(
-        {"non_stream": len(results_non), "stream": len(results_stream)},
+        summary_data,
         OUTPUT_DIR / "counts.json",
     )
     console.print(f"\n[green]Results saved → {OUTPUT_DIR}[/]")
