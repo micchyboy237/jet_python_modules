@@ -1,7 +1,8 @@
 import os
 
 from jet.logger import logger
-from openai import OpenAI
+from openai import OpenAI, Stream
+from openai.types.chat import ChatCompletionChunk
 
 client = OpenAI(
     base_url=os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:1234/v1"),
@@ -15,7 +16,7 @@ messages = [
     },
 ]
 
-stream = client.chat.completions.create(
+stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
     model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",  # must match loaded model name or ignore if server uses --model-alias
     messages=messages,
     stream=True,
