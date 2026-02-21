@@ -1,6 +1,7 @@
 """RAGPipeline: top-level orchestrator - composable, small methods."""
 
 import os
+from typing import Literal
 
 from rich.console import Console
 
@@ -48,14 +49,31 @@ class RAGPipeline:
         self.vector_store.add_documents(chunks, embeddings)
         console.print(f"[green]Ingested {len(chunks)} chunks successfully[/green]")
 
-    def query(self, question: str, k: int = 5, temperature: float = 0.0) -> str:
+    def query(
+        self,
+        question: str,
+        k: int = 5,
+        temperature: float = 0.0,
+        mode: Literal["vector", "bm25", "hybrid-rrf"] = "vector",
+    ) -> str:
         """Full RAG query - embed -> retrieve -> generate. Generic prompt (overrideable via subclass)."""
         query_emb = self.embedder.embed_query(question)
-        retrieved = self.vector_store.similarity_search(query_emb, k=k)
+        if mode == "vector":
+            retrieved = self.vector_store.vector_search(query_emb, k=k)
+        elif mode == "bm25":
+            retrieved = self.vector_store.keyword_search(question, k=k)
+        elif mode == "hybrid-rrf":
+            retrieved = self.vector_store.hybrid_rrf_search(query_emb, question, k=k)
+        else:
+            raise ValueError(f"Unknown retrieval mode: {mode}")
+
         if not retrieved:
             return "No relevant documents found."
         context = "\n\n---\n\n".join([c["text"] for c in retrieved])
-        system_prompt = "You are a helpful, accurate assistant. Answer only using the provided context. If unsure, say 'I don't have enough information'."
+        system_prompt = (
+            "You are a helpful, accurate assistant. Answer only using the provided context. "
+            "If unsure, say 'I don't have enough information'."
+        )
         user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
         messages = [
             {"role": "system", "content": system_prompt},

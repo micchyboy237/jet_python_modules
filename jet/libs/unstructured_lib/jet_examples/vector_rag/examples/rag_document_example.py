@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 
 from jet.file.utils import save_file
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_document import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_document import (
     RAGDocument,
 )
 from rich.console import Console

@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 
 from jet.file.utils import save_file
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_llm import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_llm import (
     LlamaCppLLM,
 )
 from rich.console import Console

@@ -5,19 +5,19 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_document import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_document import (
     Chunk,
 )
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_embedder import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_embedder import (
     LlamaCppEmbedder,
 )
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_pipeline import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_pipeline import (
     RAGPipeline,
 )
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_processor import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_processor import (
     DocumentProcessor,
 )
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_vectorstore import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_vectorstore import (
     ChromaVectorStore,
 )
 
@@ -51,7 +51,7 @@ Profit reached $15M.
         # When
         result: list[Chunk] = processor.process_file(str(file_path))
         # Temporary debug (remove after fixing): show how many chunks produced
-        from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_vectorstore import (
+        from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_vectorstore import (
             console,
         )
 
@@ -76,9 +76,7 @@ Profit reached $15M.
 class TestLlamaCppEmbedder:
     """Behaviors for embedding server calls."""
 
-    @patch(
-        "jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_embedder.OpenAI"
-    )
+    @patch("jet.libs.unstructured_lib.jet_examples.vector_rag.rag_embedder.OpenAI")
     def test_embed_documents_given_texts_when_called_then_returns_embeddings(
         self, mock_openai_class
     ):
@@ -139,11 +137,9 @@ class TestRAGPipeline:
     """End-to-end pipeline behaviors (with mocks for LLM/embed)."""
 
     @patch(
-        "jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_embedder.LlamaCppEmbedder"
+        "jet.libs.unstructured_lib.jet_examples.vector_rag.rag_embedder.LlamaCppEmbedder"
     )
-    @patch(
-        "jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_llm.LlamaCppLLM"
-    )
+    @patch("jet.libs.unstructured_lib.jet_examples.vector_rag.rag_llm.LlamaCppLLM")
     def test_query_given_mocked_components_when_called_then_returns_generated_answer(
         self, mock_llm_class, mock_embedder_class
     ):

@@ -47,8 +47,18 @@ import shutil
 from pathlib import Path
 
 from jet.file.utils import save_file
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_pipeline import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_embedder import (
+    LlamaCppEmbedder,
+)
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_llm import LlamaCppLLM
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_pipeline import (
     RAGPipeline,
+)
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_processor import (
+    DocumentProcessor,
+)
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_vectorstore import (
+    ChromaVectorStore,
 )
 from rich.console import Console
 
@@ -136,7 +146,31 @@ def get_args() -> argparse.Namespace:
 def main() -> None:
     args = get_args()
 
-    pipeline = RAGPipeline()
+    max_characters = 1000
+    new_after_n_chars = 500
+    combine_text_under_n_chars = 200
+    allowed_extensions = [".md"]  # e.g., [".pdf", ".md", ".txt"]
+    strategy = "fast"
+
+    persist_directory = (
+        Path("~/.cache/chroma/chroma_rag_pipeline_db").expanduser().resolve()
+    )
+    collection_name = "rag_pipeline"
+
+    processor = DocumentProcessor(
+        max_characters=max_characters,
+        new_after_n_chars=new_after_n_chars,
+        combine_text_under_n_chars=combine_text_under_n_chars,
+        allowed_extensions=allowed_extensions,
+        strategy=strategy,
+    )
+    embedder = LlamaCppEmbedder(batch_size=128)
+    llm = LlamaCppLLM()
+    vector_store = ChromaVectorStore(
+        persist_directory=str(persist_directory), collection_name=collection_name
+    )
+
+    pipeline = RAGPipeline(processor, embedder, llm, vector_store)
 
     console.rule("Starting ingestion", style="bold blue")
     console.print(f"[cyan]Ingesting from:[/cyan] {args.file_paths_or_dir}")

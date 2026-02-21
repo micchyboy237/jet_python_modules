@@ -1,7 +1,7 @@
 """DocumentProcessor: small, focused class for loading + smart chunking with unstructured."""
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Literal, Optional
 
 from rich.console import Console
 from tqdm import tqdm
@@ -13,6 +13,8 @@ from .rag_document import ChunkList
 
 console = Console()
 
+PartitionStrategyLiteral = Literal["auto", "fast", "ocr_only", "hi_res"]
+
 
 class DocumentProcessor:
     """Generic processor - configurable strategy/chunk size, no hard-coded paths or logic."""
@@ -22,7 +24,8 @@ class DocumentProcessor:
         max_characters: int = 1000,
         new_after_n_chars: int = 500,
         combine_text_under_n_chars: int = 200,
-        strategy: str = "fast",  # "fast" = lightweight cross-platform (M1/Win); override to "hi_res" after deps
+        allowed_extensions: Optional[Iterable[str]] = None,
+        strategy: PartitionStrategyLiteral = "fast",  # "fast" = lightweight cross-platform (M1/Win); override to "hi_res" after deps
     ):
         self.max_characters = max_characters
         self.new_after_n_chars = new_after_n_chars
@@ -31,6 +34,16 @@ class DocumentProcessor:
             combine_text_under_n_chars, max_characters
         )
         self.strategy = strategy
+
+        # Normalize extensions to lowercase with leading dot
+        self.allowed_extensions = (
+            {
+                ext.lower() if ext.startswith(".") else f".{ext.lower()}"
+                for ext in allowed_extensions
+            }
+            if allowed_extensions
+            else None
+        )
 
         # temporary debug (remove after all tests pass)
         console.print(
@@ -52,6 +65,14 @@ class DocumentProcessor:
 
     def process_file(self, file_path: str, **kwargs: Any) -> ChunkList:
         """Public API: partition + chunk + convert to reusable Chunk."""
+
+        path = Path(file_path)
+
+        # Optional extension filtering
+        if self.allowed_extensions is not None:
+            if path.suffix.lower() not in self.allowed_extensions:
+                return []
+
         try:
             elements = self._partition(file_path, **kwargs)
         except UnsupportedFileFormatError:
@@ -84,7 +105,8 @@ class DocumentProcessor:
     def process_directory(self, directory: str) -> ChunkList:
         """Reusable batch processor with progress (tqdm + rich)."""
         all_chunks: ChunkList = []
-        paths = list(Path(directory).glob("**/*.*"))
+        paths = list(Path(directory).rglob("*"))
+
         for path in tqdm(paths, desc="Processing files"):
             if path.is_file():
                 chunks = self.process_file(str(path))

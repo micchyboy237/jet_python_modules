@@ -2,8 +2,11 @@ import shutil
 from pathlib import Path
 
 from jet.file.utils import save_file
-from jet.libs.unstructured_lib.jet_examples.rag_grok_agents_answer.rag_pipeline import (
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_pipeline import (
     RAGPipeline,
+)
+from jet.libs.unstructured_lib.jet_examples.vector_rag.rag_processor import (
+    DocumentProcessor,
 )
 from rich.console import Console
 
@@ -14,15 +17,28 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # Create one rich console instance to use everywhere in this script
 console = Console()
 
-pipeline = RAGPipeline()
+max_characters = 1000
+new_after_n_chars = 500
+combine_text_under_n_chars = 200
+allowed_extensions = [".md"]  # e.g., [".pdf", ".md", ".txt"]
+strategy = "fast"
 
 query = "What are the key features in the docs?"
+file_paths_or_dir = "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai/docs/md_v2/advanced"
+
+processor = DocumentProcessor(
+    max_characters=max_characters,
+    new_after_n_chars=new_after_n_chars,
+    combine_text_under_n_chars=combine_text_under_n_chars,
+    allowed_extensions=allowed_extensions,
+    strategy=strategy,
+)
+pipeline = RAGPipeline(processor)
+
 
 console.rule("Starting ingestion", style="bold blue")
 console.print("[cyan]Ingesting documents from path...[/cyan]")
-pipeline.ingest(
-    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai/docs/md_v2/advanced"
-)  # or list of files
+pipeline.ingest(file_paths_or_dir)
 
 console.rule("Query", style="bold magenta")
 console.print(f"[yellow]Running query:[/yellow] {query}")
