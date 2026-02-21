@@ -14,7 +14,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 console = Console()
 processor = DocumentProcessor()
 
-file_path = "/path/to/your/sample.md"
+file_path = (Path(__file__).parent.parent / "README.md").resolve()
 
 console.rule("Document Processing", style="bold blue")
 console.print(f"[cyan]Processing file:[/cyan] {file_path}")
