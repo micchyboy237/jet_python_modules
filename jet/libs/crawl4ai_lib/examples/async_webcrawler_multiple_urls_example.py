@@ -1,5 +1,10 @@
 # File: async_webcrawler_multiple_urls_example.py
-import os, sys
+import os
+import shutil
+import sys
+from pathlib import Path
+
+from jet.file.utils import save_file
 
 # append 2 parent directories to sys.path to import crawl4ai
 parent_dir = os.path.dirname(
@@ -8,7 +13,11 @@ parent_dir = os.path.dirname(
 sys.path.append(parent_dir)
 
 import asyncio
+
 from crawl4ai import AsyncWebCrawler
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 
 async def main():
@@ -16,11 +25,16 @@ async def main():
     async with AsyncWebCrawler(verbose=True) as crawler:
         # List of URLs to crawl
         urls = [
-            "https://example.com",
-            "https://python.org",
-            "https://github.com",
-            "https://stackoverflow.com",
-            "https://news.ycombinator.com",
+            "https://nsfwph.org/tags/ass-shaking/",
+            "https://nsfwph.org/tags/pinay-solid-twerk/",
+            # "https://nsfwph.org/threads/1983646/",
+            # "https://nsfwph.org/tags/twerk/page-2",
+            # "https://nsfwph.org/threads/2022529/",
+            # "https://nsfwph.org/tags/twerk/",
+            # "https://nsfwph.org/threads/1983955/",
+            # "https://nsfwph.org/threads/2022943/",
+            # "https://nsfwph.org/tags/fat-ass/",
+            # "https://nsfwph.org/tags/sexy-body/page-2",
         ]
 
         # Set up crawling parameters
@@ -49,6 +63,8 @@ async def main():
                 print(f"Failed to crawl: {result.url}")
                 print(f"Error: {result.error_message}")
                 print("---")
+
+        save_file(results, OUTPUT_DIR / "results.json")
 
 
 if __name__ == "__main__":

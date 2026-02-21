@@ -39,7 +39,7 @@ llama-cpp-python -C cmake.args="-DGGML_BLAS=ON;-DGGML_BLAS_VENDOR=OpenBLAS"
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/speechbrain
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/smolagents
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/pipdeptree
--e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai
+-e "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai[all-docs]"
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured
 -e /Users/jethroestrada/Desktop/External_Projects/Utils/codependpy
 
