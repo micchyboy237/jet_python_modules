@@ -107,7 +107,7 @@ class LlamacppEmbedding:
         use_cache: bool = False,
         use_dynamic_batch_sizing: bool = False,
         verbose: bool = True,
-        max_workers: int = 4,
+        max_workers: int = 6,
         logger: CustomLogger | None = None,
     ):
         if not base_url:

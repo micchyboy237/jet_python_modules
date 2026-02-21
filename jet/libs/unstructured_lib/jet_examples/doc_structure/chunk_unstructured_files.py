@@ -172,8 +172,8 @@ def process_directory(
     strategy: StrategyType = "auto",
     allowed_extensions: Set[str] | None = None,
 ) -> None:
-    input_dir = Path(input_dir)
-    output_dir = Path(output_dir)
+    input_dir = Path(input_dir).resolve()  # resolve helps relative_to be clean
+    output_dir = Path(output_dir).resolve()
     output_dir.mkdir(exist_ok=True, parents=True)
 
     exts = allowed_extensions or DEFAULT_SUPPORTED_EXTENSIONS
@@ -191,25 +191,31 @@ def process_directory(
     processed = 0
     failed = []
 
-    for path in tqdm(all_files, desc="Processing files"):
+    for path in tqdm(all_files, desc="Processing files", unit="file"):
         try:
+            # Compute relative directory structure to preserve
+            relative_dir = path.parent.relative_to(input_dir)
+            out_subdir = output_dir / relative_dir
+            out_subdir.mkdir(parents=True, exist_ok=True)
+
+            out_path = out_subdir / f"{path.stem}.jsonl"
+
+            console.log(
+                f"[dim]→ {path.relative_to(input_dir)} → {out_path.relative_to(output_dir)}[/dim]"
+            )
+
             records = process_document(
                 path,
                 chunk_size=chunk_size,
                 strategy=strategy,
             )
-
-            out_path = output_dir / f"{path.stem}.jsonl"
-
             with out_path.open("w", encoding="utf-8") as f:
                 for rec in records:
                     f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
             processed += 1
-
-        except Exception as exc:
+        except Exception as exc:  # noqa: PERF203 broad except is intentional here
             failed.append((path.name, str(exc)))
-            console.print(f"[red]✖ Failed[/red] {path.name}: {exc}")
+            console.print(f"[red]✖ Failed[/red] {path.relative_to(input_dir)}: {exc}")
 
     # Summary table
     table = Table(title="Directory Processing Summary")

@@ -1,8 +1,8 @@
 """ChromaVectorStore: generic local vector store using pre-computed embeddings + BM25 + hybrid support."""
 
+import hashlib
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
-from uuid import uuid4
 
 import chromadb
 from rank_bm25 import BM25Okapi
@@ -49,12 +49,21 @@ class ChromaVectorStore:
                 sanitized[k] = v
         return sanitized
 
+    def _generate_id(self, text: str) -> str:
+        """Deterministic ID based on content hash (idempotent ingestion)."""
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
     def add_documents(
         self,
         documents: ChunkList,
         embeddings: List[List[float]],
     ) -> None:
-        """Add documents with pre-computed embeddings to Chroma + build BM25 index."""
+        """Add documents with pre-computed embeddings.
+
+        - Deduplicates within batch
+        - Skips already-existing documents
+        """
+
         if not documents:
             console.print("[yellow]No documents to add[/yellow]")
             return
@@ -62,24 +71,62 @@ class ChromaVectorStore:
         if len(documents) != len(embeddings):
             raise ValueError("Number of documents and embeddings must match")
 
+        # 1️⃣ Generate IDs
+        ids = [self._generate_id(d["text"]) for d in documents]
+
+        # 2️⃣ Deduplicate within current batch
+        unique_map: Dict[str, Tuple[Chunk, List[float]]] = {}
+        for doc, emb, doc_id in zip(documents, embeddings, ids):
+            if doc_id not in unique_map:
+                unique_map[doc_id] = (doc, emb)
+
+        unique_ids = list(unique_map.keys())
+        unique_docs = [v[0] for v in unique_map.values()]
+        unique_embeddings = [v[1] for v in unique_map.values()]
+
+        skipped_internal = len(documents) - len(unique_docs)
+
+        # 3️⃣ Check existing IDs in Chroma
+        existing = self.collection.get(ids=unique_ids)
+        existing_ids = set(existing.get("ids", []))
+
+        # 4️⃣ Filter only new docs
+        new_ids = []
+        new_docs = []
+        new_embeddings = []
+
+        for doc_id, doc, emb in zip(unique_ids, unique_docs, unique_embeddings):
+            if doc_id not in existing_ids:
+                new_ids.append(doc_id)
+                new_docs.append(doc)
+                new_embeddings.append(emb)
+
+        skipped_existing = len(unique_docs) - len(new_docs)
+
+        if not new_docs:
+            console.print(
+                "[green]All documents already exist — skipping insert[/green]"
+            )
+            return
+
         console.print(
-            f"[yellow]Adding {len(documents)} documents to Chroma + BM25[/yellow]"
+            f"[yellow]Adding {len(new_docs)} new documents "
+            f"(skipped {skipped_internal} internal dupes, "
+            f"{skipped_existing} existing)[/yellow]"
         )
 
-        ids = [str(uuid4()) for _ in documents]
-        texts = [d["text"] for d in documents]
-        metadatas = [self._sanitize_metadata(d.get("metadata", {})) for d in documents]
+        texts = [d["text"] for d in new_docs]
+        metadatas = [self._sanitize_metadata(d.get("metadata", {})) for d in new_docs]
 
-        # Add to Chroma
         self.collection.add(
-            ids=ids,
-            embeddings=embeddings,
+            ids=new_ids,
+            embeddings=new_embeddings,
             documents=texts,
             metadatas=metadatas,
         )
 
-        # Build BM25 structures
-        for chunk_id, doc in zip(ids, documents):
+        # Update BM25 structures
+        for chunk_id, doc in zip(new_ids, new_docs):
             self.chunks[chunk_id] = doc
             tokens = _simple_tokenize(doc["text"])
             self.tokenized_docs.append(tokens)
@@ -88,7 +135,7 @@ class ChromaVectorStore:
         if self.tokenized_docs:
             self.bm25 = BM25Okapi(self.tokenized_docs)
             console.print(
-                f"[green]BM25 index built with {len(self.tokenized_docs)} documents[/green]"
+                f"[green]BM25 index rebuilt with {len(self.tokenized_docs)} documents[/green]"
             )
 
     def vector_search(

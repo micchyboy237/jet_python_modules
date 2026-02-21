@@ -59,7 +59,7 @@ def embed_chunk(
 def embed_batch(
     texts: list[str],
     model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
-    max_workers: int = 4,
+    max_workers: int = 6,
     show_progress: bool = True,
     return_format: Literal["numpy", "list"] = "numpy",
     batch_size: int | None = 32,  # sensible default
@@ -67,14 +67,33 @@ def embed_batch(
 ) -> Union[list[list[float]], np.ndarray]:
     """
     Embed multiple texts in parallel using ThreadPoolExecutor + batching.
+    Deduplicates input texts for efficiency, reconstructs output list in original order.
     """
     if not texts:
         return np.array([]) if return_format == "numpy" else []
 
+    # ── Deduplicate while preserving original index mapping ───────────────
+    text_to_indices: dict[str, list[int]] = {}
+    for idx, text in enumerate(texts):
+        text_to_indices.setdefault(text, []).append(idx)
+
+    unique_texts = list(text_to_indices.keys())
+
+    # We embed only unique texts but must reconstruct full output later
+    total_unique = len(unique_texts)
+    total_texts = len(texts)
+
+    # Log in case deduplication occurred (original had duplicates)
+    deduped_count = total_texts - total_unique
+    if deduped_count > 0:
+        console.print(
+            f"[yellow]Deduped: {total_texts} → {total_unique} (removed {deduped_count} duplicates)[/yellow]"
+        )
+
     if batch_size is None or batch_size <= 1:
         batch_size = 1
 
-    total_texts = len(texts)
+    # NOTE: progress reflects unique texts being embedded
 
     # ── Progress setup ────────────────────────────────
     progress = None
@@ -90,12 +109,13 @@ def embed_batch(
             transient=True,
         )
         progress.start()
-        task_id = progress.add_task(progress_description, total=total_texts)
+        task_id = progress.add_task(progress_description, total=total_unique)
 
     embeddings: list[list[float] | None] = [None] * total_texts
 
     batches = [
-        (i, texts[i : i + batch_size]) for i in range(0, total_texts, batch_size)
+        (i, unique_texts[i : i + batch_size])
+        for i in range(0, total_unique, batch_size)
     ]
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -111,8 +131,12 @@ def embed_batch(
             start_idx, batch_len = future_to_info[future]
             try:
                 batch_emb = future.result()
+
+                # Map unique embeddings back to original indices
                 for offset, emb in enumerate(batch_emb):
-                    embeddings[start_idx + offset] = emb
+                    unique_text = unique_texts[start_idx + offset]
+                    for original_idx in text_to_indices[unique_text]:
+                        embeddings[original_idx] = emb
 
                 # Update progress
                 if show_progress and task_id is not None:
@@ -128,7 +152,6 @@ def embed_batch(
     if show_progress and progress is not None:
         progress.stop()
 
-    # Filter just in case (shouldn't be needed)
     embeddings = [e for e in embeddings if e is not None]
 
     if len(embeddings) != total_texts:

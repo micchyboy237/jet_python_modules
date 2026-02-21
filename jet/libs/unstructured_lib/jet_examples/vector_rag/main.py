@@ -151,7 +151,7 @@ def main() -> None:
     combine_text_under_n_chars = 200
     allowed_extensions = [".md"]  # e.g., [".pdf", ".md", ".txt"]
     strategy = "fast"
-    batch_size = 32
+    batch_size = 64
 
     persist_directory = (
         Path("~/.cache/chroma/chroma_rag_pipeline_db").expanduser().resolve()
