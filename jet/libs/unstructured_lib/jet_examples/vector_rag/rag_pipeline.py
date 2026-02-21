@@ -13,6 +13,12 @@ from .rag_vectorstore import ChromaVectorStore
 
 console = Console()
 
+SYSTEM_PROMPT = (
+    "You are a helpful, accurate assistant. Answer only using the provided context. "
+    "If unsure, say 'I don't have enough information'."
+)
+PROMPT_TEMPLATE = "{context}Question: {question}"
+
 
 class RAGPipeline:
     """Generic pipeline - dependency injection for testability/reuse."""
@@ -55,7 +61,7 @@ class RAGPipeline:
         k: int = 5,
         temperature: float = 0.0,
         mode: Literal["vector", "bm25", "hybrid-rrf"] = "vector",
-    ) -> str:
+    ) -> dict:
         """Full RAG query - embed -> retrieve -> generate. Generic prompt (overrideable via subclass)."""
         if mode != "bm25":
             query_emb = self.embedder.embed_query(question)
@@ -72,15 +78,19 @@ class RAGPipeline:
         if not retrieved:
             return "No relevant documents found."
         context = "\n\n---\n\n".join([c["text"] for c in retrieved])
-        system_prompt = (
-            "You are a helpful, accurate assistant. Answer only using the provided context. "
-            "If unsure, say 'I don't have enough information'."
-        )
-        user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
+        context = f"Context:\n{context}\n\n"
+
+        system_prompt = SYSTEM_PROMPT
+        user_prompt = PROMPT_TEMPLATE.format(context=context, question=question)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
         answer = self.llm.generate(messages, temperature=temperature)
         console.print(f"[blue]Retrieved {len(retrieved)} chunks[/blue]")
-        return answer
+        return {
+            "context": context,
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+            "answer": answer,
+        }

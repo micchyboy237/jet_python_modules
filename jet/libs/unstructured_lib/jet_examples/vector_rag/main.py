@@ -184,11 +184,15 @@ def main() -> None:
         f"[dim]Top-K:[/dim] {args.top_k} | [dim]Temperature:[/dim] {args.temperature}"
     )
 
-    answer = pipeline.query(
+    result = pipeline.query(
         args.query,
         k=args.top_k,
         temperature=args.temperature,
     )
+    answer = result["answer"]
+    context = result["context"]
+    user_prompt = result["user_prompt"]
+    system_prompt = result["system_prompt"]
 
     console.rule("Result", style="bold green")
     console.print("[bold green]Answer:[/bold green]")
@@ -204,6 +208,9 @@ def main() -> None:
         OUTPUT_DIR / "input.json",
     )
 
+    save_file(context, OUTPUT_DIR / "context.md")
+    save_file(system_prompt, OUTPUT_DIR / "system_prompt.md")
+    save_file(user_prompt, OUTPUT_DIR / "user_prompt.md")
     save_file(answer, OUTPUT_DIR / "answer.md")
 
 
