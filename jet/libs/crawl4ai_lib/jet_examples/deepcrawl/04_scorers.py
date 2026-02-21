@@ -63,7 +63,7 @@ if __name__ == "__main__":
         description="Best-first crawling with keyword-based scoring"
     )
     parser.add_argument("url", nargs="?", default="https://docs.crawl4ai.com")
-    parser.add_argument("--max-depth", type=int, default=1)
+    parser.add_argument("--max-depth", type=int, default=3)
     parser.add_argument(
         "--keywords",
         "-k",

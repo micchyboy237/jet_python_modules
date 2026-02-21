@@ -22,10 +22,12 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 console = Console(highlight=True)
 
 
-async def crawl_with_filters(url: str, filter_chain: FilterChain | None = None):
+async def crawl_with_filters(
+    url: str, filter_chain: FilterChain | None = None, max_depth: int = 1
+):
     config = CrawlerRunConfig(
         deep_crawl_strategy=BFSDeepCrawlStrategy(
-            max_depth=1,
+            max_depth=max_depth,
             include_external=False,
             filter_chain=filter_chain,
         ),
@@ -49,15 +51,27 @@ def print_results(results, title: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("url", nargs="?", default="https://docs.crawl4ai.com")
+    parser.add_argument(
+        "--max-depth",
+        "-d",
+        type=int,
+        default=3,
+        help="Maximum crawl depth (default: 3)",
+    )
     args = parser.parse_args()
 
     # Example 1: URL pattern only
     chain1 = FilterChain([URLPatternFilter(patterns=["*core*"])])
-    results1 = asyncio.run(crawl_with_filters(args.url, chain1))
-    print_results(results1, "Only URLs containing 'core'")
+    results_url_pattern_only = asyncio.run(
+        crawl_with_filters(args.url, chain1, max_depth=args.max_depth)
+    )
+    print_results(results_url_pattern_only, "Only URLs containing 'core'")
 
-    save_file(results1, OUTPUT_DIR / "results1.json")
-    save_file([u for u in results1], OUTPUT_DIR / "results1_urls.json")
+    save_file(results_url_pattern_only, OUTPUT_DIR / "results_url_pattern_only.json")
+    save_file(
+        [u for u in results_url_pattern_only],
+        OUTPUT_DIR / "results_url_pattern_only_urls.json",
+    )
 
     # Example 2: Multi-filter chain (different site to show domain filter)
     chain2 = FilterChain(
@@ -70,10 +84,14 @@ if __name__ == "__main__":
             ContentTypeFilter(allowed_types=["text/html"]),
         ]
     )
-    results2 = asyncio.run(crawl_with_filters("https://techcrunch.com", chain2))
-    print_results(results2, "2024 + techcrunch.com + html")
+    results_multi_filter = asyncio.run(
+        crawl_with_filters("https://techcrunch.com", chain2, max_depth=args.max_depth)
+    )
+    print_results(results_multi_filter, "2024 + techcrunch.com + html")
 
-    save_file(results2, OUTPUT_DIR / "results2.json")
-    save_file([u for u in results2], OUTPUT_DIR / "results2_urls.json")
+    save_file(results_multi_filter, OUTPUT_DIR / "results_multi_filter.json")
+    save_file(
+        [u for u in results_multi_filter], OUTPUT_DIR / "results_multi_filter_urls.json"
+    )
 
     console.print(f"\n[green]Artifacts saved → {OUTPUT_DIR}[/]")
