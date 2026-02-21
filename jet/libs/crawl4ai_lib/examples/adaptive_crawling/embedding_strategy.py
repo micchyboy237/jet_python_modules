@@ -17,7 +17,6 @@ async def main():
     # Configure embedding strategy
     config = get_adaptive_config(
         strategy="embedding",  # Use embedding strategy
-        embedding_model="sentence-transformers/all-MiniLM-L6-v2",  # Default model
         n_query_variations=10,  # Generate 10 semantic variations
         max_pages=15,
         top_k_links=3,
