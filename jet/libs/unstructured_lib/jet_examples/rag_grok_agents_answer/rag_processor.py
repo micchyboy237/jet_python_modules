@@ -7,6 +7,7 @@ from rich.console import Console
 from tqdm import tqdm
 from unstructured.chunking.title import chunk_by_title
 from unstructured.partition.auto import partition
+from unstructured.partition.common import UnsupportedFileFormatError
 
 from .rag_document import ChunkList
 
@@ -51,7 +52,19 @@ class DocumentProcessor:
 
     def process_file(self, file_path: str, **kwargs: Any) -> ChunkList:
         """Public API: partition + chunk + convert to reusable Chunk."""
-        elements = self._partition(file_path, **kwargs)
+        try:
+            elements = self._partition(file_path, **kwargs)
+        except UnsupportedFileFormatError:
+            console.print(
+                f"[red]Skipping unsupported file:[/red] {Path(file_path).name}"
+            )
+            return []
+        except Exception as e:
+            console.print(
+                f"[red]Error processing file {Path(file_path).name}: {e}[/red]"
+            )
+            return []
+
         chunked_elements = self._chunk(elements)
         console.print(
             f"[yellow]DEBUG process_file: produced {len(chunked_elements)} chunks from {Path(file_path).name}[/yellow]"
