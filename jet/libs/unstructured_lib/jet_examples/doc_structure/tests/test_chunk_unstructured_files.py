@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from jet.libs.unstructured_lib.jet_examples.doc_structure.rag_unstructured_local import (
+from jet.libs.unstructured_lib.jet_examples.doc_structure.chunk_unstructured_files import (
     SUPPORTED_EXTENSIONS,
     process_directory,
     process_document,

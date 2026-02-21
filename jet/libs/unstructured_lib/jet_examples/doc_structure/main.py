@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-CLI tool to prepare documents for RAG using unstructured + rag_unstructured_local.py
+CLI tool to prepare documents for RAG using unstructured + chunk_unstructured_files.py
 
-Reuses the core processing functions from rag_unstructured_local.
+Reuses the core processing functions from chunk_unstructured_files.
 
 Examples:
   Single file (short form):
@@ -24,12 +24,12 @@ from pathlib import Path
 
 # Adjust import path according to your actual project structure
 try:
-    from jet.libs.unstructured_lib.jet_examples.doc_structure.rag_unstructured_local import (
+    from jet.libs.unstructured_lib.jet_examples.doc_structure.chunk_unstructured_files import (
         process_directory,
         process_document,
     )
 except ImportError:
-    print("Error: Could not import rag_unstructured_local", file=sys.stderr)
+    print("Error: Could not import chunk_unstructured_files", file=sys.stderr)
     print("Check PYTHONPATH or file location.", file=sys.stderr)
     sys.exit(1)
 
