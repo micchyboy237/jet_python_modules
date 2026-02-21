@@ -13,6 +13,7 @@ from crawl4ai.deep_crawling import (
 )
 from crawl4ai.deep_crawling.scorers import KeywordRelevanceScorer
 from jet.file.utils import save_file
+from jet.utils.text import format_sub_dir
 from rich.console import Console
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
@@ -133,7 +134,7 @@ if __name__ == "__main__":
         ),
     ]
 
-    results = []
+    all_results = []
     for name, strat, extra in cases:
         extra = extra or {}
         console.rule(name)
@@ -146,7 +147,7 @@ if __name__ == "__main__":
                 stream=extra.get("stream", False),
             )
         )
-        results.append(res)
+        all_results.append(res)
 
         console.print(f"[green]→ {res['count']} pages in {res['duration']:.2f}s[/]")
         if res.get("scores"):
@@ -155,7 +156,10 @@ if __name__ == "__main__":
             )
             console.print(f"Avg score: {avg:.2f}")
 
-    save_file(results, OUTPUT_DIR / "results.json")
+        sub_output_dir = OUTPUT_DIR / format_sub_dir(name)
+        save_file(res, sub_output_dir / "results.json")
+
+    save_file(all_results, OUTPUT_DIR / "comparison.json")
     console.print(
         f"\n[bold green]Comparison saved → {OUTPUT_DIR / 'comparison.json'}[/]"
     )

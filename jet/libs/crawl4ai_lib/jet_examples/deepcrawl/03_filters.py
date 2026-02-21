@@ -53,9 +53,11 @@ if __name__ == "__main__":
 
     # Example 1: URL pattern only
     chain1 = FilterChain([URLPatternFilter(patterns=["*core*"])])
-    r1 = asyncio.run(crawl_with_filters(args.url, chain1))
-    print_results(r1, "Only URLs containing 'core'")
-    save_file([u for u in r1], OUTPUT_DIR / "core_urls.txt")
+    results1 = asyncio.run(crawl_with_filters(args.url, chain1))
+    print_results(results1, "Only URLs containing 'core'")
+
+    save_file(results1, OUTPUT_DIR / "results1.json")
+    save_file([u for u in results1], OUTPUT_DIR / "results1_urls.json")
 
     # Example 2: Multi-filter chain (different site to show domain filter)
     chain2 = FilterChain(
@@ -68,8 +70,10 @@ if __name__ == "__main__":
             ContentTypeFilter(allowed_types=["text/html"]),
         ]
     )
-    r2 = asyncio.run(crawl_with_filters("https://techcrunch.com", chain2))
-    print_results(r2, "2024 + techcrunch.com + html")
-    save_file([u for u in r2], OUTPUT_DIR / "techcrunch_2024.txt")
+    results2 = asyncio.run(crawl_with_filters("https://techcrunch.com", chain2))
+    print_results(results2, "2024 + techcrunch.com + html")
+
+    save_file(results2, OUTPUT_DIR / "results2.json")
+    save_file([u for u in results2], OUTPUT_DIR / "results2_urls.json")
 
     console.print(f"\n[green]Artifacts saved → {OUTPUT_DIR}[/]")

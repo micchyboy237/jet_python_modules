@@ -98,4 +98,5 @@ if __name__ == "__main__":
         score = r.metadata.get("relevance_score", 0)
         console.print(f"  • {score:.2f} | {r.url}")
 
+    save_file(r_seo, OUTPUT_DIR / "results.json")
     save_file([r.url for r in r_rel], OUTPUT_DIR / "relevant_pages.txt")

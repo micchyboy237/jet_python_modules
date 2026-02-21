@@ -91,6 +91,8 @@ if __name__ == "__main__":
     results = asyncio.run(crawl_with_scorer(args.url, active_keywords, args.max_depth))
 
     print_score_stats(results)
+
+    save_file(results, OUTPUT_DIR / "results.json")
     save_file(
         [{"url": r.url, "score": r.metadata.get("score", 0)} for r in results],
         OUTPUT_DIR / "scored_pages.json",
