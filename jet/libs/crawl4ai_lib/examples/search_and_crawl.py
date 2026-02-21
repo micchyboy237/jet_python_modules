@@ -1,3 +1,5 @@
+from urllib.parse import urlencode, urljoin
+
 """
 Adaptive Crawler that ALWAYS starts from SearXNG search results
 
@@ -38,7 +40,7 @@ python search_and_crawl.py "django vs fastapi performance" \
 import argparse
 import asyncio
 import os
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import httpx
 from crawl4ai import AdaptiveCrawler, AsyncWebCrawler
@@ -49,6 +51,7 @@ async def fetch_seed_urls_from_searxng(
     query: str,
     top_n: Optional[int] = None,
     timeout: float = 12.0,
+    **kwargs: Any,
 ) -> List[str]:
     """
     Query SearXNG instance and return top N (or all) result URLs using JSON format.
@@ -59,13 +62,23 @@ async def fetch_seed_urls_from_searxng(
         "q": query,
         "format": "json",
         "pageno": 1,
+        "language": kwargs.get("language", "en"),
+        "categories": ",".join(kwargs.get("categories", ["general"])),
+        # Feel free to add more SearXNG parameters here as needed
+        # "time_range": kwargs.get("time_range"),
+        # "safesearch": kwargs.get("safesearch", 0),
     }
 
-    search_url = f"{searxng_base_url.rstrip('/')}/search"
+    query_string = urlencode(params)
+    search_path = "search"
+    full_url = (
+        urljoin(searxng_base_url.rstrip("/") + "/", search_path) + "?" + query_string
+    )
 
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         try:
-            resp = await client.get(search_url, params=params)
+            print(f"[DEBUG] Full SearXNG URL: {full_url}")
+            resp = await client.get(full_url)
             resp.raise_for_status()
             data = resp.json()
 
@@ -198,6 +211,9 @@ async def main():
         searxng_url,
         effective_query,
         top_n=args.top_seeds,
+        # kwargs for fetch_seed_urls_from_searxng (expand as needed)
+        # language="en",
+        # categories=["general"],
     )
 
     if not seed_urls:
