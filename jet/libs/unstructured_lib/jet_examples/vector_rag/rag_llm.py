@@ -3,8 +3,13 @@
 import os
 from typing import Dict, List
 
+from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.logger import logger
 from openai import OpenAI
+from rich.console import Console
+
+console = Console()
 
 DEFAULT_LLM_URL = os.getenv("LLAMA_CPP_LLM_URL")
 DEFAULT_MODEL_NAME: LLAMACPP_LLM_KEYS = os.getenv("LLAMA_CPP_LLM_MODEL")
@@ -21,9 +26,8 @@ class LlamaCppLLM:
         if not url:
             raise ValueError("LLAMA_CPP_LLM_URL env var required (or pass url)")
         self.client = OpenAI(
-            base_url=url.rstrip("/") + "/v1" if not url.endswith("/v1") else url,
+            base_url=url,
             api_key="sk-no-key-required",
-            timeout=300.0,
         )
 
     def generate(
@@ -33,10 +37,37 @@ class LlamaCppLLM:
         max_tokens: int = 1024,
     ) -> str:
         """Generic chat completion - returns clean string."""
-        response = self.client.chat.completions.create(
-            model="dummy",  # ignored by server
+        input_tokens = count_tokens(messages, model=self.model)
+        logger.info(f"Messages: {len(messages)}")
+        logger.info(f"Input tokens: {input_tokens}")
+
+        stream = self.client.chat.completions.create(
+            model=self.model,  # ignored by server
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            stream=True,
+            stream_options={"include_usage": True},
         )
-        return (response.choices[0].message.content or "").strip()
+
+        response = ""
+        usage = None
+        for chunk in stream:
+            if chunk.choices:
+                delta = chunk.choices[0].delta
+                content = delta.content or ""
+                response += content
+                logger.teal(content, flush=True, end="")
+
+            # Optional: show final usage stats (tokens/s)
+            if hasattr(chunk, "usage") and chunk.usage:
+                usage = chunk.usage
+                logger.info(f"\nUsage → {chunk.usage}")
+
+        if usage:
+            logger.success("--- Response Usage ---")
+            logger.success(f"Input tokens: {usage.prompt_tokens}")
+            logger.success(f"Output tokens: {usage.completion_tokens}")
+            logger.success(f"Total tokens: {usage.total_tokens}")
+
+        return response.strip()

@@ -57,7 +57,9 @@ class RAGPipeline:
         mode: Literal["vector", "bm25", "hybrid-rrf"] = "vector",
     ) -> str:
         """Full RAG query - embed -> retrieve -> generate. Generic prompt (overrideable via subclass)."""
-        query_emb = self.embedder.embed_query(question)
+        if mode != "bm25":
+            query_emb = self.embedder.embed_query(question)
+
         if mode == "vector":
             retrieved = self.vector_store.vector_search(query_emb, k=k)
         elif mode == "bm25":

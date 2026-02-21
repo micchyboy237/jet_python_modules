@@ -27,10 +27,6 @@ response = llm.generate(messages, temperature=0.0)
 console.print("[green]LLM Response:[/green]")
 console.print(response, markup=False)
 
-save_file(
-    {
-        "messages": messages,
-        "response": response,
-    },
-    OUTPUT_DIR / "llm_response.json",
-)
+
+save_file(messages, OUTPUT_DIR / "messages.json")
+save_file(response, OUTPUT_DIR / "response.md")

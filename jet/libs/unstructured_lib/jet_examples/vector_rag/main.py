@@ -151,6 +151,7 @@ def main() -> None:
     combine_text_under_n_chars = 200
     allowed_extensions = [".md"]  # e.g., [".pdf", ".md", ".txt"]
     strategy = "fast"
+    batch_size = 32
 
     persist_directory = (
         Path("~/.cache/chroma/chroma_rag_pipeline_db").expanduser().resolve()
@@ -164,7 +165,7 @@ def main() -> None:
         allowed_extensions=allowed_extensions,
         strategy=strategy,
     )
-    embedder = LlamaCppEmbedder(batch_size=128)
+    embedder = LlamaCppEmbedder(batch_size=batch_size)
     llm = LlamaCppLLM()
     vector_store = ChromaVectorStore(
         persist_directory=str(persist_directory), collection_name=collection_name
