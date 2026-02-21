@@ -71,7 +71,7 @@ if __name__ == "__main__":
         "-p",
         "--max-pages",
         type=int,
-        default=20,
+        default=30,
         help="Base max_pages limit",
     )
     parser.add_argument(
