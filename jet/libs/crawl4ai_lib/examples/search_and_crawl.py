@@ -10,20 +10,35 @@ Adaptive Crawler that ALWAYS starts from SearXNG search results
 USAGE EXAMPLES
 --------------
 
-Basic:
+Basic usage (no host restriction):
 python search_and_crawl.py "python asyncio best practices"
 
-Custom seed count and output:
+Custom number of seeds (long or short form) + fewer final results:
 python search_and_crawl.py "transformers in deep learning" --top-seeds 8 --top-k 4
+python search_and_crawl.py "transformers in deep learning" -n 8 -k 4
 
-With defaults:
-python search_and_crawl.py "web scraping techniques 2026"
+Single site restriction:
+python search_and_crawl.py "best rust web frameworks 2026" --site arewewebyet.org
+
+Multiple sites (repeated flags):
+python search_and_crawl.py "llm fine-tuning guide" \
+    --site huggingface.co --site github.com --site towardsdatascience.com
+
+Multiple sites (comma-separated – convenient for one-liners):
+python search_and_crawl.py "python web scraping 2026" \
+    --site github.com,beautiful-soup.readthedocs.io,scrapy.org -n 12
+
+Combined example:
+python search_and_crawl.py "django vs fastapi performance" -k 3 -n 10 --site reddit.com
+
+python search_and_crawl.py "django vs fastapi performance" \
+    -k 3 -n 10 --site reddit.com --site news.ycombinator.com
 """
 
 import argparse
 import asyncio
 import os
-from typing import List
+from typing import List, Optional
 
 import httpx
 from crawl4ai import AdaptiveCrawler, AsyncWebCrawler
@@ -32,11 +47,11 @@ from crawl4ai import AdaptiveCrawler, AsyncWebCrawler
 async def fetch_seed_urls_from_searxng(
     searxng_base_url: str,
     query: str,
-    top_n: int = 10,
+    top_n: Optional[int] = None,
     timeout: float = 12.0,
 ) -> List[str]:
     """
-    Query SearXNG instance and return top N result URLs using JSON format.
+    Query SearXNG instance and return top N (or all) result URLs using JSON format.
     """
     print(f"[SearXNG] Querying: {searxng_base_url}   →   {query!r}")
 
@@ -55,11 +70,16 @@ async def fetch_seed_urls_from_searxng(
             data = resp.json()
 
             results = data.get("results", [])
-            urls = [
+            valid_urls = [
                 r["url"]
-                for r in results[:top_n]
+                for r in results
                 if "url" in r and r.get("url", "").startswith("http")
             ]
+
+            if top_n is not None:
+                urls = valid_urls[:top_n]
+            else:
+                urls = valid_urls
 
             if not urls:
                 print("[WARN] No valid URLs found in search results")
@@ -89,9 +109,11 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--top-seeds",
+        "-n",
         type=int,
-        default=10,
-        help="Number of top search results to use as starting points (default: 10)",
+        default=None,
+        help="Number of top search results to use as starting points "
+        "(default: all results from page 1; use -n or --top-seeds to limit)",
     )
 
     parser.add_argument(
@@ -100,6 +122,19 @@ def get_args() -> argparse.Namespace:
         type=int,
         default=5,
         help="Number of most relevant pages to display at the end (default: 5)",
+    )
+
+    # Changed to support multiple
+    parser.add_argument(
+        "-s",
+        "--site",
+        action="append",
+        dest="sites",
+        type=str,
+        default=None,
+        help="Restrict results to one or more sites/domains. "
+        "Use multiple times or comma-separated. "
+        "Example: -s github.com -s docs.python.org or -s example.com,docs.python.org",
     )
 
     args = parser.parse_args()
@@ -123,13 +158,45 @@ async def main():
     print("=" * 70)
     print(f"  SearXNG instance : {searxng_url}")
     print(f"  Query            : {args.query}")
-    print(f"  Seed URLs to fetch : {args.top_seeds}")
+
+    # Site filtering
+    sites: List[str] = []
+    if args.sites:
+        for h in args.sites:
+            if "," in h:
+                sites.extend(part.strip() for part in h.split(",") if part.strip())
+            else:
+                sites.append(h.strip())
+
+    # Normalize domains (remove protocol, www., trailing slash)
+    normalized_sites = []
+    for h in sites:
+        h = h.lower().strip()
+        if h.startswith(("http://", "https://")):
+            h = h.split("://", 1)[-1]
+        h = h.removeprefix("www.").rstrip("/")
+        if h and "." in h:  # basic sanity
+            normalized_sites.append(h)
+
+    if normalized_sites:
+        site_parts = [f"site:{domain}" for domain in normalized_sites]
+        site_clause = " OR ".join(site_parts)
+        effective_query = f"{args.query} {site_clause}"
+        print(f"  Site filter      : {' OR '.join(normalized_sites)}")
+    else:
+        effective_query = args.query
+        print("  Site filter      : none")
+
+    print(
+        f"  Seed URLs to fetch : "
+        f"{args.top_seeds if args.top_seeds is not None else 'all available (page 1)'}"
+    )
     print(f"  Top relevant to show : {args.top_k}")
     print("=" * 70 + "\n")
 
     seed_urls = await fetch_seed_urls_from_searxng(
         searxng_url,
-        args.query,
+        effective_query,
         top_n=args.top_seeds,
     )
 
