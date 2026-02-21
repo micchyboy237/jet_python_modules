@@ -1,4 +1,46 @@
-# main.py
+"""
+RAG Pipeline CLI
+
+Summary
+-------
+Command-line interface for running a full Retrieval-Augmented Generation (RAG)
+workflow:
+
+1. Ingest documents from a directory or file path.
+2. Embed and store them in the configured vector store.
+3. Execute a query against the indexed documents.
+4. Generate an answer using the LLM.
+5. Save inputs and outputs under OUTPUT_DIR.
+
+Required Arguments
+------------------
+- query
+- file_paths_or_dir
+
+These can be provided either:
+- As positional arguments
+- Or using flags (-q / -p)
+
+Optional Arguments
+------------------
+- -k / --top-k         : Number of documents to retrieve (default: 5)
+- -t / --temperature   : LLM temperature (default: 0.0)
+
+Usage Examples
+--------------
+
+# Positional usage
+python main.py "What are the key features?" ./docs
+
+# Using flags
+python main.py -q "What are the key features?" -p ./docs
+
+# Mixed usage
+python main.py "What are the key features?" -p ./docs -k 8 -t 0.2
+
+# Full flag usage
+python main.py -q "Explain authentication flow" -p ./docs -k 10 -t 0.3
+"""
 
 import argparse
 import shutil
@@ -41,7 +83,7 @@ def get_args() -> argparse.Namespace:
         help="File path or directory (positional alternative to -p/--path).",
     )
 
-    # Optional named arguments (required=False here, validated manually)
+    # Optional named arguments
     parser.add_argument(
         "-q",
         "--query",
@@ -74,7 +116,6 @@ def get_args() -> argparse.Namespace:
 
     args = parser.parse_args()
 
-    # Resolve query
     resolved_query = args.query or args.query_positional
     resolved_path = args.path or args.path_positional
 
