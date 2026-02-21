@@ -9,13 +9,20 @@ Features shown:
 - Basic metadata filtering
 """
 
+import argparse
 import json
 import re
+import shutil
 from pathlib import Path
+from typing import Literal
 
 from unstructured.chunking.title import chunk_by_title
 from unstructured.cleaners.core import clean_non_ascii_chars
 from unstructured.partition.auto import partition
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Comprehensive list based on unstructured docs[](https://docs.unstructured.io/open-source/core-functionality/partitioning)
 # Covers auto-detected / routed formats; some require extras (libreoffice, pandoc, tesseract, unstructured[pdf], etc.)
@@ -61,6 +68,8 @@ SUPPORTED_EXTENSIONS = {
     ".heic",
 }
 
+StrategyType = Literal["auto", "fast", "hi_res", "ocr_only"]
+
 
 def process_document(
     filepath: str | Path,
@@ -68,8 +77,8 @@ def process_document(
     include_metadata: bool = True,
     strategy: str = "auto",  # allow "hi_res", "fast", "ocr_only" for pdf/images
     partition_kwargs: dict | None = None,
-    clean_whitespace: bool = True,  # ← NEW: toggle whitespace cleaning
-    combine_under_chars: int = 100,  # ← NEW: make tunable
+    clean_whitespace: bool = True,
+    combine_under_chars: int = 100,
 ) -> list[dict]:
     path = Path(filepath)
     if not path.exists() or not path.is_file():
@@ -139,12 +148,13 @@ def process_directory(
     input_dir: str | Path,
     output_dir: str | Path,
     chunk_size: int = 400,
-    strategy: str = "auto",  # added for consistency
+    strategy: str = "auto",
 ) -> None:
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
 
+    processed_count = 0
     for path in input_dir.rglob("*"):
         if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS:
             try:
@@ -158,12 +168,122 @@ def process_directory(
                     for rec in records:
                         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 print(f"Processed {path.name} → {len(records)} chunks")
+                processed_count += 1
             except Exception as exc:
                 print(f"Failed {path.name}: {exc}")
+    print(f"Directory processing complete. {processed_count} file(s) processed.")
+
+
+def get_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Minimal RAG preprocessing pipeline: partition → clean → chunk → JSONL",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "input",
+        help="Input file or directory",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=OUTPUT_DIR,
+        help="Output **directory** for JSONL files",
+    )
+    parser.add_argument(
+        "-c",
+        "--chunk-size",
+        type=int,
+        default=400,
+        help="Approximate maximum chunk size in characters",
+    )
+    parser.add_argument(
+        "-s",
+        "--strategy",
+        choices=["auto", "fast", "hi_res", "ocr_only"],
+        default="auto",
+        help="Partitioning strategy (especially relevant for PDFs/images)",
+    )
+    parser.add_argument(
+        "--no-metadata",
+        action="store_true",
+        help="Do not include metadata in output JSON",
+    )
+    parser.add_argument(
+        "--no-clean-whitespace",
+        action="store_true",
+        help="Skip mild whitespace normalization",
+    )
+    parser.add_argument(
+        "--combine-under",
+        type=int,
+        default=100,
+        help="Combine small sections under this char count",
+    )
+
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    single_file = "example_docs/contract.pdf"
-    chunks = process_document(single_file, chunk_size=350, strategy="hi_res")
-    print(f"Got {len(chunks)} chunks from {single_file}")
-    print(json.dumps(chunks[:2], indent=2))
+    args = get_args()
+
+    input_path = Path(args.input)
+    output_dir = Path(args.output) if args.output is not None else None
+
+    include_metadata = not args.no_metadata
+    clean_ws = not args.no_clean_whitespace
+
+    # Create output directory only if we're actually going to write files
+    should_write = True  # will be adjusted below for single-file no-output case
+
+    if input_path.is_file():
+        try:
+            chunks = process_document(
+                input_path,
+                chunk_size=args.chunk_size,
+                include_metadata=include_metadata,
+                strategy=args.strategy,  # type: ignore[arg-type]
+                clean_whitespace=clean_ws,
+                combine_under_chars=args.combine_under,
+            )  # type: ignore
+
+            # Decide whether to write or preview
+            explicit_output = args.output is not None
+            should_write = explicit_output
+
+            if should_write:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                # Always save as <stem>.jsonl in output directory
+                out_filename = f"{input_path.stem}.jsonl"
+                out_path = output_dir / out_filename
+                with out_path.open("w", encoding="utf-8") as f:
+                    for chunk in chunks:
+                        f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
+                print(f"Wrote {len(chunks)} chunks → {out_path}")
+            else:
+                # Print preview
+                print(f"Extracted {len(chunks)} chunks from {input_path.name}")
+                if chunks:
+                    print(json.dumps(chunks[:3], indent=2, ensure_ascii=False))
+                else:
+                    print("No chunks produced.")
+
+        except Exception as exc:
+            print(f"Error processing file {input_path}: {exc}")
+
+    elif input_path.is_dir():
+        if args.output is None:
+            parser = argparse.ArgumentParser()
+            parser.error("--output directory is required when INPUT is a directory")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        process_directory(
+            input_path,
+            output_dir,
+            chunk_size=args.chunk_size,
+            strategy=args.strategy,
+        )
+
+    else:
+        parser = argparse.ArgumentParser()
+        parser.error("Input must be an existing file or directory")
