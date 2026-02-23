@@ -109,10 +109,9 @@ class AudioWaveformWithSpeechProbApp:
         # -------------------------
         # Waveform plot (TOP)
         # -------------------------
-        self.wave_plot = self.win.addPlot(title="Waveform")
+        self.wave_plot = self.win.addPlot()
         self.wave_plot.setYRange(0, 1.1)
-        self.wave_plot.setLabel("left", "Amplitude")
-        self.wave_plot.setLabel("bottom", "Recent blocks (~9.6 s)")
+        self.wave_plot.setLabel("left", "Audio Amp")
         self.wave_curve_zero = self.wave_plot.plot(
             pen=pg.mkPen(color=(150, 150, 150), width=1)
         )
@@ -126,10 +125,9 @@ class AudioWaveformWithSpeechProbApp:
         # -------------------------
         # Speech Probability plot (BOTTOM)
         # -------------------------
-        self.prob_plot = self.win.addPlot(title="Speech Probability")
+        self.prob_plot = self.win.addPlot()
         self.prob_plot.setYRange(0, 1)
-        self.prob_plot.setLabel("left", "Probability")
-        self.prob_plot.setLabel("bottom", "Recent blocks (~9.6 s)")
+        self.prob_plot.setLabel("left", "Speech Prob")
         self.prob_curve_zero = self.prob_plot.plot(
             pen=pg.mkPen(color=(150, 150, 150), width=1)
         )
