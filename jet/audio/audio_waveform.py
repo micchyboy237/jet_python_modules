@@ -72,6 +72,18 @@ class AudioWaveformWithSpeechProbApp:
         self.block_size = block_size
         self.display_points = display_points
 
+        # Thresholds for coloring waveform and probability
+        # Waveform ranges:
+        #   < WAVE_MEDIUM  → gray
+        #   WAVE_MEDIUM ≤ x < WAVE_HIGH  → cyan
+        #   ≥ WAVE_HIGH              → green
+        self.THRES_WAVE_MEDIUM = 0.001
+        self.THRES_WAVE_HIGH = 0.50
+
+        # Speech probability ranges
+        self.THRES_PROB_MEDIUM = 0.001
+        self.THRES_PROB_HIGH = 0.30
+
         # Buffers
         self.wave_buffer = CircularBuffer(display_points)
         self.prob_buffer = CircularBuffer(display_points)
@@ -112,11 +124,21 @@ class AudioWaveformWithSpeechProbApp:
         self.wave_plot = self.win.addPlot()
         self.wave_plot.setYRange(0, 1.1)
         self.wave_plot.setLabel("left", "Audio Amp")
-        self.wave_curve_zero = self.wave_plot.plot(
-            pen=pg.mkPen(color=(150, 150, 150), width=1)
+        self.wave_plot.showGrid(x=True, y=True, alpha=0.15)  # Add faint grid
+        self.wave_curve_low = self.wave_plot.plot(
+            pen=pg.mkPen(color=(150, 150, 150), width=1.2),
+            name="low",
+            connect="finite",
         )
-        self.wave_curve_active = self.wave_plot.plot(
-            pen=pg.mkPen(color=(0, 255, 255), width=1.5)
+        self.wave_curve_mid = self.wave_plot.plot(
+            pen=pg.mkPen(color=(0, 255, 255), width=1.8),
+            name="mid",
+            connect="finite",
+        )
+        self.wave_curve_high = self.wave_plot.plot(
+            pen=pg.mkPen(color=(100, 255, 120), width=2.2),
+            name="high",
+            connect="finite",
         )
 
         # Move to next row
@@ -128,12 +150,24 @@ class AudioWaveformWithSpeechProbApp:
         self.prob_plot = self.win.addPlot()
         self.prob_plot.setYRange(0, 1)
         self.prob_plot.setLabel("left", "Speech Prob")
-        self.prob_curve_zero = self.prob_plot.plot(
-            pen=pg.mkPen(color=(150, 150, 150), width=1)
+        self.prob_plot.showGrid(x=True, y=True, alpha=0.15)  # Add faint grid
+        self.prob_curve_low = self.prob_plot.plot(
+            pen=pg.mkPen(color=(150, 150, 150), width=1.2),
+            name="low",
+            connect="finite",
         )
-        self.prob_curve_active = self.prob_plot.plot(
-            pen=pg.mkPen(color=(0, 255, 255), width=1.5)
+        self.prob_curve_mid = self.prob_plot.plot(
+            pen=pg.mkPen(color=(0, 255, 255), width=1.8),
+            name="mid",
+            connect="finite",
         )
+        self.prob_curve_high = self.prob_plot.plot(
+            pen=pg.mkPen(color=(100, 255, 120), width=2.2),
+            name="high",
+            connect="finite",
+        )
+        # Optional: keep for debugging
+        # self.prob_plot.addLegend()
 
         # Position at bottom-right corner with small margin
         screen = QtWidgets.QApplication.primaryScreen().geometry()
@@ -165,12 +199,12 @@ class AudioWaveformWithSpeechProbApp:
         samples = indata[:, 0].astype(np.float32)
 
         # Waveform: one value per block → peak absolute amplitude
-        wave_value = np.max(np.abs(samples)) if len(samples) > 0 else 0.0
+        wave_value = np.max(np.abs(samples)) if samples.size > 0 else 0.0
         self.wave_buffer.append(wave_value)
 
         # Speech probability (existing logic)
         energy = np.mean(np.abs(samples))
-        prob = min(1.0, energy * 5.0)
+        prob = min(1.0, energy * 5.0)  # ← you can later replace with real VAD
         self.prob_buffer.append(prob)
 
     # -------------------------------------------------------------------------
@@ -180,22 +214,49 @@ class AudioWaveformWithSpeechProbApp:
         if len(wave_data) > 0:
             x = np.arange(len(wave_data), dtype=np.float32)
 
-            # Split zero vs non-zero
-            wave_zero = np.where(wave_data == 0.0, wave_data, np.nan)
-            wave_active = np.where(wave_data != 0.0, wave_data, np.nan)
+            # Create masks
+            low_mask = wave_data < self.THRES_WAVE_MEDIUM
+            mid_mask = (wave_data >= self.THRES_WAVE_MEDIUM) & (
+                wave_data < self.THRES_WAVE_HIGH
+            )
+            high_mask = wave_data >= self.THRES_WAVE_HIGH
 
-            self.wave_curve_zero.setData(x, wave_zero)
-            self.wave_curve_active.setData(x, wave_active)
+            # Ensure continuity by overlapping boundary points
+            for mask in (low_mask, mid_mask, high_mask):
+                mask[:-1] |= mask[1:]
+                mask[1:] |= mask[:-1]
+
+            low = np.where(low_mask, wave_data, np.nan)
+            mid = np.where(mid_mask, wave_data, np.nan)
+            high = np.where(high_mask, wave_data, np.nan)
+
+            self.wave_curve_low.setData(x, low)
+            self.wave_curve_mid.setData(x, mid)
+            self.wave_curve_high.setData(x, high)
 
         prob_data = self.prob_buffer.to_array()
         if len(prob_data) > 0:
             x_prob = np.arange(len(prob_data), dtype=np.float32)
 
-            prob_zero = np.where(prob_data == 0.0, prob_data, np.nan)
-            prob_active = np.where(prob_data != 0.0, prob_data, np.nan)
+            # Create masks
+            low_mask = prob_data < self.THRES_PROB_MEDIUM
+            mid_mask = (prob_data >= self.THRES_PROB_MEDIUM) & (
+                prob_data < self.THRES_PROB_HIGH
+            )
+            high_mask = prob_data >= self.THRES_PROB_HIGH
 
-            self.prob_curve_zero.setData(x_prob, prob_zero)
-            self.prob_curve_active.setData(x_prob, prob_active)
+            # Ensure continuity by overlapping boundary points
+            for mask in (low_mask, mid_mask, high_mask):
+                mask[:-1] |= mask[1:]
+                mask[1:] |= mask[:-1]
+
+            low = np.where(low_mask, prob_data, np.nan)
+            mid = np.where(mid_mask, prob_data, np.nan)
+            high = np.where(high_mask, prob_data, np.nan)
+
+            self.prob_curve_low.setData(x_prob, low)
+            self.prob_curve_mid.setData(x_prob, mid)
+            self.prob_curve_high.setData(x_prob, high)
 
     # -------------------------------------------------------------------------
 
