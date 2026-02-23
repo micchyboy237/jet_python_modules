@@ -101,7 +101,7 @@ class AudioWaveformWithSpeechProbApp:
         # Layout window
         self.win = pg.GraphicsLayoutWidget(
             show=False,  # ← important: do NOT show yet
-            size=(450, 600),
+            size=(450, 300),
             title="Realtime Audio + Speech Probability",
         )
         self.win.setWindowFlags(flags)
