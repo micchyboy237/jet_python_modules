@@ -77,11 +77,11 @@ class AudioWaveformWithSpeechProbApp:
         #   < WAVE_MEDIUM  → gray
         #   WAVE_MEDIUM ≤ x < WAVE_HIGH  → cyan
         #   ≥ WAVE_HIGH              → green
-        self.THRES_WAVE_MEDIUM = 0.001
-        self.THRES_WAVE_HIGH = 0.50
+        self.THRES_WAVE_MEDIUM = 0.05
+        self.THRES_WAVE_HIGH = 0.30
 
         # Speech probability ranges
-        self.THRES_PROB_MEDIUM = 0.001
+        self.THRES_PROB_MEDIUM = 0.05
         self.THRES_PROB_HIGH = 0.30
 
         # Buffers
