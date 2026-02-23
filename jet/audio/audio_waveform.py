@@ -66,7 +66,7 @@ class AudioWaveformWithSpeechProbApp:
         self,
         samplerate: int = 16000,
         block_size: int = 512,
-        display_points: int = 300,  # ≈ 9.6 seconds @ 512 samples / 32 ms per block
+        display_points: int = 200,  # ≈ 6.4 seconds @ 512 samples / 32 ms per block
     ) -> None:
         self.samplerate = samplerate
         self.block_size = block_size
@@ -113,7 +113,12 @@ class AudioWaveformWithSpeechProbApp:
         self.wave_plot.setYRange(0, 1.1)
         self.wave_plot.setLabel("left", "Amplitude")
         self.wave_plot.setLabel("bottom", "Recent blocks (~9.6 s)")
-        self.wave_curve = self.wave_plot.plot(pen="c")
+        self.wave_curve_zero = self.wave_plot.plot(
+            pen=pg.mkPen(color=(150, 150, 150), width=2)
+        )
+        self.wave_curve_active = self.wave_plot.plot(
+            pen=pg.mkPen(color=(0, 255, 255), width=2)
+        )
 
         # Move to next row
         self.win.nextRow()
@@ -125,7 +130,12 @@ class AudioWaveformWithSpeechProbApp:
         self.prob_plot.setYRange(0, 1)
         self.prob_plot.setLabel("left", "Probability")
         self.prob_plot.setLabel("bottom", "Recent blocks (~9.6 s)")
-        self.prob_curve = self.prob_plot.plot(pen="y")
+        self.prob_curve_zero = self.prob_plot.plot(
+            pen=pg.mkPen(color=(150, 150, 150), width=2)
+        )
+        self.prob_curve_active = self.prob_plot.plot(
+            pen=pg.mkPen(color=(0, 255, 255), width=2)
+        )
 
         # Position at bottom-right corner with small margin
         screen = QtWidgets.QApplication.primaryScreen().geometry()
@@ -171,12 +181,23 @@ class AudioWaveformWithSpeechProbApp:
         wave_data = self.wave_buffer.to_array()
         if len(wave_data) > 0:
             x = np.arange(len(wave_data), dtype=np.float32)
-            self.wave_curve.setData(x, wave_data)  # already absolute & aggregated
+
+            # Split zero vs non-zero
+            wave_zero = np.where(wave_data == 0.0, wave_data, np.nan)
+            wave_active = np.where(wave_data != 0.0, wave_data, np.nan)
+
+            self.wave_curve_zero.setData(x, wave_zero)
+            self.wave_curve_active.setData(x, wave_active)
 
         prob_data = self.prob_buffer.to_array()
         if len(prob_data) > 0:
-            x_prob = np.arange(len(prob_data))
-            self.prob_curve.setData(x_prob, prob_data)
+            x_prob = np.arange(len(prob_data), dtype=np.float32)
+
+            prob_zero = np.where(prob_data == 0.0, prob_data, np.nan)
+            prob_active = np.where(prob_data != 0.0, prob_data, np.nan)
+
+            self.prob_curve_zero.setData(x_prob, prob_zero)
+            self.prob_curve_active.setData(x_prob, prob_active)
 
     # -------------------------------------------------------------------------
 
