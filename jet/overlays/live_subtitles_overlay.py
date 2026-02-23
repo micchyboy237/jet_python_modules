@@ -569,9 +569,9 @@ class LiveSubtitlesOverlay(QWidget):
         subtitle_message: SubtitleMessage = {
             "id": mid,
             "translated_text": translated_text.strip(),
-            "start_sec": start_sec,
-            "end_sec": end_sec,
-            "duration_sec": duration_sec,
+            "start_sec": round(start_sec, 2),
+            "end_sec": round(end_sec, 2),
+            "duration_sec": round(duration_sec, 2),
             "source_text": (source_text or "").strip(),
         }
 

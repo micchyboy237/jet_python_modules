@@ -1,12 +1,14 @@
 """
 Realtime audio waveform + speech probability visualizer.
 
-Two stacked plots:
+Three stacked plots:
 1. Waveform
-2. Speech probability (0–1)
+2. Speech probability (0–1) — Silero VAD
+3. Speech probability (0–1) — SpeechBrain CRDNN VAD
 
 Dependencies:
     pip install sounddevice numpy pyqtgraph torch
+    pip install speechbrain          # for the third plot
 """
 
 from __future__ import annotations
@@ -99,6 +101,64 @@ class SileroVAD:
 
 
 # -----------------------------------------------------------------------------
+# SpeechBrain VAD Wrapper
+# -----------------------------------------------------------------------------
+
+
+class SpeechBrainVADWrapper:
+    """Wrapper for speechbrain vad-crdnn-libriparty with simple streaming-like API."""
+
+    def __init__(self, device: str | None = None) -> None:
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
+
+        print(
+            f"Loading SpeechBrain VAD (vad-crdnn-libriparty) on {self.device}... ",
+            end="",
+            flush=True,
+        )
+        from speechbrain.inference.VAD import VAD
+
+        self.vad = VAD.from_hparams(
+            source="speechbrain/vad-crdnn-libriparty",
+            savedir="pretrained_models/vad-crdnn-libriparty",
+            run_opts={"device": str(self.device)},
+        )
+        self.vad.eval()
+        print("done.")
+
+        self.sample_rate = 16000  # required by model
+        self.context_samples = int(
+            1.6 * self.sample_rate
+        )  # ~1.6 s context — good trade-off
+        self.audio_ring: torch.Tensor = torch.zeros(
+            self.context_samples, dtype=torch.float32, device=self.device
+        )
+        self.write_pos = 0
+
+    @torch.inference_mode()
+    def get_speech_prob(self, chunk: np.ndarray) -> float:
+        if len(chunk) == 0:
+            return 0.0
+
+        # Append new chunk to ring buffer (overwrite oldest)
+        chunk_t = torch.from_numpy(chunk).float().to(self.device)
+        chunk_len = len(chunk_t)
+        space = self.context_samples - self.write_pos
+        if chunk_len <= space:
+            self.audio_ring[self.write_pos : self.write_pos + chunk_len] = chunk_t
+            self.write_pos += chunk_len
+        else:
+            self.audio_ring[:chunk_len] = chunk_t[-self.context_samples :]
+            self.write_pos = chunk_len
+
+        # Run inference on current context
+        prob_tensor = self.vad.get_speech_prob_chunk(self.audio_ring.unsqueeze(0))
+        return float(prob_tensor[-1, -1].item())  # last frame of last chunk
+
+
+# -----------------------------------------------------------------------------
 # Main App
 # -----------------------------------------------------------------------------
 
@@ -107,7 +167,8 @@ class AudioWaveformWithSpeechProbApp:
     """
     Displays:
         - Waveform (top)
-        - Speech probability (bottom)
+        - Speech probability (middle, Silero VAD)
+        - Speech probability (bottom, SpeechBrain CRDNN VAD)
     """
 
     def __init__(
@@ -133,15 +194,18 @@ class AudioWaveformWithSpeechProbApp:
         self.THRES_PROB_HIGH = 0.15
 
         self.vad = SileroVAD(samplerate=self.samplerate)
+        self.vad_sb = SpeechBrainVADWrapper()  # speechbrain vad
 
         # Buffers
         self.wave_buffer = CircularBuffer(display_points)
         self.prob_buffer = CircularBuffer(display_points)
+        self.prob_sb_buffer = CircularBuffer(display_points)
 
         # Initialize with zeros for smooth startup visual
         for _ in range(display_points):
             self.wave_buffer.append(0.0)
             self.prob_buffer.append(0.0)
+            self.prob_sb_buffer.append(0.0)
 
         # Qt App
         self.app = QtWidgets.QApplication.instance()
@@ -195,7 +259,7 @@ class AudioWaveformWithSpeechProbApp:
         self.win.nextRow()
 
         # -------------------------
-        # Speech Probability plot (BOTTOM)
+        # Speech Probability plot (MIDDLE, Silero)
         # -------------------------
         self.prob_plot = self.win.addPlot()
         self.prob_plot.setYRange(0, 1)
@@ -218,6 +282,26 @@ class AudioWaveformWithSpeechProbApp:
         )
         # Optional: keep for debugging
         # self.prob_plot.addLegend()
+
+        # Move to next row for SpeechBrain plot
+        self.win.nextRow()
+
+        # -------------------------
+        # SpeechBrain VAD Probability plot (BOTTOM)
+        # -------------------------
+        self.prob_sb_plot = self.win.addPlot(title="SpeechBrain VAD Prob")
+        self.prob_sb_plot.setYRange(0, 1)
+        self.prob_sb_plot.setLabel("left", "SB Speech Prob")
+        self.prob_sb_plot.showGrid(x=True, y=True, alpha=0.15)
+        self.prob_sb_low = self.prob_sb_plot.plot(
+            pen=pg.mkPen(color=(180, 150, 180), width=1.2)
+        )
+        self.prob_sb_mid = self.prob_sb_plot.plot(
+            pen=pg.mkPen(color=(200, 100, 200), width=1.8)
+        )
+        self.prob_sb_high = self.prob_sb_plot.plot(
+            pen=pg.mkPen(color=(220, 60, 220), width=2.2)
+        )
 
         # Position at bottom-right corner with small margin
         screen = QtWidgets.QApplication.primaryScreen().geometry()
@@ -255,6 +339,10 @@ class AudioWaveformWithSpeechProbApp:
         # Real speech probability from Silero VAD
         prob = self.vad.get_speech_prob(samples)
         self.prob_buffer.append(prob)
+
+        # SpeechBrain VAD
+        prob_sb = self.vad_sb.get_speech_prob(samples)
+        self.prob_sb_buffer.append(prob_sb)
 
     # -------------------------------------------------------------------------
 
@@ -306,6 +394,29 @@ class AudioWaveformWithSpeechProbApp:
             self.prob_curve_low.setData(x_prob, low)
             self.prob_curve_mid.setData(x_prob, mid)
             self.prob_curve_high.setData(x_prob, high)
+
+        # ── SpeechBrain prob plot ───────────────────────────────────────
+        prob_sb_data = self.prob_sb_buffer.to_array()
+        if len(prob_sb_data) > 0:
+            x_prob = np.arange(len(prob_sb_data), dtype=np.float32)
+
+            low_mask = prob_sb_data < self.THRES_PROB_MEDIUM
+            mid_mask = (prob_sb_data >= self.THRES_PROB_MEDIUM) & (
+                prob_sb_data < self.THRES_PROB_HIGH
+            )
+            high_mask = prob_sb_data >= self.THRES_PROB_HIGH
+
+            for mask in (low_mask, mid_mask, high_mask):
+                mask[:-1] |= mask[1:]
+                mask[1:] |= mask[:-1]
+
+            low = np.where(low_mask, prob_sb_data, np.nan)
+            mid = np.where(mid_mask, prob_sb_data, np.nan)
+            high = np.where(high_mask, prob_sb_data, np.nan)
+
+            self.prob_sb_low.setData(x_prob, low)
+            self.prob_sb_mid.setData(x_prob, mid)
+            self.prob_sb_high.setData(x_prob, high)
 
     # -------------------------------------------------------------------------
 
