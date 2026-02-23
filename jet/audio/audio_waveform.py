@@ -6,7 +6,7 @@ Two stacked plots:
 2. Speech probability (0–1)
 
 Dependencies:
-    pip install sounddevice numpy pyqtgraph
+    pip install sounddevice numpy pyqtgraph torch
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import Deque
 import numpy as np
 import pyqtgraph as pg
 import sounddevice as sd
+import torch
 from pyqtgraph.Qt import QtCore, QtWidgets
 
 # -----------------------------------------------------------------------------
@@ -48,6 +49,53 @@ class CircularBuffer:
 
     def __len__(self) -> int:
         return len(self._buffer)
+
+
+# -----------------------------------------------------------------------------
+# Silero VAD Wrapper
+# -----------------------------------------------------------------------------
+
+
+class SileroVAD:
+    """Thin wrapper around Silero VAD model for streaming usage."""
+
+    def __init__(self, samplerate: int = 16000, device: str | None = None) -> None:
+        if samplerate not in (8000, 16000):
+            raise ValueError("Silero VAD only supports 8000 Hz or 16000 Hz")
+
+        self.samplerate = samplerate
+
+        if device is None:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = torch.device(device)
+
+        print(f"Loading Silero VAD on {self.device}... ", end="", flush=True)
+
+        self.model, _ = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad",
+            model="silero_vad",
+            force_reload=False,
+        )
+        self.model.to(self.device)
+        self.model.eval()
+
+        torch.set_num_threads(1)  # recommended for desktop/low-core-count
+
+        print("done.")
+
+    @torch.inference_mode()
+    def get_speech_prob(self, chunk: np.ndarray) -> float:
+        """
+        Compute speech probability for one audio block.
+        chunk: float32, shape (n_samples,)
+        """
+        if chunk.ndim != 1:
+            raise ValueError("Expected 1D audio chunk")
+
+        tensor = torch.from_numpy(chunk).float().to(self.device).unsqueeze(0)
+        prob = self.model(tensor, self.samplerate).item()
+        return prob
 
 
 # -----------------------------------------------------------------------------
@@ -83,6 +131,8 @@ class AudioWaveformWithSpeechProbApp:
         # Speech probability ranges
         self.THRES_PROB_MEDIUM = 0.01
         self.THRES_PROB_HIGH = 0.15
+
+        self.vad = SileroVAD(samplerate=self.samplerate)
 
         # Buffers
         self.wave_buffer = CircularBuffer(display_points)
@@ -202,9 +252,8 @@ class AudioWaveformWithSpeechProbApp:
         wave_value = np.max(np.abs(samples)) if samples.size > 0 else 0.0
         self.wave_buffer.append(wave_value)
 
-        # Speech probability (existing logic)
-        energy = np.mean(np.abs(samples))
-        prob = min(1.0, energy * 5.0)  # ← you can later replace with real VAD
+        # Real speech probability from Silero VAD
+        prob = self.vad.get_speech_prob(samples)
         self.prob_buffer.append(prob)
 
     # -------------------------------------------------------------------------
