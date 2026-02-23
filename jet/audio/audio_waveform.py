@@ -190,8 +190,8 @@ class AudioWaveformWithSpeechProbApp:
         self.THRES_WAVE_HIGH = 0.15
 
         # Speech probability ranges
-        self.THRES_PROB_MEDIUM = 0.01
-        self.THRES_PROB_HIGH = 0.15
+        self.THRES_PROB_MEDIUM = 0.3
+        self.THRES_PROB_HIGH = 0.7
 
         self.vad = SileroVAD(samplerate=self.samplerate)
         self.vad_sb = SpeechBrainVADWrapper()  # speechbrain vad
