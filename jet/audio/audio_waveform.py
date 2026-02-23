@@ -131,10 +131,10 @@ class AudioWaveformWithSpeechProbApp:
         self.prob_plot.setLabel("left", "Probability")
         self.prob_plot.setLabel("bottom", "Recent blocks (~9.6 s)")
         self.prob_curve_zero = self.prob_plot.plot(
-            pen=pg.mkPen(color=(150, 150, 150), width=2)
+            pen=pg.mkPen(color=(150, 150, 150), width=1.5)
         )
         self.prob_curve_active = self.prob_plot.plot(
-            pen=pg.mkPen(color=(0, 255, 255), width=2)
+            pen=pg.mkPen(color=(0, 255, 255), width=1.5)
         )
 
         # Position at bottom-right corner with small margin
