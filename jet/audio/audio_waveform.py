@@ -11,6 +11,7 @@ Dependencies:
 
 from __future__ import annotations
 
+import signal
 import sys
 from collections import deque
 from typing import Deque
@@ -75,18 +76,35 @@ class AudioWaveformWithSpeechProbApp:
         self.wave_buffer = CircularBuffer(self.window_samples)
         self.prob_buffer = CircularBuffer(200)  # fewer points needed
 
+        # Remove initial frames animation
+        self.prob_buffer = CircularBuffer(200)
+        for _ in range(200):
+            self.prob_buffer.append(0.0)
+
         # Qt App
         self.app = QtWidgets.QApplication.instance()
         if self.app is None:
             self.app = QtWidgets.QApplication(sys.argv)
+        self.app.setQuitOnLastWindowClosed(False)
+
+        def _quit_on_sigint(sig, frame):
+            self.app.quit()
+
+        signal.signal(signal.SIGINT, _quit_on_sigint)
 
         # Enable OpenGL for smoother performance
         pg.setConfigOptions(useOpenGL=True)
 
+        # Prepare flags first
+        flags = QtCore.Qt.WindowType.Window | QtCore.Qt.WindowType.WindowStaysOnTopHint
+
         # Layout window
         self.win = pg.GraphicsLayoutWidget(
-            show=True, title="Realtime Audio + Speech Probability"
+            show=False,  # ← important: do NOT show yet
+            size=(450, 600),
+            title="Realtime Audio + Speech Probability",
         )
+        self.win.setWindowFlags(flags)
 
         # -------------------------
         # Waveform plot (TOP)
@@ -108,6 +126,15 @@ class AudioWaveformWithSpeechProbApp:
         self.prob_plot.setLabel("left", "Probability")
         self.prob_plot.setLabel("bottom", "Frames")
         self.prob_curve = self.prob_plot.plot(pen="y")
+
+        # Position at bottom-right corner with small margin
+        screen = QtWidgets.QApplication.primaryScreen().geometry()
+        margin = 0
+        x = screen.width() - self.win.width() - margin
+        y = screen.height() - self.win.height() - 70 - margin
+        self.win.move(max(0, x), max(0, y))  # prevent going off-screen left/top
+
+        self.win.show()  # show explicitly after flags & position
 
         # Audio stream
         self.stream = sd.InputStream(
