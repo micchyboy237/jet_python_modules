@@ -66,19 +66,19 @@ class AudioWaveformWithSpeechProbApp:
         self,
         samplerate: int = 16000,
         block_size: int = 512,
-        window_ms: int = 200,
+        display_points: int = 300,  # ≈ 9.6 seconds @ 512 samples / 32 ms per block
     ) -> None:
         self.samplerate = samplerate
         self.block_size = block_size
-        self.window_samples = int(window_ms * samplerate / 1000)
+        self.display_points = display_points
 
         # Buffers
-        self.wave_buffer = CircularBuffer(self.window_samples)
-        self.prob_buffer = CircularBuffer(200)  # fewer points needed
+        self.wave_buffer = CircularBuffer(display_points)
+        self.prob_buffer = CircularBuffer(display_points)
 
-        # Remove initial frames animation
-        self.prob_buffer = CircularBuffer(200)
-        for _ in range(200):
+        # Initialize with zeros for smooth startup visual
+        for _ in range(display_points):
+            self.wave_buffer.append(0.0)
             self.prob_buffer.append(0.0)
 
         # Qt App
@@ -110,9 +110,9 @@ class AudioWaveformWithSpeechProbApp:
         # Waveform plot (TOP)
         # -------------------------
         self.wave_plot = self.win.addPlot(title="Waveform")
-        self.wave_plot.setYRange(-1, 1)
+        self.wave_plot.setYRange(0, 1.1)
         self.wave_plot.setLabel("left", "Amplitude")
-        self.wave_plot.setLabel("bottom", "Time", units="s")
+        self.wave_plot.setLabel("bottom", "Recent blocks (~9.6 s)")
         self.wave_curve = self.wave_plot.plot(pen="c")
 
         # Move to next row
@@ -124,7 +124,7 @@ class AudioWaveformWithSpeechProbApp:
         self.prob_plot = self.win.addPlot(title="Speech Probability")
         self.prob_plot.setYRange(0, 1)
         self.prob_plot.setLabel("left", "Probability")
-        self.prob_plot.setLabel("bottom", "Frames")
+        self.prob_plot.setLabel("bottom", "Recent blocks (~9.6 s)")
         self.prob_curve = self.prob_plot.plot(pen="y")
 
         # Position at bottom-right corner with small margin
@@ -154,34 +154,25 @@ class AudioWaveformWithSpeechProbApp:
     def _audio_callback(self, indata, frames, time, status) -> None:
         if status:
             print(status)
+        samples = indata[:, 0].astype(np.float32)
 
-        samples = indata[:, 0]
-        self.wave_buffer.append(samples)
+        # Waveform: one value per block → peak absolute amplitude
+        wave_value = np.max(np.abs(samples)) if len(samples) > 0 else 0.0
+        self.wave_buffer.append(wave_value)
 
-        # -----------------------------------------------------
-        # Placeholder speech probability computation
-        # Replace this with real VAD / model output
-        # -----------------------------------------------------
+        # Speech probability (existing logic)
         energy = np.mean(np.abs(samples))
-        prob = min(1.0, energy * 5.0)  # simple normalized proxy
-
+        prob = min(1.0, energy * 5.0)
         self.prob_buffer.append(prob)
 
     # -------------------------------------------------------------------------
 
     def _update_plots(self) -> None:
-        # Update waveform
         wave_data = self.wave_buffer.to_array()
         if len(wave_data) > 0:
-            x = np.linspace(
-                -len(wave_data) / self.samplerate,
-                0,
-                len(wave_data),
-                dtype=np.float32,
-            )
-            self.wave_curve.setData(x, wave_data)
+            x = np.arange(len(wave_data), dtype=np.float32)
+            self.wave_curve.setData(x, wave_data)  # already absolute & aggregated
 
-        # Update probability plot
         prob_data = self.prob_buffer.to_array()
         if len(prob_data) > 0:
             x_prob = np.arange(len(prob_data))
