@@ -45,7 +45,7 @@ def _prepare_mono_16khz_path(
     sampling_rate: Optional[int] = None,
     target_lufs: float = -14.0,
     peak_target: float = 0.98,
-    normalize_loudness: bool = True,
+    normalize_loudness: bool = False,
 ) -> tuple[str, int]:
     """
     Load/convert audio → mono, 16 kHz, apply loudness norm if requested,
@@ -112,7 +112,7 @@ def extract_speech_timestamps(
     audio: Union[str, Path, np.ndarray, torch.Tensor],
     vad: Optional[VAD] = None,
     threshold: float = 0.5,  # activation_th
-    deactivation_th: float = 0.25,
+    neg_threshold: float = 0.25,  # deactivation_th
     sampling_rate: Optional[int] = None,  # only needed for array/tensor input
     min_speech_duration_ms: int = 250,
     max_speech_duration_s: float = float("inf"),
@@ -121,12 +121,11 @@ def extract_speech_timestamps(
     return_seconds: bool = False,
     time_resolution: int = 2,
     with_scores: bool = False,
-    normalize_loudness: bool = True,
+    normalize_loudness: bool = False,
     include_non_speech: bool = False,
     large_chunk_size: int = 30,
     small_chunk_size: int = 10,
-    close_th: float = 0.25,
-    len_th: float = 0.25,
+    double_check: bool = False,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
     Extract speech timestamps using SpeechBrain VAD (vad-crdnn-libriparty).
@@ -146,22 +145,21 @@ def extract_speech_timestamps(
         with console.status(
             "[bold blue]Running SpeechBrain VAD inference...[/bold blue]"
         ):
-            # Get speech boundaries in seconds (flat tensor: s1, e1, s2, e2, ...)
+            # Get speech boundaries in seconds
             boundaries_sec = vad.get_speech_segments(
                 temp_path,
                 large_chunk_size=large_chunk_size,
                 small_chunk_size=small_chunk_size,
                 activation_th=threshold,
-                deactivation_th=deactivation_th,
-                close_th=close_th,
-                len_th=len_th,
+                deactivation_th=neg_threshold,
+                double_check=double_check,
             )
 
-        # Convert flat tensor to list of (start_sec, end_sec) pairs
+        # Convert flat tensor [N,2] → list of (start_sec, end_sec) pairs
         boundaries_sec = boundaries_sec.view(-1).tolist()
         speech_pairs = list(zip(boundaries_sec[::2], boundaries_sec[1::2]))
 
-        # Get frame-level speech probabilities
+        # Get frame-level speech probabilities (still needed for avg prob & with_scores)
         prob_tensor = vad.get_speech_prob_file(
             temp_path,
             large_chunk_size=large_chunk_size,
@@ -169,7 +167,7 @@ def extract_speech_timestamps(
         )
         probs = prob_tensor.squeeze().cpu().tolist()  # list of float
 
-        # Approximate frame hop (SpeechBrain CRDNN typically ~160 samples @ 16kHz → 10 ms)
+        # Approximate frame hop (SpeechBrain CRDNN typically ~10 ms)
         hop_samples = 160
         hop_sec = hop_samples / sr
 
@@ -253,11 +251,11 @@ if __name__ == "__main__":
 
     segments = extract_speech_timestamps(
         audio_file,
-        threshold=0.5,  # SpeechBrain default activation_th
-        deactivation_th=0.25,
+        threshold=0.3,  # SpeechBrain default activation_th
+        neg_threshold=0.1,
         return_seconds=True,
         time_resolution=2,
-        normalize_loudness=True,
+        normalize_loudness=False,
     )
 
     console.print(f"\n[bold green]Segments found:[/bold green] {len(segments)}\n")
