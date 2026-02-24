@@ -13,7 +13,7 @@ def display_segments(speech_ts):
 
     # Total recorded time approximated by the end of the last speech segment (in samples)
     total_samples = max(seg["end"] for seg in speech_ts)
-    recorded_seconds = total_samples / SAMPLE_RATE
+    recorded_seconds = total_samples
 
     table = Table(title=f"Speech segments (total ~{recorded_seconds:.1f}s recorded)")
 
@@ -25,9 +25,9 @@ def display_segments(speech_ts):
     table.add_column("Status", style="green")
 
     for i, seg in enumerate(speech_ts, 1):
-        start_sec = seg["start"] / SAMPLE_RATE
-        end_sec = seg["end"] / SAMPLE_RATE
-        duration_sec = (seg["end"] - seg["start"]) / SAMPLE_RATE
+        start_sec = seg["start"]
+        end_sec = seg["end"]
+        duration_sec = seg["end"] - seg["start"]
 
         table.add_row(
             str(i),

@@ -27,6 +27,9 @@ def _load_speechbrain_vad() -> VAD:
     return vad
 
 
+vad = _load_speechbrain_vad()
+
+
 def _prepare_mono_16khz_path(
     audio: Union[str, Path, np.ndarray, torch.Tensor],
     sampling_rate: Optional[int] = None,
@@ -89,7 +92,6 @@ def _prepare_mono_16khz_path(
 @torch.no_grad()
 def extract_speech_timestamps(
     audio: Union[str, Path, np.ndarray, torch.Tensor],
-    vad: Optional[VAD] = None,
     threshold: float = 0.5,
     neg_threshold: float = 0.25,
     sampling_rate: int = 16000,
@@ -113,8 +115,6 @@ def extract_speech_timestamps(
         Maximum allowed duration of a single speech segment in seconds.
         Longer segments are split at the longest silence gap (or hard-split if no silence found).
     """
-    if vad is None:
-        vad = _load_speechbrain_vad()
 
     audio_np, sr = load_audio(
         audio,
