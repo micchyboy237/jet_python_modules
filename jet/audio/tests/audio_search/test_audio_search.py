@@ -1,6 +1,10 @@
 import numpy as np
 import pytest
-from jet.audio.audio_search import find_audio_offset, find_audio_offsets
+from jet.audio.audio_search import (
+    find_audio_offset,
+    find_audio_offsets,
+    find_partial_audio_matches,
+)
 
 
 class TestAudioOffset:
@@ -220,3 +224,154 @@ class TestAudioOffsets:
             assert results_wide[0]["confidence"] >= results_tight[1]["confidence"], (
                 "The kept match should have higher or equal confidence than the suppressed one"
             )
+
+
+class TestPartialAudioMatches:
+    SAMPLE_RATE = 1000
+    SHORT_LEN = 600
+
+    def _create_signals_with_partial(self, partial_fraction=0.7, position="middle"):
+        rng = np.random.default_rng(42)
+        silence = np.zeros(1200)
+        core = np.sin(np.linspace(0, 24 * np.pi, self.SHORT_LEN)) + rng.normal(
+            0, 0.06, self.SHORT_LEN
+        )
+
+        partial_len = int(self.SHORT_LEN * partial_fraction)
+
+        if position == "prefix":
+            short_part = core[:partial_len]
+            long_part = core
+        elif position == "suffix":
+            short_part = core[-partial_len:]
+            long_part = core
+        else:  # middle
+            short_part = core[
+                int((self.SHORT_LEN - partial_len) / 2) : int(
+                    (self.SHORT_LEN + partial_len) / 2
+                )
+            ]
+            long_part = core
+
+        long_signal = np.concatenate(
+            [silence, long_part, silence * 2, core * 0.96, silence]
+        )
+        short_signal = short_part + rng.normal(0, 0.04, len(short_part))  # slight noise
+
+        return long_signal, short_signal, partial_len
+
+    def test_given_partial_prefix_match_when_searching_then_finds_it(self):
+        # Given
+        long_signal, short_signal, partial_len = self._create_signals_with_partial(
+            0.65, "prefix"
+        )
+
+        # When
+        results = find_partial_audio_matches(
+            long_signal=long_signal,
+            short_signal=short_signal,
+            sample_rate=self.SAMPLE_RATE,
+            confidence_threshold=0.78,
+            min_match_fraction=0.5,
+            max_match_fraction=1.0,
+            length_step_fraction=0.15,
+            min_distance_samples=200,
+        )
+
+        # Then
+        expected = "Found at least one partial match"
+        assert len(results) >= 1, expected
+
+        best = results[0]
+        assert best.match_length_samples >= int(len(short_signal) * 0.6)
+        assert best.confidence > 0.80
+        assert 1100 <= best.start_sample <= 1400, (
+            "Should be near the beginning of the core signal"
+        )
+
+    def test_given_partial_suffix_match_then_finds_high_confidence(self):
+        # Given
+        long_signal, short_signal, partial_len = self._create_signals_with_partial(
+            0.72, "suffix"
+        )
+
+        # When
+        results = find_partial_audio_matches(
+            long_signal=long_signal,
+            short_signal=short_signal,
+            sample_rate=self.SAMPLE_RATE,
+            confidence_threshold=0.77,
+            min_match_fraction=0.55,
+        )
+
+        # Then
+        assert len(results) >= 1
+        best = max(results, key=lambda x: x.confidence)
+        assert best.confidence > 0.84
+        assert best.match_length_samples >= int(len(short_signal) * 0.68)
+
+    def test_given_middle_partial_then_recovers_correct_region(self):
+        # Given
+        long_signal, short_signal, partial_len = self._create_signals_with_partial(
+            0.6, "middle"
+        )
+
+        # When
+        results = find_partial_audio_matches(
+            long_signal=long_signal,
+            short_signal=short_signal,
+            sample_rate=self.SAMPLE_RATE,
+            confidence_threshold=0.75,
+            min_match_fraction=0.45,
+            length_step_fraction=0.12,
+        )
+
+        # Then
+        assert len(results) > 0
+        found_starts = [r.start_sample for r in results]
+        assert any(1100 < s < 1500 for s in found_starts), (
+            "Should find match in first core region"
+        )
+
+    def test_given_no_reasonable_partial_then_returns_empty(self):
+        # Given
+        rng = np.random.default_rng(123)
+        long_signal = rng.normal(0, 1, 5000)
+        short_signal = np.sin(np.linspace(0, 18 * np.pi, 700)) + rng.normal(0, 0.2, 700)
+
+        # When
+        results = find_partial_audio_matches(
+            long_signal=long_signal,
+            short_signal=short_signal,
+            sample_rate=self.SAMPLE_RATE,
+            confidence_threshold=0.82,
+            min_match_fraction=0.6,
+        )
+
+        # Then
+        assert len(results) == 0
+
+    def test_given_full_match_is_also_found_as_partial(self):
+        # Given
+        rng = np.random.default_rng(99)
+        silence = np.zeros(800)
+        motif = rng.normal(0, 1, self.SHORT_LEN)
+        long_signal = np.concatenate([silence, motif, silence])
+        short_signal = motif.copy()
+
+        # When
+        results = find_partial_audio_matches(
+            long_signal=long_signal,
+            short_signal=short_signal + rng.normal(0, 0.03, len(short_signal)),
+            sample_rate=self.SAMPLE_RATE,
+            confidence_threshold=0.80,
+            min_match_fraction=0.5,
+        )
+
+        # Then
+        lengths = [r.match_length_samples for r in results]
+        assert any(l >= self.SHORT_LEN * 0.95 for l in lengths), (
+            "Full-length match should be found"
+        )
+        confidences = [r.confidence for r in results]
+        assert max(confidences) > 0.96

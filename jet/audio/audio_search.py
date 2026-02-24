@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Optional, TypedDict
 
 import numpy as np
@@ -207,3 +208,131 @@ def find_audio_offsets(
     ]
 
     return results
+
+
+@dataclass
+class PartialAudioMatch:
+    start_sample: int
+    end_sample: int
+    confidence: float
+    match_length_samples: int  # how many samples of short were used
+
+
+def extract_sliding_subsignals(
+    signal: np.ndarray,
+    min_length: int,
+    max_length: int,
+    step: int | None = None,
+) -> list[tuple[np.ndarray, int]]:
+    """
+    Generate overlapping sub-signals from signal[start:start+length].
+    Returns list of (sub_signal, original_start_idx)
+    """
+    if step is None:
+        step = max(1, (max_length - min_length) // 8)
+    subs = []
+    for length in range(min_length, max_length + 1, step):
+        for start in range(0, signal.size - length + 1, step):
+            subs.append((signal[start : start + length], start))
+    return subs
+
+
+def find_partial_audio_matches(
+    long_signal: np.ndarray,
+    short_signal: np.ndarray,
+    sample_rate: int,
+    verbose: bool = True,
+    confidence_threshold: float = 0.75,  # usually lower for partial
+    min_match_fraction: float = 0.5,
+    max_match_fraction: float = 1.0,
+    length_step_fraction: float = 0.1,
+    min_distance_samples: int | None = None,
+    tie_break_epsilon: float = 1e-9,
+    max_subclips: int | None = 60,
+) -> list[PartialAudioMatch]:
+    """
+    Find partial matches by trying multiple sub-clips of short_signal.
+    Returns sorted list of best non-overlapping partial matches.
+    """
+    _validate_inputs(long_signal, short_signal)
+
+    min_len = max(64, int(len(short_signal) * min_match_fraction))
+    max_len = int(len(short_signal) * max_match_fraction)
+    step = max(1, int(len(short_signal) * length_step_fraction))
+
+    sub_clips = extract_sliding_subsignals(short_signal, min_len, max_len, step=step)
+
+    # Optional: early exit if full-length match is very confident
+    full_matches = find_audio_offsets(
+        long_signal,
+        short_signal,
+        sample_rate,
+        verbose=False,
+        confidence_threshold=0.90,
+        min_distance_samples=min_distance_samples,
+    )
+    if full_matches and max(m["confidence"] for m in full_matches) >= 0.92:
+        # Convert to PartialAudioMatch format
+        return [
+            PartialAudioMatch(
+                start_sample=m["start_sample"],
+                end_sample=m["end_sample"],
+                confidence=m["confidence"],
+                match_length_samples=len(short_signal),
+            )
+            for m in full_matches
+        ]
+
+    from joblib import Parallel, delayed
+
+    def process_one(sub_clip: np.ndarray, sub_start: int):
+        matches = find_audio_offsets(
+            long_signal=long_signal,
+            short_signal=sub_clip,
+            sample_rate=sample_rate,
+            verbose=False,
+            confidence_threshold=confidence_threshold,
+            min_distance_samples=min_distance_samples,
+            tie_break_epsilon=tie_break_epsilon,
+        )
+        return [(m, sub_start) for m in matches]
+
+    if max_subclips is not None and len(sub_clips) > max_subclips:
+        # could subsample here, but for simplicity just truncate
+        sub_clips = sub_clips[:max_subclips]
+
+    results = Parallel(n_jobs=-1)(
+        delayed(process_one)(clip, start) for clip, start in sub_clips
+    )
+    all_matches: list[tuple[AudioMatchResult, int]] = [
+        item for sublist in results for item in sublist
+    ]
+
+    # Sort by start position, then prefer longer + higher conf
+    all_matches.sort(
+        key=lambda x: (
+            x[0]["start_sample"],
+            -x[0]["end_sample"] + x[0]["start_sample"],
+            -x[0]["confidence"],
+        )
+    )
+
+    # Simple greedy non-overlap suppression (can be refined)
+    selected: list[PartialAudioMatch] = []
+    used_ranges = []
+
+    for match, sub_start in all_matches:
+        s, e = match["start_sample"], match["end_sample"]
+        if any(s < ue and e > us for us, ue in used_ranges):
+            continue
+        selected.append(
+            PartialAudioMatch(
+                start_sample=s,
+                end_sample=e,
+                confidence=match["confidence"],
+                match_length_samples=e - s,
+            )
+        )
+        used_ranges.append((s, e))
+
+    return sorted(selected, key=lambda x: x.start_sample)
