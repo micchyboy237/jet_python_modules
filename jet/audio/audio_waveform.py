@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import signal
 import sys
+import threading
 from collections import deque
+from queue import Empty, Queue
 from typing import Deque
 
 import numpy as np
@@ -130,8 +132,8 @@ class SpeechBrainVADWrapper:
 
         self.sample_rate = 16000  # required by model
         self.context_samples = int(
-            1.6 * self.sample_rate
-        )  # ~1.6 s context — good trade-off
+            0.5 * self.sample_rate
+        )  # ~0.5 s context — good trade-off
         self.audio_ring: torch.Tensor = torch.zeros(
             self.context_samples, dtype=torch.float32, device=self.device
         )
@@ -195,6 +197,9 @@ class AudioWaveformWithSpeechProbApp:
 
         self.vad = SileroVAD(samplerate=self.samplerate)
         self.vad_sb = SpeechBrainVADWrapper()  # speechbrain vad
+
+        # Thread-safe audio queue (prevents blocking audio callback)
+        self.audio_queue: Queue[np.ndarray] = Queue(maxsize=50)
 
         # Buffers
         self.wave_buffer = CircularBuffer(display_points)
@@ -320,6 +325,14 @@ class AudioWaveformWithSpeechProbApp:
             callback=self._audio_callback,
         )
 
+        # Start background inference thread
+        self._running = True
+        self.worker_thread = threading.Thread(
+            target=self._inference_worker,
+            daemon=True,
+        )
+        self.worker_thread.start()
+
         # UI timer
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self._update_plots)
@@ -331,18 +344,34 @@ class AudioWaveformWithSpeechProbApp:
         if status:
             print(status)
         samples = indata[:, 0].astype(np.float32)
+        try:
+            self.audio_queue.put_nowait(samples)
+        except:
+            pass  # drop if queue full (better than blocking audio thread)
 
-        # Waveform: one value per block → peak absolute amplitude
-        wave_value = np.max(np.abs(samples)) if samples.size > 0 else 0.0
-        self.wave_buffer.append(wave_value)
+    # -------------------------------------------------------------------------
 
-        # Real speech probability from Silero VAD
-        prob = self.vad.get_speech_prob(samples)
-        self.prob_buffer.append(prob)
+    def _inference_worker(self) -> None:
+        """
+        Runs VAD inference off the audio thread.
+        """
+        while self._running:
+            try:
+                samples = self.audio_queue.get(timeout=0.1)
+            except Empty:
+                continue
 
-        # SpeechBrain VAD
-        prob_sb = self.vad_sb.get_speech_prob(samples)
-        self.prob_sb_buffer.append(prob_sb)
+            # Waveform peak
+            wave_value = np.max(np.abs(samples)) if samples.size > 0 else 0.0
+            self.wave_buffer.append(wave_value)
+
+            # Silero VAD
+            prob = self.vad.get_speech_prob(samples)
+            self.prob_buffer.append(prob)
+
+            # SpeechBrain VAD
+            prob_sb = self.vad_sb.get_speech_prob(samples)
+            self.prob_sb_buffer.append(prob_sb)
 
     # -------------------------------------------------------------------------
 
@@ -423,6 +452,7 @@ class AudioWaveformWithSpeechProbApp:
     def start(self) -> None:
         with self.stream:
             self.app.exec()
+        self._running = False
 
 
 # -----------------------------------------------------------------------------
