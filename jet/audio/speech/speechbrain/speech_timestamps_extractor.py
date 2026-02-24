@@ -1,15 +1,14 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Union
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torchaudio
-from jet.audio.norm.norm_speech_loudness import normalize_speech_loudness
 from jet.audio.speech.speechbrain.speech_types import SpeechSegment
-from jet.audio.utils import load_audio
+from jet.audio.utils import convert_audio_to_tensor, load_audio
 from rich.console import Console
 from speechbrain.inference.VAD import VAD
 
@@ -30,72 +29,13 @@ def _load_speechbrain_vad() -> VAD:
 vad = _load_speechbrain_vad()
 
 
-def _prepare_mono_16khz_path(
-    audio: Union[str, Path, np.ndarray, torch.Tensor],
-    sampling_rate: Optional[int] = None,
-    target_lufs: float = -14.0,
-    peak_target: float = 0.98,
-    normalize_loudness: bool = False,
-) -> tuple[str, int]:
-    """
-    Load/convert audio → mono, 16 kHz, apply loudness norm if requested,
-    save to temporary WAV file and return path + sample_rate (always 16000).
-    Caller must delete the temp file after use.
-    """
-    if isinstance(audio, (str, Path)):
-        waveform, sr = torchaudio.load(str(Path(audio)))
-    elif isinstance(audio, np.ndarray):
-        waveform = torch.from_numpy(audio).float()
-        if waveform.ndim == 1:
-            waveform = waveform.unsqueeze(0)
-        sr = sampling_rate
-        if sr is None:
-            raise ValueError("sampling_rate required when audio is numpy array")
-    elif isinstance(audio, torch.Tensor):
-        waveform = audio.float()
-        if waveform.ndim == 1:
-            waveform = waveform.unsqueeze(0)
-        sr = sampling_rate
-        if sr is None:
-            raise ValueError("sampling_rate required when audio is tensor")
-    else:
-        raise TypeError("audio must be path (str/Path), np.ndarray, or torch.Tensor")
-
-    if waveform.shape[0] > 1:
-        waveform = waveform.mean(dim=0, keepdim=True)
-
-    target_sr = 16000
-    if sr != target_sr:
-        resampler = torchaudio.transforms.Resample(sr, target_sr)
-        waveform = resampler(waveform)
-
-    audio_np = waveform.squeeze(0).cpu().numpy()
-    if normalize_loudness:
-        try:
-            audio_np = normalize_speech_loudness(
-                audio=audio_np,
-                sample_rate=target_sr,
-                target_lufs=target_lufs,
-                peak_target=peak_target,
-            )
-        except Exception as e:
-            console.print(
-                f"[yellow]Loudness normalization failed: {e} — using original[/yellow]"
-            )
-
-    waveform = torch.from_numpy(audio_np).unsqueeze(0).clamp(-1.0, 1.0)
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    torchaudio.save(tmp.name, waveform, target_sr)
-    return tmp.name, target_sr
-
-
 @torch.no_grad()
 def extract_speech_timestamps(
-    audio: Union[str, Path, np.ndarray, torch.Tensor],
+    audio: Union[str, Path, np.ndarray, torch.Tensor, list[np.ndarray]],
     threshold: float = 0.5,
     neg_threshold: float = 0.25,
     sampling_rate: int = 16000,
-    max_speech_duration_sec: float = 15.0,
+    max_speech_duration_sec: float | None = None,
     return_seconds: bool = False,
     time_resolution: int = 2,
     with_scores: bool = False,
@@ -108,13 +48,13 @@ def extract_speech_timestamps(
     """
     Extract speech timestamps using SpeechBrain VAD (vad-crdnn-libriparty).
     When include_non_speech=True, returns both speech and non-speech (silence) segments.
-
-    Parameters
-    ----------
-    max_speech_duration_sec : float, default inf
-        Maximum allowed duration of a single speech segment in seconds.
-        Longer segments are split at the longest silence gap (or hard-split if no silence found).
     """
+
+    if max_speech_duration_sec is None:
+        max_speech_duration_sec = 15.0
+
+    if isinstance(audio, list) and all(isinstance(x, np.ndarray) for x in audio):
+        audio = convert_audio_to_tensor(audio)
 
     audio_np, sr = load_audio(
         audio,
@@ -192,107 +132,106 @@ def extract_speech_timestamps(
             win_sec: float = 0.30,
             energy_th_rel: float = 0.13,
         ) -> List[SpeechSegment]:
-            """Split one long speech segment at the longest suitable silence gap."""
-            start_s = float(seg["start"])
-            end_s = float(seg["end"])
-            duration = end_s - start_s
+            """
+            Iteratively split long speech segments.
+            Avoids recursion to prevent maximum recursion depth errors.
+            """
 
-            if duration <= max_dur_sec:
-                return [seg]
-            # ... waveform loading unchanged ...1
+            segments_to_process = [seg]
+            final_segments: List[SpeechSegment] = []
 
-            beg_sample = int(start_s * sr)
-            num_frames = int(duration * sr)
+            while segments_to_process:
+                current = segments_to_process.pop(0)
+                start_s = float(current["start"])
+                end_s = float(current["end"])
+                duration = end_s - start_s
 
-            waveform, _ = torchaudio.load(
-                temp_audio_path,
-                frame_offset=beg_sample,
-                num_frames=num_frames,
-            )
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(0, keepdim=True)
-            waveform = waveform.squeeze(0)  # (time,)
+                # If already small enough, keep it
+                if duration <= max_dur_sec:
+                    final_segments.append(current)
+                    continue
 
-            if waveform.numel() < 100:  # too short → no point splitting
-                return [seg]
+                beg_sample = int(start_s * sr)
+                num_frames = int(duration * sr)
 
-            win_samples = int(win_sec * sr)
-            hop_samples = win_samples // 2
+                waveform, _ = torchaudio.load(
+                    temp_audio_path,
+                    frame_offset=beg_sample,
+                    num_frames=num_frames,
+                )
 
-            # ── 1D short-time RMS ────────────────────────────────────────
-            # Pad so last window is full
-            pad_total = win_samples - hop_samples
-            waveform_padded = F.pad(waveform, (0, pad_total))
+                if waveform.shape[0] > 1:
+                    waveform = waveform.mean(0, keepdim=True)
 
-            # Unfold to (num_windows, win_samples)
-            windows = waveform_padded.unfold(0, win_samples, hop_samples)
+                waveform = waveform.squeeze(0)
 
-            # RMS per window
-            rms = torch.sqrt((windows**2).mean(dim=1) + 1e-10)
+                if waveform.numel() < 100:
+                    final_segments.extend(_force_split_segment(current, max_dur_sec))
+                    continue
 
-            if rms.numel() <= 1:
-                return _force_split_segment(seg, max_dur_sec)
+                win_samples = int(win_sec * sr)
+                hop_samples = win_samples // 2
 
-            max_rms = rms.max()
-            norm_rms = rms / max_rms
-            is_silence = norm_rms < energy_th_rel
+                pad_total = win_samples - hop_samples
+                waveform_padded = F.pad(waveform, (0, pad_total))
+                windows = waveform_padded.unfold(0, win_samples, hop_samples)
 
-            # Find longest consecutive silence region
-            best_len = 0
-            best_start_idx = -1
-            current_len = 0
+                rms = torch.sqrt((windows**2).mean(dim=1) + 1e-10)
 
-            for i, silent in enumerate(is_silence.tolist() + [False]):
-                if silent:
-                    current_len += 1
-                else:
-                    if current_len > best_len:
-                        best_len = current_len
-                        best_start_idx = i - current_len
-                    current_len = 0
+                if rms.numel() <= 1:
+                    final_segments.extend(_force_split_segment(current, max_dur_sec))
+                    continue
 
-            silence_duration = best_len * (hop_samples / sr)
+                norm_rms = rms / (rms.max() + 1e-10)
+                is_silence = norm_rms < energy_th_rel
 
-            if silence_duration < min_silence_sec:
-                return _force_split_segment(seg, max_dur_sec)
+                best_len = 0
+                best_start_idx = -1
+                current_len = 0
 
-            # Split roughly in the middle of the silence region
-            split_idx = best_start_idx + best_len // 2
-            split_sample = beg_sample + split_idx * hop_samples
-            split_sec = split_sample / sr
+                for i, silent in enumerate(is_silence.tolist() + [False]):
+                    if silent:
+                        current_len += 1
+                    else:
+                        if current_len > best_len:
+                            best_len = current_len
+                            best_start_idx = i - current_len
+                        current_len = 0
 
-            # Create proper new segments with recalculated metadata
-            left_seg = make_segment(
-                num=seg["num"],  # temporary – will be renumbered later
-                start_sec=start_s,
-                end_sec=split_sec,
-                seg_type=seg["type"],
-            )
-            right_seg = make_segment(
-                num=seg["num"] + 1,  # temporary
-                start_sec=split_sec,
-                end_sec=end_s,
-                seg_type=seg["type"],
-            )
+                silence_duration = best_len * (hop_samples / sr)
 
-            # Recurse
-            return split_long_speech_segment(
-                left_seg,
-                temp_audio_path,
-                sr,
-                max_dur_sec,
-                min_silence_sec,
-                win_sec,
-                energy_th_rel,
-            ) + split_long_speech_segment(
-                right_seg,
-                temp_audio_path,
-                sr,
-                max_dur_sec,
-                min_silence_sec,
-                win_sec,
-                energy_th_rel,
-            )
+                # If no good silence, fallback to forced split
+                if silence_duration < min_silence_sec or best_start_idx < 0:
+                    final_segments.extend(_force_split_segment(current, max_dur_sec))
+                    continue
+
+                split_idx = best_start_idx + best_len // 2
+                split_sample = beg_sample + split_idx * hop_samples
+                split_sec = split_sample / sr
+
+                # Guard: if split doesn't reduce duration meaningfully
+                if abs(split_sec - start_s) < 0.05 or abs(end_s - split_sec) < 0.05:
+                    final_segments.extend(_force_split_segment(current, max_dur_sec))
+                    continue
+
+                left_seg = make_segment(
+                    current["num"],
+                    start_s,
+                    split_sec,
+                    current["type"],
+                )
+
+                right_seg = make_segment(
+                    current["num"] + 1,
+                    split_sec,
+                    end_s,
+                    current["type"],
+                )
+
+                segments_to_process.append(left_seg)
+                segments_to_process.append(right_seg)
+
+            return final_segments
 
         def _force_split_segment(
             seg: SpeechSegment, max_dur_sec: float

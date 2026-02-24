@@ -6,8 +6,8 @@ from jet.audio.helpers.silence import (
 from rich.table import Table
 
 
-def display_segments(speech_ts):
-    """Display detected speech segments in a clean Rich table with correct time in seconds."""
+def display_segments(speech_ts, done: bool = False):
+    """Display detected speech segments in a clean Rich table with correct time in seconds (includes Speech flag column)."""
     if not speech_ts:
         return
 
@@ -22,20 +22,22 @@ def display_segments(speech_ts):
     table.add_column("End (s)", justify="right")
     table.add_column("Duration (s)", justify="right")
     table.add_column("Score", justify="right")
+    table.add_column("Speech", justify="center")
     table.add_column("Status", style="green")
 
     for i, seg in enumerate(speech_ts, 1):
         start_sec = seg["start"]
         end_sec = seg["end"]
         duration_sec = seg["end"] - seg["start"]
-
+        speech_check = "✅" if seg.get("type") == "speech" else ""
         table.add_row(
             str(i),
             f"{start_sec:.2f}",
             f"{end_sec:.2f}",
             f"{duration_sec:.2f}",
             f"{seg.get('prob', seg.get('score', '-')):.2f}",
-            "active" if i == len(speech_ts) else "",
+            speech_check,
+            "active" if not done and i == len(speech_ts) else "",
         )
 
     from rich import print as rprint

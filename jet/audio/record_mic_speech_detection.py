@@ -17,7 +17,7 @@ from jet.audio.speech.speechbrain.speech_timestamps_extractor import (
     SpeechSegment,
     extract_speech_timestamps,
 )
-from jet.audio.speech.utils import convert_audio_to_tensor, display_segments
+from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from silero_vad import load_silero_vad
 from tqdm import tqdm
@@ -272,8 +272,11 @@ def extract_segment_data(
 def extract_and_display_speech_segments(
     audio_data: list[np.ndarray],
 ) -> list[SpeechSegment]:
-    audio_tensor = convert_audio_to_tensor(audio_data)
     speech_ts, speech_probs = extract_speech_timestamps(
-        audio=audio_tensor, with_scores=True
+        audio=audio_data,
+        with_scores=True,
+        include_non_speech=True,
+        double_check=True,
+        max_speech_duration_sec=8.0,
     )
     return speech_ts

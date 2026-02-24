@@ -55,21 +55,3 @@ class SpeechBrainVAD:
         # Run inference on current context
         prob_tensor = self.vad.get_speech_prob_chunk(self.audio_ring.unsqueeze(0))
         return float(prob_tensor[-1, -1].item())  # last frame of last chunk
-
-    @torch.inference_mode()
-    def get_speech_probs(self, audio: np.ndarray) -> list[float]:
-        """
-        Stateless batched inference.
-        audio: shape (B, T)
-        """
-        if audio.ndim != 2:
-            raise ValueError("Expected shape (batch, samples)")
-
-        audio_t = torch.from_numpy(audio).float().to(self.device)
-        prob_tensor = self.vad.get_speech_prob_chunk(audio_t)
-
-        # Shape: (B, frames, 1)
-        # We want last frame and remove channel dim
-        last_frame = prob_tensor[:, -1, 0]
-
-        return last_frame.detach().cpu().tolist()
