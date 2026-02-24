@@ -130,3 +130,80 @@ def find_audio_offset(
         end_time=end_sample / sample_rate,
         confidence=max_score,
     )
+
+
+def find_audio_offsets(
+    long_signal: np.ndarray,
+    short_signal: np.ndarray,
+    sample_rate: int,
+    verbose: bool = True,
+    confidence_threshold: float = 0.8,
+    min_distance_samples: Optional[int] = None,
+    tie_break_epsilon: float = 1e-9,
+) -> list[AudioMatchResult]:
+    """
+    Find all high-confidence occurrences of short_signal inside long_signal.
+
+    Returns a list of matches sorted by starting position.
+    Uses greedy non-maximum suppression to avoid reporting near-duplicate/strongly overlapping detections.
+    """
+    _validate_inputs(long_signal, short_signal)
+
+    if min_distance_samples is None:
+        # Allow very small overlaps only (e.g. 50 samples), forbid most near-duplicates
+        min_distance_samples = short_signal.size - 50
+
+    ncc = _compute_normalized_cross_correlation(
+        long_signal=long_signal,
+        short_signal=short_signal,
+        verbose=verbose,
+    )
+
+    # Find all positions above threshold
+    candidate_mask = (
+        ncc >= confidence_threshold - tie_break_epsilon
+    )  # slight relaxation for ties
+    if not np.any(candidate_mask):
+        return []
+
+    candidate_indices = np.flatnonzero(candidate_mask)
+    candidate_scores = ncc[candidate_indices]
+
+    # Sort candidates by descending score (best first)
+    sorted_order = np.argsort(-candidate_scores)
+    sorted_candidates = candidate_indices[sorted_order]
+    sorted_scores = candidate_scores[sorted_order]
+
+    selected: list[int] = []
+    used = np.zeros(len(ncc), dtype=bool)
+
+    # Greedy NMS: take best remaining, suppress neighborhood
+    for idx, score in zip(sorted_candidates, sorted_scores):
+        if used[idx]:
+            continue
+
+        selected.append(idx)
+
+        # Suppress nearby peaks (symmetric window)
+        start_suppress = max(0, idx - min_distance_samples)
+        end_suppress = min(len(ncc), idx + min_distance_samples + 1)
+        used[start_suppress:end_suppress] = True
+
+    # Build final results sorted by start position
+    results = [
+        AudioMatchResult(
+            start_sample=start,
+            end_sample=start + short_signal.size,
+            start_time=start / sample_rate,
+            end_time=(start + short_signal.size) / sample_rate,
+            confidence=float(score),  # use the original peak score
+        )
+        for start, score in zip(
+            sorted(selected),
+            [
+                ncc[s] for s in sorted(selected)
+            ],  # or keep sorted_scores if order preserved
+        )
+    ]
+
+    return results
