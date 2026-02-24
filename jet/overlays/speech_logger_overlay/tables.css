@@ -1,0 +1,30 @@
+/* Generic structured data tables inside logs */
+
+.log table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10.5px;
+  margin-top: 4px;
+}
+
+.log th,
+.log td {
+  border: 1px solid #2a2a33;
+  padding: 3px 6px;
+  text-align: right;
+}
+
+.log th {
+  background: #1c1c24;
+  color: #aaa;
+  font-weight: 600;
+}
+
+.log td.type-speech {
+  color: #5af78e;
+  font-weight: 600;
+}
+
+.log td.type-non-speech {
+  color: #ff6b6b;
+}

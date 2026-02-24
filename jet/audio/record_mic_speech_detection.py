@@ -13,7 +13,7 @@ from jet.audio.helpers.silence import (
     detect_silence,
     trim_silent_chunks,
 )
-from jet.audio.speech.silero.speech_timestamps_extractor import (
+from jet.audio.speech.speechbrain.speech_timestamps_extractor import (
     SpeechSegment,
     extract_speech_timestamps,
 )
@@ -112,6 +112,13 @@ def record_from_mic(
                         logger.info(
                             f"Silence detected for {silence_duration}s, stopping recording"
                         )
+
+                        # Freeze segment end BEFORE silence frames
+                        if prev_segment:
+                            prev_segment["end"] = max(
+                                int(prev_segment["start"]),
+                                recorded_frames - silent_count,
+                            )
 
                         if quit_on_silence:
                             break
@@ -267,6 +274,6 @@ def extract_and_display_speech_segments(
 ) -> list[SpeechSegment]:
     audio_tensor = convert_audio_to_tensor(audio_data)
     speech_ts, speech_probs = extract_speech_timestamps(
-        audio=audio_tensor, model=silero_model, with_scores=True
+        audio=audio_tensor, with_scores=True
     )
     return speech_ts

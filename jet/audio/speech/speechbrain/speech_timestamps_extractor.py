@@ -1,30 +1,19 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import List, Literal, Optional, TypedDict, Union
+from typing import List, Literal, Optional, Union
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torchaudio
 from jet.audio.norm.norm_speech_loudness import normalize_speech_loudness
+from jet.audio.speech.speechbrain.speech_types import SpeechSegment
+from jet.audio.utils import load_audio
 from rich.console import Console
 from speechbrain.inference.VAD import VAD
 
 console = Console()
-
-
-class SpeechSegment(TypedDict):
-    num: int
-    start: Union[float, int]
-    end: Union[float, int]
-    prob: float
-    duration: float
-    frames_length: int
-    frame_start: int
-    frame_end: int
-    type: Literal["speech", "non-speech"]
-    segment_probs: List[float]
 
 
 def _load_speechbrain_vad() -> VAD:
@@ -103,8 +92,8 @@ def extract_speech_timestamps(
     vad: Optional[VAD] = None,
     threshold: float = 0.5,
     neg_threshold: float = 0.25,
-    sampling_rate: Optional[int] = None,
-    max_speech_duration_sec: float = float("inf"),
+    sampling_rate: int = 16000,
+    max_speech_duration_sec: float = 15.0,
     return_seconds: bool = False,
     time_resolution: int = 2,
     with_scores: bool = False,
@@ -112,7 +101,7 @@ def extract_speech_timestamps(
     include_non_speech: bool = False,
     large_chunk_size: int = 30,
     small_chunk_size: int = 10,
-    double_check: bool = False,
+    double_check: bool = True,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
     Extract speech timestamps using SpeechBrain VAD (vad-crdnn-libriparty).
@@ -127,11 +116,16 @@ def extract_speech_timestamps(
     if vad is None:
         vad = _load_speechbrain_vad()
 
-    temp_path, sr = _prepare_mono_16khz_path(
+    audio_np, sr = load_audio(
         audio,
-        sampling_rate=sampling_rate,
-        normalize_loudness=normalize_loudness,
+        sr=sampling_rate,
+        # normalize_loudness=normalize_loudness,
     )
+    waveform = torch.from_numpy(audio_np).unsqueeze(0).clamp(-1.0, 1.0)
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    torchaudio.save(tmp.name, waveform, sampling_rate)
+
+    temp_path = tmp.name
 
     try:
         with console.status(
@@ -165,25 +159,23 @@ def extract_speech_timestamps(
             end_sec: float,
             seg_type: Literal["speech", "non-speech"],
         ) -> SpeechSegment:
-            start_sample = int(round(start_sec * sr))
-            end_sample = int(round(end_sec * sr))
+            start_sample = int(start_sec * sr)
+            end_sample = int(end_sec * sr)
             frame_start = int(start_sec / hop_sec)
             frame_end = int(end_sec / hop_sec)
             segment_probs_slice = probs[frame_start : frame_end + 1]
             avg_prob = np.mean(segment_probs_slice) if segment_probs_slice else 0.0
             duration_sec = end_sec - start_sec
 
-            start_val = (
-                round(start_sec, time_resolution) if return_seconds else start_sample
-            )
-            end_val = round(end_sec, time_resolution) if return_seconds else end_sample
+            start_val = start_sec if return_seconds else start_sample
+            end_val = end_sec if return_seconds else end_sample
 
             return SpeechSegment(
                 num=num,
                 start=start_val,
                 end=end_val,
-                prob=round(avg_prob, 4),
-                duration=round(duration_sec, 3),
+                prob=avg_prob,
+                duration=duration_sec,
                 frames_length=len(segment_probs_slice),
                 frame_start=frame_start,
                 frame_end=frame_end,
@@ -207,10 +199,10 @@ def extract_speech_timestamps(
 
             if duration <= max_dur_sec:
                 return [seg]
-            # ... waveform loading unchanged ...
+            # ... waveform loading unchanged ...1
 
-            beg_sample = int(round(start_s * sr))
-            num_frames = int(round(duration * sr))
+            beg_sample = int(start_s * sr)
+            num_frames = int(duration * sr)
 
             waveform, _ = torchaudio.load(
                 temp_audio_path,
@@ -273,12 +265,12 @@ def extract_speech_timestamps(
             left_seg = make_segment(
                 num=seg["num"],  # temporary – will be renumbered later
                 start_sec=start_s,
-                end_sec=round(split_sec, 3),
+                end_sec=split_sec,
                 seg_type=seg["type"],
             )
             right_seg = make_segment(
                 num=seg["num"] + 1,  # temporary
-                start_sec=round(split_sec, 3),
+                start_sec=split_sec,
                 end_sec=end_s,
                 seg_type=seg["type"],
             )
