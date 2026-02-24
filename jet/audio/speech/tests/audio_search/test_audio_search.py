@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from jet.audio.audio_search2 import find_audio_offset
+from jet.audio.audio_search import find_audio_offset
 
 
 class TestAudioOffset:
