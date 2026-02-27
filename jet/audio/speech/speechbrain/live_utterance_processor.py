@@ -1,3 +1,4 @@
+# jet_python_modules/jet/audio/speech/speechbrain/live_utterance_processor.py
 import json
 import os
 import shutil
@@ -15,11 +16,14 @@ OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 SEGMENTS_OUTPUT_DIR = OUTPUT_DIR / "segments"
 SEGMENTS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
 console = Console()
+
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 16000
 WS_URI = os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL", "ws://localhost:8765")
 CLIENT_ID = "mac_client_1"
+
 processor = StreamingSpeechProcessor(
     sampling_rate=SAMPLE_RATE,
     threshold=0.5,
@@ -28,10 +32,11 @@ processor = StreamingSpeechProcessor(
 )
 ws_client = PersistentWSClient(WS_URI)
 ws_client.start()
+
 segment_counter = 0
 
 
-def _save_segment(segment_dict: dict, audio_buffer: np.ndarray):
+def _save_segment(segment_dict: dict, audio_buffer: np.ndarray) -> np.ndarray:
     """
     Save:
         segments/segment_0001/
@@ -43,13 +48,18 @@ def _save_segment(segment_dict: dict, audio_buffer: np.ndarray):
     segment_id = f"segment_{segment_counter:04d}"
     segment_dir = SEGMENTS_OUTPUT_DIR / segment_id
     segment_dir.mkdir(parents=True, exist_ok=True)
+
     start_sec = float(segment_dict["start"])
     end_sec = float(segment_dict["end"])
+
     start_sample = int(start_sec * SAMPLE_RATE)
     end_sample = int(end_sec * SAMPLE_RATE)
+
     segment_audio = audio_buffer[start_sample:end_sample]
+
     wav_path = segment_dir / "sound.wav"
     sf.write(wav_path, segment_audio, SAMPLE_RATE)
+
     metadata = {
         "segment_id": segment_id,
         "type": segment_dict.get("type"),
@@ -60,13 +70,16 @@ def _save_segment(segment_dict: dict, audio_buffer: np.ndarray):
         "sampling_rate": SAMPLE_RATE,
         "num_samples": int(len(segment_audio)),
     }
+
     json_path = segment_dir / "segment.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
+
     console.print(
         f"[bold green]Saved:[/bold green] {segment_id} "
         f"({start_sec:.2f}s - {end_sec:.2f}s)"
     )
+
     segment_int16 = np.clip(segment_audio, -1.0, 1.0)
     segment_int16 = (segment_int16 * 32767.0).astype(np.int16)
     return segment_int16.tobytes()
@@ -75,17 +88,25 @@ def _save_segment(segment_dict: dict, audio_buffer: np.ndarray):
 def audio_callback(indata, frames, time, status):
     if status:
         console.print(status)
+
     mono = np.mean(indata, axis=1).astype(np.float32)
-    previous_buffer = processor.utterance_audio_buffer.copy()
-    payload = processor.process(mono)
+
+    payload, pre_trim_buffer = processor.process(mono)
+
     if payload["submitted_count"] > 0:
         console.print("[bold green]Speech completed![/bold green]")
         console.print(payload)
-        full_audio = np.concatenate([previous_buffer, mono])
+
         utterance_id = str(uuid.uuid4())
-        for segment_counter, seg in enumerate(payload["speech_segments"]):
-            audio_bytes = _save_segment(seg, full_audio)
-            ws_client.send_audio(audio_bytes, CLIENT_ID, utterance_id, segment_counter)
+
+        for seg in payload["speech_segments"]:
+            if pre_trim_buffer is not None:
+                audio_np = _save_segment(seg, pre_trim_buffer)
+                ws_client.send_audio(audio_np, CLIENT_ID, utterance_id, segment_counter)
+            else:
+                console.print(
+                    "[red][WARNING] No pre-trim buffer available for segment — skipping[/red]"
+                )
 
 
 with sd.InputStream(

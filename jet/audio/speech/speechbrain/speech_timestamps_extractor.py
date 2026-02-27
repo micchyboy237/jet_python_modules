@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torchaudio
+from jet.audio.speech.speechbrain.config import SAVE_DIR
 from jet.audio.speech.speechbrain.speech_types import SpeechSegment
 from jet.audio.utils import convert_audio_to_tensor, load_audio
 from rich.console import Console
@@ -20,7 +21,7 @@ def _load_speechbrain_vad() -> VAD:
     with console.status("[bold green]Loading SpeechBrain VAD model...[/bold green]"):
         vad = VAD.from_hparams(
             source="speechbrain/vad-crdnn-libriparty",
-            savedir="pretrained_models/vad-crdnn-libriparty",
+            savedir=SAVE_DIR,
         )
     console.print("✅ SpeechBrain VAD model ready")
     return vad
@@ -316,13 +317,13 @@ def extract_speech_timestamps(
 
 
 if __name__ == "__main__":
-    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
+    audio_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
     console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_file).name}")
     segments = extract_speech_timestamps(
         audio_file,
-        threshold=0.3,
-        neg_threshold=0.1,
-        max_speech_duration_sec=45.0,  # example value
+        threshold=0.5,
+        neg_threshold=0.25,
+        max_speech_duration_sec=8.0,
         return_seconds=True,
         time_resolution=2,
         normalize_loudness=False,

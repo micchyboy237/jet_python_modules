@@ -2,6 +2,7 @@
 
 import numpy as np
 import torch
+from jet.audio.speech.speechbrain.config import SAVE_DIR
 from speechbrain.inference.VAD import VAD
 
 
@@ -21,7 +22,7 @@ class SpeechBrainVAD:
 
         self.vad = VAD.from_hparams(
             source="speechbrain/vad-crdnn-libriparty",
-            savedir="pretrained_models/vad-crdnn-libriparty",
+            savedir=SAVE_DIR,
             run_opts={"device": str(self.device)},
         )
         self.vad.eval()

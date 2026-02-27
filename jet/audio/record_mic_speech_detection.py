@@ -1,7 +1,4 @@
-# record_mic_speech_detection.py
-
-import threading
-from collections.abc import Generator
+from typing import Generator, List, Optional, Tuple
 
 import numpy as np
 import sounddevice as sd
@@ -19,28 +16,24 @@ from jet.audio.speech.speechbrain.speech_timestamps_extractor import (
 )
 from jet.audio.speech.utils import display_segments
 from jet.logger import logger
-from silero_vad import load_silero_vad
 from tqdm import tqdm
-
-silero_model = load_silero_vad(onnx=False)
 
 
 def record_from_mic(
-    duration: int | None = None,
-    silence_threshold: float | None = None,
+    duration: Optional[int] = None,
+    silence_threshold: Optional[float] = None,
     silence_duration: float = 2.0,
-    stop_event: threading.Event | None = None,
     trim_silent: bool = False,
     overlap_seconds: float = 0.0,
     quit_on_silence: bool = False,
-) -> Generator[tuple[SpeechSegment, np.ndarray, np.ndarray], None, None]:
+    max_speech_duration_sec: float = 8.0,
+) -> Generator[Tuple[SpeechSegment, np.ndarray, np.ndarray], None, None]:
     """Record audio from microphone with silence detection and progress tracking.
 
     Args:
         duration: Maximum recording duration in seconds (None = indefinite).
         silence_threshold: Silence level in RMS (None = auto-calibrated).
         silence_duration: Seconds of continuous silence to stop recording.
-        stop_event: Optional threading.Event to allow external cancellation.
         trim_silent: If True, removes silent edges from the segments and final audio.
         overlap_seconds: Seconds of overlap to add from the previous segment when yielding a new one (prevents information loss at boundaries).
     """
@@ -69,15 +62,10 @@ def record_from_mic(
     silent_count = 0
     recorded_frames = 0
 
-    completed_segments: list[SpeechSegment] = []
-
-    if stop_event is None:
-        stop_event = threading.Event()
-
-    curr_segment: SpeechSegment | None = None
-    prev_segment: SpeechSegment | None = None
+    curr_segment: Optional[SpeechSegment] = None
+    prev_segment: Optional[SpeechSegment] = None
     last_yielded_end_sample: int = 0
-    speech_ts: list[SpeechSegment] = []
+    speech_ts: List[SpeechSegment] = []
 
     # Initialize progress bar: determinate if duration is set, indeterminate otherwise
     pbar_kwargs = (
@@ -85,7 +73,6 @@ def record_from_mic(
         if duration is not None
         else {"desc": "Recording", "unit": "s", "leave": True}
     )
-
     with tqdm(**pbar_kwargs) as pbar:
         stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype=DTYPE)
 
@@ -94,11 +81,6 @@ def record_from_mic(
                 chunk = stream.read(chunk_size)[0]
                 audio_data.append(chunk)
                 recorded_frames += chunk_size
-
-                if stop_event.is_set():
-                    logger.info("Stop event received, breaking recording loop")
-                    break
-
                 pbar.update(0.5) if duration is not None else pbar.update(
                     0.5
                 )  # Update by 0.5s
@@ -113,13 +95,6 @@ def record_from_mic(
                             f"Silence detected for {silence_duration}s, stopping recording"
                         )
 
-                        # Freeze segment end BEFORE silence frames
-                        if prev_segment:
-                            prev_segment["end"] = max(
-                                int(prev_segment["start"]),
-                                recorded_frames - silent_count,
-                            )
-
                         if quit_on_silence:
                             break
 
@@ -133,28 +108,23 @@ def record_from_mic(
                             full_audio_np = np.concatenate(audio_data, axis=0)
 
                             yield prev_segment, seg_audio_np, full_audio_np
-                            completed_segments.append(prev_segment)
 
                             # Reset segments
                             prev_segment = None
 
                         if speech_ts:
-                            display_segments(speech_ts)  # optional: can move outside
+                            display_segments(speech_ts)
 
                         continue
                 else:
                     silent_count = 0
 
-                # Prevent inflating RAM usage by reducing VAD inference input data
-                trimmed_audio_data = []
                 # Run Silero VAD every chunk to detect speech segments in real-time
-                speech_ts = extract_and_display_speech_segments(audio_data)
+                speech_ts = extract_and_display_speech_segments(
+                    audio_data, max_speech_duration_sec
+                )
                 curr_segment = speech_ts[-1] if speech_ts else prev_segment
                 prev_segment = speech_ts[-2] if len(speech_ts) > 1 else None
-
-                display_segments(
-                    completed_segments + [curr_segment] if curr_segment else []
-                )
 
                 if (
                     curr_segment
@@ -194,10 +164,7 @@ def record_from_mic(
                     full_audio_np = np.concatenate(audio_data, axis=0)
 
                     yield prev_segment, seg_audio_np, full_audio_np
-                    completed_segments.append(prev_segment)
                 prev_segment = curr_segment
-                if stop_event.is_set():
-                    break
 
     if not audio_data:
         logger.warning("No audio recorded")
@@ -217,34 +184,28 @@ def record_from_mic(
             )
             return
 
-        if stop_event.is_set():
-            logger.debug("Stop requested before final segment processing")
-
         seg_audio_np = extract_segment_data(
             prev_segment,
             audio_data,
             trim_silent=trim_silent,
             silence_threshold=silence_threshold,
         )
-
         full_audio_np = np.concatenate(audio_data, axis=0)
 
         yield prev_segment, seg_audio_np, full_audio_np
-        completed_segments.append(prev_segment)
 
-    logger.debug("Recording loop exited cleanly")
     actual_duration = len(audio_data) / SAMPLE_RATE
     logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
 
 
 def extract_segment_data(
     segment: SpeechSegment,
-    audio_np: list[np.ndarray],
+    audio_np: List[np.ndarray],
     trim_silent: bool = True,
-    silence_threshold: float | None = None,
+    silence_threshold: Optional[float] = None,
 ) -> np.ndarray:
-    start_sample = int(segment["start"])
-    end_sample = int(segment["end"])
+    start_sample = int(segment["start"] * SAMPLE_RATE)
+    end_sample = int(segment["end"] * SAMPLE_RATE)
 
     full_audio_np = np.concatenate(audio_np, axis=0)
 
@@ -270,13 +231,14 @@ def extract_segment_data(
 
 
 def extract_and_display_speech_segments(
-    audio_data: list[np.ndarray],
-) -> list[SpeechSegment]:
+    audio_data: List[np.ndarray],
+    max_speech_duration_sec: float,
+) -> List[SpeechSegment]:
     speech_ts, speech_probs = extract_speech_timestamps(
         audio=audio_data,
         with_scores=True,
-        include_non_speech=True,
-        double_check=True,
-        max_speech_duration_sec=8.0,
+        return_seconds=True,
+        max_speech_duration_sec=max_speech_duration_sec,
     )
+    display_segments(speech_ts)
     return speech_ts

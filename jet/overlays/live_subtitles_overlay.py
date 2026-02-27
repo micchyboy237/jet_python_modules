@@ -43,7 +43,7 @@ from PyQt6.QtWidgets import (
 )
 from rich.logging import RichHandler
 
-PLAY_VOLUME = 0.5
+PLAY_VOLUME = 1.0
 MINIMIZED_HEIGHT = 600
 
 
@@ -69,8 +69,8 @@ class SubtitleMessage(TypedDict):
 
     segment_number: NotRequired[int]
     avg_vad_confidence: NotRequired[float]
-    normalized_rms: NotRequired[float]
-    normalized_rms_label: NotRequired[str]
+    rms: NotRequired[float]
+    rms_label: NotRequired[str]
     transcription_confidence: NotRequired[float]
     translation_confidence: NotRequired[float]
     # Removed quality labels from display (still allowed in data)
@@ -587,11 +587,11 @@ class LiveSubtitlesOverlay(QWidget):
             subtitle_message["translation_confidence"] = translation_confidence
         if translation_quality is not None:
             subtitle_message["translation_quality"] = translation_quality
-        # --- NEW: support normalized_rms and normalized_rms_label from kwargs ---
-        if "normalized_rms" in kwargs and kwargs["normalized_rms"] is not None:
-            subtitle_message["normalized_rms"] = kwargs["normalized_rms"]
-        if "normalized_rms_label" in kwargs and kwargs["normalized_rms_label"]:
-            subtitle_message["normalized_rms_label"] = kwargs["normalized_rms_label"]
+        # --- NEW: support rms and rms_label from kwargs ---
+        if "rms" in kwargs and kwargs["rms"] is not None:
+            subtitle_message["rms"] = kwargs["rms"]
+        if "rms_label" in kwargs and kwargs["rms_label"]:
+            subtitle_message["rms_label"] = kwargs["rms_label"]
 
         self.signals._add_message.emit(subtitle_message)
         return mid
@@ -823,7 +823,7 @@ class LiveSubtitlesOverlay(QWidget):
             return "#ff4d4d"
 
         def get_rms_style(value: float | None) -> tuple[str, str]:
-            """Returns (color, fallback_label) for normalized RMS ∈ [0, ≈1].
+            """Returns (color, fallback_label) for RMS ∈ [0, ≈1].
             Reversed gradient per request: strong red = very quiet → cool gray-blue = extremely loud.
             """
             if value is None:
@@ -862,8 +862,8 @@ class LiveSubtitlesOverlay(QWidget):
             lbl.setFont(QFont("Segoe UI", 9))
             items.append(lbl)
 
-        norm_rms = message.get("normalized_rms")
-        norm_label = message.get("normalized_rms_label")
+        norm_rms = message.get("rms")
+        norm_label = message.get("rms_label")
         if norm_rms is not None:
             color, fallback = get_rms_style(norm_rms)
             display_label = norm_label or fallback
