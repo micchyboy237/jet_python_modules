@@ -1,11 +1,14 @@
 import json
+import os
 import shutil
+import uuid
 from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from jet.audio.speech.speechbrain.utterance_processor import StreamingSpeechProcessor
+from jet.audio.speech.speechbrain.ws_client import PersistentWSClient
 from rich.console import Console
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
@@ -19,12 +22,17 @@ console = Console()
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 16000
 
+WS_URI = os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL", "ws://localhost:8765")
+CLIENT_ID = "mac_client_1"
+
 processor = StreamingSpeechProcessor(
     sampling_rate=SAMPLE_RATE,
     threshold=0.5,
     neg_threshold=0.25,
     max_speech_duration_sec=8.0,
 )
+ws_client = PersistentWSClient(WS_URI)
+ws_client.start()  # start once on script init
 
 segment_counter = 0
 
@@ -76,6 +84,11 @@ def _save_segment(segment_dict: dict, audio_buffer: np.ndarray):
         f"({start_sec:.2f}s - {end_sec:.2f}s)"
     )
 
+    # Proper PCM conversion before sending
+    segment_int16 = np.clip(segment_audio, -1.0, 1.0)
+    segment_int16 = (segment_int16 * 32767.0).astype(np.int16)
+    return segment_int16.tobytes()
+
 
 def audio_callback(indata, frames, time, status):
     if status:
@@ -90,9 +103,10 @@ def audio_callback(indata, frames, time, status):
     if payload["submitted_count"] > 0:
         console.print("[bold green]Speech completed![/bold green]")
         console.print(payload)
-
-        for seg in payload["speech_segments"]:
-            _save_segment(seg, previous_buffer)
+        utterance_id = str(uuid.uuid4())
+        for segment_counter, seg in enumerate(payload["speech_segments"]):
+            audio_bytes = _save_segment(seg, previous_buffer)
+            ws_client.send_audio(audio_bytes, CLIENT_ID, utterance_id, segment_counter)
 
 
 with sd.InputStream(

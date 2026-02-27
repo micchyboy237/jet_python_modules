@@ -13,6 +13,7 @@ console = Console()
 
 CHUNK_DURATION_SEC = 30.0
 
+
 def extract_audio_segment(
     audio_buffer: bytearray, start_sec: float, end_sec: float, sample_rate: int = 16000
 ) -> bytearray:
@@ -67,7 +68,7 @@ def extract_buffered_segments(
         time_resolution=3,
         with_scores=False,
         normalize_loudness=False,
-        include_non_speech=True,
+        include_non_speech=False,
         double_check=True,
     )
 

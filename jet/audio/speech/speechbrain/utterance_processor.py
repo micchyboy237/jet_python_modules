@@ -52,7 +52,7 @@ def process_utterance_buffer(
     all_segments = extract_speech_timestamps(
         current_audio,
         sampling_rate=sampling_rate,
-        include_non_speech=True,
+        include_non_speech=False,
         return_seconds=True,
         **extract_kwargs,
     )
