@@ -13,7 +13,9 @@ import re
 from typing import Optional
 
 import helium
-from jet.libs.smolagents.utils.model_utils import create_local_model
+from jet.libs.smolagents.utils.model_utils import (
+    create_local_model,  # assuming this still exists
+)
 from markdownify import markdownify
 from rich.console import Console
 from rich.panel import Panel
@@ -35,7 +37,17 @@ console = Console()
 
 class GoToTool(Tool):
     name = "go_to"
-    description = "Navigate to the specified webpage URL."
+    description = "Navigate the browser to the given URL."
+
+    # ─── Required ────────────────────────────────────────
+    inputs = {
+        "url": {
+            "type": "string",
+            "description": "The full URL to navigate to (e.g. https://example.com)",
+        }
+    }
+    output_type = "string"
+    # ─────────────────────────────────────────────────────
 
     def forward(self, url: str) -> str:
         import helium
@@ -43,18 +55,31 @@ class GoToTool(Tool):
         try:
             helium.go_to(url)
             driver = helium.get_driver()
-            current_url = getattr(driver, "current_url", None) if driver else None
-            if current_url:
-                return f"Successfully navigated to: {current_url}"
-            else:
-                return "Navigation attempted but could not verify current URL."
+            current_url = driver.current_url if driver else None
+            return (
+                f"Successfully navigated to: {current_url}"
+                if current_url
+                else "Navigation succeeded (URL not verified)"
+            )
         except Exception as e:
             return f"Navigation failed: {str(e)}"
 
 
 class TypeIntoSearchBoxTool(Tool):
     name = "type_into_search_box"
-    description = "Type the query into the most likely search input field and submit. Attempts to auto-detect a search input, with an optional custom selector."
+    description = "Locate a search input field (auto-detects common patterns), type the query and press Enter."
+
+    # ─── Required ────────────────────────────────────────
+    inputs = {
+        "query": {"type": "string", "description": "The search term to enter"},
+        "selector": {
+            "type": "string",
+            "description": "Optional custom CSS selector if automatic detection fails",
+            "nullable": True,
+        },
+    }
+    output_type = "string"
+    # ─────────────────────────────────────────────────────
 
     def forward(self, query: str, selector: Optional[str] = None) -> str:
         import helium
@@ -105,7 +130,16 @@ class TypeIntoSearchBoxTool(Tool):
 
 class GetPageMarkdownTool(Tool):
     name = "get_page_content_as_markdown"
-    description = "Get the current page rendered as clean markdown."
+    description = "Return the current page content converted to clean markdown."
+
+    inputs = {
+        "max_length": {
+            "type": "integer",
+            "description": "Maximum length of markdown text to return (characters)",
+            "nullable": True,
+        }
+    }
+    output_type = "string"
 
     def forward(self, max_length: int = 8000) -> str:
         import helium
@@ -128,7 +162,10 @@ class GetPageMarkdownTool(Tool):
 
 class SummarizeSearchResultsTool(Tool):
     name = "summarize_search_results"
-    description = "Extract and summarize visible search results from current page."
+    description = "Extract and return a summary of the main search result snippets visible on the page."
+
+    inputs = {}
+    output_type = "string"
 
     def forward(self) -> str:
         import helium
@@ -189,10 +226,10 @@ def create_search_sub_agent(
 
     return ToolCallingAgent(
         tools=[
-            go_to,
-            type_into_search_box,
-            get_page_content_as_markdown,
-            summarize_search_results,
+            GoToTool(),
+            TypeIntoSearchBoxTool(),
+            GetPageMarkdownTool(),
+            SummarizeSearchResultsTool(),
         ],
         model=model,
         max_steps=max_steps,
@@ -222,6 +259,7 @@ def create_search_manager_agent(sub_agents: list, max_steps: int = 8) -> CodeAge
         verbosity_level=1,
         planning_interval=4,  # plan every 4 steps
         additional_authorized_imports=["re", "time"],
+        code_block_tags=("```python", "```"),
     )
 
 
@@ -236,7 +274,7 @@ def run_site_search(url: str, query: str, headless: bool = False) -> str:
     """
     console.rule("Starting Site-Specific Search Agent System")
 
-    # Initialize Helium browser once
+    # Initialize secure / undetectable browser once
     from seleniumbase import Driver
 
     driver = Driver(uc=True, headless=headless)
@@ -281,23 +319,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run a site-specific search using a multi-agent search-on-site system."
     )
-    parser.add_argument(
+    parser.add_argument(  # positional arguments (easier for quick testing)
         "url",
-        type=str,
-        help="The target website URL to search",
         nargs="?",
+        type=str,
+        help="Target website URL (example: https://duckduckgo.com)",
     )
+
     parser.add_argument(
         "query",
         type=str,
-        help="The search query to use on the site",
         nargs="?",
+        help="The search query to use on the site",
     )
     parser.add_argument(
         "-H",
         "--headless",
         action="store_true",
-        help="Run the browser in headless mode",
+        help="Run browser in headless mode (no visible window)",
         default=False,
     )
 

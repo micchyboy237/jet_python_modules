@@ -68,6 +68,9 @@ class SubtitleMessage(TypedDict):
     source_text: str
 
     segment_number: NotRequired[int]
+    is_partial: NotRequired[bool]
+    chunk_index: NotRequired[int]
+
     avg_vad_confidence: NotRequired[float]
     rms: NotRequired[float]
     rms_label: NotRequired[str]
@@ -557,7 +560,8 @@ class LiveSubtitlesOverlay(QWidget):
         transcription_quality: str | None = None,
         translation_confidence: float | None = None,
         translation_quality: str | None = None,
-        is_partial: bool = False,
+        is_partial: bool | None = None,
+        chunk_index: int | None = None,
         # removed avg_rms_linear and avg_rms_dbfs
         **kwargs,
     ) -> str:
@@ -587,6 +591,12 @@ class LiveSubtitlesOverlay(QWidget):
             subtitle_message["translation_confidence"] = translation_confidence
         if translation_quality is not None:
             subtitle_message["translation_quality"] = translation_quality
+
+        if is_partial is not None:
+            subtitle_message["is_partial"] = is_partial
+        if chunk_index is not None:
+            subtitle_message["chunk_index"] = chunk_index
+
         # --- NEW: support rms and rms_label from kwargs ---
         if "rms" in kwargs and kwargs["rms"] is not None:
             subtitle_message["rms"] = kwargs["rms"]
@@ -731,6 +741,8 @@ class LiveSubtitlesOverlay(QWidget):
         start_sec = message.get("start_sec", 0.0)
         end_sec = message.get("end_sec", 0.0)
         segment_number = message.get("segment_number")
+        is_partial = message.get("is_partial", False)
+        chunk_index = message.get("chunk_index")
 
         # Score-related fields (all optional)
         vad_conf = message.get("avg_vad_confidence")
@@ -765,6 +777,25 @@ class LiveSubtitlesOverlay(QWidget):
             """)
             seg.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
             meta_layout1.addWidget(seg)
+
+            # Partial & chunk indicators (right after segment number)
+            status_parts = []
+            if is_partial:
+                status_parts.append("partial")
+            if chunk_index is not None:
+                # Display 1-based even if stored 0-based
+                display_idx = chunk_index + 1 if chunk_index >= 0 else chunk_index
+                status_parts.append(f"chunk {display_idx}")
+
+            if status_parts:
+                status_text = " • ".join(status_parts)
+                status_label = QLabel(status_text)
+                status_label.setStyleSheet("""
+                    color: #ffbb66;
+                    font-style: italic;
+                    font-size: 11px;
+                """)
+                meta_layout1.addWidget(status_label)
 
         dur = QLabel(f"{duration_sec:.1f}s")
         dur.setStyleSheet("color: #aaa;")
