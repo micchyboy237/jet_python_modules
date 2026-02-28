@@ -10,40 +10,22 @@ import time
 
 import anyio.to_thread
 import httpx
+from jet.libs.smolagents.utils.model_utils import create_local_model
 from rich.console import Console
 from rich.panel import Panel
+from smolagents import CodeAgent
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from smolagents import CodeAgent, OpenAIModel
-
 console = Console()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Reuse from previous examples
-# ──────────────────────────────────────────────────────────────────────────────
-
-def create_local_model(
-    temperature: float = 0.7,
-    max_tokens: int | None = 1024,
-    model_id: str = "local-model",
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        base_url="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Reusable agent factory
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def create_sync_agent(max_steps: int = 6, verbosity_level: int = 1) -> CodeAgent:
     """Creates a simple synchronous CodeAgent using local model."""
@@ -60,9 +42,12 @@ def create_sync_agent(max_steps: int = 6, verbosity_level: int = 1) -> CodeAgent
 # Async helpers & Starlette route examples
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 async def async_run_agent(task: str, agent: CodeAgent) -> str:
     """Runs synchronous agent.run() in a background thread."""
-    console.print(f"[dim]Starting agent task in background thread: {task[:60]}{'...' if len(task) > 60 else ''}[/dim]")
+    console.print(
+        f"[dim]Starting agent task in background thread: {task[:60]}{'...' if len(task) > 60 else ''}[/dim]"
+    )
     start = time.time()
     result = await anyio.to_thread.run_sync(agent.run, task)
     duration = time.time() - start
@@ -71,6 +56,7 @@ async def async_run_agent(task: str, agent: CodeAgent) -> str:
 
 
 # Example Starlette routes
+
 
 async def simple_agent_endpoint(request: Request) -> Response:
     """POST /run-agent → {"task": "..."} → runs agent synchronously in thread"""
@@ -112,16 +98,20 @@ async def streaming_like_endpoint(request: Request) -> Response:
 
 # Minimal app factory (used in demos)
 
+
 def create_minimal_app() -> Starlette:
-    return Starlette(routes=[
-        Route("/run-agent", simple_agent_endpoint, methods=["POST"]),
-        Route("/long-task", streaming_like_endpoint, methods=["POST"]),
-    ])
+    return Starlette(
+        routes=[
+            Route("/run-agent", simple_agent_endpoint, methods=["POST"]),
+            Route("/long-task", streaming_like_endpoint, methods=["POST"]),
+        ]
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Demos (console-based simulations of HTTP calls)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 async def demo_async_1_simple_task():
     """Demo 1: Simple math / reasoning task via async endpoint simulation"""
@@ -153,11 +143,13 @@ async def demo_async_2_via_http_client():
             resp = await client.post("/run-agent", json=payload, timeout=90.0)
             resp.raise_for_status()
             data = resp.json()
-            console.print(Panel(
-                data.get("result", "No result"),
-                title=f"Response (status {resp.status_code})",
-                border_style="green" if resp.status_code == 200 else "red"
-            ))
+            console.print(
+                Panel(
+                    data.get("result", "No result"),
+                    title=f"Response (status {resp.status_code})",
+                    border_style="green" if resp.status_code == 200 else "red",
+                )
+            )
         except Exception as e:
             console.print(f"[red]Request failed:[/red] {str(e)}")
 

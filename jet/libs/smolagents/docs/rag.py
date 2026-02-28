@@ -4,30 +4,14 @@ Demonstration of Agentic RAG using smolagents with LOCAL llama.cpp server
 No LangChain dependencies
 """
 
-import time
 import re
-from typing import List, Dict, Any
+import time
+from typing import Any, Dict, List
 
 import datasets
+from jet.libs.smolagents.utils.model_utils import create_local_model
 from rank_bm25 import BM25Okapi
-
-from smolagents import CodeAgent, Tool, OpenAIModel
-
-
-def create_local_model(
-    temperature: float = 0.7,
-    max_tokens: int | None = None,
-    model_id: str = "local-model",
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        base_url="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-
+from smolagents import CodeAgent, Tool
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Simple text splitter (no LangChain)

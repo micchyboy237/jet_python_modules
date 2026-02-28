@@ -5,51 +5,32 @@ Reuses create_local_model() → your local llama.cpp OpenAI-compatible endpoint
 """
 
 import time
-from typing import Optional
 
+from jet.libs.smolagents.utils.model_utils import create_local_model
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from smolagents import CodeAgent, tool
 from sqlalchemy import (
-    create_engine,
-    MetaData,
-    Table,
     Column,
-    String,
-    Integer,
     Float,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    create_engine,
     insert,
     inspect,
     text,
 )
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-
-from smolagents import CodeAgent, tool, OpenAIModel
 
 console = Console()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Reuse from previous examples
-# ──────────────────────────────────────────────────────────────────────────────
-
-def create_local_model(
-    temperature: float = 0.65,
-    max_tokens: Optional[int] = 1024,
-    model_id: str = "local-model",
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        base_url="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Database setup (run once)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def setup_receipts_database() -> tuple:
     """Creates in-memory SQLite DB with receipts and waiters tables."""
@@ -78,10 +59,20 @@ def setup_receipts_database() -> tuple:
 
     # Insert data
     receipt_rows = [
-        {"receipt_id": 1, "customer_name": "Alan Payne",   "price": 12.06, "tip": 1.20},
-        {"receipt_id": 2, "customer_name": "Alex Mason",   "price": 23.86, "tip": 0.24},
-        {"receipt_id": 3, "customer_name": "Woodrow Wilson","price": 53.43, "tip": 5.43},
-        {"receipt_id": 4, "customer_name": "Margaret James","price": 21.11, "tip": 1.00},
+        {"receipt_id": 1, "customer_name": "Alan Payne", "price": 12.06, "tip": 1.20},
+        {"receipt_id": 2, "customer_name": "Alex Mason", "price": 23.86, "tip": 0.24},
+        {
+            "receipt_id": 3,
+            "customer_name": "Woodrow Wilson",
+            "price": 53.43,
+            "tip": 5.43,
+        },
+        {
+            "receipt_id": 4,
+            "customer_name": "Margaret James",
+            "price": 21.11,
+            "tip": 1.00,
+        },
     ]
     insert_rows_into_table(receipt_rows, receipts, engine)
 
@@ -93,7 +84,9 @@ def setup_receipts_database() -> tuple:
     ]
     insert_rows_into_table(waiter_rows, waiters, engine)
 
-    console.print("[dim]In-memory SQLite database initialized with receipts & waiters[/dim]")
+    console.print(
+        "[dim]In-memory SQLite database initialized with receipts & waiters[/dim]"
+    )
     return engine, metadata
 
 
@@ -111,6 +104,7 @@ ENGINE, METADATA = setup_receipts_database()
 # ──────────────────────────────────────────────────────────────────────────────
 # SQL Tool factory
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 @tool
 def sql_engine(query: str) -> str:
@@ -141,7 +135,9 @@ def update_sql_tool_description():
     desc = "Allows execution of SQL queries on the following tables:\n\n"
 
     for table_name in tables:
-        columns = [(col["name"], str(col["type"])) for col in inspector.get_columns(table_name)]
+        columns = [
+            (col["name"], str(col["type"])) for col in inspector.get_columns(table_name)
+        ]
         desc += f"Table '{table_name}':\n"
         desc += "Columns:\n" + "\n".join(f"  - {name}: {typ}" for name, typ in columns)
         desc += "\n\n"
@@ -154,6 +150,7 @@ def update_sql_tool_description():
 # ──────────────────────────────────────────────────────────────────────────────
 # Agent factory
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def create_text2sql_agent(max_steps: int = 8, verbosity_level: int = 1) -> CodeAgent:
     """Creates CodeAgent configured for text-to-SQL tasks."""
@@ -170,6 +167,7 @@ def create_text2sql_agent(max_steps: int = 8, verbosity_level: int = 1) -> CodeA
 # ──────────────────────────────────────────────────────────────────────────────
 # Demos
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def demo_t2sql_1_single_table_max():
     """Demo 1: Find the most expensive receipt (single table)"""

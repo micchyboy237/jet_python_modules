@@ -1,34 +1,17 @@
 # demo_human_in_the_loop_local.py
 """
 Human-in-the-Loop (HITL) demos with smolagents using LOCAL llama.cpp server.
-Reuses create_local_model() from previous examples.
 Shows plan interruption, modification, resume, memory inspection.
 """
 
 from collections.abc import Callable
 
-from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.libs.smolagents.utils.model_utils import create_local_model
 from smolagents import (
     CodeAgent,
     DuckDuckGoSearchTool,
     PlanningStep,
 )
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Reuse from previous file
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def create_local_model(
-    temperature: float = 0.65,
-    max_tokens: int | None = 1024,
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Reusable HITL callback helpers

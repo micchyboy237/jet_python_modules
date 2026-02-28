@@ -1,7 +1,6 @@
 # demo_different_models_local.py
 """
 Demonstrations of using different model backends with smolagents
-Reuses create_local_model() as the primary/default local factory
 
 Shows:
 - Local llama.cpp (OpenAI-compatible)
@@ -12,39 +11,21 @@ Shows:
 
 import os
 import time
-from typing import Optional, Callable
+from typing import Callable, Optional
 
+from jet.libs.smolagents.utils.model_utils import create_local_model
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-
-from smolagents import CodeAgent, OpenAIModel, LiteLLMModel, REMOVE_PARAMETER
+from smolagents import REMOVE_PARAMETER, CodeAgent, LiteLLMModel, OpenAIModel
 
 console = Console()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Reusable local factory (your main one)
-# ──────────────────────────────────────────────────────────────────────────────
-
-def create_local_model(
-    temperature: float = 0.7,
-    max_tokens: Optional[int] = 1024,
-    model_id: str = "local-model",
-) -> OpenAIModel:
-    """Default factory – points to your local llama.cpp server."""
-    return OpenAIModel(
-        model_id=model_id,
-        base_url="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Other model factories (optional / env-var driven)
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def create_openrouter_model(
     model_id: str = "openai/gpt-4o-mini",
@@ -107,6 +88,7 @@ def create_grok_model(
 # Reusable agent factory
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def create_simple_agent(
     model_factory: Callable,
     max_steps: int = 6,
@@ -132,6 +114,7 @@ COMMON_TASK = "What is the 12th Fibonacci number? Please compute it step by step
 # ──────────────────────────────────────────────────────────────────────────────
 # Demos
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def demo_model_1_local_llamacpp():
     """Demo 1: Your local llama.cpp server (default)"""

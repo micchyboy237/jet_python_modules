@@ -11,11 +11,10 @@ import time
 from pathlib import Path
 
 import requests
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.step_callbacks import save_step_state
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
+from jet.libs.smolagents.utils.model_utils import create_local_model
 from markdownify import markdownify
 from requests.exceptions import RequestException
 from rich.console import Console
@@ -32,26 +31,6 @@ console = Console()
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Reuse from previous file
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int | None = 4096,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    agent_name: str | None = None,
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────

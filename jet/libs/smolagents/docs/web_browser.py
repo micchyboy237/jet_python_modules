@@ -14,39 +14,29 @@ Required:
 
 import argparse
 import json
-import os
 import random
 import shutil
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from time import sleep
-from datetime import datetime
-from typing import List, Optional
-
-from PIL import Image
-from dotenv import load_dotenv
 
 import helium
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-from seleniumbase import Driver
-
-from smolagents import CodeAgent, tool, InferenceClientModel
-from smolagents.agents import ActionStep
-from smolagents.utils import make_json_serializable
-
-from jet.libs.smolagents.custom_models import OpenAIModel
+from dotenv import load_dotenv
 from jet.libs.smolagents.helium_tools import (
-    ALL_TOOLS,
     click,
+    close_popups,
     go_back,
     go_to,
     scroll_down,
     scroll_up,
-    close_popups,
 )
+from PIL import Image
+from selenium.webdriver.common.by import By
+from seleniumbase import Driver
+from smolagents import CodeAgent, tool
+from smolagents.agents import ActionStep
+from smolagents.utils import make_json_serializable
 
 # ────────────────────────────────────────────────
 #  0. Load environment (API keys, etc.)
@@ -253,24 +243,7 @@ if Text('Accept cookies?').exists():
 # ────────────────────────────────────────────────
 
 
-from datetime import datetime
-
-
-def create_local_model(
-    temperature: float = 0.3,
-    max_tokens: Optional[int] = 4096,
-    model_id: str = "local-model",
-    logs_dir: str | Path | None = None,
-) -> OpenAIModel:
-    return OpenAIModel(
-        model_id=model_id,
-        api_base="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",
-        temperature=temperature,
-        max_tokens=max_tokens,
-        verbose=True,
-        logs_dir=str(logs_dir) if logs_dir else None,
-    )
+from jet.libs.smolagents.utils.model_utils import create_local_model
 
 
 def _strip_observations_images(steps):
@@ -316,9 +289,7 @@ def main(
     # model_id = "mistralai/Pixtral-12B-2409"   # alternative (if supported)
 
     # model = InferenceClientModel(model_id=model_id)
-    model = create_local_model(
-        logs_dir=out_dir / "llm_logs",
-    )
+    model = create_local_model()
 
     # Initialize browser with the chosen mode
     driver = init_browser(headless=headless)

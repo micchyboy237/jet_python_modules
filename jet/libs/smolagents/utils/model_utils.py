@@ -6,7 +6,7 @@ from jet.libs.smolagents.custom_models import OpenAIModel
 
 def create_local_model(
     temperature: float = 0.4,
-    max_tokens: int | None = 8000,
+    max_tokens: int | None = 12000,
     model_id: LLAMACPP_LLM_KEYS | None = None,
     agent_name: str | None = None,
     **kwargs,
