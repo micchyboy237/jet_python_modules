@@ -42,7 +42,7 @@ def get_adaptive_config(
     temperature: float | None = None,
     max_tokens: int | None = None,
     **kwargs,
-):
+) -> AdaptiveConfig:
     config = get_llm_config(
         strategy=strategy, temperature=temperature, max_tokens=max_tokens
     )

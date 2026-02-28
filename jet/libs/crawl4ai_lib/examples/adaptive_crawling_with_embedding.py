@@ -76,15 +76,15 @@ if __name__ == "__main__":
         description="Adaptive crawling with embedding strategy"
     )
     parser.add_argument(
-        "-u",
-        "--url",
+        "url",
+        nargs="?",
         type=str,
         default="https://docs.python.org/3/library/asyncio.html",
         help="The seed URL to crawl (default: https://docs.python.org/3/library/asyncio.html)",
     )
     parser.add_argument(
-        "-q",
-        "--query",
+        "query",
+        nargs="?",
         type=str,
         default="async await context managers coroutines",
         help="The search query (default: 'async await context managers coroutines')",

@@ -5,7 +5,6 @@ from urllib.parse import urljoin
 from jet.utils.text import fix_and_unidecode
 
 
-
 class MDHeaderLink(TypedDict):
     text: str
     url: str
@@ -264,9 +263,9 @@ def link_to_text_ratio(text: str, threshold: float = 0.5) -> LinkTextRatio:
     }
 
 
-def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_links: bool = True) -> Tuple[List[MDHeaderLink], str]:
+def extract_markdown_links(md_text: str, base_url: Optional[str] = None, ignore_links: bool = True) -> Tuple[List[MDHeaderLink], str]:
     """
-    Extracts markdown links and plain URLs from text, optionally replacing them with their text content or cleaning URLs.
+    Extracts markdown links and plain URLs from markdown text, optionally replacing them with their text content or cleaning URLs.
     Handles nested image links like [![alt](image_url)](link_url) and reference-style links like [text][ref].
 
     Args:
@@ -294,27 +293,27 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
         re.MULTILINE
     )
     links: List[MDHeaderLink] = []
-    output = text
+    output = md_text
     seen: Set[Tuple[str, str, str]] = set()  # Removed caption from key
     replacements: List[Tuple[int, int, str]] = []
     # Store reference URLs
     ref_urls: Dict[str, str] = {}  # Removed caption from ref_urls
 
     # Extract reference definitions first
-    for match in ref_pattern.finditer(text):
+    for match in ref_pattern.finditer(md_text):
         ref_id = match.group(1).strip()
         url = match.group(2).strip()
         if ref_id and url:
             ref_urls[ref_id.lower()] = url
 
     # Extract markdown links
-    for match in pattern.finditer(text):
+    for match in pattern.finditer(md_text):
         start, end = match.span()
         image_alt, image_url, label, url, ref_text, ref_id = match.groups()
         selected_url = ""
         selected_image_url = image_url.strip() if image_url else None  # Capture image URL
 
-        if ref_text and ref_id:  # Handle reference-style link [text][ref]
+        if ref_text and ref_id:  # Handle reference-style link [md_text][ref]
             label = ref_text
             if ref_id.lower() in ref_urls:
                 selected_url = ref_urls[ref_id.lower()]
@@ -336,12 +335,12 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
             selected_image_url = urljoin(base_url, selected_image_url)
 
         # Find line and line index
-        start_line_idx = text[:start].rfind('\n') + 1
-        end_line_idx = text.find('\n', end)
+        start_line_idx = md_text[:start].rfind('\n') + 1
+        end_line_idx = md_text.find('\n', end)
         if end_line_idx == -1:
-            end_line_idx = len(text)
-        line = text[start_line_idx:end_line_idx].strip()
-        line_idx = len(text[:start].splitlines()) - 1
+            end_line_idx = len(md_text)
+        line = md_text[start_line_idx:end_line_idx].strip()
+        line_idx = len(md_text[:start].splitlines()) - 1
 
         # Create link entry
         key = (label or "", selected_url, line)  # Key remains unchanged
@@ -365,16 +364,16 @@ def extract_markdown_links(text: str, base_url: Optional[str] = None, ignore_lin
             replacements.append((start, end, match.group(0)))
 
     # Extract plain URLs (unchanged)
-    for match in plain_url_pattern.finditer(text):
+    for match in plain_url_pattern.finditer(md_text):
         url = match.group(0).strip()
         start, end = match.span()
         if not any(url in link["url"] for link in links):  # Avoid duplicates
-            start_line_idx = text[:start].rfind('\n') + 1
-            end_line_idx = text.find('\n', end)
+            start_line_idx = md_text[:start].rfind('\n') + 1
+            end_line_idx = md_text.find('\n', end)
             if end_line_idx == -1:
-                end_line_idx = len(text)
-            line = text[start_line_idx:end_line_idx].strip()
-            line_idx = len(text[:start].splitlines()) - 1
+                end_line_idx = len(md_text)
+            line = md_text[start_line_idx:end_line_idx].strip()
+            line_idx = len(md_text[:start].splitlines()) - 1
             key = ("", url, None, line)
             if key not in seen:
                 seen.add(key)
