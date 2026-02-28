@@ -24,7 +24,7 @@ async def smart_extraction_workflow():
         )
         async with AsyncWebCrawler() as crawler:
             sample_result = await crawler.arun(
-                url="https://example.com/products",
+                url="https://webscraper.io/test-sites/e-commerce/allinone",
                 config=CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
             )
             sample_html = sample_result.cleaned_html[:8000]
@@ -42,9 +42,9 @@ async def smart_extraction_workflow():
         cache_mode=CacheMode.BYPASS
     )
     urls = [
-        "https://example.com/products",
-        "https://example.com/electronics",
-        "https://example.com/books"
+        "https://webscraper.io/test-sites/e-commerce/allinone",
+        "https://webscraper.io/test-sites/e-commerce/allinone/computers",
+        "https://webscraper.io/test-sites/e-commerce/allinone/phones"
     ]
     async with AsyncWebCrawler() as crawler:
         for url in urls:
