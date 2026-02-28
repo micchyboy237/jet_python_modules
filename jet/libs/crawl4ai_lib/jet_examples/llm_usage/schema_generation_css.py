@@ -21,8 +21,9 @@ async def extract_crypto_prices_xpath():
 
     # Option 1: Using OpenAI (requires API token)
     css_schema = JsonCssExtractionStrategy.generate_schema(
-        html, schema_type="css", llm_config=get_llm_config()
+        html, schema_type="css", llm_config=get_llm_config(strategy="llm")
     )
+    print(f"CSS Schema:\n{json.dumps(css_schema, indent=2)}")
 
     # Use the generated schema for fast, repeated extractions
     strategy = JsonCssExtractionStrategy(css_schema)
