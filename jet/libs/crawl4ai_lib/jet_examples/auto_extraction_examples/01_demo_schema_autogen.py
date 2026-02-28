@@ -1,6 +1,8 @@
 import json
 import asyncio
 from pathlib import Path
+
+from jet.libs.crawl4ai_lib.adaptive_config import get_llm_config
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, LLMConfig, CacheMode
 from crawl4ai import JsonCssExtractionStrategy
 
@@ -18,10 +20,7 @@ async def smart_extraction_workflow():
         print("✅ Using cached schema (FREE)")
     else:
         print("🔄 Generating schema (ONE-TIME LLM COST)...")
-        llm_config = LLMConfig(
-            provider="openai/gpt-4o-mini",
-            api_token="env:OPENAI_API_KEY"
-        )
+        llm_config = get_llm_config(strategy="llm")
         async with AsyncWebCrawler() as crawler:
             sample_result = await crawler.arun(
                 url="https://webscraper.io/test-sites/e-commerce/allinone",
