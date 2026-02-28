@@ -335,3 +335,85 @@ if __name__ == "__main__":
             f"duration=[bold magenta]{seg['duration']}s[/bold magenta] "
             f"prob=[bold cyan]{seg['prob']:.3f}[/bold cyan]"
         )
+
+
+def extract_speech_audio(
+    audio: Union[str, Path, np.ndarray, torch.Tensor, list[np.ndarray]],
+    sampling_rate: int = 16000,
+    threshold: float = 0.5,
+    neg_threshold: float = 0.25,
+    max_speech_duration_sec: float | None = None,
+    large_chunk_size: int = 30,
+    small_chunk_size: int = 10,
+    double_check: bool = True,
+) -> List[np.ndarray]:
+    """
+    Extract contiguous speech segments from the input audio using SpeechBrain VAD.
+
+    Returns a flat list of numpy arrays where each array represents one complete
+    speech segment (utterance/turn) in float32 format, normalized to [-1.0, 1.0].
+
+    This is useful when downstream processing (ASR, speaker embedding, etc.)
+    can handle variable-length segments and you want to preserve natural speech boundaries.
+
+    Args:
+        audio: Path to audio file, bytes, np.ndarray, torch.Tensor, or list of chunks
+        sampling_rate: Target sample rate (must match VAD expectations, usually 16000)
+        threshold: Speech activation threshold for VAD
+        neg_threshold: Speech deactivation threshold for VAD
+        max_speech_duration_sec: Maximum allowed duration per speech segment before splitting
+                                 (passed to extract_speech_timestamps)
+        large_chunk_size, small_chunk_size, double_check: VAD inference parameters
+
+    Returns:
+        List[np.ndarray]: List of speech segments, each a 1D float32 array [-1.0, 1.0]
+                          Empty list if no speech is detected.
+    """
+    # Step 1: Get speech segment timestamps (in seconds)
+    speech_segments = extract_speech_timestamps(
+        audio=audio,
+        threshold=threshold,
+        neg_threshold=neg_threshold,
+        sampling_rate=sampling_rate,
+        max_speech_duration_sec=max_speech_duration_sec,
+        return_seconds=True,
+        include_non_speech=False,
+        large_chunk_size=large_chunk_size,
+        small_chunk_size=small_chunk_size,
+        double_check=double_check,
+    )
+
+    # Step 2: Load full audio once (mono, float32, correct sample rate)
+    audio_np, sr = load_audio(
+        audio=audio,
+        sr=sampling_rate,
+        mono=True,
+    )
+
+    # Safety check
+    if sr != sampling_rate:
+        raise ValueError(
+            f"Loaded sample rate {sr} does not match requested {sampling_rate}"
+        )
+
+    # Step 3: Extract each speech segment as a separate array
+    speech_audio_chunks: List[np.ndarray] = []
+
+    for segment in speech_segments:
+        start_sec: float = segment["start"]
+        end_sec: float = segment["end"]
+
+        start_sample = int(round(start_sec * sr))
+        end_sample = int(round(end_sec * sr))
+
+        segment_audio = audio_np[start_sample:end_sample]
+
+        if len(segment_audio) == 0:
+            continue
+
+        # Ensure float32 and normalized range (load_audio already does this, but explicit)
+        segment_audio = segment_audio.astype(np.float32, copy=False)
+
+        speech_audio_chunks.append(segment_audio)
+
+    return speech_audio_chunks
