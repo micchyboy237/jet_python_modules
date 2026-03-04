@@ -156,6 +156,9 @@ class LiveSubtitlesOverlay(QWidget):
             int, list[QWidget]
         ] = {}  # all widgets by segment
 
+        # Track last rendered segment for UI grouping
+        self._last_rendered_segment: int | None = None
+
         self._audio_output = QAudioOutput()
         self._audio_output.setVolume(play_volume)  # 0.0–1.0; tweak as needed
         self._player.setAudioOutput(self._audio_output)
@@ -581,6 +584,9 @@ class LiveSubtitlesOverlay(QWidget):
         self.history.clear()
         self.message_history.clear()
 
+        # Reset segment grouping tracker
+        self._last_rendered_segment = None
+
         # reset player
         self._player.stop()
         self._player.setSource(QUrl())  # clear source
@@ -801,6 +807,13 @@ class LiveSubtitlesOverlay(QWidget):
         is_partial = message.get("is_partial", False)
         chunk_index = message.get("chunk_index")
 
+        # ───────────────────────────────────────────────
+        # Insert group separator when segment changes
+        # ───────────────────────────────────────────────
+        if segment_number is not None and segment_number != self._last_rendered_segment:
+            self._insert_segment_separator(segment_number)
+            self._last_rendered_segment = segment_number
+
         # Score-related fields (all optional)
         vad_conf = message.get("avg_vad_confidence")
         tr_conf = message.get("transcription_confidence")
@@ -816,51 +829,38 @@ class LiveSubtitlesOverlay(QWidget):
         container_layout.setContentsMargins(8, 5, 8, 5)
 
         # ───────────────────────────────────────────────
-        # Row 1: segment #, duration, time range, play button, copy buttons
+        # Row 1: status, duration, time range, buttons
         # ───────────────────────────────────────────────
-        meta_row1 = QWidget()
-        meta_layout1 = QHBoxLayout(meta_row1)
+        meta_layout1 = QHBoxLayout()
         meta_layout1.setContentsMargins(0, 0, 0, 0)
-        meta_layout1.setSpacing(10)
+        meta_layout1.setSpacing(6)
 
-        if segment_number is not None:
-            seg = QLabel(f"#{segment_number}")
-            seg.setStyleSheet("""
-                color: #c0ffc0;
-                background: rgba(0, 120, 0, 0.45);
-                border-radius: 5px;
-                padding: 2px 8px;
-                font-weight: bold;
+        # Partial & chunk indicators (without segment number badge)
+        status_parts = []
+        if is_partial:
+            status_parts.append("partial")
+            if chunk_index is not None:
+                display_idx = chunk_index + 1 if chunk_index >= 0 else chunk_index
+                status_parts.append(f"chunk {display_idx}")
+
+        if status_parts:
+            status_text = " • ".join(status_parts)
+            status_label = QLabel(status_text)
+            status_label.setStyleSheet("""
+                color: #ffbb66;
+                font-style: italic;
+                font-size: 11px;
             """)
-            seg.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-            meta_layout1.addWidget(seg)
-
-            # Partial & chunk indicators (right after segment number)
-            status_parts = []
-            if is_partial:
-                status_parts.append("partial")
-                if chunk_index is not None:
-                    # Display 1-based even if stored 0-based
-                    display_idx = chunk_index + 1 if chunk_index >= 0 else chunk_index
-                    status_parts.append(f"chunk {display_idx}")
-
-            if status_parts:
-                status_text = " • ".join(status_parts)
-                status_label = QLabel(status_text)
-                status_label.setStyleSheet("""
-                    color: #ffbb66;
-                    font-style: italic;
-                    font-size: 11px;
-                """)
-                meta_layout1.addWidget(status_label)
+            meta_layout1.addWidget(status_label)
 
         dur = QLabel(f"{duration_sec:.1f}s")
-        dur.setStyleSheet("color: #aaa;")
+        dur.setStyleSheet("color: #aaa")
         dur.setFont(QFont("Segoe UI", 9))
         meta_layout1.addWidget(dur)
 
         time_range = QLabel(f"{start_sec:.1f} – {end_sec:.1f}")
-        time_range.setStyleSheet("color: #888;")
+        time_range.setStyleSheet("color: #888")
+        time_range.setFont(QFont("Segoe UI", 9))
         meta_layout1.addWidget(time_range)
 
         # ── Copy buttons: translated and source text ────────────────────
@@ -929,7 +929,7 @@ class LiveSubtitlesOverlay(QWidget):
             )
             meta_layout1.addWidget(play_btn)
 
-        container_layout.addWidget(meta_row1)
+        container_layout.addLayout(meta_layout1)
 
         # ───────────────────────────────────────────────
         # Row 2: VAD  TR  TL  RMS    (no | separator, just spacing)
@@ -1084,6 +1084,38 @@ class LiveSubtitlesOverlay(QWidget):
             effect = self._opacity_effects.get(container)
             if effect is not None:
                 effect.setOpacity(1.0)
+
+    def _insert_segment_separator(self, segment_number: int) -> None:
+        """
+        Visually separates different segment groups.
+        Adds a header row with thicker spacing.
+        """
+        separator_container = QWidget()
+        separator_layout = QVBoxLayout(separator_container)
+        separator_layout.setContentsMargins(0, 12, 0, 4)
+        separator_layout.setSpacing(4)
+
+        # Horizontal line
+        line = QWidget()
+        line.setFixedHeight(2)
+        line.setStyleSheet("""
+            background: rgba(120, 160, 255, 0.5);
+            border-radius: 1px;
+        """)
+
+        # Segment title
+        title = QLabel(f"Segment #{segment_number}")
+        title.setStyleSheet("""
+            color: #8fd3ff;
+            font-weight: bold;
+            font-size: 12px;
+            padding-left: 4px;
+        """)
+
+        separator_layout.addWidget(line)
+        separator_layout.addWidget(title)
+
+        self.content_layout.addWidget(separator_container)
 
     def _do_add_message(self, message: SubtitleMessage) -> None:
         mid = message["id"]
