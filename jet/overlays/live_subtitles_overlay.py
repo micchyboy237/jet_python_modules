@@ -28,10 +28,11 @@ from PyQt6.QtCore import (
     QUrl,
     pyqtSignal,
 )
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtWidgets import (
     QApplication,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -107,6 +108,7 @@ class LiveSubtitlesOverlay(QWidget):
         on_clear: Callable[[], None] | None = None,
         play_volume: float = PLAY_VOLUME,
         segments_dir: str | None = None,
+        hide_source_text: bool = False,
     ):
         super().__init__(parent)
         self.logger = _setup_logging()
@@ -114,6 +116,7 @@ class LiveSubtitlesOverlay(QWidget):
         self.signals = _Signals()
         self.history = []
         self.title = title
+        self.hide_source_text = hide_source_text
         self.message_history: list[SubtitleMessage] = []
         self._task_lock = threading.Lock()  # for thread-safety with add_task
 
@@ -147,6 +150,12 @@ class LiveSubtitlesOverlay(QWidget):
         self._widget_by_id: dict[str, QWidget] = {}
         # Shared media player for segment playback
         self._player = QMediaPlayer()
+
+        self._opacity_effects: dict[QWidget, QGraphicsOpacityEffect] = {}
+        self._widgets_per_segment: dict[
+            int, list[QWidget]
+        ] = {}  # all widgets by segment
+
         self._audio_output = QAudioOutput()
         self._audio_output.setVolume(play_volume)  # 0.0–1.0; tweak as needed
         self._player.setAudioOutput(self._audio_output)
@@ -157,6 +166,23 @@ class LiveSubtitlesOverlay(QWidget):
             / "generated"
             / Path(get_entry_file_name()).stem
             / "segments"
+        )
+
+        # persistent animations so they don't get garbage-collected
+        self._active_animations: list[QPropertyAnimation] = []
+
+    def _copy_to_clipboard(self, text: str, what: str = "text") -> None:
+        if not text.strip():
+            return
+        QApplication.clipboard().setText(text)
+        # Brief non-disruptive feedback
+        orig = self.status_label.text()
+        self.status_label.setText(f"Copied {what}")
+        QTimer.singleShot(
+            1400,
+            lambda: self.status_label.setText(
+                orig if orig != "LIVE • MINIMIZED" else "LIVE"
+            ),
         )
 
     def _start_async_loop(self):
@@ -523,6 +549,29 @@ class LiveSubtitlesOverlay(QWidget):
         self.signals._clear.connect(self._do_clear)
         self.signals._toggle_minimize.connect(self.toggle_minimize)
 
+    def _fade_widget(
+        self, widget, target_opacity: float = 0.38, duration_ms: int = 900
+    ) -> None:
+        """Smoothly animate opacity of a widget (used for older segment messages)"""
+        if not hasattr(self, "_opacity_effects"):
+            self._opacity_effects = {}
+        if widget not in self._opacity_effects:
+            effect = QGraphicsOpacityEffect()
+            widget.setGraphicsEffect(effect)
+            self._opacity_effects[widget] = effect
+        else:
+            effect = self._opacity_effects[widget]
+
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(duration_ms)
+        anim.setStartValue(effect.opacity())
+        anim.setEndValue(target_opacity)
+        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        # keep ref until finished
+        self._active_animations.append(anim)
+        anim.finished.connect(lambda a=anim: self._active_animations.remove(a))
+        anim.start()
+
     def _do_clear(self) -> None:
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
@@ -531,16 +580,24 @@ class LiveSubtitlesOverlay(QWidget):
         self.content_layout.addStretch(1)  # re-add stretch after clear
         self.history.clear()
         self.message_history.clear()
-        # NEW: reset player
+
+        # reset player
         self._player.stop()
         self._player.setSource(QUrl())  # clear source
         self._message_by_id.clear()  # also clean up stale ids
         self._widget_by_id.clear()
 
-    def position_window_top_right(self, margin: int = 0) -> None:
-        screen = QApplication.primaryScreen().availableGeometry()
-        x = screen.right() - self.width() + 1
-        y = screen.top() - 1
+        # Reset segment tracking and opacity effects
+        self._opacity_effects.clear()
+        self._widgets_per_segment.clear()
+
+    def position_window_top_right(self, margin_x: int = 0, margin_y: int = 0) -> None:
+        screen = QApplication.primaryScreen()
+        geometry = screen.availableGeometry() if screen else None
+        if geometry is None:
+            return
+        x = geometry.right() - self.width() - margin_x
+        y = geometry.top() + margin_y
         self.move(x, y)
 
     # --- PUBLIC API ---
@@ -597,7 +654,7 @@ class LiveSubtitlesOverlay(QWidget):
         if chunk_index is not None:
             subtitle_message["chunk_index"] = chunk_index
 
-        # --- NEW: support rms and rms_label from kwargs ---
+        # --- support rms and rms_label from kwargs ---
         if "rms" in kwargs and kwargs["rms"] is not None:
             subtitle_message["rms"] = kwargs["rms"]
         if "rms_label" in kwargs and kwargs["rms_label"]:
@@ -759,7 +816,7 @@ class LiveSubtitlesOverlay(QWidget):
         container_layout.setContentsMargins(8, 5, 8, 5)
 
         # ───────────────────────────────────────────────
-        # Row 1: segment #, duration, time range, play button
+        # Row 1: segment #, duration, time range, play button, copy buttons
         # ───────────────────────────────────────────────
         meta_row1 = QWidget()
         meta_layout1 = QHBoxLayout(meta_row1)
@@ -782,10 +839,10 @@ class LiveSubtitlesOverlay(QWidget):
             status_parts = []
             if is_partial:
                 status_parts.append("partial")
-            if chunk_index is not None:
-                # Display 1-based even if stored 0-based
-                display_idx = chunk_index + 1 if chunk_index >= 0 else chunk_index
-                status_parts.append(f"chunk {display_idx}")
+                if chunk_index is not None:
+                    # Display 1-based even if stored 0-based
+                    display_idx = chunk_index + 1 if chunk_index >= 0 else chunk_index
+                    status_parts.append(f"chunk {display_idx}")
 
             if status_parts:
                 status_text = " • ".join(status_parts)
@@ -806,6 +863,49 @@ class LiveSubtitlesOverlay(QWidget):
         time_range.setStyleSheet("color: #888;")
         meta_layout1.addWidget(time_range)
 
+        # ── Copy buttons: translated and source text ────────────────────
+        copy_tr = QToolButton()
+        copy_tr.setIcon(QIcon.fromTheme("edit-copy"))
+        # Fallback if theme icon not available:
+        # copy_tr.setText("⎘")
+        # copy_tr.setFont(QFont("Segoe UI", 11))  # optional sizing
+        copy_tr.setToolTip("Copy translated text")
+        copy_tr.setFixedSize(20, 20)
+        copy_tr.setStyleSheet("""
+            QToolButton {
+                color: #cccccc;
+                background: transparent;
+                border: none;
+                padding: 2px;
+            }
+            QToolButton:hover {
+                background: rgba(180, 200, 255, 0.18);
+                border-radius: 4px;
+            }
+            QToolButton:pressed {
+                background: rgba(140, 180, 255, 0.35);
+            }
+        """)
+        copy_tr.clicked.connect(
+            lambda _: self._copy_to_clipboard(translated_text, "translation")
+        )
+
+        # Optional: slight visual distinction for source copy
+        if source_text.strip():
+            copy_src = QToolButton()
+            copy_src.setIcon(QIcon.fromTheme("edit-copy"))
+            # Alternative fallback:
+            # copy_src.setText("⎘")
+            copy_src.setToolTip("Copy original (source) text")
+            copy_src.setFixedSize(20, 20)
+            # Optional: slightly different idle color to distinguish
+            copy_src.setStyleSheet(copy_tr.styleSheet().replace("#cccccc", "#bbbbff"))
+            copy_src.clicked.connect(
+                lambda _: self._copy_to_clipboard(source_text, "original")
+            )
+            meta_layout1.addWidget(copy_src)
+
+        meta_layout1.addWidget(copy_tr)
         meta_layout1.addStretch()
 
         if segment_number is not None:
@@ -854,24 +954,25 @@ class LiveSubtitlesOverlay(QWidget):
             return "#ff4d4d"
 
         def get_rms_style(value: float | None) -> tuple[str, str]:
-            """Returns (color, fallback_label) for RMS ∈ [0, ≈1].
-            Reversed gradient per request: strong red = very quiet → cool gray-blue = extremely loud.
-            """
+            """RMS color: red (quiet) → green (loud)"""
             if value is None:
                 return "#777777", "N/A"
-            if value >= 0.38:
-                return "#88aaff", "Extremely loud"  # cool gray-blue
-            if value >= 0.26:
-                return "#77ddff", "Very loud"  # cyan-blue
-            if value >= 0.14:
-                return "#88ffcc", "Loud"  # cyan-green
-            if value >= 0.06:
-                return "#ffcc66", "Normal"  # yellow-orange
-            if value >= 0.015:
-                return "#ffaa55", "Soft"  # warm orange
-            if value >= 0.004:
-                return "#ff6644", "Quiet"  # orange-red
-            return "#ff3333", "Very quiet"  # strong red
+
+            if value < 0.004:
+                return "#ff4444", "Very quiet"
+            if value < 0.015:
+                return "#ff7733", "Quiet"
+            if value < 0.060:
+                return "#ffaa44", "Soft"
+            if value < 0.140:
+                return "#ffdd44", "Normal"
+            if value < 0.260:
+                return "#bbff77", "Loud"
+            if value < 0.380:
+                return "#66ff99", "Raised"
+            if value < 0.480:
+                return "#00cc44", "Very Loud"
+            return "#008f2f", "Extremely Loud"
 
         items = []
 
@@ -898,7 +999,7 @@ class LiveSubtitlesOverlay(QWidget):
         if norm_rms is not None:
             color, fallback = get_rms_style(norm_rms)
             display_label = norm_label or fallback
-            txt = f"Level {norm_rms:.3f}"
+            txt = f"RMS {norm_rms:.2f}"
             if display_label != "N/A":
                 txt += f" • {display_label}"
             lbl = QLabel(txt)
@@ -926,7 +1027,7 @@ class LiveSubtitlesOverlay(QWidget):
         tr_label.setFont(QFont("Segoe UI", 13))
         text_layout.addWidget(tr_label)
 
-        if source_text:
+        if source_text and not self.hide_source_text:
             src = QLabel(source_text)
             src.setWordWrap(True)
             src.setStyleSheet("color: #b0b0ff;")
@@ -950,11 +1051,39 @@ class LiveSubtitlesOverlay(QWidget):
             }
         """)
 
+        # Attach opacity effect to every message container
+        effect = QGraphicsOpacityEffect()
+        effect.setOpacity(1.0)
+        container.setGraphicsEffect(effect)
+        self._opacity_effects[container] = effect
+
         self.content_layout.addWidget(container)
 
         mid = message["id"]
         self._message_by_id[mid] = message
         self._widget_by_id[mid] = container
+
+        # ───────────────────────────────────────────────
+        #   Segment-based fading logic
+        # ───────────────────────────────────────────────
+        segment_number = message.get("segment_number")
+        if segment_number is not None:
+            # Initialize list if first message for this segment
+            if segment_number not in self._widgets_per_segment:
+                self._widgets_per_segment[segment_number] = []
+
+            # Fade ALL previous widgets for this segment
+            for old_widget in self._widgets_per_segment[segment_number]:
+                if old_widget in self._opacity_effects:
+                    self._fade_widget(old_widget, target_opacity=0.50, duration_ms=800)
+
+            # Add current widget to the list
+            self._widgets_per_segment[segment_number].append(container)
+
+            # Ensure newest one is always full opacity (in case it was faded before)
+            effect = self._opacity_effects.get(container)
+            if effect is not None:
+                effect.setOpacity(1.0)
 
     def _do_add_message(self, message: SubtitleMessage) -> None:
         mid = message["id"]
@@ -1053,6 +1182,7 @@ class LiveSubtitlesOverlay(QWidget):
         title: str | None = None,
         on_clear: Callable[[], None] | None = None,
         play_volume: float = PLAY_VOLUME,
+        hide_source_text: bool = False,
     ) -> "LiveSubtitlesOverlay":
         """
         Instantiate the overlay, always positioned top-right, always-on-top, and thread-safe.
@@ -1073,14 +1203,19 @@ class LiveSubtitlesOverlay(QWidget):
         signal.signal(signal.SIGINT, _quit_on_sigint)
 
         # Pass through the optional callback
-        overlay = cls(title=title, on_clear=on_clear, play_volume=play_volume)
+        overlay = cls(
+            title=title,
+            on_clear=on_clear,
+            play_volume=play_volume,
+            hide_source_text=hide_source_text,
+        )
         overlay.show()
         overlay.raise_()
         overlay.activateWindow()
 
         def _do_center():
             overlay.updateGeometry()
-            overlay.position_window_top_right(margin=30)
+            overlay.position_window_top_right(margin_x=30, margin_y=0)
             overlay.logger.info("[green]Overlay positioned top-right[/]")
 
         QTimer.singleShot(50, _do_center)

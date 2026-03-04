@@ -17,6 +17,7 @@ VAD_CHUNK_SAMPLES: int = 512
 class Config:
     vad_chunk_bytes: float = VAD_CHUNK_SAMPLES * 2
     chunk_duration_sec: float = 6.0
+    min_silence_duration_sec: float = 0.25
     min_speech_duration_sec: float = 0.25
     sample_rate: int = 16000
     channels: int = 1

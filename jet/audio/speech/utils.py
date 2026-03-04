@@ -29,7 +29,7 @@ def display_segments(speech_ts, done: bool = False):
         start_sec = seg["start"]
         end_sec = seg["end"]
         duration_sec = seg["end"] - seg["start"]
-        speech_check = "✅" if seg.get("type") == "speech" else ""
+        speech_check = "✅" if seg.get("type") == "speech" else "❌"
         table.add_row(
             str(i),
             f"{start_sec:.2f}",

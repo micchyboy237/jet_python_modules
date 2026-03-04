@@ -36,6 +36,8 @@ def extract_speech_timestamps(
     threshold: float = 0.5,
     neg_threshold: float = 0.25,
     sampling_rate: int = 16000,
+    min_silence_duration_sec: float = 0.250,
+    min_speech_duration_sec: float = 0.250,
     max_speech_duration_sec: float | None = None,
     return_seconds: bool = False,
     time_resolution: int = 2,
@@ -45,6 +47,7 @@ def extract_speech_timestamps(
     large_chunk_size: int = 30,
     small_chunk_size: int = 10,
     double_check: bool = True,
+    apply_energy_VAD: bool = False,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
     Extract speech timestamps using SpeechBrain VAD (vad-crdnn-libriparty).
@@ -79,6 +82,9 @@ def extract_speech_timestamps(
                 activation_th=threshold,
                 deactivation_th=neg_threshold,
                 double_check=double_check,
+                apply_energy_VAD=apply_energy_VAD,
+                close_th=min_silence_duration_sec,
+                len_th=min_speech_duration_sec,
             )
 
         boundaries_sec = boundaries_sec.view(-1).tolist()

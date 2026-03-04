@@ -47,7 +47,8 @@ def load_audio(
     # ─────── FIX 2: Correct normalization (NumPy, not torch) ───────
     if np.issubdtype(y.dtype, np.integer):
         y = y / (2 ** (np.iinfo(y.dtype).bits - 1))
-    elif np.abs(y).max() > 1.0 + 1e-6:
+
+    if len(y) > 0 and np.abs(y).max() > 1.0 + 1e-6:
         y = y / np.abs(y).max()
 
     # ─────── FIX 3: Always make (channels, time) layout ───────

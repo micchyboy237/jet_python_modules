@@ -2,16 +2,14 @@
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Literal, Tuple, TypedDict
+from typing import Dict, List, Literal, Tuple, TypedDict
 
 import numpy as np
 import soundfile as sf
-from tqdm import tqdm
-
+from jet.audio.helpers.silence import calibrate_silence_threshold
 from jet.audio.record_mic import SAMPLE_RATE  # 16000
 from jet.logger import logger
-
-from jet.audio.helpers.silence import calibrate_silence_threshold
+from tqdm import tqdm
 
 
 def compute_l1_energy(audio_frame: np.ndarray) -> float:
@@ -68,10 +66,7 @@ def energy(audio_frame: np.ndarray) -> float:
     return float(np.sum(audio_frame * audio_frame))
 
 
-def has_sound(
-    audio_frame: np.ndarray, 
-    threshold: float = 0.01
-) -> bool:
+def has_sound(audio_frame: np.ndarray, threshold: float = 0.01) -> bool:
     """
     Determine whether an audio frame contains sound above a threshold.
 
@@ -97,7 +92,7 @@ def has_sound(
 # ) -> bool:
 #     """
 #     Determine whether a WAV file contains any detectable speech/sound.
-    
+
 #     Parameters
 #     ----------
 #     file_path : str | Path
@@ -108,7 +103,7 @@ def has_sound(
 #         Analysis chunk size in seconds (must match live pipeline)
 #     min_sound_chunks : int, default 1
 #         Minimum number of non-silent chunks required to classify as "has sound"
-    
+
 #     Returns
 #     -------
 #     bool
@@ -175,15 +170,16 @@ def compute_energies(
 
     audio, sr = sf.read(file_path)
     if audio.ndim > 1:
-        audio = audio.mean(axis=1)               # downmix to mono
+        audio = audio.mean(axis=1)  # downmix to mono
     if sr != SAMPLE_RATE:
         logger.debug(f"Resampling {file_path.name} from {sr} → {SAMPLE_RATE} Hz")
         import librosa
+
         audio = librosa.resample(audio, orig_sr=sr, target_sr=SAMPLE_RATE)
         sr = SAMPLE_RATE
 
     audio = audio.astype(np.float32)
-    if np.abs(audio).max() > 1.0:                # safety normalize
+    if np.abs(audio).max() > 1.0:  # safety normalize
         audio /= np.abs(audio).max()
 
     chunk_samples = int(SAMPLE_RATE * chunk_duration)
@@ -191,7 +187,9 @@ def compute_energies(
 
     results: List[Dict[str, float]] = []
 
-    with tqdm(total=total_chunks, desc="Energy chunks", unit="chunk", leave=False) as pbar:
+    with tqdm(
+        total=total_chunks, desc="Energy chunks", unit="chunk", leave=False
+    ) as pbar:
         for i in range(total_chunks):
             start_sample = i * chunk_samples
             end_sample = min((i + 1) * chunk_samples, len(audio))
@@ -201,8 +199,8 @@ def compute_energies(
 
             item: Dict[str, float] = {
                 "start_s": round(start_sample / SAMPLE_RATE, 3),
-                "end_s":   round(end_sample   / SAMPLE_RATE, 3),
-                "energy":  round(energy, 6),
+                "end_s": round(end_sample / SAMPLE_RATE, 3),
+                "energy": round(energy, 6),
             }
             if silence_threshold is not None:
                 item["is_silent"] = energy < silence_threshold
@@ -217,14 +215,14 @@ def compute_energies(
 def detect_sound(audio_chunk: np.ndarray, threshold: float) -> bool:
     """
     Detect if an audio chunk contains audible sound (non-silence).
-    
+
     Parameters
     ----------
     audio_chunk : np.ndarray
         Raw audio samples (float32, normalized to [-1.0, 1.0])
     threshold : float
         Silence energy threshold (higher = stricter)
-    
+
     Returns
     -------
     bool
@@ -252,7 +250,11 @@ LoudnessLabel = Literal[
 ]
 
 
-def rms_to_loudness_label(rms_norm: float) -> LoudnessLabel:
+def rms_to_loudness_label(rms_norm: float | None) -> LoudnessLabel:
+    if rms_norm is None:
+        # logger.warning("rms_to_loudness_label called with None — returning 'Unknown'")
+        return "Unknown"
+
     if rms_norm < 0.004:
         return "Very Quiet"
     if rms_norm < 0.015:
@@ -264,7 +266,7 @@ def rms_to_loudness_label(rms_norm: float) -> LoudnessLabel:
     if rms_norm < 0.260:
         return "Loud"
     if rms_norm < 0.380:
-        return "Raised"           # ← new intermediate label (optional rename)
+        return "Raised"
     if rms_norm < 0.480:
         return "Very Loud"
     return "Extremely Loud"
@@ -312,7 +314,7 @@ def rms_to_loudness_labels(
 
 
 @dataclass(frozen=True)
-class SegmentLike:           # ← no Protocol needed here
+class SegmentLike:  # ← no Protocol needed here
     start_frame: int
     end_frame: int
 
@@ -344,10 +346,12 @@ def segment_loudness_median_label(
             counts = Counter(labels)
             loudness = counts.most_common(1)[0][0]
 
-        results.append({
-            "segment_index": idx,
-            "loudness": loudness,
-        })
+        results.append(
+            {
+                "segment_index": idx,
+                "loudness": loudness,
+            }
+        )
 
     return results
 
@@ -382,10 +386,12 @@ def segment_loudness_energy_weighted(
                 key=lambda item: item[1],
             )[0]
 
-        results.append({
-            "segment_index": idx,
-            "loudness": loudness,
-        })
+        results.append(
+            {
+                "segment_index": idx,
+                "loudness": loudness,
+            }
+        )
 
     return results
 
