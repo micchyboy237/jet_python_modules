@@ -1,11 +1,11 @@
 import re
 from typing import List, Tuple
-from bs4 import BeautifulSoup
-from lxml import etree
 
+from bs4 import BeautifulSoup
 from jet.logger import logger
 from jet.utils.code_utils import normalize_multiline_spaces
 from jet.utils.text import fix_and_unidecode
+from lxml import etree
 
 
 def is_html(text: str) -> bool:
@@ -27,9 +27,9 @@ def is_html(text: str) -> bool:
     # Quick pattern-based checks for clear HTML markers
     html_patterns = [
         r"<!DOCTYPE\s+html>",  # DOCTYPE
-        r"<!--.*?-->",         # HTML comment
-        r"<[a-zA-Z]+[^>]*>",   # Opening tag
-        r"</[a-zA-Z]+>",       # Closing tag
+        r"<!--.*?-->",  # HTML comment
+        r"<[a-zA-Z]+[^>]*>",  # Opening tag
+        r"</[a-zA-Z]+>",  # Closing tag
         r"<[a-zA-Z]+[^>]*?$",  # Incomplete tag (no closing >)
     ]
     for pattern in html_patterns:
@@ -78,19 +78,21 @@ def remove_html_comments(text: str) -> str:
     # Handle empty or whitespace-only input
     if not text or not text.strip():
         logger.debug("Input is empty or whitespace-only")
-        return ''
+        return ""
 
     try:
         # Check if input is a complete HTML document
-        doctype_pattern = r'^\s*<!DOCTYPE\s+html\s*>'
+        doctype_pattern = r"^\s*<!DOCTYPE\s+html\s*>"
         is_doctype = re.match(doctype_pattern, text, re.IGNORECASE) is not None
         parse_text = text
         if is_doctype:
-            parse_text = re.sub(doctype_pattern, '', text,
-                                count=1, flags=re.IGNORECASE).strip()
+            parse_text = re.sub(
+                doctype_pattern, "", text, count=1, flags=re.IGNORECASE
+            ).strip()
 
-        is_complete_html = re.match(
-            r'^\s*<html\b', parse_text, re.IGNORECASE) is not None
+        is_complete_html = (
+            re.match(r"^\s*<html\b", parse_text, re.IGNORECASE) is not None
+        )
         if not is_complete_html:
             # Wrap fragments in <html><body>...</body></html>
             parse_text = f"<html><body>{parse_text}</body></html>"
@@ -107,34 +109,36 @@ def remove_html_comments(text: str) -> str:
         # Serialize back to string
         if is_complete_html:
             # For complete HTML, serialize the entire tree
-            result = etree.tostring(
-                tree, encoding='unicode', method='html').strip()
+            result = etree.tostring(tree, encoding="unicode", method="html").strip()
         else:
             # For fragments, serialize the body content
             body = tree.find("body")
             if body is None:
                 logger.debug("No body element found")
-                return ''
+                return ""
             # Serialize all children of body, including text and tails
-            result = ''
+            result = ""
             if body.text and body.text.strip():
                 result += body.text
             for child in body:
                 # Serialize the child element, including its tail
                 child_str = etree.tostring(
-                    child, encoding='unicode', method='html').strip()
+                    child, encoding="unicode", method="html"
+                ).strip()
                 result += child_str
                 if child.tail and child.tail.strip():
                     result += child.tail
 
         logger.debug(f"Result after removing comments: {result}")
-        return result if result else ''
+        return result if result else ""
     except etree.ParseError as e:
         logger.debug(f"Parse error: {str(e)}")
         return text  # Return original text on parsing failure
 
 
-def preprocess_html(html: str, includes: list[str] | None = None, excludes: list[str] | None = None) -> str:
+def preprocess_html(
+    html: str, includes: list[str] | None = None, excludes: list[str] | None = None
+) -> str:
     """
     Preprocess HTML content by:
       - Removing unwanted elements, comments.
@@ -146,15 +150,22 @@ def preprocess_html(html: str, includes: list[str] | None = None, excludes: list
     includes = set(includes or [])
     excludes = set(excludes or [])
 
-    title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+    title_match = re.search(
+        r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL
+    )
     title = title_match.group(1).strip() if title_match else "Default Title"
 
     # Remove unwanted elements
-    unwanted_elements = r'button|script|style|form|input|select|textarea'
-    html = re.sub(rf'<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    unwanted_elements = r"button|script|style|form|input|select|textarea|header|footer"
+    html = re.sub(
+        rf"<({unwanted_elements})(?:\s+[^>]*)?>.*?</\1>",
+        "",
+        html,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
 
     # Remove comments
-    html = re.sub(r'<!--[\s\S]*?-->', '', html, flags=re.DOTALL)
+    html = re.sub(r"<!--[\s\S]*?-->", "", html, flags=re.DOTALL)
 
     # Apply includes/excludes filtering (after unwanted removal)
     if includes or excludes:
@@ -224,9 +235,10 @@ def dl_to_md(match: re.Match) -> str:
 
 def convert_dl_blocks_to_md(html: str) -> str:
     """Replace all <dl>...</dl> blocks in HTML with Markdown definition lists wrapped in <pre> to preserve newlines."""
+
     def repl(match: re.Match) -> str:
         md_content = dl_to_md(match)
-        return f"<pre class=\"jet-dl-block\">{md_content}</pre>"
+        return f'<pre class="jet-dl-block">{md_content}</pre>'
 
     result = re.sub(
         r"<dl[^>]*>\s*(.*?)\s*</dl>",
@@ -237,19 +249,29 @@ def convert_dl_blocks_to_md(html: str) -> str:
     return normalize_multiline_spaces(result)
 
 
-def clean_html(html: str, max_link_density: float = 0.2, max_link_ratio: float = 0.3, language: str = "English"): # -> List[justext.paragraph.Paragraph]:
+def clean_html(
+    html: str,
+    max_link_density: float = 0.2,
+    max_link_ratio: float = 0.3,
+    language: str = "English",
+):  # -> List[justext.paragraph.Paragraph]:
     import justext
     import justext.paragraph
+
     paragraphs = justext.justext(
         html,
         justext.get_stoplist(language),
         max_link_density=max_link_density,
         length_low=50,
         length_high=150,
-        no_headings=False
+        no_headings=False,
     )
     filtered_paragraphs = [
-        p for p in paragraphs
-        if (p.is_heading or (not p.is_boilerplate and p.links_density() < max_link_ratio))
+        p
+        for p in paragraphs
+        if (
+            p.is_heading
+            or (not p.is_boilerplate and p.links_density() < max_link_ratio)
+        )
     ]
     return filtered_paragraphs

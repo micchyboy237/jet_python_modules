@@ -1,15 +1,19 @@
+import asyncio
 import os
 import shutil
-import asyncio
 import time
 from typing import List, Literal, Optional, TypedDict
-from jet.utils.text import format_sub_dir
+
 from jet.logger import logger
-from jet.scrapers.utils import scrape_links
 from jet.scrapers.playwright_utils import scrape_urls, scrape_urls_sync
+from jet.scrapers.utils import scrape_links
+from jet.utils.text import format_sub_dir
 
 OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    os.path.dirname(__file__),
+    "generated",
+    os.path.splitext(os.path.basename(__file__))[0],
+)
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 log_file = os.path.join(OUTPUT_DIR, "main.log")
@@ -44,8 +48,8 @@ async def async_example(urls: List[str]) -> None:
         max_retries=3,
         with_screenshot=True,
         headless=False,
-        wait_for_js=True,
-        use_cache=False
+        wait_for_js=False,
+        use_cache=False,
     ):
         if result["status"] == "completed" and result["html"]:
             all_links = scrape_links(result["html"], base_url=result["url"])
@@ -93,8 +97,8 @@ def sync_example(urls: List[str]) -> None:
         max_retries=3,
         with_screenshot=True,
         headless=False,
-        wait_for_js=True,
-        use_cache=False
+        wait_for_js=False,
+        use_cache=False,
     )
 
     for result in results:

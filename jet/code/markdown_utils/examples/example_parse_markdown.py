@@ -4,7 +4,7 @@ import shutil
 from jet.code.markdown_utils import parse_markdown
 from jet.file.utils import save_file
 from jet.utils.commands import copy_to_clipboard
-from jet.utils.print_utils import print_dict_types
+from jet.utils.print_utils import print_types
 
 md_content = """
 Sample title
@@ -61,23 +61,28 @@ Use `print("Hello")` for quick debugging.
 """
 
 if __name__ == "__main__":
-    output_dir = os.path.join(os.path.dirname(
-        __file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    output_dir = os.path.join(
+        os.path.dirname(__file__),
+        "generated",
+        os.path.splitext(os.path.basename(__file__))[0],
+    )
     shutil.rmtree(output_dir, ignore_errors=True)
 
     results_ignore_links = parse_markdown(md_content, ignore_links=True)
     results_with_links = parse_markdown(md_content, ignore_links=False)
 
-    lines = print_dict_types(results_with_links)
+    lines = print_types(results_with_links)
     copy_to_clipboard("\n".join(lines))
 
     save_file(results_with_links, f"{output_dir}/merged/results_with_links.json")
     save_file(results_ignore_links, f"{output_dir}/merged/results_ignore_links.json")
 
     results_ignore_links = parse_markdown(
-        md_content, merge_headers=False, merge_contents=False, ignore_links=True)
+        md_content, merge_headers=False, merge_contents=False, ignore_links=True
+    )
     results_with_links = parse_markdown(
-        md_content, merge_headers=False, merge_contents=False, ignore_links=False)
+        md_content, merge_headers=False, merge_contents=False, ignore_links=False
+    )
 
     save_file(results_with_links, f"{output_dir}/no_merge/results_with_links.json")
     save_file(results_ignore_links, f"{output_dir}/no_merge/results_ignore_links.json")

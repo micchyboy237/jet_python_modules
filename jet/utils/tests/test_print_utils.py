@@ -1,6 +1,6 @@
-import pytest
-from typing import List, Any, Mapping
-from jet.utils.print_utils import get_common_dict_structure, print_dict_types
+from typing import Any, List, Mapping
+
+from jet.utils.print_utils import get_common_dict_structure, print_types
 
 
 class TestPrintDictTypes:
@@ -9,7 +9,7 @@ class TestPrintDictTypes:
         input_data: Mapping[str, Any] = {
             "z": {"p": 1},
             "a": {"x": 1, "y": 2, "z": 3},
-            "b": {"x": 1, "y": 2}
+            "b": {"x": 1, "y": 2},
         }
         expected: List[str] = [
             "a: dict",
@@ -20,11 +20,11 @@ class TestPrintDictTypes:
             "  b.x: int",
             "  b.y: int",
             "z: dict",
-            "  z.p: int"
+            "  z.p: int",
         ]
 
         # When: Processing the dictionary
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then: Dictionaries should be sorted by key count in descending order
         assert result == expected, "Dictionaries should be sorted by key count"
@@ -32,11 +32,7 @@ class TestPrintDictTypes:
     def test_list_of_dicts_sorting(self):
         # Given: A dictionary with a list of dictionaries
         input_data: Mapping[str, Any] = {
-            "items": [
-                {"a": 1},
-                {"p": 1, "q": 2},
-                {"x": 1, "y": 2, "z": 3}
-            ]
+            "items": [{"a": 1}, {"p": 1, "q": 2}, {"x": 1, "y": 2, "z": 3}]
         }
         expected: List[str] = [
             "items[]: list[dict]",
@@ -45,11 +41,11 @@ class TestPrintDictTypes:
             "  items[].q: int",
             "  items[].x: int",
             "  items[].y: int",
-            "  items[].z: int"
+            "  items[].z: int",
         ]
 
         # When: Processing the dictionary
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then: List items should be sorted by key count
         assert result == expected, "List of dictionaries should be sorted by key count"
@@ -59,17 +55,17 @@ class TestPrintDictTypes:
         input_data: Mapping[str, Any] = {
             "empty_dict": {},
             "empty_list": [],
-            "data": {"x": 1}
+            "data": {"x": 1},
         }
         expected: List[str] = [
             "data: dict",
             "  data.x: int",
             "empty_dict: dict",
-            "empty_list: list"
+            "empty_list: list",
         ]
 
         # When: Processing the dictionary
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then: Empty structures should be handled correctly
         assert result == expected, "Empty dict and list should be handled and sorted"
@@ -77,10 +73,7 @@ class TestPrintDictTypes:
     def test_nested_list_of_dicts(self):
         # Given: A nested list of dictionaries
         input_data: Mapping[str, Any] = {
-            "data": [
-                {"a": {"x": 1, "y": 2}},
-                {"b": {"p": 1}}
-            ]
+            "data": [{"a": {"x": 1, "y": 2}}, {"b": {"p": 1}}]
         }
         expected: List[str] = [
             "data[]: list[dict]",
@@ -88,21 +81,23 @@ class TestPrintDictTypes:
             "    data[].a.x: int",
             "    data[].a.y: int",
             "  data[].b: dict",
-            "    data[].b.p: int"
+            "    data[].b.p: int",
         ]
 
         # When: Processing the dictionary
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then: Nested list of dictionaries should be sorted
-        assert result == expected, "Nested list of dictionaries should be sorted by key count"
+        assert result == expected, (
+            "Nested list of dictionaries should be sorted by key count"
+        )
 
     def test_mixed_types(self):
         # Given: A dictionary with mixed types including tuples
         input_data: Mapping[str, Any] = {
             "a": (1, {"x": 1, "y": 2}),
             "b": {"p": 1, "q": 2, "r": 3},
-            "c": [1, "text"]
+            "c": [1, "text"],
         }
         expected: List[str] = [
             "b: dict",
@@ -116,35 +111,27 @@ class TestPrintDictTypes:
             "    a[1].y: int",
             "c: list",
             "  c: int",
-            "  c: str"
+            "  c: str",
         ]
 
         # When: Processing the dictionary
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then: Mixed types should be handled and sorted correctly
-        assert result == expected, "Mixed types should be sorted by key count where applicable"
+        assert result == expected, (
+            "Mixed types should be sorted by key count where applicable"
+        )
 
 
 class TestPrintDictTypes2:
     def test_simple_dictionary(self):
         """Test with a simple dictionary containing basic types"""
         # Given
-        input_data = {
-            "name": "John",
-            "age": 30,
-            "active": True,
-            "score": 95.5
-        }
-        expected = [
-            "name: str",
-            "age: int",
-            "active: bool",
-            "score: float"
-        ]
+        input_data = {"name": "John", "age": 30, "active": True, "score": 95.5}
+        expected = ["name: str", "age: int", "active: bool", "score: float"]
 
         # When
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then
         assert result == expected
@@ -153,24 +140,18 @@ class TestPrintDictTypes2:
         """Test with nested dictionaries"""
         # Given
         input_data = {
-            "user": {
-                "name": "Alice",
-                "details": {
-                    "age": 25,
-                    "city": "New York"
-                }
-            }
+            "user": {"name": "Alice", "details": {"age": 25, "city": "New York"}}
         }
         expected = [
             "user: dict",
             "  user.details: dict",
             "    user.details.age: int",
             "    user.details.city: str",
-            "  user.name: str"
+            "  user.name: str",
         ]
 
         # When
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then
         assert result == expected
@@ -178,10 +159,7 @@ class TestPrintDictTypes2:
     def test_dictionary_with_list(self):
         """Test with dictionary containing a list of mixed types"""
         # Given
-        input_data = {
-            "items": [1, "text", True, {"key": 42}],
-            "name": "test"
-        }
+        input_data = {"items": [1, "text", True, {"key": 42}], "name": "test"}
         expected = [
             "items: list",
             "  items: dict",
@@ -189,11 +167,11 @@ class TestPrintDictTypes2:
             "  items: int",
             "  items: str",
             "  items: bool",
-            "name: str"
+            "name: str",
         ]
 
         # When
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then
         assert result == expected
@@ -204,7 +182,7 @@ class TestPrintDictTypes2:
         input_data = {
             "data": [
                 {"id": 1, "values": [10, 20]},
-                {"id": 2, "values": ["a", {"x": False}]}
+                {"id": 2, "values": ["a", {"x": False}]},
             ]
         }
         expected = [
@@ -212,11 +190,11 @@ class TestPrintDictTypes2:
             "  data[].id: int",
             "  data[].values: list",
             "    data[].values: int",
-            "    data[].values: int"
+            "    data[].values: int",
         ]
 
         # When
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then
         assert result == expected
@@ -224,19 +202,11 @@ class TestPrintDictTypes2:
     def test_empty_structures(self):
         """Test with empty dictionary and list"""
         # Given
-        input_data = {
-            "empty_dict": {},
-            "empty_list": [],
-            "normal": 42
-        }
-        expected = [
-            "empty_dict: dict",
-            "empty_list: list",
-            "normal: int"
-        ]
+        input_data = {"empty_dict": {}, "empty_list": [], "normal": 42}
+        expected = ["empty_dict: dict", "empty_list: list", "normal: int"]
 
         # When
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then
         assert result == expected
@@ -251,11 +221,11 @@ class TestPrintDictTypes2:
             "  : str",
             "  : list",
             "    : int",
-            "    : int"
+            "    : int",
         ]
 
         # When
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then
         assert result == expected
@@ -266,7 +236,7 @@ class TestPrintDictTypes2:
         input_data = {
             "raw_tokens_sequential": [
                 {"id": 1, "type": "string", "content": "hello", "checked": None},
-                {"id": 2, "type": "number", "content": "123", "checked": None}
+                {"id": 2, "type": "number", "content": "123", "checked": None},
             ]
         }
         expected = [
@@ -274,11 +244,11 @@ class TestPrintDictTypes2:
             "  raw_tokens_sequential[].checked: NoneType",
             "  raw_tokens_sequential[].content: str",
             "  raw_tokens_sequential[].id: int",
-            "  raw_tokens_sequential[].type: str"
+            "  raw_tokens_sequential[].type: str",
         ]
 
         # When
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then
         assert result == expected
@@ -286,21 +256,18 @@ class TestPrintDictTypes2:
     def test_dictionary_with_tuple(self):
         """Test with dictionary containing a tuple"""
         # Given
-        input_data = {
-            "coords": (1.0, 2.0, {"z": 3}),
-            "name": "point"
-        }
+        input_data = {"coords": (1.0, 2.0, {"z": 3}), "name": "point"}
         expected = [
             "coords: tuple",
             "  coords[0]: float",
             "  coords[1]: float",
             "  coords[2]: dict",
             "    coords[2].z: int",
-            "name: str"
+            "name: str",
         ]
 
         # When
-        result = print_dict_types(input_data)
+        result = print_types(input_data)
 
         # Then
         assert result == expected
@@ -312,7 +279,7 @@ class TestGetCommonDictStructure:
         input_data: List[Mapping[str, Any]] = [
             {"a": 1, "b": 2, "c": 3},
             {"a": 4, "b": 5, "d": 6},
-            {"a": 7, "b": 8}
+            {"a": 7, "b": 8},
         ]
         expected: dict = {"a": 1, "b": 2, "c": 3, "d": 6}
 
@@ -320,7 +287,9 @@ class TestGetCommonDictStructure:
         result = get_common_dict_structure(input_data)
 
         # Then: The result should contain all keys with values from first occurrence
-        assert result == expected, "Should return all keys with values from first occurrence"
+        assert result == expected, (
+            "Should return all keys with values from first occurrence"
+        )
 
     def test_empty_list(self):
         # Given: An empty list
@@ -346,11 +315,7 @@ class TestGetCommonDictStructure:
 
     def test_no_keys_in_first_dict(self):
         # Given: A list where the first dictionary is empty
-        input_data: List[Mapping[str, Any]] = [
-            {},
-            {"a": 1, "b": 2},
-            {"c": 3}
-        ]
+        input_data: List[Mapping[str, Any]] = [{}, {"a": 1, "b": 2}, {"c": 3}]
         expected: dict = {"a": 1, "b": 2, "c": 3}
 
         # When: Extracting structure
@@ -375,7 +340,7 @@ class TestGetCommonDictStructure:
         input_data: List[Mapping[str, Any]] = [
             {"a": 1, "b": 2},
             {"c": 3, "d": 4},
-            {"e": 5}
+            {"e": 5},
         ]
         expected: dict = {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}
 

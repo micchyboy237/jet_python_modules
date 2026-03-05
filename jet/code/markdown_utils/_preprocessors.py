@@ -29,9 +29,9 @@ def clean_markdown_text(text: str) -> str:
     if text is None:
         return None
     # Remove escaped periods (e.g., "\." -> ".")
-    text = re.sub(r'\\([.])', r'\1', text)
+    text = re.sub(r"\\([.])", r"\1", text)
     # Trim trailing whitespace from each line
-    text = '\n'.join(line.rstrip() for line in text.splitlines())
+    text = "\n".join(line.rstrip() for line in text.splitlines())
     text = fix_and_unidecode(text)
     return text
 
@@ -41,14 +41,14 @@ def clean_markdown_links(text: str) -> str:
     Cleans markdown links in text, converting text links to their display text and removing image links.
 
     Args:
-        text (str): Input markdown text, possibly multiline, containing text links [text](url) 
+        text (str): Input markdown text, possibly multiline, containing text links [text](url)
                    and/or image links ![alt](url).
 
     Returns:
         str: Text with markdown text links replaced by their display text and image links removed.
     """
     # Remove image links: ![alt](url) -> ''
-    text = re.sub(r'!\[[^\]]*]\([^\)]*\)', '', text)
+    text = re.sub(r"!\[[^\]]*]\([^\)]*\)", "", text)
 
     # Replace text links: [text](url) or [text] (url) -> text or url if text is empty/whitespace
     def replace_link(match: re.Match[str]) -> str:
@@ -58,25 +58,25 @@ def clean_markdown_links(text: str) -> str:
 
     # Match links with optional nested brackets
     text = re.sub(
-        r'\[([^\[\]]*?(?:\[[^\[\]]*?\])*?[^\[\]]*?)\]\s*\(([^)]*?)\)',
+        r"\[([^\[\]]*?(?:\[[^\[\]]*?\])*?[^\[\]]*?)\]\s*\(([^)]*?)\)",
         replace_link,
-        text
+        text,
     )
 
     # Preserve newlines and normalize spaces within lines
-    parts = re.split(r'(\n+)', text)
+    parts = re.split(r"(\n+)", text)
     for i, part in enumerate(parts):
-        if re.match(r'\n+', part):  # Skip newline parts
+        if re.match(r"\n+", part):  # Skip newline parts
             continue
         if part.strip():  # Process non-empty parts after stripping
             # Preserve leading spaces, normalize internal spaces
-            leading_match = re.match(r'^\s*', part)
-            leading = leading_match.group(0) if leading_match else ''
-            content = re.sub(r'[ \t]+', ' ', part.strip())
+            leading_match = re.match(r"^\s*", part)
+            leading = leading_match.group(0) if leading_match else ""
+            content = re.sub(r"[ \t]+", " ", part.strip())
             parts[i] = leading + content
         else:  # Handle empty or whitespace-only parts
-            parts[i] = ' ' if part else ''
-    text = ''.join(parts)
+            parts[i] = " " if part else ""
+    text = "".join(parts)
 
     return text
 
@@ -84,12 +84,12 @@ def clean_markdown_links(text: str) -> str:
 def remove_markdown_links(text: str, remove_text: bool = False) -> str:
     """
     Remove all markdown links and optionally their visible text content.
-    
+
     Args:
         text: Markdown text possibly containing links or images.
         remove_text: If True, removes both the markdown link syntax and its text/alt label.
                      If False (default), keeps the label text.
-    
+
     Returns:
         str: Text with markdown links removed or replaced by labels depending on remove_text flag.
     """
@@ -117,10 +117,10 @@ def remove_markdown_links(text: str, remove_text: bool = False) -> str:
 def is_markdown_link(text: str) -> bool:
     """
     Check if the input text is a single markdown or image link without other text.
-    
+
     Args:
         text (str): Input text
-    
+
     Returns:
         bool: True if the text is a markdown or image link without other text, False otherwise.
     """
@@ -139,26 +139,34 @@ def preprocess_markdown(md_content: str) -> str:
         Normalized markdown content.
     """
     # Remove bold markdown syntax (e.g., **text** or __text__ to text)
-    md_content = re.sub(r'\*\*(.*?)\*\*', r'\1', md_content)
-    md_content = re.sub(r'__(.*?)__', r'\1', md_content)
+    md_content = re.sub(r"\*\*(.*?)\*\*", r"\1", md_content)
+    md_content = re.sub(r"__(.*?)__", r"\1", md_content)
     # Remove leading spaces from header lines
-    md_content = re.sub(r'^\s*(#+)', r'\1', md_content, flags=re.MULTILINE)
+    md_content = re.sub(r"^\s*(#+)", r"\1", md_content, flags=re.MULTILINE)
     # Remove leading spaces from blockquote lines
-    md_content = re.sub(r'^\s*(>+)', r'\1', md_content, flags=re.MULTILINE)
+    md_content = re.sub(r"^\s*(>+)", r"\1", md_content, flags=re.MULTILINE)
     # Ensure proper spacing around headers with links
-    md_content = re.sub(r'^(#+)\s*\[([^\]]+)\]\(([^)]+)\)',
-                        r'\1 [\2](\3)', md_content, flags=re.MULTILINE)
+    md_content = re.sub(
+        r"^(#+)\s*\[([^\]]+)\]\(([^)]+)\)",
+        r"\1 [\2](\3)",
+        md_content,
+        flags=re.MULTILINE,
+    )
 
     # Remove bold markers but preserve headers
-    md_content = re.sub(r'\*\*(.*?)\*\*', r'\1', md_content)
-    md_content = re.sub(r'__(.*?)__', r'\1', md_content)
+    md_content = re.sub(r"\*\*(.*?)\*\*", r"\1", md_content)
+    md_content = re.sub(r"__(.*?)__", r"\1", md_content)
     # Fix incomplete regex for blockquotes
-    md_content = re.sub(r'^\s*(>+)\s*', r'\1 ', md_content, flags=re.MULTILINE)
+    md_content = re.sub(r"^\s*(>+)\s*", r"\1 ", md_content, flags=re.MULTILINE)
     # Fix task list regex to avoid affecting headers
-    md_content = re.sub(r'^\s*([-*+])\s*\[([ xX])\]\s*(.*)',
-                        r'\1 [\2] \3', md_content, flags=re.MULTILINE)
+    md_content = re.sub(
+        r"^\s*([-*+])\s*\[([ xX])\]\s*(.*)",
+        r"\1 [\2] \3",
+        md_content,
+        flags=re.MULTILINE,
+    )
     # Remove consecutive spaces
-    md_content = re.sub(r' +', ' ', md_content).strip()
+    md_content = re.sub(r" +", " ", md_content).strip()
 
     # Process separator lines
     md_content = process_separator_lines(md_content)
@@ -233,17 +241,16 @@ def link_to_text_ratio(text: str, threshold: float = 0.5) -> LinkTextRatio:
               - cleaned_text_length (int): Number of alphanumeric characters after removing links.
     """
     # Normalize input by removing leading/trailing whitespace and trailing punctuation
-    text = text.strip().rstrip('.')
+    text = text.strip().rstrip(".")
 
     # Get total alphanumeric characters
-    total_chars = len(''.join(re.findall(r'[a-zA-Z0-9]', text)))
+    total_chars = len("".join(re.findall(r"[a-zA-Z0-9]", text)))
 
     # Clean the text to remove links and get the remaining content
     cleaned_text = remove_markdown_links(text)
     # Normalize cleaned text similarly
-    cleaned_text = cleaned_text.strip().rstrip('.')
-    cleaned_text_length = len(
-        ''.join(re.findall(r'[a-zA-Z0-9]', cleaned_text)))
+    cleaned_text = cleaned_text.strip().rstrip(".")
+    cleaned_text_length = len("".join(re.findall(r"[a-zA-Z0-9]", cleaned_text)))
 
     # Calculate link characters (total - cleaned)
     link_chars = total_chars - cleaned_text_length
@@ -255,15 +262,17 @@ def link_to_text_ratio(text: str, threshold: float = 0.5) -> LinkTextRatio:
     is_link_heavy = ratio >= threshold
 
     return {
-        'ratio': ratio,
-        'is_link_heavy': is_link_heavy,
-        'link_chars': link_chars,
-        'total_chars': total_chars,
-        'cleaned_text_length': cleaned_text_length
+        "ratio": ratio,
+        "is_link_heavy": is_link_heavy,
+        "link_chars": link_chars,
+        "total_chars": total_chars,
+        "cleaned_text_length": cleaned_text_length,
     }
 
 
-def extract_markdown_links(md_text: str, base_url: Optional[str] = None, ignore_links: bool = True) -> Tuple[List[MDHeaderLink], str]:
+def extract_markdown_links(
+    md_text: str, base_url: Optional[str] = None, ignore_links: bool = True
+) -> Tuple[List[MDHeaderLink], str]:
     """
     Extracts markdown links and plain URLs from markdown text, optionally replacing them with their text content or cleaning URLs.
     Handles nested image links like [![alt](image_url)](link_url) and reference-style links like [text][ref].
@@ -278,19 +287,15 @@ def extract_markdown_links(md_text: str, base_url: Optional[str] = None, ignore_
     """
     # Pattern for markdown links, including nested image links
     pattern = re.compile(
-        r'\[(?:!\[([^\]]*?)\]\(([^)]+?)\)|([^\]]*))\]\((\S+?)\)|'
+        r"\[(?:!\[([^\]]*?)\]\(([^)]+?)\)|([^\]]*))\]\((\S+?)\)|"
         # Capture reference-style links [text][ref]
-        r'\[([^\]]*)\]\[([^\]]*)\]',
-        re.MULTILINE
+        r"\[([^\]]*)\]\[([^\]]*)\]",
+        re.MULTILINE,
     )
     # Pattern for reference definitions [ref]: url
-    ref_pattern = re.compile(
-        r'^\[([^\]]*)\]:\s*(\S+)$',
-        re.MULTILINE
-    )
+    ref_pattern = re.compile(r"^\[([^\]]*)\]:\s*(\S+)$", re.MULTILINE)
     plain_url_pattern = re.compile(
-        r'(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]',
-        re.MULTILINE
+        r"(?<!\]\()https?://[^\s<>\]\)]+[^\s<>\]\).,?!]", re.MULTILINE
     )
     links: List[MDHeaderLink] = []
     output = md_text
@@ -311,7 +316,9 @@ def extract_markdown_links(md_text: str, base_url: Optional[str] = None, ignore_
         start, end = match.span()
         image_alt, image_url, label, url, ref_text, ref_id = match.groups()
         selected_url = ""
-        selected_image_url = image_url.strip() if image_url else None  # Capture image URL
+        selected_image_url = (
+            image_url.strip() if image_url else None
+        )  # Capture image URL
 
         if ref_text and ref_id:  # Handle reference-style link [md_text][ref]
             label = ref_text
@@ -320,23 +327,37 @@ def extract_markdown_links(md_text: str, base_url: Optional[str] = None, ignore_
             else:
                 continue  # Skip if reference not found
         else:
-            label = image_alt if image_alt else label  # Use image alt as label if present
+            label = (
+                image_alt if image_alt else label
+            )  # Use image alt as label if present
             # Prioritize outer link URL if present, otherwise use image URL
-            selected_url = url.strip() if url else (image_url.strip() if image_url else "")
+            selected_url = (
+                url.strip() if url else (image_url.strip() if image_url else "")
+            )
 
         if not selected_url:  # Skip if no valid URL
             continue
 
         # Convert relative URLs to absolute
-        if base_url and not selected_url.startswith(('http://', 'https://')):
+        if base_url and not selected_url.startswith(("http://", "https://")):
             selected_url = urljoin(base_url, selected_url)
         # Convert relative image URLs to absolute
-        if base_url and selected_image_url and not selected_image_url.startswith(('http://', 'https://')):
+        if (
+            base_url
+            and selected_image_url
+            and not selected_image_url.startswith(("http://", "https://"))
+        ):
             selected_image_url = urljoin(base_url, selected_image_url)
 
+        # Filter URLs outside base_url
+        if base_url:
+            normalized_base = base_url.rstrip("/") + "/"
+            if not selected_url.startswith(normalized_base):
+                continue
+
         # Find line and line index
-        start_line_idx = md_text[:start].rfind('\n') + 1
-        end_line_idx = md_text.find('\n', end)
+        start_line_idx = md_text[:start].rfind("\n") + 1
+        end_line_idx = md_text.find("\n", end)
         if end_line_idx == -1:
             end_line_idx = len(md_text)
         line = md_text[start_line_idx:end_line_idx].strip()
@@ -346,16 +367,18 @@ def extract_markdown_links(md_text: str, base_url: Optional[str] = None, ignore_
         key = (label or "", selected_url, line)  # Key remains unchanged
         if key not in seen:
             seen.add(key)
-            links.append({
-                "text": label or "",
-                "url": selected_url,
-                "start_idx": start,
-                "end_idx": end,
-                "line": line,
-                "line_idx": line_idx,
-                "is_heading": line.startswith('#'),
-                "image_url": selected_image_url
-            })
+            links.append(
+                {
+                    "text": label or "",
+                    "url": selected_url,
+                    "start_idx": start,
+                    "end_idx": end,
+                    "line": line,
+                    "line_idx": line_idx,
+                    "is_heading": line.startswith("#"),
+                    "image_url": selected_image_url,
+                }
+            )
         if ignore_links and label and label.strip():
             replacements.append((start, end, label))
         elif ignore_links:
@@ -367,9 +390,16 @@ def extract_markdown_links(md_text: str, base_url: Optional[str] = None, ignore_
     for match in plain_url_pattern.finditer(md_text):
         url = match.group(0).strip()
         start, end = match.span()
+
+        # Filter URLs outside base_url
+        if base_url:
+            normalized_base = base_url.rstrip("/") + "/"
+            if not url.startswith(normalized_base):
+                continue
+
         if not any(url in link["url"] for link in links):  # Avoid duplicates
-            start_line_idx = md_text[:start].rfind('\n') + 1
-            end_line_idx = md_text.find('\n', end)
+            start_line_idx = md_text[:start].rfind("\n") + 1
+            end_line_idx = md_text.find("\n", end)
             if end_line_idx == -1:
                 end_line_idx = len(md_text)
             line = md_text[start_line_idx:end_line_idx].strip()
@@ -377,16 +407,18 @@ def extract_markdown_links(md_text: str, base_url: Optional[str] = None, ignore_
             key = ("", url, None, line)
             if key not in seen:
                 seen.add(key)
-                links.append({
-                    "text": "",
-                    "url": url,
-                    "start_idx": start,
-                    "end_idx": end,
-                    "line": line,
-                    "line_idx": line_idx,
-                    "is_heading": line.startswith('#'),
-                    "image_url": None
-                })
+                links.append(
+                    {
+                        "text": "",
+                        "url": url,
+                        "start_idx": start,
+                        "end_idx": end,
+                        "line": line,
+                        "line_idx": line_idx,
+                        "is_heading": line.startswith("#"),
+                        "image_url": None,
+                    }
+                )
             if ignore_links:
                 replacements.append((start, end, ""))
             else:

@@ -1,0 +1,1 @@
+python /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/crawl4ai_lib/jet_examples/streaming_crawl_with_filters.py "https://missav.ws/en" -u "*.ws/en/*-*" -s 4

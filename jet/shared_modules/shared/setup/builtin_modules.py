@@ -1,39 +1,38 @@
 import builtins
 
-from shared.setup.events import EventSettings
-from shared.time_tracker import TimeTracker
-
 from jet.logger import logger
-from jet.utils.print_utils import print_dict_types
-from jet.utils.debug_utils import get_non_function_locals
+from jet.transformers.formatters import format_html, format_json
+from jet.transformers.object import make_serializable
 from jet.utils.class_utils import (
+    class_to_string,
+    get_builtin_attributes,
+    get_callable_attributes,
+    get_class_name,
+    get_internal_attributes,
+    get_iterable_class_name,
+    get_non_callable_attributes,
+    get_non_empty_attributes,
+    get_non_empty_object_attributes,
+    get_non_empty_primitive_attributes,
     is_class_instance,
     is_dictionary,
-    class_to_string,
     validate_class,
-    get_class_name,
     validate_iterable_class,
-    get_iterable_class_name,
-    get_builtin_attributes,
-    get_non_empty_attributes,
-    get_non_empty_primitive_attributes,
-    get_non_empty_object_attributes,
-    get_internal_attributes,
-    get_callable_attributes,
-    get_non_callable_attributes,
 )
-from jet.transformers.object import make_serializable
-from jet.utils.commands import copy_to_clipboard, copy_test_result
-from jet.transformers.formatters import format_json, format_html
+from jet.utils.commands import copy_test_result, copy_to_clipboard
+from jet.utils.debug_utils import get_non_function_locals
 from jet.utils.inspect_utils import (
-    inspect_original_script_path,
-    print_inspect_original_script_path,
-    print_inspect_original_script_path_grouped,
-    get_stack_frames,
     find_stack_frames,
     get_current_running_function,
     get_method_info,
+    get_stack_frames,
+    inspect_original_script_path,
+    print_inspect_original_script_path,
+    print_inspect_original_script_path_grouped,
 )
+from jet.utils.print_utils import print_types
+from shared.setup.events import EventSettings
+from shared.time_tracker import TimeTracker
 
 
 # Injects global methods/variables only once
@@ -74,8 +73,8 @@ def inject_globals():
         builtins.get_callable_attributes = get_callable_attributes
     if not hasattr(builtins, "get_non_callable_attributes"):
         builtins.get_non_callable_attributes = get_non_callable_attributes
-    if not hasattr(builtins, "print_dict_types"):
-        builtins.print_dict_types = print_dict_types
+    if not hasattr(builtins, "print_types"):
+        builtins.print_types = print_types
     if not hasattr(builtins, "make_serializable"):
         builtins.make_serializable = make_serializable
     if not hasattr(builtins, "copy_to_clipboard"):
@@ -91,7 +90,9 @@ def inject_globals():
     if not hasattr(builtins, "print_inspect_original_script_path"):
         builtins.print_inspect_original_script_path = print_inspect_original_script_path
     if not hasattr(builtins, "print_inspect_original_script_path_grouped"):
-        builtins.print_inspect_original_script_path_grouped = print_inspect_original_script_path_grouped
+        builtins.print_inspect_original_script_path_grouped = (
+            print_inspect_original_script_path_grouped
+        )
     if not hasattr(builtins, "get_stack_frames"):
         builtins.get_stack_frames = get_stack_frames
     if not hasattr(builtins, "find_stack_frames"):

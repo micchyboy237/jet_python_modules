@@ -19,7 +19,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 console = Console()
 
 
-async def crawl_with_mode(url: str, stream: bool, max_depth: int = 1) -> List:
+async def crawl_with_mode(url: str, stream: bool = True, max_depth: int = 1) -> List:
     config = CrawlerRunConfig(
         deep_crawl_strategy=BFSDeepCrawlStrategy(
             max_depth=max_depth, include_external=False

@@ -1,12 +1,16 @@
-from typing import Any, Dict, Iterator, List, Literal, Optional, Type
-from langchain_core.callbacks import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
-from langchain_core.tools import BaseTool, ToolException
-from pydantic import BaseModel, ConfigDict, Field
-from playwright.async_api import async_playwright
-from urllib.parse import urljoin
 import asyncio
-from bs4 import BeautifulSoup
+from typing import Any, Dict, Iterator, List, Literal, Optional, Type
+from urllib.parse import urljoin
+
 import markdownify
+from bs4 import BeautifulSoup
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForToolRun,
+    CallbackManagerForToolRun,
+)
+from langchain_core.tools import BaseTool, ToolException
+from playwright.async_api import async_playwright
+from pydantic import BaseModel, ConfigDict, Field
 
 from jet._token.token_utils import token_counter
 from jet.code.markdown_utils._converters import convert_html_to_markdown
@@ -17,11 +21,11 @@ from jet.scrapers.playwright_utils import scrape_urls_sync
 from jet.scrapers.utils import extract_favicon_ico_link
 from jet.transformers.formatters import format_html
 
+
 class PlaywrightExtractInput(BaseModel):
     """Input for PlaywrightExtract"""
-    urls: List[str] = Field(
-        description="List of URLs to extract content from."
-    )
+
+    urls: List[str] = Field(description="List of URLs to extract content from.")
     extract_depth: Optional[Literal["basic", "advanced"]] = Field(
         default="basic",
         description="""Controls the thoroughness of web content extraction.
@@ -30,14 +34,14 @@ class PlaywrightExtractInput(BaseModel):
         Always use 'advanced' for LinkedIn, YouTube, or other dynamic websites for optimal results.
         'advanced' may increase response time but improves content coverage.
         Default is 'basic'.
-        """
+        """,
     )
     include_images: Optional[bool] = Field(
         default=True,
         description="""Determines whether to extract and include image URLs from the source webpages.
         Set to True when visualizations are needed for better context or understanding (e.g., 'Extract images from a webpage about Renaissance art').
         Default is True to leverage Playwright's ability to extract visual content.
-        """
+        """,
     )
     include_favicon: Optional[bool] = Field(
         default=True,
@@ -47,7 +51,7 @@ class PlaywrightExtractInput(BaseModel):
         - Providing visual cues about the source's credibility or brand
         - Creating bookmark-like displays with recognizable site icons
         Default is True to enhance result presentation.
-        """
+        """,
     )
     format: Optional[Literal["markdown", "text"]] = Field(
         default="markdown",
@@ -55,8 +59,9 @@ class PlaywrightExtractInput(BaseModel):
         'markdown' returns content in markdown format, suitable for structured rendering.
         'text' returns plain text, which may increase latency due to additional processing.
         Default is 'markdown'.
-        """
+        """,
     )
+
 
 class PlaywrightExtractAPIWrapper(BaseModel):
     """Wrapper for Playwright-based web content extractor."""
@@ -79,35 +84,50 @@ class PlaywrightExtractAPIWrapper(BaseModel):
 
         async def extract_content(url: str) -> Dict[str, Any]:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless=True)
+                browser = await p.chromium.launch(
+                    executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE, headless=True
+                )
                 page = await browser.new_page()
                 try:
-                    await page.goto(url, timeout=30000)  # Increased timeout to 30 seconds
+                    await page.goto(
+                        url, timeout=30000
+                    )  # Increased timeout to 30 seconds
                     content = await page.content()
                     if not content:
                         return {"url": url, "error": "Empty page content"}
-                    soup = BeautifulSoup(content, 'html.parser')
-                    for element in soup(['script', 'style']):
+                    soup = BeautifulSoup(content, "html.parser")
+                    for element in soup(["script", "style"]):
                         element.decompose()
                     favicon = None
                     if include_favicon:
-                        favicon_link = soup.find('link', rel=['icon', 'shortcut icon'])
-                        if favicon_link and favicon_link.get('href'):
-                            favicon = urljoin(url, favicon_link['href'])
+                        favicon_link = soup.find("link", rel=["icon", "shortcut icon"])
+                        if favicon_link and favicon_link.get("href"):
+                            favicon = urljoin(url, favicon_link["href"])
                     images = []
                     if include_images:
-                        img_tags = soup.find_all('img')
-                        images = [urljoin(url, img.get('src')) for img in img_tags if img.get('src')]
-                    raw_content = soup.get_text(strip=True) if extract_depth == "basic" else str(soup)
+                        img_tags = soup.find_all("img")
+                        images = [
+                            urljoin(url, img.get("src"))
+                            for img in img_tags
+                            if img.get("src")
+                        ]
+                    raw_content = (
+                        soup.get_text(strip=True)
+                        if extract_depth == "basic"
+                        else str(soup)
+                    )
                     if not raw_content:
-                        return {"url": url, "error": "No content extracted after parsing"}
+                        return {
+                            "url": url,
+                            "error": "No content extracted after parsing",
+                        }
                     if format == "markdown":
                         raw_content = markdownify.markdownify(raw_content)
                     return {
                         "url": url,
                         "raw_content": raw_content,
                         "images": images,
-                        "favicon": favicon
+                        "favicon": favicon,
                     }
                 except Exception as e:
                     return {"url": url, "error": f"Failed to extract content: {str(e)}"}
@@ -128,7 +148,7 @@ class PlaywrightExtractAPIWrapper(BaseModel):
         return {
             "results": results,
             "failed_results": failed_results,
-            "response_time": response_time
+            "response_time": response_time,
         }
 
     def raw_results(
@@ -140,12 +160,16 @@ class PlaywrightExtractAPIWrapper(BaseModel):
         format: Optional[Literal["markdown", "text"]],
     ) -> Dict[str, Any]:
         """Synchronous wrapper for async extraction."""
-        return asyncio.run(self.raw_results_async(
-            urls, include_images, include_favicon, extract_depth, format
-        ))
+        return asyncio.run(
+            self.raw_results_async(
+                urls, include_images, include_favicon, extract_depth, format
+            )
+        )
+
 
 class PlaywrightExtract(BaseTool):
     """Tool that extracts content from websites using Playwright."""
+
     name: str = "playwright_extract"
     description: str = """Extracts content from web pages using Playwright, supporting basic or advanced extraction."""
     args_schema: Type[BaseModel] = PlaywrightExtractInput
@@ -154,7 +178,9 @@ class PlaywrightExtract(BaseTool):
     include_images: bool = True
     include_favicon: bool = True
     format: Optional[Literal["markdown", "text"]] = None
-    apiwrapper: PlaywrightExtractAPIWrapper = Field(default_factory=PlaywrightExtractAPIWrapper)
+    apiwrapper: PlaywrightExtractAPIWrapper = Field(
+        default_factory=PlaywrightExtractAPIWrapper
+    )
 
     def _run(
         self,
@@ -168,9 +194,15 @@ class PlaywrightExtract(BaseTool):
         try:
             raw_results = self.apiwrapper.raw_results(
                 urls=urls,
-                extract_depth=self.extract_depth if self.extract_depth else extract_depth,
-                include_images=self.include_images if self.include_images else include_images,
-                include_favicon=self.include_favicon if self.include_favicon else include_favicon,
+                extract_depth=self.extract_depth
+                if self.extract_depth
+                else extract_depth,
+                include_images=self.include_images
+                if self.include_images
+                else include_images,
+                include_favicon=self.include_favicon
+                if self.include_favicon
+                else include_favicon,
                 format=self.format if self.format else format,
             )
             results = raw_results.get("results", [])
@@ -205,9 +237,15 @@ class PlaywrightExtract(BaseTool):
         try:
             raw_results = await self.apiwrapper.raw_results_async(
                 urls=urls,
-                extract_depth=self.extract_depth if self.extract_depth else extract_depth,
-                include_images=self.include_images if self.include_images else include_images,
-                include_favicon=self.include_favicon if self.include_favicon else include_favicon,
+                extract_depth=self.extract_depth
+                if self.extract_depth
+                else extract_depth,
+                include_images=self.include_images
+                if self.include_images
+                else include_images,
+                include_favicon=self.include_favicon
+                if self.include_favicon
+                else include_favicon,
                 format=self.format if self.format else format,
             )
             results = raw_results.get("results", [])
@@ -240,9 +278,15 @@ class PlaywrightExtract(BaseTool):
         format: Optional[Literal["markdown", "text"]] = None,
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
         use_cache: bool = True,
-        url_limit: Optional[int] = None
+        url_limit: Optional[int] = None,
     ) -> Iterator[Dict[str, Any]]:
-        for url_result in scrape_urls_sync(urls, show_progress=True, use_cache=use_cache, wait_for_js=True, limit=url_limit):
+        for url_result in scrape_urls_sync(
+            urls,
+            show_progress=True,
+            use_cache=use_cache,
+            wait_for_js=False,
+            limit=url_limit,
+        ):
             url = url_result["url"]
             status = url_result["status"]
             html = url_result["html"]
@@ -262,7 +306,9 @@ class PlaywrightExtract(BaseTool):
                     {"text": image_link["alt_text"], "url": image_link["url"]}
                     for image_link in doc_analysis["image_links"]
                 ]
-                images = [image_link["url"] for image_link in doc_analysis["image_links"]]
+                images = [
+                    image_link["url"] for image_link in doc_analysis["image_links"]
+                ]
 
                 result = {
                     "url": url,
@@ -277,9 +323,9 @@ class PlaywrightExtract(BaseTool):
                         "markdown": doc_markdown,
                         "md_tokens": doc_markdown_tokens,
                         "screenshot": screenshot,
-                    }
+                    },
                 }
-                
+
                 favicon = None
                 if self.include_favicon:
                     favicon = extract_favicon_ico_link(html)
@@ -287,9 +333,12 @@ class PlaywrightExtract(BaseTool):
 
                 yield result
 
+
 def _generate_suggestions(params: Dict[str, Any]) -> List[str]:
     """Generate helpful suggestions based on the failed search parameters."""
     suggestions = []
     if params.get("extract_depth") and params["extract_depth"] == "basic":
-        suggestions.append("Try a more detailed extraction using 'advanced' extract_depth")
+        suggestions.append(
+            "Try a more detailed extraction using 'advanced' extract_depth"
+        )
     return suggestions

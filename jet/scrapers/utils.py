@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional, TypedDict, Union
+from typing import List, Literal, Optional, TypedDict, Union
 from urllib.parse import urljoin, urlparse
 
 import parsel
@@ -14,6 +14,7 @@ import requests
 import validators
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
+from jet.code.html_utils import convert_dl_blocks_to_md, preprocess_html
 from jet.file.utils import save_file
 from jet.logger import logger
 from jet.logger.config import colorize_log
@@ -1642,7 +1643,7 @@ def extract_tree_with_text(
     excludes: list[str] = ["nav", "footer", "script", "style"],
     timeout_ms: int = 10000,
     with_screenshot: bool = True,
-    wait_for_js: bool = True,
+    wait_for_js: bool = False,
     headless: bool = True,
 ) -> TreeNode:
     """
@@ -1985,7 +1986,7 @@ def extract_text_elements(
     excludes: list[str] = ["nav", "footer", "script", "style"],
     timeout_ms: int = 10000,
     with_screenshot: bool = True,
-    wait_for_js: bool = True,
+    wait_for_js: bool = False,
     headless: bool = True,
 ) -> list[str]:
     """
@@ -2255,12 +2256,15 @@ def safe_path_from_url(url: str, output_dir: str) -> str:
 
 def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResult]:
     filter_sites = []
-    engines = kwargs.get("engines", [
-        # "google",
-        # "brave",
-        # "duckduckgo",
-        # "yahoo",
-    ])
+    engines = kwargs.get(
+        "engines",
+        [
+            # "google",
+            # "brave",
+            # "duckduckgo",
+            # "yahoo",
+        ],
+    )
 
     try:
         results: list[SearchResult] = search_searxng(
@@ -2682,6 +2686,65 @@ def get_parents_with_common_class(
     traverse(root)
     result.sort(key=lambda x: x.children_count, reverse=True)
     return result
+
+
+class SimpleParent(TypedDict):
+    node_id: str
+    tag: str
+    depth: int
+    child_count: int
+    child_xpaths: List[str]
+    child_css_selectors: List[str]
+
+
+def get_flattened_parents_with_most_children(
+    html: str,
+    min_children: int = 1,
+) -> List[SimpleParent]:
+    html = convert_dl_blocks_to_md(html)
+    html = preprocess_html(
+        html,
+        excludes=["head", "nav", "footer", "script", "style", "button"],
+    )
+
+    root: TreeNode = extract_tree_with_text(html)
+    parents: List[SimpleParent] = []
+
+    def collect(node: TreeNode) -> None:
+        children = node._children
+        count = len(children)
+        if count < min_children:
+            for child in children:
+                collect(child)
+            return
+
+        child_xpaths: List[str] = []
+        child_css_selectors: List[str] = []
+        element = node.get_element()
+        if element is not None:
+            for child_node in children:
+                child_elem = child_node.get_element()
+                if child_elem is not None:
+                    child_xpaths.append(get_xpath(child_elem))
+                    child_css_selectors.append(get_css_selector(child_elem))
+
+        parents.append(
+            {
+                "node_id": node.id,
+                "tag": node.tag,
+                "depth": node.depth,
+                "child_count": count,
+                "child_xpaths": child_xpaths,
+                "child_css_selectors": child_css_selectors,
+            }
+        )
+
+        for child in children:
+            collect(child)
+
+    collect(root)
+    parents.sort(key=lambda p: p["child_count"], reverse=True)
+    return parents
 
 
 __all__ = [

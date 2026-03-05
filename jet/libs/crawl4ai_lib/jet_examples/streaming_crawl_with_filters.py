@@ -1,6 +1,18 @@
+"""
+Streaming Crawl with Filters
+
+Usage Examples
+--------------
+
+python streaming_crawl_with_filters.py "https://missav.ws/en" -u "*.ws/en/*-*" -s 4
+"""
+
 import argparse
 import asyncio
+import random
 import shutil
+import time
+from math import inf as infinity
 from pathlib import Path
 
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
@@ -13,7 +25,9 @@ from crawl4ai.deep_crawling.filters import (
     URLPatternFilter,
 )
 from jet.file.utils import save_file
+from jet.libs.crawl4ai_lib.custom_filters import MaxPathSegmentsFilter
 from rich.console import Console
+from rich.table import Table
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -22,12 +36,14 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 console = Console(highlight=True)
 
 
-async def crawl_with_filters(
+async def streaming_crawl_with_filters(
     url: str,
     filter_chain: FilterChain | None = None,
     max_depth: int = 2,
     wait_for: str | None = None,
     wait_for_timeout: int | None = 5000,
+    max_pages: int = infinity,
+    polite_delay_range: tuple[float, float] = (2.5, 6.0),  # seconds
 ):
     js_commands = [
         "window.scrollTo(0, document.body.scrollHeight);",
@@ -35,27 +51,55 @@ async def crawl_with_filters(
     config = CrawlerRunConfig(
         js_code=js_commands,
         wait_for=wait_for,
-        wait_for_timeout=wait_for_timeout,
+        wait_for_timeout=wait_for_timeout or 30000,  # more generous default
+        page_timeout=60000,  # 60s – missav is slow
         deep_crawl_strategy=BFSDeepCrawlStrategy(
             max_depth=max_depth,
             include_external=False,
             filter_chain=filter_chain,
+            max_pages=max_pages,
         ),
         scraping_strategy=LXMLWebScrapingStrategy(),
         cache_mode="BYPASS",
         verbose=True,
+        stream=True,
     )
+
     async with AsyncWebCrawler() as crawler:
-        return await crawler.arun(url=url, config=config)
+        start = time.perf_counter()
+        results = []
+        first_time = None
+
+        # This assumes 'crawl_results' is async generator
+        idx = 0
+        async for result in await crawler.arun(url=url, config=config):
+            results.append(result)
+            idx += 1
+            if idx == 1:
+                first_time = time.perf_counter() - start
+            if idx % 5 == 0:
+                console.print(
+                    f"  → #{idx:3d} | count: {len(results):3d} | {result.url}"
+                )
+
+            # Polite delay between processed items (simulates human browsing pace)
+            if polite_delay_range:
+                delay = random.uniform(*polite_delay_range)
+                await asyncio.sleep(delay)
+
+        total_time = time.perf_counter() - start
+        return results, first_time, total_time
 
 
-def print_results(results, title: str):
-    console.rule(title)
-    console.print(f"[bold green]Crawled {len(results)} pages[/]")
-    for r in results[:6]:
-        console.print(f"  • {r.url}")
-    if len(results) > 6:
-        console.print(f"  … and {len(results) - 6} more")
+def print_summary(mode: str, count: int, first_time: float | None, total_time: float):
+    table = Table(title=f"{mode} Mode Summary")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="magenta")
+    table.add_row("Pages crawled", f"{count}")
+    if first_time is not None:
+        table.add_row("Time to first result", f"{first_time:.2f} s")
+    table.add_row("Total time", f"{total_time:.2f} s")
+    console.print(table)
 
 
 if __name__ == "__main__":
@@ -70,6 +114,13 @@ if __name__ == "__main__":
         type=int,
         default=2,
         help="Maximum crawl depth (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--max-segments",
+        "-s",
+        type=int,
+        default=None,
+        help="Maximum number of path segments allowed in URLs (default: None)",
     )
     parser.add_argument(
         "--allowed-domains",
@@ -87,10 +138,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--url-patterns",
-        "-p",
+        "-u",
         nargs="*",
         default=None,
         help="URL patterns to allow (e.g., '*2024*')",
+    )
+    parser.add_argument(
+        "--max-pages",
+        "-p",
+        type=int,
+        default=20,
+        help="Maximum number of pages to crawl (default: %(default)s)",
     )
     parser.add_argument(
         "--content-types",
@@ -117,6 +175,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     filters = []
+    if args.max_segments is not None:
+        filters.append(MaxPathSegmentsFilter(max_segments=args.max_segments))
     if args.url_patterns is not None:
         filters.append(URLPatternFilter(patterns=args.url_patterns))
     if args.allowed_domains is not None or args.blocked_domains is not None:
@@ -133,23 +193,30 @@ if __name__ == "__main__":
     if args.content_types is not None:
         filters.append(ContentTypeFilter(allowed_types=args.content_types))
     chain = FilterChain(filters)
-    results_multi_filter = asyncio.run(
-        crawl_with_filters(
+    results, first_time, total_time = asyncio.run(
+        streaming_crawl_with_filters(
             args.url,
             chain,
             max_depth=args.max_depth,
+            max_pages=args.max_pages,
             wait_for=args.wait_for,
             wait_for_timeout=args.wait_for_timeout,
         )
     )
-    print_results(
-        results_multi_filter,
-        f"{args.url_patterns} + {args.allowed_domains} + {args.content_types}",
-    )
+    summary_data = {
+        "mode": "streaming",
+        "pages": len(results),
+        "time_to_first": first_time,
+        "total_time": total_time,
+    }
 
-    save_file(results_multi_filter, OUTPUT_DIR / "results_multi_filter.json")
+    print_summary("Streaming", len(results), first_time, total_time)
+
+    save_file(results, OUTPUT_DIR / "results.json")
+    save_file([u for u in results], OUTPUT_DIR / "result_links.json")
     save_file(
-        [u for u in results_multi_filter], OUTPUT_DIR / "results_multi_filter_urls.json"
+        summary_data,
+        OUTPUT_DIR / "counts.json",
     )
 
     console.print(f"\n[green]Artifacts saved → {OUTPUT_DIR}[/]")
