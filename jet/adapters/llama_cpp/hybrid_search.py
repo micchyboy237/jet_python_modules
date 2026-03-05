@@ -399,6 +399,7 @@ class HybridSearch:
 # ────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import shutil
     from pathlib import Path
 
     from jet.code.extraction.html_sentence_extractor import html_to_sentences
@@ -407,6 +408,7 @@ if __name__ == "__main__":
     from rich.table import Table
 
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
     model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
 
@@ -435,8 +437,6 @@ if __name__ == "__main__":
 
     # ids = [doc["id"] for doc in docs_data]
     # documents = [doc["content"] for doc in docs_data]
-
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
     # Load HTML content from the specified file
     html_file_path = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/vectors/semantic_search/generated/run_web_search/top_isekai_anime_2026/pages/gamerant_com_new_isekai_anime_2026/page.html"

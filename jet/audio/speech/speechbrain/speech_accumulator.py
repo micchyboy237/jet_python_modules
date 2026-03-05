@@ -1,3 +1,5 @@
+# jet.audio.speech.speechbrain.speech_accumulator
+
 import time
 from collections import deque
 from typing import Optional, TypedDict

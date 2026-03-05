@@ -1,4 +1,4 @@
-# jet_python_modules/jet/audio/speech/speechbrain/speech_segmentor.py
+# jet.audio.speech.speechbrain.speech_segmentor
 
 import time
 from collections import deque
@@ -93,9 +93,7 @@ class LiveSpeechSegmentor:
 
         # ── 2. Max duration trim (still allowed during speech)
         if duration_sec > self.config.max_speech_duration_sec:
-            self.current.trim_to_overlap(
-                int(self.config.max_speech_duration_sec * self.sample_rate)
-            )
+            self.current.trim_audio(self.config.max_speech_duration_sec)
             self._send_current(is_final=False, now=now)
             self.last_send_time = now
             return  # optional: can continue or return
