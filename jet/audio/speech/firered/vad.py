@@ -16,7 +16,7 @@ class FireRedVAD:
         self,
         model_dir: str = SAVE_DIR,
         device: str | None = None,
-        speech_threshold: float = 0.65,
+        threshold: float = 0.65,
         min_silence_duration_sec: float = 0.20,  # 200 ms
         min_speech_duration_sec: float = 0.15,  # 150 ms
         max_speech_duration_sec: float = 12.0,
@@ -36,7 +36,7 @@ class FireRedVAD:
 
         config = FireRedStreamVadConfig(
             use_gpu=(device == "cuda"),
-            speech_threshold=speech_threshold,
+            speech_threshold=threshold,
             smooth_window_size=smooth_window_size,
             pad_start_frame=pad_start_frame,
             min_speech_frame=int(min_speech_duration_sec * frames_per_sec),
