@@ -22,6 +22,7 @@ class LiveSpeechSegmentAccumulator:
 
     BYTES_PER_SAMPLE: int = 2
     SAMPLES_PER_CHUNK: int = 512
+    SMART_TRIM_VAD_THRESHOLD: float = 0.15
 
     def __init__(
         self,
@@ -136,19 +137,59 @@ class LiveSpeechSegmentAccumulator:
         if max_duration <= 0:
             self.reset()
             return
+
         current_sec = self.get_duration_sec()
         if current_sec <= max_duration:
             return
-        target_samples = int(max_duration * self.sample_rate)
-        target_bytes = target_samples * self.BYTES_PER_SAMPLE
-        if len(self.buffer) <= target_bytes:
+
+        # --- compute chunk duration ---
+        chunk_duration_sec = self.SAMPLES_PER_CHUNK / self.sample_rate
+
+        # --- determine max chunks allowed ---
+        max_chunks = int(max_duration // chunk_duration_sec)
+
+        if max_chunks <= 0:
+            self.reset()
             return
-        self.buffer = self.buffer[-target_bytes:]
-        kept_samples = len(self.buffer) // self.BYTES_PER_SAMPLE
-        kept_chunks = kept_samples // self.SAMPLES_PER_CHUNK
-        self._vad_probs = self._vad_probs[-kept_chunks:]
-        self._rms_values = self._rms_values[-kept_chunks:]
+
+        total_chunks = len(self._vad_probs)
+
+        # nothing to trim
+        if total_chunks <= max_chunks:
+            return
+
+        # --- base trim requirement ---
+        trim_chunks = total_chunks - max_chunks
+
+        # --- attempt smart trim at silence boundary ---
+        silence_trim_index: Optional[int] = None
+
+        for i in range(trim_chunks - 1, -1, -1):
+            if self._vad_probs[i] < self.SMART_TRIM_VAD_THRESHOLD:
+                silence_trim_index = i + 1
+                break
+
+        if silence_trim_index is not None:
+            trim_chunks = silence_trim_index
+
+        trim_samples = trim_chunks * self.SAMPLES_PER_CHUNK
+        trim_bytes = trim_samples * self.BYTES_PER_SAMPLE
+
+        # --- adjust start time before modifying buffer ---
+        trimmed_duration = trim_samples / self.sample_rate
+        self.start_time += trimmed_duration
+
+        # --- remove audio from the front (avoid reallocating buffer) ---
+        del self.buffer[:trim_bytes]
+
+        # --- trim stat arrays ---
+        self._vad_probs = self._vad_probs[trim_chunks:]
+        self._rms_values = self._rms_values[trim_chunks:]
+
+        # --- recompute aggregates ---
         self._recompute_aggregates()
+
+        # --- update end time ---
         self._update_end_time()
 
     def _recompute_aggregates(self) -> None:
