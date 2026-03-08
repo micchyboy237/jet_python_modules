@@ -21,6 +21,7 @@ def extract_speech_timestamps(
     return_seconds: bool = False,
     with_scores: bool = False,
     include_non_speech: bool = False,
+    **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
     Extract speech timestamps using FireRedVAD.
