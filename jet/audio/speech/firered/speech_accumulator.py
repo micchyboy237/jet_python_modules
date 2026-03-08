@@ -133,6 +133,20 @@ class LiveSpeechSegmentAccumulator:
     def get_end_wallclock(self) -> float:
         return self.end_time
 
+    def get_speech_probs(self) -> list[float]:
+        """
+        Returns the list of per-chunk speech probabilities (VAD scores)
+        in the order they were appended (including any pre-roll chunks with 0.0).
+        """
+        return self._vad_probs.copy()
+
+    def get_rms_values(self) -> list[float]:
+        """
+        Returns the list of per-chunk RMS values
+        in the order they were appended (including any pre-roll chunks with 0.0).
+        """
+        return self._rms_values.copy()
+
     def trim_audio(self, max_duration: float) -> None:
         if max_duration <= 0:
             self.reset()

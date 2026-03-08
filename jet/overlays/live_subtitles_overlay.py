@@ -19,7 +19,6 @@ from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from PyQt6.QtCore import (
     QDir,
     QEasingCurve,
-    QFile,
     QObject,
     QPoint,
     QPropertyAnimation,
@@ -925,7 +924,7 @@ class LiveSubtitlesOverlay(QWidget):
             """)
             play_btn.setToolTip(f"Play segment #{segment_number}")
             play_btn.clicked.connect(
-                lambda checked, num=segment_number: self._play_segment(num)
+                lambda checked, num=segment_number: self._play_segment(message)
             )
             meta_layout1.addWidget(play_btn)
 
@@ -1152,20 +1151,106 @@ class LiveSubtitlesOverlay(QWidget):
 
         QTimer.singleShot(0, self._scroll_to_bottom_smooth)
 
-    def _play_segment(self, segment_num: int) -> None:
-        """Play the audio file for the given segment number."""
-        segment_dir = QDir(self.segments_dir).filePath(f"segment_{segment_num:04d}")
-        wav_path = QDir(segment_dir).filePath("sound.wav")
+    def _find_audio_file(
+        self, message_id: str, chunk_index: int | None = None
+    ) -> str | None:
+        """
+        Locate the .wav file in self.segments_dir that corresponds to this message.
 
-        if not QDir(segment_dir).exists() or not QFile(wav_path).exists():
-            self.logger.warning("[play] Audio not found: %s", wav_path)
+        Expected filename pattern:  *_{last6 chars of id}_{chunk_index}.wav
+
+        If chunk_index is provided → looks for exact _{suffix}_{chunk}.wav suffix
+        If chunk_index is None     → looks for any file containing _{suffix}_*.wav
+                                    and prefers the one with smallest / earliest chunk
+
+        Returns absolute path if found, None otherwise.
+        """
+        if not message_id or len(message_id) < 6:
+            self.logger.warning("[find_audio] Invalid message ID: %s", message_id)
+            return None
+
+        suffix = message_id[-6:]
+        segment_dir = QDir(self.segments_dir)
+
+        if not segment_dir.exists():
+            self.logger.warning(
+                "[find_audio] Directory not found: %s", self.segments_dir
+            )
+            return None
+
+        # Build pattern
+        if chunk_index is not None:
+            # Exact match on chunk → highest confidence
+            pattern = f"*_{suffix}_{chunk_index}.wav"
+        else:
+            # Fallback: any chunk for this utterance
+            pattern = f"*_{suffix}_*.wav"
+
+        candidates = segment_dir.entryList(
+            [pattern],
+            QDir.Filter.Files | QDir.Filter.Readable,
+            QDir.SortFlag.Name,  # usually gives chronological-ish order
+        )
+
+        if not candidates:
+            self.logger.debug(
+                "[find_audio] No match for pattern '%s' in %s (id suffix: %s, chunk: %s)",
+                pattern,
+                self.segments_dir,
+                suffix,
+                chunk_index,
+            )
+            return None
+
+        if len(candidates) > 1:
+            self.logger.info(
+                "[find_audio] Multiple matches for %s (chunk %s): %s → picking first",
+                suffix,
+                chunk_index,
+                ", ".join(candidates),
+            )
+            # Alternative strategies you could add:
+            # - sort by QFileInfo.lastModified() and take newest
+            # - parse chunk number and take lowest/highest
+            # For now: take first (usually Name sort ≈ creation order)
+
+        chosen = candidates[0]
+        full_path = segment_dir.absoluteFilePath(chosen)
+
+        self.logger.debug("[find_audio] Selected: %s", chosen)
+        return full_path
+
+    def _play_segment(self, message: SubtitleMessage) -> None:
+        """Play the audio segment corresponding to this subtitle message."""
+        mid = message.get("id")
+        chunk = message.get("chunk_index")
+
+        if not mid:
+            self.logger.warning("[play] Cannot play: no message id")
+            return
+
+        wav_path = self._find_audio_file(mid, chunk)
+
+        if not wav_path:
+            self.logger.info(
+                "[play] No audio found for message %s (chunk %s)",
+                mid[:8] + "…" if mid else "(no id)",
+                chunk,
+            )
+            # Optional: show feedback in UI, e.g. flash status label
             return
 
         url = QUrl.fromLocalFile(wav_path)
-        self._player.stop()  # stop any previous playback
+        self._player.stop()
         self._player.setSource(url)
         self._player.play()
-        self.logger.info("[play] Started segment_%04d → %s", segment_num, wav_path)
+
+        self.logger.info(
+            "[play] → %s  (id suffix: %s, chunk: %s)",
+            Path(wav_path).name,
+            mid[-6:],
+            chunk,
+        )
 
     def _scroll_to_bottom_smooth(self) -> None:
         scrollbar = self.scroll.verticalScrollBar()
