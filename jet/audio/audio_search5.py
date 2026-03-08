@@ -4,7 +4,7 @@ import argparse
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, TypedDict
+from typing import Dict, List, TypedDict
 
 import numpy as np
 from rich.console import Console
@@ -17,15 +17,10 @@ try:
 except ImportError:
     numba = None
 
-try:
-    import cupy as cp
-except ImportError:
-    cp = None
-
 console = Console()
 
-HOP_LENGTH = 512
 WINDOW_SIZE = 2048
+HOP_LENGTH = 512
 
 
 class AudioMatchResult(TypedDict):
@@ -44,7 +39,7 @@ class Peak:
 
 
 # ============================================================
-# Utilities
+# Audio loading
 # ============================================================
 
 
@@ -57,47 +52,25 @@ def load_audio(path: Path):
     return sr, data.astype(np.float32)
 
 
-def _validate_signal(signal: np.ndarray):
-    if signal.ndim != 1:
-        raise ValueError("Signal must be mono")
-
-
-def _normalize_order(a: np.ndarray, b: np.ndarray):
-    if a.size >= b.size:
-        return a, b
-    return b, a
-
-
 # ============================================================
-# GPU Spectrogram
+# Spectrogram
 # ============================================================
 
 
-def compute_spectrogram(signal, sr, use_gpu=False):
-    if use_gpu and cp is not None:
-        sig = cp.asarray(signal)
-
-        _, _, Z = stft(
-            cp.asnumpy(sig),
-            fs=sr,
-            nperseg=WINDOW_SIZE,
-            noverlap=WINDOW_SIZE - HOP_LENGTH,
-        )
-
-        return np.abs(Z)
-
+def compute_spectrogram(signal, sr):
     _, _, Z = stft(
         signal,
         fs=sr,
         nperseg=WINDOW_SIZE,
         noverlap=WINDOW_SIZE - HOP_LENGTH,
+        padded=False,
     )
 
     return np.abs(Z)
 
 
 # ============================================================
-# Numba Peak Detection
+# Peak detection
 # ============================================================
 
 
@@ -139,7 +112,7 @@ def detect_peaks(spec, threshold=0.1):
 
 
 # ============================================================
-# Bit Packed Fingerprints
+# Bit-packed fingerprint
 # ============================================================
 
 
@@ -170,59 +143,91 @@ def generate_fingerprints(peaks, fanout=8, max_dt=200):
             hashes.append(h)
             times.append(a.time_bin)
 
-    return np.array(hashes, dtype=np.uint32), np.array(times, dtype=np.uint32)
+    return np.array(hashes, np.uint32), np.array(times, np.uint32)
 
 
 # ============================================================
-# Fingerprint DB
+# LSH bucket index
 # ============================================================
 
 
 class FingerprintDB:
-    def __init__(self, path: Path):
-        self.path = path
-        path.mkdir(exist_ok=True)
-
-        self.hash_file = path / "hashes.memmap"
-        self.time_file = path / "times.memmap"
+    def __init__(self, db_dir: Path):
+        self.hash_file = db_dir / "hashes.memmap"
+        self.time_file = db_dir / "times.memmap"
 
         if not self.hash_file.exists():
-            raise RuntimeError("Fingerprint DB missing. Use --build-db")
+            raise RuntimeError("Fingerprint DB not found. Use --build-db")
 
         self.hashes = np.memmap(self.hash_file, dtype=np.uint32, mode="r")
         self.times = np.memmap(self.time_file, dtype=np.uint32, mode="r")
 
+        # build LSH buckets
+        self.buckets: Dict[int, np.ndarray] = {}
+
+        for i, h in enumerate(self.hashes):
+            key = int(h >> 12)
+            self.buckets.setdefault(key, []).append(i)
+
+        for k in self.buckets:
+            self.buckets[k] = np.array(self.buckets[k])
+
     def lookup(self, h):
-        idx = np.where(self.hashes == h)[0]
+        key = int(h >> 12)
 
-        return self.times[idx]
+        idx = self.buckets.get(key)
+
+        if idx is None:
+            return []
+
+        matches = idx[self.hashes[idx] == h]
+
+        return self.times[matches]
 
 
 # ============================================================
-# Build DB
+# DB Builder
 # ============================================================
 
 
-def build_database(audio_dir: Path, db_dir: Path, use_gpu=False):
-    hashes = []
-    times = []
+def build_database(input_path: Path, db_dir: Path):
+    db_dir.mkdir(exist_ok=True)
 
-    console.print("[cyan]Building fingerprint database...")
+    files: List[Path] = []
 
-    for file in audio_dir.glob("*.wav"):
+    if input_path.is_file():
+        files = [input_path]
+    else:
+        files = list(input_path.rglob("*.wav"))
+
+    if not files:
+        raise RuntimeError("No WAV files found to build database.")
+
+    console.print(f"[cyan]Indexing {len(files)} audio files...")
+
+    all_hashes = []
+    all_times = []
+
+    for file in files:
         sr, sig = load_audio(file)
 
-        spec = compute_spectrogram(sig, sr, use_gpu)
+        spec = compute_spectrogram(sig, sr)
 
         peaks = detect_peaks(spec)
 
-        h, t = generate_fingerprints(peaks)
+        hashes, times = generate_fingerprints(peaks)
 
-        hashes.append(h)
-        times.append(t)
+        if hashes.size == 0:
+            continue
 
-    hashes = np.concatenate(hashes)
-    times = np.concatenate(times)
+        all_hashes.append(hashes)
+        all_times.append(times)
+
+    if not all_hashes:
+        raise RuntimeError("No fingerprints extracted.")
+
+    hashes = np.concatenate(all_hashes)
+    times = np.concatenate(all_times)
 
     np.memmap(db_dir / "hashes.memmap", dtype=np.uint32, mode="w+", shape=hashes.shape)[
         :
@@ -231,11 +236,11 @@ def build_database(audio_dir: Path, db_dir: Path, use_gpu=False):
         :
     ] = times
 
-    console.print("[green]Fingerprint DB built")
+    console.print(f"[green]DB built with {len(hashes):,} fingerprints[/green]")
 
 
 # ============================================================
-# NCC Refinement
+# NCC refinement
 # ============================================================
 
 
@@ -271,9 +276,12 @@ def refine_offset(long_signal, short_signal, approx, radius):
 
 
 def match_audio(sig_a, sig_b, db, sr, threshold, radius):
-    sig_a, sig_b = _normalize_order(sig_a, sig_b)
+    if len(sig_a) >= len(sig_b):
+        long_sig, short_sig = sig_a, sig_b
+    else:
+        long_sig, short_sig = sig_b, sig_a
 
-    spec = compute_spectrogram(sig_b, sr)
+    spec = compute_spectrogram(short_sig, sr)
 
     peaks = detect_peaks(spec)
 
@@ -294,16 +302,16 @@ def match_audio(sig_a, sig_b, db, sr, threshold, radius):
 
     approx_samples = best_offset_frames * HOP_LENGTH
 
-    offset, conf = refine_offset(sig_a, sig_b, approx_samples, radius)
+    offset, conf = refine_offset(long_sig, short_sig, approx_samples, radius)
 
     if conf < threshold:
         return None
 
     return AudioMatchResult(
         start_sample=offset,
-        end_sample=offset + len(sig_b),
+        end_sample=offset + len(short_sig),
         start_time=offset / sr,
-        end_time=(offset + len(sig_b)) / sr,
+        end_time=(offset + len(short_sig)) / sr,
         confidence=conf,
     )
 
@@ -327,8 +335,6 @@ def get_args():
 
     p.add_argument("--build-db", action="store_true")
 
-    p.add_argument("--gpu", action="store_true")
-
     p.add_argument("-q", "--quiet", action="store_true")
 
     return p.parse_args()
@@ -343,7 +349,7 @@ def main():
     args = get_args()
 
     if args.build_db:
-        build_database(args.reference, args.db, args.gpu)
+        build_database(args.reference, args.db)
         return
 
     sr_a, sig_a = load_audio(args.reference)

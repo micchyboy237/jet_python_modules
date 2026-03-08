@@ -5,7 +5,7 @@ import hashlib
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, TypedDict
+from typing import Dict, Iterable, List, TypedDict
 
 import numpy as np
 from rich.console import Console
@@ -22,16 +22,19 @@ console = Console()
 
 
 class AudioMatchResult(TypedDict):
-    start_sample: int
-    end_sample: int
-    start_time: float
-    end_time: float
-    confidence: float
+    reference_start_sample: int
+    reference_end_sample: int
+    reference_start_time: float
+    reference_end_time: float
 
+    query_start_sample: int
+    query_end_sample: int
+    query_start_time: float
+    query_end_time: float
 
-class AudioSegmentMatch(TypedDict):
     offset_frames: int
     votes: int
+    confidence: float
 
 
 class Fingerprint(TypedDict):
@@ -163,7 +166,12 @@ def generate_fingerprints(
 
             h = _hash_pair(anchor.freq_bin, target.freq_bin, dt)
 
-            fingerprints.append(Fingerprint(hash=h, time_bin=anchor.time_bin))
+            fingerprints.append(
+                Fingerprint(
+                    hash=h,
+                    time_bin=anchor.time_bin,
+                )
+            )
 
     return fingerprints
 
@@ -210,7 +218,7 @@ def fingerprint_vote(
 
 
 # ============================================================
-# Fast NCC refinement
+# NCC Refinement
 # ============================================================
 
 
@@ -237,8 +245,10 @@ def refine_offset_with_ncc(
     search_radius: int = 44100,
 ) -> tuple[int, float]:
     start = max(0, approx_offset_samples - search_radius)
+
     end = min(
-        long_signal.size, approx_offset_samples + search_radius + short_signal.size
+        long_signal.size,
+        approx_offset_samples + search_radius + short_signal.size,
     )
 
     segment = long_signal[start:end]
@@ -264,8 +274,10 @@ def find_audio_match_hybrid(
     signal_b: np.ndarray,
     sample_rate: int,
     min_match_duration_sec: float = 2.0,
+    threshold: float = 0.65,
+    top_k: int = 20,
     verbose: bool = True,
-) -> Optional[AudioMatchResult]:
+) -> List[AudioMatchResult]:
     _validate_signal(signal_a)
     _validate_signal(signal_b)
 
@@ -277,7 +289,7 @@ def find_audio_match_hybrid(
         console.rule("Hybrid Fingerprint + NCC Matching")
 
     # -------------------------
-    # fingerprints reference
+    # reference fingerprints
     # -------------------------
 
     spec = compute_spectrogram(long_signal, sample_rate)
@@ -289,7 +301,7 @@ def find_audio_match_hybrid(
     ref_index = build_index(ref_fp)
 
     # -------------------------
-    # fingerprints query
+    # query fingerprints
     # -------------------------
 
     spec_q = compute_spectrogram(short_signal, sample_rate)
@@ -305,44 +317,57 @@ def find_audio_match_hybrid(
     votes = fingerprint_vote(query_fp, ref_index)
 
     if not votes:
-        return None
+        return []
 
-    best_offset_frames = max(votes, key=votes.get)
+    sorted_offsets = sorted(
+        votes.items(),
+        key=lambda x: x[1],
+        reverse=True,
+    )[:top_k]
 
     hop_length = 512
 
-    approx_offset_samples = best_offset_frames * hop_length
+    results: List[AudioMatchResult] = []
 
-    # -------------------------
-    # NCC refinement
-    # -------------------------
+    for offset_frames, vote_count in sorted_offsets:
+        approx_offset_samples = offset_frames * hop_length
 
-    refined_offset, confidence = refine_offset_with_ncc(
-        long_signal,
-        short_signal,
-        approx_offset_samples,
-    )
+        refined_offset, confidence = refine_offset_with_ncc(
+            long_signal,
+            short_signal,
+            approx_offset_samples,
+        )
 
-    start_sample = refined_offset
-    end_sample = refined_offset + short_signal.size
+        if confidence < threshold:
+            continue
 
-    result = AudioMatchResult(
-        start_sample=start_sample,
-        end_sample=end_sample,
-        start_time=start_sample / sample_rate,
-        end_time=end_sample / sample_rate,
-        confidence=confidence,
-    )
+        ref_start = refined_offset
+        ref_end = refined_offset + short_signal.size
+
+        result: AudioMatchResult = AudioMatchResult(
+            reference_start_sample=ref_start,
+            reference_end_sample=ref_end,
+            reference_start_time=ref_start / sample_rate,
+            reference_end_time=ref_end / sample_rate,
+            query_start_sample=0,
+            query_end_sample=short_signal.size,
+            query_start_time=0.0,
+            query_end_time=short_signal.size / sample_rate,
+            offset_frames=offset_frames,
+            votes=vote_count,
+            confidence=confidence,
+        )
+
+        results.append(result)
+
+    results.sort(key=lambda x: x["confidence"], reverse=True)
 
     if verbose:
         elapsed = time.perf_counter() - start_time
 
-        console.print(
-            f"[green]Match found in {elapsed:.2f}s "
-            f"(confidence {confidence:.3f})[/green]"
-        )
+        console.print(f"[green]{len(results)} matches found in {elapsed:.2f}s[/green]")
 
-    return result
+    return results
 
 
 # ============================================================
@@ -351,9 +376,6 @@ def find_audio_match_hybrid(
 
 
 def load_audio(path: str, sample_rate_override: int | None = None):
-    """
-    Load WAV audio and convert to mono float32.
-    """
     sr, data = wavfile.read(path)
 
     if data.ndim > 1:
@@ -374,17 +396,9 @@ def get_args() -> argparse.Namespace:
         description="Hybrid fingerprint + NCC audio matcher"
     )
 
-    parser.add_argument(
-        "reference",
-        type=Path,
-        help="reference audio file",
-    )
+    parser.add_argument("reference", type=Path, help="reference audio file")
 
-    parser.add_argument(
-        "query",
-        type=Path,
-        help="query audio file",
-    )
+    parser.add_argument("query", type=Path, help="query audio file")
 
     parser.add_argument(
         "-m",
@@ -408,6 +422,14 @@ def get_args() -> argparse.Namespace:
         type=int,
         default=44100,
         help="NCC refinement search radius in samples",
+    )
+
+    parser.add_argument(
+        "-t",
+        "--threshold",
+        type=float,
+        default=0.65,
+        help="minimum NCC confidence threshold",
     )
 
     parser.add_argument(
@@ -435,20 +457,29 @@ def main() -> None:
     if sr_a != sr_b:
         raise ValueError("Sample rates must match")
 
-    result = find_audio_match_hybrid(
+    results = find_audio_match_hybrid(
         signal_a,
         signal_b,
         sample_rate=sr_a,
         min_match_duration_sec=args.min_duration,
+        threshold=args.threshold,
         verbose=not args.quiet,
     )
 
-    if result is None:
+    if not results:
         console.print("[red]No match found[/red]")
         return
 
-    console.print("\n[bold green]Match Result[/bold green]")
-    console.print(result)
+    console.print("\n[bold green]Matches[/bold green]")
+
+    for i, r in enumerate(results):
+        console.print(
+            f"[cyan]#{i + 1}[/cyan] "
+            f"ref {r['reference_start_time']:.2f}s → {r['reference_end_time']:.2f}s | "
+            f"query {r['query_start_time']:.2f}s → {r['query_end_time']:.2f}s | "
+            f"votes={r['votes']} "
+            f"conf={r['confidence']:.3f}"
+        )
 
 
 if __name__ == "__main__":
