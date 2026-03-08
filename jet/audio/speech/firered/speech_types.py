@@ -1,4 +1,4 @@
-from typing import List, Literal, TypedDict
+from typing import List, Literal, Optional, TypedDict
 
 
 class SpeechSegment(TypedDict):
@@ -12,3 +12,10 @@ class SpeechSegment(TypedDict):
     frame_end: int
     type: Literal["speech", "non-speech"]
     segment_probs: List[float]
+
+
+class WordSegment(TypedDict):
+    index: int
+    start_ms: Optional[int]
+    end_ms: Optional[int]
+    word: Optional[str]
