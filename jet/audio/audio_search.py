@@ -9,6 +9,7 @@ from typing import Optional, TypedDict
 
 import numpy as np
 from jet.audio.utils import load_audio
+from joblib import Parallel, delayed
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (
@@ -40,8 +41,21 @@ def _validate_inputs(
         raise ValueError("Signals must be 1D mono arrays.")
     if short_signal.size == 0 or long_signal.size == 0:
         raise ValueError("Signals must not be empty.")
-    if short_signal.size > long_signal.size:
-        raise ValueError("Short signal cannot be longer than long signal.")
+    # Removed check: short_signal.size > long_signal.size
+
+
+def _ensure_search_order(
+    signal_a: np.ndarray,
+    signal_b: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Ensure the first signal is the longer one for correlation.
+    This allows the search logic to work regardless of which file
+    is longer without raising errors.
+    """
+    if signal_b.size > signal_a.size:
+        return signal_b, signal_a
+    return signal_a, signal_b
 
 
 def _compute_normalized_cross_correlation(
@@ -109,6 +123,7 @@ def find_audio_offset(
     confidence_threshold: float = 0.8,
     tie_break_epsilon: float = 1e-9,
 ) -> Optional[AudioMatchResult]:
+    long_signal, short_signal = _ensure_search_order(long_signal, short_signal)
     _validate_inputs(long_signal, short_signal)
 
     ncc = _compute_normalized_cross_correlation(
@@ -155,6 +170,7 @@ def find_audio_offsets(
     Returns a list of matches sorted by starting position.
     Uses greedy non-maximum suppression to avoid reporting near-duplicate/strongly overlapping detections.
     """
+    long_signal, short_signal = _ensure_search_order(long_signal, short_signal)
     _validate_inputs(long_signal, short_signal)
 
     if min_distance_samples is None:
@@ -225,6 +241,31 @@ class PartialAudioMatch:
     match_length_samples: int  # how many samples of short were used
 
 
+def _process_partial_subclip(
+    sub_clip: np.ndarray,
+    sub_start: int,
+    long_signal: np.ndarray,
+    sample_rate: int,
+    confidence_threshold: float,
+    min_distance_samples: int | None,
+    tie_break_epsilon: float,
+):
+    """
+    Worker function for joblib. Must be top-level so it can be pickled.
+    """
+    matches = find_audio_offsets(
+        long_signal=long_signal,
+        short_signal=sub_clip,
+        sample_rate=sample_rate,
+        verbose=False,
+        confidence_threshold=confidence_threshold,
+        min_distance_samples=min_distance_samples,
+        tie_break_epsilon=tie_break_epsilon,
+    )
+
+    return [(m, sub_start) for m in matches]
+
+
 def extract_sliding_subsignals(
     signal: np.ndarray,
     min_length: int,
@@ -261,6 +302,7 @@ def find_partial_audio_matches(
     Find partial matches by trying multiple sub-clips of short_signal.
     Returns sorted list of best non-overlapping partial matches.
     """
+    long_signal, short_signal = _ensure_search_order(long_signal, short_signal)
     _validate_inputs(long_signal, short_signal)
 
     min_len = max(64, int(len(short_signal) * min_match_fraction))
@@ -290,26 +332,21 @@ def find_partial_audio_matches(
             for m in full_matches
         ]
 
-    from joblib import Parallel, delayed
-
-    def process_one(sub_clip: np.ndarray, sub_start: int):
-        matches = find_audio_offsets(
-            long_signal=long_signal,
-            short_signal=sub_clip,
-            sample_rate=sample_rate,
-            verbose=False,
-            confidence_threshold=confidence_threshold,
-            min_distance_samples=min_distance_samples,
-            tie_break_epsilon=tie_break_epsilon,
-        )
-        return [(m, sub_start) for m in matches]
-
+    # Use new picklable worker
     if max_subclips is not None and len(sub_clips) > max_subclips:
-        # could subsample here, but for simplicity just truncate
         sub_clips = sub_clips[:max_subclips]
 
-    results = Parallel(n_jobs=-1)(
-        delayed(process_one)(clip, start) for clip, start in sub_clips
+    results = Parallel(n_jobs=-1, prefer="threads")(
+        delayed(_process_partial_subclip)(
+            clip,
+            start,
+            long_signal,
+            sample_rate,
+            confidence_threshold,
+            min_distance_samples,
+            tie_break_epsilon,
+        )
+        for clip, start in sub_clips
     )
     all_matches: list[tuple[AudioMatchResult, int]] = [
         item for sublist in results for item in sublist
@@ -355,12 +392,14 @@ def main():
         "short_clip", type=str, help="Path to short clip to search for (WAV)"
     )
     parser.add_argument(
+        "-t",
         "--threshold",
         type=float,
         default=0.75,
         help="Minimum confidence threshold for partial matches (default: 0.75)",
     )
     parser.add_argument(
+        "-m",
         "--min-fraction",
         type=float,
         default=0.50,
@@ -368,6 +407,7 @@ def main():
         help="Minimum fraction of short clip that must match (default: 0.50)",
     )
     parser.add_argument(
+        "-q",
         "--quick",
         action="store_true",
         help="Faster mode: coarser steps, fewer sub-clips",
