@@ -169,7 +169,7 @@ class SpeechBrainVADWrapper:
 
 
 class FireRedVADWrapper:
-    """Streaming FireRedVAD — low-latency live microphone version"""
+    """Streaming FireRedVAD — low-latency live microphone version (with softened gain, longer smoothing, and energy-gating)"""
 
     def __init__(self, device: str | None = None) -> None:
         if device is None:
@@ -188,12 +188,12 @@ class FireRedVADWrapper:
         )
         config = FireRedStreamVadConfig(
             use_gpu=(self.device == "cuda"),
-            speech_threshold=0.65,  # start at 0.65 (same as non-streaming sweet spot)
-            smooth_window_size=5,
-            pad_start_frame=4,  # helps detect speech beginnings faster
-            min_speech_frame=6,  # ~60 ms — quick response
+            speech_threshold=0.70,
+            smooth_window_size=11,  # ← longer smoothing (~110 ms)
+            pad_start_frame=6,
+            min_speech_frame=10,  # ← slower to enter SPEECH
             max_speech_frame=2000,
-            min_silence_frame=10,  # quick silence reset
+            min_silence_frame=15,  # ← slower to exit SPEECH
             chunk_max_frame=30000,
         )
         try:
@@ -208,20 +208,30 @@ class FireRedVADWrapper:
         print("FireRedVADWrapper (streaming) initialized OK")
 
     def get_speech_prob(self, chunk: np.ndarray) -> float:
-        # --- Same gain normalization as before ---
+        # --- Softened/capped gain normalization ---
         if len(chunk) > 0:
             chunk_max = np.max(np.abs(chunk)) + 1e-10
             target_peak = 0.30
-            if chunk_max < 0.20:
-                gain = min(target_peak / chunk_max, 8.0)
+
+            if chunk_max < 0.05:  # Only boost for very quiet input
+                gain = min(target_peak / chunk_max, 4.0)
                 chunk *= gain
-                print(f"Applied gain ×{gain:.1f} (chunk peak was {chunk_max:.3f})")
-            elif chunk_max > 0.60:
-                gain = 0.60 / chunk_max
+                print(f"Soft gain ×{gain:.1f} (peak {chunk_max:.3f})")
+            elif chunk_max < 0.12:  # Moderate boost for semi-quiet
+                gain = min(target_peak / chunk_max, 2.5)
                 chunk *= gain
-                print(
-                    f"Applied attenuation ×{gain:.2f} (chunk peak was {chunk_max:.3f})"
-                )
+                print(f"Moderate gain ×{gain:.1f} (peak {chunk_max:.3f})")
+            elif chunk_max > 0.70:  # Tame very loud
+                gain = 0.70 / chunk_max
+                chunk *= gain
+                print(f"Attenuation ×{gain:.2f} (peak {chunk_max:.3f})")
+
+        # --- Simple energy gating before VAD ---
+        chunk_energy = np.mean(np.abs(chunk)) if len(chunk) > 0 else 0
+        if chunk_energy < 0.015:  # Skip if too quiet (prevents noise triggers)
+            print(f"Energy gate skipped (mean abs = {chunk_energy:.4f})")
+            self.last_prob = max(0.0, self.last_prob * 0.85)  # gentle decay
+            return self.last_prob
 
         self.audio_buffer = np.concatenate([self.audio_buffer, chunk])
 
@@ -240,7 +250,9 @@ class FireRedVADWrapper:
             return self.last_prob
 
         last = results[-1]
-        prob_to_use = last.smoothed_prob  # or last.raw_prob for even faster response
+        prob_to_use = (
+            last.smoothed_prob
+        )  # (use smoothed_prob for plot/charts, or .raw_prob for even faster drop)
 
         print(
             f"FR stream → raw={last.raw_prob:.3f}  smoothed={last.smoothed_prob:.3f}  "
