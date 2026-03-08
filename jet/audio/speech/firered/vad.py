@@ -2,7 +2,7 @@ from typing import Optional, Union
 
 import numpy as np
 import torch
-from fireredvad.core.constants import FRAME_LENGTH_SAMPLE, SAMPLE_RATE
+from fireredvad.core.constants import SAMPLE_RATE
 from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 
 # assuming SAVE_DIR is defined somewhere; adjust if needed
@@ -68,15 +68,15 @@ class FireRedVAD:
             return chunk.astype(np.float32)
 
         chunk = chunk.astype(np.float32)
-        peak = np.max(np.abs(chunk)) + 1e-10
-
+        chunk_max = np.max(np.abs(chunk)) + 1e-10
         target_peak = 0.30
-        if peak < 0.18:
-            gain = min(target_peak / peak, 9.0)
-            chunk *= gain
-        elif peak > 0.70:
-            gain = 0.65 / peak
-            chunk *= gain
+
+        if chunk_max < 0.20:
+            gain = min(target_peak / chunk_max, 8.0)
+            chunk = chunk * gain
+        elif chunk_max > 0.60:
+            gain = 0.60 / chunk_max
+            chunk = chunk * gain
 
         return chunk
 
@@ -95,33 +95,20 @@ class FireRedVAD:
         # Append new audio
         self.audio_buffer = np.concatenate([self.audio_buffer, chunk])
 
-        # Trim very old history (keep memory usage bounded)
-        if len(self.audio_buffer) > self.max_buffer_samples:
-            self.audio_buffer = self.audio_buffer[-self.max_buffer_samples :]
-
-        # We need at least ~0.3–0.5 s of audio to get meaningful results
-        min_samples_for_inference = 4800  # 0.3 seconds
-        if len(self.audio_buffer) < min_samples_for_inference:
+        if len(self.audio_buffer) < 4800:
             return self.last_prob
 
-        # Process the recent part
-        to_process = self.audio_buffer.copy()  # avoid mutating while processing
-
+        to_process = self.audio_buffer[-9600:]
         results = self.vad.detect_chunk(to_process)
+
+        self.audio_buffer = self.audio_buffer[-512:]
 
         if not results:
             return self.last_prob
 
-        # Take the most recent frame's smoothed probability
-        latest = results[-1]
-        prob = latest.smoothed_prob
+        last = results[-1]
+        prob = last.smoothed_prob
         self.last_prob = prob
-
-        # Keep a small tail for continuity (helps model context)
-        # ~32–64 ms is usually enough
-        tail_samples = FRAME_LENGTH_SAMPLE * 6  # ~180 ms
-        self.audio_buffer = self.audio_buffer[-tail_samples:]
-
         return prob
 
     def get_latest_result(self) -> Optional[dict]:
