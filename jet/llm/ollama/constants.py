@@ -1,5 +1,7 @@
 """Set of constants."""
 
+import os
+
 DEFAULT_TEMPERATURE = 0.1
 DEFAULT_CONTEXT_WINDOW = 4096  # tokens
 DEFAULT_NUM_OUTPUTS = 256  # tokens
@@ -35,16 +37,19 @@ DEFAULT_BASE_URL = "https://api.cloud.llamaindex.ai"
 DEFAULT_APP_URL = "https://cloud.llamaindex.ai"
 
 # Ollama constants
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_BASE_EMBED_URL = "http://localhost:11434"
-OLLAMA_LARGE_LLM_MODEL = "llama3.2:1b"
-OLLAMA_SMALL_LLM_MODEL = "llama3.2:1b"
-DEFAULT_OLLAMA_MODEL = OLLAMA_LARGE_LLM_MODEL
+OLLAMA_BASE_URL = os.getenv("OLLAMA_LLM_URL", "http://localhost:11434")
+OLLAMA_BASE_EMBED_URL = os.getenv("OLLAMA_EMBED_URL", "http://localhost:11434")
+OLLAMA_LARGE_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "deepscaler")
+OLLAMA_SMALL_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "deepscaler")
 
-OLLAMA_SMALL_EMBED_MODEL = "mxbai-embed-large"
-OLLAMA_SMALL_CHUNK_SIZE = 512  # tokens
-OLLAMA_SMALL_CHUNK_OVERLAP = 25  # tokens
+OLLAMA_SMALL_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text-v2-moe")
+OLLAMA_SMALL_CHUNK_SIZE = 500  # tokens
+OLLAMA_SMALL_CHUNK_OVERLAP = 50  # tokens
 
-OLLAMA_LARGE_EMBED_MODEL = "nomic-embed-text"
-OLLAMA_LARGE_CHUNK_SIZE = 2048  # tokens
+OLLAMA_LARGE_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text-v2-moe")
+OLLAMA_LARGE_CHUNK_SIZE = 1000  # tokens
 OLLAMA_LARGE_CHUNK_OVERLAP = 100  # tokens
+
+DEFAULT_OLLAMA_MODEL = os.getenv("OLLAMA_LLM_MODEL", "deepscaler")
+OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "deepscaler")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text-v2-moe")

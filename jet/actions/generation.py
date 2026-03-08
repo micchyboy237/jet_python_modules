@@ -1,30 +1,29 @@
-import re
-import random
-import threading
 import json
+import re
+import threading
+import traceback
+from typing import Generator, Optional, Union
+
+import requests
 from llama_index.core.prompts.base import PromptTemplate
 from llama_index.core.utils import set_global_tokenizer
-import requests
-import traceback
-from enum import Enum
-from typing import Generator, Literal, Optional, TypedDict, Union
+from shared.setup.events import EventSettings
+
 # from langchain_ollama.llms import OllamaLLM
-from langchain_core.outputs.llm_result import LLMResult, GenerationChunk
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from jet.llm.llm_types import (
+    ChatResponseInfo,
     Message,
+    MessageRole,
     OllamaChatOptions,
     OllamaChatResponse,
-    ChatResponseInfo,
     Tool,
-    MessageRole,
     Track,
 )
-from jet.transformers.formatters import format_json
-from jet.utils.class_utils import get_class_name
+from jet.llm.ollama.constants import OLLAMA_BASE_URL, OLLAMA_LLM_MODEL
 from jet.logger import logger
+from jet.transformers.formatters import format_json
 from jet.transformers.object import make_serializable
-from shared.setup.events import EventSettings
+from jet.utils.class_utils import get_class_name
 
 DETERMINISTIC_LLM_SETTINGS = {
     # "seed": random.randint(0, 1000),
@@ -47,9 +46,9 @@ PROMPT_CONTEXT_TEMPLATE = PromptTemplate(
 
 def sanitize_header_value(value: str) -> str:
     if not value:
-        return ''
+        return ""
 
-    value = re.sub(r'[\r\n]+', ' ', value).strip()
+    value = re.sub(r"[\r\n]+", " ", value).strip()
     # Replace non-ASCII characters with a safe fallback
     value = value.encode("ascii", errors="replace").decode("ascii")
     return value
@@ -57,7 +56,7 @@ def sanitize_header_value(value: str) -> str:
 
 def call_ollama_chat(
     messages: str | list[Message] | PromptTemplate,
-    model: str = "llama3.2",
+    model: str = OLLAMA_LLM_MODEL,
     *,
     system: Optional[str] = None,
     context: Optional[str] = None,
@@ -75,7 +74,8 @@ def call_ollama_chat(
     buffer: int = 0,
     stop_event: Optional[threading.Event] = None,
     verbose: bool = True,
-    **kwargs
+    base_url: str = OLLAMA_BASE_URL,
+    **kwargs,
 ) -> Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
     """
     Wraps call_ollama_chat to track the prompt and response using Aim.
@@ -97,44 +97,41 @@ def call_ollama_chat(
          Union[str | OllamaChatResponse, Generator[str | OllamaChatResponse, None, None]]:
          Either the JSON response or a generator for streamed responses.
     """
+    from jet._token.token_utils import filter_texts, get_ollama_tokenizer, token_counter
     from jet.llm.models import OLLAMA_MODEL_CONTEXTS
-    from jet._token.token_utils import get_ollama_tokenizer, filter_texts, token_counter, calculate_num_predict_ctx
+
     tokenizer = get_ollama_tokenizer(model)
     set_global_tokenizer(tokenizer)
+
+    url = f"{base_url}/api/chat"
 
     if track:
         from aim import Run, Text
 
-    URL = "http://localhost:11434/api/chat"
-
     if isinstance(messages, str):
-        messages = [
-            Message(content=messages, role=MessageRole.USER)
-        ]
+        messages = [Message(content=messages, role=MessageRole.USER)]
     elif isinstance(messages, PromptTemplate) and not context:
         template = messages
         prompt = template.format(**template_vars)
-        messages = [
-            Message(content=prompt, role=MessageRole.USER)
-        ]
+        messages = [Message(content=prompt, role=MessageRole.USER)]
 
     # Use the provided system parameter if available, overriding merged system messages
     if system:
         # Remove any existing system messages
-        messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
+        messages = [m for m in messages if m["role"] != MessageRole.SYSTEM]
         # Insert the provided system message at the beginning
         messages.insert(0, Message(content=system, role=MessageRole.SYSTEM))
 
     # Merge multiple system messages into one, separated by two newlines
-    system_messages = [m['content']
-                       for m in messages if m['role'] == MessageRole.SYSTEM]
+    system_messages = [
+        m["content"] for m in messages if m["role"] == MessageRole.SYSTEM
+    ]
     if system_messages and len(system_messages) > 1:
         merged_system = "\n\n".join(system_messages)
         # Remove all system messages from the original list
-        messages = [m for m in messages if m['role'] != MessageRole.SYSTEM]
+        messages = [m for m in messages if m["role"] != MessageRole.SYSTEM]
         # Insert the merged system message at the beginning
-        messages.insert(0, Message(
-            content=merged_system, role=MessageRole.SYSTEM))
+        messages.insert(0, Message(content=merged_system, role=MessageRole.SYSTEM))
 
     # Updates latest user message with context if available
     if context:
@@ -146,8 +143,7 @@ def call_ollama_chat(
                 break
 
         if not latest_user_message:
-            raise ValueError(
-                "No user message found in the conversation history.")
+            raise ValueError("No user message found in the conversation history.")
 
         # Construct the context with the latest user message
         context = context if context else ""
@@ -155,8 +151,7 @@ def call_ollama_chat(
 
         # Use the template if available, otherwise use the default prompt template
         if template:
-            prompt = template.format(
-                **template_vars, context=context, query=query)
+            prompt = template.format(**template_vars, context=context, query=query)
         else:
             template = PROMPT_CONTEXT_TEMPLATE
             prompt = template.format(context=context, query=query)
@@ -167,9 +162,9 @@ def call_ollama_chat(
 
     # Get the system message for token counting (from the first message if it's a system message)
     system_content = next(
-        (m['content'] for m in messages if m['role'] == MessageRole.SYSTEM), None)
-    system_tokens: int = token_counter(
-        system_content, model) if system_content else 0
+        (m["content"] for m in messages if m["role"] == MessageRole.SYSTEM), None
+    )
+    system_tokens: int = token_counter(system_content, model) if system_content else 0
 
     if verbose:
         logger.newline()
@@ -186,8 +181,7 @@ def call_ollama_chat(
         logger.newline()
 
     if max_tokens:
-        messages = filter_texts(
-            messages, model, max_tokens=max_tokens)
+        messages = filter_texts(messages, model, max_tokens=max_tokens)
 
     num_predict = options.get("num_predict", -1)
     num_ctx = 4096
@@ -214,10 +208,8 @@ def call_ollama_chat(
         logger.log("Model:", model, colors=["GRAY", "INFO"])
         logger.log("System Tokens:", system_tokens, colors=["GRAY", "DEBUG"])
         logger.log("Prompt Tokens:", prompt_tokens, colors=["GRAY", "DEBUG"])
-        logger.log("Remaining Tokens:", predict_tokens,
-                   colors=["GRAY", "INFO"])
-        logger.log("Max Prompt Tokens:", max_prompt_tokens,
-                   colors=["GRAY", "INFO"])
+        logger.log("Remaining Tokens:", predict_tokens, colors=["GRAY", "INFO"])
+        logger.log("Max Prompt Tokens:", max_prompt_tokens, colors=["GRAY", "INFO"])
         logger.log("num_ctx:", num_ctx, colors=["GRAY", "ORANGE"])
         logger.log("Max Tokens:", model_max_length, colors=["GRAY", "ORANGE"])
         logger.newline()
@@ -250,10 +242,7 @@ def call_ollama_chat(
 
     # Initialize Aim run
     if track:
-        run_settings: Track = {
-            "log_system_params": True,
-            **track.copy()
-        }
+        run_settings: Track = {"log_system_params": True, **track.copy()}
         del run_settings["run_name"]
         del run_settings["metadata"]
         if "format" in run_settings:
@@ -264,7 +253,7 @@ def call_ollama_chat(
     # Define headers
     event = EventSettings.call_ollama_chat()
     pre_start_hook_start_time = EventSettings.event_data["pre_start_hook"]["start_time"]
-    log_filename = event['filename'].split(".")[0]
+    log_filename = event["filename"].split(".")[0]
     if verbose:
         logger.log("Log-Filename:", log_filename, colors=["WHITE", "DEBUG"])
     headers = {
@@ -273,19 +262,19 @@ def call_ollama_chat(
         "Event-Start-Time": sanitize_header_value(pre_start_hook_start_time),
         "System": sanitize_header_value(system_content) if system_content else "",
         "Context": sanitize_header_value(context) if context else "",
-        "Template": sanitize_header_value(template.template) if template else ""
+        "Template": sanitize_header_value(template.template) if template else "",
     }
 
     if verbose:
-        logger.log("Request Headers:\n", format_json(
-            headers), colors=["WHITE", "DEBUG"])
-        logger.log("Request Body:\n", format_json(
-            body), colors=["WHITE", "DEBUG"])
+        logger.log(
+            "Request Headers:\n", format_json(headers), colors=["WHITE", "DEBUG"]
+        )
+        logger.log("Request Body:\n", format_json(body), colors=["WHITE", "DEBUG"])
 
     try:
         # Make the POST request with headers
         r = requests.post(
-            url=URL,
+            url=url,
             json=body,
             headers=headers,
             stream=stream,
@@ -301,16 +290,17 @@ def call_ollama_chat(
                         if verbose:
                             logger.newline()
                             logger.warning(
-                                "post stop_event: Streaming stopped by user.")
+                                "post stop_event: Streaming stopped by user."
+                            )
                         break
 
                     if line:
                         decoded_line = line.decode("utf-8")
                         try:
-                            decoded_chunk: OllamaChatResponse = json.loads(
-                                decoded_line)
-                            content = decoded_chunk.get(
-                                "message", {}).get("content", "")
+                            decoded_chunk: OllamaChatResponse = json.loads(decoded_line)
+                            content = decoded_chunk.get("message", {}).get(
+                                "content", ""
+                            )
                             response_chunks.append(content)
                             if verbose:
                                 logger.success(content, flush=True)
@@ -319,13 +309,11 @@ def call_ollama_chat(
                                 output = "".join(response_chunks)
 
                                 # Calculate token counts
-                                prompt_token_count: int = token_counter(
-                                    messages, model)
-                                response_token_count: int = token_counter(
-                                    output, model)
+                                prompt_token_count: int = token_counter(messages, model)
+                                response_token_count: int = token_counter(output, model)
 
-                                decoded_chunk['prompt_eval_count'] = prompt_token_count
-                                decoded_chunk['eval_count'] = response_token_count
+                                decoded_chunk["prompt_eval_count"] = prompt_token_count
+                                decoded_chunk["eval_count"] = response_token_count
 
                                 response_info: ChatResponseInfo = decoded_chunk.copy()
                                 response_info["options"] = options
@@ -335,57 +323,96 @@ def call_ollama_chat(
                                     logger.newline()
                                     logger.newline()
 
-                                    logger.log("Model:", model,
-                                               colors=["WHITE", "DEBUG"])
-                                    logger.log("Options:", options,
-                                               colors=["WHITE", "DEBUG"])
-                                    logger.log("Stream:", stream,
-                                               colors=["WHITE", "DEBUG"])
-                                    logger.log("Response:", len(output),
-                                               colors=["WHITE", "DEBUG"])
-                                    logger.log("Content:", len(
-                                        str(messages)) + len(output), colors=["WHITE", "DEBUG"])
+                                    logger.log(
+                                        "Model:", model, colors=["WHITE", "DEBUG"]
+                                    )
+                                    logger.log(
+                                        "Options:", options, colors=["WHITE", "DEBUG"]
+                                    )
+                                    logger.log(
+                                        "Stream:", stream, colors=["WHITE", "DEBUG"]
+                                    )
+                                    logger.log(
+                                        "Response:",
+                                        len(output),
+                                        colors=["WHITE", "DEBUG"],
+                                    )
+                                    logger.log(
+                                        "Content:",
+                                        len(str(messages)) + len(output),
+                                        colors=["WHITE", "DEBUG"],
+                                    )
 
                                     logger.newline()
 
                                     # Get durations
                                     durations = {
-                                        k: v for k, v in response_info.items() if k.endswith('duration')}
+                                        k: v
+                                        for k, v in response_info.items()
+                                        if k.endswith("duration")
+                                    }
                                     if durations:
                                         logger.info("Durations:")
                                         for key, value in durations.items():
                                             seconds = value / 1e9
                                             if seconds >= 60:
                                                 minutes = seconds / 60
-                                                logger.log(f"{key}:", f"{minutes:.2f}m", colors=[
-                                                    "WHITE", "ORANGE"])
+                                                logger.log(
+                                                    f"{key}:",
+                                                    f"{minutes:.2f}m",
+                                                    colors=["WHITE", "ORANGE"],
+                                                )
                                             elif seconds >= 1:
-                                                logger.log(f"{key}:", f"{seconds:.2f}s", colors=[
-                                                    "WHITE", "WARNING"])
+                                                logger.log(
+                                                    f"{key}:",
+                                                    f"{seconds:.2f}s",
+                                                    colors=["WHITE", "WARNING"],
+                                                )
                                             else:
                                                 millis = seconds * 1000
-                                                logger.log(f"{key}:", f"{millis:.2f}ms", colors=[
-                                                    "WHITE", "LIME"])
+                                                logger.log(
+                                                    f"{key}:",
+                                                    f"{millis:.2f}ms",
+                                                    colors=["WHITE", "LIME"],
+                                                )
 
                                     logger.newline()
                                     logger.newline()
                                     logger.info("Final tokens info:")
-                                    response_prompt_tokens = response_info['prompt_eval_count']
-                                    response_tokens = response_info['eval_count']
-                                    total_tokens = system_tokens + response_prompt_tokens + response_tokens
-                                    logger.log("System tokens:", system_tokens, colors=[
-                                               "DEBUG", "SUCCESS"])
-                                    logger.log("Prompt tokens:", response_prompt_tokens, colors=[
-                                               "DEBUG", "SUCCESS"])
-                                    logger.log("Response tokens:", response_tokens, colors=[
-                                               "DEBUG", "SUCCESS"])
-                                    logger.log("Total tokens:", total_tokens, colors=[
-                                               "DEBUG", "SUCCESS"])
+                                    response_prompt_tokens = response_info[
+                                        "prompt_eval_count"
+                                    ]
+                                    response_tokens = response_info["eval_count"]
+                                    total_tokens = (
+                                        system_tokens
+                                        + response_prompt_tokens
+                                        + response_tokens
+                                    )
+                                    logger.log(
+                                        "System tokens:",
+                                        system_tokens,
+                                        colors=["DEBUG", "SUCCESS"],
+                                    )
+                                    logger.log(
+                                        "Prompt tokens:",
+                                        response_prompt_tokens,
+                                        colors=["DEBUG", "SUCCESS"],
+                                    )
+                                    logger.log(
+                                        "Response tokens:",
+                                        response_tokens,
+                                        colors=["DEBUG", "SUCCESS"],
+                                    )
+                                    logger.log(
+                                        "Total tokens:",
+                                        total_tokens,
+                                        colors=["DEBUG", "SUCCESS"],
+                                    )
                                     logger.newline()
 
                                 # For Aim tracking
                                 if track:
-                                    prompt = messages[-1]['content']
+                                    prompt = messages[-1]["content"]
                                     response = "".join(response_chunks)
 
                                     value = {
@@ -394,29 +421,35 @@ def call_ollama_chat(
                                         "response": response,
                                     }
 
-                                    formatted_value = json.dumps(
-                                        value, indent=1)
+                                    formatted_value = json.dumps(value, indent=1)
 
-                                    if track.get('format'):
-                                        formatted_value = track['format'].format(
-                                            **value)
+                                    if track.get("format"):
+                                        formatted_value = track["format"].format(
+                                            **value
+                                        )
 
                                     aim_value = Text(formatted_value)
                                     aim_context = {
                                         "model": model,
                                         "options": options,
-                                        **track.get('metadata', {})
+                                        **track.get("metadata", {}),
                                     }
                                     track_args = {
-                                        "name": track['run_name'],
+                                        "name": track["run_name"],
                                         "context": aim_context,
                                     }
                                     if verbose:
                                         logger.newline()
-                                        logger.log("Run Settings:", json.dumps(
-                                            run_settings, indent=2), colors=["WHITE", "INFO"])
-                                        logger.log("Aim Track:", json.dumps(
-                                            track_args, indent=2), colors=["WHITE", "INFO"])
+                                        logger.log(
+                                            "Run Settings:",
+                                            json.dumps(run_settings, indent=2),
+                                            colors=["WHITE", "INFO"],
+                                        )
+                                        logger.log(
+                                            "Aim Track:",
+                                            json.dumps(track_args, indent=2),
+                                            colors=["WHITE", "INFO"],
+                                        )
                                     run.track(aim_value, **track_args)
 
                             if full_stream_response:
@@ -426,8 +459,7 @@ def call_ollama_chat(
 
                         except json.JSONDecodeError:
                             if verbose:
-                                logger.warning(
-                                    f"Failed to decode JSON: {decoded_line}")
+                                logger.warning(f"Failed to decode JSON: {decoded_line}")
 
             return line_generator()
         else:
@@ -442,8 +474,8 @@ def call_ollama_chat(
             prompt_token_count: int = token_counter(messages, model)
             response_token_count: int = token_counter(output, model)
 
-            response['prompt_eval_count'] = prompt_token_count
-            response['eval_count'] = response_token_count
+            response["prompt_eval_count"] = prompt_token_count
+            response["eval_count"] = response_token_count
 
             response_info: ChatResponseInfo = response.copy()
             response_info["options"] = options
@@ -452,51 +484,58 @@ def call_ollama_chat(
                 logger.newline()
                 logger.newline()
 
-                logger.log("Model:", model,
-                           colors=["WHITE", "DEBUG"])
-                logger.log("Options:", options,
-                           colors=["WHITE", "DEBUG"])
-                logger.log("Stream:", stream,
-                           colors=["WHITE", "DEBUG"])
-                logger.log("Response:", len(output),
-                           colors=["WHITE", "DEBUG"])
-                logger.log("Content:", len(
-                    str(messages)) + len(output), colors=["WHITE", "DEBUG"])
+                logger.log("Model:", model, colors=["WHITE", "DEBUG"])
+                logger.log("Options:", options, colors=["WHITE", "DEBUG"])
+                logger.log("Stream:", stream, colors=["WHITE", "DEBUG"])
+                logger.log("Response:", len(output), colors=["WHITE", "DEBUG"])
+                logger.log(
+                    "Content:",
+                    len(str(messages)) + len(output),
+                    colors=["WHITE", "DEBUG"],
+                )
 
                 logger.newline()
 
                 # Get durations
                 durations = {
-                    k: v for k, v in response_info.items() if k.endswith('duration')}
+                    k: v for k, v in response_info.items() if k.endswith("duration")
+                }
                 if durations:
                     logger.info("Durations:")
                     for key, value in durations.items():
                         seconds = value / 1e9
                         if seconds >= 60:
                             minutes = seconds / 60
-                            logger.log(f"{key}:", f"{minutes:.2f}m", colors=[
-                                "WHITE", "ORANGE"])
+                            logger.log(
+                                f"{key}:", f"{minutes:.2f}m", colors=["WHITE", "ORANGE"]
+                            )
                         elif seconds >= 1:
-                            logger.log(f"{key}:", f"{seconds:.2f}s", colors=[
-                                "WHITE", "WARNING"])
+                            logger.log(
+                                f"{key}:",
+                                f"{seconds:.2f}s",
+                                colors=["WHITE", "WARNING"],
+                            )
                         else:
                             millis = seconds * 1000
-                            logger.log(f"{key}:", f"{millis:.2f}ms", colors=[
-                                "WHITE", "LIME"])
+                            logger.log(
+                                f"{key}:", f"{millis:.2f}ms", colors=["WHITE", "LIME"]
+                            )
 
                 logger.newline()
                 logger.info("Final tokens info:")
-                response_prompt_tokens = response_info['prompt_eval_count']
-                response_tokens = response_info['eval_count']
+                response_prompt_tokens = response_info["prompt_eval_count"]
+                response_tokens = response_info["eval_count"]
                 total_tokens = system_tokens + response_prompt_tokens + response_tokens
-                logger.log("System tokens:", system_tokens,
-                           colors=["DEBUG", "SUCCESS"])
-                logger.log("Prompt tokens:", response_prompt_tokens,
-                           colors=["DEBUG", "SUCCESS"])
-                logger.log("Response tokens:", response_tokens,
-                           colors=["DEBUG", "SUCCESS"])
-                logger.log("Total tokens:", total_tokens,
-                           colors=["DEBUG", "SUCCESS"])
+                logger.log("System tokens:", system_tokens, colors=["DEBUG", "SUCCESS"])
+                logger.log(
+                    "Prompt tokens:",
+                    response_prompt_tokens,
+                    colors=["DEBUG", "SUCCESS"],
+                )
+                logger.log(
+                    "Response tokens:", response_tokens, colors=["DEBUG", "SUCCESS"]
+                )
+                logger.log("Total tokens:", total_tokens, colors=["DEBUG", "SUCCESS"])
                 logger.newline()
 
             return response
@@ -506,8 +545,7 @@ def call_ollama_chat(
             logger.error(f"Request failed - {get_class_name(e)}: {e}")
             traceback.print_exc()
         if track:
-            run.track({"error": str(e)}, name="error",
-                      context={"model": model})
+            run.track({"error": str(e)}, name="error", context={"model": model})
         return {"error": str(e)}
 
     except Exception as e:
@@ -519,7 +557,7 @@ def call_ollama_chat(
 
 def call_ollama_generate(
     prompt: str,
-    model: str = "llama3.2",
+    model: str = OLLAMA_LLM_MODEL,
     *,
     system: Optional[str] = None,
     format: Optional[Union[str, dict]] = None,
@@ -530,7 +568,8 @@ def call_ollama_generate(
     track: Track = None,
     stop_event: Optional[threading.Event] = None,
     full_stream_response: bool = False,
-    verbose: bool = True
+    verbose: bool = True,
+    base_url: str = OLLAMA_BASE_URL,
 ) -> Union[str, Generator[str, None, None]]:
     """
     Calls Ollama's /api/generate endpoint using a prompt string.
@@ -543,12 +582,13 @@ def call_ollama_generate(
         track (Track): For optional tracking via Aim.
         verbose (bool): Enable or disable logging (defaults to True).
     """
-    from jet.llm.models import OLLAMA_MODEL_CONTEXTS
     from jet._token.token_utils import get_ollama_tokenizer, token_counter
+    from jet.llm.models import OLLAMA_MODEL_CONTEXTS
+
     tokenizer = get_ollama_tokenizer(model)
     set_global_tokenizer(tokenizer)
 
-    URL = "http://localhost:11434/api/generate"
+    url = f"{base_url}/api/generate"
 
     if context:
         prompt = PROMPT_CONTEXT_TEMPLATE.format(context=context, query=prompt)
@@ -556,10 +596,7 @@ def call_ollama_generate(
     model_max_length = OLLAMA_MODEL_CONTEXTS[model]
     prompt_tokens = token_counter(prompt, model)
 
-    options = {
-        **DETERMINISTIC_LLM_SETTINGS,
-        **(options or {})
-    }
+    options = {**DETERMINISTIC_LLM_SETTINGS, **(options or {})}
 
     body = {
         "model": model,
@@ -580,13 +617,14 @@ def call_ollama_generate(
 
     try:
         r = requests.post(
-            url=URL,
+            url=url,
             json=body,
             stream=stream,
         )
         r.raise_for_status()
 
         if stream:
+
             def stream_generator():
                 for line in r.iter_lines():
                     if stop_event and stop_event.is_set():
@@ -631,15 +669,19 @@ def call_ollama_generate(
 
 def convert_tool_outputs_to_string(ollama_messages: list[Message]):
     for message in ollama_messages:
-        if message.get("role") == "tool" and not isinstance(message.get("content"), str):
+        if message.get("role") == "tool" and not isinstance(
+            message.get("content"), str
+        ):
             message["content"] = str(message["content"])
     return ollama_messages
 
 
 # Main function to demonstrate sample usage
 if __name__ == "__main__":
-    model = "llama3.2"
-    prompt = "Write a 20 word creative story about an explorer finding a hidden treasure."
+    model = OLLAMA_LLM_MODEL
+    prompt = (
+        "Write a 20 word creative story about an explorer finding a hidden treasure."
+    )
 
     # No stream
     logger.newline()

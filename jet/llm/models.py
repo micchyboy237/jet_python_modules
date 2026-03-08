@@ -1,13 +1,14 @@
 import json
+from typing import Dict, List, Literal, Optional, TypedDict
+
 import requests
 import tiktoken
-from typing import Literal, Dict, List, TypedDict, Optional
-from transformers import AutoTokenizer
 from huggingface_hub import HfApi
-from tqdm import tqdm
-from jet.transformers.formatters import format_json
-from jet.logger import logger
 from jet.cache.redis import RedisCache, RedisConfigParams
+from jet.logger import logger
+from jet.transformers.formatters import format_json
+from tqdm import tqdm
+from transformers import AutoTokenizer
 
 DEFAULT_SF_EMBED_MODEL = "paraphrase-MiniLM-L12-v2"
 
@@ -34,7 +35,9 @@ OLLAMA_MODEL_NAMES = Literal[
     "qwen3",
     "qwen3:4b-q4_K_M",
     "qwen3-instruct-2507:4b",
-    "theqtcompany/codellama-7b-qml"
+    "theqtcompany/codellama-7b-qml",
+    "deepscaler",
+    "ministral-3:3b",
 ]
 
 OLLAMA_LLM_MODELS = Literal[
@@ -52,6 +55,8 @@ OLLAMA_LLM_MODELS = Literal[
     "qwen3-instruct-2507:4b",
     "mistral",
     "mistral:7b-instruct-v0.3-q4_K_M",
+    "deepscaler",
+    "ministral-3:3b",
 ]
 
 OLLAMA_EMBED_MODELS = Literal[
@@ -92,6 +97,8 @@ OLLAMA_MODEL_CONTEXTS = {
     "qwen3:4b-q4_K_M": 40960,
     "theqtcompany/codellama-7b-qml": 16384,
     "qwen3-instruct-2507:4b": 262144,
+    "deepscaler": 131072,
+    "ministral-3:3b": 262144,
 }
 
 # Map models to embedding sizes
@@ -118,6 +125,8 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "qwen3:4b-q4_K_M": 2560,
     "theqtcompany/codellama-7b-qml": 4096,
     "qwen3-instruct-2507:4b": 2560,
+    "deepscaler": 1536,
+    "ministral-3:3b": 3072,
 }
 
 
@@ -144,6 +153,8 @@ OLLAMA_HF_MODELS = {
     "qwen3:4b-q4_K_M": "Qwen/Qwen3-4B",
     "qwen3-instruct-2507:4b": "Qwen/Qwen3-4B-Instruct-2507",
     "theqtcompany/codellama-7b-qml": "QtGroup/CodeLlama-7B-QML",
+    "deepscaler": "agentica-org/DeepScaleR-1.5B-Preview",
+    "ministral-3:3b": "mistralai/Ministral-3-3B-Instruct-2512",
 }
 
 OLLAMA_HF_MODEL_NAMES = Literal[
@@ -168,6 +179,8 @@ OLLAMA_HF_MODEL_NAMES = Literal[
     "Qwen/Qwen3-4B",
     "Qwen/Qwen3-4B-Instruct-2507",
     "QtGroup/CodeLlama-7B-QML",
+    "agentica-org/DeepScaleR-1.5B-Preview",
+    "mistralai/Ministral-3-3B-Instruct-2512",
 ]
 
 OLLAMA_HF_MODEL_CHAT_TEMPLATES = {}
@@ -181,7 +194,7 @@ DEFAULT_CONFIG: RedisConfigParams = {
     "host": "localhost",
     "port": 3103,
     "db": 0,
-    "max_connections": 100
+    "max_connections": 100,
 }
 
 
@@ -209,8 +222,7 @@ def build_ollama_model_contexts() -> Dict[str, int]:
         details: Dict = get_model_details(model_name)
         model_info: Dict = details.get("model_info", {})
         context_length: int = next(
-            (model_info[key] for key in model_info if "context_length" in key),
-            0
+            (model_info[key] for key in model_info if "context_length" in key), 0
         )
 
         clean_model_name: str = model_name.removesuffix(":latest")
@@ -228,8 +240,7 @@ def build_ollama_model_embeddings() -> Dict[str, int]:
         details: Dict = get_model_details(model_name)
         model_info: Dict = details.get("model_info", {})
         embedding_length: int = next(
-            (model_info[key] for key in model_info if "embedding_length" in key),
-            0
+            (model_info[key] for key in model_info if "embedding_length" in key), 0
         )
 
         clean_model_name: str = model_name.removesuffix(":latest")
@@ -242,17 +253,17 @@ def build_ollama_hf_mappings() -> Dict[str, Optional[str]]:
     """
     Build a mapping from Ollama model names to their corresponding Hugging Face model IDs.
     Derives model names from get_local_models and queries Hugging Face Hub.
-    
+
     Returns:
         Dict[str, Optional[str]]: A sorted dictionary mapping Ollama model names to HF model IDs.
         Returns None for models without a matching HF ID.
     """
     mappings: Dict[str, Optional[str]] = {}
     api = HfApi()
-    
+
     # Get model names from get_local_models
     models: List[ModelInfo] = get_local_models()
-    
+
     # Initialize mappings for all Ollama models with progress tracking
     for model in tqdm(models, desc="Mapping Ollama models to HF IDs"):
         ollama_name: str = model["name"]
@@ -260,9 +271,13 @@ def build_ollama_hf_mappings() -> Dict[str, Optional[str]]:
         mappings[clean_model_name] = None  # Default to None
 
         # Search Hugging Face Hub for matching model
-        search_term = clean_model_name.split(":")[0]  # Remove quantization or variant (e.g., "qwen3:4b" -> "qwen3")
-        hf_models = api.list_models(search=search_term, sort="downloads", direction=-1, limit=10)
-        
+        search_term = clean_model_name.split(":")[
+            0
+        ]  # Remove quantization or variant (e.g., "qwen3:4b" -> "qwen3")
+        hf_models = api.list_models(
+            search=search_term, sort="downloads", direction=-1, limit=10
+        )
+
         # Try to find a matching HF model ID
         for hf_model in hf_models:
             hf_id: str = hf_model.id
@@ -311,8 +326,9 @@ def get_model_details(model_name: str) -> str:
 def get_token_max_length(model_name: str) -> int:
     details = get_model_details(model_name)
     model_info = details.get("model_info", {})
-    context_length = [model_info[key] for key in list(
-        model_info.keys()) if "context_length" in key][0]
+    context_length = [
+        model_info[key] for key in list(model_info.keys()) if "context_length" in key
+    ][0]
     return context_length
 
 
@@ -322,8 +338,12 @@ def get_chat_template(model_name: str) -> str:
     return result
 
 
-def count_tokens(model_name: str, text: str | list[dict] | list[str], template: str = None) -> int:
-    if isinstance(text, list) and all(isinstance(item, dict) and 'role' in item and 'content' in item for item in text):
+def count_tokens(
+    model_name: str, text: str | list[dict] | list[str], template: str = None
+) -> int:
+    if isinstance(text, list) and all(
+        isinstance(item, dict) and "role" in item and "content" in item for item in text
+    ):
         try:
             tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -331,8 +351,9 @@ def count_tokens(model_name: str, text: str | list[dict] | list[str], template: 
                 template = tokenizer.chat_template
 
             model_key = REVERSED_OLLAMA_HF_MODELS[model_name]
-            tokenizer.chat_template = template if template else get_chat_template(
-                model_key)
+            tokenizer.chat_template = (
+                template if template else get_chat_template(model_key)
+            )
 
             # Assuming 'apply_chat_template' handles list[dict]
             input_ids = tokenizer.apply_chat_template(text, tokenize=True)

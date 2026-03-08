@@ -1,14 +1,16 @@
 """
 Realtime audio waveform + speech probability visualizer.
 
-Three stacked plots:
+Four stacked plots:
 1. Waveform
 2. Speech probability (0–1) — Silero VAD
 3. Speech probability (0–1) — SpeechBrain CRDNN VAD
+4. Speech probability (0–1) — FireRed Stream VAD
 
 Dependencies:
     pip install sounddevice numpy pyqtgraph torch
-    pip install speechbrain          # for the third plot
+    pip install speechbrain          # for the SpeechBrain plot
+    pip install fireredvad           # for the FireRed (Stream-VAD) plot
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import signal
 import sys
 import threading
 from collections import deque
+from pathlib import Path
 from queue import Empty, Queue
 from typing import Deque
 
@@ -161,6 +164,104 @@ class SpeechBrainVADWrapper:
 
 
 # -----------------------------------------------------------------------------
+# FireRedVAD Wrapper
+# -----------------------------------------------------------------------------
+
+
+class FireRedVADWrapper:
+    """Wrapper for non-streaming FireRedVAD — adapted for chunked live input."""
+
+    def __init__(self, device: str | None = None) -> None:
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
+        print(
+            f"Loading FireRedVAD (non-streaming) on {self.device}... ",
+            end="",
+            flush=True,
+        )
+
+        from fireredvad import FireRedVad, FireRedVadConfig  # ← non-streaming imports
+
+        model_dir = str(
+            Path("~/.cache/pretrained_models/FireRedVAD/VAD").expanduser().resolve()
+        )
+        # Updated config: balanced yet responsive, with recommended production settings
+        config = FireRedVadConfig(
+            use_gpu=(self.device == "cuda"),
+            # ── Core sensitivity ────────────────────────────────────────────────
+            speech_threshold=0.65,  # sweet spot: 0.60–0.75 for live mic use
+            smooth_window_size=5,  # moderate smoothing, reduces jitter
+            # ── Timing / segment constraints ────────────────────────────────────
+            min_speech_frame=6,  # ~60 ms — catches short words well
+            min_silence_frame=10,  # ~100 ms — prevents mid-word chopping
+            max_speech_frame=2500,  # allow up to ~25 s continuous speech
+            # ── Post-processing ─────────────────────────────────────────────────
+            merge_silence_frame=5,  # merge small gaps (smoother phrases)
+            extend_speech_frame=4,  # extend edges slightly (natural boundaries)
+            chunk_max_frame=30000,
+        )
+        try:
+            self.vad = FireRedVad.from_pretrained(model_dir, config=config)
+            print("done.")
+        except Exception as e:
+            print(
+                f"\nERROR loading non-streaming FireRedVAD: {type(e).__name__}: {str(e)}"
+            )
+            raise
+
+        self.audio_buffer = np.array([], dtype=np.float32)
+        self.last_prob = 0.0  # for continuity when buffering
+        print("FireRedVADWrapper (non-streaming) initialized OK")
+
+    def get_speech_prob(self, chunk: np.ndarray) -> float:
+        # --- Gain boost: normalize new chunk toward target peak ~0.25–0.35 ---
+        if len(chunk) > 0:
+            chunk_max = np.max(np.abs(chunk)) + 1e-10
+            target_peak = 0.30
+            if chunk_max < 0.20:  # only boost quiet input
+                gain = min(target_peak / chunk_max, 8.0)  # cap at ×8
+                chunk = chunk * gain
+                print(f"Applied gain ×{gain:.1f} (chunk peak was {chunk_max:.3f})")
+            elif chunk_max > 0.60:  # lightly attenuate very loud input
+                gain = 0.60 / chunk_max
+                chunk = chunk * gain
+                print(
+                    f"Applied attenuation ×{gain:.2f} (chunk peak was {chunk_max:.3f})"
+                )
+        self.audio_buffer = np.concatenate([self.audio_buffer, chunk])
+
+        # Larger buffer before first inference for better context (model calibration)
+        if len(self.audio_buffer) < 9600:  # ~0.6 s
+            print(f"FR non-stream buffering... {len(self.audio_buffer)} / 9600 samples")
+            return self.last_prob  # keep previous value for smooth plot
+
+        # Keep processing window large (~1.2 s as recommended)
+        to_process = self.audio_buffer[-19200:]  # ~1.2 seconds — good context
+
+        _, probs = self.vad.detect(to_process)  # returns (result_dict, probs_tensor)
+
+        # Retain overlap/context for next call
+        self.audio_buffer = self.audio_buffer[-12800:]
+
+        if len(probs) == 0:
+            return self.last_prob
+
+        if len(probs) >= 5:
+            recent_mean = float(probs[-5:].mean().item())
+            recent_max = float(probs[-5:].max().item())
+            prob_to_use = recent_max  # for most responsive live plot
+            print(
+                f"FR non-stream → mean last 5 = {recent_mean:.3f}  max last 5 = {recent_max:.3f}  → using {prob_to_use:.3f}"
+            )
+        else:
+            prob_to_use = float(probs[-1].item()) if len(probs) > 0 else 0.0
+
+        self.last_prob = prob_to_use
+        return prob_to_use
+
+
+# -----------------------------------------------------------------------------
 # Main App
 # -----------------------------------------------------------------------------
 
@@ -169,8 +270,9 @@ class AudioWaveformWithSpeechProbApp:
     """
     Displays:
         - Waveform (top)
-        - Speech probability (middle, Silero VAD)
-        - Speech probability (bottom, SpeechBrain CRDNN VAD)
+        - Speech probability (Silero VAD)
+        - Speech probability (SpeechBrain CRDNN VAD)
+        - Speech probability (FireRed VAD)
     """
 
     def __init__(
@@ -197,6 +299,7 @@ class AudioWaveformWithSpeechProbApp:
 
         self.vad = SileroVAD(samplerate=self.samplerate)
         self.vad_sb = SpeechBrainVADWrapper()  # speechbrain vad
+        self.vad_fr = FireRedVADWrapper()
 
         # Thread-safe audio queue (prevents blocking audio callback)
         self.audio_queue: Queue[np.ndarray] = Queue(maxsize=50)
@@ -205,12 +308,14 @@ class AudioWaveformWithSpeechProbApp:
         self.wave_buffer = CircularBuffer(display_points)
         self.prob_buffer = CircularBuffer(display_points)
         self.prob_sb_buffer = CircularBuffer(display_points)
+        self.prob_fr_buffer = CircularBuffer(display_points)
 
         # Initialize with zeros for smooth startup visual
         for _ in range(display_points):
             self.wave_buffer.append(0.0)
             self.prob_buffer.append(0.0)
             self.prob_sb_buffer.append(0.0)
+            self.prob_fr_buffer.append(0.0)
 
         # Qt App
         self.app = QtWidgets.QApplication.instance()
@@ -232,7 +337,7 @@ class AudioWaveformWithSpeechProbApp:
         # Layout window
         self.win = pg.GraphicsLayoutWidget(
             show=False,  # ← important: do NOT show yet
-            size=(450, 300),
+            size=(450, 400),  # made taller for extra plot
             title="Realtime Audio + Speech Probability",
         )
         self.win.setWindowFlags(flags)
@@ -264,7 +369,7 @@ class AudioWaveformWithSpeechProbApp:
         self.win.nextRow()
 
         # -------------------------
-        # Speech Probability plot (MIDDLE, Silero)
+        # Speech Probability plot (Silero)
         # -------------------------
         self.prob_plot = self.win.addPlot()
         self.prob_plot.setYRange(0, 1)
@@ -292,9 +397,9 @@ class AudioWaveformWithSpeechProbApp:
         self.win.nextRow()
 
         # -------------------------
-        # SpeechBrain VAD Probability plot (BOTTOM)
+        # SpeechBrain VAD Probability plot
         # -------------------------
-        self.prob_sb_plot = self.win.addPlot(title="SpeechBrain VAD Prob")
+        self.prob_sb_plot = self.win.addPlot()
         self.prob_sb_plot.setYRange(0, 1)
         self.prob_sb_plot.setLabel("left", "SB Speech Prob")
         self.prob_sb_plot.showGrid(x=True, y=True, alpha=0.15)
@@ -306,6 +411,27 @@ class AudioWaveformWithSpeechProbApp:
         )
         self.prob_sb_high = self.prob_sb_plot.plot(
             pen=pg.mkPen(color=(220, 60, 220), width=2.2)
+        )
+
+        # Move to next row for FireRed VAD plot
+        self.win.nextRow()
+
+        # -------------------------
+        # FireRed VAD Probability plot
+        # -------------------------
+        self.prob_fr_plot = self.win.addPlot()
+        self.prob_fr_plot.setYRange(0, 1)
+        self.prob_fr_plot.setLabel("left", "FR Speech Prob")
+        self.prob_fr_plot.showGrid(x=True, y=True, alpha=0.15)
+
+        self.prob_fr_low = self.prob_fr_plot.plot(
+            pen=pg.mkPen(color=(255, 200, 120), width=1.2)
+        )
+        self.prob_fr_mid = self.prob_fr_plot.plot(
+            pen=pg.mkPen(color=(255, 150, 80), width=1.8)
+        )
+        self.prob_fr_high = self.prob_fr_plot.plot(
+            pen=pg.mkPen(color=(255, 100, 40), width=2.2)
         )
 
         # Position at bottom-right corner with small margin
@@ -372,6 +498,10 @@ class AudioWaveformWithSpeechProbApp:
             # SpeechBrain VAD
             prob_sb = self.vad_sb.get_speech_prob(samples)
             self.prob_sb_buffer.append(prob_sb)
+
+            # FireRed VAD
+            prob_fr = self.vad_fr.get_speech_prob(samples)
+            self.prob_fr_buffer.append(prob_fr)
 
     # -------------------------------------------------------------------------
 
@@ -446,6 +576,30 @@ class AudioWaveformWithSpeechProbApp:
             self.prob_sb_low.setData(x_prob, low)
             self.prob_sb_mid.setData(x_prob, mid)
             self.prob_sb_high.setData(x_prob, high)
+
+        # ── FireRed prob plot ──────────────────────────────────────────
+        prob_fr_data = self.prob_fr_buffer.to_array()
+
+        if len(prob_fr_data) > 0:
+            x_prob = np.arange(len(prob_fr_data), dtype=np.float32)
+
+            low_mask = prob_fr_data < self.THRES_PROB_MEDIUM
+            mid_mask = (prob_fr_data >= self.THRES_PROB_MEDIUM) & (
+                prob_fr_data < self.THRES_PROB_HIGH
+            )
+            high_mask = prob_fr_data >= self.THRES_PROB_HIGH
+
+            for mask in (low_mask, mid_mask, high_mask):
+                mask[:-1] |= mask[1:]
+                mask[1:] |= mask[:-1]
+
+            low = np.where(low_mask, prob_fr_data, np.nan)
+            mid = np.where(mid_mask, prob_fr_data, np.nan)
+            high = np.where(high_mask, prob_fr_data, np.nan)
+
+            self.prob_fr_low.setData(x_prob, low)
+            self.prob_fr_mid.setData(x_prob, mid)
+            self.prob_fr_high.setData(x_prob, high)
 
     # -------------------------------------------------------------------------
 

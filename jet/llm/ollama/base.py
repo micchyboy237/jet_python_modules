@@ -1,61 +1,70 @@
-from typing import Optional, Any, AsyncGenerator
-from langchain_core.messages import BaseMessage
-from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
-from jet.llm.llm_types import MessageRole
-from langchain_postgres import PostgresChatMessageHistory
-import psycopg
-import uuid
-from jet.data.utils import generate_unique_hash
-from jet.llm.utils.embeddings import get_embedding_function
-from jet._token.token_utils import get_model_max_tokens, tokenize
-from jet.transformers.object import make_serializable
-from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
+import json
 from collections import defaultdict
-from typing import AsyncGenerator, Callable, Dict, Optional, Sequence, Type, TypedDict, Any, Union
+from typing import (
+    Any,
+    AsyncGenerator,
+    Callable,
+    Dict,
+    Optional,
+    Sequence,
+    Type,
+    TypedDict,
+    Union,
+)
+
+import psycopg
+from jet._token.token_utils import get_model_max_tokens, tokenize
+from jet.data.utils import generate_unique_hash
 from jet.decorators.error import wrap_retry
-from jet.decorators.function import retry_on_error
-from jet.llm.ollama.constants import DEFAULT_BASE_URL, DEFAULT_CONTEXT_WINDOW, DEFAULT_EMBED_BATCH_SIZE, DEFAULT_REQUEST_TIMEOUT, OLLAMA_LARGE_CHUNK_OVERLAP, OLLAMA_LARGE_CHUNK_SIZE, OLLAMA_LARGE_EMBED_MODEL, OLLAMA_SMALL_CHUNK_OVERLAP, OLLAMA_SMALL_CHUNK_SIZE, OLLAMA_SMALL_EMBED_MODEL
-from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_CONTEXTS, OLLAMA_MODEL_EMBEDDING_TOKENS, OLLAMA_MODEL_NAMES
-from jet.logger.timer import sleep_countdown, time_it
+from jet.llm.llm_types import MessageRole
+from jet.llm.models import OLLAMA_EMBED_MODELS, OLLAMA_MODEL_NAMES
+from jet.llm.ollama.config import (
+    DEFAULT_EMBED_SETTINGS,
+    DEFAULT_LLM_SETTINGS,
+)
+from jet.llm.ollama.constants import (
+    DEFAULT_EMBED_BATCH_SIZE,
+    OLLAMA_LARGE_CHUNK_OVERLAP,
+    OLLAMA_LARGE_CHUNK_SIZE,
+    OLLAMA_LARGE_EMBED_MODEL,
+    OLLAMA_LLM_MODEL,
+    OLLAMA_SMALL_CHUNK_OVERLAP,
+    OLLAMA_SMALL_CHUNK_SIZE,
+    OLLAMA_SMALL_EMBED_MODEL,
+)
+from jet.llm.utils.embeddings import get_embedding_function
+from jet.logger import logger
+from jet.utils.markdown import extract_json_block_content
+from jet.validation.main.json_validation import validate_json
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_postgres import PostgresChatMessageHistory
+from llama_index.core import Settings
+from llama_index.core import VectorStoreIndex as BaseVectorStoreIndex
 from llama_index.core.base.llms.types import (
-    ChatMessage, ChatResponse as BaseChatResponse,
+    ChatMessage,
     ImageBlock,
     TextBlock,
 )
-from llama_index.core.callbacks.base import CallbackManager
+from llama_index.core.base.llms.types import (
+    ChatResponse as BaseChatResponse,
+)
 from llama_index.core.callbacks.base_handler import BaseCallbackHandler
 from llama_index.core.callbacks.schema import CBEvent, CBEventType, EventPayload
 from llama_index.core.embeddings.utils import EmbedType
 from llama_index.core.instrumentation import get_dispatcher
-from llama_index.core.llms.callbacks import llm_chat_callback
 from llama_index.core.llms.llm import LLM
 from llama_index.core.prompts.base import PromptTemplate
-from llama_index.core.schema import BaseNode, TextNode
+from llama_index.core.schema import BaseNode
+from llama_index.core.settings import _Settings
 from llama_index.core.types import PydanticProgramMode
 from llama_index.core.utils import set_global_tokenizer
-from llama_index.llms.ollama import Ollama as BaseOllama
 from llama_index.embeddings.ollama import OllamaEmbedding as BaseOllamaEmbedding
-from llama_index.core import Settings
-from llama_index.core.settings import _Settings
-
-from jet.llm.ollama.config import (
-    base_url,
-    base_embed_url,
-    large_embed_model,
-    DEFAULT_LLM_SETTINGS,
-    DEFAULT_EMBED_SETTINGS,
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_CHUNK_OVERLAP,
-)
-from jet.logger import logger
-from jet.utils.markdown import extract_json_block_content
-from jet.validation.main.json_validation import validate_json
-import json
+from llama_index.llms.ollama import Ollama as BaseOllama
 from pydantic.fields import Field
 from pydantic.main import BaseModel
-from transformers.tokenization_utils_base import EncodedInput, PreTokenizedInput, TextInput
-from ollama import Message as OllamaMessage, ChatResponse as OllamaChatResponse
-from jet.llm.tools.types import BaseTool
+
+from ollama import ChatResponse as OllamaChatResponse
+from ollama import Message as OllamaMessage
 
 NON_DETERMINISTIC_LLM_SETTINGS = {
     # "seed": random.randint(0, 1000),
@@ -143,24 +152,24 @@ class ChatResponse(BaseChatResponse):
 
 def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings:
     embedding_model = settings.get(
-        "embedding_model", DEFAULT_EMBED_SETTINGS['model_name'])
+        "embedding_model", DEFAULT_EMBED_SETTINGS["model_name"]
+    )
     embed_model = OllamaEmbedding(
-        model_name=DEFAULT_EMBED_SETTINGS['model_name'],
-        base_url=settings.get("base_url", DEFAULT_EMBED_SETTINGS['base_url']),
-        embed_batch_size=DEFAULT_EMBED_SETTINGS['embed_batch_size'],
-        ollama_additional_kwargs=DEFAULT_EMBED_SETTINGS['ollama_additional_kwargs'],
+        model_name=DEFAULT_EMBED_SETTINGS["model_name"],
+        base_url=settings.get("base_url", DEFAULT_EMBED_SETTINGS["base_url"]),
+        embed_batch_size=DEFAULT_EMBED_SETTINGS["embed_batch_size"],
+        ollama_additional_kwargs=DEFAULT_EMBED_SETTINGS["ollama_additional_kwargs"],
     )
 
-    llm_model = settings.get("llm_model", DEFAULT_LLM_SETTINGS['model'])
+    llm_model = settings.get("llm_model", DEFAULT_LLM_SETTINGS["model"])
     llm = Ollama(
         model=llm_model,
-        base_url=settings.get("base_url", DEFAULT_LLM_SETTINGS['base_url']),
-        temperature=settings.get(
-            "temperature", DEFAULT_LLM_SETTINGS['temperature']),
-        context_window=settings.get(
-            "context_window", get_model_max_tokens(llm_model)),
+        base_url=settings.get("base_url", DEFAULT_LLM_SETTINGS["base_url"]),
+        temperature=settings.get("temperature", DEFAULT_LLM_SETTINGS["temperature"]),
+        context_window=settings.get("context_window", get_model_max_tokens(llm_model)),
         request_timeout=settings.get(
-            "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
+            "request_timeout", DEFAULT_LLM_SETTINGS["request_timeout"]
+        ),
     )
 
     chunk_size = settings.get("chunk_size")
@@ -176,6 +185,7 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings
 
     def count_tokens(text: str) -> int:
         from jet._token import token_counter
+
         return token_counter(text, llm_model)
 
     EnhancedSettings.llm = llm
@@ -187,11 +197,13 @@ def initialize_ollama_settings(settings: SettingsDict = {}) -> _EnhancedSettings
     EnhancedSettings.count_tokens = count_tokens
 
     from jet._token.token_utils import get_ollama_tokenizer
+
     tokenizer = get_ollama_tokenizer(llm_model)
     set_global_tokenizer(tokenizer)
     # EnhancedSettings.tokenizer = get_ollama_tokenizer(llm_model).encode
 
     from jet.helpers.prompt.custom_prompt_helpers import OllamaPromptHelper
+
     EnhancedSettings.prompt_helper = OllamaPromptHelper(llm_model)
 
     return EnhancedSettings
@@ -206,35 +218,35 @@ def update_llm_settings(settings: SettingsDict = {}):
 
     if settings.get("embedding_model"):
         Settings.embed_model = create_embed_model(
-            model=settings.get("embedding_model",
-                               DEFAULT_EMBED_SETTINGS['model_name']),
-            base_url=settings.get(
-                "base_url", DEFAULT_EMBED_SETTINGS['base_url']),
+            model=settings.get("embedding_model", DEFAULT_EMBED_SETTINGS["model_name"]),
+            base_url=settings.get("base_url", DEFAULT_EMBED_SETTINGS["base_url"]),
         )
 
     if settings.get("llm_model"):
         Settings.llm = create_llm(
-            model=settings.get("llm_model", DEFAULT_LLM_SETTINGS['model']),
-            base_url=settings.get(
-                "base_url", DEFAULT_LLM_SETTINGS['base_url']),
+            model=settings.get("llm_model", DEFAULT_LLM_SETTINGS["model"]),
+            base_url=settings.get("base_url", DEFAULT_LLM_SETTINGS["base_url"]),
             temperature=settings.get(
-                "temperature", DEFAULT_LLM_SETTINGS['temperature']),
+                "temperature", DEFAULT_LLM_SETTINGS["temperature"]
+            ),
             context_window=settings.get(
-                "context_window", DEFAULT_LLM_SETTINGS['context_window']),
+                "context_window", DEFAULT_LLM_SETTINGS["context_window"]
+            ),
             request_timeout=settings.get(
-                "request_timeout", DEFAULT_LLM_SETTINGS['request_timeout']),
+                "request_timeout", DEFAULT_LLM_SETTINGS["request_timeout"]
+            ),
         )
 
     return Settings
 
 
 def create_llm(
-    model: OLLAMA_MODEL_NAMES = DEFAULT_LLM_SETTINGS['model'],
-    base_url: str = DEFAULT_LLM_SETTINGS['base_url'],
-    temperature: float = DEFAULT_LLM_SETTINGS['temperature'],
-    context_window: int = DEFAULT_LLM_SETTINGS['context_window'],
-    request_timeout: float = DEFAULT_LLM_SETTINGS['request_timeout'],
-    max_tokens: Optional[int] = None
+    model: OLLAMA_MODEL_NAMES = DEFAULT_LLM_SETTINGS["model"],
+    base_url: str = DEFAULT_LLM_SETTINGS["base_url"],
+    temperature: float = DEFAULT_LLM_SETTINGS["temperature"],
+    context_window: int = DEFAULT_LLM_SETTINGS["context_window"],
+    request_timeout: float = DEFAULT_LLM_SETTINGS["request_timeout"],
+    max_tokens: Optional[int] = None,
 ) -> LLM:
     llm = Ollama(
         temperature=temperature,
@@ -249,11 +261,12 @@ def create_llm(
 
 
 def create_embed_model(
-    model: OLLAMA_EMBED_MODELS = DEFAULT_EMBED_SETTINGS['model_name'],
-    base_url: str = DEFAULT_EMBED_SETTINGS['base_url'],
-    embed_batch_size: int = DEFAULT_EMBED_SETTINGS['embed_batch_size'],
-    ollama_additional_kwargs: dict[str,
-                                   any] = DEFAULT_EMBED_SETTINGS['ollama_additional_kwargs'],
+    model: OLLAMA_EMBED_MODELS = DEFAULT_EMBED_SETTINGS["model_name"],
+    base_url: str = DEFAULT_EMBED_SETTINGS["base_url"],
+    embed_batch_size: int = DEFAULT_EMBED_SETTINGS["embed_batch_size"],
+    ollama_additional_kwargs: dict[str, any] = DEFAULT_EMBED_SETTINGS[
+        "ollama_additional_kwargs"
+    ],
 ):
     embed_model = OllamaEmbedding(
         model_name=model,
@@ -278,7 +291,7 @@ sync_connection = psycopg.connect(
     user=DEFAULT_USER,
     password=DEFAULT_PASSWORD,
     host=DEFAULT_HOST,
-    port=DEFAULT_PORT
+    port=DEFAULT_PORT,
 )
 
 # Create table if it doesn't exist
@@ -286,15 +299,15 @@ PostgresChatMessageHistory.create_tables(sync_connection, DEFAULT_TABLE_NAME)
 
 
 class ChatHistory:
-    def __init__(self, session_id: Optional[str] = None, table_name: str = DEFAULT_TABLE_NAME):
+    def __init__(
+        self, session_id: Optional[str] = None, table_name: str = DEFAULT_TABLE_NAME
+    ):
         if not session_id:
             session_id = generate_unique_hash()
         self.session_id = session_id
         self.table_name = table_name
         self.history = PostgresChatMessageHistory(
-            table_name,
-            session_id,
-            sync_connection=sync_connection
+            table_name, session_id, sync_connection=sync_connection
         )
 
     def get_messages(self) -> list[dict]:
@@ -302,8 +315,12 @@ class ChatHistory:
         messages = self.history.get_messages()
         return [
             {
-                "role": "system" if isinstance(msg, SystemMessage) else "user" if isinstance(msg, HumanMessage) else "assistant",
-                "content": msg.content
+                "role": "system"
+                if isinstance(msg, SystemMessage)
+                else "user"
+                if isinstance(msg, HumanMessage)
+                else "assistant",
+                "content": msg.content,
             }
             for msg in messages
         ]
@@ -318,11 +335,9 @@ class ChatHistory:
         messages = _convert_to_ollama_messages(messages)
         for msg in messages:
             if msg["role"] == "system":
-                self.history.add_messages(
-                    [SystemMessage(content=msg["content"])])
+                self.history.add_messages([SystemMessage(content=msg["content"])])
             elif msg["role"] == "user":
-                self.history.add_messages(
-                    [HumanMessage(content=msg["content"])])
+                self.history.add_messages([HumanMessage(content=msg["content"])])
             elif msg["role"] == "assistant":
                 self.history.add_messages([AIMessage(content=msg["content"])])
 
@@ -344,7 +359,14 @@ class Ollama(BaseOllama, BaseModel):
     table_name: str = Field(default="chat_history")
     chat_history: Optional[ChatHistory] = Field(default=None)
 
-    def __init__(self, model: str, system: Optional[str] = None, session_id: Optional[str] = None, table_name: str = "chat_history", **kwargs) -> None:
+    def __init__(
+        self,
+        model: str,
+        system: Optional[str] = None,
+        session_id: Optional[str] = None,
+        table_name: str = "chat_history",
+        **kwargs,
+    ) -> None:
         if not session_id:
             session_id = generate_unique_hash()
 
@@ -360,8 +382,7 @@ class Ollama(BaseOllama, BaseModel):
         }
 
         # Initialize chat_history
-        chat_history = ChatHistory(
-            session_id=session_id, table_name=table_name)
+        chat_history = ChatHistory(session_id=session_id, table_name=table_name)
 
         # Initialize Pydantic model with all fields
         super().__init__(
@@ -370,12 +391,18 @@ class Ollama(BaseOllama, BaseModel):
             session_id=session_id,
             table_name=table_name,
             chat_history=chat_history,
-            **kwargs
+            **kwargs,
         )
 
-    async def stream_chat(self, query: str, context: Optional[str] = None, model: Optional[str] = None, **kwargs: Any) -> AsyncGenerator[str, None]:
+    async def stream_chat(
+        self,
+        query: str,
+        context: Optional[str] = None,
+        model: Optional[str] = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str, None]:
+        from jet._token.token_utils import get_ollama_tokenizer
         from jet.actions.generation import call_ollama_chat
-        from jet._token.token_utils import token_counter, get_ollama_tokenizer
 
         # Initialize tokenizer
         tokenizer = get_ollama_tokenizer(self.model)
@@ -434,18 +461,25 @@ class Ollama(BaseOllama, BaseModel):
 
             if chunk["done"]:
                 # Save history
-                if system and not any(isinstance(msg, SystemMessage) for msg in self.chat_history.history.get_messages()):
+                if system and not any(
+                    isinstance(msg, SystemMessage)
+                    for msg in self.chat_history.history.get_messages()
+                ):
                     self.chat_history.clear()
                     self.chat_history.add_system_message(system)
 
-                self.chat_history.add_messages([
-                    {"role": "user", "content": user_input},
-                    {"role": "assistant", "content": content},
-                ])
+                self.chat_history.add_messages(
+                    [
+                        {"role": "user", "content": user_input},
+                        {"role": "assistant", "content": content},
+                    ]
+                )
 
-    def chat(self, messages: str | Sequence[ChatMessage] | PromptTemplate, **kwargs: Any) -> ChatResponse:
+    def chat(
+        self, messages: str | Sequence[ChatMessage] | PromptTemplate, **kwargs: Any
+    ) -> ChatResponse:
+        from jet._token.token_utils import get_ollama_tokenizer, token_counter
         from jet.actions.generation import call_ollama_chat
-        from jet._token.token_utils import token_counter, get_ollama_tokenizer
 
         # Initialize and set tokenizer
         tokenizer = get_ollama_tokenizer(self.model)
@@ -465,7 +499,9 @@ class Ollama(BaseOllama, BaseModel):
             history_messages = _convert_to_ollama_messages(history_messages)
 
         ollama_messages = messages
-        if isinstance(messages, list) and isinstance(messages[0], (ChatMessage, BaseMessage)):
+        if isinstance(messages, list) and isinstance(
+            messages[0], (ChatMessage, BaseMessage)
+        ):
             ollama_messages = _convert_to_ollama_messages(messages)
         elif isinstance(messages, PromptTemplate):
             ollama_messages = messages.format(**template_vars)
@@ -474,19 +510,24 @@ class Ollama(BaseOllama, BaseModel):
         if isinstance(ollama_messages, list):
             combined_messages = history_messages + ollama_messages
         else:
-            combined_messages = history_messages + \
-                [{"role": "user", "content": ollama_messages}]
+            combined_messages = history_messages + [
+                {"role": "user", "content": ollama_messages}
+            ]
 
         system_messages = [system] if system else []
 
         if isinstance(messages, list):
             system_messages = system_messages + [
-                m['content'] for m in combined_messages if m['role'] == MessageRole.SYSTEM]
+                m["content"]
+                for m in combined_messages
+                if m["role"] == MessageRole.SYSTEM
+            ]
 
             system = "\n\n".join(system_messages)
             # Remove all system messages from the original list
             combined_messages = [
-                m for m in combined_messages if m['role'] != MessageRole.SYSTEM]
+                m for m in combined_messages if m["role"] != MessageRole.SYSTEM
+            ]
 
         settings = {
             **kwargs,
@@ -519,10 +560,8 @@ class Ollama(BaseOllama, BaseModel):
                 if final_response_tool_calls:
                     final_response_content += f"\n{final_response_tool_calls}".strip()
 
-                prompt_token_count = token_counter(
-                    combined_messages, self.model)
-                response_token_count = token_counter(
-                    final_response_content, self.model)
+                prompt_token_count = token_counter(combined_messages, self.model)
+                response_token_count = token_counter(final_response_content, self.model)
 
                 final_response = {
                     **response.copy(),
@@ -530,28 +569,37 @@ class Ollama(BaseOllama, BaseModel):
                         "prompt_tokens": prompt_token_count,
                         "completion_tokens": response_token_count,
                         "total_tokens": prompt_token_count + response_token_count,
-                    }
+                    },
                 }
 
                 # Save messages to history
-                user_message = ollama_messages if isinstance(
-                    ollama_messages, str) else ollama_messages[-1]['content']
+                user_message = (
+                    ollama_messages
+                    if isinstance(ollama_messages, str)
+                    else ollama_messages[-1]["content"]
+                )
 
                 if system:
                     chat_messages = self.chat_history.get_messages()
-                    has_system_message = any(isinstance(
-                        message, SystemMessage) for message in chat_messages)
+                    has_system_message = any(
+                        isinstance(message, SystemMessage) for message in chat_messages
+                    )
                     if not has_system_message:
                         # Insert system message at the beginning of history
                         self.chat_history.clear()  # Clear existing messages
-                        self.chat_history.add_messages([
-                            SystemMessage(content=system),
-                        ] + chat_messages)
+                        self.chat_history.add_messages(
+                            [
+                                SystemMessage(content=system),
+                            ]
+                            + chat_messages
+                        )
 
-                self.chat_history.add_messages([
-                    HumanMessage(content=user_message),
-                    AIMessage(content=content),
-                ])
+                self.chat_history.add_messages(
+                    [
+                        HumanMessage(content=user_message),
+                        AIMessage(content=content),
+                    ]
+                )
 
             else:
                 content = ""
@@ -567,9 +615,9 @@ class Ollama(BaseOllama, BaseModel):
                         role = chunk["message"]["role"]
                     if chunk["done"]:
                         prompt_token_count = token_counter(
-                            combined_messages, self.model)
-                        response_token_count = token_counter(
-                            content, self.model)
+                            combined_messages, self.model
+                        )
+                        response_token_count = token_counter(content, self.model)
 
                         updated_chunk = chunk.copy()
                         updated_chunk["message"]["content"] = content
@@ -579,22 +627,30 @@ class Ollama(BaseOllama, BaseModel):
                             "usage": {
                                 "prompt_tokens": prompt_token_count,
                                 "completion_tokens": response_token_count,
-                                "total_tokens": prompt_token_count + response_token_count,
-                            }
+                                "total_tokens": prompt_token_count
+                                + response_token_count,
+                            },
                         }
 
                         # Save messages to history
-                        user_message = ollama_messages if isinstance(
-                            ollama_messages, str) else ollama_messages[-1]['content']
+                        user_message = (
+                            ollama_messages
+                            if isinstance(ollama_messages, str)
+                            else ollama_messages[-1]["content"]
+                        )
 
                         if system:
-                            self.chat_history.add_messages([
-                                SystemMessage(content=system),
-                            ])
-                        self.chat_history.add_messages([
-                            HumanMessage(content=user_message),
-                            AIMessage(content=content),
-                        ])
+                            self.chat_history.add_messages(
+                                [
+                                    SystemMessage(content=system),
+                                ]
+                            )
+                        self.chat_history.add_messages(
+                            [
+                                HumanMessage(content=user_message),
+                                AIMessage(content=content),
+                            ]
+                        )
 
             chat_response = ChatResponse(
                 message=ChatMessage(
@@ -608,7 +664,9 @@ class Ollama(BaseOllama, BaseModel):
 
         return wrap_retry(run)
 
-    async def achat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
+    async def achat(
+        self, messages: Sequence[ChatMessage], **kwargs: Any
+    ) -> ChatResponse:
         return self.chat(messages, **kwargs)
 
     def structured_predict(
@@ -637,18 +695,24 @@ class Ollama(BaseOllama, BaseModel):
             response = self.chat(combined_messages, **llm_kwargs)
 
             extracted_result = extract_json_block_content(
-                response.message.content or "")
+                response.message.content or ""
+            )
             validation_result = validate_json(
-                extracted_result, output_cls.model_json_schema())
+                extracted_result, output_cls.model_json_schema()
+            )
 
             # Save messages to history
             self.chat_history.add_messages(messages + [response.message])
 
             return output_cls.model_validate_json(json.dumps(validation_result["data"]))
         else:
-            return super().structured_predict(output_cls, prompt, llm_kwargs, **prompt_args)
+            return super().structured_predict(
+                output_cls, prompt, llm_kwargs, **prompt_args
+            )
 
-    def encode(self, texts: Union[str, Sequence[str]] = '') -> list[int] | list[list[int]]:
+    def encode(
+        self, texts: Union[str, Sequence[str]] = ""
+    ) -> list[int] | list[list[int]]:
         """Calls get_general_text_embedding to get the embeddings."""
         tokens = tokenize(self.model, texts)
         return tokens
@@ -670,12 +734,17 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         le=2048,
     )
 
-    def encode(self, texts: Union[str, Sequence[str]] = '') -> list[int] | list[list[int]]:
+    def encode(
+        self, texts: Union[str, Sequence[str]] = ""
+    ) -> list[int] | list[list[int]]:
         """Calls get_general_text_embedding to get the embeddings."""
         tokens = tokenize(self.model_name, texts)
         return tokens
 
-    def get_general_text_embedding(self, texts: Union[str, Sequence[str]] = '',) -> list[float] | list[list[float]]:
+    def get_general_text_embedding(
+        self,
+        texts: Union[str, Sequence[str]] = "",
+    ) -> list[float] | list[list[float]]:
         """Get Ollama embedding with retry mechanism."""
         # logger.orange("Calling OllamaEmbedding embed...")
         # logger.debug(
@@ -693,14 +762,14 @@ class OllamaEmbedding(BaseOllamaEmbedding):
                 CBEventType.EMBEDDING,
                 payload={EventPayload.SERIALIZED: self.to_dict()},
             ) as event:
-                embed_func = get_embedding_function(
-                    model_name=self.model_name
-                )
+                embed_func = get_embedding_function(model_name=self.model_name)
                 embeddings = embed_func(texts)
 
                 event.on_end(
                     payload={
-                        EventPayload.CHUNKS: [texts] if isinstance(texts, str) else texts,
+                        EventPayload.CHUNKS: [texts]
+                        if isinstance(texts, str)
+                        else texts,
                         EventPayload.EMBEDDINGS: [embeddings],
                     },
                 )
@@ -712,7 +781,9 @@ class OllamaEmbedding(BaseOllamaEmbedding):
         return wrap_retry(run)
 
 
-def _convert_to_ollama_messages(messages: Sequence[ChatMessage] | list[BaseMessage]) -> Dict:
+def _convert_to_ollama_messages(
+    messages: Sequence[ChatMessage] | list[BaseMessage],
+) -> Dict:
     ollama_messages = []
     for message in messages:
         if isinstance(message, BaseMessage):
@@ -748,8 +819,7 @@ def _convert_to_ollama_messages(messages: Sequence[ChatMessage] | list[BaseMessa
                     if "images" not in cur_ollama_message:
                         cur_ollama_message["images"] = []
                     cur_ollama_message["images"].append(
-                        block.resolve_image(
-                            as_base64=True).read().decode("utf-8")
+                        block.resolve_image(as_base64=True).read().decode("utf-8")
                     )
                 else:
                     raise ValueError(f"Unsupported block type: {type(block)}")
@@ -766,7 +836,7 @@ def _convert_to_ollama_messages(messages: Sequence[ChatMessage] | list[BaseMessa
 
 def chat(
     messages: str | Sequence[ChatMessage] | Sequence[OllamaMessage] | PromptTemplate,
-    model: str = "llama3.2",
+    model: str = OLLAMA_LLM_MODEL,
     *,
     system: Optional[str] = None,
     context: Optional[str] = None,
@@ -783,8 +853,11 @@ def chat(
 
     ollama_messages = messages
     if isinstance(messages, list) and isinstance(messages[0], ChatMessage):
-        ollama_messages = _convert_to_ollama_messages(
-            messages) if not isinstance(messages, str) else messages
+        ollama_messages = (
+            _convert_to_ollama_messages(messages)
+            if not isinstance(messages, str)
+            else messages
+        )
     elif isinstance(messages, PromptTemplate):
         ollama_messages = messages.format(**template_vars)
 
@@ -836,11 +909,9 @@ def chat(
         tool_calls = []
 
         if isinstance(response, dict) and "error" in response:
-            raise ValueError(
-                f"Ollama API error:\n{response['error']}")
+            raise ValueError(f"Ollama API error:\n{response['error']}")
 
         for chunk in response:
-
             content += chunk["message"]["content"]
             if not role:
                 role = chunk["message"]["role"]
@@ -869,17 +940,22 @@ def chat(
             content=content,
             tool_calls=tool_calls,
         ),
-        **final_response
+        **final_response,
     )
     return chat_response
 
 
-async def achat(messages: str | Sequence[ChatMessage] | Sequence[OllamaMessage] | PromptTemplate, **kwargs: Any) -> ChatResponse:
+async def achat(
+    messages: str | Sequence[ChatMessage] | Sequence[OllamaMessage] | PromptTemplate,
+    **kwargs: Any,
+) -> ChatResponse:
     return chat(messages, **kwargs)
 
 
 def embed_nodes(
-    nodes: Sequence[BaseNode] | Sequence[str], embed_model: OLLAMA_EMBED_MODELS | str, show_progress: bool = False
+    nodes: Sequence[BaseNode] | Sequence[str],
+    embed_model: OLLAMA_EMBED_MODELS | str,
+    show_progress: bool = False,
 ) -> dict[str, list[float]]:
     """Get embeddings of the given nodes, run embedding model if necessary.
 
@@ -915,7 +991,9 @@ def embed_nodes(
 
 
 async def async_embed_nodes(
-    nodes: Sequence[BaseNode] | Sequence[str], embed_model: OLLAMA_EMBED_MODELS | str, show_progress: bool = False
+    nodes: Sequence[BaseNode] | Sequence[str],
+    embed_model: OLLAMA_EMBED_MODELS | str,
+    show_progress: bool = False,
 ) -> dict[str, list[float]]:
     """Async get embeddings of the given nodes, run embedding model if necessary.
 
@@ -939,9 +1017,7 @@ async def async_embed_nodes(
         texts_to_embed = nodes
         ids_to_embed = [generate_unique_hash(text) for text in nodes]
 
-    embedding_function = get_embedding_function(
-        model_name=embed_model
-    )
+    embedding_function = get_embedding_function(model_name=embed_model)
     new_embeddings = embedding_function(texts_to_embed)
 
     for new_id, text_embedding in zip(ids_to_embed, new_embeddings):
@@ -957,16 +1033,12 @@ class VectorStoreIndex(BaseVectorStoreIndex):
         # Accept model_name explicitly
         model_name: OLLAMA_EMBED_MODELS = OLLAMA_SMALL_EMBED_MODEL,
         embed_model: Optional[EmbedType] = None,
-        **kwargs
+        **kwargs,
     ):
         if not embed_model:
             embed_model = OllamaEmbedding(model_name=model_name)
 
-        super().__init__(
-            *args,
-            embed_model=embed_model,
-            **kwargs
-        )
+        super().__init__(*args, embed_model=embed_model, **kwargs)
 
         self.model_name = self._embed_model.model_name
 
@@ -1041,13 +1113,16 @@ class StreamCallbackHandler(BaseCallbackHandler):
         parent_id: str = "",
         **kwargs: any,
     ):
-        logger.log("StreamCallbackHandler on_event_start:", {
-            "event_type": event_type,
-            "payload": payload,
-            "event_id": event_id,
-            "parent_id": parent_id,
-            **kwargs
-        })
+        logger.log(
+            "StreamCallbackHandler on_event_start:",
+            {
+                "event_type": event_type,
+                "payload": payload,
+                "event_id": event_id,
+                "parent_id": parent_id,
+                **kwargs,
+            },
+        )
 
         event = CBEvent(event_type, payload=payload, id_=event_id)
         self._event_pairs_by_id[event.id_].append(event)
@@ -1059,12 +1134,15 @@ class StreamCallbackHandler(BaseCallbackHandler):
         event_id: str = "",
         **kwargs: any,
     ):
-        logger.log("StreamCallbackHandler on_event_end:", {
-            "event_type": event_type,
-            "payload": str(payload)[:50],
-            "event_id": event_id,
-            **kwargs
-        })
+        logger.log(
+            "StreamCallbackHandler on_event_end:",
+            {
+                "event_type": event_type,
+                "payload": str(payload)[:50],
+                "event_id": event_id,
+                **kwargs,
+            },
+        )
 
         event = CBEvent(event_type, payload=payload, id_=event_id)
         self._event_pairs_by_id[event.id_].append(event)

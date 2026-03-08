@@ -1,28 +1,66 @@
-# from ollama import chat
+import os
+import sys
+import time
 
-# messages = [
-#   {
-#     'role': 'user',
-#     'content': 'Why is the sky blue?',
-#   },
-# ]
+from openai import OpenAI
 
-# for part in chat('gemma3', messages=messages, stream=True):
-#   print(part['message']['content'], end='', flush=True)
+# Connect to local Ollama
+client = OpenAI(
+    base_url=os.getenv("OLLAMA_LLM_URL"),
+    api_key="ollama",  # dummy — ignored
+)
 
 
-from ollama import Client
+def stream_response(messages, model=os.getenv("OLLAMA_LLM_MODEL")):
+    print("\n" + "═" * 70, flush=True)
+    print(" Model is answering... ".center(70, "═"), flush=True)
+    print("═" * 70 + "\n", flush=True)
 
-from jet.logger import logger
+    start = time.time()
 
-client = Client(host='http://localhost:11435')
+    stream = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=0.3,  # low → precise reasoning
+        max_tokens=1000,
+        top_p=0.92,
+        stream=True,
+    )
 
-messages = [
-  {
-    'role': 'user',
-    'content': 'Write a Python function to calculate the factorial of a non-negative integer using recursion. Include error handling for negative inputs.',
-  },
+    print("→ ", end="", flush=True)
+
+    full_text = ""
+    for chunk in stream:
+        if chunk.choices[0].delta.content is not None:
+            delta = chunk.choices[0].delta.content
+            full_text += delta
+            print(delta, end="", flush=True)  # live flush
+            sys.stdout.flush()  # force flush in some terminals
+
+    elapsed = time.time() - start
+    print("\n\n" + "─" * 70, flush=True)
+    print(f"Done in {elapsed:.2f} seconds • model: {model}", flush=True)
+    print("─" * 70 + "\n", flush=True)
+
+    return full_text
+
+
+# ────────────────────────────────────────────────
+# SAMPLE INPUT — just run this script
+# ────────────────────────────────────────────────
+
+sample_messages = [
+    {
+        "role": "system",
+        "content": "You are an extremely precise, step-by-step reasoning assistant. Especially good at mathematics, logic puzzles, physics, and clear explanations. Always think aloud and verify your steps.",
+    },
+    {
+        "role": "user",
+        "content": "A store offers a 20% discount on a $150 item, but adds 8% sales tax on the discounted price. What is the final amount the customer pays? Show every calculation step clearly.",
+    },
 ]
 
-for part in client.chat(model='deepseek-coder-v2:16b-lite-instruct-q3_K_M', messages=messages, stream=True):
-  logger.teal(part['message']['content'], flush=True)
+print("Running sample query:\n")
+print("User:", sample_messages[-1]["content"], "\n")
+
+stream_response(sample_messages)
