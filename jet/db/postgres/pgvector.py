@@ -134,47 +134,106 @@ class PgVectorClient:
                 self.create_table(table_name, dimension)
 
     def _ensure_columns_exist(self, table_name: str, row_data: dict[str, Any]) -> None:
-        """Ensure all columns in row_data exist in the table, adding them if necessary."""
+        """Ensure all columns present in row_data exist in the table (except id & embedding).
+
+        Also guarantees timestamp columns are present by calling _ensure_timestamp_columns().
+        """
         with self.conn.cursor() as cur:
-            # Get existing columns
+            # First, guarantee the standard timestamp columns
+            self._ensure_timestamp_columns(table_name)
+
+            # Now handle dynamic columns from the incoming data
             cur.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'public' AND table_name = %s;",
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = %s;
+                """,
                 (table_name,),
             )
             existing_columns = {row["column_name"] for row in cur.fetchall()}
 
-            # Define column types for new columns
             for column, value in row_data.items():
                 if (
-                    column not in existing_columns
-                    and column != "id"
-                    and column != "embedding"
+                    column in existing_columns
+                    or column == "id"
+                    or column == "embedding"
+                    or column in {"created_at", "updated_at"}  # already handled
                 ):
-                    if isinstance(value, (dict, list)):
-                        col_type = "jsonb"
-                    elif isinstance(value, bool):
-                        col_type = "boolean"
-                    elif isinstance(value, (int, float)):
-                        col_type = "numeric"
-                    else:
-                        col_type = "text"
-                    query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {};").format(
-                        sql.Identifier(table_name),
-                        sql.Identifier(column),
-                        sql.SQL(col_type),
+                    continue
+
+                # Determine appropriate column type
+                if isinstance(value, (dict, list)):
+                    col_type = "jsonb"
+                elif isinstance(value, bool):
+                    col_type = "boolean"
+                elif isinstance(value, (int, float)):
+                    col_type = "numeric"
+                else:
+                    col_type = "text"
+
+                query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {};").format(
+                    sql.Identifier(table_name),
+                    sql.Identifier(column),
+                    sql.SQL(col_type),
+                )
+
+                try:
+                    cur.execute(query)
+                    logger.success(
+                        "Successfully created column %s in table %s",
+                        column,
+                        table_name,
                     )
+                except Exception as e:
+                    logger.error(
+                        "Failed to create column %s in table %s: %s",
+                        column,
+                        table_name,
+                        str(e),
+                    )
+                    raise
+
+    def _ensure_timestamp_columns(self, table_name: str) -> None:
+        """Ensure 'created_at' and 'updated_at' columns exist with proper defaults.
+
+        This is idempotent — safe to call even if columns already exist.
+        """
+        timestamp_cols = {
+            "created_at": "TIMESTAMPTZ DEFAULT NOW()",
+            "updated_at": "TIMESTAMPTZ DEFAULT NOW()",
+        }
+
+        with self.conn.cursor() as cur:
+            # Get current columns (just names for existence check)
+            cur.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = %s;
+                """,
+                (table_name,),
+            )
+            existing_columns = {row["column_name"] for row in cur.fetchall()}
+
+            for col_name, col_def in timestamp_cols.items():
+                if col_name not in existing_columns:
                     try:
+                        query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {}").format(
+                            sql.Identifier(table_name),
+                            sql.Identifier(col_name),
+                            sql.SQL(col_def),
+                        )
                         cur.execute(query)
                         logger.success(
-                            "Successfully created column %s in table %s",
-                            column,
+                            "Added timestamp column %s to table %s",
+                            col_name,
                             table_name,
                         )
                     except Exception as e:
                         logger.error(
-                            "Failed to create column %s in table %s: %s",
-                            column,
+                            "Failed to add timestamp column %s to %s: %s",
+                            col_name,
                             table_name,
                             str(e),
                         )

@@ -1,3 +1,11 @@
+"""
+Usage Examples
+==============
+
+python audio_search2.py file1.mp3 file2.wav file3.m4a query_clip.wav -k 12
+
+"""
+
 import io  # For BytesIO in tests, but safe to add
 from hashlib import sha256
 from pathlib import Path
@@ -667,24 +675,45 @@ class AudioSegmentDatabase:
             console.print(dedup_table)
 
 
-# Usage Examples
-
 if __name__ == "__main__":
-    db = AudioSegmentDatabase(persist_dir="./my_audio_db")
+    import argparse
 
-    # Example 1: Index some audio files (run once)
-    audio_files = ["path/to/song1.wav", "path/to/song2.mp3"]  # Add your files
-    for file in audio_files:
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+
+    parser = argparse.ArgumentParser(
+        description="Search for similar audio segments using CLAP embeddings."
+    )
+    parser.add_argument(
+        "audio_files",
+        nargs="+",
+        metavar="AUDIO",
+        help="Paths to audio files to add to the database.",
+    )
+    parser.add_argument(
+        "query_path",
+        metavar="QUERY",
+        help="Path to the audio segment to use as a query.",
+    )
+    parser.add_argument(
+        "-k",
+        "--top_k",
+        type=int,
+        default=10,
+        help="Number of most similar segments to display (default: 10).",
+    )
+    parser.add_argument(
+        "-d",
+        "--persist_dir",
+        type=str,
+        default=str(OUTPUT_DIR / "db"),
+        help=f"Directory for persistent ChromaDB storage (default: {OUTPUT_DIR / 'db'})",
+    )
+    args = parser.parse_args()
+
+    db = AudioSegmentDatabase(persist_dir=args.persist_dir)
+
+    for file in args.audio_files:
         db.add_segments(file)
 
-    # Example 2: Search with a query file
-    query_path = "path/to/query_segment.wav"
-    results = db.search_similar(query_path, top_k=10)
+    results = db.search_similar(args.query_path, top_k=args.top_k)
     db.print_results(results)
-
-    # Example 3: Search with raw audio bytes (e.g., from API upload)
-    with open("path/to/query_segment.wav", "rb") as f:
-        query_bytes = f.read()
-
-    results_bytes = db.search_similar(query_bytes, top_k=5)
-    db.print_results(results_bytes)
