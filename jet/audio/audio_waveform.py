@@ -169,93 +169,83 @@ class SpeechBrainVADWrapper:
 
 
 class FireRedVADWrapper:
-    """Wrapper for non-streaming FireRedVAD — adapted for chunked live input."""
+    """Streaming FireRedVAD — low-latency live microphone version"""
 
     def __init__(self, device: str | None = None) -> None:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
         print(
-            f"Loading FireRedVAD (non-streaming) on {self.device}... ",
-            end="",
-            flush=True,
+            f"Loading FireRedVAD **streaming** on {self.device}... ", end="", flush=True
         )
 
-        from fireredvad import FireRedVad, FireRedVadConfig  # ← non-streaming imports
+        from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 
         model_dir = str(
-            Path("~/.cache/pretrained_models/FireRedVAD/VAD").expanduser().resolve()
+            Path("~/.cache/pretrained_models/FireRedVAD/Stream-VAD")
+            .expanduser()
+            .resolve()
         )
-        # Updated config: balanced yet responsive, with recommended production settings
-        config = FireRedVadConfig(
+        config = FireRedStreamVadConfig(
             use_gpu=(self.device == "cuda"),
-            # ── Core sensitivity ────────────────────────────────────────────────
-            speech_threshold=0.65,  # sweet spot: 0.60–0.75 for live mic use
-            smooth_window_size=5,  # moderate smoothing, reduces jitter
-            # ── Timing / segment constraints ────────────────────────────────────
-            min_speech_frame=6,  # ~60 ms — catches short words well
-            min_silence_frame=10,  # ~100 ms — prevents mid-word chopping
-            max_speech_frame=2500,  # allow up to ~25 s continuous speech
-            # ── Post-processing ─────────────────────────────────────────────────
-            merge_silence_frame=5,  # merge small gaps (smoother phrases)
-            extend_speech_frame=4,  # extend edges slightly (natural boundaries)
+            speech_threshold=0.65,  # start at 0.65 (same as non-streaming sweet spot)
+            smooth_window_size=5,
+            pad_start_frame=4,  # helps detect speech beginnings faster
+            min_speech_frame=6,  # ~60 ms — quick response
+            max_speech_frame=2000,
+            min_silence_frame=10,  # quick silence reset
             chunk_max_frame=30000,
         )
         try:
-            self.vad = FireRedVad.from_pretrained(model_dir, config=config)
+            self.vad = FireRedStreamVad.from_pretrained(model_dir, config=config)
             print("done.")
         except Exception as e:
-            print(
-                f"\nERROR loading non-streaming FireRedVAD: {type(e).__name__}: {str(e)}"
-            )
+            print(f"\nERROR loading streaming FireRedVAD: {type(e).__name__}: {str(e)}")
             raise
 
         self.audio_buffer = np.array([], dtype=np.float32)
-        self.last_prob = 0.0  # for continuity when buffering
-        print("FireRedVADWrapper (non-streaming) initialized OK")
+        self.last_prob = 0.0
+        print("FireRedVADWrapper (streaming) initialized OK")
 
     def get_speech_prob(self, chunk: np.ndarray) -> float:
-        # --- Gain boost: normalize new chunk toward target peak ~0.25–0.35 ---
+        # --- Same gain normalization as before ---
         if len(chunk) > 0:
             chunk_max = np.max(np.abs(chunk)) + 1e-10
             target_peak = 0.30
-            if chunk_max < 0.20:  # only boost quiet input
-                gain = min(target_peak / chunk_max, 8.0)  # cap at ×8
-                chunk = chunk * gain
+            if chunk_max < 0.20:
+                gain = min(target_peak / chunk_max, 8.0)
+                chunk *= gain
                 print(f"Applied gain ×{gain:.1f} (chunk peak was {chunk_max:.3f})")
-            elif chunk_max > 0.60:  # lightly attenuate very loud input
+            elif chunk_max > 0.60:
                 gain = 0.60 / chunk_max
-                chunk = chunk * gain
+                chunk *= gain
                 print(
                     f"Applied attenuation ×{gain:.2f} (chunk peak was {chunk_max:.3f})"
                 )
+
         self.audio_buffer = np.concatenate([self.audio_buffer, chunk])
 
-        # Larger buffer before first inference for better context (model calibration)
-        if len(self.audio_buffer) < 9600:  # ~0.6 s
-            print(f"FR non-stream buffering... {len(self.audio_buffer)} / 9600 samples")
-            return self.last_prob  # keep previous value for smooth plot
-
-        # Keep processing window large (~1.2 s as recommended)
-        to_process = self.audio_buffer[-19200:]  # ~1.2 seconds — good context
-
-        _, probs = self.vad.detect(to_process)  # returns (result_dict, probs_tensor)
-
-        # Retain overlap/context for next call
-        self.audio_buffer = self.audio_buffer[-12800:]
-
-        if len(probs) == 0:
+        # Streaming needs less total context than non-streaming
+        if len(self.audio_buffer) < 4800:  # ~300 ms
+            print(f"FR stream buffering... {len(self.audio_buffer)} / 4800 samples")
             return self.last_prob
 
-        if len(probs) >= 5:
-            recent_mean = float(probs[-5:].mean().item())
-            recent_max = float(probs[-5:].max().item())
-            prob_to_use = recent_max  # for most responsive live plot
-            print(
-                f"FR non-stream → mean last 5 = {recent_mean:.3f}  max last 5 = {recent_max:.3f}  → using {prob_to_use:.3f}"
-            )
-        else:
-            prob_to_use = float(probs[-1].item()) if len(probs) > 0 else 0.0
+        # Process recent chunk — streaming maintains internal state (caches)
+        to_process = self.audio_buffer[-9600:]  # ~600 ms — good balance
+        results = self.vad.detect_chunk(to_process)
+
+        self.audio_buffer = self.audio_buffer[-512:]  # small overlap
+
+        if not results:
+            return self.last_prob
+
+        last = results[-1]
+        prob_to_use = last.smoothed_prob  # or last.raw_prob for even faster response
+
+        print(
+            f"FR stream → raw={last.raw_prob:.3f}  smoothed={last.smoothed_prob:.3f}  "
+            f"is_speech={last.is_speech}  state={self.vad.postprocessor.state.name}"
+        )
 
         self.last_prob = prob_to_use
         return prob_to_use
