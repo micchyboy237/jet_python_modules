@@ -55,35 +55,48 @@ class FireRedVAD:
         self.frame_buffer.fill(0.0)
         self.frame_samples_collected = 0
 
+    @torch.inference_mode()
     def get_speech_prob(self, chunk: np.ndarray) -> float:
         """Process an audio chunk and return speech probability for the latest frame."""
         if len(chunk) == 0:
             return 0.0
-        chunk = chunk.astype(np.float32)
-        # Update context buffer
-        space = self.context_samples - self.write_pos
-        if len(chunk) <= space:
-            self.audio_ring[self.write_pos : self.write_pos + len(chunk)] = chunk
-            self.write_pos += len(chunk)
-        else:
-            self.audio_ring[:] = chunk[-self.context_samples :]
-            self.write_pos = self.context_samples
 
-        # Process chunk in frame-sized pieces (400 samples = 25ms at 16000 Hz)
+        chunk = chunk.astype(np.float32)
+
+        # ────────────────────────────────────────────────
+        # Rolling update: keep only the most recent context_samples
+        # ────────────────────────────────────────────────
+        if len(chunk) >= self.context_samples:
+            # Chunk is larger than context → just keep tail
+            self.audio_ring[:] = chunk[-self.context_samples :]
+        else:
+            # Shift older samples left, add new samples to the right
+            shift = len(chunk)
+            self.audio_ring[:-shift] = self.audio_ring[shift:]
+            self.audio_ring[-shift:] = chunk
+
+        # Optional: update write_pos (if you still need it elsewhere)
+        self.write_pos = min(self.context_samples, self.write_pos + len(chunk))
+
+        # ────────────────────────────────────────────────
+        # Now feed the current context to the frame processor
+        # ────────────────────────────────────────────────
         prob = 0.0
-        samples = chunk
+        samples = chunk  # usually process the new chunk, not the whole ring
+
         while len(samples) > 0:
             samples_needed = FRAME_LENGTH_SAMPLE - self.frame_samples_collected
             samples_to_take = min(samples_needed, len(samples))
+
             self.frame_buffer[
                 self.frame_samples_collected : self.frame_samples_collected
                 + samples_to_take
             ] = samples[:samples_to_take]
+
             self.frame_samples_collected += samples_to_take
             samples = samples[samples_to_take:]
 
             if self.frame_samples_collected == FRAME_LENGTH_SAMPLE:
-                # Process full frame
                 frame_result = self.vad.detect_frame(self.frame_buffer)
                 prob = frame_result.smoothed_prob
                 self.frame_buffer.fill(0.0)
