@@ -34,6 +34,7 @@ class AudioMatchSample(TypedDict):
 class AudioMatchResult(TypedDict):
     a_sample: AudioMatchSample
     b_sample: AudioMatchSample
+    duration: float
     confidence: float
 
 
@@ -170,9 +171,12 @@ def find_audio_offset(
     else:
         a_sample, b_sample = long_sample, short_sample
 
+    duration = a_sample["end_time"] - a_sample["start_time"]
+
     return AudioMatchResult(
         a_sample=a_sample,
         b_sample=b_sample,
+        duration=duration,
         confidence=max_score,
     )
 
@@ -260,10 +264,13 @@ def find_audio_offsets(
         else:
             a_sample, b_sample = long_sample, short_sample
 
+        duration = a_sample["end_time"] - a_sample["start_time"]
+
         results.append(
             AudioMatchResult(
                 a_sample=a_sample,
                 b_sample=b_sample,
+                duration=duration,
                 confidence=score,
             )
         )
@@ -490,8 +497,9 @@ def main():
             start_t = start_sample / sr_long
             end_t = end_sample / sr_long
 
-            dur = end_t - start_t
-            matched_frac = (end_sample - start_sample) / len(short_signal)
+            dur = m["duration"]
+            matched_length = end_sample - start_sample
+            matched_frac = matched_length / len(short_signal)
 
             table.add_row(
                 str(i),
