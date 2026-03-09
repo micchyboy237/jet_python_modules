@@ -85,6 +85,9 @@ async def smart_extraction_workflow():
             if result.success:
                 data = json.loads(result.extracted_content)
                 print(f"✅ {url}: Extracted {len(data)} items (FREE)")
+                save_file(
+                    result.cleaned_html, OUTPUT_DIR / f"extracted_{Path(url).name}.html"
+                )
                 save_file(data, OUTPUT_DIR / f"extracted_{Path(url).name}.json")
 
 
