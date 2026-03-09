@@ -49,9 +49,9 @@ def get_llm_llama_cpp_config(
             "provider": "openai/nomic-embed-text-v2-moe",
             "base_url": os.getenv("LLAMA_CPP_EMBED_URL"),
             **settings,
-            "max_tokens": settings["max_tokens"]
-            if settings.get("max_tokens") is not None
-            else 2048,
+            # "max_tokens": settings["max_tokens"]
+            # if settings.get("max_tokens") is not None
+            # else 2048,
         }
     elif strategy == "llm":
         settings = {
@@ -61,9 +61,9 @@ def get_llm_llama_cpp_config(
             "temperature": settings["temperature"]
             if settings.get("temperature") is not None
             else 0.7,
-            "max_tokens": settings["max_tokens"]
-            if settings.get("max_tokens") is not None
-            else 12000,
+            # "max_tokens": settings["max_tokens"]
+            # if settings.get("max_tokens") is not None
+            # else 12000,
         }
 
     config = LLMConfig(**settings)
