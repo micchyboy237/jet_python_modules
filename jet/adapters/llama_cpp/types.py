@@ -7,11 +7,13 @@ LLAMACPP_LLM_KEYS = Literal[
     "llama-3.1:8b",
     "llama-3.2-instruct:3b",
     "qwen3-instruct-2507:4b",
+    "ministral-3-3b-instruct",
 ]
 LLAMACPP_LLM_VALUES = Literal[
     "meta-llama/Llama-3.1-8B-Instruct",
     "meta-llama/Llama-3.2-3B-Instruct",
     "Qwen/Qwen3-4B-Instruct-2507",
+    "mistralai/Ministral-3-3B-Instruct-2512",
 ]
 
 # Embedding model keys and values

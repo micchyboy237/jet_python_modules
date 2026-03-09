@@ -11,6 +11,7 @@ LLAMACPP_LLM_MODELS: dict[LLAMACPP_LLM_KEYS, LLAMACPP_LLM_VALUES] = {
     "llama-3.1:8b": "meta-llama/Llama-3.1-8B-Instruct",
     "llama-3.2-instruct:3b": "meta-llama/Llama-3.2-3B-Instruct",
     "qwen3-instruct-2507:4b": "Qwen/Qwen3-4B-Instruct-2507",
+    "ministral-3-3b-instruct": "mistralai/Ministral-3-3B-Instruct-2512",
 }
 
 LLAMACPP_EMBED_MODELS: dict[LLAMACPP_EMBED_KEYS, LLAMACPP_EMBED_VALUES] = {
@@ -43,6 +44,7 @@ LLAMACPP_MODEL_CONTEXTS: dict[LLAMACPP_KEYS, int] = {
     "qwen3-instruct-2507:4b": 262144,  # https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507
     "llama-3.1:8b": 131072,  # https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct
     "llama-3.2-instruct:3b": 131072,  # https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct
+    "ministral-3-3b-instruct": 262144,  # https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512
 }
 
 # Embedding sizes for each model
@@ -53,4 +55,5 @@ LLAMACPP_MODEL_EMBEDDING_SIZES: dict[LLAMACPP_KEYS, int] = {
     "qwen3-instruct-2507:4b": 2560,
     "llama-3.1:8b": 4096,
     "llama-3.2-instruct:3b": 3072,
+    "ministral-3-3b-instruct": 3072,
 }
