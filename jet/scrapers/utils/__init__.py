@@ -2,6 +2,7 @@ from .base import (
     clean_newlines,
     clean_non_ascii,
     clean_other_characters,
+    clean_punctuations,
     clean_spaces,
     clean_tags,
     clean_text,

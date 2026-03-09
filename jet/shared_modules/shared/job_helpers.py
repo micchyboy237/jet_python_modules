@@ -95,25 +95,10 @@ def load_jobs_embeddings(
     chunk_ids: list[str] | None = None,
     db_client: PgVectorClient | None = None,
 ) -> dict[str, NDArray[np.float64]]:
-    """
-    Load job embeddings for given chunk IDs or all embeddings if no IDs provided.
-
-    Args:
-        chunk_ids: Optional list of chunk IDs to retrieve embeddings for
-        db_client: Optional PgVectorClient instance
-
-    Returns:
-        Dictionary mapping chunk IDs to their embedding vectors as numpy arrays.
-    """
-    logger.warning(
-        "load_jobs_embeddings() is deprecated - embeddings are now in 'jobs' table"
-    )
+    """Reuses PgVectorClient.get_embeddings (embeddings are stored directly in the jobs table)."""
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-
-    with db_client:
-        rows = db_client.get_rows(DEFAULT_TABLE_DATA, ids=chunk_ids)
-        return {r["id"]: np.array(r["embedding"]) for r in rows if "embedding" in r}
+    return db_client.get_embeddings(DEFAULT_TABLE_DATA, ids=chunk_ids)
 
 
 def generate_embeddings(
@@ -374,16 +359,16 @@ def save_job_embeddings(
             text += f"Salary: {job['salary']}\n"
         if job.get("hours_per_week"):
             text += f"Hours per Week: {job['hours_per_week']}\n"
-        if job.get("entities"):
-            entities = job["entities"]
-            if entities.get("role"):
-                text += f"Role: {', '.join(entities['role'])}\n"
-            if entities.get("technology_stack"):
-                text += f"Technology Stack: {', '.join(entities['technology_stack'])}\n"
-            if entities.get("qualifications"):
-                text += f"Qualifications: {', '.join(entities['qualifications'])}\n"
-            if entities.get("application"):
-                text += f"Application: {', '.join(entities['application'])}\n"
+        # if job.get("entities"):
+        #     entities = job["entities"]
+        #     if entities.get("role"):
+        #         text += f"Role: {', '.join(entities['role'])}\n"
+        #     if entities.get("technology_stack"):
+        #         text += f"Technology Stack: {', '.join(entities['technology_stack'])}\n"
+        #     if entities.get("qualifications"):
+        #         text += f"Qualifications: {', '.join(entities['qualifications'])}\n"
+        #     if entities.get("application"):
+        #         text += f"Application: {', '.join(entities['application'])}\n"
         job_texts.append(text)
 
     # Rest of the original logic for chunking
