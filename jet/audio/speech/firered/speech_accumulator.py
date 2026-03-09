@@ -206,6 +206,14 @@ class LiveSpeechSegmentAccumulator:
         # --- update end time ---
         self._update_end_time()
 
+        # Hard guarantee: ensure buffer does not exceed max_duration
+        max_bytes = int(max_duration * self.sample_rate * self.BYTES_PER_SAMPLE)
+        if len(self.buffer) > max_bytes:
+            overflow = len(self.buffer) - max_bytes
+            overflow_samples = overflow // self.BYTES_PER_SAMPLE
+            self.start_time += overflow_samples / self.sample_rate
+            del self.buffer[:overflow]
+
     def _recompute_aggregates(self) -> None:
         self.speech_chunk_count = len(self._vad_probs)
         if self.speech_chunk_count > 0:
