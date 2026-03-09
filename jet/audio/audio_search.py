@@ -454,11 +454,12 @@ def main():
                 f"({sr_long} Hz vs {sr_short} Hz). Using {sr_long} Hz for timing."
             )
 
-        duration_long = len(long_signal) / sr_long
-        duration_short = len(short_signal) / sr_short
+        # Total durations (seconds)
+        total_long_duration = len(long_signal) / sr_long
+        total_short_duration = len(short_signal) / sr_short
 
-        console.print(f"Long audio:  {duration_long:.1f} seconds")
-        console.print(f"Short clip:  {duration_short:.1f} seconds")
+        console.print(f"Long audio:  {total_long_duration:.1f} seconds")
+        console.print(f"Short clip:  {total_short_duration:.1f} seconds")
 
         console.rule("Searching for partial matches")
 
@@ -487,14 +488,17 @@ def main():
         table.add_column("Signal", justify="center")
         table.add_column("Start (s)", justify="right")
         table.add_column("End (s)", justify="right")
-        table.add_column("Start sample", justify="right", style="dim")
-        table.add_column("End sample", justify="right", style="dim")
+        table.add_column("Match % of Signal", justify="right", style="cyan")
         table.add_column("Duration (s)", justify="right")
         table.add_column("Confidence", justify="right", style="green")
 
         for i, m in enumerate(matches, 1):
             a = m["a_sample"]
             b = m["b_sample"]
+            match_duration = m["duration"]
+
+            percent_a = (match_duration / total_long_duration) * 100
+            percent_b = (match_duration / total_short_duration) * 100
 
             # Row for signal A
             table.add_row(
@@ -502,9 +506,8 @@ def main():
                 "A",
                 f"{a['start_time']:.3f}",
                 f"{a['end_time']:.3f}",
-                str(a["start_sample"]),
-                str(a["end_sample"]),
-                f"{m['duration']:.3f}",
+                f"{percent_a:.2f}%",
+                f"{match_duration:.3f}",
                 f"{m['confidence']:.4f}",
             )
 
@@ -514,8 +517,7 @@ def main():
                 "B",
                 f"{b['start_time']:.3f}",
                 f"{b['end_time']:.3f}",
-                str(b["start_sample"]),
-                str(b["end_sample"]),
+                f"{percent_b:.2f}%",
                 "",
                 "",
             )
