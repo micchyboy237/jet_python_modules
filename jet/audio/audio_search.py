@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, TypedDict
 
@@ -25,11 +24,16 @@ from scipy.signal import correlate, fftconvolve
 console = Console()
 
 
-class AudioMatchResult(TypedDict):
+class AudioMatchSample(TypedDict):
     start_sample: int
     end_sample: int
     start_time: float
     end_time: float
+
+
+class AudioMatchResult(TypedDict):
+    a_sample: AudioMatchSample
+    b_sample: AudioMatchSample
     confidence: float
 
 
@@ -47,15 +51,16 @@ def _validate_inputs(
 def _ensure_search_order(
     signal_a: np.ndarray,
     signal_b: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, bool]:
     """
     Ensure the first signal is the longer one for correlation.
     This allows the search logic to work regardless of which file
     is longer without raising errors.
+    Returns the (longer, shorter, swapped: bool).
     """
     if signal_b.size > signal_a.size:
-        return signal_b, signal_a
-    return signal_a, signal_b
+        return signal_b, signal_a, True
+    return signal_a, signal_b, False
 
 
 def _compute_normalized_cross_correlation(
@@ -123,7 +128,7 @@ def find_audio_offset(
     confidence_threshold: float = 0.8,
     tie_break_epsilon: float = 1e-9,
 ) -> Optional[AudioMatchResult]:
-    long_signal, short_signal = _ensure_search_order(long_signal, short_signal)
+    long_signal, short_signal, swapped = _ensure_search_order(long_signal, short_signal)
     _validate_inputs(long_signal, short_signal)
 
     ncc = _compute_normalized_cross_correlation(
@@ -146,11 +151,28 @@ def find_audio_offset(
     start_sample = best_index
     end_sample = best_index + short_signal.size
 
+    long_sample: AudioMatchSample = {
+        "start_sample": start_sample,
+        "end_sample": end_sample,
+        "start_time": start_sample / sample_rate,
+        "end_time": end_sample / sample_rate,
+    }
+
+    short_sample: AudioMatchSample = {
+        "start_sample": 0,
+        "end_sample": short_signal.size,
+        "start_time": 0.0,
+        "end_time": short_signal.size / sample_rate,
+    }
+
+    if swapped:
+        a_sample, b_sample = short_sample, long_sample
+    else:
+        a_sample, b_sample = long_sample, short_sample
+
     return AudioMatchResult(
-        start_sample=start_sample,
-        end_sample=end_sample,
-        start_time=start_sample / sample_rate,
-        end_time=end_sample / sample_rate,
+        a_sample=a_sample,
+        b_sample=b_sample,
         confidence=max_score,
     )
 
@@ -170,7 +192,7 @@ def find_audio_offsets(
     Returns a list of matches sorted by starting position.
     Uses greedy non-maximum suppression to avoid reporting near-duplicate/strongly overlapping detections.
     """
-    long_signal, short_signal = _ensure_search_order(long_signal, short_signal)
+    long_signal, short_signal, swapped = _ensure_search_order(long_signal, short_signal)
     _validate_inputs(long_signal, short_signal)
 
     if min_distance_samples is None:
@@ -214,31 +236,39 @@ def find_audio_offsets(
         used[start_suppress:end_suppress] = True
 
     # Build final results sorted by start position
-    results = [
-        AudioMatchResult(
-            start_sample=start,
-            end_sample=start + short_signal.size,
-            start_time=start / sample_rate,
-            end_time=(start + short_signal.size) / sample_rate,
-            confidence=float(score),  # use the original peak score
+    results: list[AudioMatchResult] = []
+
+    for start in sorted(selected):
+        score = float(ncc[start])
+
+        long_sample: AudioMatchSample = {
+            "start_sample": start,
+            "end_sample": start + short_signal.size,
+            "start_time": start / sample_rate,
+            "end_time": (start + short_signal.size) / sample_rate,
+        }
+
+        short_sample: AudioMatchSample = {
+            "start_sample": 0,
+            "end_sample": short_signal.size,
+            "start_time": 0.0,
+            "end_time": short_signal.size / sample_rate,
+        }
+
+        if swapped:
+            a_sample, b_sample = short_sample, long_sample
+        else:
+            a_sample, b_sample = long_sample, short_sample
+
+        results.append(
+            AudioMatchResult(
+                a_sample=a_sample,
+                b_sample=b_sample,
+                confidence=score,
+            )
         )
-        for start, score in zip(
-            sorted(selected),
-            [
-                ncc[s] for s in sorted(selected)
-            ],  # or keep sorted_scores if order preserved
-        )
-    ]
 
     return results
-
-
-@dataclass
-class PartialAudioMatch:
-    start_sample: int
-    end_sample: int
-    confidence: float
-    match_length_samples: int  # how many samples of short were used
 
 
 def _process_partial_subclip(
@@ -297,12 +327,12 @@ def find_partial_audio_matches(
     min_distance_samples: int | None = None,
     tie_break_epsilon: float = 1e-9,
     max_subclips: int | None = 60,
-) -> list[PartialAudioMatch]:
+) -> list["AudioMatchResult"]:
     """
     Find partial matches by trying multiple sub-clips of short_signal.
     Returns sorted list of best non-overlapping partial matches.
     """
-    long_signal, short_signal = _ensure_search_order(long_signal, short_signal)
+    long_signal, short_signal, _ = _ensure_search_order(long_signal, short_signal)
     _validate_inputs(long_signal, short_signal)
 
     min_len = max(64, int(len(short_signal) * min_match_fraction))
@@ -321,16 +351,8 @@ def find_partial_audio_matches(
         min_distance_samples=min_distance_samples,
     )
     if full_matches and max(m["confidence"] for m in full_matches) >= 0.92:
-        # Convert to PartialAudioMatch format
-        return [
-            PartialAudioMatch(
-                start_sample=m["start_sample"],
-                end_sample=m["end_sample"],
-                confidence=m["confidence"],
-                match_length_samples=len(short_signal),
-            )
-            for m in full_matches
-        ]
+        # Return full_matches directly (already in AudioMatchResult/dict-like form)
+        return full_matches
 
     # Use new picklable worker
     if max_subclips is not None and len(sub_clips) > max_subclips:
@@ -348,43 +370,38 @@ def find_partial_audio_matches(
         )
         for clip, start in sub_clips
     )
-    all_matches: list[tuple[AudioMatchResult, int]] = [
+    all_matches: list[tuple["AudioMatchResult", int]] = [
         item for sublist in results for item in sublist
     ]
 
     # Sort by start position, then prefer longer + higher conf
     all_matches.sort(
         key=lambda x: (
-            x[0]["start_sample"],
-            -x[0]["end_sample"] + x[0]["start_sample"],
+            x[0]["a_sample"]["start_sample"],
+            -x[0]["a_sample"]["end_sample"] + x[0]["a_sample"]["start_sample"],
             -x[0]["confidence"],
         )
     )
 
     # Simple greedy non-overlap suppression (can be refined)
-    selected: list[PartialAudioMatch] = []
+    selected: list["AudioMatchResult"] = []
     used_ranges = []
 
     for match, sub_start in all_matches:
-        s, e = match["start_sample"], match["end_sample"]
+        s = match["a_sample"]["start_sample"]
+        e = match["a_sample"]["end_sample"]
         if any(s < ue and e > us for us, ue in used_ranges):
             continue
-        selected.append(
-            PartialAudioMatch(
-                start_sample=s,
-                end_sample=e,
-                confidence=match["confidence"],
-                match_length_samples=e - s,
-            )
-        )
+        selected.append(match)
         used_ranges.append((s, e))
 
-    return sorted(selected, key=lambda x: x.start_sample)
+    return sorted(selected, key=lambda x: x["a_sample"]["start_sample"])
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Find partial / substring occurrences of a short audio clip inside a longer audio file.",
+        description="Find partial occurrences of a short audio clip inside a longer audio file. "
+        "Only some segments of the short clip may match.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("long_audio", type=str, help="Path to long audio file (WAV)")
@@ -404,7 +421,8 @@ def main():
         type=float,
         default=0.50,
         metavar="FRAC",
-        help="Minimum fraction of short clip that must match (default: 0.50)",
+        help="Minimum fraction of the short clip that must match the long audio "
+        "(unmatched sections in the short clip are allowed). Default: 0.50",
     )
     parser.add_argument(
         "-q",
@@ -462,14 +480,18 @@ def main():
         table.add_column("Start", justify="right")
         table.add_column("End", justify="right")
         table.add_column("Duration", justify="right")
-        table.add_column("Matched frac", justify="right")
+        table.add_column("Matched fraction", justify="right")
         table.add_column("Confidence", justify="right", style="green")
 
         for i, m in enumerate(matches, 1):
-            start_t = m.start_sample / sr_long
-            end_t = m.end_sample / sr_long
+            start_sample = m["a_sample"]["start_sample"]
+            end_sample = m["a_sample"]["end_sample"]
+
+            start_t = start_sample / sr_long
+            end_t = end_sample / sr_long
+
             dur = end_t - start_t
-            matched_frac = m.match_length_samples / len(short_signal)
+            matched_frac = (end_sample - start_sample) / len(short_signal)
 
             table.add_row(
                 str(i),
@@ -477,14 +499,14 @@ def main():
                 f"{end_t:.3f} s",
                 f"{dur:.3f} s",
                 f"{matched_frac:.2%}",
-                f"{m.confidence:.4f}",
+                f"{m['confidence']:.4f}",
             )
 
         title = "Partial matches found" if len(matches) > 1 else "Partial match found"
         console.print(
             Panel(
                 table,
-                title=f"{title} (threshold ≥ {args.threshold:.2f})",
+                title=f"{title} (confidence ≥ {args.threshold:.2f}, matched ≥ {args.min_fraction:.0%} of short clip)",
                 border_style="green",
                 padding=(1, 2),
             )
