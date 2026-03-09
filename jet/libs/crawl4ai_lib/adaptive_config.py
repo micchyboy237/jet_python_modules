@@ -70,7 +70,7 @@ def get_llm_llama_cpp_config(
     return config
 
 
-get_llm_config = get_llm_ollama_config
+get_llm_config = get_llm_llama_cpp_config
 
 
 def get_adaptive_config(

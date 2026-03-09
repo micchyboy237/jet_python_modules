@@ -42,23 +42,59 @@ exclude_files = [
     # "**/*.sh"
     # "**/__init__.py",
     # "**/*.md",
+    # "**/tests/",
+    # "**/pretrained_models/",
 ]
 include_files = [
     # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/pyrightconfig.json",
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/manifest.json",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/popup.html",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/popup.js",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/tabs.html",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension/tabs.js",
+    # "",
+    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/firered/firered/inference/VAD.py",
+    # "",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/record_mic_speech_detection.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/run_record_mic_speech_detection.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/wav_utils.py",
     "",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/linked_in.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/job_scraper.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/base.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/models.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/jobstreet.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/online_jobs_ph.py",
+    "",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules/shared/job_helpers.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/db/postgres/pgvector.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/run_save_jobs.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/job_search_hybrid.py",
+    "",
+    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/FireRedVAD/fireredvad/stream_vad.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/FireRedVAD/fireredvad/core",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/speech_timestamps_extractor.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/vad.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/audio_waveform/vad/firered.py",
+    "",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules/shared/job_helpers.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/db/postgres/pgvector.py",
+    "",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/speech_accumulator.py",
+    # # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/vad.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/live_subtitles/live_subtitles_client_per_speech.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/live_subtitles/ws_client_subtitles_handlers.py",
+    # # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/overlays/live_subtitles_overlay.py",
+    # # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/speech_types.py",
+    "",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/audio_search.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/run_audio_search_partial.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/tests/audio_search/test_audio_search.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/utils/filter_links.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/utils/tests/test_filter_links.py",
     "",
 ]
 
 structure_include = [
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/libs/context_engineering/self_refinement_lab/practical_examples/",
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/whisperX",
+    # "/Users/jethroestrada/Desktop/External_Projects/AI/mcp/mcp-server-browserbase/src",
 ]
 structure_exclude = []
 
@@ -70,7 +106,7 @@ SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
 DEFAULT_QUERY_MESSAGE = r"""
-Update helium_tools to complete all smolagent tools that can be derived from the demo code.
+Update patterns to be optional
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
@@ -328,9 +364,10 @@ def main():
 
     if system_message:
         clipboard_content_parts.append(f"System\n{system_message}\n")
+    # Query should come before instructions
+    clipboard_content_parts.append(f"Query\n{query_message}\n")
     if instructions_message:
         clipboard_content_parts.append(f"Instructions\n{instructions_message}\n")
-    clipboard_content_parts.append(f"Query\n{query_message}\n")
     if INCLUDE_FILE_STRUCTURE:
         clipboard_content_parts.append(f"Files Structure\n{files_structure}\n")
 
