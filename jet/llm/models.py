@@ -37,7 +37,7 @@ OLLAMA_MODEL_NAMES = Literal[
     "qwen3-instruct-2507:4b",
     "theqtcompany/codellama-7b-qml",
     "deepscaler",
-    "ministral-3:3b",
+    "ministral-3-3b-instruct",
 ]
 
 OLLAMA_LLM_MODELS = Literal[
@@ -56,7 +56,7 @@ OLLAMA_LLM_MODELS = Literal[
     "mistral",
     "mistral:7b-instruct-v0.3-q4_K_M",
     "deepscaler",
-    "ministral-3:3b",
+    "ministral-3-3b-instruct",
 ]
 
 OLLAMA_EMBED_MODELS = Literal[
@@ -98,7 +98,7 @@ OLLAMA_MODEL_CONTEXTS = {
     "theqtcompany/codellama-7b-qml": 16384,
     "qwen3-instruct-2507:4b": 262144,
     "deepscaler": 131072,
-    "ministral-3:3b": 262144,
+    "ministral-3-3b-instruct": 262144,
 }
 
 # Map models to embedding sizes
@@ -126,7 +126,7 @@ OLLAMA_MODEL_EMBEDDING_TOKENS = {
     "theqtcompany/codellama-7b-qml": 4096,
     "qwen3-instruct-2507:4b": 2560,
     "deepscaler": 1536,
-    "ministral-3:3b": 3072,
+    "ministral-3-3b-instruct": 3072,
 }
 
 
@@ -154,7 +154,7 @@ OLLAMA_HF_MODELS = {
     "qwen3-instruct-2507:4b": "Qwen/Qwen3-4B-Instruct-2507",
     "theqtcompany/codellama-7b-qml": "QtGroup/CodeLlama-7B-QML",
     "deepscaler": "agentica-org/DeepScaleR-1.5B-Preview",
-    "ministral-3:3b": "mistralai/Ministral-3-3B-Instruct-2512",
+    "ministral-3-3b-instruct": "mistralai/Ministral-3-3B-Instruct-2512",
 }
 
 OLLAMA_HF_MODEL_NAMES = Literal[

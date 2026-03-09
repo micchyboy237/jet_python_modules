@@ -27,7 +27,7 @@ logger = logging.getLogger("ollama-vision-stream")
 # Config
 # ────────────────────────────────────────────────
 OLLAMA_BASE_URL = os.getenv("OLLAMA_LLM_URL", "http://localhost:11434/v1")
-MODEL = "ministral-3:3b"
+MODEL = os.getenv("OLLAMA_LLM_MODEL")
 
 
 def get_client() -> OpenAI:

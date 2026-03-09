@@ -4,7 +4,41 @@ from typing import Literal
 from crawl4ai import AdaptiveConfig, LLMConfig
 
 
-def get_llm_config(
+def get_llm_ollama_config(
+    *,
+    strategy: Literal["statistical", "embedding", "llm"] = "statistical",
+    **kwargs,
+):
+    settings = {**kwargs}
+    if strategy == "embedding":
+        model = os.getenv("OLLAMA_EMBED_MODEL")
+        settings = {
+            "provider": f"openai/{model}",
+            "base_url": os.getenv("OLLAMA_EMBED_URL"),
+            **settings,
+            "max_tokens": settings["max_tokens"]
+            if settings.get("max_tokens") is not None
+            else 2048,
+        }
+    elif strategy == "llm":
+        model = os.getenv("OLLAMA_LLM_MODEL")
+        settings = {
+            "provider": f"openai/{model}",
+            "base_url": os.getenv("OLLAMA_LLM_URL"),
+            **settings,
+            "temperature": settings["temperature"]
+            if settings.get("temperature") is not None
+            else 0.7,
+            "max_tokens": settings["max_tokens"]
+            if settings.get("max_tokens") is not None
+            else 12000,
+        }
+
+    config = LLMConfig(**settings)
+    return config
+
+
+def get_llm_llama_cpp_config(
     *,
     strategy: Literal["statistical", "embedding", "llm"] = "statistical",
     **kwargs,
@@ -34,6 +68,9 @@ def get_llm_config(
 
     config = LLMConfig(**settings)
     return config
+
+
+get_llm_config = get_llm_ollama_config
 
 
 def get_adaptive_config(
