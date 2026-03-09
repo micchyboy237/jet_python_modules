@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 
 from jet.db.postgres.scoring import calculate_vector_scores
 from jet.logger import logger
+from jet.transformers.object import make_serializable
 
 from .config import (
     DEFAULT_DB,
@@ -341,7 +342,7 @@ class PgVectorClient:
                 values.append(self._to_list(value))
                 placeholders.append("%s::vector")
             elif isinstance(value, (dict, list)):
-                values.append(json.dumps(value))
+                values.append(json.dumps(make_serializable(value)))
                 placeholders.append("%s::jsonb")
             else:
                 values.append(value)
