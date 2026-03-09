@@ -5,11 +5,11 @@
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import threading
 import time
-import uuid
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from pathlib import Path
@@ -17,7 +17,6 @@ from typing import NotRequired, TypedDict
 
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 from PyQt6.QtCore import (
-    QDir,
     QEasingCurve,
     QObject,
     QPoint,
@@ -61,6 +60,7 @@ def _setup_logging():
 
 class SubtitleMessage(TypedDict):
     id: str
+    utterance_id: str
     translated_text: str
     start_sec: float
     end_sec: float
@@ -611,6 +611,7 @@ class LiveSubtitlesOverlay(QWidget):
         self,
         translated_text: str,
         *,
+        utterance_id: str,
         message_id: str | None = None,
         start_sec: float = 0.0,
         end_sec: float = 0.0,
@@ -630,10 +631,11 @@ class LiveSubtitlesOverlay(QWidget):
         if not translated_text or not str(translated_text).strip():
             return ""
 
-        mid = message_id or uuid.uuid4().hex
+        mid = message_id or utterance_id
 
         subtitle_message: SubtitleMessage = {
             "id": mid,
+            "utterance_id": utterance_id,
             "translated_text": translated_text.strip(),
             "start_sec": round(start_sec, 2),
             "end_sec": round(end_sec, 2),
@@ -797,6 +799,7 @@ class LiveSubtitlesOverlay(QWidget):
 
     def _render_message_widget(self, message: SubtitleMessage) -> None:
         """Reusable method to create and add a single message widget."""
+        utt_id = message["utterance_id"]
         translated_text = message["translated_text"]
         source_text = message.get("source_text", "")
         duration_sec = message.get("duration_sec", 0.0)
@@ -835,12 +838,11 @@ class LiveSubtitlesOverlay(QWidget):
         meta_layout1.setSpacing(6)
 
         # Partial & chunk indicators (without segment number badge)
-        status_parts = []
-        if is_partial:
-            status_parts.append("partial")
-            if chunk_index is not None:
-                display_idx = chunk_index + 1 if chunk_index >= 0 else chunk_index
-                status_parts.append(f"chunk {display_idx}")
+        # Always show last 6 chars of utt_id as first status part
+        status_parts = [utt_id[-6:]]
+        if chunk_index is not None:
+            display_idx = chunk_index + 1 if chunk_index >= 0 else chunk_index
+            status_parts.append(f"chunk {display_idx}")
 
         if status_parts:
             status_text = " • ".join(status_parts)
@@ -1152,7 +1154,7 @@ class LiveSubtitlesOverlay(QWidget):
         QTimer.singleShot(0, self._scroll_to_bottom_smooth)
 
     def _find_audio_file(
-        self, message_id: str, chunk_index: int | None = None
+        self, utterance_id: str, chunk_index: int | None = None
     ) -> str | None:
         """
         Locate the .wav file in self.segments_dir that corresponds to this message.
@@ -1165,80 +1167,45 @@ class LiveSubtitlesOverlay(QWidget):
 
         Returns absolute path if found, None otherwise.
         """
-        if not message_id or len(message_id) < 6:
-            self.logger.warning("[find_audio] Invalid message ID: %s", message_id)
-            return None
-
-        suffix = message_id[-6:]
-        segment_dir = QDir(self.segments_dir)
-
-        if not segment_dir.exists():
-            self.logger.warning(
-                "[find_audio] Directory not found: %s", self.segments_dir
-            )
-            return None
-
-        # Build pattern
-        if chunk_index is not None:
-            # Exact match on chunk → highest confidence
-            pattern = f"*_{suffix}_{chunk_index}.wav"
+        if not utterance_id or len(utterance_id) < 6:
+            utt_short = "noID"
         else:
-            # Fallback: any chunk for this utterance
-            pattern = f"*_{suffix}_*.wav"
+            utt_short = utterance_id[-6:]
 
-        candidates = segment_dir.entryList(
-            [pattern],
-            QDir.Filter.Files | QDir.Filter.Readable,
-            QDir.SortFlag.Name,  # usually gives chronological-ish order
-        )
+        pattern = f"_{utt_short}_{chunk_index}"
+        candidates = [
+            d
+            for d in os.listdir(self.segments_dir)
+            if d.endswith(pattern) and len(d.split("_")) >= 3
+        ]
 
-        if not candidates:
-            self.logger.debug(
-                "[find_audio] No match for pattern '%s' in %s (id suffix: %s, chunk: %s)",
-                pattern,
-                self.segments_dir,
-                suffix,
-                chunk_index,
-            )
-            return None
+        if candidates:
+            # Take the latest (lex largest) if multiple exist due to race / multiple timestamps
+            return os.path.join(self.segments_dir, max(candidates), "sound.wav")
 
-        if len(candidates) > 1:
-            self.logger.info(
-                "[find_audio] Multiple matches for %s (chunk %s): %s → picking first",
-                suffix,
-                chunk_index,
-                ", ".join(candidates),
-            )
-            # Alternative strategies you could add:
-            # - sort by QFileInfo.lastModified() and take newest
-            # - parse chunk number and take lowest/highest
-            # For now: take first (usually Name sort ≈ creation order)
-
-        chosen = candidates[0]
-        full_path = segment_dir.absoluteFilePath(chosen)
-
-        self.logger.debug("[find_audio] Selected: %s", chosen)
-        return full_path
+        return None
 
     def _play_segment(self, message: SubtitleMessage) -> None:
         """Play the audio segment corresponding to this subtitle message."""
-        mid = message.get("id")
+        utt_id = message.get("utterance_id")
         chunk = message.get("chunk_index")
 
-        if not mid:
+        if not utt_id:
             self.logger.warning("[play] Cannot play: no message id")
             return
 
-        wav_path = self._find_audio_file(mid, chunk)
+        wav_path = self._find_audio_file(utt_id, chunk)
 
         if not wav_path:
-            self.logger.info(
+            self.logger.warning(
                 "[play] No audio found for message %s (chunk %s)",
-                mid[:8] + "…" if mid else "(no id)",
+                utt_id[-6:] + "…" if utt_id else "(no id)",
                 chunk,
             )
             # Optional: show feedback in UI, e.g. flash status label
             return
+        else:
+            self.logger.info("[play] Selected: %s", wav_path)
 
         url = QUrl.fromLocalFile(wav_path)
         self._player.stop()
@@ -1248,7 +1215,7 @@ class LiveSubtitlesOverlay(QWidget):
         self.logger.info(
             "[play] → %s  (id suffix: %s, chunk: %s)",
             Path(wav_path).name,
-            mid[-6:],
+            utt_id[-6:],
             chunk,
         )
 
