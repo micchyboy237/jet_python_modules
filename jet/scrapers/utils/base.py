@@ -1281,6 +1281,8 @@ class TreeNode(BaseNode):
         links = []
         html = self.get_html()
         if html:
+            from .scrape_links import scrape_links
+
             links.extend(scrape_links(html))
         for child in self._children:
             links.extend(child._links)
@@ -2613,30 +2615,6 @@ def get_flattened_parents_with_most_children(
     collect(root)
     parents.sort(key=lambda p: p["child_count"], reverse=True)
     return parents
-
-
-__all__ = [
-    "get_max_prompt_char_length",
-    "clean_tags",
-    "clean_text",
-    "clean_spaces",
-    "clean_newlines",
-    "clean_non_ascii",
-    "clean_other_characters",
-    "extract_sentences",
-    "extract_paragraphs",
-    "extract_sections",
-    "merge_texts",
-    "merge_texts_with_overlap",
-    "split_text",
-    "find_elements_with_text",
-    "extract_text_elements",
-    "extract_tree_with_text",
-    "print_html",
-    "get_significant_nodes",
-    "get_leaf_nodes",
-    "get_parents_with_common_class",
-]
 
 
 if __name__ == "__main__":
