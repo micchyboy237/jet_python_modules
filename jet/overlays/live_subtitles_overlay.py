@@ -841,7 +841,7 @@ class LiveSubtitlesOverlay(QWidget):
         # Always show last 6 chars of utt_id as first status part
         status_parts = [utt_id[-6:]]
         if chunk_index is not None:
-            display_idx = chunk_index + 1 if chunk_index >= 0 else chunk_index
+            display_idx = chunk_index
             status_parts.append(f"chunk {display_idx}")
 
         if status_parts:
