@@ -27,10 +27,10 @@ class FireRedVADWrapper:
             use_gpu=(device == "cuda"),
             speech_threshold=0.65,
             smooth_window_size=5,
-            pad_start_frame=4,
-            min_speech_frame=6,
-            max_speech_frame=2000,
-            min_silence_frame=10,
+            pad_start_frame=5,
+            min_speech_frame=100,
+            max_speech_frame=1200,
+            min_silence_frame=90,
             chunk_max_frame=30000,
         )
 
