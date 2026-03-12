@@ -1,9 +1,31 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 import torch
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s (%(module)s:%(lineno)d) %(levelname)s: %(message)s",
+)
+logger = logging.getLogger("fireredvad.bin.stream_vad")
+
+
+# ────────────────────────────────────────────────
+# Streaming / buffer constants (all assuming 16 kHz sample rate)
+# ────────────────────────────────────────────────
+MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD = (
+    4800  # ≈ 300 ms – don't run VAD until we have at least this much audio
+)
+VAD_CONTEXT_WINDOW_SAMPLES = (
+    9600  # ≈ 600 ms – how much recent audio to feed the model each time
+)
+BUFFER_OVERLAP_SAMPLES = (
+    512  # ≈  32 ms – how much audio to keep for smooth continuity / next call
+)
+# ────────────────────────────────────────────────
 
 
 class FireRedVADWrapper:
@@ -25,12 +47,12 @@ class FireRedVADWrapper:
 
         config = FireRedStreamVadConfig(
             use_gpu=(device == "cuda"),
-            speech_threshold=0.65,
+            speech_threshold=0.5,
             smooth_window_size=5,
             pad_start_frame=5,
-            min_speech_frame=100,
-            max_speech_frame=1200,
-            min_silence_frame=90,
+            min_speech_frame=30,
+            max_speech_frame=500,
+            min_silence_frame=20,
             chunk_max_frame=30000,
         )
 
@@ -40,10 +62,7 @@ class FireRedVADWrapper:
         self.audio_buffer = np.array([], dtype=np.float32)
         self.last_prob = 0.0
 
-    def get_speech_prob(self, chunk: np.ndarray) -> float:
-        if len(chunk) == 0:
-            return self.last_prob
-
+    def _normalize_chunk(self, chunk: np.ndarray) -> np.ndarray:
         # Simple dynamic range compression / normalization
         chunk_max = np.max(np.abs(chunk)) + 1e-10
         target_peak = 0.30
@@ -53,16 +72,23 @@ class FireRedVADWrapper:
         elif chunk_max > 0.60:
             gain = 0.60 / chunk_max
             chunk = chunk * gain
+        return chunk
+
+    def get_speech_prob(self, chunk: np.ndarray) -> float:
+        if len(chunk) == 0:
+            return self.last_prob
+
+        chunk = self._normalize_chunk(chunk)
 
         self.audio_buffer = np.concatenate([self.audio_buffer, chunk])
 
-        if len(self.audio_buffer) < 4800:
+        if len(self.audio_buffer) < MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD:
             return self.last_prob
 
-        to_process = self.audio_buffer[-9600:]
+        to_process = self.audio_buffer[-VAD_CONTEXT_WINDOW_SAMPLES:]
         results = self.vad.detect_chunk(to_process)
 
-        self.audio_buffer = self.audio_buffer[-512:]
+        self.audio_buffer = self.audio_buffer[-BUFFER_OVERLAP_SAMPLES:]
 
         if not results:
             return self.last_prob

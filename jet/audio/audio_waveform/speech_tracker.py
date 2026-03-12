@@ -1,207 +1,305 @@
-# jet_python_modules/jet/audio/audio_waveform/speech_tracker.py
-from __future__ import annotations
-
-import json
-from pathlib import Path
-from typing import List
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Callable, List, Optional, TypedDict
 
 import numpy as np
-import soundfile as sf
-from fireredvad.core.constants import FRAME_PER_SECONDS, SAMPLE_RATE
-from fireredvad.core.stream_vad_postprocessor import StreamVadFrameResult
-from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
+from fireredvad.stream_vad import FireRedStreamVad, StreamVadFrameResult
+
+
+class SpeechProbInfo(TypedDict):
+    """
+    Probability statistics for a speech segment computed from smoothed VAD probabilities.
+    All values are floats rounded to 4 decimal places.
+    """
+
+    avg_smoothed_prob: float
+    min_smoothed_prob: float
+    max_smoothed_prob: float
+
+
+@dataclass
+class SpeechSegment:
+    start_sec: float
+    end_sec: float
+    duration_sec: float
+    start_frame: int
+    end_frame: int
+    total_frames: int
+    created_at: datetime
+    forced_split: bool
+
+    prob_info: SpeechProbInfo
+
+
+OnSpeechCallback = Callable[[np.ndarray, SpeechSegment, list[float]], None]
+
+
+def create_prob_info(
+    avg: float, min_p: float, max_p: float, decimals: int = 4
+) -> SpeechProbInfo:
+    return {
+        "avg_smoothed_prob": round(float(avg), decimals),
+        "min_smoothed_prob": round(float(min_p), decimals),
+        "max_smoothed_prob": round(float(max_p), decimals),
+    }
 
 
 class StreamingSpeechTracker:
-    """Real-time speech segment detector & saver."""
+    """
+    Tracks speech segments in a streaming fashion and saves:
+      - audio clips (sound.wav)
+      - summary.json (metadata)
+      - speech_probs.json (per-frame probabilities)
+
+    in timestamped subfolders under save_dir/segment_YYYYMMDD_HHMMSS/
+    """
 
     def __init__(
         self,
-        save_dir: str,
+        vad: FireRedStreamVad,
         min_speech_duration_sec: float = 0.3,
         min_silence_duration_sec: float = 0.2,
-        max_speech_duration_sec: float = 10.0,
-        vad: FireRedStreamVad | None = None,
-    ) -> None:
-        self.save_dir = Path(save_dir)
-        self.save_dir.mkdir(parents=True, exist_ok=True)
-        self.sample_rate = SAMPLE_RATE
-        self.min_speech_duration_sec = max(0.1, min_speech_duration_sec)
-        self.min_silence_duration_sec = max(0.1, min_silence_duration_sec)
-        self.max_speech_duration_sec = max_speech_duration_sec
-        self.min_speech_samples = int(self.min_speech_duration_sec * self.sample_rate)
-        self.max_speech_samples = int(self.max_speech_duration_sec * self.sample_rate)
-        self.vad = vad if vad is not None else self._create_vad()
-        self.pre_buffer: np.ndarray = np.empty(0, dtype=np.float32)
-        self.speech_buffer: np.ndarray = np.empty(0, dtype=np.float32)
-        self.is_speaking = False
-        self.segment_counter = 0
-        self.segment_dir: Path | None = None
-        self.current_start_frame = -1
-        self.current_segment_probs: List[float] = []
+        max_speech_duration_sec: float = 12.0,
+        sample_rate: int = 16000,
+        frame_shift_sec: float = 0.01,  # typically 10 ms
+        on_speech: OnSpeechCallback | None = None,  # called when segment is ready
+    ):
+        self.vad = vad  # FireRedStreamVad instance
+        self.pending_audio = np.array([], dtype=np.float32)
+        self.frame_length_samples = 400  # 25 ms @ 16 kHz
+        self.frame_shift_samples = 160  # 10 ms @ 16 kHz
 
-    def _create_vad(self) -> FireRedStreamVad:
-        model_dir = str(
-            Path("~/.cache/pretrained_models/FireRedVAD/Stream-VAD")
-            .expanduser()
-            .resolve()
+        self.min_speech_sec = min_speech_duration_sec
+        self.min_silence_sec = min_silence_duration_sec
+        self.max_speech_sec = max_speech_duration_sec
+        self.sample_rate = sample_rate
+        self.frame_shift_sec = frame_shift_sec
+
+        self.on_speech = on_speech
+
+        # State
+        self.current_audio: List[np.ndarray] = []  # list of 10 ms chunks
+        self.current_probs: List[float] = []
+        self.current_start_frame: Optional[int] = None
+        self.total_frames: int = 0
+        self.segments: List[SpeechSegment] = []
+
+        self.min_speech_frames = int(round(self.min_speech_sec / self.frame_shift_sec))
+        self.min_silence_frames = int(
+            round(self.min_silence_sec / self.frame_shift_sec)
         )
-        config = FireRedStreamVadConfig(
-            use_gpu=False,
-            speech_threshold=0.55,
-            smooth_window_size=5,
-            pad_start_frame=5,
-            min_speech_frame=int(self.min_speech_duration_sec * FRAME_PER_SECONDS),
-            max_speech_frame=int(self.max_speech_duration_sec * FRAME_PER_SECONDS),
-            min_silence_frame=int(self.min_silence_duration_sec * FRAME_PER_SECONDS),
-            chunk_max_frame=30000,
-        )
-        return FireRedStreamVad.from_pretrained(model_dir, config=config)
+        self.max_speech_frames = int(round(self.max_speech_sec / self.frame_shift_sec))
 
-    def process_chunk(self, samples: np.ndarray) -> None:
-        if len(samples) == 0:
-            return
-        norm = self._normalize_chunk(samples)
-        self._update_pre_buffer(norm)
-        results = self.vad.detect_chunk(norm)
-        self._handle_results(results, norm)
+        self.in_speech = False
+        self.silence_counter = 0
+        self.speech_counter = 0
 
-    def _normalize_chunk(self, samples: np.ndarray) -> np.ndarray:
-        chunk_max = np.max(np.abs(samples)) + 1e-10
-        target = 0.30
-        if chunk_max < 0.20:
-            gain = min(target / chunk_max, 8.0)
-            return samples * gain
-        return samples
+    def reset(self):
+        """Clear current state (new session / new speaker)"""
+        self.current_audio.clear()
+        self.current_probs.clear()
+        self.current_start_frame = None
+        self.total_frames = 0
+        self.segments.clear()
+        self.in_speech = False
+        self.silence_counter = 0
+        self.speech_counter = 0
 
-    def _update_pre_buffer(self, samples: np.ndarray) -> None:
-        self.pre_buffer = (
-            np.concatenate([self.pre_buffer, samples])
-            if len(self.pre_buffer) > 0
-            else samples.copy()
-        )
-        max_pre = int(1.5 * self.sample_rate)
-        if len(self.pre_buffer) > max_pre:
-            self.pre_buffer = self.pre_buffer[-max_pre:]
+    def update(
+        self,
+        frame_audio: np.ndarray,  # shape (n_samples,) – usually 160 or 256 samples
+        is_speech: bool,  # binary decision after VAD
+        speech_prob: float,  # raw / smoothed probability [0–1]
+    ) -> Optional[SpeechSegment]:
+        """
+        Feed one frame (typically 10 ms).
+        Returns a completed SpeechSegment if one just ended, else None.
+        """
+        self.total_frames += 1
+        self.current_audio.append(frame_audio.copy())
+        self.current_probs.append(speech_prob)
 
-    def _handle_results(
-        self, results: List[StreamVadFrameResult], current_chunk: np.ndarray
-    ) -> None:
-        # 1. Append to current (old) segment first – it owns this chunk
-        if self.is_speaking:
-            if len(self.speech_buffer) == 0:
-                self.speech_buffer = self.pre_buffer.copy()
+        completed_segment = None
+
+        if is_speech:
+            self.silence_counter = 0
+
+            if not self.in_speech:
+                self.speech_counter += 1
+                if self.speech_counter >= self.min_speech_frames:
+                    start_sec = self.total_frames * self.frame_shift_sec
+                    print("\n-------")
+                    print(f"🎤 SPEECH STARTED (~{start_sec:.2f}s)")
+                    self.in_speech = True
+                    # Back-date start
+                    self.current_start_frame = self.total_frames - self.speech_counter
             else:
-                self.speech_buffer = np.concatenate([self.speech_buffer, current_chunk])
-            for r in results:
-                self.current_segment_probs.append(r.smoothed_prob)
+                self.speech_counter += 1
 
-        # 2. Process transitions in order (end before start) so a VAD max-split inside the same chunk is not missed.
-        started_this_chunk = False
-        for r in results:
-            if r.is_speech_end and self.is_speaking:
-                self._end_segment(r)
-            if r.is_speech_start and not self.is_speaking:
-                self._start_segment(r)
-                started_this_chunk = True
+                # ─── Force split on max duration ────────────────────────
+                if self.speech_counter >= self.max_speech_frames:
+                    completed_segment = self._close_current_segment(force=True)
+                    # After forced split, continue accumulating for next segment
+                    if completed_segment:
+                        # Start new segment immediately (current frame is still speech)
+                        self.current_start_frame = self.total_frames - 1
+                        self.speech_counter = 1
+                        self.in_speech = True
 
-        # 3. New segment started this chunk (VAD split) → give it the current pre_buffer
-        if started_this_chunk:
-            self.speech_buffer = self.pre_buffer.copy()
+        else:
+            self.speech_counter = 0
 
-        # 4. Safeguard force-cut (still needed for the mock-test case)
-        if self.is_speaking and len(self.speech_buffer) >= self.max_speech_samples:
-            self._force_end_max_speech()
+            if self.in_speech:
+                self.silence_counter += 1
+                if self.silence_counter >= self.min_silence_frames:
+                    completed_segment = self._close_current_segment()
+            # else: pure silence → limit buffer size
+            elif len(self.current_audio) > self.max_speech_frames:
+                drop = len(self.current_audio) - self.max_speech_frames // 2
+                self.current_audio = self.current_audio[drop:]
+                self.current_probs = self.current_probs[drop:]
+                self.total_frames -= drop  # optional: keep absolute frame count correct
 
-    def _force_end_max_speech(self) -> None:
-        dummy_result = StreamVadFrameResult(
-            frame_idx=-1,
-            is_speech=False,
-            raw_prob=0.0,
-            smoothed_prob=0.0,
-            is_speech_end=True,
-            speech_end_frame=self.current_start_frame
-            + int(self.max_speech_duration_sec * FRAME_PER_SECONDS),
+        return completed_segment
+
+    def _close_current_segment(self, force: bool = False) -> Optional[SpeechSegment]:
+        if self.current_start_frame is None:
+            return None
+
+        if not force and self.silence_counter >= self.min_silence_frames:
+            end_frame = self.total_frames - 1 - self.silence_counter
+        else:
+            end_frame = self.total_frames - 1
+
+        duration_frames = end_frame - self.current_start_frame + 1
+
+        if duration_frames <= 0:
+            self._reset_after_close()
+            return None
+
+        duration_sec = duration_frames * self.frame_shift_sec
+
+        if not force and duration_sec < self.min_speech_sec:
+            self._reset_after_close()
+            return None
+
+        if not self.current_audio:
+            self._reset_after_close()
+            return None
+
+        # Reconstruct non-overlapping continuous audio for the segment
+        parts = [self.current_audio[0]]
+        for frame in self.current_audio[1:]:
+            new_part = frame[-self.frame_shift_samples :]
+            parts.append(new_part)
+        continuous = np.concatenate(parts)
+
+        start_idx = self.current_start_frame - (
+            self.total_frames - len(self.current_audio)
         )
-        self._end_segment(dummy_result)
+        if start_idx < 0:
+            start_idx = 0
 
-        # === FIX: also restart a new segment so the rest of the speech is not lost
-        start_frame = dummy_result.speech_end_frame + 1
-        dummy_start_result = StreamVadFrameResult(
-            frame_idx=start_frame,
-            is_speech=True,
-            raw_prob=0.0,
-            smoothed_prob=0.0,
-            is_speech_start=True,
-            speech_start_frame=start_frame,
+        start_sample = start_idx * self.frame_shift_samples
+        end_sample = min(
+            len(continuous),
+            start_sample + duration_frames * self.frame_shift_samples,
         )
-        self._start_segment(dummy_start_result)
-        # init new buffer with current pre_buffer (includes the chunk that triggered the force)
-        self.speech_buffer = self.pre_buffer.copy()
+        segment_audio = continuous[start_sample:end_sample]
 
-    def _start_segment(self, result: StreamVadFrameResult) -> None:
-        self.segment_counter += 1
-        self.segment_dir = self.save_dir / f"segment_{self.segment_counter:04d}"
-        self.is_speaking = True
-        self.current_start_frame = result.speech_start_frame
+        segment_probs = self.current_probs[start_idx : start_idx + duration_frames]
 
-    def _end_segment(self, result: StreamVadFrameResult) -> None:
-        buf_len = len(self.speech_buffer)
-        if buf_len < self.min_speech_samples:
-            self._cleanup()
-            return
-        self._save_files(result)
-        self._cleanup()
+        avg_prob = sum(segment_probs) / len(segment_probs) if segment_probs else 0.0
+        min_prob = min(segment_probs) if segment_probs else 0.0
+        max_prob = max(segment_probs) if segment_probs else 0.0
 
-    def _save_files(self, result: StreamVadFrameResult) -> None:
-        assert self.segment_dir is not None
-        self.segment_dir.mkdir(parents=True, exist_ok=True)
-        audio = self.speech_buffer
-        sf.write(str(self.segment_dir / "sound.wav"), audio, self.sample_rate)
-        metadata = {
-            "segment_id": self.segment_counter,
-            "start_frame": self.current_start_frame,
-            "end_frame": result.speech_end_frame,
-            "start_sec": round((self.current_start_frame - 1) / FRAME_PER_SECONDS, 3),
-            "end_sec": round((result.speech_end_frame - 1) / FRAME_PER_SECONDS, 3),
-            "duration_sec": round(len(audio) / self.sample_rate, 3),
-            "min_speech_duration_sec": self.min_speech_duration_sec,
-            "min_silence_duration_sec": self.min_silence_duration_sec,
-            "max_speech_duration_sec": self.max_speech_duration_sec,
-            "prob_info": {
-                "num_frames": len(self.current_segment_probs),
-                "avg_smoothed_prob": round(
-                    sum(self.current_segment_probs) / len(self.current_segment_probs), 3
-                )
-                if self.current_segment_probs
-                else 0.0,
-                "min_smoothed_prob": min(self.current_segment_probs)
-                if self.current_segment_probs
-                else 0.0,
-                "max_smoothed_prob": max(self.current_segment_probs)
-                if self.current_segment_probs
-                else 0.0,
-            },
-        }
-        with open(self.segment_dir / "segment.json", "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2)
-        # Separate file with full array of smoothed probs for this segment
-        with open(self.segment_dir / "speech_probs.json", "w", encoding="utf-8") as f:
-            json.dump(self.current_segment_probs, f, indent=2)
-        print(
-            f"✅ SAVED segment_{self.segment_counter:04d} → {self.segment_dir} "
-            f"({metadata['duration_sec']}s)"
+        prob_info = create_prob_info(avg_prob, min_prob, max_prob)
+
+        # Build info dict for callback (and summary if needed)
+        segment = SpeechSegment(
+            start_sec=self.current_start_frame * self.frame_shift_sec,
+            end_sec=end_frame * self.frame_shift_sec,
+            duration_sec=duration_sec,
+            start_frame=self.current_start_frame,
+            end_frame=end_frame,
+            total_frames=duration_frames - 1,
+            created_at=datetime.now(),
+            forced_split=force,
+            prob_info=prob_info,
         )
 
-    def _cleanup(self) -> None:
-        self.is_speaking = False
-        self.speech_buffer = np.empty(0, dtype=np.float32)
-        self.current_start_frame = -1
-        self.segment_dir = None
-        self.current_segment_probs = []
+        # Add to completed segments
+        self.segments.append(segment)
 
-    def reset(self) -> None:
-        self.vad.reset()
-        self.pre_buffer = np.empty(0, dtype=np.float32)
-        self._cleanup()
-        self.segment_counter = 0
+        # Only call the callback; file/summary writing is handled externally.
+        if self.on_speech is not None:
+            try:
+                self.on_speech(segment_audio, segment, segment_probs)
+            except Exception as e:
+                print(f"Warning: on_speech callback raised: {e}")
+
+        self._reset_after_close()
+
+        return segment
+
+    def _reset_after_close(self):
+        """Keep minimal context after closing a segment"""
+        self.current_start_frame = None
+        self.in_speech = False
+        self.silence_counter = 0
+        self.speech_counter = 0
+        # Keep last ~0.5–1 sec as possible context for next start
+        keep_len = int(1.0 / self.frame_shift_sec)  # 100 frames for 0.01s
+        if len(self.current_audio) > keep_len:
+            self.current_audio = self.current_audio[-keep_len:]
+            self.current_probs = self.current_probs[-keep_len:]
+
+    def get_all_segments(self) -> List[SpeechSegment]:
+        return self.segments
+
+    def process_chunk(self, chunk: np.ndarray) -> List[SpeechSegment]:
+        """
+        Process incoming audio chunk of arbitrary length.
+        Feeds overlapping 25 ms (400-sample) frames to FireRedVAD.
+        Returns list of any segments completed during this call.
+        """
+        if len(chunk) == 0:
+            return []
+
+        self.pending_audio = np.concatenate(
+            [self.pending_audio, chunk.astype(np.float32)]
+        )
+
+        completed_segments = []
+
+        while len(self.pending_audio) >= self.frame_length_samples:
+            # Take the next 400-sample frame
+            frame = self.pending_audio[: self.frame_length_samples]
+
+            # Run FireRedVAD
+            result: StreamVadFrameResult = self.vad.detect_frame(frame)
+
+            # Feed to segment tracker
+            segment = self.update(
+                frame_audio=frame,
+                is_speech=result.is_speech,
+                speech_prob=result.smoothed_prob,
+            )
+
+            if segment is not None:
+                completed_segments.append(segment)
+
+            # Advance by frame shift (10 ms = 160 samples) → overlapping
+            self.pending_audio = self.pending_audio[self.frame_shift_samples :]
+
+        return completed_segments
+
+    # Optional: clean up on finalize
+    def finalize(self) -> List[SpeechSegment]:
+        # Discard remaining partial frame
+        self.pending_audio = np.array([], dtype=np.float32)
+        if self.in_speech:
+            segment = self._close_current_segment(force=True)
+            if segment:
+                self.segments.append(segment)
+        return self.segments

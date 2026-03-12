@@ -4,11 +4,9 @@ Main application logic — coordinates audio, VADs and UI updates
 
 from __future__ import annotations
 
-import shutil
 import signal
 import sys
 import threading
-from pathlib import Path
 from queue import Empty, Queue
 
 import numpy as np
@@ -16,14 +14,11 @@ import pyqtgraph as pg
 import sounddevice as sd
 from jet.audio.audio_waveform.circular_buffer import CircularBuffer
 from jet.audio.audio_waveform.plots import create_plots_layout
-from jet.audio.audio_waveform.speech_tracker2 import StreamingSpeechTracker
+from jet.audio.audio_waveform.speech_tracker import StreamingSpeechTracker
 from jet.audio.audio_waveform.vad.firered import FireRedVADWrapper
 from jet.audio.audio_waveform.vad.silero import SileroVAD
 from jet.audio.audio_waveform.vad.speechbrain import SpeechBrainVADWrapper
 from pyqtgraph.Qt import QtCore, QtWidgets
-
-OUTPUT_DIR = Path(__file__).parent / "generated" / "speech_tracker"
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 
 class AudioWaveformWithSpeechProbApp:
@@ -32,6 +27,8 @@ class AudioWaveformWithSpeechProbApp:
         samplerate: int = 16000,
         block_size: int = 512,
         display_points: int = 200,
+        vad: FireRedVADWrapper | None = None,
+        speech_tracker: StreamingSpeechTracker | None = None,
     ) -> None:
         self.samplerate = samplerate
         self.block_size = block_size
@@ -46,12 +43,9 @@ class AudioWaveformWithSpeechProbApp:
         # VAD models
         self.vad = SileroVAD(samplerate=self.samplerate)
         self.vad_sb = SpeechBrainVADWrapper()
-        self.vad_fr = FireRedVADWrapper()
+        self.vad_fr = vad or FireRedVADWrapper()
 
-        self.speech_tracker = StreamingSpeechTracker(
-            save_dir=str(OUTPUT_DIR / "segments"),
-            vad=self.vad_fr.vad,
-        )
+        self.speech_tracker = speech_tracker
 
         # Thread-safe queue
         self.audio_queue: Queue[np.ndarray] = Queue(maxsize=50)
@@ -147,7 +141,8 @@ class AudioWaveformWithSpeechProbApp:
             prob_fr = self.vad_fr.get_speech_prob(samples)
             self.prob_fr_buffer.append(prob_fr)
 
-            self.speech_tracker.process_chunk(samples)
+            if self.speech_tracker:
+                self.speech_tracker.process_chunk(samples)
 
     def _update_plots(self) -> None:
         self._update_one_plot(
