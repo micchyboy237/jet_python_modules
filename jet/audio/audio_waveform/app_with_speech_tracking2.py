@@ -14,7 +14,8 @@ import pyqtgraph as pg
 import sounddevice as sd
 from jet.audio.audio_waveform.circular_buffer import CircularBuffer
 from jet.audio.audio_waveform.plots import create_plots_layout
-from jet.audio.audio_waveform.vad.firered import FireRedVADWrapper
+from jet.audio.audio_waveform.speech_tracker2 import SpeechSegmentTracker
+from jet.audio.audio_waveform.vad.firered_with_speech_tracking import FireRedVADWrapper
 from jet.audio.audio_waveform.vad.silero import SileroVAD
 from jet.audio.audio_waveform.vad.speechbrain import SpeechBrainVADWrapper
 from pyqtgraph.Qt import QtCore, QtWidgets
@@ -26,6 +27,7 @@ class AudioWaveformWithSpeechProbApp:
         samplerate: int = 16000,
         block_size: int = 512,
         display_points: int = 200,
+        speech_save_dir: str = "saved_speech_segments",
     ) -> None:
         self.samplerate = samplerate
         self.block_size = block_size
@@ -40,7 +42,9 @@ class AudioWaveformWithSpeechProbApp:
         # VAD models
         self.vad = SileroVAD(samplerate=self.samplerate)
         self.vad_sb = SpeechBrainVADWrapper()
-        self.vad_fr = FireRedVADWrapper()
+
+        self.tracker = SpeechSegmentTracker(save_dir=speech_save_dir)
+        self.vad_fr = FireRedVADWrapper(tracker=self.tracker)
 
         # Thread-safe queue
         self.audio_queue: Queue[np.ndarray] = Queue(maxsize=50)
@@ -135,6 +139,9 @@ class AudioWaveformWithSpeechProbApp:
 
             prob_fr = self.vad_fr.get_speech_prob(samples)
             self.prob_fr_buffer.append(prob_fr)
+
+            if self.tracker:
+                self.tracker.add_audio(samples)  # ← feed raw mic audio
 
     def _update_plots(self) -> None:
         self._update_one_plot(
