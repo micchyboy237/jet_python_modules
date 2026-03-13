@@ -34,6 +34,8 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         # must exist before parent __init__ calls reset()
         self.recent_probs: deque[float] = deque(maxlen=1024)
 
+        self.last_force_split_reason = "none"
+
         super().__init__(
             smooth_window_size,
             speech_threshold,
@@ -42,6 +44,14 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
             max_speech_frame,
             min_silence_frame,
         )
+
+    @property
+    def was_last_end_forced(self) -> bool:
+        return self.hit_max_speech  # only meaningful right after end
+
+    @property
+    def last_split_reason(self) -> str:
+        return self.last_force_split_reason
 
     def reset(self):
         super().reset()
@@ -149,6 +159,9 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                         style="dim magenta",
                     )
                     self.hit_max_speech = True
+                    self.last_force_split_reason = (
+                        "valley_detection" if window else "hard_limit"
+                    )
                     self.speech_cnt = 0
                     result.is_speech_end = True
                     result.speech_end_frame = self.frame_cnt

@@ -95,6 +95,9 @@ class FireRedVADWrapper:
         self.last_prob = 0.0
 
         self.tracker = tracker
+        # Give tracker access to postprocessor so it can read forced_split etc.
+        if self.tracker is not None:
+            self.tracker.postprocessor = self.vad.postprocessor
 
     def _normalize_chunk(self, chunk: np.ndarray) -> np.ndarray:
         # Simple dynamic range compression / normalization
@@ -125,6 +128,14 @@ class FireRedVADWrapper:
         if self.tracker is not None:
             for result in results:
                 self.tracker.on_frame(result)
+                # Optional: after each frame check forced split
+                if result.is_speech_end:
+                    self.tracker.current_forced_split = (
+                        self.tracker.postprocessor.was_last_end_forced
+                    )
+                    self.tracker.current_trigger_reason = (
+                        self.tracker.postprocessor.last_split_reason
+                    )
 
         self.audio_buffer = self.audio_buffer[-BUFFER_OVERLAP_SAMPLES:]
 
