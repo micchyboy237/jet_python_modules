@@ -4,7 +4,6 @@ import os
 import shutil
 from pathlib import Path
 
-from bs4 import BeautifulSoup, Comment  # pip install beautifulsoup4 if needed
 from crawl4ai import (
     AsyncWebCrawler,
     CacheMode,
@@ -14,6 +13,7 @@ from crawl4ai import (
 from jet.adapters.llama_cpp.tokens import count_tokens
 from jet.file.utils import load_file, save_file
 from jet.libs.crawl4ai_lib.adaptive_config import get_llm_config
+from jet.libs.crawl4ai_lib.preprocessors import preprocess_for_schema_generation
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -23,41 +23,41 @@ html_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScri
 html = load_file(html_file)
 
 
-def clean_html_for_schema(raw_html: str) -> str:
-    """Strip scripts, styles, nav, headers, footers, etc. to drastically reduce token count
-    while preserving the DOM structure needed for CSS selector generation."""
-    soup = BeautifulSoup(raw_html, "html.parser")
+# def clean_html_for_schema(raw_html: str) -> str:
+#     """Strip scripts, styles, nav, headers, footers, etc. to drastically reduce token count
+#     while preserving the DOM structure needed for CSS selector generation."""
+#     soup = BeautifulSoup(raw_html, "html.parser")
 
-    # Remove non-content elements
-    for tag in soup.find_all(["script", "style", "noscript", "svg", "path", "iframe"]):
-        tag.decompose()
+#     # Remove non-content elements
+#     for tag in soup.find_all(["script", "style", "noscript", "svg", "path", "iframe"]):
+#         tag.decompose()
 
-    # Remove comments
-    for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
-        comment.extract()
+#     # Remove comments
+#     for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+#         comment.extract()
 
-    # Keep only body (or whole soup if no body)
-    body = soup.find("body") or soup
+#     # Keep only body (or whole soup if no body)
+#     body = soup.find("body") or soup
 
-    # Remove common non-main containers
-    for selector in [
-        "nav",
-        "header",
-        "footer",
-        "aside",
-        ".sidebar",
-        "#sidebar",
-        ".ad",
-        ".ads",
-        ".cookie",
-    ]:
-        for elem in body.select(selector):
-            elem.decompose()
+#     # Remove common non-main containers
+#     for selector in [
+#         "nav",
+#         "header",
+#         "footer",
+#         "aside",
+#         ".sidebar",
+#         "#sidebar",
+#         ".ad",
+#         ".ads",
+#         ".cookie",
+#     ]:
+#         for elem in body.select(selector):
+#             elem.decompose()
 
-    return str(body)
+#     return str(body)
 
 
-cleaned_html = clean_html_for_schema(html)
+cleaned_html = preprocess_for_schema_generation(html)
 
 model = os.getenv("LLAMA_CPP_LLM_MODEL")
 

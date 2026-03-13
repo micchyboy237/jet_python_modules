@@ -43,6 +43,7 @@ llama-cpp-python -C cmake.args="-DGGML_BLAS=ON;-DGGML_BLAS_VENDOR=OpenBLAS"
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured
 -e /Users/jethroestrada/Desktop/External_Projects/Utils/codependpy
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/dspy
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/mem0
 
 gradio
 pyppeteer # for rendering mermaid graph

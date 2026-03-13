@@ -61,9 +61,9 @@ def get_llm_llama_cpp_config(
             "temperature": settings["temperature"]
             if settings.get("temperature") is not None
             else 0.7,
-            # "max_tokens": settings["max_tokens"]
-            # if settings.get("max_tokens") is not None
-            # else 12000,
+            "max_tokens": settings["max_tokens"]
+            if settings.get("max_tokens") is not None
+            else 16000,
         }
 
     config = LLMConfig(**settings)

@@ -14,7 +14,7 @@
     EventTarget.prototype.addEventListener = function (
       type,
       listener,
-      options
+      options,
     ) {
       if (type === "click" && this instanceof Element) {
         window.__clickableElements.add(this);
@@ -74,16 +74,36 @@
     getClickableElements() {
       function getImplicitRole(el) {
         const tag = el.tagName.toLowerCase();
+
         if (tag === "a" && el.hasAttribute("href")) return "link";
         if (tag === "button") return "button";
+
         if (tag === "input") {
-          const type = el.getAttribute("type") || "text";
-          if (["button", "submit", "reset"].includes(type)) return "button";
+          const type = (el.getAttribute("type") || "text").toLowerCase();
+          if (["button", "submit", "reset", "image"].includes(type))
+            return "button";
           if (["checkbox", "radio"].includes(type)) return type;
-          return "textbox";
+          if (["hidden", "file"].includes(type)) return null; // usually skip
+          return "textbox"; // text, email, password, tel, url, search, number, date etc.
         }
-        if (tag === "select") return "listbox";
+
         if (tag === "textarea") return "textbox";
+        if (tag === "select") return "listbox";
+        if (tag === "option") return null; // usually not directly clickable
+
+        // ARIA buttons / other interactive roles
+        const role = el.getAttribute("role")?.toLowerCase();
+        if (
+          role === "button" ||
+          role === "link" ||
+          role === "checkbox" ||
+          role === "radio" ||
+          role === "tab" ||
+          role === "menuitem"
+        ) {
+          return role;
+        }
+
         return null;
       }
 
@@ -110,32 +130,79 @@
         return path.join(" > ");
       }
 
-      const clickableSelectors = [
+      // ──────────────────────────────────────────────
+      //  Broader selector: interactive + form controls
+      // ──────────────────────────────────────────────
+      const interactiveSelectors = [
         "a[href]",
         "button",
+        "input",
+        "select",
+        "textarea",
+        "[role='button']",
+        "[role='link']",
+        "[role='checkbox']",
+        "[role='radio']",
+        "[role='tab']",
+        "[role='menuitem']",
         "[onclick]",
-        '[role="button"]',
         "[tabindex]:not([tabindex='-1'])",
       ];
-      const elements = document.querySelectorAll(clickableSelectors.join(","));
+
+      const elements = document.querySelectorAll(
+        interactiveSelectors.join(","),
+      );
+
       const results = [];
+
       elements.forEach((el) => {
+        // Skip elements that are practically invisible / non-interactive
         const rect = el.getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) return;
+        if (rect.width <= 1 || rect.height <= 1) return; // tightened a bit
+
+        // Also skip hidden inputs & elements with visibility/display none
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") return;
+
+        const role = getImplicitRole(el);
+        if (!role) return; // skip elements we don't consider interactive
+
+        // For form fields → try to get associated label text
+        let labelText = "";
+        if (["textbox", "checkbox", "radio", "listbox"].includes(role)) {
+          const id = el.id;
+          if (id) {
+            const label = document.querySelector(`label[for="${id}"]`);
+            if (label) labelText = label.innerText.trim();
+          }
+          // fallback: aria-label or placeholder
+          labelText = labelText || el.getAttribute("aria-label") || "";
+          labelText = labelText || el.placeholder?.trim() || "";
+        }
+
         results.push({
           tag: el.tagName.toLowerCase(),
-          text: el.innerText?.trim().slice(0, 100) || "",
+          type:
+            el.tagName.toLowerCase() === "input"
+              ? el.type || "text"
+              : undefined,
+          text: (el.innerText || labelText || el.value || el.placeholder || "")
+            .trim()
+            .slice(0, 120),
           href: el.getAttribute("href") || null,
-          role: el.getAttribute("role") || getImplicitRole(el),
+          role: el.getAttribute("role") || role,
+          id: el.id || null,
+          name: el.name || null,
           css_selector: getCssSelector(el),
           bbox: {
-            x: rect.x,
-            y: rect.y,
-            width: rect.width,
-            height: rect.height,
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
           },
         });
       });
+
       return results;
     },
 
