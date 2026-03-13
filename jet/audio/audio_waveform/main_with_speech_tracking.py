@@ -17,6 +17,7 @@ from jet.audio.audio_waveform.speech_tracker import (
     StreamingSpeechTracker,
 )
 from jet.audio.audio_waveform.vad.firered import FireRedVADWrapper
+from jet.file.utils import save_file
 from jet.transformers.object import make_serializable
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / "speech_tracker"
@@ -94,6 +95,11 @@ def main():
         print(
             f"SPEECH SEGMENTS (~{len(all_segments)}):\n{json.dumps(make_serializable(all_segments), indent=2)}"
         )
+
+        old_segments = speech_tracker.old_segments
+        save_file(all_segments, OUTPUT_DIR / "segments.json")
+        save_file(old_segments, OUTPUT_DIR / "old_segments.json")
+
         print("-------\n")
 
     vad_fr = FireRedVADWrapper(
