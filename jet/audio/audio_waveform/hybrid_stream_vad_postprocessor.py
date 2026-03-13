@@ -17,13 +17,13 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         speech_threshold,
         pad_start_frame,
         min_speech_frame,
-        max_speech_frame,  # kept for API compatibility
+        max_speech_frame,
         min_silence_frame,
     ):
-        self.soft_limit = 420  # start waiting for natural split
-        self.hard_limit = 600  # absolute safety (was 500)
-        self.search_window = 100  # ~1 second look-back
-        self.valley_threshold = 0.6  # probability dip below this = good split point
+        self.soft_limit = 450  # start waiting for natural split
+        self.hard_limit = 800  # absolute safety (was 500)
+        self.search_window = 200  # ~2 second look-back
+        self.valley_threshold = 0.65  # probability dip below this = good split point
 
         # Logging suppression helpers
         self._last_state = None
