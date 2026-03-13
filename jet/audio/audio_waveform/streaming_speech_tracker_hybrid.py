@@ -31,6 +31,7 @@ from fireredvad.core.stream_vad_postprocessor import (
     VadState,
 )
 from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
+from jet.audio.audio_waveform.circular_buffer_advanced import CircularBuffer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("stream_vad")
@@ -45,7 +46,10 @@ audio_queue: queue.Queue[np.ndarray] = queue.Queue()
 def audio_callback(indata, frames, time, status):
     if status:
         logger.warning(status)
-    audio_queue.put(indata.copy())
+    # Already float32 when dtype='float32' is used in InputStream
+    audio_queue.put(
+        indata[:, 0].copy()
+    )  # make 1D, consistent with app_with_speech_tracking
 
 
 # ==================== HYBRID POSTPROCESSOR (drop-in replacement) ====================
@@ -209,13 +213,13 @@ def main():
         speech_threshold=0.4,
         pad_start_frame=5,
         min_speech_frame=8,
-        max_speech_frame=500,  # ← kept for API, but hybrid uses 600 hard
+        max_speech_frame=500,  # ← kept for API compatibility, but hybrid uses soft/hard limits
         min_silence_frame=20,
     )
 
     logger.info("Starting microphone stream with HYBRID VAD...")
 
-    # Manual construction (exactly like from_pretrained but with our hybrid)
+    # Manual construction (exactly like from_pretrained but with our hybrid postprocessor)
     cmvn_path = os.path.join(MODEL_DIR, "cmvn.ark")
     feat_extractor = AudioFeat(cmvn_path)
 
@@ -225,7 +229,6 @@ def main():
     else:
         vad_model.cpu()
 
-    # ← This is the only change: use Hybrid instead of StreamVadPostprocessor
     postprocessor = HybridStreamVadPostprocessor(
         config.smooth_window_size,
         config.speech_threshold,
@@ -242,24 +245,42 @@ def main():
         config=config,
     )
 
+    # ─── Circular buffer for incoming audio samples ───
+    MAX_BUFFER_SECONDS = 6.0  # enough headroom for jitter/lag
+    MAX_BUFFER_SAMPLES = int(MAX_BUFFER_SECONDS * SAMPLE_RATE)
+    audio_buffer = CircularBuffer(capacity=MAX_BUFFER_SAMPLES)
+
     current_segment_start = None
+
+    BLOCK_SIZE = 512  # Matches typical real-time block size
 
     with sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=1,
-        dtype="int16",
+        dtype="float32",
         callback=audio_callback,
-        blocksize=FRAME_SHIFT_SAMPLE,
+        blocksize=BLOCK_SIZE,
     ):
-        buffer = np.zeros(0, dtype=np.int16)
         while True:
-            chunk = audio_queue.get().flatten()
-            buffer = np.concatenate([buffer, chunk])
-            while len(buffer) >= FRAME_LENGTH_SAMPLE:
-                frame = buffer[:FRAME_LENGTH_SAMPLE]
-                buffer = buffer[FRAME_SHIFT_SAMPLE:]
+            try:
+                chunk = audio_queue.get(timeout=0.1)  # already 1D float32
+            except queue.Empty:
+                continue
 
-                result: StreamVadFrameResult = stream_vad.detect_frame(frame)
+            # Add new audio data to the circular buffer
+            audio_buffer.extend(chunk)
+
+            # Process as many full analysis frames as possible
+            while audio_buffer.available() >= FRAME_LENGTH_SAMPLE:
+                # Get the oldest available frame (contiguous copy)
+                frame = audio_buffer.get_frame(FRAME_LENGTH_SAMPLE)
+                if frame is None:
+                    break  # should not happen due to while condition
+
+                # FireRedVAD expects int16 in [-32768, 32767]
+                frame_int16 = np.round(frame * 32767).astype(np.int16)
+
+                result: StreamVadFrameResult = stream_vad.detect_frame(frame_int16)
 
                 if result.is_speech_start:
                     current_segment_start = result.speech_start_frame
@@ -281,7 +302,6 @@ def main():
                         f"(duration={duration:.2f}s frames={frames})"
                     )
 
-                    # Updated warning for hybrid
                     if frames >= postprocessor.hard_limit:
                         logger.warning(
                             f"[HYBRID SPLIT] hard_limit reached ({postprocessor.hard_limit} frames)"
@@ -290,6 +310,13 @@ def main():
                         logger.info("[HYBRID SPLIT] natural valley / silence split")
 
                     current_segment_start = None
+
+                # Consume one analysis hop (usually 10 ms / 160 samples at 16 kHz)
+                audio_buffer.advance(FRAME_SHIFT_SAMPLE)
+
+            # Optional: log buffer fill level every ~10 seconds (for debugging)
+            # if audio_buffer.available() > MAX_BUFFER_SAMPLES * 0.9:
+            #     logger.warning(f"Buffer almost full: {audio_buffer.available()}/{MAX_BUFFER_SAMPLES}")
 
 
 if __name__ == "__main__":

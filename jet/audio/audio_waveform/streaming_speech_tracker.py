@@ -55,7 +55,7 @@ def main():
         buffer = np.zeros(0, dtype=np.int16)
 
         while True:
-            chunk = audio_queue.get().flatten()
+            chunk = audio_queue.get(timeout=0.1).flatten()
 
             buffer = np.concatenate([buffer, chunk])
 
