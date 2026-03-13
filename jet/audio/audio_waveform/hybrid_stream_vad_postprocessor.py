@@ -34,7 +34,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         # must exist before parent __init__ calls reset()
         self.recent_probs: deque[float] = deque(maxlen=1024)
 
-        self.last_force_split_reason = "none"
+        self.last_force_split_reason = None
 
         super().__init__(
             smooth_window_size,
@@ -46,11 +46,11 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         )
 
     @property
-    def was_last_end_forced(self) -> bool:
+    def was_force_splitted(self) -> bool:
         return self.hit_max_speech  # only meaningful right after end
 
     @property
-    def last_split_reason(self) -> str:
+    def last_split_reason(self) -> str | None:
         return self.last_force_split_reason
 
     def reset(self):

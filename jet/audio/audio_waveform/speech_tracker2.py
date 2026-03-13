@@ -56,6 +56,10 @@ class SpeechSegmentTracker:
                 "raw_prob": result.raw_prob,
                 "smoothed_prob": result.smoothed_prob,
                 "is_speech": result.is_speech,
+                "is_speech_start": result.is_speech_start,
+                "is_speech_end": result.is_speech_end,
+                "speech_start_frame": result.speech_start_frame,
+                "speech_end_frame": result.speech_end_frame,
                 "vad_state": self._get_vad_state_name(),  # optional
             }
             self.current_probs.append(entry)
@@ -113,10 +117,10 @@ class SpeechSegmentTracker:
         # (in case they were set in previous frames but not yet consumed)
         if self.postprocessor is not None:
             self.current_forced_split = getattr(
-                self.postprocessor, "was_last_end_forced", False
+                self.postprocessor, "was_force_splitted", False
             )
             self.current_trigger_reason = getattr(
-                self.postprocessor, "last_split_reason", "unknown"
+                self.postprocessor, "last_split_reason", "silence"
             )
 
         # ─── Compute extra statistics ───────────────────────────────────────
@@ -181,7 +185,7 @@ class SpeechSegmentTracker:
 
         # Reset only AFTER saving — so next segment starts clean
         self.current_forced_split = False
-        self.current_trigger_reason = "silence"  # or "unknown"
+        self.current_trigger_reason = "silence"
         self.current_segment_dir = None
         self.current_audio = np.empty(0, dtype=np.float32)
         self.current_probs = []
