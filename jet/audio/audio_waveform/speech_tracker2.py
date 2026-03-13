@@ -165,31 +165,6 @@ class SpeechSegmentTracker:
             json.dumps({"probs": self.current_probs}, indent=2), encoding="utf-8"
         )
 
-        # Optionally save speech probability chart as PNG
-        if self.current_probs:
-            try:
-                import matplotlib.pyplot as plt
-
-                xs = [p["frame_idx"] for p in self.current_probs]
-                ys = [p["smoothed_prob"] for p in self.current_probs]
-                fig, ax = plt.subplots(figsize=(10, 2.5), dpi=120)
-                ax.plot(xs, ys, color="#1f77b4", lw=1.1, label="smoothed prob")
-                ax.axhline(0.5, color="darkred", ls="--", alpha=0.5, label="threshold")
-                ax.set_ylim(0, 1.05)
-                ax.set_xlim(xs[0], xs[-1])
-                ax.grid(True, alpha=0.3)
-                ax.legend(loc="upper right")
-                ax.set_title(
-                    f"Segment {self.segment_counter}  |  {self.current_summary['duration_sec']:.1f}s",
-                    fontsize=11,
-                )
-                chart_path = self.current_segment_dir / "speech_prob_plot.png"
-                plt.savefig(chart_path, bbox_inches="tight", dpi=140)
-                plt.close(fig)
-                print(f"  Saved probability chart: {chart_path.name}")
-            except Exception as e:
-                print(f"  (Plotting failed: {e})")
-
         print(f"[SPEECH TRACKER] END → saved {self.current_segment_dir}\n")
 
         # Generate speech probs chart
