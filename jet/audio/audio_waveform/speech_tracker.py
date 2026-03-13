@@ -3,7 +3,13 @@ from datetime import datetime
 from typing import Callable, List, Optional, TypedDict
 
 import numpy as np
+from fireredvad.core.constants import (
+    FRAME_PER_SECONDS,
+)
 from fireredvad.stream_vad import FireRedStreamVad, StreamVadFrameResult
+from rich.console import Console
+
+console = Console()
 
 
 class SpeechProbInfo(TypedDict):
@@ -93,6 +99,8 @@ class StreamingSpeechTracker:
         self.in_speech = False
         self.silence_counter = 0
         self.speech_counter = 0
+
+        self.current_segment_start = None
 
     def reset(self):
         """Clear current state (new session / new speaker)"""
@@ -279,6 +287,8 @@ class StreamingSpeechTracker:
             # Run FireRedVAD
             result: StreamVadFrameResult = self.vad.detect_frame(frame)
 
+            self._log_result(result)
+
             # Feed to segment tracker
             segment = self.update(
                 frame_audio=frame,
@@ -293,6 +303,49 @@ class StreamingSpeechTracker:
             self.pending_audio = self.pending_audio[self.frame_shift_samples :]
 
         return completed_segments
+
+    def _log_result(self, result: StreamVadFrameResult, postprocessor=None):
+        if result.is_speech_start:
+            self.current_segment_start = result.speech_start_frame
+            start_sec = self.current_segment_start / FRAME_PER_SECONDS
+            console.print(
+                f"[VAD START] frame={self.current_segment_start} time={start_sec:.2f}s",
+                style="bold green",
+            )
+
+        if result.is_speech_end:
+            start = result.speech_start_frame
+            end = result.speech_end_frame
+            frames = end - start + 1
+            duration = frames / FRAME_PER_SECONDS
+            start_sec = start / FRAME_PER_SECONDS
+            end_sec = end / FRAME_PER_SECONDS
+
+            console.print(
+                f"[VAD END] {start_sec:.2f}s → {end_sec:.2f}s "
+                f"(duration={duration:.2f}s frames={frames})",
+                style="bold yellow",
+            )
+
+            if (
+                postprocessor is not None
+                and hasattr(postprocessor, "hard_limit")
+                and frames >= postprocessor.hard_limit
+            ):
+                console.print(
+                    f"[HYBRID SPLIT] hard_limit reached ({postprocessor.hard_limit} frames)",
+                    style="bold red",
+                )
+            elif (
+                postprocessor is not None
+                and hasattr(postprocessor, "soft_limit")
+                and frames > postprocessor.soft_limit
+            ):
+                console.print(
+                    "[HYBRID SPLIT] natural valley / silence split", style="yellow"
+                )
+
+            self.current_segment_start = None
 
     # Optional: clean up on finalize
     def finalize(self) -> List[SpeechSegment]:

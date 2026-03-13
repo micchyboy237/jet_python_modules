@@ -96,14 +96,15 @@ def main():
         )
         print("-------\n")
 
-    vad_fr = FireRedVADWrapper()
+    vad_fr = FireRedVADWrapper(
+        # min_speech_duration_sec=0.5,
+        # min_silence_duration_sec=0.9,
+        # max_speech_duration_sec=5.0,
+        # merge_small_segments=True,
+    )
     speech_tracker = StreamingSpeechTracker(
         vad=vad_fr.vad,
         on_speech=on_speech_completed,  # we handle saving ourselves
-        # min_speech_duration_sec=0.5,
-        # min_silence_duration_sec=0.9,
-        max_speech_duration_sec=5.0,
-        # merge_small_segments=True,
     )
 
     app = AudioWaveformWithSpeechProbApp(

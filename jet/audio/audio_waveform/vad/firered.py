@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
 import torch
+from fireredvad.core.audio_feat import AudioFeat
+from fireredvad.core.detect_model import DetectModel
+from jet.audio.audio_waveform.hybrid_stream_vad_postprocessor import (
+    HybridStreamVadPostprocessor,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,8 +62,31 @@ class FireRedVADWrapper:
             chunk_max_frame=30000,
         )
 
-        self.vad = FireRedStreamVad.from_pretrained(model_dir, config=config)
-        print("done.")
+        cmvn_path = os.path.join(model_dir, "cmvn.ark")
+        feat_extractor = AudioFeat(cmvn_path)
+
+        vad_model = DetectModel.from_pretrained(model_dir)
+        if config.use_gpu:
+            vad_model.cuda()
+        else:
+            vad_model.cpu()
+
+        postprocessor = HybridStreamVadPostprocessor(
+            config.smooth_window_size,
+            config.speech_threshold,
+            config.pad_start_frame,
+            config.min_speech_frame,
+            config.max_speech_frame,
+            config.min_silence_frame,
+        )
+
+        self.vad = FireRedStreamVad(
+            audio_feat=feat_extractor,
+            vad_model=vad_model,
+            postprocessor=postprocessor,
+            config=config,
+        )
+        # self.vad = FireRedStreamVad.from_pretrained(model_dir, config=config)
 
         self.audio_buffer = np.array([], dtype=np.float32)
         self.last_prob = 0.0
