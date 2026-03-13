@@ -47,7 +47,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
 
     @property
     def was_force_splitted(self) -> bool:
-        return self.hit_max_speech  # only meaningful right after end
+        return self.last_force_split_reason in ("valley_detection", "hard_limit")
 
     @property
     def last_split_reason(self) -> str | None:
@@ -159,11 +159,11 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                         style="dim magenta",
                     )
                     self.hit_max_speech = True
+                    self.speech_cnt = 0
+                    result.is_speech_end = True
                     self.last_force_split_reason = (
                         "valley_detection" if window else "hard_limit"
                     )
-                    self.speech_cnt = 0
-                    result.is_speech_end = True
                     result.speech_end_frame = self.frame_cnt
                     result.speech_start_frame = self.last_speech_start_frame
                     self.last_speech_start_frame = -1
@@ -195,6 +195,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                 if self.silence_cnt >= self.min_silence_frame:
                     self.state = VadState.SILENCE
                     result.is_speech_end = True
+                    self.last_force_split_reason = "silence"
                     result.speech_end_frame = self.frame_cnt
                     result.speech_start_frame = self.last_speech_start_frame
                     self.last_speech_end_frame = result.speech_end_frame
