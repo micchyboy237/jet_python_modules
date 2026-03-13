@@ -1,92 +1,103 @@
-import time
+import logging
+import queue
+from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
-import torch
-from jet.audio.audio_waveform.vad.firered import FireRedVADWrapper
+from fireredvad.core.constants import (
+    FRAME_LENGTH_SAMPLE,
+    FRAME_PER_SECONDS,
+    FRAME_SHIFT_SAMPLE,
+    SAMPLE_RATE,
+)
+from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 
-# ────────────────────────────────────────────────
-#  Configuration
-# ────────────────────────────────────────────────
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("stream_vad")
 
-SAMPLE_RATE = 16000
-BLOCK_SIZE_MS = 30  # process audio in ~30 ms blocks
-BLOCK_SIZE = int(SAMPLE_RATE * BLOCK_SIZE_MS / 1000)
+MODEL_DIR = str(
+    Path("~/.cache/pretrained_models/FireRedVAD/Stream-VAD").expanduser().resolve()
+)
 
-CHANNELS = 1
-DEVICE = None  # None = default input device
-# DEVICE = "USB Audio Device"   # or explicit device name/index
-
-# How often to check for speech segments (seconds)
-CHECK_INTERVAL = 0.15
-
-# ────────────────────────────────────────────────
+audio_queue: queue.Queue[np.ndarray] = queue.Queue()
 
 
-def callback(indata: np.ndarray, frames: int, time_info, status):
-    """Called by sounddevice for every new audio block"""
+def audio_callback(indata, frames, time, status):
     if status:
-        print("Audio callback warning:", status, file=sys.stderr)
-
-    # indata shape: (frames, channels)
-    mono = indata[:, 0] if indata.ndim > 1 else indata
-    vad.audio_buffer = np.concatenate([vad.audio_buffer, mono.astype(np.float32)])
+        logger.warning(status)
+    audio_queue.put(indata.copy())
 
 
-# ────────────────────────────────────────────────
-#  Main streaming logic
-# ────────────────────────────────────────────────
+def main():
+    config = FireRedStreamVadConfig(
+        use_gpu=False,
+        smooth_window_size=5,
+        speech_threshold=0.4,
+        pad_start_frame=5,
+        min_speech_frame=8,
+        max_speech_frame=500,  # ~5 seconds
+        min_silence_frame=20,
+    )
 
-print("Initializing FireRedVAD wrapper...")
-vad = FireRedVADWrapper(device="cuda" if torch.cuda.is_available() else "cpu")
+    stream_vad = FireRedStreamVad.from_pretrained(MODEL_DIR, config)
 
-print(f"Starting audio input @ {SAMPLE_RATE} Hz, block = {BLOCK_SIZE_MS} ms")
+    logger.info("Starting microphone stream...")
 
-with sd.InputStream(
-    samplerate=SAMPLE_RATE,
-    blocksize=BLOCK_SIZE,
-    channels=CHANNELS,
-    # dtype="float32",
-    # latency="low",
-    # device=DEVICE,
-    callback=callback,
-):
-    print("Recording...  Press Ctrl+C to stop")
+    current_segment_start = None
 
-    last_check = time.time()
+    with sd.InputStream(
+        samplerate=SAMPLE_RATE,
+        channels=1,
+        dtype="int16",
+        callback=audio_callback,
+        blocksize=FRAME_SHIFT_SAMPLE,
+    ):
+        buffer = np.zeros(0, dtype=np.int16)
 
-    try:
         while True:
-            now = time.time()
+            chunk = audio_queue.get().flatten()
 
-            # Check for completed speech segments periodically
-            if now - last_check >= CHECK_INTERVAL:
-                result = vad.get_speech_segments()
+            buffer = np.concatenate([buffer, chunk])
 
-                if result is not None:
-                    frame_results, (start_sec, end_sec), current_time = result
+            while len(buffer) >= FRAME_LENGTH_SAMPLE:
+                frame = buffer[:FRAME_LENGTH_SAMPLE]
+                buffer = buffer[FRAME_SHIFT_SAMPLE:]
 
-                    print(
-                        f"[{current_time:6.2f}s] "
-                        f"Speech segment detected: {start_sec:6.2f} – {end_sec:6.2f}s "
-                        f"({end_sec - start_sec:4.2f}s long)"
+                result = stream_vad.detect_frame(frame)
+
+                if result.is_speech_start:
+                    current_segment_start = result.speech_start_frame
+                    start_sec = current_segment_start / FRAME_PER_SECONDS
+
+                    logger.info(
+                        f"[VAD START] frame={current_segment_start} "
+                        f"time={start_sec:.2f}s"
                     )
 
-                    # Optional: you can also inspect frame_results[-5:] etc.
-                    # or send the segment (vad.audio_buffer slice) to ASR here
+                if result.is_speech_end:
+                    start = result.speech_start_frame
+                    end = result.speech_end_frame
 
-                last_check = now
+                    frames = end - start + 1
+                    duration = frames / FRAME_PER_SECONDS
 
-            # Very light sleep — we don't want to block the callback
-            time.sleep(0.020)
+                    start_sec = start / FRAME_PER_SECONDS
+                    end_sec = end / FRAME_PER_SECONDS
 
-    except KeyboardInterrupt:
-        print("\nStopped by user")
+                    logger.info(
+                        f"[VAD END] {start_sec:.2f}s → {end_sec:.2f}s "
+                        f"(duration={duration:.2f}s frames={frames})"
+                    )
 
-    finally:
-        print("Stream closed.")
-        # Optional: process any remaining buffered audio
-        final_result = vad.get_speech_segments()
-        if final_result:
-            _, (s, e), t = final_result
-            print(f"Final trailing segment: {s:.2f} – {e:.2f}s")
+                    if frames >= config.max_speech_frame:
+                        logger.warning(
+                            "[VAD SPLIT] max_speech_frame reached "
+                            f"{config.max_speech_frame} frames "
+                            f"(~{config.max_speech_frame / FRAME_PER_SECONDS:.2f}s)"
+                        )
+
+                    current_segment_start = None
+
+
+if __name__ == "__main__":
+    main()

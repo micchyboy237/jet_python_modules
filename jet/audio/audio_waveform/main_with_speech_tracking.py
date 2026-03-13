@@ -103,7 +103,7 @@ def main():
         # min_speech_duration_sec=0.5,
         # min_silence_duration_sec=0.9,
         max_speech_duration_sec=10.0,
-        merge_small_segments=True,
+        # merge_small_segments=True,
     )
 
     app = AudioWaveformWithSpeechProbApp(
