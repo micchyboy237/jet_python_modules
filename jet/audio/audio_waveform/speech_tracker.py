@@ -89,6 +89,7 @@ class StreamingSpeechTracker:
         self.current_start_frame: Optional[int] = None
         self.total_frames: int = 0
         self.segments: List[SpeechSegment] = []
+        self.old_segments: List[SpeechSegment] = []
 
         self.min_speech_frames = int(round(self.min_speech_sec / self.frame_shift_sec))
         self.min_silence_frames = int(
@@ -237,14 +238,14 @@ class StreamingSpeechTracker:
         )
 
         # Add to completed segments
-        self.segments.append(segment)
+        self.old_segments.append(segment)
 
         # Only call the callback; file/summary writing is handled externally.
-        if self.on_speech is not None:
-            try:
-                self.on_speech(segment_audio, segment, segment_probs)
-            except Exception as e:
-                print(f"Warning: on_speech callback raised: {e}")
+        # if self.on_speech is not None:
+        #     try:
+        #         self.on_speech(segment_audio, segment, segment_probs)
+        #     except Exception as e:
+        #         print(f"Warning: on_speech callback raised: {e}")
 
         self._reset_after_close()
 
@@ -287,7 +288,7 @@ class StreamingSpeechTracker:
             # Run FireRedVAD
             result: StreamVadFrameResult = self.vad.detect_frame(frame)
 
-            self._log_result(result)
+            self._finalize_segment(result)
 
             # Feed to segment tracker
             segment = self.update(
@@ -304,7 +305,7 @@ class StreamingSpeechTracker:
 
         return completed_segments
 
-    def _log_result(self, result: StreamVadFrameResult, postprocessor=None):
+    def _finalize_segment(self, result: StreamVadFrameResult, postprocessor=None):
         if result.is_speech_start:
             self.current_segment_start = result.speech_start_frame
             start_sec = self.current_segment_start / FRAME_PER_SECONDS
@@ -346,6 +347,75 @@ class StreamingSpeechTracker:
                 )
 
             self.current_segment_start = None
+
+            # ──────────────────────────────────────────────────────────────
+            #   Extract segment_probs and segment_audio
+            # ──────────────────────────────────────────────────────────────
+
+            segment_probs = []
+            segment_audio = np.array([], dtype=np.float32)
+            forced_split = False
+
+            if hasattr(self, "current_probs") and hasattr(self, "current_audio"):
+                buf_len = len(self.current_probs)
+                current_frame = self.total_frames  # must be 1-based, same as VAD frames
+
+                buf_start = max(0, buf_len - (current_frame - start + 1))
+                buf_end = min(buf_len, buf_len - (current_frame - end + 1) + 1)
+
+                if buf_start < buf_end:
+                    segment_probs = self.current_probs[buf_start:buf_end]
+
+                    # Reconstruct continuous audio (non-overlapping part)
+                    parts = [self.current_audio[buf_start]]
+                    for frame in self.current_audio[buf_start + 1 : buf_end]:
+                        parts.append(frame[-self.frame_shift_samples :])
+
+                    if parts:
+                        segment_audio = np.concatenate(parts)
+
+            # ──────────────────────────────────────────────────────────────
+            #   Populate prob_info
+            # ──────────────────────────────────────────────────────────────
+
+            if segment_probs:
+                avg_p = sum(segment_probs) / len(segment_probs)
+                min_p = min(segment_probs)
+                max_p = max(segment_probs)
+                prob_info = create_prob_info(avg_p, min_p, max_p)
+            else:
+                prob_info = {
+                    "avg_smoothed_prob": 0.0,
+                    "min_smoothed_prob": 0.0,
+                    "max_smoothed_prob": 0.0,
+                }
+
+            # ──────────────────────────────────────────────────────────────
+            #   forced_split – currently always False, but ready for extension
+            #   (e.g. if you later detect max duration via postprocessor or frames)
+            # ──────────────────────────────────────────────────────────────
+            # Example: forced_split = (frames >= self.max_speech_frames)
+
+            segment = SpeechSegment(
+                start_sec=round(start_sec, 3),
+                end_sec=round(end_sec, 3),
+                duration_sec=round(end_sec - start_sec, 3),
+                start_frame=start,
+                end_frame=end,
+                total_frames=end - start + 1,
+                created_at=datetime.now(),
+                forced_split=forced_split,  # ← now meaningful field
+                prob_info=prob_info,  # ← now properly filled
+            )
+
+            # Add to completed segments
+            self.segments.append(segment)
+
+            if self.on_speech is not None:
+                try:
+                    self.on_speech(segment_audio, segment, segment_probs)
+                except Exception as e:
+                    print(f"Warning: on_speech callback raised: {e}")
 
     # Optional: clean up on finalize
     def finalize(self) -> List[SpeechSegment]:
