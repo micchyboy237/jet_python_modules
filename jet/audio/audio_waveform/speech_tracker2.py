@@ -94,9 +94,8 @@ class SpeechSegmentTracker:
             "datetime_started": now_str,
         }
 
-        # Reset enhanced-props for this segment
-        self.current_forced_split = False
-        self.current_trigger_reason = "unknown"
+        # Do NOT reset current_forced_split or current_trigger_reason here anymore —
+        # keep value from previous end (if any). It will be overwritten only when a real end happens.
         self.current_vad_states = []
 
         print(f"[SPEECH TRACKER] START → {self.current_segment_dir}")
@@ -109,6 +108,16 @@ class SpeechSegmentTracker:
 
         end_frame = result.speech_end_frame
         end_time_sec = round((end_frame - 1) / 100.0, 3)
+
+        # Ensure we have the most recent forced/reason values
+        # (in case they were set in previous frames but not yet consumed)
+        if self.postprocessor is not None:
+            self.current_forced_split = getattr(
+                self.postprocessor, "was_last_end_forced", False
+            )
+            self.current_trigger_reason = getattr(
+                self.postprocessor, "last_split_reason", "unknown"
+            )
 
         # ─── Compute extra statistics ───────────────────────────────────────
         if self.current_probs:
@@ -170,13 +179,13 @@ class SpeechSegmentTracker:
         # Generate speech probs chart
         self._generate_speech_probs_chart()
 
-        # reset for next segment
+        # Reset only AFTER saving — so next segment starts clean
+        self.current_forced_split = False
+        self.current_trigger_reason = "silence"  # or "unknown"
         self.current_segment_dir = None
         self.current_audio = np.empty(0, dtype=np.float32)
         self.current_probs = []
         self.current_start_frame = -1
-        self.current_forced_split = False
-        self.current_trigger_reason = "unknown"
         self.current_vad_states = []
 
     def _generate_speech_probs_chart(self):

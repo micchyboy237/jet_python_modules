@@ -128,14 +128,6 @@ class FireRedVADWrapper:
         if self.tracker is not None:
             for result in results:
                 self.tracker.on_frame(result)
-                # Optional: after each frame check forced split
-                if result.is_speech_end:
-                    self.tracker.current_forced_split = (
-                        self.tracker.postprocessor.was_last_end_forced
-                    )
-                    self.tracker.current_trigger_reason = (
-                        self.tracker.postprocessor.last_split_reason
-                    )
 
         self.audio_buffer = self.audio_buffer[-BUFFER_OVERLAP_SAMPLES:]
 
