@@ -27,7 +27,6 @@ class AudioWaveformWithSpeechProbApp:
         samplerate: int = 16000,
         block_size: int = 512,
         display_points: int = 200,
-        speech_save_dir: str = "saved_speech_segments",
     ) -> None:
         self.samplerate = samplerate
         self.block_size = block_size
@@ -43,7 +42,7 @@ class AudioWaveformWithSpeechProbApp:
         self.vad = SileroVAD(samplerate=self.samplerate)
         self.vad_sb = SpeechBrainVADWrapper()
 
-        self.tracker = SpeechSegmentTracker(save_dir=speech_save_dir)
+        self.tracker = SpeechSegmentTracker()
         self.vad_fr = FireRedVADWrapper(tracker=self.tracker)
 
         # Thread-safe queue

@@ -1,0 +1,23 @@
+# jet_python_modules/jet/audio/audio_waveform/speech_segment_handler.py
+from abc import ABC, abstractmethod
+
+from jet.audio.audio_waveform.speech_events import (
+    SpeechSegmentEndEvent,
+    SpeechSegmentStartEvent,
+)
+
+
+class SpeechSegmentHandler(ABC):
+    """
+    Interface that all speech segment handlers must implement.
+    """
+
+    @abstractmethod
+    def on_segment_start(self, event: SpeechSegmentStartEvent) -> None:
+        """Called when a speech segment begins."""
+        pass
+
+    @abstractmethod
+    def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
+        """Called when a speech segment ends — usually where saving/uploading happens."""
+        pass

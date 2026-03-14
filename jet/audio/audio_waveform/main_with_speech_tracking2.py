@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Realtime audio waveform + speech probability visualizer (entry point)
 """
@@ -8,6 +7,9 @@ from pathlib import Path
 
 from jet.audio.audio_waveform.app_with_speech_tracking2 import (
     AudioWaveformWithSpeechProbApp,
+)
+from jet.audio.audio_waveform.speech_handlers.speech_segment_saver import (
+    SpeechSegmentSaver,
 )
 
 OUTPUT_DIR = Path(__file__).parent / "generated"
@@ -21,8 +23,16 @@ def main():
         samplerate=16000,
         block_size=512,
         display_points=200,
-        speech_save_dir=str(SAVED_SPEECH_SEGMENTS_DIR),
     )
+
+    # Register the default file-saving handler
+    saver = SpeechSegmentSaver(base_save_dir=SAVED_SPEECH_SEGMENTS_DIR)
+    app.tracker.add_handler(saver)
+
+    # You can add more handlers here later, e.g.:
+    # app.tracker.add_handler(ConsoleLoggerHandler())
+    # app.tracker.add_handler(UploadHandler(...))
+
     app.start()
 
 
