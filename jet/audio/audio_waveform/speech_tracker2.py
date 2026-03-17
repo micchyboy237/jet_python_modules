@@ -12,6 +12,9 @@ from jet.audio.audio_waveform.speech_events import (
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_types import SpeechFrame, VadStateLabel
+from rich.console import Console
+
+console = Console()
 
 
 class SpeechSegmentTracker:
@@ -104,8 +107,10 @@ class SpeechSegmentTracker:
         self.current_start_event = start_event
         self.current_vad_states = []
 
-        print(
-            f"[TRACKER] START → segment {self.segment_counter} (dir: {self.current_start_event.segment_dir})"
+        console.print(
+            f"[TRACKER] [bold green]START[/] segment [cyan]{self.segment_counter}[/]  "
+            f"(dir: [magenta]{self.current_start_event.segment_dir or '—'}[/])",
+            style="bold",
         )
 
     def _end_segment(self, result: StreamVadFrameResult) -> None:
@@ -143,8 +148,20 @@ class SpeechSegmentTracker:
         for handler in self.handlers:
             handler.on_segment_end(end_event)
 
-        print(f"[TRACKER] END → segment {self.segment_counter}\n")
+        reason = self.current_trigger_reason
 
+        if self.current_forced_split:
+            reason += " [forced]"
+
+        console.print(
+            f"[TRACKER] [bold red]END[/]   segment [cyan]{self.segment_counter}[/]  "
+            f"duration [yellow]{end_event.duration_sec:.2f}s[/]  • [italic magenta]{reason}[/]\n",
+            style="bold",
+        )
+
+        self.reset()
+
+    def reset(self):
         # Reset
         self.current_forced_split = False
         self.current_trigger_reason = "silence"
