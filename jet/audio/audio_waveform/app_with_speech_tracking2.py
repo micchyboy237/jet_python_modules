@@ -4,7 +4,6 @@ Main application logic — coordinates audio, VADs and UI updates
 
 from __future__ import annotations
 
-import signal
 import sys
 import threading
 from queue import Empty, Queue
@@ -81,8 +80,6 @@ class AudioWaveformWithSpeechProbApp:
         # Qt setup
         self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(True)
-
-        signal.signal(signal.SIGINT, lambda sig, frame: self.app.quit())
 
         pg.setConfigOptions(useOpenGL=True)
 
@@ -222,11 +219,30 @@ class AudioWaveformWithSpeechProbApp:
         high = np.where(high_mask, data, np.nan)
 
         low_curve, mid_curve, high_curve = curves
-        low_curve.setData(x, low)
-        mid_curve.setData(x, mid)
-        high_curve.setData(x, high)
+
+        try:
+            low_curve.setData(x, low)
+            mid_curve.setData(x, mid)
+            high_curve.setData(x, high)
+        except RuntimeError:
+            # Qt object already deleted → ignore safely
+            pass
 
     def start(self) -> None:
         with self.stream:
             self.app.exec()
         self._running = False
+
+    def close(self) -> None:
+        """Gracefully handle Ctrl+C"""
+        print("\n[App] Shutting down UI...")
+
+        # stop worker loop
+        self._running = False
+
+        # close main window explicitly
+        if hasattr(self, "win") and self.win:
+            self.win.close()
+
+        # quit Qt event loop
+        self.app.quit()

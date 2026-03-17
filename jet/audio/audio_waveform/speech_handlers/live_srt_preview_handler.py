@@ -148,8 +148,8 @@ class SubtitlePreviewWindow(QMainWindow):
             self.text_area.setTextCursor(cursor)
 
     def closeEvent(self, event):
-        event.ignore()
-        self.hide()
+        # Allow real close when app is shutting down
+        event.accept()
 
 
 class LiveSrtPreviewHandler(SpeechSegmentHandler):

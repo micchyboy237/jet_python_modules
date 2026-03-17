@@ -163,6 +163,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
         self.ws: Optional[ClientConnection] = None
         self.loop = asyncio.new_event_loop()
+        self._stop_event = threading.Event()
         self._loop_thread = threading.Thread(
             target=self._run_loop,
             daemon=True,
@@ -182,7 +183,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
         print(f"[WS] Connecting → {self.ws_url}")
 
-        while True:
+        while not self._stop_event.is_set():
             try:
                 async with connect(
                     self.ws_url,
@@ -212,6 +213,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 traceback.print_exc()
 
             self.ws = None
+
+            if self._stop_event.is_set():
+                print("[WS] Stop requested — exiting reconnect loop")
+                break
 
             attempt += 1
             if attempt >= self.reconnect_attempts:
@@ -351,11 +356,21 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self.loop.call_soon_threadsafe(lambda: self.loop.create_task(send_payload()))
 
     def close(self):
+        self._stop_event.set()
+
         if self.ws is not None:
             try:
-                # Best-effort synchronous close
                 future = asyncio.run_coroutine_threadsafe(self.ws.close(), self.loop)
                 future.result(timeout=3.0)
             except Exception as e:
                 print(f"[WS] Error during close: {e}")
+
+        # stop event loop
+        if self.loop.is_running():
+            self.loop.call_soon_threadsafe(self.loop.stop)
+
+        # wait for thread to exit
+        if self._loop_thread.is_alive():
+            self._loop_thread.join(timeout=3.0)
+
         print("[WS] Client shutdown requested")

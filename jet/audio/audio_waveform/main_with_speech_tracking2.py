@@ -57,6 +57,7 @@ def main():
 
     def graceful_shutdown():
         print("\nShutting down gracefully...")
+        app.close()
         ws_handler.close()
         preview_handler.close()
 
