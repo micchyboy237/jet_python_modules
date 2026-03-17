@@ -8,7 +8,7 @@ from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_handlers.websocket_subtitle_sender import (
     SubtitleEntry,
 )
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -30,6 +30,8 @@ class SubtitlePreviewWindow(QMainWindow):
 
         self.setWindowTitle("Live Subtitles")
         self.resize(450, 550)
+
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         # ✅ Top-right positioning
         screen = QApplication.primaryScreen().availableGeometry()
