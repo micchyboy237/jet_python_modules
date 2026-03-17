@@ -1,3 +1,6 @@
+import os
+import shutil
+import subprocess
 import sys
 
 from jet.audio.audio_waveform.speech_events import (
@@ -87,25 +90,51 @@ class SubtitlePreviewWindow(QMainWindow):
         self.show()
 
     def clear_all(self):
+        # Remove associated segment directories
+        for entry in self.accumulator.entries:
+            segment_dir = entry.get("segment_dir")
+            if segment_dir and os.path.exists(segment_dir):
+                try:
+                    shutil.rmtree(segment_dir)
+                except Exception:
+                    # Silent fail (optional: log later if needed)
+                    pass
+
+        # Clear in-memory entries and UI
         self.accumulator.entries.clear()
         self.text_area.clear()
 
     def _format_entry(self, i: int, e: dict) -> str:
-        start = f"{e['start']:.2f}s"
-        end = f"{e['end']:.2f}s"
+        # Compute gap from previous segment end
+        prev_end = 0.0
+        if i > 1:
+            prev = self.accumulator.entries[i - 2]
+            prev_end = prev["end"]
+
+        gap = e["start"] - prev_end
+        gap_str = f"{gap:.2f}s"
+
         duration = f"{(e['end'] - e['start']):.2f}s"
 
         text = f"{e['ja']}\n{e['en']}".strip()
         if not text:
             text = "[no transcription]"
 
+        segment_dir = e.get("segment_dir")
+        open_link = (
+            f'<a href="open:{i}" style="color:#58a6ff; text-decoration:none;">📂</a>'
+            if segment_dir
+            else ""
+        )
+
         return f"""
 <div style="margin-bottom:6px;">
 <b style="font-size:10px;">{i}</b>
 <span style="font-size:10px; color:#8b949e;">
-[{start} → {end}] ({duration})
+[gap: {gap_str}] ({duration})
 </span>
 <a href="copy:{i}" style="color:#58a6ff; text-decoration:none;">📋</a>
+{open_link}
 <br/>
 <pre style="white-space:pre-wrap; margin:0; font-size:10px;">{text}</pre>
 </div>
@@ -130,6 +159,17 @@ class SubtitlePreviewWindow(QMainWindow):
                 # lightweight success feedback
                 self.setWindowTitle("Copied ✓")
                 QTimer.singleShot(800, lambda: self.setWindowTitle("Live Subtitles"))
+
+        elif url.toString().startswith("open:"):
+            idx = int(url.toString().split(":")[1]) - 1
+            if 0 <= idx < len(self.accumulator.entries):
+                e = self.accumulator.entries[idx]
+                segment_dir = e.get("segment_dir")
+                if segment_dir:
+                    try:
+                        subprocess.Popen(["open", segment_dir])
+                    except Exception:
+                        pass
 
     def update_display(self):
         if not self.accumulator.entries:

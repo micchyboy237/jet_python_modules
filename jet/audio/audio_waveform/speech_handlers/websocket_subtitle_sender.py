@@ -43,14 +43,15 @@ class SubtitleEntry:
     ):
         entry = {
             "uuid": uuid_str,
+            "segment_id": segment_id,
             "index": len(self.entries) + 1 + len(self.by_uuid),
             "start": start_sec,
             "end": end_sec,
             "ja": "",
             "en": "",
-            "segment_id": segment_id,
             "received_at": None,
             "final": False,
+            "segment_dir": segment_dir,
         }
 
         self.by_uuid[uuid_str] = entry
