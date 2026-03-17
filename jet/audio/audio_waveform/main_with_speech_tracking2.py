@@ -14,7 +14,7 @@ from jet.audio.audio_waveform.speech_handlers.speech_segment_saver import (
 
 OUTPUT_DIR = Path(__file__).parent / "generated"
 SAVED_SPEECH_SEGMENTS_DIR = OUTPUT_DIR / "saved_speech_segments"
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+shutil.rmtree(SAVED_SPEECH_SEGMENTS_DIR, ignore_errors=True)
 SAVED_SPEECH_SEGMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
 

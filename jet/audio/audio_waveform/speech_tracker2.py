@@ -44,11 +44,12 @@ class SpeechSegmentTracker:
 
     def on_frame(self, result: StreamVadFrameResult) -> None:
         """Called for every VAD frame result."""
+
+        # ✅ START must happen BEFORE append
         if result.is_speech_start:
             self._start_new_segment(result)
-        if result.is_speech_end:
-            self._end_segment(result)
 
+        # ✅ Append AFTER start so first frame is captured correctly
         if self.is_speaking:
             entry: SpeechFrame = {
                 "frame_idx": result.frame_idx,
@@ -62,6 +63,10 @@ class SpeechSegmentTracker:
                 "vad_state": self._get_vad_state_name(),
             }
             self.current_frames.append(entry)
+
+        # ✅ END after append so last frame is included
+        if result.is_speech_end:
+            self._end_segment(result)
 
     def _get_vad_state_name(self) -> VadStateLabel:
         if self.postprocessor is not None and hasattr(self.postprocessor, "state"):
@@ -80,8 +85,9 @@ class SpeechSegmentTracker:
 
         start_event = SpeechSegmentStartEvent(
             segment_id=self.segment_counter,
-            start_frame=int(result.speech_start_frame),
-            start_time_sec=(result.speech_start_frame - 1) / 100.0,
+            # ✅ align time with actual stored frame
+            start_frame=int(result.frame_idx),
+            start_time_sec=(result.frame_idx - 1) / 100.0,
             started_at=now_str,
             segment_dir=None,
         )
@@ -107,7 +113,7 @@ class SpeechSegmentTracker:
             return
 
         self.is_speaking = False
-        end_frame = result.speech_end_frame
+        end_frame = self.current_frames[-1]["frame_idx"]
         end_time_sec = (end_frame - 1) / 100.0
 
         if self.postprocessor is not None:
