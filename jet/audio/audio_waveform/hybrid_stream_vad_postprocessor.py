@@ -93,7 +93,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         prev_speech = self.speech_cnt
         prev_silence = self.silence_cnt
 
-        if self.hit_max_speech:
+        if self.hit_max_speech and is_speech:
             result.is_speech_start = True
             console.print(
                 f"[RECOVERY] {self.frame_cnt:5d} | {self.state.name} → SPEECH START (hit max recovery)",
@@ -114,7 +114,28 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         elif self.state == VadState.POSSIBLE_SPEECH:
             if is_speech:
                 self.speech_cnt += 1
+
+                # NEW: validate actual speech density
+                valid_start = True
+
                 if self.speech_cnt >= self.min_speech_frame:
+                    # --- Speech quality gate ---
+                    recent = list(self.recent_probs)[-self.min_speech_frame :]
+                    if recent:
+                        speech_frames = sum(p >= self.speech_threshold for p in recent)
+                        speech_ratio = speech_frames / len(recent)
+
+                        # Require majority of frames to be real speech
+                        if speech_ratio < 0.6:
+                            valid_start = False
+
+                    if not valid_start:
+                        # reset instead of promoting to SPEECH
+                        self.state = VadState.SILENCE
+                        self.speech_cnt = 0
+                        self.silence_cnt = 1
+                        return result
+
                     self.state = VadState.SPEECH
                     result.is_speech_start = True
                     console.print(
