@@ -1,4 +1,5 @@
-# jet_python_modules/jet/audio/audio_waveform/speech_segment_handler.py
+# jet.audio.audio_waveform.speech_segment_handler
+
 from abc import ABC, abstractmethod
 
 from jet.audio.audio_waveform.speech_events import (

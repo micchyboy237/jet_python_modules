@@ -1,4 +1,5 @@
-# jet_python_modules/jet/audio/audio_waveform/speech_segment_saver.py
+# jet.audio.audio_waveform.speech_segment_saver
+
 import json
 from datetime import datetime
 from pathlib import Path
