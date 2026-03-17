@@ -61,8 +61,6 @@ class SpeechSegmentTracker:
                 "is_speech": result.is_speech,
                 "is_speech_start": result.is_speech_start,
                 "is_speech_end": result.is_speech_end,
-                "speech_start_frame": result.speech_start_frame,
-                "speech_end_frame": result.speech_end_frame,
                 "vad_state": self._get_vad_state_name(),
             }
             self.current_frames.append(entry)

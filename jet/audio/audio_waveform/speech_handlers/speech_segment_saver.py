@@ -2,6 +2,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,7 +13,27 @@ from jet.audio.audio_waveform.speech_events import (
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_types import SpeechFrame
+from jet.audio.helpers.energy import (
+    LoudnessLabel,
+    compute_l1_energy,
+    compute_l2_energy,
+    compute_rms,
+    has_sound,
+    rms_to_loudness_label,
+)
 from jet.transformers.object import make_serializable
+
+
+class SpeechFrameEnergy(TypedDict):
+    has_sound: bool
+    loudness: LoudnessLabel
+    rms: float
+    l1_energy: float
+    l2_energy: float
+
+
+class SpeechFrameWithEnergy(SpeechFrame):
+    energy: SpeechFrameEnergy
 
 
 class SpeechSegmentSaver(SpeechSegmentHandler):
@@ -71,27 +92,14 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         )
 
         # 3. Probabilities
+        prob_frames_with_energy = self._compute_energies(event.audio, event.prob_frames)
         probs_path = dir_path / "speech_probs.json"
         probs_path.write_text(
-            json.dumps({"probs": event.prob_frames}, indent=2), encoding="utf-8"
+            json.dumps({"probs": prob_frames_with_energy}, indent=2), encoding="utf-8"
         )
 
         # 4. Plot
-        if event.prob_frames:
-            fig, ax = plt.subplots(figsize=(10, 2.5), dpi=120)
-            xs = [p["frame_idx"] for p in event.prob_frames]
-            ys = [p["smoothed_prob"] for p in event.prob_frames]
-            ax.plot(xs, ys, color="#1f77b4", lw=1.1, label="smoothed prob")
-            ax.axhline(0.5, color="darkred", ls="--", alpha=0.5, label="threshold")
-            ax.set_ylim(0, 1.05)
-            ax.set_xlim(xs[0], xs[-1])
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc="upper right")
-            ax.set_title(f"Segment {event.segment_id} | {event.duration_sec:.1f}s")
-            chart_path = dir_path / "speech_prob_plot.png"
-            plt.savefig(chart_path, bbox_inches="tight", dpi=140)
-            plt.close(fig)
-            print(f"  Saved chart: {chart_path.name}")
+        self._generate_speech_prob_plot(event, prob_frames_with_energy)
 
         print(f"[SAVER] Finished → {dir_path}\n")
 
@@ -120,3 +128,101 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
             "speech_frame_ratio": round(speech_ratio, 3),
             "energy_db_avg": round(energy_db, 2),
         }
+
+    def _compute_energies(
+        self, audio: np.ndarray, frames: list[SpeechFrame]
+    ) -> list[SpeechFrameWithEnergy]:
+        frames_with_energy: list[SpeechFrameWithEnergy] = []
+
+        frame_size = int(len(audio) / len(frames)) if frames else 0
+
+        for idx, frame in enumerate(frames):
+            # frame["frame_idx"] is assumed to be ordered and sequential
+            # Calculate the start and end indices for the audio chunk corresponding to this frame
+            start = idx * frame_size
+            end = (idx + 1) * frame_size if idx < len(frames) - 1 else len(audio)
+            audio_frame = audio[start:end]
+            rms = compute_rms(audio_frame)
+            energy_info: SpeechFrameEnergy = {
+                "has_sound": has_sound(audio_frame),
+                "loudness": rms_to_loudness_label(rms),
+                "rms": round(rms, 4),
+                "l1_energy": round(compute_l1_energy(audio_frame), 4),
+                "l2_energy": round(compute_l2_energy(audio_frame), 4),
+            }
+            frames_with_energy.append(
+                {
+                    **frame,
+                    "energy": energy_info,
+                }
+            )
+
+        return frames_with_energy
+
+    def _generate_speech_prob_plot(
+        self, event: SpeechSegmentEndEvent, prob_frames: list[SpeechFrameWithEnergy]
+    ):
+        if not prob_frames:
+            print("  No prob frames → skipping plot")
+            return
+
+        dir_path = event.segment_dir
+
+        # ── Prepare data ───────────────────────────────────────────────────────
+        xs = np.array([p["frame_idx"] for p in prob_frames])
+
+        smoothed_probs = np.array([p["smoothed_prob"] for p in prob_frames])
+
+        rms_values = np.array([p["energy"]["rms"] for p in prob_frames])
+
+        # Normalize: rms ∈ [0.0, 0.1] → [0.0, 1.0], clip above 0.1
+        MAX_RMS = 0.1
+        norm_energy = np.clip(rms_values / MAX_RMS, 0.0, 1.0)
+
+        # ── Create even smaller figure ────────────────────────────────────────
+        fig = plt.figure(figsize=(9, 6.2), dpi=140)  # reduced from (10,7)
+        fig.suptitle(
+            f"Segment {event.segment_id}  •  {event.duration_sec:.1f}s  •  {len(prob_frames)} frames",
+            fontsize=11,  # smaller suptitle
+            y=0.975,
+        )
+
+        gs = fig.add_gridspec(2, 1, hspace=0.38)
+
+        # Common x-limits
+        x_min, x_max = xs[0], xs[-1]
+
+        # ── Top: Smoothed probability ─────────────────────────────────────────
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax1.plot(xs, smoothed_probs, color="#1f77b4", lw=1.4, label="smoothed prob")
+        ax1.axhline(0.5, color="darkred", ls="--", lw=0.9, alpha=0.7, label="threshold")
+        ax1.set_title("Smoothed Speech Probability", fontsize=10)
+        ax1.set_ylabel("Probability", fontsize=9)
+        ax1.set_ylim(-0.05, 1.05)
+        ax1.set_xlim(x_min, x_max)
+        ax1.grid(True, alpha=0.3, ls=":")
+        ax1.legend(loc="upper right", fontsize=8)
+
+        # ── Bottom: Normalized energy ─────────────────────────────────────────
+        ax2 = fig.add_subplot(gs[1, 0])
+        ax2.plot(
+            xs, norm_energy, color="#ff7f0e", lw=1.3, label="norm. energy (rms → 0–1)"
+        )
+        ax2.axhline(0.5, color="darkred", ls="--", lw=0.9, alpha=0.7, label="0.5 ref")
+        ax2.set_title("Normalized Energy (RMS clipped at 0.1)", fontsize=10)
+        ax2.set_xlabel("Frame index", fontsize=9)
+        ax2.set_ylabel("Normalized [0–1]", fontsize=9)
+        ax2.set_ylim(-0.05, 1.05)
+        ax2.set_xlim(x_min, x_max)
+        ax2.grid(True, alpha=0.3, ls=":")
+        ax2.legend(loc="upper right", fontsize=8)
+
+        # ── Final styling & save ──────────────────────────────────────────────
+        plt.tight_layout(
+            rect=[0.06, 0.04, 0.94, 0.92]
+        )  # tighter margins for compact feel
+        chart_path = dir_path / "speech_prob_energy_2panel.png"
+        plt.savefig(chart_path, bbox_inches="tight", dpi=160)
+        plt.close(fig)
+
+        print(f"  Saved chart: {chart_path.name}")
