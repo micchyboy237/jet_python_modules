@@ -96,8 +96,21 @@ class SubtitleEntry:
 
         try:
             path = segment_dir / "subtitles.srt"
-            path.write_text(self.to_srt(), encoding="utf-8")
+
+            # ✅ Only write the actual item (not full list)
+            entry = next((e for e in self.entries if e["uuid"] == uuid_str), None)
+            if not entry:
+                return
+
+            start = self._format_time(entry["start"])
+            end = self._format_time(entry["end"])
+            text = f"{entry['ja']}\n{entry['en']}".strip() or "[no transcription]"
+
+            content = "\n".join(["1", f"{start} --> {end}", text, ""])
+
+            path.write_text(content, encoding="utf-8")
             print(f"[SRT] Segment subtitles updated successfully: {path}")
+
         except Exception as e:
             print(f"[SRT] Failed writing segment SRT: {e}")
 
