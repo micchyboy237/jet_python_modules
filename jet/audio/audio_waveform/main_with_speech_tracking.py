@@ -107,7 +107,7 @@ def main():
         # min_silence_duration_sec=0.9,
         # max_speech_duration_sec=5.0,
         # merge_small_segments=True,
-        min_silence_frame=90,
+        min_silence_frame=200,  # 2 seconds
     )
     speech_tracker = StreamingSpeechTracker(
         vad=vad_fr.vad,

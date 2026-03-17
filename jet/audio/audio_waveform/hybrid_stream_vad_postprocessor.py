@@ -237,7 +237,6 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                 #     # (No state change, not marking is_speech_end)
                 #     # end of soft segment hold logic
                 #     return result
-
                 # --------------------------------------------------
 
                 if self.silence_cnt >= self.min_silence_frame:

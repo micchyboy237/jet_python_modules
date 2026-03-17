@@ -29,7 +29,7 @@ GLOBAL_SRT_PATH = OUTPUT_DIR / "live_subtitles.srt"
 
 
 def main():
-    min_silence_frame = 90
+    min_silence_frame = 200  # 2 sec
     app = AudioWaveformWithSpeechProbApp(
         samplerate=16000,
         block_size=512,
