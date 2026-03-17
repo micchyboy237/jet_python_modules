@@ -87,6 +87,8 @@ class SubtitlePreviewWindow(QMainWindow):
 
         self.show()
 
+        self._last_html: str | None = None
+
     def clear_all(self):
         # Clear in-memory entries and UI
         self.accumulator.clear()
@@ -161,19 +163,32 @@ class SubtitlePreviewWindow(QMainWindow):
 
     def update_display(self):
         if not self.accumulator.entries:
-            self.text_area.setHtml("Waiting for transcribed segments…")
+            html = "Waiting for transcribed segments…"
+        else:
+            html_parts = []
+            for i, e in enumerate(self.accumulator.entries, 1):
+                html_parts.append(self._format_entry(i, e))
+            html = "".join(html_parts)
+
+        # ✅ Skip if nothing changed → prevents flicker
+        if html == self._last_html:
             return
 
-        html = ""
-        for i, e in enumerate(self.accumulator.entries, 1):
-            html += self._format_entry(i, e)
+        self._last_html = html
+
+        scrollbar = self.text_area.verticalScrollBar()
+        old_value = scrollbar.value()
+        at_bottom = old_value >= scrollbar.maximum() - 20
 
         self.text_area.setHtml(html)
 
-        if self._auto_scroll_enabled:
+        # ✅ Restore scroll position
+        if at_bottom:
             cursor = self.text_area.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
             self.text_area.setTextCursor(cursor)
+        else:
+            scrollbar.setValue(old_value)
 
     def closeEvent(self, event):
         # Allow real close when app is shutting down
