@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from fireredvad.core.audio_feat import AudioFeat
 from fireredvad.core.detect_model import DetectModel
+from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 from jet.audio.audio_waveform.hybrid_stream_vad_postprocessor import (
     HybridStreamVadPostprocessor,
 )
@@ -39,14 +40,24 @@ class FireRedVADWrapper:
     """Streaming FireRedVAD wrapper"""
 
     def __init__(
-        self, device: str | None = None, tracker: SpeechSegmentTracker | None = None
+        self,
+        tracker: SpeechSegmentTracker | None = None,
+        device: str | None = None,
+        smooth_window_size: int = 5,
+        speech_threshold: float = 0.5,
+        pad_start_frame: int = 5,
+        min_speech_frame: int = 30,
+        soft_max_speech_frame: int = 450,
+        hard_max_speech_frame: int = 800,
+        min_silence_frame: int = 20,
+        chunk_max_frame: int = 30000,
+        search_window: int = 200,
+        valley_threshold: float = 0.65,
     ) -> None:
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
 
         print(f"Loading FireRedVAD **streaming** on {device}... ", end="", flush=True)
-
-        from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 
         model_dir = str(
             Path("~/.cache/pretrained_models/FireRedVAD/Stream-VAD")
@@ -56,13 +67,13 @@ class FireRedVADWrapper:
 
         config = FireRedStreamVadConfig(
             use_gpu=(device == "cuda"),
-            speech_threshold=0.5,
-            smooth_window_size=5,
-            pad_start_frame=5,
-            min_speech_frame=30,
-            max_speech_frame=500,
-            min_silence_frame=20,
-            chunk_max_frame=30000,
+            speech_threshold=speech_threshold,
+            smooth_window_size=smooth_window_size,
+            pad_start_frame=pad_start_frame,
+            min_speech_frame=min_speech_frame,
+            max_speech_frame=hard_max_speech_frame,
+            min_silence_frame=min_silence_frame,
+            chunk_max_frame=chunk_max_frame,
         )
 
         cmvn_path = os.path.join(model_dir, "cmvn.ark")
@@ -75,12 +86,15 @@ class FireRedVADWrapper:
             vad_model.cpu()
 
         postprocessor = HybridStreamVadPostprocessor(
-            config.smooth_window_size,
-            config.speech_threshold,
-            config.pad_start_frame,
-            config.min_speech_frame,
-            config.max_speech_frame,
-            config.min_silence_frame,
+            smooth_window_size=smooth_window_size,
+            speech_threshold=speech_threshold,
+            pad_start_frame=pad_start_frame,
+            min_speech_frame=min_speech_frame,
+            soft_max_speech_frame=soft_max_speech_frame,
+            hard_max_speech_frame=hard_max_speech_frame,
+            min_silence_frame=min_silence_frame,
+            search_window=search_window,
+            valley_threshold=valley_threshold,
         )
 
         self.vad = FireRedStreamVad(
@@ -94,10 +108,9 @@ class FireRedVADWrapper:
         self.audio_buffer = np.array([], dtype=np.float32)
         self.last_prob = 0.0
 
-        self.tracker = tracker
+        self.tracker = tracker or SpeechSegmentTracker()
         # Give tracker access to postprocessor so it can read forced_split etc.
-        if self.tracker is not None:
-            self.tracker.postprocessor = self.vad.postprocessor
+        self.tracker.postprocessor = self.vad.postprocessor
 
     def _normalize_chunk(self, chunk: np.ndarray) -> np.ndarray:
         # Simple dynamic range compression / normalization

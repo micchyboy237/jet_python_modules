@@ -1,14 +1,17 @@
 # jet_python_modules/jet/audio/audio_waveform/speech_tracker2.py
 from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 from fireredvad.core.stream_vad_postprocessor import StreamVadFrameResult
+from jet.audio.audio_waveform.hybrid_stream_vad_postprocessor import (
+    HybridStreamVadPostprocessor,
+)
 from jet.audio.audio_waveform.speech_events import (
     SpeechSegmentEndEvent,
     SpeechSegmentStartEvent,
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
+from jet.audio.audio_waveform.speech_types import SpeechFrame, VadStateLabel
 
 
 class SpeechSegmentTracker:
@@ -19,14 +22,13 @@ class SpeechSegmentTracker:
         self.is_speaking = False
         self.segment_counter = 0
         self.current_audio: np.ndarray = np.empty(0, dtype=np.float32)
-        self.current_probs: list[dict] = []
-        self.current_segment_dir: Path | None = None
+        self.current_frames: list[SpeechFrame] = []
         self.current_start_frame = -1
-        self.current_summary: dict = {}
+        self.current_start_event: SpeechSegmentStartEvent | None = None
         self.current_forced_split = False
         self.current_trigger_reason = "silence"
         self.current_vad_states = []
-        self.postprocessor = None
+        self.postprocessor: HybridStreamVadPostprocessor | None = None
 
         self.handlers: list[SpeechSegmentHandler] = []
 
@@ -48,7 +50,7 @@ class SpeechSegmentTracker:
             self._end_segment(result)
 
         if self.is_speaking:
-            entry = {
+            entry: SpeechFrame = {
                 "frame_idx": result.frame_idx,
                 "raw_prob": result.raw_prob,
                 "smoothed_prob": result.smoothed_prob,
@@ -59,14 +61,14 @@ class SpeechSegmentTracker:
                 "speech_end_frame": result.speech_end_frame,
                 "vad_state": self._get_vad_state_name(),
             }
-            self.current_probs.append(entry)
+            self.current_frames.append(entry)
 
-    def _get_vad_state_name(self) -> str:
+    def _get_vad_state_name(self) -> VadStateLabel:
         if self.postprocessor is not None and hasattr(self.postprocessor, "state"):
             return getattr(
                 self.postprocessor.state, "name", str(self.postprocessor.state)
             )
-        return "?"
+        return "UNKNOWN"
 
     def _start_new_segment(self, result: StreamVadFrameResult) -> None:
         if self.is_speaking:
@@ -74,13 +76,13 @@ class SpeechSegmentTracker:
 
         self.is_speaking = True
         self.segment_counter += 1
-        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        now_str = datetime.now().isoformat()
 
         start_event = SpeechSegmentStartEvent(
             segment_id=self.segment_counter,
             start_frame=int(result.speech_start_frame),
-            start_time_sec=round((result.speech_start_frame - 1) / 100.0, 3),
-            datetime_started=now_str,
+            start_time_sec=(result.speech_start_frame - 1) / 100.0,
+            started_at=now_str,
             segment_dir=None,
         )
 
@@ -89,21 +91,15 @@ class SpeechSegmentTracker:
             handler.on_segment_start(start_event)
 
         # Remember the directory if any handler set it
-        self.current_segment_dir = start_event.segment_dir
 
         self.current_audio = np.empty(0, dtype=np.float32)
-        self.current_probs = []
+        self.current_frames = []
         self.current_start_frame = result.speech_start_frame
-        self.current_summary = {
-            "segment_id": self.segment_counter,
-            "start_frame": int(result.speech_start_frame),
-            "start_time_sec": start_event.start_time_sec,
-            "datetime_started": now_str,
-        }
+        self.current_start_event = start_event
         self.current_vad_states = []
 
         print(
-            f"[TRACKER] START → segment {self.segment_counter} (dir: {self.current_segment_dir})"
+            f"[TRACKER] START → segment {self.segment_counter} (dir: {self.current_start_event.segment_dir})"
         )
 
     def _end_segment(self, result: StreamVadFrameResult) -> None:
@@ -112,7 +108,7 @@ class SpeechSegmentTracker:
 
         self.is_speaking = False
         end_frame = result.speech_end_frame
-        end_time_sec = round((end_frame - 1) / 100.0, 3)
+        end_time_sec = (end_frame - 1) / 100.0
 
         if self.postprocessor is not None:
             self.current_forced_split = getattr(
@@ -122,55 +118,19 @@ class SpeechSegmentTracker:
                 self.postprocessor, "last_split_reason", "silence"
             )
 
-        # Compute statistics
-        if self.current_probs:
-            probs = [p["smoothed_prob"] for p in self.current_probs]
-            is_speech_list = [p["is_speech"] for p in self.current_probs]
-            avg_prob = round(sum(probs) / len(probs), 3)
-            max_prob = round(max(probs), 3)
-            min_prob = round(min(probs), 3)
-            speech_ratio = round(sum(is_speech_list) / len(is_speech_list), 3)
-        else:
-            avg_prob = max_prob = min_prob = speech_ratio = 0.0
-
-        if len(self.current_audio) > 0:
-            rms = np.sqrt(np.mean(self.current_audio**2))
-            energy_db = round(20 * np.log10(rms + 1e-10), 2)
-        else:
-            energy_db = -float("inf")
-
-        self.current_summary.update(
-            {
-                "end_frame": int(end_frame),
-                "end_time_sec": end_time_sec,
-                "duration_sec": round(
-                    end_time_sec - self.current_summary["start_time_sec"], 3
-                ),
-                "audio_samples": len(self.current_audio),
-                "prob_frames": len(self.current_probs),
-                "forced_split": self.current_forced_split,
-                "trigger_reason": self.current_trigger_reason,
-                "avg_smoothed_prob": float(avg_prob),
-                "max_smoothed_prob": float(max_prob),
-                "min_smoothed_prob": float(min_prob),
-                "speech_frame_ratio": speech_ratio,
-                "energy_db_avg": energy_db,
-            }
-        )
-
         end_event = SpeechSegmentEndEvent(
             segment_id=self.segment_counter,
-            start_frame=self.current_summary["start_frame"],
+            start_frame=self.current_start_event.start_frame,
             end_frame=int(end_frame),
-            start_time_sec=self.current_summary["start_time_sec"],
+            start_time_sec=self.current_start_event.start_time_sec,
             end_time_sec=end_time_sec,
-            duration_sec=self.current_summary["duration_sec"],
+            duration_sec=end_time_sec - self.current_start_event.start_time_sec,
             audio=self.current_audio.copy(),
-            probs=self.current_probs[:],
+            prob_frames=self.current_frames[:],
             forced_split=self.current_forced_split,
             trigger_reason=self.current_trigger_reason,
-            summary=self.current_summary.copy(),
-            segment_dir=self.current_segment_dir,
+            started_at=self.current_start_event.started_at,
+            segment_dir=self.current_start_event.segment_dir,
         )
 
         # Notify all handlers
@@ -182,8 +142,8 @@ class SpeechSegmentTracker:
         # Reset
         self.current_forced_split = False
         self.current_trigger_reason = "silence"
-        self.current_segment_dir = None
+        self.current_start_event = None
         self.current_audio = np.empty(0, dtype=np.float32)
-        self.current_probs = []
+        self.current_frames = []
         self.current_start_frame = -1
         self.current_vad_states = []

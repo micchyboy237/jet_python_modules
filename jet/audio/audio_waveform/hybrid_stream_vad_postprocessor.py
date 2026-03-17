@@ -13,17 +13,20 @@ console = Console()
 class HybridStreamVadPostprocessor(StreamVadPostprocessor):
     def __init__(
         self,
-        smooth_window_size,
-        speech_threshold,
-        pad_start_frame,
-        min_speech_frame,
-        max_speech_frame,
-        min_silence_frame,
+        smooth_window_size: int = 5,
+        speech_threshold: float = 0.5,
+        pad_start_frame: int = 5,
+        min_speech_frame: int = 30,
+        soft_max_speech_frame: int = 450,  # start waiting for natural split
+        hard_max_speech_frame: int = 800,
+        min_silence_frame: int = 20,
+        search_window: int = 200,  # n second look-back for shortest valley
+        valley_threshold: float = 0.65,  # probability dip below this = good split point
     ):
-        self.soft_limit = 450  # start waiting for natural split
-        self.hard_limit = 800  # absolute safety (was 500)
-        self.search_window = 200  # ~2 second look-back
-        self.valley_threshold = 0.65  # probability dip below this = good split point
+        self.soft_limit = soft_max_speech_frame
+        self.hard_limit = hard_max_speech_frame
+        self.search_window = search_window
+        self.valley_threshold = valley_threshold
 
         # Logging suppression helpers
         self._last_state = None
@@ -41,7 +44,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
             speech_threshold,
             pad_start_frame,
             min_speech_frame,
-            max_speech_frame,
+            hard_max_speech_frame,
             min_silence_frame,
         )
 
