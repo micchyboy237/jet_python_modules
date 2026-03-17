@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import shutil
 import threading
 import uuid
 from datetime import datetime
@@ -27,6 +28,14 @@ from websockets.exceptions import (
 
 
 class SubtitleEntry:
+    @staticmethod
+    def _format_time(s: float) -> str:
+        h = int(s // 3600)
+        m = int((s % 3600) // 60)
+        sec = s % 60
+        ms = int((sec - int(sec)) * 1000)
+        return f"{h:02d}:{m:02d}:{int(sec):02d},{ms:03d}"
+
     def __init__(self, output_path: Path | None = None):
         self.entries: List[dict] = []
         self.by_uuid: Dict[str, dict] = {}
@@ -126,13 +135,20 @@ class SubtitleEntry:
             lines.extend([str(i), f"{start} --> {end}", text, ""])
         return "\n".join(lines)
 
-    @staticmethod
-    def _format_time(s: float) -> str:
-        h = int(s // 3600)
-        m = int((s % 3600) // 60)
-        sec = s % 60
-        ms = int((sec - int(sec)) * 1000)
-        return f"{h:02d}:{m:02d}:{int(sec):02d},{ms:03d}"
+    def clear(self) -> None:
+        """
+        Clear all stored subtitle entries and pending data.
+        Resets the accumulator to its initial empty state.
+        """
+        self.entries.clear()
+        self.by_uuid.clear()
+        self.uuid_to_segment_dir.clear()
+
+        # Reset saved data
+        shutil.rmtree(self.output_path.parent, ignore_errors=True)
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        print("[SubtitleEntry] All entries, pending and saved data are cleared")
 
 
 class WebsocketSubtitleSender(SpeechSegmentHandler):

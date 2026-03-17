@@ -1,5 +1,3 @@
-import os
-import shutil
 import subprocess
 import sys
 
@@ -90,18 +88,8 @@ class SubtitlePreviewWindow(QMainWindow):
         self.show()
 
     def clear_all(self):
-        # Remove associated segment directories
-        for entry in self.accumulator.entries:
-            segment_dir = entry.get("segment_dir")
-            if segment_dir and os.path.exists(segment_dir):
-                try:
-                    shutil.rmtree(segment_dir)
-                except Exception:
-                    # Silent fail (optional: log later if needed)
-                    pass
-
         # Clear in-memory entries and UI
-        self.accumulator.entries.clear()
+        self.accumulator.clear()
         self.text_area.clear()
 
     def _format_entry(self, i: int, e: dict) -> str:
