@@ -27,6 +27,16 @@ class AudioWaveformWithSpeechProbApp:
         samplerate: int = 16000,
         block_size: int = 512,
         display_points: int = 200,
+        smooth_window_size: int = 5,
+        speech_threshold: float = 0.5,
+        pad_start_frame: int = 5,
+        min_speech_frame: int = 30,
+        soft_max_speech_frame: int = 450,
+        hard_max_speech_frame: int = 800,
+        min_silence_frame: int = 20,
+        search_window: int = 200,
+        valley_threshold: float = 0.65,
+        chunk_max_frame: int = 30000,
     ) -> None:
         self.samplerate = samplerate
         self.block_size = block_size
@@ -43,7 +53,19 @@ class AudioWaveformWithSpeechProbApp:
         self.vad_sb = SpeechBrainVADWrapper()
 
         self.tracker = SpeechSegmentTracker()
-        self.vad_fr = FireRedVADWrapper(tracker=self.tracker)
+        self.vad_fr = FireRedVADWrapper(
+            tracker=self.tracker,
+            smooth_window_size=smooth_window_size,
+            speech_threshold=speech_threshold,
+            pad_start_frame=pad_start_frame,
+            min_speech_frame=min_speech_frame,
+            soft_max_speech_frame=soft_max_speech_frame,
+            hard_max_speech_frame=hard_max_speech_frame,
+            min_silence_frame=min_silence_frame,
+            search_window=search_window,
+            valley_threshold=valley_threshold,
+            chunk_max_frame=chunk_max_frame,
+        )
 
         # Thread-safe queue
         self.audio_queue: Queue[np.ndarray] = Queue(maxsize=50)

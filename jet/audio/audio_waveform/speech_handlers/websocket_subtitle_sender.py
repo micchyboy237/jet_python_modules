@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
 import soundfile as sf
 from jet.audio.audio_waveform.speech_events import (
     SpeechSegmentEndEvent,
@@ -300,22 +301,24 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 16000,
             )
 
+        # Convert float32 [-1,1] → int16 [-32768, 32767] before sending
+        audio_int16 = np.int16(event.audio * 32767.0).tobytes()
+
         header = {
             "uuid": seg_uuid,
             "start_sec": round(event.start_time_sec, 3),
             "end_sec": round(event.end_time_sec, 3),
             "duration_sec": round(event.duration_sec, 3),
             "sample_rate": 16000,
-            "format": "float32le",
+            "format": "int16le",  # changed from float32le
             "channels": 1,
             "language": "ja",
             "vad_reason": event.trigger_reason,
             "forced": event.forced_split,
         }
         json_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
-        audio_bytes = event.audio.tobytes()
 
-        payload = json_bytes + b"\x00" + audio_bytes
+        payload = json_bytes + b"\x00" + audio_int16
 
         async def send_payload():
             if self.ws is None:
@@ -325,7 +328,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 await self.ws.send(payload)
                 print(
                     f"[WS →] sent seg {event.segment_id}  uuid={seg_uuid[:8]}…  "
-                    f"{len(audio_bytes) / 1024:.1f} KiB"
+                    f"{len(audio_int16) / 1024:.1f} KiB"
                 )
             except ConnectionClosed:
                 print("[WS →] Send failed — connection closed (will retry later)")
