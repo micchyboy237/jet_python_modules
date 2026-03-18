@@ -72,6 +72,7 @@ class SubtitlePreviewWindow(QMainWindow):
 
         # Handle link clicks (copy)
         self.text_area.setOpenExternalLinks(False)
+        self.text_area.setOpenLinks(False)
         self.text_area.anchorClicked.connect(self._handle_anchor_click)
 
         layout.addWidget(self.text_area)

@@ -156,7 +156,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self,
         accumulator: SubtitleEntry,
         ws_url: str | None = None,
-        reconnect_attempts: int = 20,
+        reconnect_attempts: int = 100,
         reconnect_delay: float = 1.0,
         debug_save_audio: bool = False,
         debug_dir: str = "debug_segments",
@@ -341,9 +341,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
         header = {
             "uuid": seg_uuid,
-            "start_sec": round(event.start_time_sec, 3),
-            "end_sec": round(event.end_time_sec, 3),
-            "duration_sec": round(event.duration_sec, 3),
+            "start_sec": event.start_time_sec,
+            "end_sec": event.end_time_sec,
+            "duration_sec": event.duration_sec,
             "sample_rate": 16000,
             "format": "int16le",  # changed from float32le
             "channels": 1,

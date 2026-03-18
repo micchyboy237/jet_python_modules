@@ -116,8 +116,16 @@ class SpeechSegmentTracker:
             return
 
         self.is_speaking = False
-        end_frame = self.current_frames[-1]["frame_idx"]
-        end_time_sec = (end_frame - 1) / 100.0
+
+        # === BEST FIX: use actual audio sample count (eliminates all duration mismatch) ===
+        actual_samples = len(self.current_audio)
+        actual_duration = (
+            actual_samples / self.sample_rate if actual_samples > 0 else 0.0
+        )
+        end_time_sec = self.current_start_event.start_time_sec + actual_duration
+
+        # Keep the original frame-based end_frame only for debug/prob list (unchanged)
+        end_frame = self.current_frames[-1]["frame_idx"] if self.current_frames else 0
 
         if self.postprocessor is not None:
             self.current_forced_split = getattr(
@@ -133,7 +141,7 @@ class SpeechSegmentTracker:
             end_frame=int(end_frame),
             start_time_sec=self.current_start_event.start_time_sec,
             end_time_sec=end_time_sec,
-            duration_sec=end_time_sec - self.current_start_event.start_time_sec,
+            duration_sec=actual_duration,
             audio=self.current_audio.copy(),
             prob_frames=self.current_frames[:],
             forced_split=self.current_forced_split,
