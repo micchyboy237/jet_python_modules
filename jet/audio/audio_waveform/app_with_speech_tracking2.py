@@ -37,6 +37,9 @@ class AudioWaveformWithSpeechProbApp:
         search_window: int = 200,
         valley_threshold: float = 0.65,
         chunk_max_frame: int = 30000,
+        enable_silero: bool = True,
+        enable_speechbrain: bool = True,
+        enable_firered: bool = True,
     ) -> None:
         self.samplerate = samplerate
         self.block_size = block_size
@@ -48,9 +51,12 @@ class AudioWaveformWithSpeechProbApp:
         self.THRES_PROB_MEDIUM = 0.3
         self.THRES_PROB_HIGH = 0.7
 
-        # VAD models
-        self.vad = SileroVAD(samplerate=self.samplerate)
-        self.vad_sb = SpeechBrainVADWrapper()
+        self.enable_silero = enable_silero
+        self.enable_speechbrain = enable_speechbrain
+        self.enable_firered = enable_firered
+
+        self.vad = SileroVAD(samplerate=self.samplerate) if enable_silero else None
+        self.vad_sb = SpeechBrainVADWrapper() if enable_speechbrain else None
 
         self.tracker = SpeechSegmentTracker()
         self.vad_fr = FireRedVADWrapper(
@@ -118,12 +124,7 @@ class AudioWaveformWithSpeechProbApp:
             target=self._inference_worker,
             daemon=True,
         )
-        self.fr_worker_thread = threading.Thread(
-            target=self._firered_worker,
-            daemon=True,
-        )
         self.worker_thread.start()
-        self.fr_worker_thread.start()
 
         # UI update timer
         self.timer = QtCore.QTimer()
@@ -144,41 +145,53 @@ class AudioWaveformWithSpeechProbApp:
             print(status)
         samples = indata[:, 0].astype(np.float32)
         try:
+            # Backpressure strategy: drop oldest instead of rejecting new data
+            if self.audio_queue.full():
+                try:
+                    self.audio_queue.get_nowait()
+                except queue.Empty:
+                    pass
             self.audio_queue.put_nowait(samples)
         except queue.Full:
-            # Rare: consumer too slow → drop frame to avoid blocking callback
-            # Throttle log spam
             print("[audio] Queue full – dropping audio frame")
-
-    def _firered_worker(self) -> None:
-        while self._running:
-            try:
-                samples = self.audio_queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
-            # Only run the heavy model
-            prob_fr = self.vad_fr.get_speech_prob(samples)
-            self.prob_fr_buffer.append(prob_fr)
-            if self.tracker:
-                self.tracker.add_audio(samples)
 
     def _inference_worker(self) -> None:
         while self._running:
             try:
-                samples = self.audio_queue.get()
+                # Batch multiple chunks to improve throughput
+                samples_list = [self.audio_queue.get(timeout=0.1)]
+
+                while not self.audio_queue.empty() and len(samples_list) < 8:
+                    samples_list.append(self.audio_queue.get_nowait())
             except queue.Empty:
                 continue
 
-            self._total_chunks_processed += 1
+            for samples in samples_list:
+                self._total_chunks_processed += 1
 
-            wave_value = np.max(np.abs(samples)) if samples.size > 0 else 0.0
-            self.wave_buffer.append(wave_value)
+                wave_value = np.max(np.abs(samples)) if samples.size > 0 else 0.0
+                self.wave_buffer.append(wave_value)
 
-            prob = self.vad.get_speech_prob(samples)
-            self.prob_buffer.append(prob)
+                if self.vad:
+                    prob = self.vad.get_speech_prob(samples)
+                else:
+                    prob = 0.0
+                self.prob_buffer.append(prob)
 
-            prob_sb = self.vad_sb.get_speech_prob(samples)
-            self.prob_sb_buffer.append(prob_sb)
+                if self.vad_sb:
+                    prob_sb = self.vad_sb.get_speech_prob(samples)
+                else:
+                    prob_sb = 0.0
+                self.prob_sb_buffer.append(prob_sb)
+
+                if self.vad_fr:
+                    prob_fr = self.vad_fr.get_speech_prob(samples)
+                else:
+                    prob_fr = 0.0
+                self.prob_fr_buffer.append(prob_fr)
+
+                if self.tracker:
+                    self.tracker.add_audio(samples)
 
     def _update_plots(self) -> None:
         self._update_one_plot(

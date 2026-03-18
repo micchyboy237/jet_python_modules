@@ -24,7 +24,8 @@ class SpeechSegmentTracker:
         self.sample_rate = 16000
         self.is_speaking = False
         self.segment_counter = 0
-        self.current_audio: np.ndarray = np.empty(0, dtype=np.float32)
+        # Use list buffer to avoid O(n^2) np.append
+        self.current_audio_chunks: list[np.ndarray] = []
         self.current_frames: list[SpeechFrame] = []
         self.current_start_frame = -1
         self.current_start_event: SpeechSegmentStartEvent | None = None
@@ -41,9 +42,7 @@ class SpeechSegmentTracker:
     def add_audio(self, samples: np.ndarray) -> None:
         """Append new microphone block — only while in speaking state."""
         if self.is_speaking and len(samples) > 0:
-            self.current_audio = np.append(
-                self.current_audio, samples.astype(np.float32)
-            )
+            self.current_audio_chunks.append(samples.astype(np.float32))
 
     def on_frame(self, result: StreamVadFrameResult) -> None:
         """Called for every VAD frame result."""
@@ -99,7 +98,7 @@ class SpeechSegmentTracker:
 
         # Remember the directory if any handler set it
 
-        self.current_audio = np.empty(0, dtype=np.float32)
+        self.current_audio_chunks = []
         self.current_frames = []
         self.current_start_frame = result.speech_start_frame
         self.current_start_event = start_event
@@ -117,8 +116,13 @@ class SpeechSegmentTracker:
 
         self.is_speaking = False
 
-        # === BEST FIX: use actual audio sample count (eliminates all duration mismatch) ===
-        actual_samples = len(self.current_audio)
+        # Concatenate once (O(n)) instead of repeated append
+        if self.current_audio_chunks:
+            audio = np.concatenate(self.current_audio_chunks)
+        else:
+            audio = np.empty(0, dtype=np.float32)
+
+        actual_samples = len(audio)
         actual_duration = (
             actual_samples / self.sample_rate if actual_samples > 0 else 0.0
         )
@@ -142,7 +146,7 @@ class SpeechSegmentTracker:
             start_time_sec=self.current_start_event.start_time_sec,
             end_time_sec=end_time_sec,
             duration_sec=actual_duration,
-            audio=self.current_audio.copy(),
+            audio=audio,
             prob_frames=self.current_frames[:],
             forced_split=self.current_forced_split,
             trigger_reason=self.current_trigger_reason,
@@ -172,7 +176,7 @@ class SpeechSegmentTracker:
         self.current_forced_split = False
         self.current_trigger_reason = "silence"
         self.current_start_event = None
-        self.current_audio = np.empty(0, dtype=np.float32)
+        self.current_audio_chunks = []
         self.current_frames = []
         self.current_start_frame = -1
         self.current_vad_states = []

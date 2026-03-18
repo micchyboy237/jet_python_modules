@@ -97,6 +97,7 @@ class FireRedVADWrapper:
             valley_threshold=valley_threshold,
         )
 
+        # Use list buffer to avoid repeated concatenate
         self.vad = FireRedStreamVad(
             audio_feat=feat_extractor,
             vad_model=vad_model,
@@ -105,7 +106,7 @@ class FireRedVADWrapper:
         )
         # self.vad = FireRedStreamVad.from_pretrained(model_dir, config=config)
 
-        self.audio_buffer = np.array([], dtype=np.float32)
+        self.audio_chunks: list[np.ndarray] = []
         self.last_prob = 0.0
 
         self.tracker = tracker or SpeechSegmentTracker()
@@ -129,20 +130,25 @@ class FireRedVADWrapper:
             return self.last_prob
 
         chunk = self._normalize_chunk(chunk)
+        self.audio_chunks.append(chunk)
 
-        self.audio_buffer = np.concatenate([self.audio_buffer, chunk])
+        total_len = sum(len(c) for c in self.audio_chunks)
 
-        if len(self.audio_buffer) < MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD:
+        if total_len < MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD:
             return self.last_prob
 
-        to_process = self.audio_buffer[-VAD_CONTEXT_WINDOW_SAMPLES:]
+        # Concatenate only when needed
+        audio_buffer = np.concatenate(self.audio_chunks)
+        to_process = audio_buffer[-VAD_CONTEXT_WINDOW_SAMPLES:]
         results = self.vad.detect_chunk(to_process)
 
         if self.tracker is not None:
             for result in results:
                 self.tracker.on_frame(result)
 
-        self.audio_buffer = self.audio_buffer[-BUFFER_OVERLAP_SAMPLES:]
+        # Keep only overlap (convert back to list)
+        overlap = audio_buffer[-BUFFER_OVERLAP_SAMPLES:]
+        self.audio_chunks = [overlap]
 
         if not results:
             return self.last_prob
