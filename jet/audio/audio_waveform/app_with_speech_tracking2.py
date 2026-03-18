@@ -4,9 +4,10 @@ Main application logic — coordinates audio, VADs and UI updates
 
 from __future__ import annotations
 
+import queue
 import sys
 import threading
-from queue import Empty, Queue
+from queue import Queue
 
 import numpy as np
 import pyqtgraph as pg
@@ -67,7 +68,8 @@ class AudioWaveformWithSpeechProbApp:
         )
 
         # Thread-safe queue
-        self.audio_queue: Queue[np.ndarray] = Queue(maxsize=50)
+        # Increased buffer to absorb transient stalls (network / disk / logging)
+        self.audio_queue: Queue[np.ndarray] = Queue(maxsize=400)
 
         # Data buffers
         self.wave_buffer = CircularBuffer(display_points)
@@ -123,6 +125,8 @@ class AudioWaveformWithSpeechProbApp:
         self.timer.timeout.connect(self._update_plots)
         self.timer.start(30)
 
+        self._total_chunks_processed = 0
+
     def _init_buffers_with_zeros(self) -> None:
         for _ in range(self.display_points):
             self.wave_buffer.append(0.0)
@@ -136,15 +140,19 @@ class AudioWaveformWithSpeechProbApp:
         samples = indata[:, 0].astype(np.float32)
         try:
             self.audio_queue.put_nowait(samples)
-        except:
-            pass  # drop if full
+        except queue.Full:
+            # Rare: consumer too slow → drop frame to avoid blocking callback
+            # Throttle log spam
+            print("[audio] Queue full – dropping audio frame")
 
     def _inference_worker(self) -> None:
         while self._running:
             try:
-                samples = self.audio_queue.get(timeout=0.1)
-            except Empty:
+                samples = self.audio_queue.get()
+            except queue.Empty:
                 continue
+
+            self._total_chunks_processed += 1
 
             wave_value = np.max(np.abs(samples)) if samples.size > 0 else 0.0
             self.wave_buffer.append(wave_value)
