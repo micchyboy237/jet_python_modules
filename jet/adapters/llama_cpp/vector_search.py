@@ -24,7 +24,9 @@ class VectorSearch:
 
     def __init__(
         self,
-        model: LLAMACPP_EMBED_KEYS | LlamacppEmbedding = "nomic-embed-text",
+        model: LLAMACPP_EMBED_KEYS | LlamacppEmbedding = os.getenv(
+            "LLAMA_CPP_EMBED_MODEL"
+        ),
         *,
         normalize: bool = True,  # future extension point
         score_type: Literal["cosine"] = "cosine",

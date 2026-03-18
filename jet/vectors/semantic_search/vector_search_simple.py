@@ -27,12 +27,14 @@
 #         top_indices = np.argsort(similarities)[-top_k:][::-1]
 #         return [(self.documents[i], similarities[i]) for i in top_indices]
 
+import os
+
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.adapters.llama_cpp.vector_search import VectorSearch
 from jet.logger.config import colorize_log
 
 if __name__ == "__main__":
-    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
+    model: LLAMACPP_EMBED_KEYS = os.getenv("LLAMA_CPP_EMBED_MODEL")
     search_engine = VectorSearch(model)
     sample_docs = [
         "Fresh organic apples from local farms",
