@@ -10,7 +10,6 @@ import numpy as np
 from jet.audio.utils import load_audio
 from joblib import Parallel, delayed
 from rich.console import Console
-from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     Progress,
@@ -405,9 +404,134 @@ def find_partial_audio_matches(
     return sorted(selected, key=lambda x: x["a_sample"]["start_sample"])
 
 
+from rich.console import Console
+
+console = Console()
+
+
+def search_audio(audio1, audio2, **kwargs):
+    try:
+        console.rule("Loading audio files")
+        long_signal, sr_long = load_audio(audio1)
+        short_signal, sr_short = load_audio(audio2)
+
+        if sr_long != sr_short:
+            console.print(
+                f"[red]Warning:[/red] Sample rates differ "
+                f"({sr_long} Hz vs {sr_short} Hz). Using {sr_long} Hz for timing."
+            )
+
+        sample_rate = sr_long
+
+        # ── Total durations ───────────────────────────────────────
+        total_long_sec = len(long_signal) / sample_rate
+        total_short_sec = len(short_signal) / sample_rate
+
+        console.print("\n[bold cyan]Audio Files:[/bold cyan]")
+        console.print(
+            f"  Long audio (A)   :  [bold]{total_long_sec:8.2f}s[/bold]   {audio1.name if hasattr(audio1, 'name') else audio1}"
+        )
+        console.print(
+            f"  Short clip  (B)  :  [bold]{total_short_sec:8.2f}s[/bold]   {audio2.name if hasattr(audio2, 'name') else audio2}"
+        )
+        console.print()
+
+        console.rule("Searching for partial matches")
+
+        matches = find_partial_audio_matches(
+            long_signal=long_signal,
+            short_signal=short_signal,
+            sample_rate=sample_rate,
+            verbose=True,
+            confidence_threshold=kwargs.get("threshold", 0.75),
+            min_match_fraction=kwargs.get("min_fraction", 0.50),
+            length_step_fraction=0.18 if kwargs.get("quick", False) else 0.10,
+            max_subclips=35 if kwargs.get("quick", False) else 80,
+        )
+
+        if not matches:
+            console.print(
+                f"[bold red]No partial matches found[/bold red] above confidence {kwargs.get('threshold', 0.75):.2f} "
+                f"and min length fraction {kwargs.get('min_fraction', 0.50):.2f}"
+            )
+            console.print("[dim]Try lowering --threshold or --min-fraction[/dim]")
+            return
+
+        # ───────────────────────────────────────────────────────────
+        #               Result Display
+        # ───────────────────────────────────────────────────────────
+        for i, m in enumerate(matches, 1):
+            a = m["a_sample"]
+            b = m["b_sample"]
+            match_duration = m["duration"]
+            confidence = m["confidence"]
+
+            percent_of_A = (
+                (match_duration / total_long_sec * 100) if total_long_sec > 0 else 0
+            )
+            percent_of_B = (
+                (match_duration / total_short_sec * 100) if total_short_sec > 0 else 0
+            )
+
+            # Header for this match
+            console.print(
+                f"\n[bold green]Match {i}   Confidence: {confidence:.4f}[/bold green]"
+            )
+
+            console.print(
+                f"  Matched segment duration: [bold yellow]{match_duration:6.2f} seconds[/bold yellow]\n"
+                f"  • Covers [bold]{percent_of_A:5.1f}%[/bold] of long audio (A)\n"
+                f"  • Covers [bold]{percent_of_B:5.1f}%[/bold] of short clip (B)"
+            )
+
+            # Table with total durations included
+            table = Table(
+                show_header=True,
+                header_style="bold magenta",
+                show_lines=True,
+                border_style="dim",
+            )
+            table.add_column("Signal", justify="center", width=12)
+            table.add_column("Start (s)", justify="right")
+            table.add_column("End (s)", justify="right")
+            table.add_column("Total (s)", justify="right", style="cyan")
+            table.add_column("% of Total", justify="right", style="bright_cyan")
+
+            # Row for long audio (A)
+            table.add_row(
+                "[bold]A (long)[/bold]",
+                f"{a['start_time']:.2f}",
+                f"{a['end_time']:.2f}",
+                f"{total_long_sec:6.2f}",
+                f"{percent_of_A:5.1f}%",
+            )
+
+            # Row for short clip (B)
+            table.add_row(
+                "B (clip)",
+                f"{b['start_time']:.2f}",
+                f"{b['end_time']:.2f}",
+                f"{total_short_sec:6.2f}",
+                f"{percent_of_B:5.1f}%",
+            )
+
+            console.print(table)
+
+        # Final summary
+        match_word = "match" if len(matches) == 1 else "matches"
+        console.print(
+            f"\n[italic dim]{len(matches)} partial {match_word} found "
+            f"(conf ≥ {kwargs.get('threshold', 0.75):.2f}, matched ≥ {kwargs.get('min_fraction', 0.50):.0%} of short clip)[/italic dim]"
+        )
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}", style="red")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Find partial occurrences of a short audio clip inside a longer audio file. "
+        description="Find partial occurrences of a short audio clip inside a longer audio file.\n"
         "Only some segments of the short clip may match.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -428,8 +552,7 @@ def main():
         type=float,
         default=0.50,
         metavar="FRAC",
-        help="Minimum fraction of the short clip that must match the long audio "
-        "(unmatched sections in the short clip are allowed). Default: 0.50",
+        help="Minimum fraction of the short clip that must match (default: 0.50)",
     )
     parser.add_argument(
         "-q",
@@ -440,101 +563,18 @@ def main():
 
     args = parser.parse_args()
 
+    # Convert paths (optional but cleaner)
     long_path = Path(args.long_audio)
     short_path = Path(args.short_clip)
 
-    try:
-        console.rule("Loading audio files")
-        long_signal, sr_long = load_audio(long_path)
-        short_signal, sr_short = load_audio(short_path)
-
-        if sr_long != sr_short:
-            console.print(
-                f"[red]Warning:[/] Sample rates differ "
-                f"({sr_long} Hz vs {sr_short} Hz). Using {sr_long} Hz for timing."
-            )
-
-        # Total durations (seconds)
-        total_long_duration = len(long_signal) / sr_long
-        total_short_duration = len(short_signal) / sr_short
-
-        console.print(f"Long audio:  {total_long_duration:.1f} seconds")
-        console.print(f"Short clip:  {total_short_duration:.1f} seconds")
-
-        console.rule("Searching for partial matches")
-
-        matches = find_partial_audio_matches(
-            long_signal=long_signal,
-            short_signal=short_signal,
-            sample_rate=sr_long,
-            verbose=True,
-            confidence_threshold=args.threshold,
-            min_match_fraction=args.min_fraction,
-            length_step_fraction=0.18 if args.quick else 0.10,
-            max_subclips=35 if args.quick else 80,
-            # You can expose more params later if needed (step, max_fraction, etc.)
-        )
-
-        if not matches:
-            console.print(
-                f"[bold red]No partial matches found[/] above confidence {args.threshold:.2f} "
-                f"and min length fraction {args.min_fraction:.2f}"
-            )
-            console.print("[dim]Try lowering --threshold or --min-fraction[/]")
-            return
-
-        table = Table(show_header=True, header_style="bold magenta")
-        table.add_column("#", justify="right", style="dim")
-        table.add_column("Signal", justify="center")
-        table.add_column("Start (s)", justify="right")
-        table.add_column("End (s)", justify="right")
-        table.add_column("Match % of Signal", justify="right", style="cyan")
-        table.add_column("Duration (s)", justify="right")
-        table.add_column("Confidence", justify="right", style="green")
-
-        for i, m in enumerate(matches, 1):
-            a = m["a_sample"]
-            b = m["b_sample"]
-            match_duration = m["duration"]
-
-            percent_a = (match_duration / total_long_duration) * 100
-            percent_b = (match_duration / total_short_duration) * 100
-
-            # Row for signal A
-            table.add_row(
-                str(i),
-                "A",
-                f"{a['start_time']:.3f}",
-                f"{a['end_time']:.3f}",
-                f"{percent_a:.2f}%",
-                f"{match_duration:.3f}",
-                f"{m['confidence']:.4f}",
-            )
-
-            # Row for signal B
-            table.add_row(
-                "",
-                "B",
-                f"{b['start_time']:.3f}",
-                f"{b['end_time']:.3f}",
-                f"{percent_b:.2f}%",
-                "",
-                "",
-            )
-
-        title = "Partial matches found" if len(matches) > 1 else "Partial match found"
-        console.print(
-            Panel(
-                table,
-                title=f"{title} (confidence ≥ {args.threshold:.2f}, matched ≥ {args.min_fraction:.0%} of short clip)",
-                border_style="green",
-                padding=(1, 2),
-            )
-        )
-
-    except Exception as e:
-        console.print(f"\n[bold red]Error:[/] {e}", style="red")
-        sys.exit(1)
+    # Pass all relevant arguments as kwargs
+    search_audio(
+        long_path,
+        short_path,
+        threshold=args.threshold,
+        min_fraction=args.min_fraction,
+        quick=args.quick,
+    )
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ class SubtitleEntry:
         start_sec: float,
         end_sec: float,
         segment_id: int,
+        started_at: str,
         segment_dir: Path | None = None,
         trigger_reason: str | None = None,
     ):
@@ -38,6 +39,7 @@ class SubtitleEntry:
             "end": end_sec,
             "ja": "",
             "en": "",
+            "started_at": started_at,
             "received_at": None,
             "final": False,
             "trigger_reason": trigger_reason,
