@@ -8,6 +8,7 @@ from pathlib import Path
 from jet.audio.audio_waveform.app_with_speech_tracking2 import (
     AudioWaveformWithSpeechProbApp,
 )
+from jet.audio.audio_waveform.helpers.subtitle_entry import SubtitleEntry
 from jet.audio.audio_waveform.speech_handlers.live_srt_preview_handler import (
     LiveSrtPreviewHandler,
 )
@@ -15,7 +16,6 @@ from jet.audio.audio_waveform.speech_handlers.speech_segment_saver import (
     SpeechSegmentSaver,
 )
 from jet.audio.audio_waveform.speech_handlers.websocket_subtitle_sender import (
-    SubtitleEntry,
     WebsocketSubtitleSender,
 )
 

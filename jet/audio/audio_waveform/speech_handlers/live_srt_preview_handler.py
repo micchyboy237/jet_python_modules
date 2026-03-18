@@ -1,14 +1,12 @@
 import subprocess
 import sys
 
+from jet.audio.audio_waveform.helpers.subtitle_entry import SubtitleEntry
 from jet.audio.audio_waveform.speech_events import (
     SpeechSegmentEndEvent,
     SpeechSegmentStartEvent,
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
-from jet.audio.audio_waveform.speech_handlers.websocket_subtitle_sender import (
-    SubtitleEntry,
-)
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtWidgets import (
@@ -110,6 +108,7 @@ class SubtitlePreviewWindow(QMainWindow):
         text = f"{e['ja']}\n{e['en']}".strip()
         if not text:
             text = "[no transcription]"
+        trigger_reason = e.get("trigger_reason")
 
         segment_dir = e.get("segment_dir")
         open_link = (
@@ -122,7 +121,7 @@ class SubtitlePreviewWindow(QMainWindow):
 <div style="margin-bottom:6px;">
 <b style="font-size:10px;">{i}</b>
 <span style="font-size:10px; color:#8b949e;">
-[gap: {gap_str}] ({duration})
+[gap: {gap_str}] ({duration}) • <span style="color:#d2a8ff;">{trigger_reason}</span>
 </span>
 <a href="copy:{i}" style="color:#58a6ff; text-decoration:none;">📋</a>
 {open_link}

@@ -64,45 +64,51 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
 
         dir_path = event.segment_dir
 
-        # 1. Audio
-        wav_path = dir_path / "sound.wav"
-        if len(event.audio) > 0:
-            sf.write(str(wav_path), event.audio, 16000)
-            print(f"  Saved {wav_path.name} ({len(event.audio):,} samples)")
-        else:
-            print("  No audio data — skipping .wav")
+        try:
+            # 1. Audio
+            wav_path = dir_path / "sound.wav"
+            if len(event.audio) > 0:
+                sf.write(str(wav_path), event.audio, 16000)
+                print(f"  Saved {wav_path.name} ({len(event.audio):,} samples)")
+            else:
+                print("  No audio data — skipping .wav")
 
-        # 2. Summary
-        summary = {
-            "segment_id": event.segment_id,
-            "start_frame": event.start_frame,
-            "end_frame": event.end_frame,
-            "start_time_sec": round(event.start_time_sec, 3),
-            "end_time_sec": round(event.end_time_sec, 3),
-            "duration_sec": round(event.duration_sec, 3),
-            "audio_samples": len(event.audio),
-            "prob_frames": len(event.prob_frames),
-            "forced_split": event.forced_split,
-            "trigger_reason": event.trigger_reason,
-            "started_at": event.started_at,
-            **self._compute_stats(event.audio, event.prob_frames),
-        }
-        summary_path = dir_path / "summary.json"
-        summary_path.write_text(
-            json.dumps(make_serializable(summary), indent=2), encoding="utf-8"
-        )
+            # 2. Summary
+            summary = {
+                "segment_id": event.segment_id,
+                "start_frame": event.start_frame,
+                "end_frame": event.end_frame,
+                "start_time_sec": round(event.start_time_sec, 3),
+                "end_time_sec": round(event.end_time_sec, 3),
+                "duration_sec": round(event.duration_sec, 3),
+                "audio_samples": len(event.audio),
+                "prob_frames": len(event.prob_frames),
+                "forced_split": event.forced_split,
+                "trigger_reason": event.trigger_reason,
+                "started_at": event.started_at,
+                **self._compute_stats(event.audio, event.prob_frames),
+            }
+            summary_path = dir_path / "summary.json"
+            summary_path.write_text(
+                json.dumps(make_serializable(summary), indent=2), encoding="utf-8"
+            )
 
-        # 3. Probabilities
-        prob_frames_with_energy = self._compute_energies(event.audio, event.prob_frames)
-        probs_path = dir_path / "speech_probs.json"
-        probs_path.write_text(
-            json.dumps({"probs": prob_frames_with_energy}, indent=2), encoding="utf-8"
-        )
+            # 3. Probabilities
+            prob_frames_with_energy = self._compute_energies(
+                event.audio, event.prob_frames
+            )
+            probs_path = dir_path / "speech_probs.json"
+            probs_path.write_text(
+                json.dumps({"probs": prob_frames_with_energy}, indent=2),
+                encoding="utf-8",
+            )
 
-        # 4. Plot
-        self._generate_speech_prob_plot(event, prob_frames_with_energy)
+            # 4. Plot
+            self._generate_speech_prob_plot(event, prob_frames_with_energy)
 
-        print(f"[SAVER] Finished → {dir_path}\n")
+            print(f"[SAVER] Finished → {dir_path}\n")
+        except Exception as e:
+            print(f"[SAVER] Failed writing file: {e}")
 
     def _compute_stats(self, audio: np.ndarray, frames: list[SpeechFrame]):
         # Compute statistics
