@@ -157,7 +157,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         accumulator: SubtitleEntry,
         ws_url: str | None = None,
         reconnect_attempts: int = 100,
-        reconnect_delay: float = 1.0,
+        reconnect_delay: float = 2.0,
         debug_save_audio: bool = False,
         debug_dir: str = "debug_segments",
     ):
@@ -242,7 +242,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 )
                 break
 
-            delay = self.reconnect_delay * (2 ** (attempt - 1))
+            delay = self.reconnect_delay
             print(
                 f"[WS] Reconnecting in {delay:.1f}s (attempt {attempt}/{self.reconnect_attempts})..."
             )
