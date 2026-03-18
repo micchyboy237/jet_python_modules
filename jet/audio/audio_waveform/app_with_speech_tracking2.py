@@ -118,7 +118,12 @@ class AudioWaveformWithSpeechProbApp:
             target=self._inference_worker,
             daemon=True,
         )
+        self.fr_worker_thread = threading.Thread(
+            target=self._firered_worker,
+            daemon=True,
+        )
         self.worker_thread.start()
+        self.fr_worker_thread.start()
 
         # UI update timer
         self.timer = QtCore.QTimer()
@@ -145,6 +150,18 @@ class AudioWaveformWithSpeechProbApp:
             # Throttle log spam
             print("[audio] Queue full – dropping audio frame")
 
+    def _firered_worker(self) -> None:
+        while self._running:
+            try:
+                samples = self.audio_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            # Only run the heavy model
+            prob_fr = self.vad_fr.get_speech_prob(samples)
+            self.prob_fr_buffer.append(prob_fr)
+            if self.tracker:
+                self.tracker.add_audio(samples)
+
     def _inference_worker(self) -> None:
         while self._running:
             try:
@@ -162,12 +179,6 @@ class AudioWaveformWithSpeechProbApp:
 
             prob_sb = self.vad_sb.get_speech_prob(samples)
             self.prob_sb_buffer.append(prob_sb)
-
-            prob_fr = self.vad_fr.get_speech_prob(samples)
-            self.prob_fr_buffer.append(prob_fr)
-
-            if self.tracker:
-                self.tracker.add_audio(samples)  # ← feed raw mic audio
 
     def _update_plots(self) -> None:
         self._update_one_plot(
