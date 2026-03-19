@@ -32,7 +32,7 @@ class AudioWaveformWithSpeechProbApp:
         pad_start_frame: int = 5,
         min_speech_frame: int = 30,
         soft_max_speech_frame: int = 450,
-        hard_max_speech_frame: int = 800,
+        hard_max_speech_frame: int = 1500,
         min_silence_frame: int = 20,
         search_window: int = 200,
         valley_threshold: float = 0.65,
