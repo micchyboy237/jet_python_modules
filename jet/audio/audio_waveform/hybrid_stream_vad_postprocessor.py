@@ -22,11 +22,13 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         min_silence_frame: int = 20,
         search_window: int = 200,  # n second look-back for shortest valley
         valley_threshold: float = 0.65,  # probability dip below this = good split point
+        min_valley_consecutive_frames: int = 5,
     ):
         self.soft_limit = soft_max_speech_frame
         self.hard_limit = hard_max_speech_frame
         self.search_window = search_window
         self.valley_threshold = valley_threshold
+        self.min_valley_consecutive_frames = min_valley_consecutive_frames
 
         # Logging suppression helpers
         self._last_state = None
@@ -85,6 +87,24 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         )
 
         return self.state_transition(is_speech, result)
+
+    def _has_valid_valley(self, window: list[float]) -> bool:
+        """
+        True if there exists a consecutive run of frames
+        below valley_threshold long enough to be meaningful.
+        """
+        count = 0
+        max_count = 0
+
+        for p in window:
+            if p < self.valley_threshold:
+                count += 1
+                if count > max_count:
+                    max_count = count
+            else:
+                count = 0
+
+        return max_count >= self.min_valley_consecutive_frames
 
     def state_transition(
         self, is_speech: bool, result: StreamVadFrameResult
@@ -167,7 +187,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                     and len(self.recent_probs) >= self.search_window
                 ):
                     window = list(self.recent_probs)[-self.search_window :]
-                    if min(window) < self.valley_threshold:
+                    if self._has_valid_valley(window):
                         force_split = True
 
                 if force_split:
