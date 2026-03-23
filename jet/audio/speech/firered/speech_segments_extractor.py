@@ -320,9 +320,8 @@ def save_segments(
 
 if __name__ == "__main__":
     import argparse
+    import json
     import shutil
-
-    from jet.file.utils import save_file  # assuming this still exists
 
     DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
 
@@ -345,6 +344,12 @@ if __name__ == "__main__":
 
     saved_metas = save_segments(results, full_probs, OUTPUT_DIR)
 
-    save_file(saved_metas, OUTPUT_DIR / "all_speech_segments.json")
+    # Save to JSON using with open, and log success with full path.
+    output_json_path = OUTPUT_DIR / "all_speech_segments.json"
+    with open(output_json_path, "w", encoding="utf-8") as f:
+        json.dump(saved_metas, f, ensure_ascii=False, indent=2)
+    console.print(
+        f"[bold green]✓ Segments metadata saved to:[/bold green] [link=file://{output_json_path.resolve()}]{output_json_path}[/link]"
+    )
 
     console.rule("Done", style="green")
