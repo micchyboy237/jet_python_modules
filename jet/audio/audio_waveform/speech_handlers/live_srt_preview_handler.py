@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 class SubtitlePreviewWindow(QMainWindow):
     """Standalone window showing live .srt content"""
 
-    def __init__(self, accumulator: SubtitleEntry):
+    def __init__(self, accumulator: SubtitleEntry, show_ja_text: bool = False):
         super().__init__()
         self.accumulator = accumulator
 
@@ -52,6 +52,10 @@ class SubtitlePreviewWindow(QMainWindow):
         self.hide_ja_btn.setToolTip("Toggle Japanese text")
         self.hide_ja_btn.setCheckable(True)
         self.hide_ja_btn.clicked.connect(self.toggle_hide_japanese)
+
+        # Initialize visibility based on show_ja_text
+        self.hide_japanese: bool = not show_ja_text
+        self.hide_ja_btn.setChecked(self.hide_japanese)
 
         top_bar.addWidget(self.clear_btn)
         top_bar.addWidget(self.hide_ja_btn)
@@ -94,7 +98,6 @@ class SubtitlePreviewWindow(QMainWindow):
         self.show()
 
         self._last_html: str | None = None
-        self.hide_japanese: bool = False
 
     def clear_all(self):
         # Clear in-memory entries and UI
@@ -219,7 +222,7 @@ class SubtitlePreviewWindow(QMainWindow):
 
 
 class LiveSrtPreviewHandler(SpeechSegmentHandler):
-    def __init__(self, accumulator: SubtitleEntry):
+    def __init__(self, accumulator: SubtitleEntry, show_ja_text: bool = False):
         self.accumulator = accumulator
         self.preview_window: SubtitlePreviewWindow | None = None
 
@@ -228,7 +231,10 @@ class LiveSrtPreviewHandler(SpeechSegmentHandler):
         else:
             self.app = QApplication.instance()
 
-        self.preview_window = SubtitlePreviewWindow(self.accumulator)
+        self.preview_window = SubtitlePreviewWindow(
+            self.accumulator,
+            show_ja_text=show_ja_text,
+        )
 
     def on_segment_start(self, event: SpeechSegmentStartEvent) -> None:
         pass
