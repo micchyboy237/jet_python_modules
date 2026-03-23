@@ -110,7 +110,7 @@ def generate_plot(
     plt.close(fig)
 
 
-def segment_audio_with_vad(
+def extract_speech_segments(
     audio: AudioInput,
     vad: Optional[FireRedVad] = None,
     vad_model_dir: str = MODEL_DIR,
@@ -337,7 +337,7 @@ if __name__ == "__main__":
 
     console.rule("Audio Segmenter – FireRedVAD", style="blue")
 
-    results, full_probs = segment_audio_with_vad(args.audio_path)
+    results, full_probs = extract_speech_segments(args.audio_path)
 
     if not results:
         console.print("[red]No segments found.[/red]")
