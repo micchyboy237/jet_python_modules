@@ -47,7 +47,14 @@ class SubtitlePreviewWindow(QMainWindow):
         self.clear_btn.setToolTip("Clear all")
         self.clear_btn.clicked.connect(self.clear_all)
 
+        # ✅ Toggle Japanese visibility
+        self.hide_ja_btn = QPushButton("🇯🇵")
+        self.hide_ja_btn.setToolTip("Toggle Japanese text")
+        self.hide_ja_btn.setCheckable(True)
+        self.hide_ja_btn.clicked.connect(self.toggle_hide_japanese)
+
         top_bar.addWidget(self.clear_btn)
+        top_bar.addWidget(self.hide_ja_btn)
         top_bar.addStretch()
 
         layout.addLayout(top_bar)
@@ -87,11 +94,29 @@ class SubtitlePreviewWindow(QMainWindow):
         self.show()
 
         self._last_html: str | None = None
+        self.hide_japanese: bool = False
 
     def clear_all(self):
         # Clear in-memory entries and UI
         self.accumulator.clear()
         self.text_area.clear()
+
+    def toggle_hide_japanese(self):
+        self.hide_japanese = self.hide_ja_btn.isChecked()
+        # Force refresh
+        self._last_html = None
+        self.update_display()
+
+    def _get_entry_text(self, e: dict) -> str:
+        ja = e.get("ja", "").strip()
+        en = e.get("en", "").strip()
+
+        if self.hide_japanese:
+            text = en
+        else:
+            text = f"{ja}\n{en}".strip()
+
+        return text if text else "[no transcription]"
 
     def _format_entry(self, i: int, e: dict) -> str:
         # Compute gap from previous segment end
@@ -105,9 +130,7 @@ class SubtitlePreviewWindow(QMainWindow):
 
         duration = f"{(e['end'] - e['start']):.2f}s"
 
-        text = f"{e['ja']}\n{e['en']}".strip()
-        if not text:
-            text = "[no transcription]"
+        text = self._get_entry_text(e)
         trigger_reason = e.get("trigger_reason")
 
         segment_dir = e.get("segment_dir")

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import io
 import logging
-import os
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import pyloudnorm as pyln
-import soundfile as sf
 import torch
 from jet.audio.audio_types import AudioInput
+from jet.audio.utils.loader import load_audio
 
 logger = logging.getLogger(__name__)
 
@@ -26,32 +24,6 @@ def _load_silero_vad():
         )
         _SILERO_MODEL = (model, utils)
     return _SILERO_MODEL
-
-
-def _load_audio_input(
-    audio_input: AudioInput,
-) -> Tuple[np.ndarray, Optional[int]]:
-    """
-    Load and normalize any AudioInput to float32 mono [-1,1] numpy array.
-    Returns (audio, sample_rate) — sample_rate is None for pure array inputs.
-    """
-    if isinstance(audio_input, (str, os.PathLike)):
-        data, sr = sf.read(str(audio_input), always_2d=True, dtype="float32")
-        return data, int(sr)
-
-    elif isinstance(audio_input, bytes):
-        with io.BytesIO(audio_input) as buf:
-            data, sr = sf.read(buf, always_2d=True, dtype="float32")
-        return data, int(sr)
-
-    elif isinstance(audio_input, torch.Tensor):
-        return audio_input.numpy(), None
-
-    elif isinstance(audio_input, np.ndarray):
-        return audio_input, None
-
-    else:
-        raise TypeError(f"Unsupported AudioInput type: {type(audio_input).__name__}")
 
 
 def _speech_probability(
@@ -124,7 +96,7 @@ def normalize_speech_loudness(
     """
 
     # ── Load / convert input ───────────────────────────────────────
-    audio_np, loaded_sr = _load_audio_input(audio)
+    audio_np, loaded_sr = load_audio(audio)
 
     # Determine final sample rate
     if loaded_sr is not None:
