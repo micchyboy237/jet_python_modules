@@ -227,6 +227,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "language": "ja",
             "vad_reason": event.trigger_reason,
             "forced": event.forced_split,
+            "segment_rms": event.segment_rms,
+            "loudness": event.loudness,
+            "has_sound": event.has_sound,
             "started_at": event.started_at,
         }
         json_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")

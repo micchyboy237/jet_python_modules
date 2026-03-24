@@ -12,58 +12,10 @@ from jet.audio.audio_waveform.speech_events import (
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_types import SpeechFrame, VadStateLabel
+from jet.audio.helpers.energy import compute_rms, has_sound, rms_to_loudness_label
 from rich.console import Console
 
 console = Console()
-
-
-def calculate_amplitude(samples: np.ndarray) -> float:
-    """Peak amplitude (max |x|). Useful for clipping detection or transients."""
-    if len(samples) == 0:
-        return 0.0
-    return float(np.max(np.abs(samples)))
-
-
-def calculate_rms(samples: np.ndarray) -> float:
-    """Root Mean Square – best simple measure of perceived loudness/energy.
-
-    Range: 0.0 (true silence) → ~0.707 (full-scale sine wave)
-    Typical speech values:
-      - < 0.005     → silence / noise floor
-      - 0.005–0.03  → very quiet / breath
-      - 0.03–0.15   → normal conversational speech
-      - 0.15–0.4+   → loud speech / shouting
-    """
-    if len(samples) == 0:
-        return 0.0
-    return float(np.sqrt(np.mean(np.square(samples.astype(np.float64)))))
-
-
-def get_loudness_label(rms_value: float) -> str:
-    """Return a human-readable loudness label based on RMS."""
-    if rms_value < 0.005:
-        return "silent"
-    elif rms_value < 0.03:
-        return "very_quiet"
-    elif rms_value < 0.12:
-        return "normal"
-    elif rms_value < 0.25:
-        return "loud"
-    else:
-        return "very_loud"
-
-
-def has_sound(samples: np.ndarray, threshold: float = 0.005) -> bool:
-    """Return True if the audio contains meaningful sound.
-
-    Now aligned with get_loudness_label():
-      - rms < 0.005  → "silent"       → has_sound=False
-      - rms >= 0.005 → "very_quiet" and above → has_sound=True
-    """
-    if len(samples) == 0:
-        return False
-    rms_value = calculate_rms(samples)
-    return rms_value >= threshold  # Note: >= so exactly 0.005 counts as sound
 
 
 class SpeechSegmentTracker:
@@ -175,7 +127,7 @@ class SpeechSegmentTracker:
         last_low_idx = -1
         for i in range(len(self.pre_prob_buffer)):
             prob = self.pre_prob_buffer[i]
-            rms = calculate_rms(self.pre_audio_buffer[i])
+            rms = compute_rms(self.pre_audio_buffer[i])
             if prob < PROB_THRES and rms < RMS_THRES:
                 last_low_idx = i
 
@@ -185,11 +137,11 @@ class SpeechSegmentTracker:
         rise_audio = list(self.pre_audio_buffer)[last_low_idx:]
         if rise_audio:
             self.current_audio_chunks = rise_audio
-            last_rms = calculate_rms(self.pre_audio_buffer[last_low_idx])
+            last_rms = compute_rms(self.pre_audio_buffer[last_low_idx])
             console.print(
                 f"[TRACKER] [yellow]Hybrid prepend: {len(rise_audio)} blocks "
                 f"(last prob={self.pre_prob_buffer[last_low_idx]:.3f}, "
-                f"rms={last_rms:.4f} → {get_loudness_label(last_rms)})[/]",
+                f"rms={last_rms:.4f} → {rms_to_loudness_label(last_rms)})[/]",
                 style="yellow",
             )
 
@@ -223,8 +175,8 @@ class SpeechSegmentTracker:
         self.last_segment_forced_split = self.current_forced_split
 
         # Compute loudness metrics for the whole segment
-        segment_rms = calculate_rms(audio)
-        loudness_label = get_loudness_label(segment_rms)
+        segment_rms = compute_rms(audio)
+        loudness_label = rms_to_loudness_label(segment_rms)
         segment_has_sound = has_sound(audio)  # now uses threshold=0.005
 
         end_event = SpeechSegmentEndEvent(
@@ -240,9 +192,9 @@ class SpeechSegmentTracker:
             trigger_reason=self.current_trigger_reason,
             started_at=self.current_start_event.started_at,
             segment_dir=self.current_start_event.segment_dir,
-            # NEW fields
-            rms=segment_rms,
-            loudness_label=loudness_label,
+            # Energy RMS fields
+            segment_rms=segment_rms,
+            loudness=loudness_label,
             has_sound=segment_has_sound,
         )
 
