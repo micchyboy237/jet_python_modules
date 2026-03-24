@@ -110,6 +110,7 @@ Update patterns to be optional
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
+Provide step by step analysis first.
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """
