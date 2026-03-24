@@ -12,22 +12,33 @@ from jet.logger import logger
 from tqdm import tqdm
 
 
-def compute_rms(audio_frame: np.ndarray) -> float:
+def compute_amplitude(samples: np.ndarray) -> float:
+    """Compute peak amplitude (max |x|).
+
+    Range: 0.0 (true silence) → 1.0 (maximum possible loudness / 0 dBFS)
+    Common values:
+      - < 0.01   → very quiet / silence
+      - 0.1–0.6  → normal speech
+      - > 0.7    → loud speech
     """
-    Root mean square amplitude of the frame: sqrt(mean(x²)).
+    if len(samples) == 0:
+        return 0.0
+    return float(np.max(np.abs(samples)))
 
-    One-line intuition:
-        "How loud is this signal on average?"
 
-    Answers:
-        "What is the average signal power?"
+def compute_rms(samples: np.ndarray) -> float:
+    """Root Mean Square – best simple measure of perceived loudness/energy.
 
-    Notes:
-    - Length-independent
-    - Sensitive to peaks
-    - Normalized ONLY if input is in [-1.0, 1.0]
+    Range: 0.0 (true silence) → ~0.707 (full-scale sine wave)
+    Typical speech values:
+      - < 0.005     → silence / noise floor
+      - 0.005–0.03  → very quiet / breath
+      - 0.03–0.15   → normal conversational speech
+      - 0.15–0.4+   → loud speech / shouting
     """
-    return float(np.sqrt(np.mean(audio_frame * audio_frame)))
+    if len(samples) == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(samples.astype(np.float64)))))
 
 
 def compute_l1_energy(audio_frame: np.ndarray) -> float:
@@ -66,22 +77,17 @@ def compute_l2_energy(audio_frame: np.ndarray) -> float:
     return float(np.sum(audio_frame * audio_frame))
 
 
-def has_sound(audio_frame: np.ndarray, threshold: float = 0.01) -> bool:
+def has_sound(samples: np.ndarray, threshold: float = 0.005) -> bool:
+    """Return True if the audio contains meaningful sound.
+
+    Now aligned with get_loudness_label():
+      - rms < 0.005  → "silent"       → has_sound=False
+      - rms >= 0.005 → "very_quiet" and above → has_sound=True
     """
-    Determine whether an audio frame contains sound above a threshold.
-
-    One-line intuition:
-        "Is this frame loud enough to matter?"
-
-    Answers:
-        "Should this frame be considered non-silent?"
-
-    Notes:
-    - Expects normalized audio in the range [-1.0, 1.0]
-    - Typically used with l1_energy or rms
-    - Default threshold is tuned for quiet speech detection (~0.01)
-    """
-    return compute_l1_energy(audio_frame) > threshold
+    if len(samples) == 0:
+        return False
+    rms_value = compute_rms(samples)
+    return rms_value >= threshold  # Note: >= so exactly 0.005 counts as sound
 
 
 compute_energy = compute_l1_energy
@@ -196,18 +202,21 @@ LoudnessLabel = Literal[
 ]
 
 
-def rms_to_loudness_label(rms_norm: float) -> LoudnessLabel:
-    if rms_norm >= 0.1:
-        return "Very Loud"
-    if rms_norm >= 0.07:
-        return "Loud"
-    if rms_norm >= 0.03:
-        return "Normal"
-    if rms_norm >= 0.02:
-        return "Quiet"
-    if rms_norm >= 0.01:
-        return "Very Quiet"
-    return "Silent"
+def rms_to_loudness_label(rms_value: float) -> str:
+    """Return a human-readable loudness label based on RMS.
+
+    Thresholds chosen based on real speech at 16kHz (normalized float32).
+    """
+    if rms_value < 0.005:
+        return "silent"
+    elif rms_value < 0.03:
+        return "very_quiet"
+    elif rms_value < 0.12:
+        return "normal"
+    elif rms_value < 0.25:
+        return "loud"
+    else:
+        return "very_loud"
 
 
 def rms_to_loudness_labels(

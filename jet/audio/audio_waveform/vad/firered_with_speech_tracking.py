@@ -142,10 +142,6 @@ class FireRedVADWrapper:
         to_process = audio_buffer[-VAD_CONTEXT_WINDOW_SAMPLES:]
         results = self.vad.detect_chunk(to_process)
 
-        if self.tracker is not None:
-            for result in results:
-                self.tracker.on_frame(result)
-
         # Keep only overlap (convert back to list)
         overlap = audio_buffer[-BUFFER_OVERLAP_SAMPLES:]
         self.audio_chunks = [overlap]
@@ -155,5 +151,11 @@ class FireRedVADWrapper:
 
         last = results[-1]
         prob = last.smoothed_prob
+
         self.last_prob = prob
+        if self.tracker is not None:
+            for result in results:
+                self.tracker.on_frame(result)
+            self.tracker.add_prob(prob)
+
         return prob

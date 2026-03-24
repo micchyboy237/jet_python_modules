@@ -28,4 +28,7 @@ class SpeechSegmentEndEvent:
     forced_split: bool
     trigger_reason: str
     started_at: str
+    rms: float
+    loudness_label: str
+    has_sound: bool
     segment_dir: Path | None = None

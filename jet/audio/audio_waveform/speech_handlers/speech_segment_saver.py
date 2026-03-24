@@ -16,6 +16,7 @@ from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_types import SpeechFrame
 from jet.audio.helpers.energy import (
     LoudnessLabel,
+    compute_amplitude,
     compute_l1_energy,
     compute_l2_energy,
     compute_rms,
@@ -28,6 +29,7 @@ from jet.transformers.object import make_serializable
 class SpeechFrameEnergy(TypedDict):
     has_sound: bool
     loudness: LoudnessLabel
+    amplitude: float
     rms: float
     l1_energy: float
     l2_energy: float
@@ -153,6 +155,7 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
             energy_info: SpeechFrameEnergy = {
                 "has_sound": has_sound(audio_frame),
                 "loudness": rms_to_loudness_label(rms),
+                "amplitude": round(compute_amplitude(audio_frame), 4),
                 "rms": round(rms, 4),
                 "l1_energy": round(compute_l1_energy(audio_frame), 4),
                 "l2_energy": round(compute_l2_energy(audio_frame), 4),
