@@ -84,6 +84,9 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
                 "forced_split": event.forced_split,
                 "trigger_reason": event.trigger_reason,
                 "started_at": event.started_at,
+                "segment_rms": event.segment_rms,
+                "loudness": event.loudness,
+                "has_sound": event.has_sound,
                 **self._compute_stats(event.audio, event.prob_frames),
             }
             summary_path = dir_path / "summary.json"
@@ -127,11 +130,13 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
             energy_db = -float("inf")
 
         return {
-            "avg_smoothed_prob": round(avg_prob, 3),
-            "max_smoothed_prob": round(max_prob, 3),
-            "min_smoothed_prob": round(min_prob, 3),
-            "speech_frame_ratio": round(speech_ratio, 3),
-            "energy_db_avg": round(energy_db, 2),
+            "stats": {
+                "avg_smoothed_prob": round(avg_prob, 3),
+                "max_smoothed_prob": round(max_prob, 3),
+                "min_smoothed_prob": round(min_prob, 3),
+                "speech_frame_ratio": round(speech_ratio, 3),
+                "energy_db_avg": round(energy_db, 2),
+            }
         }
 
     def _compute_energies(
