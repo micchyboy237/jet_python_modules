@@ -1,44 +1,36 @@
+from typing import Optional
+
 import numpy as np
 import sounddevice as sd
-from typing import Optional
-from tqdm import tqdm
-
+from jet.audio.helpers.config import SAMPLE_RATE
+from jet.audio.helpers.energy import get_audio_duration, has_sound, trim_silent
+from jet.audio.utils.loader import load_audio
 from jet.logger import logger
-from jet.audio.helpers.silence import (
-    SAMPLE_RATE,
-    DTYPE,
-    CHANNELS,
-    calibrate_silence_threshold,
-    detect_silence,
-    trim_silent_chunks,
-)
+from tqdm import tqdm
 
 
 def record_from_mic(
     duration: Optional[int] = None,
-    silence_threshold: Optional[float] = None,
     silence_duration: float = 2.0,
-    trim_silent: bool = True,
+    stop_on_silence: bool = False,
 ) -> Optional[np.ndarray]:
-    """Record audio from microphone with silence detection and progress tracking.
+    """Record audio from microphone with optional silence detection.
 
     Args:
         duration: Maximum recording duration in seconds (None = indefinite).
-        silence_threshold: Silence level in RMS (None = auto-calibrated).
-        silence_duration: Seconds of continuous silence to stop recording.
-        trim_silent: If True, removes silent sections from the final audio.
+        silence_duration: Seconds of continuous silence to stop (only used if stop_on_silence=True).
+        stop_on_silence: If True, stop recording after `silence_duration` of silence.
+                         If False (default), record indefinitely (or until `duration` or Ctrl+C).
     """
-    silence_threshold = silence_threshold if silence_threshold is not None else calibrate_silence_threshold()
 
     duration_str = f"{duration}s" if duration is not None else "indefinite"
+    stop_mode = f"silence ({silence_duration}s)" if stop_on_silence else "Ctrl+C only"
     logger.info(
-        f"Starting recording: {CHANNELS} channel{'s' if CHANNELS > 1 else ''}, "
-        f"max duration {duration_str}, silence threshold {silence_threshold:.6f}, "
-        f"silence duration {silence_duration}s"
+        f"Starting recording...\nmax duration: {duration_str} stop mode: {stop_mode}"
     )
 
     chunk_size = int(SAMPLE_RATE * 0.5)  # 0.5 second chunks
-    max_frames = int(duration * SAMPLE_RATE) if duration is not None else float('inf')
+    max_frames = int(duration * SAMPLE_RATE) if duration is not None else float("inf")
     silence_frames = int(silence_duration * SAMPLE_RATE)
     grace_frames = int(SAMPLE_RATE * 1.0)  # 1-second grace period
 
@@ -46,48 +38,57 @@ def record_from_mic(
     silent_count = 0
     recorded_frames = 0
 
-    # Initialize progress bar: determinate if duration is set, indeterminate otherwise
-    pbar_kwargs = {'total': duration, 'desc': "Recording", 'unit': "s",
-                   'leave': True} if duration is not None else {'desc': "Recording", 'unit': "s", 'leave': True}
+    pbar_kwargs = (
+        {"total": duration, "desc": "Recording", "unit": "s", "leave": True}
+        if duration is not None
+        else {"desc": "Recording", "unit": "s", "leave": True}
+    )
+
     with tqdm(**pbar_kwargs) as pbar:
-        stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype=DTYPE
-        )
+        stream = sd.InputStream(samplerate=SAMPLE_RATE)
 
         with stream:
             while recorded_frames < max_frames:
-                chunk = stream.read(chunk_size)[0]
-                audio_data.append(chunk)
-                recorded_frames += chunk_size
-                pbar.update(0.5) if duration is not None else pbar.update(0.5)  # Update by 0.5s
+                try:
+                    chunk, _ = stream.read(chunk_size)  # chunk is (frames, channels)
+                    audio_data.append(chunk)
+                    recorded_frames += len(chunk)  # use actual frames returned
+                    pbar.update(0.5)
 
-                # Skip silence detection during grace period
-                if recorded_frames > grace_frames and detect_silence(chunk, silence_threshold):
-                    silent_count += chunk_size
-                    if silent_count >= silence_frames:
-                        logger.info(
-                            f"Silence detected for {silence_duration}s, stopping recording")
-                        break
-                else:
-                    silent_count = 0
+                    # === Silence detection (only when enabled) ===
+                    if stop_on_silence and recorded_frames > grace_frames:
+                        if not has_sound(chunk):
+                            silent_count += len(chunk)
+                            if silent_count >= silence_frames:
+                                logger.info(
+                                    f"Silence detected for {silence_duration}s, stopping recording"
+                                )
+                                break
+                        else:
+                            silent_count = 0
+
+                except KeyboardInterrupt:
+                    logger.info(
+                        "Keyboard interrupt (Ctrl+C) received, stopping recording"
+                    )
+                    break
 
     if not audio_data:
         logger.warning("No audio recorded")
         return None
 
-    # Trim silent chunks only when requested
-    if trim_silent:
-        trimmed_data = trim_silent_chunks(audio_data, silence_threshold)
-        if not trimmed_data:
-            logger.warning("All chunks were silent after trimming")
-            return None
-        audio_data = np.concatenate(trimmed_data, axis=0)
-    else:
-        # No trimming → just concatenate everything we recorded
-        audio_data = np.concatenate(audio_data, axis=0)
+    # Concatenate
+    full_audio = np.concatenate(audio_data, axis=0)
 
-    actual_duration = len(audio_data) / SAMPLE_RATE
+    audio_mono, _ = load_audio(full_audio, SAMPLE_RATE)
+
+    trimmed_mono = trim_silent(
+        samples=audio_mono,
+        sample_rate=SAMPLE_RATE,
+        frame_length_ms=25.0,
+        hop_length_ms=10.0,
+    )
+
+    actual_duration = get_audio_duration(trimmed_mono)
     logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
-    return audio_data
+    return trimmed_mono if trimmed_mono.size else None
