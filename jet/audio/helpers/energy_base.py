@@ -2,6 +2,8 @@
 
 import numpy as np
 
+SILENCE_MAX_THRESHOLD = 0.001
+
 
 def compute_amplitude(samples: np.ndarray) -> float:
     """Compute peak amplitude (max |x|).
@@ -22,8 +24,8 @@ def compute_rms(samples: np.ndarray) -> float:
 
     Range: 0.0 (true silence) → ~0.707 (full-scale sine wave)
     Typical speech values:
-      - < 0.001     → silence / noise floor
-      - 0.001–0.03  → very quiet / breath
+      - < SILENCE_MAX_THRESHOLD     → silence / noise floor
+      - SILENCE_MAX_THRESHOLD–0.03  → very quiet / breath
       - 0.03–0.15   → normal conversational speech
       - 0.15–0.4+   → loud speech / shouting
     """
@@ -32,22 +34,24 @@ def compute_rms(samples: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(samples.astype(np.float64)))))
 
 
-def has_sound(samples: np.ndarray, threshold: float = 0.001) -> bool:
+def has_sound(samples: np.ndarray) -> bool:
     """Return True if the audio contains meaningful sound.
 
     Now aligned with get_loudness_label():
-      - rms < 0.001  → "silent"       → has_sound=False
-      - rms >= 0.001 → "very_quiet" and above → has_sound=True
+      - rms < SILENCE_MAX_THRESHOLD  → "silent"       → has_sound=False
+      - rms >= SILENCE_MAX_THRESHOLD → "very_quiet" and above → has_sound=True
     """
     if len(samples) == 0:
         return False
     rms_value = compute_rms(samples)
-    return rms_value >= threshold  # Note: >= so exactly 0.001 counts as sound
+    return (
+        rms_value >= SILENCE_MAX_THRESHOLD
+    )  # Note: >= so exactly SILENCE_MAX_THRESHOLD counts as sound
 
 
-def rms_to_loudness_label(rms_value: float, silence_threshold: float = 0.001) -> str:
+def rms_to_loudness_label(rms_value: float) -> str:
     """Return a human-readable loudness label based on RMS."""
-    if rms_value < silence_threshold:
+    if rms_value < SILENCE_MAX_THRESHOLD:
         return "silent"
     elif rms_value < 0.03:
         return "very_quiet"

@@ -58,7 +58,7 @@ class AudioWaveformWithSpeechProbApp:
         self.vad = SileroVAD(samplerate=self.samplerate) if enable_silero else None
         self.vad_sb = SpeechBrainVADWrapper() if enable_speechbrain else None
 
-        self.tracker = SpeechSegmentTracker()
+        self.tracker = SpeechSegmentTracker(speech_threshold)
         self.vad_fr = FireRedVADWrapper(
             tracker=self.tracker,
             smooth_window_size=smooth_window_size,

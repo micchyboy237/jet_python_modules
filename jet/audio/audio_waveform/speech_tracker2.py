@@ -12,16 +12,24 @@ from jet.audio.audio_waveform.speech_events import (
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_types import SpeechFrame, VadStateLabel
-from jet.audio.helpers.energy import compute_rms, has_sound, rms_to_loudness_label
+from jet.audio.helpers.energy import (
+    compute_rms,
+    has_sound,
+    rms_to_loudness_label,
+)
+from jet.audio.helpers.energy_base import SILENCE_MAX_THRESHOLD
 from rich.console import Console
 
 console = Console()
+
+PRE_RMS_THRES = SILENCE_MAX_THRESHOLD * 10
 
 
 class SpeechSegmentTracker:
     """Collects audio & probabilities, detects segment boundaries, notifies handlers."""
 
-    def __init__(self):
+    def __init__(self, speech_threshold: float = 0.5):
+        self.pre_prob_thres = speech_threshold * 0.5
         self.sample_rate = 16000
         self.is_speaking = False
         self.segment_counter = 0
@@ -121,14 +129,12 @@ class SpeechSegmentTracker:
         if len(self.pre_audio_buffer) == 0 or len(self.pre_prob_buffer) == 0:
             return
 
-        PROB_THRES = 0.3
-        RMS_THRES = 0.01
-
         last_low_idx = -1
         for i in range(len(self.pre_prob_buffer)):
             prob = self.pre_prob_buffer[i]
             rms = compute_rms(self.pre_audio_buffer[i])
-            if prob < PROB_THRES and rms < RMS_THRES:
+            _has_sound = has_sound(self.pre_audio_buffer[i])
+            if _has_sound and prob < self.pre_prob_thres and rms < PRE_RMS_THRES:
                 last_low_idx = i
 
         if last_low_idx == -1:
