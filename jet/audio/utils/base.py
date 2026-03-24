@@ -14,7 +14,8 @@ import librosa
 import numpy as np
 import sounddevice as sd
 import soundfile as sf  # <-- fast, supports many formats, free & popular
-from jet.audio.audio_duration import get_audio_duration
+from jet.audio.helpers.energy_base import get_audio_duration
+from jet.audio.utils.loader import load_audio
 from jet.logger import logger
 from numpy.typing import NDArray
 from rich.console import Console
@@ -590,7 +591,7 @@ def extract_audio_segment(
     *,
     start: float = 0.0,
     end: Optional[float] = None,
-    sample_rate: Optional[int] = None,
+    sample_rate: int = 16000,
 ) -> Tuple[np.ndarray, int]:
     """
     Extract a partial audio segment from a file path, raw bytes, or numpy array.
@@ -628,7 +629,8 @@ def extract_audio_segment(
         raise ValueError("start is beyond audio duration")
 
     if end is None:
-        end = get_audio_duration(audio_path)
+        audio_np, _ = load_audio(audio_path, sample_rate)
+        end = get_audio_duration(audio_np, sample_rate)
 
     if end <= start:
         raise ValueError("end must be greater than start")
