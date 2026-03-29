@@ -1,8 +1,11 @@
-# jet_python_modules/jet/audio/audio_waveform/speech_events.py
+# jet.audio.audio_waveform.speech_events.py
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from jet.audio.audio_waveform.speech_stats import SpeechSegmentStats
 from jet.audio.audio_waveform.speech_types import SpeechFrame
 
 
@@ -31,4 +34,5 @@ class SpeechSegmentEndEvent:
     segment_rms: float
     loudness: str
     has_sound: bool
+    stats: SpeechSegmentStats | None = None
     segment_dir: Path | None = None

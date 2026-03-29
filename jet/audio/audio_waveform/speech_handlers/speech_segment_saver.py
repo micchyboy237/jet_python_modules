@@ -87,7 +87,8 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
                 "segment_rms": event.segment_rms,
                 "loudness": event.loudness,
                 "has_sound": event.has_sound,
-                **self._compute_stats(event.audio, event.prob_frames),
+                "stats": event.stats,
+                # **self._compute_stats(event.audio, event.prob_frames),
             }
             summary_path = dir_path / "summary.json"
             summary_path.write_text(

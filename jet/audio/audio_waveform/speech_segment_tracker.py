@@ -11,6 +11,7 @@ from jet.audio.audio_waveform.speech_events import (
     SpeechSegmentStartEvent,
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
+from jet.audio.audio_waveform.speech_stats import derive_segment_stats
 from jet.audio.audio_waveform.speech_types import SpeechFrame, VadStateLabel
 from jet.audio.helpers.energy import (
     compute_rms,
@@ -251,6 +252,9 @@ class SpeechSegmentTracker:
             has_sound=segment_has_sound,
         )
 
+        # Attach derived stats before notifying any handlers
+        end_event.stats = derive_segment_stats(end_event)
+
         for handler in self.handlers:
             handler.on_segment_end(end_event)
 
@@ -260,8 +264,11 @@ class SpeechSegmentTracker:
 
         console.print(
             f"[TRACKER] [bold red]END[/] segment [cyan]{self.segment_counter}[/] "
-            f"duration [yellow]{end_event.duration_sec:.2f}s[/] • rms={segment_rms:.4f} "
-            f"({loudness_label}) • has_sound={segment_has_sound} • [italic magenta]{reason}[/]\n",
+            f"duration [yellow]{end_event.duration_sec:.2f}s[/] "
+            f"• rms={segment_rms:.4f} ({loudness_label}) "
+            f"• has_sound={segment_has_sound} "
+            f"• [italic magenta]{reason}[/]"
+            f"{f' • avg={end_event.stats.avg_smoothed_prob:.3f} ({end_event.stats.confidence_level})' if end_event.stats else ''}\n",
             style="bold",
         )
 

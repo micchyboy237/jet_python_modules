@@ -247,11 +247,11 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                 # - speech bursts getting cut early
                 # - segments ending in trailing silence too quickly
                 if self.speech_cnt < self.soft_limit:
-                    console.print(
-                        f"[HOLD] {self.frame_cnt:5d} | delaying END "
-                        f"(speech_cnt={self.speech_cnt} < soft_limit={self.soft_limit})",
-                        style="yellow",
-                    )
+                    # console.print(
+                    #     f"[HOLD] {self.frame_cnt:5d} | delaying END "
+                    #     f"(speech_cnt={self.speech_cnt} < soft_limit={self.soft_limit})",
+                    #     style="yellow",
+                    # )
                     # Don't end the segment yet
                     # Soft-hold: just return result as-is for now
                     # (No state change, not marking is_speech_end)

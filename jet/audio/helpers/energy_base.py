@@ -1,4 +1,4 @@
-# energy_base.py
+# jet.audio.helpers.energy
 
 import numpy as np
 from jet.audio.helpers.config import (
