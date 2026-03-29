@@ -1,5 +1,6 @@
 # jet.audio.audio_waveform.helpers.subtitle_entry
 
+import json
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -51,7 +52,7 @@ class SubtitleEntry:
         if segment_dir:
             self.uuid_to_segment_dir[uuid_str] = segment_dir
 
-    def update(self, uuid_str: str, ja: str, en: str):
+    def update(self, uuid_str: str, ja: str, en: str, others: dict | None = None):
         if uuid_str not in self.by_uuid:
             print(f"[Subtitle] Warning: received unknown uuid {uuid_str}")
             return
@@ -72,6 +73,27 @@ class SubtitleEntry:
             self._write_global_srt()
             self._write_segment_srt(uuid_str)
 
+        if others:
+            self._write_others(others)
+
+    def _write_others(self, others: dict):
+        """Save the 'others' dictionary as other_results.json"""
+        if not self.output_path:
+            return
+
+        try:
+            # Changed filename to other_results.json (same directory as the .srt file)
+            json_path = self.output_path.parent / "other_results.json"
+
+            json_path.write_text(
+                json.dumps(others, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            print(f"[JSON] Others results saved successfully: {json_path}")
+
+        except Exception as e:
+            print(f"[JSON] Failed writing other_results.json: {e}")
+
     def _write_global_srt(self):
         if not self.output_path:
             return
@@ -90,7 +112,7 @@ class SubtitleEntry:
         try:
             path = segment_dir / "subtitles.srt"
 
-            # ✅ Only write the actual item (not full list)
+            # Only write the actual item
             entry = next((e for e in self.entries if e["uuid"] == uuid_str), None)
             if not entry:
                 return

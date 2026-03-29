@@ -162,8 +162,16 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         print("[WS] Missing uuid in message")
                         continue
 
-                    ja = header.get("transcription_ja", "").strip()
-                    en = header.get("translation_en", "").strip()
+                    ja = header["transcription_ja"]
+                    en = header["translation_en"]
+                    others = {
+                        "transcribed_duration_sec": header["transcribed_duration_sec"],
+                        "transcribed_duration_pctg": header[
+                            "transcribed_duration_pctg"
+                        ],
+                        "coverage_label": header["coverage_label"],
+                        "phrase_segments": header["phrase_segments"],
+                    }
 
                     print(
                         f"[WS ←] {uid[:8]}…  ja: {ja[:50]}{'…' if len(ja) > 50 else ''}"
@@ -173,7 +181,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                             f"               en: {en[:50]}{'…' if len(en) > 50 else ''}"
                         )
 
-                    self.accumulator.update(uid, ja, en)
+                    self.accumulator.update(uid, ja, en, others)
 
                 except json.JSONDecodeError as e:
                     print(f"[WS] JSON decode error: {e}")
