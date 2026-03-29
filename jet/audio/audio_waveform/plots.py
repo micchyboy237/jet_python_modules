@@ -7,11 +7,24 @@ def create_plots_layout():
 
     flags = QtCore.Qt.WindowType.Window | QtCore.Qt.WindowType.WindowStaysOnTopHint
 
+    # Window dimensions and margin
+    win_w, win_h = 450, 380
+    margin = 20
+
     win = pg.GraphicsLayoutWidget(
-        size=(450, 400),
+        size=(win_w, win_h),
         title="Realtime Audio + Speech Probability",
     )
     win.setWindowFlags(flags)
+
+    # Position window at bottom-right
+    screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
+    screen_w = screen.width()
+    screen_h = screen.height()
+
+    x = screen_w - win_w - margin
+    y = screen_h - win_h - margin
+    win.move(x, y)
 
     # ── Waveform ────────────────────────────────────────────────
     wave_plot = win.addPlot()
@@ -63,5 +76,8 @@ def create_plots_layout():
     prob_curves = (p_low, p_mid, p_high)
     sb_curves = (sb_low, sb_mid, sb_high)
     fr_curves = (fr_low, fr_mid, fr_high)
+
+    # Ensure the window is visible
+    win.show()
 
     return win, (wave_curves, prob_curves, sb_curves, fr_curves)

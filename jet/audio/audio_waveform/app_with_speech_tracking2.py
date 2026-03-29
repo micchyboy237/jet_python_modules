@@ -14,7 +14,7 @@ import pyqtgraph as pg
 import sounddevice as sd
 from jet.audio.audio_waveform.circular_buffer import CircularBuffer
 from jet.audio.audio_waveform.plots import create_plots_layout
-from jet.audio.audio_waveform.speech_tracker2 import SpeechSegmentTracker
+from jet.audio.audio_waveform.speech_segment_tracker import SpeechSegmentTracker
 from jet.audio.audio_waveform.vad.firered_with_speech_tracking import FireRedVADWrapper
 from jet.audio.audio_waveform.vad.silero import SileroVAD
 from jet.audio.audio_waveform.vad.speechbrain import SpeechBrainVADWrapper

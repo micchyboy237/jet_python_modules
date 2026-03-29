@@ -6,7 +6,7 @@ import pytest
 import soundfile as sf
 
 # Assuming the class is in streaming_speech_tracker.py
-from jet.audio.audio_waveform.speech_tracker2 import StreamingSpeechTracker
+from jet.audio.audio_waveform.speech_segment_tracker import StreamingSpeechTracker
 
 
 @pytest.fixture

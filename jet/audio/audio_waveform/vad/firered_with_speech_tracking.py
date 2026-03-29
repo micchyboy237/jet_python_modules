@@ -12,7 +12,7 @@ from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 from jet.audio.audio_waveform.hybrid_stream_vad_postprocessor import (
     HybridStreamVadPostprocessor,
 )
-from jet.audio.audio_waveform.speech_tracker2 import SpeechSegmentTracker
+from jet.audio.audio_waveform.speech_segment_tracker import SpeechSegmentTracker
 
 logging.basicConfig(
     level=logging.INFO,

@@ -281,6 +281,13 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
     def _log_if_changed(self, prev_state, prev_speech, prev_silence, result):
         """Only print when state or important counters change"""
         if self.state != prev_state:
+            # Log entry into silence specifically
+            if self.state == VadState.SILENCE:
+                console.print(
+                    f"[silence] {self.frame_cnt:5d} entered silence (after {prev_silence} transition frames)",
+                    style="dim bright_black",
+                )
+
             style = {
                 VadState.SPEECH: "green bold",
                 VadState.POSSIBLE_SILENCE: "yellow",
@@ -292,20 +299,6 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                 f"[STATE] {self.frame_cnt:5d} | {prev_state.name:13} → {self.state.name:13}",
                 style=style,
             )
-
-        elif (
-            self.state == VadState.SILENCE
-            and self.silence_cnt != self._last_silence_cnt
-        ):
-            # Log silence progression only occasionally
-            if (
-                self.silence_cnt % 500 == 0
-                or self.silence_cnt == self.min_silence_frame
-            ):
-                console.print(
-                    f"[silence] {self.frame_cnt:5d} continuing ({self.silence_cnt} frames)",
-                    style="dim bright_black",
-                )
 
         # Always log starts/ends/splits (already handled above, but can reinforce)
         if result.is_speech_start or result.is_speech_end:
