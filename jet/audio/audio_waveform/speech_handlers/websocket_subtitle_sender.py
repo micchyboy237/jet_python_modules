@@ -165,12 +165,16 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     ja = header["transcription_ja"]
                     en = header["translation_en"]
                     others = {
+                        "uuid": header["uuid"],
+                        "duration": header["duration"],
+                        "context_uuid": header["context_uuid"],
+                        "context_duration": header["context_duration"],
                         "transcribed_duration_sec": header["transcribed_duration_sec"],
                         "transcribed_duration_pctg": header[
                             "transcribed_duration_pctg"
                         ],
                         "coverage_label": header["coverage_label"],
-                        "phrase_segments": header["phrase_segments"],
+                        # "phrase_segments": header["phrase_segments"],
                     }
 
                     print(

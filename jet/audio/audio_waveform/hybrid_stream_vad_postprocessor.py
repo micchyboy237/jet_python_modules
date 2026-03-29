@@ -246,23 +246,23 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                 # This avoids:
                 # - speech bursts getting cut early
                 # - segments ending in trailing silence too quickly
-                # if self.speech_cnt < self.soft_limit:
-                #     console.print(
-                #         f"[HOLD] {self.frame_cnt:5d} | delaying END "
-                #         f"(speech_cnt={self.speech_cnt} < soft_limit={self.soft_limit})",
-                #         style="yellow",
-                #     )
-                #     # Don't end the segment yet
-                #     # Soft-hold: just return result as-is for now
-                #     # (No state change, not marking is_speech_end)
-                #     # end of soft segment hold logic
-                #     return result
+                if self.speech_cnt < self.soft_limit:
+                    console.print(
+                        f"[HOLD] {self.frame_cnt:5d} | delaying END "
+                        f"(speech_cnt={self.speech_cnt} < soft_limit={self.soft_limit})",
+                        style="yellow",
+                    )
+                    # Don't end the segment yet
+                    # Soft-hold: just return result as-is for now
+                    # (No state change, not marking is_speech_end)
+                    # end of soft segment hold logic
+                    return result
                 # --------------------------------------------------
 
                 if self.silence_cnt >= self.min_silence_frame:
                     self.state = VadState.SILENCE
                     result.is_speech_end = True
-                    self.last_force_split_reason = "silence"
+                    self.last_force_split_reason = "non_speech"
                     result.speech_end_frame = self.frame_cnt
                     result.speech_start_frame = self.last_speech_start_frame
                     self.last_speech_end_frame = result.speech_end_frame

@@ -130,24 +130,32 @@ class SubtitlePreviewWindow(QMainWindow):
 
         gap = e["start"] - prev_end
         gap_str = f"{gap:.2f}s"
-
         duration = f"{(e['end'] - e['start']):.2f}s"
-
         text = self._get_entry_text(e)
-        trigger_reason = e.get("trigger_reason")
-
+        trigger_reason = e.get("trigger_reason") or "unknown"
         segment_dir = e.get("segment_dir")
+
+        # New fields required by the task (now stored in entry via e.update(others))
+        transcribed_pctg = e.get("transcribed_duration_pctg")
+        coverage_label = e.get("coverage_label", "")
+        pctg_str = (
+            f"{float(transcribed_pctg):.1f}%"
+            if isinstance(transcribed_pctg, (int, float))
+            else "N/A"
+        )
+        cov_str = coverage_label or "N/A"
+
         open_link = (
             f'<a href="open:{i}" style="color:#58a6ff; text-decoration:none;">📂</a>'
             if segment_dir
             else ""
         )
-
         return f"""
 <div style="margin-bottom:6px;">
 <b style="font-size:10px;">{i}</b>
-<span style="font-size:10px; color:#8b949e;">
+<span style="font-size:9px; color:#8b949e; line-height:1.1;">
 [gap: {gap_str}] ({duration}) • <span style="color:#d2a8ff;">{trigger_reason}</span>
+ • pctg: {pctg_str} • cov: <span style="color:#79c0ff;">{cov_str}</span>
 </span>
 <a href="copy:{i}" style="color:#58a6ff; text-decoration:none;">📋</a>
 {open_link}

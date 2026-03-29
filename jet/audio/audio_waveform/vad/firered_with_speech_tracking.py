@@ -48,7 +48,7 @@ class FireRedVADWrapper:
         pad_start_frame: int = 5,
         min_speech_frame: int = 30,
         soft_max_speech_frame: int = 450,
-        hard_max_speech_frame: int = 1500,
+        hard_max_speech_frame: int = 800,
         min_silence_frame: int = 20,
         chunk_max_frame: int = 30000,
         search_window: int = 200,

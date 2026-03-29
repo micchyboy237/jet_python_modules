@@ -44,7 +44,7 @@ class SubtitleEntry:
             "received_at": None,
             "final": False,
             "trigger_reason": trigger_reason,
-            "segment_dir": segment_dir,
+            "segment_dir": segment_dir,  # will be used for per-segment other_results.json
         }
 
         self.by_uuid[uuid_str] = entry
@@ -63,33 +63,33 @@ class SubtitleEntry:
         e["received_at"] = datetime.utcnow().isoformat()
         e["final"] = True
 
+        if others:
+            # Store metadata directly in the entry so live preview can read it
+            e.update(others)
+            self._write_segment_other_results(uuid_str, others)
+
         if e["ja"] or e["en"]:
             self.entries.append(e)
             del self.by_uuid[uuid_str]
-
             self.entries.sort(key=lambda x: x["start"])
-
-            # ✅ NEW: write immediately
             self._write_global_srt()
             self._write_segment_srt(uuid_str)
 
-        if others:
-            self._write_others(others)
-
-    def _write_others(self, others: dict):
-        """Save the 'others' dictionary as other_results.json"""
+    def _write_segment_other_results(self, uuid_str: str, others: dict):
+        """Save the 'others' dictionary as other_results.json *inside the segment_dir*
+        (replaces the previous single global file)."""
         if not self.output_path:
             return
 
         try:
-            # Changed filename to other_results.json (same directory as the .srt file)
-            json_path = self.output_path.parent / "other_results.json"
-
+            segment_dir = self.uuid_to_segment_dir.get(uuid_str)
+            if not segment_dir:
+                return
+            json_path = segment_dir / "other_results.json"
             json_path.write_text(
                 json.dumps(others, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-
-            print(f"[JSON] Others results saved successfully: {json_path}")
+            print(f"[JSON] Segment other_results.json saved successfully: {json_path}")
 
         except Exception as e:
             print(f"[JSON] Failed writing other_results.json: {e}")

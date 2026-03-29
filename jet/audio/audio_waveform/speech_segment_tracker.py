@@ -38,7 +38,7 @@ class SpeechSegmentTracker:
         self.current_start_frame = -1
         self.current_start_event: SpeechSegmentStartEvent | None = None
         self.current_forced_split = False
-        self.current_trigger_reason = "silence"
+        self.current_trigger_reason = "true_silence"
         self.current_vad_states = []
         self.postprocessor: HybridStreamVadPostprocessor | None = None
 
@@ -48,6 +48,10 @@ class SpeechSegmentTracker:
         self.pre_audio_buffer: deque[np.ndarray] = deque(maxlen=200)
         self.pre_prob_buffer: deque[float] = deque(maxlen=200)
         self.last_segment_forced_split: bool = False
+
+        # For forced splitting based on true silence
+        self.min_true_silence_frame: int = 20
+        self.true_silence_cnt: int = 0
 
     def add_handler(self, handler: SpeechSegmentHandler) -> None:
         self.handlers.append(handler)
@@ -59,6 +63,32 @@ class SpeechSegmentTracker:
             self.pre_audio_buffer.append(samples.astype(np.float32).copy())
         else:
             self.current_audio_chunks.append(samples.astype(np.float32))
+            # NEW: true_silence force-split based on RMS energy
+            rms = compute_rms(samples)
+            if rms < SILENCE_MAX_THRESHOLD:
+                self.true_silence_cnt += 1
+                if self.true_silence_cnt >= self.min_true_silence_frame:
+                    console.print(
+                        f"[TRACKER] [bold red]FORCE TRUE_SILENCE SPLIT[/] "
+                        f"after {self.true_silence_cnt} consecutive low-RMS blocks "
+                        f"(rms={rms:.4f} < {SILENCE_MAX_THRESHOLD})",
+                        style="bold red",
+                    )
+                    dummy_result = StreamVadFrameResult(
+                        frame_idx=0,
+                        is_speech=False,
+                        raw_prob=0.0,
+                        smoothed_prob=0.0,
+                    )
+                    self._end_segment(
+                        dummy_result,
+                        override_reason="true_silence",
+                        override_forced=True,
+                    )
+                    self.true_silence_cnt = 0
+                    return
+            else:
+                self.true_silence_cnt = 0
 
     def add_prob(self, smoothed_prob: float) -> None:
         if not self.is_speaking:
@@ -114,7 +144,6 @@ class SpeechSegmentTracker:
         self.current_start_frame = result.speech_start_frame
         self.current_start_event = start_event
         self.current_vad_states = []
-
         if not self.last_segment_forced_split:
             self._prepend_hybrid_rise()
 
@@ -151,7 +180,9 @@ class SpeechSegmentTracker:
                 style="yellow",
             )
 
-    def _end_segment(self, result: StreamVadFrameResult) -> None:
+    def _end_segment(
+        self, result: StreamVadFrameResult, override_reason=None, override_forced=None
+    ) -> None:
         if not self.is_speaking:
             return
 
@@ -166,17 +197,32 @@ class SpeechSegmentTracker:
         actual_duration = (
             actual_samples / self.sample_rate if actual_samples > 0 else 0.0
         )
-        end_time_sec = self.current_start_event.start_time_sec + actual_duration
+        # Handle None case for .current_start_event
+        start_event = self.current_start_event
+        if start_event is not None:
+            start_time_sec = start_event.start_time_sec
+        else:
+            start_time_sec = 0.0
+        end_time_sec = start_time_sec + actual_duration
 
         end_frame = self.current_frames[-1]["frame_idx"] if self.current_frames else 0
 
+        # Support normal VAD-driven ends + the new RMS-based true_silence override
         if self.postprocessor is not None:
             self.current_forced_split = getattr(
                 self.postprocessor, "was_force_splitted", False
             )
             self.current_trigger_reason = getattr(
-                self.postprocessor, "last_split_reason", "silence"
+                self.postprocessor, "last_split_reason", "true_silence"
             )
+        else:
+            self.current_forced_split = False
+            self.current_trigger_reason = "true_silence"
+
+        if override_reason is not None:
+            self.current_trigger_reason = override_reason
+        if override_forced is not None:
+            self.current_forced_split = override_forced
 
         self.last_segment_forced_split = self.current_forced_split
 
@@ -185,19 +231,20 @@ class SpeechSegmentTracker:
         loudness_label = rms_to_loudness_label(segment_rms)
         segment_has_sound = has_sound(audio)  # now uses threshold=0.005
 
+        # Defensive: handle None start event for lint safety
         end_event = SpeechSegmentEndEvent(
             segment_id=self.segment_counter,
-            start_frame=self.current_start_event.start_frame,
+            start_frame=start_event.start_frame if start_event else 0,
             end_frame=int(end_frame),
-            start_time_sec=self.current_start_event.start_time_sec,
+            start_time_sec=start_time_sec,
             end_time_sec=end_time_sec,
             duration_sec=actual_duration,
             audio=audio,
             prob_frames=self.current_frames[:],
             forced_split=self.current_forced_split,
             trigger_reason=self.current_trigger_reason,
-            started_at=self.current_start_event.started_at,
-            segment_dir=self.current_start_event.segment_dir,
+            started_at=start_event.started_at if start_event else "",
+            segment_dir=start_event.segment_dir if start_event else None,
             # Energy RMS fields
             segment_rms=segment_rms,
             loudness=loudness_label,
@@ -222,7 +269,7 @@ class SpeechSegmentTracker:
 
     def reset(self):
         self.current_forced_split = False
-        self.current_trigger_reason = "silence"
+        self.current_trigger_reason = "true_silence"
         self.current_start_event = None
         self.current_audio_chunks = []
         self.current_frames = []
@@ -230,3 +277,4 @@ class SpeechSegmentTracker:
         self.current_vad_states = []
         self.pre_audio_buffer.clear()
         self.pre_prob_buffer.clear()
+        self.true_silence_cnt = 0
