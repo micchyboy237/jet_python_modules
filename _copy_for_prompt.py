@@ -111,6 +111,7 @@ Update patterns to be optional
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
 Provide step by step analysis first.
+Show unified diff for updated files, while show python code block for new files.
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """
