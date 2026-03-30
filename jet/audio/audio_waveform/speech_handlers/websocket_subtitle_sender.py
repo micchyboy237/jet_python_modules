@@ -162,19 +162,18 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         print("[WS] Missing uuid in message")
                         continue
 
-                    ja = header["transcription_ja"]
-                    en = header["translation_en"]
+                    ja = header.get("transcription_ja", "")
+                    en = header.get("translation_en", "")
+                    # Compose full response dict, including ja/en and any other fields
                     others = {
-                        "uuid": header["uuid"],
-                        "duration": header["duration"],
-                        "context_uuid": header["context_uuid"],
-                        "context_duration": header["context_duration"],
-                        "transcribed_duration_sec": header["transcribed_duration_sec"],
-                        "transcribed_duration_pctg": header[
-                            "transcribed_duration_pctg"
-                        ],
-                        "coverage_label": header["coverage_label"],
-                        # "phrase_segments": header["phrase_segments"],
+                        k: v
+                        for k, v in header.items()
+                        if k not in ("transcription_ja", "translation_en")
+                    }
+                    response = {
+                        "ja": ja,
+                        "en": en,
+                        **others,
                     }
 
                     print(
@@ -185,7 +184,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                             f"               en: {en[:50]}{'…' if len(en) > 50 else ''}"
                         )
 
-                    self.accumulator.update(uid, ja, en, others)
+                    self.accumulator.update(uid, ja, en, response)
 
                 except json.JSONDecodeError as e:
                     print(f"[WS] JSON decode error: {e}")
@@ -245,6 +244,18 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "started_at": event.started_at,
         }
         json_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
+
+        # Save request payload (JSON header) under segment_dir / "request.json"
+        if event.segment_dir:
+            try:
+                request_path = event.segment_dir / "request.json"
+                request_path.write_text(
+                    json.dumps(header, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                print(f"[JSON] Segment request.json saved successfully: {request_path}")
+            except Exception as e:
+                print(f"[JSON] Failed writing request.json: {e}")
 
         payload = json_bytes + b"\x00" + audio_int16
 
