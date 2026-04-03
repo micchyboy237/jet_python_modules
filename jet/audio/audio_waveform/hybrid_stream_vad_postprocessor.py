@@ -89,22 +89,25 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         return self.state_transition(is_speech, result)
 
     def _has_valid_valley(self, window: list[float]) -> bool:
-        """
-        True if there exists a consecutive run of frames
-        below valley_threshold long enough to be meaningful.
-        """
-        count = 0
-        max_count = 0
+        """True if the *end* of the window contains at least
+        min_valley_consecutive_frames consecutive probabilities
+        below valley_threshold.
 
-        for p in window:
+        This guarantees that a valley split only ever occurs while
+        we are currently sitting inside (or just finishing) a low-prob
+        valley, never after the probability has already risen again.
+        """
+        if not window:
+            return False
+        count = 0
+        for p in reversed(window):
             if p < self.valley_threshold:
                 count += 1
-                if count > max_count:
-                    max_count = count
+                if count >= self.min_valley_consecutive_frames:
+                    return True
             else:
-                count = 0
-
-        return max_count >= self.min_valley_consecutive_frames
+                break  # trailing run interrupted
+        return False
 
     def state_transition(
         self, is_speech: bool, result: StreamVadFrameResult
