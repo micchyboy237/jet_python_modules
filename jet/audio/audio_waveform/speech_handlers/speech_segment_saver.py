@@ -19,7 +19,9 @@ from jet.audio.helpers.energy import (
     compute_amplitude,
     compute_rms,
     has_sound,
+    normalize_energy,
     rms_to_loudness_label,
+    smooth_signal,
 )
 from jet.transformers.object import make_serializable
 
@@ -185,15 +187,19 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
 
         rms_values = np.array([p["energy"]["rms"] for p in prob_frames])
 
-        # Normalize: rms ∈ [0.0, 0.1] → [0.0, 1.0], clip above 0.1
-        MAX_RMS = 0.1
-        norm_energy = np.clip(rms_values / MAX_RMS, 0.0, 1.0)
+        # Adaptive normalization + smoothing
+        norm_energy, norm_max = normalize_energy(
+            rms_values, fallback_max=0.1, return_max=True
+        )
 
-        # ── Create even smaller figure ────────────────────────────────────────
-        fig = plt.figure(figsize=(9, 6.2), dpi=140)  # reduced from (10,7)
+        # Smooth using shared helper (window=5 frames ≈ 50 ms at 10 ms hop)
+        SMOOTH_WINDOW = 5
+        smoothed_norm_energy = smooth_signal(norm_energy, window=SMOOTH_WINDOW)
+
+        fig = plt.figure(figsize=(9, 6.2), dpi=140)
         fig.suptitle(
-            f"Segment {event.segment_id}  •  {event.duration_sec:.1f}s  •  {len(prob_frames)} frames",
-            fontsize=11,  # smaller suptitle
+            f"Segment {event.segment_id}  •  {event.duration_sec:.1f}s  •  {len(prob_frames)} frames • max_rms={norm_max:.4f} • smooth_win={SMOOTH_WINDOW}",
+            fontsize=11,
             y=0.975,
         )
 
@@ -215,11 +221,30 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
 
         # ── Bottom: Normalized energy ─────────────────────────────────────────
         ax2 = fig.add_subplot(gs[1, 0])
+
+        # Light raw energy (reference)
         ax2.plot(
-            xs, norm_energy, color="#ff7f0e", lw=1.3, label="norm. energy (rms → 0–1)"
+            xs,
+            norm_energy,
+            color="#ff7f0e",
+            lw=0.9,
+            alpha=0.45,
+            label="raw norm. energy",
         )
+
+        # Main smoothed curve
+        ax2.plot(
+            xs,
+            smoothed_norm_energy,
+            color="#d62728",  # bold dark orange-red for the smoothed trend
+            lw=2.0,
+            label=f"smoothed (win={SMOOTH_WINDOW})",
+        )
+
         ax2.axhline(0.5, color="darkred", ls="--", lw=0.9, alpha=0.7, label="0.5 ref")
-        ax2.set_title("Normalized Energy (RMS clipped at 0.1)", fontsize=10)
+        ax2.set_title(
+            f"Normalized Energy (adaptive max={norm_max:.4f}, smoothed)", fontsize=10
+        )
         ax2.set_xlabel("Frame index", fontsize=9)
         ax2.set_ylabel("Normalized [0–1]", fontsize=9)
         ax2.set_ylim(-0.05, 1.05)
