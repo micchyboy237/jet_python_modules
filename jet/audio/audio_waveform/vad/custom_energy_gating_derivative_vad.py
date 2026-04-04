@@ -5,20 +5,19 @@ import numpy as np
 
 class DerivativeBasedVAD:
     """
-    Version 3 - True Hybrid Derivative VAD (Recommended)
-    Uses derivatives from both speech probabilities and RMS energy for better robustness.
+    Final corrected version with proper decision flow + rich debug logging.
     """
 
     def __init__(
         self,
-        activation_th: float = 0.44,
+        activation_th: float = 0.45,
         min_speech_frames: int = 1,
-        base_alpha: float = 0.47,
-        delta_weight: float = 0.95,
-        onset_boost_base: float = 0.25,
+        base_alpha: float = 0.48,
+        delta_weight: float = 0.97,
+        onset_boost_base: float = 0.24,
         raw_peak_th: float = 0.78,
-        energy_weight: float = 0.40,  # 0.0 = probability only, 0.5 = strong energy influence
-        verbose: bool = True,
+        use_energy_gating: bool = False,
+        min_rms_for_speech: float = 0.015,
     ):
         self.activation_th = activation_th
         self.min_speech_frames = min_speech_frames
@@ -26,11 +25,10 @@ class DerivativeBasedVAD:
         self.delta_weight = delta_weight
         self.onset_boost_base = onset_boost_base
         self.raw_peak_th = raw_peak_th
-        self.energy_weight = np.clip(energy_weight, 0.0, 0.7)
-        self.verbose = verbose
+        self.use_energy_gating = use_energy_gating
+        self.min_rms_for_speech = min_rms_for_speech
 
     def _compute_delta(self, features: np.ndarray) -> np.ndarray:
-        """First-order regression delta with window=2."""
         if features.ndim == 1:
             features = features.reshape(1, -1)
         n = features.shape[1]
@@ -52,61 +50,52 @@ class DerivativeBasedVAD:
         probs = np.asarray(speech_probs, dtype=float)
         rms = np.asarray(rms_energy, dtype=float) if rms_energy is not None else None
 
-        if self.verbose:
-            print("=== DerivativeBasedVAD v3 Hybrid Debug ===")
+        print("=== DerivativeBasedVAD Detailed Debug ===")
+        smoothed, delta = self._adaptive_smooth(probs)
+        initial_decisions = np.zeros(len(probs), dtype=int)
 
-        delta_probs = self._compute_delta(probs)
-        delta_rms = (
-            self._compute_delta(rms) if rms is not None else np.zeros_like(probs)
+        print("\n--- Per-Frame Decision Log ---")
+        print(
+            "Frame | RawProb | Smoothed | ΔProb    | EffTh  | Boost   | RMS     | InitDec | Reason"
         )
-
-        smoothed = self._hybrid_adaptive_smooth(probs, rms, delta_probs, delta_rms)
-
-        decisions = np.zeros(len(probs), dtype=int)
-
-        if self.verbose:
-            print(
-                "\nFrame | RawProb | Smoothed | ΔProb    | ΔRMS     | EffTh  | HybridScore | Dec | Note"
-            )
 
         for t in range(len(probs)):
             eff_th = self.activation_th
             boost = 0.0
+            reason = ""
 
-            if t > 0 and delta_probs[t] > 0.05:
-                boost = self.onset_boost_base * min(3.0, delta_probs[t] / 0.10)
-                eff_th = max(0.25, self.activation_th - boost)
+            if t > 0 and delta[t] > 0.05:
+                boost = self.onset_boost_base * min(2.8, delta[t] / 0.10)
+                eff_th = max(0.26, self.activation_th - boost)
 
             is_raw_peak = probs[t] >= self.raw_peak_th
+            init_dec = 1 if (smoothed[t] >= eff_th or is_raw_peak) else 0
 
-            # Hybrid score
-            prob_score = smoothed[t]
-            energy_score = rms[t] if rms is not None else 1.0
-            hybrid_score = (
-                1 - self.energy_weight
-            ) * prob_score + self.energy_weight * min(1.0, energy_score * 10.0)
-
-            decision = 1 if (hybrid_score >= eff_th or is_raw_peak) else 0
-            decisions[t] = decision
-
-            note = ""
-            if decision == 1:
-                if is_raw_peak:
-                    note = "RAW PEAK"
-                elif boost > 0.15:
-                    note = "ONSET BOOST"
+            if self.use_energy_gating and rms is not None and init_dec == 1:
+                if rms[t] < self.min_rms_for_speech:
+                    init_dec = 0
+                    reason = f"ENERGY REJECT (rms={rms[t]:.4f})"
                 else:
-                    note = "HYBRID"
+                    reason = "ENERGY OK"
 
-            if self.verbose:
-                rms_str = f"{rms[t]:.4f}" if rms is not None else "N/A"
-                print(
-                    f"{t:3d} | {probs[t]:.4f} | {smoothed[t]:.4f} | {delta_probs[t]:+8.4f} | "
-                    f"{delta_rms[t]:+8.4f} | {eff_th:.3f} | {hybrid_score:.4f} | {decision}   | {note}"
+            if init_dec == 1 and not reason:
+                reason = (
+                    "RAW PEAK"
+                    if is_raw_peak
+                    else ("BOOST" if boost > 0.15 else "SMOOTHED OK")
                 )
 
-        # Post-processing with tighter hangover control
-        final = decisions.copy()
+            rms_str = f"{rms[t]:.4f}" if rms is not None else "N/A"
+            print(
+                f"{t:3d} | {probs[t]:.4f} | {smoothed[t]:.4f} | {delta[t]:+8.4f} | "
+                f"{eff_th:.3f} | {boost:+6.3f} | {rms_str} | {init_dec}      | {reason}"
+            )
+
+            initial_decisions[t] = init_dec
+
+        # === Post-processing ===
+        final = initial_decisions.copy()
+        print("\n--- Post-Processing Log ---")
 
         i = 0
         while i < len(final):
@@ -115,16 +104,19 @@ class DerivativeBasedVAD:
                 while j < len(final) and final[j] == 1:
                     j += 1
                 length = j - i
+                print(f"Found speech candidate {i}–{j - 1} (length = {length} frames)")
 
                 if length < self.min_speech_frames:
                     final[i:j] = 0
+                    print(f"  → DROPPED: too short (< {self.min_speech_frames} frames)")
                 elif length <= 6:
-                    final[j : j + 1] = 0  # minimal hangover for short bursts
+                    final[j : j + 1] = 0
+                    print("  → Limited hangover for short burst")
                 i = j
             else:
                 i += 1
 
-        # Extract segments
+        # Extract final segments
         segments: List[Tuple[int, int]] = []
         i = 0
         while i < len(final):
@@ -136,47 +128,37 @@ class DerivativeBasedVAD:
             else:
                 i += 1
 
-        if self.verbose:
-            print("\n=== FINAL RESULT ===")
-            print("Speech segments:", segments)
-            print("Total speech frames:", final.sum())
+        print("\n=== FINAL RESULT ===")
+        print("Speech segments:", segments)
+        print("Total speech frames:", final.sum())
+        print(f"Max smoothed: {np.max(smoothed):.4f}")
+
+        if not segments:
+            print("WARNING: All candidates were dropped in post-processing.")
 
         return {
             "speech_segments": segments,
             "final_decisions": final,
             "smoothed_probs": smoothed,
-            "delta_probs": delta_probs,
+            "delta_probs": delta,
             "original_probs": probs,
         }
 
-    def _hybrid_adaptive_smooth(
-        self,
-        probs: np.ndarray,
-        rms: Optional[np.ndarray],
-        delta_probs: np.ndarray,
-        delta_rms: np.ndarray,
-    ) -> np.ndarray:
-        """Hybrid smoothing using derivatives from both probability and energy."""
+    def _adaptive_smooth(self, probs: np.ndarray):
         smoothed = np.zeros_like(probs)
         smoothed[0] = probs[0]
+        delta = self._compute_delta(probs)
 
-        if rms is None:
-            change_norm = np.abs(delta_probs) / (np.max(np.abs(delta_probs)) + 1e-8)
-        else:
-            combined = np.abs(delta_probs) + self.energy_weight * 4.0 * np.abs(
-                delta_rms
-            )
-            change_norm = combined / (np.max(combined) + 1e-8)
+        change_norm = np.abs(delta) / (np.max(np.abs(delta)) + 1e-8)
 
         for t in range(1, len(probs)):
             alpha = self.base_alpha - self.delta_weight * change_norm[t - 1]
-            alpha = np.clip(alpha, 0.04, 0.80)
+            alpha = np.clip(alpha, 0.03, 0.78)
             smoothed[t] = alpha * probs[t] + (1 - alpha) * smoothed[t - 1]
+        return smoothed, delta
 
-        return smoothed
 
-
-# ====================== Usage Example ======================
+# ====================== Test ======================
 if __name__ == "__main__":
     np.random.seed(42)
 
@@ -204,5 +186,5 @@ if __name__ == "__main__":
         ]
     )
 
-    vad = DerivativeBasedVAD(verbose=True, energy_weight=0.40)
+    vad = DerivativeBasedVAD(use_energy_gating=False)
     result = vad.process(speech_probs, rms_energy)
