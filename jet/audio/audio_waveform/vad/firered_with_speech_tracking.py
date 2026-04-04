@@ -53,6 +53,7 @@ class FireRedVADWrapper:
         chunk_max_frame: int = 30000,
         search_window: int = 200,
         valley_threshold: float = 0.65,
+        min_valley_consecutive_frames: int = 5,
     ) -> None:
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
@@ -95,6 +96,7 @@ class FireRedVADWrapper:
             min_silence_frame=min_silence_frame,
             search_window=search_window,
             valley_threshold=valley_threshold,
+            min_valley_consecutive_frames=min_valley_consecutive_frames,
         )
 
         # Use list buffer to avoid repeated concatenate
