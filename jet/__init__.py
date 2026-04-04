@@ -61,6 +61,7 @@ def suppress_logging():
     logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
     # Optional: also silence all Matplotlib debug output
     matplotlib.set_loglevel("warning")
+    matplotlib.use("Agg")  # Non-interactive backend — safe for background threads
 
     import warnings
 

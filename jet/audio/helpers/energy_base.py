@@ -42,6 +42,22 @@ def compute_amplitude(samples: np.ndarray) -> float:
     return float(np.max(np.abs(samples)))
 
 
+def compute_rms_delta(
+    rms_values: list[float] | np.ndarray, smoothing: int = 3
+) -> float:
+    """Compute smoothed first-order derivative (slope) of RMS sequence.
+    Positive = rising energy, negative = falling.
+    Returns average delta of the last `smoothing` steps (or all if fewer).
+    """
+    if len(rms_values) < 2:
+        return 0.0
+    rms_arr = np.asarray(rms_values, dtype=np.float64)
+    deltas = np.diff(rms_arr)
+    # Average last few deltas for stability
+    recent_deltas = deltas[-smoothing:] if len(deltas) >= smoothing else deltas
+    return float(np.mean(recent_deltas))
+
+
 def compute_rms(samples: np.ndarray) -> float:
     """Root Mean Square – best simple measure of perceived loudness/energy.
 

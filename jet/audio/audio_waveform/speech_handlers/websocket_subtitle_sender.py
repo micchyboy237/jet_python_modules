@@ -128,71 +128,84 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     async def _receiver(self):
         if self.ws is None:
             return
-
         try:
             async for msg in self.ws:
                 try:
-                    header = None
+                    decoded = None
+                    header: dict | None = None
 
-                    # --- CASE 1: Binary message ---
                     if isinstance(msg, bytes):
                         if b"\x00" in msg:
-                            # header + audio payload
-                            header_bytes, _ = msg.split(b"\x00", 1)
-                            header = json.loads(header_bytes.decode("utf-8"))
+                            header_part, _ = msg.split(b"\x00", 1)
+                            decoded = header_part.decode("utf-8", errors="replace")
                         else:
-                            # plain JSON bytes (current server behavior)
-                            header = json.loads(msg.decode("utf-8"))
-
-                    # --- CASE 2: Text message (fallback support) ---
+                            decoded = msg.decode("utf-8", errors="replace")
+                        header = json.loads(decoded)
                     elif isinstance(msg, str):
+                        decoded = msg
                         header = json.loads(msg)
-
                     else:
                         print(f"[WS] Unknown message type: {type(msg)}")
                         continue
 
-                    # --- Validate header ---
-                    if not isinstance(header, dict):
-                        print("[WS] Invalid header format (not dict)")
+                    if header is None or not isinstance(header, dict):
+                        print(
+                            f"[WS] Invalid response - expected dict, got {type(header)}"
+                        )
+                        if decoded:
+                            print(f"Preview: {str(decoded)[:500]}...")
                         continue
 
                     uid = header.get("uuid")
-                    if not uid:
+                    if not uid or not isinstance(uid, str):
                         print("[WS] Missing uuid in message")
                         continue
 
-                    ja = header.get("transcription_ja", "")
-                    en = header.get("translation_en", "")
-                    # Compose full response dict, including ja/en and any other fields
+                    if uid not in self.accumulator.by_uuid:
+                        print(
+                            f"[WS] Warning: received unknown or stale uuid {uid[:12]}… — ignoring"
+                        )
+                        continue
+
+                    # Safely handle None from server (especially "transcription_ja": null)
+                    ja_raw = header.get("transcription_ja")
+                    en_raw = header.get("translation_en")
+                    ja = str(ja_raw).strip() if ja_raw is not None else ""
+                    en = str(en_raw).strip() if en_raw is not None else ""
+
                     others = {
                         k: v
                         for k, v in header.items()
                         if k not in ("transcription_ja", "translation_en")
                     }
-                    response = {
-                        "ja": ja,
-                        "en": en,
-                        **others,
-                    }
+                    response = {"ja": ja, "en": en, **others}
 
-                    print(
-                        f"[WS ←] {uid[:8]}…  ja: {ja[:50]}{'…' if len(ja) > 50 else ''}"
-                    )
+                    print(f"[WS ←] {uid[:8]}… ja:{len(ja)} chars | en:{len(en)} chars")
                     if en:
-                        print(
-                            f"               en: {en[:50]}{'…' if len(en) > 50 else ''}"
-                        )
+                        print(f"    EN: {en[:150]}{'…' if len(en) > 150 else ''}")
+                    if ja:
+                        print(f"    JA: {ja[:100]}{'…' if len(ja) > 100 else ''}")
 
                     self.accumulator.update(uid, ja, en, response)
 
-                except json.JSONDecodeError as e:
-                    print(f"[WS] JSON decode error: {e}")
+                except (
+                    json.JSONDecodeError,
+                    TypeError,
+                    AttributeError,
+                    KeyError,
+                    ValueError,
+                ) as e:
+                    print(f"[WS] JSON/parse error: {type(e).__name__}: {e}")
+                    if "decoded" in locals() and decoded:
+                        print(f"Decoded preview: {str(decoded)[:700]}...")
+                    continue
                 except Exception as e:
-                    print(f"[WS] Parse error: {e}")
+                    print(f"[WS] Unexpected receiver error: {type(e).__name__}: {e}")
+                    import traceback
 
+                    traceback.print_exc()
         except ConnectionClosed:
-            print("[WS receiver] Connection closed — will be handled by manager")
+            print("[WS receiver] Connection closed")
         except Exception as e:
             print(f"[WS receiver] Unexpected error: {e}")
 

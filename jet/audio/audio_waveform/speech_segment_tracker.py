@@ -64,6 +64,43 @@ class SpeechSegmentTracker:
         if not self.is_speaking:
             self.pre_prob_buffer.append(float(smoothed_prob))
 
+    def _has_ongoing_sound_at_end(self) -> bool:
+        """Return True if the trailing audio still contains normal-to-high energy
+        (i.e. the low-prob 'silence' or 'valley' is likely a VAD glitch)."""
+        if len(self.current_audio_chunks) < 5:
+            return False  # too short to judge reliably
+
+        # Last ~0.48 s (15 blocks @ 512 samples / 16 kHz) covers the
+        # consecutive low-prob region that triggered the end.
+        recent_chunks = list(self.current_audio_chunks)[-15:]
+        if not recent_chunks:
+            return False
+
+        recent_audio = np.concatenate(recent_chunks)
+        if len(recent_audio) < 1000:  # ~62 ms minimum
+            return False
+
+        recent_rms = compute_rms(recent_audio)
+
+        # Normal-to-high RMS while probs are low = false silence/valley.
+        return recent_rms >= 0.12
+
+    def _is_premature_end(self) -> bool:
+        """True if we should ignore the current is_speech_end because energy
+        is still high (prevents cutting real speech)."""
+        if self.postprocessor is None:
+            return False
+
+        trigger = getattr(
+            self.postprocessor,
+            "last_split_reason",
+            getattr(self.postprocessor, "last_force_split_reason", "silence"),
+        )
+        if trigger not in ("silence"):
+            return False  # valley_detection, hard_limit etc. are always honored
+
+        return self._has_ongoing_sound_at_end()
+
     def on_frame(self, result: StreamVadFrameResult) -> None:
         if result.is_speech_start:
             self._start_new_segment(result)
@@ -81,7 +118,19 @@ class SpeechSegmentTracker:
             self.current_frames.append(entry)
 
         if result.is_speech_end:
-            self._end_segment(result)
+            if self._is_premature_end():
+                trigger = getattr(
+                    self.postprocessor,
+                    "last_split_reason",
+                    getattr(self.postprocessor, "last_force_split_reason", "silence"),
+                )
+                console.print(
+                    f"[TRACKER] [yellow]IGNORING premature end[/] (trigger={trigger}, "
+                    f"high RMS at end despite low probs) – continuing segment",
+                    style="yellow",
+                )
+            else:
+                self._end_segment(result)
 
     def _get_vad_state_name(self) -> VadStateLabel:
         if self.postprocessor is not None and hasattr(self.postprocessor, "state"):
