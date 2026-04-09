@@ -33,7 +33,7 @@ def log_metrics(metrics: PerformanceMetrics) -> None:
     # Optional: keep but clearly marked as non-standard
     if metrics.end_to_end_throughput is not None:
         logger.info(
-            f"End-to-end throughput : {metrics.end_to_end_throughput:.2f} tokens/s (non-standard)"
+            f"End-to-end throughput : {metrics.end_to_end_throughput:.2f} tokens/s"
         )
 
 

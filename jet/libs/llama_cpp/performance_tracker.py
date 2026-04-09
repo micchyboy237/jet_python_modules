@@ -17,7 +17,7 @@ class PerformanceMetrics:
     decode_speed: Optional[float]  # tokens/sec (generation)
 
     total_latency: float
-    end_to_end_throughput: Optional[float]  # non-standard
+    end_to_end_throughput: Optional[float]  # tokens/sec
 
 
 class PerformanceTracker:
@@ -29,7 +29,7 @@ class PerformanceTracker:
     - Decode speed (eval tokens/sec)
     - Approx prompt eval speed
     - Total latency
-    - Optional end-to-end throughput (non-standard)
+    - Optional end-to-end throughput (tokens/sec)
     """
 
     def __init__(self) -> None:
