@@ -41,7 +41,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Stream chat completion from llama.cpp OpenAI API-compatible endpoint"
     )
-    parser.add_argument("prompt", type=str, help="User input prompt for the chat model")
+    parser.add_argument(
+        "prompt",
+        type=str,
+        nargs="?",
+        default="Write a 2 sentence short story about a curious robot.",
+        help="User input prompt for the chat model (default: %(default)s)",
+    )
     args = parser.parse_args()
 
     user_prompt = args.prompt
