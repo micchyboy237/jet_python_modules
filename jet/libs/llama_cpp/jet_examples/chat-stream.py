@@ -1,5 +1,4 @@
 import os
-import time
 
 from jet.logger import logger
 from openai import OpenAI, Stream
@@ -7,7 +6,7 @@ from openai.types.chat import ChatCompletionChunk
 
 client = OpenAI(
     base_url=os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:1234/v1"),
-    api_key="sk-1234",
+    api_key="sk-1234",  # Dummy key — llama.cpp ignores it
 )
 
 messages = [
@@ -17,32 +16,28 @@ messages = [
     },
 ]
 
-start_time = time.time()
-
 stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
-    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+    model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",  # must match loaded model name or ignore if server uses --model-alias
     messages=messages,
     stream=True,
-    temperature=0.7,
-    top_p=0.95,
-    max_tokens=180,
-    stream_options={"include_usage": True},
+    # ── Most important speed / quality knobs ─────────────────────────────
+    temperature=0.7,  # 0.0–1.0; lower = faster + more deterministic
+    top_p=0.95,  # nucleus sampling — very common & fast combo with temp
+    max_tokens=180,  # safety cap — prevents very long generations
+    # ── Nice to have ──────────────────────────────────────────────────────
+    stream_options={"include_usage": True},  # shows tokens/s at end
+    # top_k=40,                # optional — can be faster than pure top_p on some models
+    # presence_penalty=0.1,    # tiny diversity boost — usually not needed for speed
+    # ── llama.cpp specific (works if your server supports extra_body) ─────
+    # extra_body={"mirostat": 2, "mirostat_tau": 5.0}   # uncomment if you like Mirostat
 )
 
 for part in stream:
-    if part.choices and part.choices[0].delta.content:
-        logger.teal(part.choices[0].delta.content, flush=True, end="")
+    if part.choices:
+        delta = part.choices[0].delta
+        content = delta.content or ""
+        logger.teal(content, flush=True, end="")
 
-    usage = getattr(part, "usage", None)
-    if usage is not None:
-        logger.info("\n\n=== Completion Details ===")
-        logger.info(f"Prompt tokens : {usage.prompt_tokens}")
-        logger.info(f"Completion tokens : {usage.completion_tokens}")
-        logger.info(f"Total tokens : {usage.total_tokens}")
-
-        # Calculate overall speed using only standard Python time + official OpenAI usage
-        # (no llama.cpp-specific 'timings' field is used)
-        elapsed = time.time() - start_time
-        if usage.completion_tokens > 0:
-            overall = usage.completion_tokens / elapsed
-            logger.info(f"Overall speed : {overall:.2f} tokens/s (wall-clock)")
+    # Optional: show final usage stats (tokens/s)
+    if hasattr(part, "usage") and part.usage:
+        logger.info(f"\nUsage → {part.usage}")

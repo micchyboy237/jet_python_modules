@@ -26,7 +26,7 @@ def log_metrics(metrics: PerformanceMetrics) -> None:
 
     if metrics.overall_speed is not None:
         logger.info(
-            f"Overall speed     : {metrics.overall_speed:.2f} tokens/s (wall-clock)"
+            f"Overall throughput: {metrics.overall_speed:.2f} tokens/s (end-to-end)"
         )
 
     logger.info(f"Total latency     : {metrics.total_latency:.3f}s")
