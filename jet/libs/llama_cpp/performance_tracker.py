@@ -10,38 +10,40 @@ class PerformanceMetrics:
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+
     ttft: Optional[float]
-    decode_speed: Optional[float]
-    overall_speed: Optional[float]
+
+    prompt_eval_speed: Optional[float]  # tokens/sec (approx)
+    decode_speed: Optional[float]  # tokens/sec (generation)
+
     total_latency: float
+    end_to_end_throughput: Optional[float]  # non-standard
 
 
 class PerformanceTracker:
     """
-    Tracks streaming performance metrics:
-    - Time To First Token (TTFT)
-    - Decode speed (tokens/sec, generation only)
-    - Overall speed (tokens/sec, wall-clock)
+    Llama.cpp-aligned performance tracker.
+
+    Metrics:
+    - TTFT
+    - Decode speed (eval tokens/sec)
+    - Approx prompt eval speed
     - Total latency
+    - Optional end-to-end throughput (non-standard)
     """
 
     def __init__(self) -> None:
         self.start_time = time.perf_counter()
         self.first_token_time: Optional[float] = None
         self.last_token_time: Optional[float] = None
-        self.token_count = 0
 
     def mark_token(self) -> None:
-        """
-        Call this every time a token (or chunk with content) is received.
-        """
         now = time.perf_counter()
 
         if self.first_token_time is None:
             self.first_token_time = now
 
         self.last_token_time = now
-        self.token_count += 1
 
     def finalize(
         self,
@@ -49,18 +51,15 @@ class PerformanceTracker:
         completion_tokens: int,
         total_tokens: int,
     ) -> PerformanceMetrics:
-        """
-        Finalize metrics using OpenAI usage data.
-        """
         end_time = time.perf_counter()
         total_latency = end_time - self.start_time
 
-        # TTFT
+        # --- TTFT ---
         ttft: Optional[float] = None
         if self.first_token_time is not None:
             ttft = self.first_token_time - self.start_time
 
-        # Decode speed (generation only)
+        # --- Decode speed (TRUE llama.cpp "eval") ---
         decode_speed: Optional[float] = None
         if (
             self.first_token_time is not None
@@ -71,17 +70,24 @@ class PerformanceTracker:
             if generation_duration > 0:
                 decode_speed = completion_tokens / generation_duration
 
-        # Overall speed (wall-clock)
-        overall_speed: Optional[float] = None
+        # --- Prompt eval speed (approximation) ---
+        # NOTE: We approximate using TTFT
+        prompt_eval_speed: Optional[float] = None
+        if ttft is not None and prompt_tokens > 0 and ttft > 0:
+            prompt_eval_speed = prompt_tokens / ttft
+
+        # --- Non-standard overall throughput ---
+        end_to_end_throughput: Optional[float] = None
         if completion_tokens > 0 and total_latency > 0:
-            overall_speed = completion_tokens / total_latency
+            end_to_end_throughput = completion_tokens / total_latency
 
         return PerformanceMetrics(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
             ttft=ttft,
+            prompt_eval_speed=prompt_eval_speed,
             decode_speed=decode_speed,
-            overall_speed=overall_speed,
             total_latency=total_latency,
+            end_to_end_throughput=end_to_end_throughput,
         )
