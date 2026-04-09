@@ -110,8 +110,8 @@ Update patterns to be optional
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
-Provide step by step analysis first.
-Show unified diff for updated files, while show python code block for new files.
+Provide step by step analysis and outline blueprint first.
+Show unified diff for updated files, while show language code block for new files.
 Use easy to understand terms when explaining.
 """.strip()
 
