@@ -55,6 +55,7 @@ def main():
         obs_dict["silero"](samples)
         obs_dict["speechbrain"](samples)
         obs_dict["firered"](samples)
+        obs_dict["ten_vad"](samples)  # NEW
         obs_dict["tracker"](samples)
 
         # Sync to UI
@@ -63,6 +64,7 @@ def main():
             silero=obs_dict["silero"].probability,
             sb=obs_dict["speechbrain"].probability,
             fr=obs_dict["firered"].probability,
+            ten_vad=obs_dict["ten_vad"].probability,  # NEW
         )
 
     manager.add_observer(coordinated_callback)

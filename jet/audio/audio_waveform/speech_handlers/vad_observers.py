@@ -16,6 +16,7 @@ from jet.audio.audio_waveform.speech_segment_tracker import SpeechSegmentTracker
 from jet.audio.audio_waveform.vad.firered_with_speech_tracking import FireRedVADWrapper
 from jet.audio.audio_waveform.vad.silero import SileroVAD
 from jet.audio.audio_waveform.vad.speechbrain import SpeechBrainVADWrapper
+from jet.audio.audio_waveform.vad.ten_vad import TenVadWrapper  # NEW
 
 
 class AudioObserver(Protocol):
@@ -99,6 +100,9 @@ def create_original_observers(
     # FireRed: Advanced VAD that requires the tracker to manage segments
     fr_model = FireRedVADWrapper(tracker=tracker, **firered_params)
 
+    # NEW: TEN-VAD with wrapper for compatibility
+    ten_vad_model = TenVadWrapper(hop_size=256, threshold=0.5)
+
     # 3. Wrap everything in Observer classes
     # These classes provide a standard __call__(samples) interface
     observers = {
@@ -106,6 +110,7 @@ def create_original_observers(
         "silero": VADObserver(silero_model),
         "speechbrain": VADObserver(sb_model),
         "firered": VADObserver(fr_model),
+        "ten_vad": VADObserver(ten_vad_model),  # NEW
         "tracker": TrackerObserver(tracker),
     }
 

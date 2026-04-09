@@ -3,7 +3,7 @@ from pyqtgraph.Qt import QtCore, QtWidgets
 
 
 def create_plots_layout():
-    """Create the four-plot layout and return window + curve tuples"""
+    """Create the plots layout and return window + curve tuples"""
 
     flags = QtCore.Qt.WindowType.Window | QtCore.Qt.WindowType.WindowStaysOnTopHint
 
@@ -72,12 +72,23 @@ def create_plots_layout():
     fr_mid = fr_plot.plot(pen=pg.mkPen(255, 150, 80, width=1.8))
     fr_high = fr_plot.plot(pen=pg.mkPen(255, 100, 40, width=2.2))
 
+    # === NEW: TEN-VAD plot ===
+    win.nextRow()
+    ten_plot = win.addPlot()
+    ten_plot.setYRange(0, 1)
+    ten_plot.setLabel("left", "TEN VAD Prob")
+    ten_plot.showGrid(x=True, y=True, alpha=0.15)
+    ten_low = ten_plot.plot(pen=pg.mkPen(180, 180, 100, width=1.2))
+    ten_mid = ten_plot.plot(pen=pg.mkPen(220, 220, 60, width=1.8))
+    ten_high = ten_plot.plot(pen=pg.mkPen(255, 255, 0, width=2.2))
+
     wave_curves = (wave_low, wave_mid, wave_high)
     prob_curves = (p_low, p_mid, p_high)
     sb_curves = (sb_low, sb_mid, sb_high)
     fr_curves = (fr_low, fr_mid, fr_high)
+    ten_curves = (ten_low, ten_mid, ten_high)
 
     # Ensure the window is visible
     win.show()
 
-    return win, (wave_curves, prob_curves, sb_curves, fr_curves)
+    return win, (wave_curves, prob_curves, sb_curves, fr_curves, ten_curves)
