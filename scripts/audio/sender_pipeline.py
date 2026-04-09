@@ -9,7 +9,7 @@ import websockets
 from ten_vad import VAD  # Modern TEN-VAD import
 
 # ============== CONFIG ==============
-HOST = "192.168.x.x"  # ← CHANGE TO YOUR MAC MINI'S LOCAL IP
+HOST = "192.168.68.30"  # ← CHANGE TO YOUR MAC MINI'S LOCAL IP
 PORT = 8765
 SAMPLE_RATE = 16000  # TEN-VAD works best at 16kHz
 CHANNELS = 1
