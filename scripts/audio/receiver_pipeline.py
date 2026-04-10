@@ -21,6 +21,9 @@ DTYPE = "int16"
 DEBUG_DECODE = True
 DEBUG_VAD = True
 
+# Minimum speech duration (seconds) to consider a segment valid
+MIN_SPEECH_SEC = 0.3
+
 # New constants for accurate segmentation
 VAD_HOP_SIZE = 160
 VAD_THRESHOLD = 0.5
@@ -31,6 +34,9 @@ shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 SEGMENTS_DIR = OUTPUT_DIR / "segments"
 SEGMENTS_DIR.mkdir(parents=True, exist_ok=True)
+ROLLING_DURATION_SEC = 300  # 5 minutes
+MAX_ROLLING_SAMPLES = SAMPLE_RATE * ROLLING_DURATION_SEC
+
 
 console = Console()
 
@@ -125,6 +131,7 @@ def detect_speech_boundaries(
         "start_sec": start_sec,
         "end_sec": end_sec,
         "duration_sec": duration_sec,
+        "has_valid_speech": duration_sec >= MIN_SPEECH_SEC,
         "average_prob": avg_prob,
         "average_rms": avg_rms,
         "total_duration_sec": round(len(probs) * hop_sec, 3),
@@ -203,6 +210,80 @@ def save_global_files(segments: list, output_dir: Path):
     }
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2))
 
+    # === Cleanup old segments not in last 5 minutes ===
+    cleanup_old_segments(output_dir)
+
+
+def save_rolling_audio(rolling_pcm: list[np.ndarray], output_dir: Path):
+    """Save the continuous last 5 minutes of audio as sound_last_5_mins.wav"""
+    if not rolling_pcm:
+        return
+    full_pcm = np.concatenate([arr.flatten() for arr in rolling_pcm])
+    wav_path = output_dir / "sound_last_5_mins.wav"
+    with wave.open(str(wav_path), "wb") as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(full_pcm.astype(np.int16).tobytes())
+    log(
+        "SEGMENT",
+        f"✅ Updated rolling 5-min audio → {wav_path.name} ({len(full_pcm) / SAMPLE_RATE:.1f}s)",
+    )
+
+
+def cleanup_old_segments(output_dir: Path):
+    """Remove segment folders whose audio is no longer present in the last 5 minutes
+    of sound_last_5_mins.wav. Uses global timestamps stored in segments.json."""
+    segments_json_path = output_dir / "segments.json"
+    if not segments_json_path.exists():
+        return
+    try:
+        segments = json.loads(segments_json_path.read_text())
+        if not segments:
+            return
+
+        # Calculate the current global session time and rolling window start (in sec)
+        current_global_sec = time.time() - pipeline.session_start_time
+        min_keep_global_sec = max(0, current_global_sec - ROLLING_DURATION_SEC)
+
+        to_keep = []
+        removed_count = 0
+        for seg in segments:
+            seg_dir_name = seg.get("segment_dir")
+            if not seg_dir_name:
+                continue
+            seg_path = SEGMENTS_DIR / seg_dir_name
+            # Use the global timestamps we stored when the segment was created
+            global_start = seg.get("global_start_sec")
+            global_end = seg.get("global_end_sec")
+            if global_start is None or global_end is None:
+                # fallback for any legacy segments (should never happen after patch)
+                to_keep.append(seg)
+                continue
+            # Keep only segments that overlap with the current rolling window
+            # (i.e. their audio still exists inside sound_last_5_mins.wav)
+            if global_end > min_keep_global_sec:
+                to_keep.append(seg)
+            else:
+                if seg_path.exists():
+                    shutil.rmtree(seg_path, ignore_errors=True)
+                    removed_count += 1
+                    log(
+                        "SEGMENT",
+                        f"🗑️ Removed old segment: {seg_dir_name} "
+                        f"(global {global_start:.1f}s–{global_end:.1f}s)",
+                    )
+        # Update segments.json with only kept segments
+        if removed_count > 0:
+            (output_dir / "segments.json").write_text(json.dumps(to_keep, indent=2))
+            log(
+                "SEGMENT",
+                f"✅ Cleaned up {removed_count} old segment(s) outside last 5 minutes",
+            )
+
+    except Exception as e:
+        log("ERROR", f"Failed to cleanup old segments: {e}")
+
 
 class OpusDecoder:
     # ... (exactly the same as before – no changes)
@@ -270,18 +351,22 @@ class ReceiverPipeline:
     def __init__(self):
         self.decoder = OpusDecoder()
         self.last_seq = -1
-        # New buffers & tools for segmentation
+        # Buffers & tools for segmentation
         self.audio_buffer: list[np.ndarray] = []
         self.is_speaking = False
         self.silence_counter = 0
         self.segment_num = 0
         self.segments: list[dict] = []
+        self.min_speech_sec = MIN_SPEECH_SEC
         self.vad = TenVad(hop_size=VAD_HOP_SIZE, threshold=VAD_THRESHOLD)
+        self.rolling_pcm: list[np.ndarray] = []  # rolling buffer for last 5 min
+        # Global monotonic timeline for accurate cleanup of old segments
+        self.session_start_time = time.time()
         self.monitor_task = None
         log("INIT", "✅ ReceiverPipeline initialized (segmentation mode)")
 
     def decode_packet(self, raw_msg: bytes):
-        """Parse, decode, and now also buffer the PCM for segmentation."""
+        """Parse, decode, and now also buffer the PCM for segmentation and rolling 5-min file."""
         try:
             if not raw_msg:
                 return
@@ -296,7 +381,7 @@ class ReceiverPipeline:
             if seq > self.last_seq:
                 pcm = self.decoder.decode(opus_data)
 
-                # --- NEW: per-packet quick VAD probe for debug logging ---
+                # --- Quick VAD probe for debug logging ---
                 pcm_flat = pcm.flatten()
                 chunk_probs = []
                 for i in range(0, len(pcm_flat), VAD_HOP_SIZE):
@@ -309,7 +394,15 @@ class ReceiverPipeline:
                 avg_prob = sum(chunk_probs) / len(chunk_probs) if chunk_probs else 0.0
                 state = "SPEECH" if avg_prob > VAD_THRESHOLD else "SILENCE"
 
-                # --- VAD-driven segmentation ---
+                # === Always append to rolling 5-min buffer ===
+                self.rolling_pcm.append(pcm.copy())  # copy for safety
+                total_samples = sum(len(arr) for arr in self.rolling_pcm)
+                while total_samples > MAX_ROLLING_SAMPLES and self.rolling_pcm:
+                    oldest = self.rolling_pcm.pop(0)
+                    total_samples -= len(oldest)
+                # =====================================================
+
+                # VAD-driven segmentation
                 if avg_prob > VAD_THRESHOLD:
                     if not self.is_speaking:
                         log("SEGMENT", "🎙️ Speech started")
@@ -343,6 +436,7 @@ class ReceiverPipeline:
     def process_current_segment(self):
         """Called when silence gap is detected (or at shutdown)."""
         if not self.audio_buffer:
+            log("SEGMENT", "No audio buffer to process")
             return
         log("SEGMENT", f"Processing segment {self.segment_num:03d} ...")
 
@@ -353,23 +447,47 @@ class ReceiverPipeline:
         probs, energies = compute_speech_probs_and_energies(pcm_full, self.vad)
         metadata = detect_speech_boundaries(probs, energies)
 
+        duration = metadata["duration_sec"]
+
+        # === Record global timestamps so cleanup can know exactly which segments
+        #     are still present in the rolling 5-min WAV ===
+        global_start_sec = time.time() - self.session_start_time
+        metadata["global_start_sec"] = round(global_start_sec, 3)
+        metadata["global_end_sec"] = round(global_start_sec + duration, 3)
+
+        # === FIX: Skip segments that don't have enough actual speech ===
+        if duration < self.min_speech_sec:
+            log(
+                "SEGMENT",
+                f"⏭️  Skipping short segment (duration={duration:.3f}s < {self.min_speech_sec}s)",
+            )
+            self.audio_buffer = []
+            self.silence_counter = 0
+            return
+
         # Rich logging with avg and duration info
         log(
             "SEGMENT",
-            f"avg_prob={metadata['average_prob']:.4f} "
-            f"avg_rms={metadata['average_rms']:.2f} "
-            f"duration={metadata['duration_sec']}s",
+            f"✅ Saving segment | avg_prob={metadata['average_prob']:.4f} "
+            f"avg_rms={metadata['average_rms']:.2f} duration={duration:.3f}s",
         )
 
         # Create segment folder
         segment_dir = SEGMENTS_DIR / f"segment_{self.segment_num:03d}"
         segment_dir.mkdir(parents=True, exist_ok=True)
 
-        save_segment_files(segment_dir, pcm_full, probs, energies, metadata)
+        save_segment_files(
+            segment_dir,
+            pcm_full,
+            probs,
+            energies,
+            metadata,  # now already contains global_start_sec / global_end_sec
+        )
 
         # Add to global segment list and update global files
         self.segments.append({**metadata, "segment_dir": segment_dir.name})
         save_global_files(self.segments, OUTPUT_DIR)
+        save_rolling_audio(self.rolling_pcm, OUTPUT_DIR)  # update 5-min file
 
         self.segment_num += 1
 
@@ -417,6 +535,7 @@ async def main():
             if pipeline.monitor_task:
                 pipeline.monitor_task.cancel()
             log("SHUTDOWN", "Processing any remaining audio buffer...")
+            save_rolling_audio(pipeline.rolling_pcm, OUTPUT_DIR)  # final save
             pipeline.process_current_segment()  # force-save last piece
             if pipeline.audio_buffer:
                 pipeline.audio_buffer = []
