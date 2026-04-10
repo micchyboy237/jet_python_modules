@@ -17,8 +17,8 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "int16"
 
-INPUT_BLOCK_SIZE = 1024
-VAD_HOP_SIZE = 256
+INPUT_BLOCK_SIZE = 320
+VAD_HOP_SIZE = 160
 VAD_THRESHOLD = 0.5
 
 HANGOVER_FRAMES = 12
@@ -167,36 +167,34 @@ class SenderPipeline:
             log("AUDIO", f"Input status: {status}")
 
         audio_block = indata.flatten().astype(DTYPE)
-
         sent_this_block = False
+        voice_detected = False
 
         for i in range(0, len(audio_block), VAD_HOP_SIZE):
             hop = audio_block[i : i + VAD_HOP_SIZE]
             if len(hop) < VAD_HOP_SIZE:
                 break
-
             is_voice = self.process_vad_frame(hop)
-
             if is_voice:
-                self.is_speaking = True
+                voice_detected = True
 
-            if self.should_send_audio() and not sent_this_block:
-                opus_data = self.encoder.encode(audio_block)
-                if opus_data and self.ws:
-                    # Safe send using the event loop from main thread
-                    if self.loop and not self.loop.is_closed():
-                        self.loop.call_soon_threadsafe(
-                            lambda data=opus_data: asyncio.create_task(
-                                self.send_packet(data)
-                            )
+        # Update raw VAD state for this exact block (fixes the broken hangover logic)
+        self.is_speaking = voice_detected
+
+        if self.should_send_audio() and not sent_this_block:
+            opus_data = self.encoder.encode(audio_block)
+            if opus_data and self.ws:
+                if self.loop and not self.loop.is_closed():
+                    self.loop.call_soon_threadsafe(
+                        lambda data=opus_data: asyncio.create_task(
+                            self.send_packet(data)
                         )
-                        sent_this_block = True
-                        self.seq += 1
-                    else:
-                        log("SEND", "WARNING: No running loop - cannot send")
-
-        if not is_voice and self.hangover_counter == 0:
-            self.is_speaking = False
+                    )
+                    sent_this_block = True
+                    self.seq += 1
+                else:
+                    log("SEND", "WARNING: No running loop - cannot send")
+        # Old final reset line removed - now handled cleanly above
 
     async def send_packet(self, opus_data: bytes):
         if not self.ws:
