@@ -8,19 +8,20 @@ class Entity(TypedDict):
 
 
 class JobEntities(TypedDict, total=False):
+    job_title: list[str]
     company_name: list[str]
     job_location: list[str]
     salary_range: list[str]
     experience_level: list[str]
     employment_type: list[str]
-    work_schedule: list[str]
     required_skills: list[str]
-    used_technologies: list[str]
-    programming_languages: list[str]
-    key_responsibilities: list[str]
-    requirements_qualifications: list[str]
-    employee_benefits: list[str]
     technology_stack: list[str]
+    key_responsibilities: list[str]
+    job_requirements: list[str]
+    employee_benefits: list[str]
+    how_to_apply: list[str]
+    application_link: list[str]
+    work_schedule: list[str]
 
 
 JobEntity = JobEntities

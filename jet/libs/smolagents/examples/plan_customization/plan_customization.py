@@ -8,6 +8,7 @@ This example demonstrates:
 - User approval/modification of plan
 - Resuming with preserved memory
 - Best practice: dynamic current date/time via tool (avoids stale data)
+- Memory context compression during run (for large/long sessions!)
 """
 
 import shutil
@@ -16,6 +17,7 @@ from pathlib import Path
 
 import pytz
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.libs.smolagents.custom_memory import AgentMemory  # compression, type hints
 from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
@@ -42,7 +44,8 @@ def get_current_datetime(timezone: str | None = "Asia/Manila") -> str:
         Formatted string like '2026-01-29 21:40:00 PST' or equivalent.
     """
     try:
-        tz = pytz.timezone(timezone)
+        # Type guard: pytz.timezone expects str, not None
+        tz = pytz.timezone(timezone or "UTC")
         now = datetime.now(tz)
         return now.strftime("%Y-%m-%d %H:%M:%S %Z")
     except Exception as e:
@@ -79,7 +82,7 @@ def get_user_choice() -> int:
         choice = input(
             "\nChoose an option:\n1. Approve plan\n2. Modify plan\n3. Cancel\nYour choice (1-3): "
         ).strip()
-        if choice in ["1", "2", "3"]:
+        if choice in {"1", "2", "3"}:
             return int(choice)
         print("Invalid choice. Please enter 1, 2, or 3.")
 
@@ -133,6 +136,14 @@ def interrupt_after_plan(memory_step, agent):
             print("❌ Execution cancelled by user.")
             agent.interrupt()
             return
+
+
+def compress_memory_callback(memory_step, agent):
+    """Callback that runs after each step to keep context under control."""
+    if hasattr(agent, "memory") and isinstance(agent.memory, AgentMemory):
+        # Compress only after planning steps or every 4 steps (tune as needed)
+        if isinstance(memory_step, PlanningStep) or len(agent.memory.steps) % 4 == 0:
+            agent.memory.compress_old_steps(agent)
 
 
 def parseargs():
@@ -210,11 +221,19 @@ def main():
             ),
         ],
         planning_interval=args.planning_interval,
-        step_callbacks={PlanningStep: interrupt_after_plan},
+        step_callbacks={
+            PlanningStep: interrupt_after_plan,
+            "default": compress_memory_callback,
+        },
         max_steps=args.max_steps,
         verbosity_level=args.verbosity_level,
         # system_prompt=custom_system,      # ← uncomment only if you want static injection
     )
+
+    # Optional: tune memory compression settings
+    if hasattr(agent, "memory") and isinstance(agent.memory, AgentMemory):
+        agent.memory.max_tokens_before_compress = 10000  # adjust based on your model
+        agent.memory.keep_recent_steps = 10
 
     task = args.task
 

@@ -76,26 +76,37 @@ def tokenize(
         # --- CHAT-AWARE PATH ---
         # Detect chat-style messages: list[dict] with "role"
         if text and isinstance(text[0], dict) and "role" in text[0]:
-            # Normalize tool calls into content for token counting
+            # Normalize messages, flatten list-style content and tool_calls
             normalized_messages = []
             for msg in text:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+
+                # Normalize tool_calls into content for token counting
                 if "tool_calls" in msg:
-                    tool_payload = json.dumps(
+                    content = json.dumps(
                         msg["tool_calls"], ensure_ascii=False, sort_keys=True
                     )
-                    normalized_messages.append(
-                        {
-                            "role": msg.get("role", "assistant"),
-                            "content": tool_payload,
-                        }
-                    )
-                else:
-                    normalized_messages.append(
-                        {
-                            "role": msg.get("role"),
-                            "content": msg.get("content", ""),
-                        }
-                    )
+                elif isinstance(content, list):
+                    # Flatten to string for text-only models
+                    text_parts = []
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text_parts.append(part.get("text", ""))
+                        elif isinstance(part, str):
+                            text_parts.append(part)
+                        else:
+                            text_parts.append(str(part))
+                    content = "\n".join(
+                        filter(None, text_parts)
+                    )  # remove empty lines if desired
+
+                normalized_messages.append(
+                    {
+                        "role": role,
+                        "content": content,
+                    }
+                )
 
             if isinstance(tokenizer, tiktoken.Encoding):
                 raise ValueError(
@@ -208,3 +219,29 @@ def get_model_max_tokens(
     except Exception:
         encoding = tiktoken.get_encoding("cl100k_base")
         return encoding.max_token_value
+
+
+def normalize_messages_for_token_count(messages: list[dict]) -> list[dict]:
+    """Convert multimodal content list → plain string for text-only tokenizers."""
+    normalized = []
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            # Extract text parts (ignore images, etc. for token counting)
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                    # else: skip image/audio etc. (they don't add tokens the same way)
+                else:
+                    text_parts.append(str(item))
+            content = "\n".join(text_parts) if text_parts else ""
+
+        normalized.append(
+            {
+                "role": msg.get("role", "user"),
+                "content": content,
+            }
+        )
+    return normalized
