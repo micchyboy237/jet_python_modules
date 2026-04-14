@@ -25,6 +25,7 @@ from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from smolagents import (
     CodeAgent,
+    LocalPythonExecutor,
     PlanningStep,
     tool,
 )
@@ -189,7 +190,7 @@ def parseargs():
         "task",
         type=str,
         nargs="?",
-        default="Find first the current year. Search for top romance and isekai anime this year. Include the plots for each. Include source for each.",
+        default="Search for top romance and isekai anime this year. Include the plots for each. Include source for each.",
         help="Task prompt for the agent to solve.",
     )
     parser.add_argument(
@@ -245,11 +246,17 @@ def parseargs():
     return parser.parse_args()
 
 
+def get_today() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+
 def main():
     print(
         "🚀 Starting Plan Customization Example (with dynamic date tool + custom memory)"
     )
     print("=" * 60)
+
+    CODE_EXECUTION_TIME_SECONDS = 60
 
     args = parseargs()
 
@@ -260,15 +267,19 @@ def main():
     )
 
     # 1. Create your enhanced custom memory (compression + optional Mem0)
+    additional_authorized_imports = []
     custom_memory = create_custom_memory(
         max_tokens_before_compress=args.compress_tokens,
     )
 
     # 2. Create the agent (do NOT pass memory= here)
+    executor = LocalPythonExecutor(
+        additional_authorized_imports, timeout_seconds=CODE_EXECUTION_TIME_SECONDS
+    )
     agent = CodeAgent(
         model=model,
         tools=[
-            get_current_datetime,  # dynamic date/time tool
+            # get_current_datetime,  # dynamic date/time tool
             SearXNGSearchTool(max_results=10),
             VisitWebpageTool(
                 max_output_length=3500, chunk_target_tokens=500, top_k=None
@@ -282,6 +293,8 @@ def main():
         max_steps=args.max_steps,
         verbosity_level=args.verbosity_level,
         code_block_tags=("```python", "```"),
+        executor=executor,
+        instructions=f"Today's date is {get_today()}. Always use this as the reference for 'current date' or 'today' unless the user specifies otherwise.",
     )
 
     # 3. REPLACE the default memory with your custom one (this is the correct way)
