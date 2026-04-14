@@ -28,10 +28,10 @@ class AsyncWebCrawlerManager:
         self,
         headless: bool = True,
         verbose: bool = False,
-        max_session_permit: int = 10,
+        max_session_permit: int = 8,  # Lowered for stability
         semaphore_count: int = 12,
-        memory_threshold_percent: float = 78.0,
-        base_delay: tuple[float, float] = (0.8, 2.0),
+        memory_threshold_percent: float = 75.0,
+        base_delay: tuple[float, float] = (1.2, 3.5),  # Gentler delays
         delay_before_return_html: float = 0.8,
         cache_mode: CacheMode = CacheMode.BYPASS,
         monitor_max_width: int = 130,

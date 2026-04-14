@@ -38,12 +38,22 @@ async def main():
         default="AI web crawling and data extraction with Python",
         help="Search query for crawling",
     )
+    parser.add_argument(
+        "-k",
+        "--top-k",
+        type=int,
+        default=5,
+        help="Number of top search results to use (default: 5)",
+    )
     args = parser.parse_args()
     query: str = args.query
+    top_k: int = args.top_k
 
     EXCLUDED_TAGS = ["script", "style", "nav", "footer"]
 
-    search_results: List[SemanticResult] = await semantic_search_results(query)
+    search_results: List[SemanticResult] = await semantic_search_results(
+        query, top_k=top_k
+    )
 
     # Initialize processor
     processor = CrawlResultProcessor()
@@ -52,12 +62,6 @@ async def main():
     crawler_manager = AsyncWebCrawlerManager(
         headless=False,
         verbose=True,
-        max_session_permit=8,  # Lowered for stability
-        semaphore_count=10,
-        memory_threshold_percent=75.0,
-        base_delay=(1.2, 3.5),  # Gentler delays
-        delay_before_return_html=1.0,
-        monitor_max_width=130,
     )
 
     print(f"Selected {len(search_results)} strongest seed URLs")

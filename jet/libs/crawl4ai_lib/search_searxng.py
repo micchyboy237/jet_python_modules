@@ -303,7 +303,7 @@ async def search_seed_results(
 
 async def semantic_search_results(
     query: str,
-    top_k: int = 8,
+    top_k: int = 5,
     max_search_results: int = 10,
     sites: Optional[List[str]] = None,
     embed_url: Optional[str] = None,
