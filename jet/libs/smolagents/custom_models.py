@@ -725,8 +725,19 @@ class OpenAIModel(ApiModel):
             # Content
             if delta.content is not None:
                 if live_print:
-                    actual_content = delta.content.encode().decode("unicode-escape")
-                    print(actual_content, end="", flush=True)
+                    # FIXED: Do NOT use unicode-escape decode on arbitrary model output.
+                    # It breaks on lone backslashes (very common in code/paths/LaTeX).
+                    # delta.content is already a clean Python str from the OpenAI client.
+                    try:
+                        print(delta.content, end="", flush=True)
+                    except Exception:  # ultra-safe fallback
+                        print(
+                            delta.content.encode("utf-8", errors="replace").decode(
+                                "utf-8", errors="replace"
+                            ),
+                            end="",
+                            flush=True,
+                        )
 
                 accumulated_content += delta.content
                 deltas.append(ChatMessageStreamDelta(content=delta.content))
