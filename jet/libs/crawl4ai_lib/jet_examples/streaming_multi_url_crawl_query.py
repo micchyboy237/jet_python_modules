@@ -176,6 +176,7 @@ async def crawl_streaming_example():
         "https://httpbin.org/json",
         "https://www.wikipedia.org",
     ]
+    headless = False
 
     USER_QUERY = "AI web crawling and data extraction with Python"
 
@@ -187,7 +188,7 @@ async def crawl_streaming_example():
 
     markdown_generator = DefaultMarkdownGenerator(content_filter=bm25_filter)
 
-    browser_config = BrowserConfig(headless=True, verbose=False)
+    browser_config = BrowserConfig(headless=headless, verbose=False)
 
     run_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
