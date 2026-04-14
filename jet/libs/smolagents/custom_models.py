@@ -127,9 +127,7 @@ def save_response_llm_call(
             text = response_data.json()
         else:
             text = response_data
-        (target_dir / "response.json").write_text(
-            json.dumps(make_serializable(text), indent=2, ensure_ascii=False)
-        )
+        (target_dir / "response.md").write_text(str(text))
 
     if is_stream and stream_deltas:
         (target_dir / "stream_deltas.json").write_text(
@@ -170,9 +168,7 @@ def save_response_llm_call(
                 for delta in stream_deltas
                 if getattr(delta, "content", None)
             )
-            (target_dir / "response.json").write_text(
-                json.dumps(make_serializable(text), indent=2, ensure_ascii=False)
-            )
+            (target_dir / "response.md").write_text(str(text))
 
 
 class Model:

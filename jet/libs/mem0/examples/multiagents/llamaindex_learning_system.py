@@ -9,6 +9,7 @@ You need MEM0_API_KEY and OPENAI_API_KEY to run the example.
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -42,7 +43,11 @@ class MultiAgentLearningSystem:
 
     def __init__(self, student_id: str):
         self.student_id = student_id
-        self.llm = OpenAI(model="gpt-4.1-nano-2025-04-14", temperature=0.2)
+        self.llm = OpenAI(
+            model=os.getenv("LLAMA_CPP_LLM_MODEL"),
+            api_base=os.getenv("LLAMA_CPP_LLM_URL"),
+            temperature=0.2,
+        )
 
         # Memory context for this student
         self.memory_context = {"user_id": student_id, "app": "learning_assistant"}
@@ -57,15 +62,25 @@ class MultiAgentLearningSystem:
         async def assess_understanding(topic: str, student_response: str) -> str:
             """Assess student's understanding of a topic and save insights"""
             # Simulate assessment logic
-            if "confused" in student_response.lower() or "don't understand" in student_response.lower():
+            if (
+                "confused" in student_response.lower()
+                or "don't understand" in student_response.lower()
+            ):
                 assessment = f"STRUGGLING with {topic}: {student_response}"
                 insight = f"Student needs more help with {topic}. Prefers step-by-step explanations."
-            elif "makes sense" in student_response.lower() or "got it" in student_response.lower():
+            elif (
+                "makes sense" in student_response.lower()
+                or "got it" in student_response.lower()
+            ):
                 assessment = f"UNDERSTANDS {topic}: {student_response}"
-                insight = f"Student grasped {topic} quickly. Can move to advanced concepts."
+                insight = (
+                    f"Student grasped {topic} quickly. Can move to advanced concepts."
+                )
             else:
                 assessment = f"PARTIAL understanding of {topic}: {student_response}"
-                insight = f"Student has basic understanding of {topic}. Needs reinforcement."
+                insight = (
+                    f"Student has basic understanding of {topic}. Needs reinforcement."
+                )
 
             return f"Assessment: {assessment}\nInsight saved: {insight}"
 
@@ -145,7 +160,9 @@ class MultiAgentLearningSystem:
             },
         )
 
-    async def start_learning_session(self, topic: str, student_message: str = "") -> str:
+    async def start_learning_session(
+        self, topic: str, student_message: str = ""
+    ) -> str:
         """
         Start a learning session with multi-agent memory-aware teaching
         """
@@ -164,13 +181,17 @@ class MultiAgentLearningSystem:
         """Show what the system remembers about this student"""
         try:
             # Search memory for learning patterns
-            memories = self.memory.search(user_id=self.student_id, query="learning machine learning")
+            memories = self.memory.search(
+                user_id=self.student_id, query="learning machine learning"
+            )
 
             if memories and len(memories):
                 history = "\n".join(f"- {m['memory']}" for m in memories)
                 return history
             else:
-                return "No learning history found yet. Let's start building your profile!"
+                return (
+                    "No learning history found yet. Let's start building your profile!"
+                )
 
         except Exception as e:
             return f"Memory retrieval error: {str(e)}"
@@ -189,7 +210,9 @@ async def run_learning_agent():
 
     # Second session - multi-agent memory will remember the first
     logger.info("\nSession 2:")
-    response2 = await learning_system.start_learning_session("Machine Learning", "what all did I cover so far?")
+    response2 = await learning_system.start_learning_session(
+        "Machine Learning", "what all did I cover so far?"
+    )
     logger.info(response2)
 
     # Show what the multi-agent system remembers

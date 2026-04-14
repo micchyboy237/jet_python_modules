@@ -7,6 +7,9 @@ llama-cpp-python -C cmake.args="-DGGML_BLAS=ON;-DGGML_BLAS_VENDOR=OpenBLAS"
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/gliner-spacy
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/SpanMarkerNER
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/llms/llama-index-llms-openai
+-e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/memory/llama-index-memory-mem0
 # -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain_v1
 -e /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core

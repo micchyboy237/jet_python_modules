@@ -4,11 +4,11 @@ Plan Customization Example – Updated 2026
 Current reference date for example: 2026-01-29
 
 This example demonstrates:
-- Step callbacks to interrupt after plan creation
-- User approval/modification of plan
-- Resuming with preserved memory
-- Best practice: dynamic current date/time via tool (avoids stale data)
-- Memory context compression during run (for large/long sessions!)
+- Step callbacks to interrupt after plan creation for user review/modification
+- Resuming execution with preserved memory (reset=False)
+- Dynamic current date/time via tool (avoids stale data)
+- Correct usage of custom AgentMemory with automatic context compression
+- Optional Mem0 integration for long-term persistent memory
 """
 
 import shutil
@@ -17,7 +17,9 @@ from pathlib import Path
 
 import pytz
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.custom_memory import AgentMemory  # compression, type hints
+from jet.libs.smolagents.custom_memory import (
+    AgentMemory,  # Your enhanced memory with compression + Mem0
+)
 from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
@@ -44,7 +46,6 @@ def get_current_datetime(timezone: str | None = "Asia/Manila") -> str:
         Formatted string like '2026-01-29 21:40:00 PST' or equivalent.
     """
     try:
-        # Type guard: pytz.timezone expects str, not None
         tz = pytz.timezone(timezone or "UTC")
         now = datetime.now(tz)
         return now.strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -54,7 +55,7 @@ def get_current_datetime(timezone: str | None = "Asia/Manila") -> str:
 
 def create_local_model(
     temperature: float = 0.4,
-    max_tokens: int | None = 8000,
+    max_tokens: int = 12000,
     model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
     agent_name: str | None = None,
 ) -> OpenAIModel:
@@ -65,6 +66,29 @@ def create_local_model(
         max_tokens=max_tokens,
         agent_name=agent_name,
     )
+
+
+def create_custom_memory(
+    system_prompt: str = "",
+    max_tokens_before_compress: int = 12000,
+) -> AgentMemory:
+    """Create and configure the enhanced AgentMemory (compression + optional Mem0)."""
+    if not system_prompt:
+        system_prompt = (
+            "You are a helpful assistant that remembers important facts, "
+            "decisions, and progress across steps. Use tools when needed."
+        )
+
+    memory = AgentMemory(system_prompt)
+
+    # Tune compression settings (adjust based on your model's context window)
+    memory.max_tokens_before_compress = max_tokens_before_compress
+    memory.keep_recent_steps = 10
+
+    # Optional: Enable Mem0 for long-term, searchable persistent memory across sessions
+    # memory.set_scoping(user_id="plan_example_user", agent_id="planning_agent")
+
+    return memory
 
 
 def display_plan(plan_content: str):
@@ -82,7 +106,7 @@ def get_user_choice() -> int:
         choice = input(
             "\nChoose an option:\n1. Approve plan\n2. Modify plan\n3. Cancel\nYour choice (1-3) [default 1]: "
         ).strip()
-        if choice == "":  # Enter pressed with no input
+        if choice == "":
             return 1
         if choice in {"1", "2", "3"}:
             return int(choice)
@@ -141,18 +165,25 @@ def interrupt_after_plan(memory_step, agent):
 
 
 def compress_memory_callback(memory_step, agent):
-    """Callback that runs after each step to keep context under control."""
-    if hasattr(agent, "memory") and isinstance(agent.memory, AgentMemory):
-        # Compress only after planning steps or every 4 steps (tune as needed)
-        if isinstance(memory_step, PlanningStep) or len(agent.memory.steps) % 4 == 0:
+    """Callback that triggers compression when needed."""
+    if not hasattr(agent, "memory") or not isinstance(agent.memory, AgentMemory):
+        return
+
+    # Compress after planning steps or periodically (every 5 steps)
+    if isinstance(memory_step, PlanningStep) or len(agent.memory.steps) % 5 == 0:
+        try:
             agent.memory.compress_old_steps(agent)
+            # Optional: Push step to Mem0 for long-term semantic memory
+            # agent.memory.add_step_to_mem0(memory_step)
+        except Exception as e:
+            print(f"Warning: Memory compression failed: {e}")
 
 
 def parseargs():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Plan Customization Example (with dynamic date tool and optional user task input)"
+        description="Plan Customization Example (with dynamic date tool and custom memory)"
     )
     parser.add_argument(
         "task",
@@ -168,6 +199,7 @@ def parseargs():
         default=0.7,
         help="Temperature for the local model (default: 0.7)",
     )
+    # Note: max_tokens is intentionally NOT added to CLI yet (see below)
     parser.add_argument(
         "-n",
         "--agent_name",
@@ -196,47 +228,67 @@ def parseargs():
         default=2,
         help="Verbosity level (default: 2)",
     )
+    parser.add_argument(
+        "-mt",
+        "--max-tokens",
+        type=int,
+        default=12000,
+        help="Maximum tokens for model generation (default: 12000)",
+    )
+    parser.add_argument(
+        "-ct",
+        "--compress-tokens",
+        type=int,
+        default=8000,
+        help="Max tokens before memory compression (default: 8000)",
+    )
     return parser.parse_args()
 
 
 def main():
-    print("🚀 Starting Plan Customization Example (with dynamic date tool)")
+    print(
+        "🚀 Starting Plan Customization Example (with dynamic date tool + custom memory)"
+    )
     print("=" * 60)
 
     args = parseargs()
 
-    model = create_local_model(temperature=args.temperature, agent_name=args.agent_name)
+    model = create_local_model(
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        agent_name=args.agent_name,
+    )
 
-    # Optional: static date injection (only if you really want it baked in)
-    # today_str = datetime.now(pytz.timezone("Asia/Manila")).strftime("%Y-%m-%d")
-    # custom_system = f"""You are a helpful assistant. The current date is {today_str}.
-    # Always use get_current_datetime tool for precise time-sensitive questions."""
+    # 1. Create your enhanced custom memory (compression + optional Mem0)
+    custom_memory = create_custom_memory(
+        max_tokens_before_compress=args.compress_tokens,
+    )
 
+    # 2. Create the agent (do NOT pass memory= here)
     agent = CodeAgent(
         model=model,
         tools=[
-            # DuckDuckGoSearchTool(),
-            get_current_datetime,  # ← dynamic date/time tool
-            SearXNGSearchTool(max_results=20),
+            get_current_datetime,  # dynamic date/time tool
+            SearXNGSearchTool(max_results=10),
             VisitWebpageTool(
                 max_output_length=3500, chunk_target_tokens=500, top_k=None
             ),
         ],
         planning_interval=args.planning_interval,
         step_callbacks={
-            PlanningStep: interrupt_after_plan,
-            "default": compress_memory_callback,
+            PlanningStep: interrupt_after_plan,  # specific callback for plan review
+            # You can add more specific callbacks here if needed
         },
         max_steps=args.max_steps,
         verbosity_level=args.verbosity_level,
-        # system_prompt=custom_system,      # ← uncomment only if you want static injection
         code_block_tags=("```python", "```"),
     )
 
-    # Optional: tune memory compression settings
-    if hasattr(agent, "memory") and isinstance(agent.memory, AgentMemory):
-        agent.memory.max_tokens_before_compress = 10000  # adjust based on your model
-        agent.memory.keep_recent_steps = 10
+    # 3. REPLACE the default memory with your custom one (this is the correct way)
+    agent.memory = custom_memory
+
+    # Optional: Register compression as a general callback if your smolagents version supports broad registration
+    # For safety, we can add it via step_callbacks if needed, but the current callback already handles it via PlanningStep + periodic check
 
     task = args.task
 

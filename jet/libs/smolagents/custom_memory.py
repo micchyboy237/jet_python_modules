@@ -1,9 +1,13 @@
 # custom_memory.py
 from dataclasses import dataclass
 from logging import getLogger
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from jet.adapters.llama_cpp.tokens import count_tokens  # your existing token counter
+from jet.file.utils import save_file
+from jet.transformers.object import make_serializable
+from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
 
 # Only import for runtime (not for typing in this file) from smolagents.memory
 from smolagents.memory import (
@@ -22,6 +26,72 @@ from smolagents.monitoring import AgentLogger, LogLevel, Timing
 __all__ = ["AgentMemory", "CompressedSummaryStep"]
 
 logger = getLogger(__name__)
+
+SUMMARY_PROMPT = """You are a structured memory compressor for an AI agent.
+
+Your job is to condense previous steps into a compact, information-dense summary that preserves all important context.
+
+Guidelines:
+- Extract concrete facts: names, values, identifiers, results, outputs, errors.
+- Preserve important observations from tools or actions.
+- Capture decisions, reasoning outcomes, and progress made.
+- Include relevant context that may be needed for future steps.
+- Avoid unnecessary verbosity or repetition.
+- Prefer structured, scannable bullets.
+
+Output EXACTLY in this structure:
+
+Previous steps summary ({old_steps_length} steps):
+
+Key Facts:
+- specific factual data (IDs, values, results, etc.)
+- ...
+
+Important Decisions & Progress:
+- decisions made and why
+- completed actions or milestones
+- ...
+
+Errors & Issues:
+- brief description of failures or problems encountered (if any)
+- ...
+
+Open Items / Next Steps:
+- pending tasks or unresolved questions
+- ...
+
+Raw steps:
+{raw_steps}
+"""
+
+MAX_RAW_STEPS_TOKENS = 6000  # leave room for instructions + output
+
+
+def get_next_call_number(logs_dir: Path) -> int:
+    """Find the next available call number using 4-digit prefix (aligned with save_step_state)."""
+    if not logs_dir.exists():
+        return 1
+    existing = [
+        int(d.name.split("_")[0])
+        for d in logs_dir.iterdir()
+        if d.is_dir() and len(d.name) >= 5 and d.name[4] == "_" and d.name[:4].isdigit()
+    ]
+    return max(existing, default=0) + 1
+
+
+def get_llm_call_subdir(
+    logs_dir: Path,
+) -> Path:
+    # prefix = "generate_stream" if is_stream else "generate"
+    call_number = get_next_call_number(logs_dir)
+    prefix = f"{call_number:04d}"
+
+    cleaned = "memory"
+
+    subdir_name = f"{prefix}_{cleaned}"
+    target_dir = logs_dir / subdir_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
 
 
 @dataclass
@@ -80,12 +150,20 @@ class AgentMemory:
         self.steps: list[
             TaskStep | ActionStep | PlanningStep | CompressedSummaryStep
         ] = []
-        self.max_tokens_before_compress: int = 10500  # slightly more aggressive
+        self.max_tokens_before_compress: int = 8000  # slightly more aggressive
         self.keep_recent_steps: int = 10  # keep more recent detail
 
         self.facts: Dict[
             str, Any
         ] = {}  # persistent key facts (e.g., {"current_year": 2026, "top_anime": [...]})
+
+        self.logs_dir = (
+            Path(get_entry_file_dir())
+            / "generated"
+            / Path(get_entry_file_name()).stem
+            / "agent_memory"
+        )
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
 
     def reset(self):
         """Reset the agent's memory, clearing all steps but keeping the system prompt."""
@@ -121,11 +199,46 @@ class AgentMemory:
             # Very rough fallback
             return len(str(messages)) // 4
 
-    def _generate_structured_summary(self, old_steps: list, model: Any = None) -> str:
-        if not old_steps:
-            return "No previous steps."
+    def _truncate_to_token_limit(self, text: str, max_tokens: int) -> str:
+        """Truncate text to fit within a token budget."""
+        if not text:
+            return text
 
+        # Fast path
+        try:
+            tokens = count_tokens([{"role": "user", "content": text}], model=None)
+            if tokens <= max_tokens:
+                return text
+        except Exception:
+            pass
+
+        # Progressive truncation (binary-ish reduction)
+        left, right = 0, len(text)
+        result = text
+
+        while left < right:
+            mid = (left + right) // 2
+            candidate = text[:mid]
+
+            try:
+                tokens = count_tokens(
+                    [{"role": "user", "content": candidate}], model=None
+                )
+            except Exception:
+                # fallback to char heuristic
+                tokens = len(candidate) // 4
+
+            if tokens <= max_tokens:
+                result = candidate
+                left = mid + 1
+            else:
+                right = mid - 1
+
+        return result
+
+    def format_summary_prompt(self, old_steps: list) -> str:
         raw_text_parts = []
+
         for s in old_steps:
             step_type = s.__class__.__name__
             step_num = getattr(s, "step_number", "N/A")
@@ -149,45 +262,39 @@ class AgentMemory:
 
         raw_text = "\n\n".join(raw_text_parts)
 
-        if model is None:
-            # improved fallback
-            truncated = raw_text[:3000]
-            return (
-                f"Previous steps summary ({len(old_steps)} steps):\n"
-                f"Extracted Facts:\n- (see raw observations below)\n\n"
-                f"Key Observations:\n{truncated[:1500]}\n\n"
-                f"(Details compressed...)"
-            )
+        truncated_raw_text = self._truncate_to_token_limit(
+            raw_text,
+            max_tokens=MAX_RAW_STEPS_TOKENS,
+        )
+
+        summary_prompt = SUMMARY_PROMPT.format(
+            old_steps_length=len(old_steps),
+            raw_steps=truncated_raw_text,
+        )
+
+        return summary_prompt
+
+    def _generate_structured_summary(
+        self, old_steps: list, model: Any = None
+    ) -> Optional[str]:
+        if not old_steps:
+            return None
+
+        summary_prompt = self.format_summary_prompt(old_steps)
+
+        # if model is None:
+        #     # improved fallback
+        #     truncated = raw_text[:3000]
+        #     return (
+        #         f"Previous steps summary ({len(old_steps)} steps):\n"
+        #         f"Extracted Facts:\n- (see raw observations below)\n\n"
+        #         f"Key Observations:\n{truncated[:1500]}\n\n"
+        #         f"(Details compressed...)"
+        #     )
 
         try:
-            summary_prompt = f"""You are a precise memory compressor for an AI agent.
-
-Extract and preserve all concrete facts, numbers, names, dates, search results, URLs, and key observations. Do NOT focus only on tool-calling methods.
-
-Guidelines:
-- Prioritize: current year, anime titles, release dates, plots, sources, any numbers or specific data found.
-- Include successful tool outputs and important observations verbatim when short.
-- Note errors briefly.
-- Structure exactly like this:
-
-Previous steps summary ({len(old_steps)} steps):
-
-Key Facts:
-- bullet with specific data (e.g., "Current year: 2026")
-- bullet with anime info...
-
-Important Decisions & Progress:
-- ...
-
-Open Items:
-- ...
-
-Raw steps to summarize:
-{raw_text[:7500]}
-"""
-
             response = model.call(
-                summary_prompt, max_tokens=900, temperature=0.2
+                summary_prompt, temperature=0.2
             )  # lower temp for factualness
             summary_text = (
                 response.strip() if isinstance(response, str) else str(response)
@@ -232,14 +339,42 @@ Raw steps to summarize:
 
         # Generate structured summary
         model_for_summary = getattr(agent, "model", None) if agent else None
+
+        summary_prompt = self.format_summary_prompt(old_steps)
+        input_tokens = count_tokens(summary_prompt, model=None)
+
+        request_data = {
+            "token_counts": {
+                "input_tokens": input_tokens,
+                "steps_tokens": total_tokens,
+            },
+            "old_steps": make_serializable(old_steps),
+        }
+        target_dir = get_llm_call_subdir(self.logs_dir)
+        save_file(request_data, target_dir / "request.json")
+
         summary = self._generate_structured_summary(old_steps, model_for_summary)
 
-        compressed = CompressedSummaryStep(
-            summary=summary,
-            original_step_count=len(old_steps),
-        )
+        if summary:
+            compressed = CompressedSummaryStep(
+                summary=summary,
+                original_step_count=len(old_steps),
+            )
+            output_tokens = count_tokens(summary, model=None)
 
-        self.steps = [compressed] + recent
+            self.steps = [compressed] + recent
+
+            response_data = {
+                "prompt": summary_prompt,
+                "token_counts": {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                    "steps_tokens": self._get_total_tokens(),
+                },
+                "summary": summary,
+            }
+            save_file(response_data, target_dir / "response.json")
 
     def add_fact(self, key: str, value: Any):
         """Manually or via callback: store persistent important facts."""
