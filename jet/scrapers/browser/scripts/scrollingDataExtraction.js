@@ -66,21 +66,6 @@ function extractData() {
   return data;
 }
 
-// === PRINT HELPER ===
-function printExtractedData(data, scrollNumber) {
-  console.log(
-    `\n📊 === Scroll ${scrollNumber} - Extracted ${data.length} video items ===`,
-  );
-  data.forEach((item, index) => {
-    console.log(`  ${index + 1}. "${item.text}"`);
-    console.log(`     🔗 ${item.url}`);
-    if (item.thumbnail) console.log(`     🖼️  Thumbnail: ${item.thumbnail}`);
-    if (item.preview) console.log(`     🎥 Preview:   ${item.preview}`);
-    console.log(""); // empty line between items
-  });
-  console.log(`✅ Total so far this scroll: ${data.length} items\n`);
-}
-
 /**
  * Advanced content stabilization + infinite scroll handler
  * - Supports lazy loading, virtualized lists, and delayed APIs
@@ -390,5 +375,5 @@ async function scrollAndExtractVideos(maxScrolls = 5) {
   const controller = new AbortController();
   setTimeout(() => controller.abort(), 60000);
 
-  await scrollAndExtractVideos(5);
+  await scrollAndExtractVideos(3);
 })();
