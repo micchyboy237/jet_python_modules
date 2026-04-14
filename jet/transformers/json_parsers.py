@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 
-def parse_json(obj: Any):
+def parse_json(obj: Any) -> dict | list:
     if isinstance(obj, (dict, list)):
         return obj
     # elif isinstance(obj, tuple):
