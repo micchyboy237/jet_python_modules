@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from datetime import datetime
 from typing import TypedDict
@@ -14,7 +15,7 @@ from .filters import deduplicate_results, filter_relevant, sort_by_score
 from .formatters import decode_encoded_characters
 
 DEFAULT_REDIS_PORT = 3101
-DEFAULT_QUERY_URL = "http://searxng.local:8888"
+DEFAULT_QUERY_URL = os.getenv("SEARXNG_URL")
 DEFAULT_ENGINES = [
     # "google",
     # "brave",

@@ -40,6 +40,7 @@ from .base import (
     restore_links,
     scrape_metadata,
     scrape_title,
+    search_data,
     split_text,
 )
 from .filter_links import filter_links

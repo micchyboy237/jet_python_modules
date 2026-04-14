@@ -6,6 +6,7 @@ from typing import Any, List
 
 import aiofiles
 from jet.libs.crawl4ai_lib.async_web_crawler_manager import AsyncWebCrawlerManager
+from jet.libs.crawl4ai_lib.search_searxng import semantic_search_results
 
 # ----------------------------------------------------------------------
 # Application-specific logic (outside the class)
@@ -158,21 +159,22 @@ crawler_manager: AsyncWebCrawlerManager | None = None
 
 
 async def main():
+    import argparse
+
     global crawler_manager
 
     await init_json_file()
 
-    urls: List[str] = [
-        "https://httpbin.org/html",
-        "https://example.com",
-        "https://www.python.org",
-        "https://news.ycombinator.com",
-        "https://github.com/unclecode/crawl4ai",
-        "https://httpbin.org/json",
-        "https://www.wikipedia.org",
-    ]
-
-    USER_QUERY = "AI web crawling and data extraction with Python"
+    parser = argparse.ArgumentParser(description="Streaming RAG Crawler")
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default="AI web crawling and data extraction with Python",
+        help="Search query for crawling",
+    )
+    args = parser.parse_args()
+    query = args.query
+    urls: List[str] = await semantic_search_results(query)
 
     crawler_manager = AsyncWebCrawlerManager(
         headless=False,  # Change to True when you don't want visible tabs
@@ -188,7 +190,7 @@ async def main():
     await crawler_manager.crawl_many(
         urls=urls,
         process_result=process_result,  # Now only takes 'result'
-        user_query=USER_QUERY,
+        user_query=query,
         bm25_threshold=0.6,
     )
 
