@@ -27,14 +27,12 @@ RESULTS_JSON = OUTPUT_DIR / "results.json"
 
 
 async def init_json_file():
-    """Initialize results.json as an empty array."""
     if not RESULTS_JSON.exists():
         async with aiofiles.open(RESULTS_JSON, "w", encoding="utf-8") as f:
             await f.write("[]")
 
 
 def calculate_relevance_score(result, user_query: str) -> float:
-    """Compute a practical relevance score (0.0 - 1.0) based on BM25 fit content."""
     if not getattr(result, "success", False):
         return 0.0
 
@@ -42,7 +40,6 @@ def calculate_relevance_score(result, user_query: str) -> float:
     if not markdown_obj:
         return 0.0
 
-    # Prefer fit_markdown (BM25-filtered) over raw
     fit_md = getattr(markdown_obj, "fit_markdown", None)
     raw_md = getattr(markdown_obj, "raw_markdown", None) or str(markdown_obj)
 
@@ -50,11 +47,9 @@ def calculate_relevance_score(result, user_query: str) -> float:
     if not content or len(content) < 50:
         return 0.0
 
-    # Survival ratio (how much relevant content survived filtering)
     ratio = len(content) / max(len(raw_md), 1)
     survival_score = min(1.0, ratio * 1.8)
 
-    # Simple keyword density bonus
     query_terms = [term.lower() for term in user_query.split() if len(term) > 2]
     if not query_terms:
         return round(survival_score, 3)
@@ -64,13 +59,11 @@ def calculate_relevance_score(result, user_query: str) -> float:
     density = hits / max(len(content.split()), 1)
 
     keyword_bonus = min(0.6, density * 8)
-
     final_score = (survival_score * 0.65) + (keyword_bonus * 0.35)
     return round(min(1.0, final_score), 3)
 
 
 async def save_result_to_json(result, user_query: str) -> None:
-    """Append result and re-sort the entire list by relevance_score descending."""
     data: Dict[str, Any] = {
         "url": getattr(result, "url", None),
         "success": getattr(result, "success", False),
@@ -85,7 +78,6 @@ async def save_result_to_json(result, user_query: str) -> None:
         data["status_code"] = getattr(result, "status_code", None)
 
         markdown_obj = getattr(result, "markdown", None)
-
         if hasattr(markdown_obj, "raw_markdown"):
             data["raw_markdown"] = markdown_obj.raw_markdown
             data["raw_markdown_length"] = len(markdown_obj.raw_markdown)
@@ -115,14 +107,11 @@ async def save_result_to_json(result, user_query: str) -> None:
         data["status_code"] = getattr(result, "status_code", None)
         data["relevance_score"] = 0.0
 
-    # Read → append → sort by relevance_score DESC → write back
     async with aiofiles.open(RESULTS_JSON, "r+", encoding="utf-8") as f:
         content = await f.read()
         results_list: List[Dict] = json.loads(content) if content.strip() else []
-
         results_list.append(data)
 
-        # Sort: highest relevance first (descending), then by timestamp for ties
         results_list.sort(
             key=lambda x: (x.get("relevance_score", 0.0), x.get("timestamp", 0)),
             reverse=True,
@@ -134,7 +123,6 @@ async def save_result_to_json(result, user_query: str) -> None:
 
 
 async def process_result(result, user_query: str):
-    """Print nicely and save (with re-sorting)."""
     url = getattr(result, "url", "Unknown")
 
     if getattr(result, "success", False):
@@ -176,25 +164,30 @@ async def crawl_streaming_example():
         "https://httpbin.org/json",
         "https://www.wikipedia.org",
     ]
-    headless = False
 
     USER_QUERY = "AI web crawling and data extraction with Python"
 
-    # BM25 filter for relevance
     bm25_filter = BM25ContentFilter(
         user_query=USER_QUERY,
-        bm25_threshold=1.0,  # Adjust: lower = more content, higher = stricter
+        bm25_threshold=1.0,
     )
 
     markdown_generator = DefaultMarkdownGenerator(content_filter=bm25_filter)
 
-    browser_config = BrowserConfig(headless=headless, verbose=False)
+    # === KEY CHANGES HERE ===
+    browser_config = BrowserConfig(
+        headless=False,  # Set to True if you don't want to see tabs
+        verbose=True,
+    )
 
     run_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
         stream=True,
-        delay_before_return_html=2.0,
+        # Lower delay → faster parallel start
+        delay_before_return_html=0.5,
         markdown_generator=markdown_generator,
+        # This directly controls internal concurrency (very important for arun_many)
+        semaphore_count=10,  # Increase if your machine can handle it
     )
 
     monitor = CrawlerMonitor(
@@ -205,16 +198,20 @@ async def crawl_streaming_example():
     )
 
     dispatcher = MemoryAdaptiveDispatcher(
-        memory_threshold_percent=75.0,
+        memory_threshold_percent=80.0,  # Be a bit more aggressive
         check_interval=1.0,
-        max_session_permit=6,
-        rate_limiter=RateLimiter(base_delay=(1.5, 3.0), max_delay=30.0, max_retries=3),
+        max_session_permit=10,  # ← Increase this (main limiter for tabs/sessions)
+        rate_limiter=RateLimiter(
+            base_delay=(0.8, 2.0),  # Faster ramp-up
+            max_delay=15.0,
+            max_retries=2,
+        ),
         monitor=monitor,
     )
 
-    print("🚀 Starting streaming crawl with BM25 relevance scoring")
+    print("🚀 Starting streaming crawl with improved parallelism...")
     print(f'   Query : "{USER_QUERY}"')
-    print(f"   Results (sorted by relevance) → {RESULTS_JSON}\n")
+    print(f"   Results → {RESULTS_JSON}\n")
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
         async for result in await crawler.arun_many(
@@ -224,9 +221,7 @@ async def crawl_streaming_example():
         ):
             await process_result(result, USER_QUERY)
 
-    print(
-        f"\n🎉 Crawl finished! {RESULTS_JSON} is always sorted by relevance_score (highest first)."
-    )
+    print(f"\n🎉 Crawl finished! Check {RESULTS_JSON}")
 
 
 if __name__ == "__main__":
