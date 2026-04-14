@@ -7,6 +7,13 @@ import aiofiles
 from jet.libs.crawl4ai_lib.async_web_crawler_manager import AsyncWebCrawlerManager
 from jet.libs.crawl4ai_lib.search_searxng import semantic_search_results
 
+# ----------------------------------------------------------------------
+# Application helpers (unchanged)
+# ----------------------------------------------------------------------
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+RESULTS_JSON = OUTPUT_DIR / "results.json"
+RAG_CONTEXT_MD = OUTPUT_DIR / "rag_context.md"
+
 
 # ----------------------------------------------------------------------
 # Reusable Result Processor Class
@@ -162,13 +169,6 @@ class CrawlResultProcessor:
         self.results.clear()
 
 
-# ----------------------------------------------------------------------
-# Application helpers (unchanged)
-# ----------------------------------------------------------------------
-OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-RESULTS_JSON = OUTPUT_DIR / "results.json"
-
-
 def calculate_relevance_score(result: Any, user_query: str) -> float:
     """Original relevance calculation — unchanged."""
     if not getattr(result, "success", False):
@@ -258,12 +258,16 @@ async def main():
     async with aiofiles.open(RESULTS_JSON, "w", encoding="utf-8") as f:
         await f.write(json.dumps(processor.get_results(), indent=2, ensure_ascii=False))
 
+    # Save RAG context to markdown file
+    rag_context = processor.get_rag_context()
+    async with aiofiles.open(RAG_CONTEXT_MD, "w", encoding="utf-8") as f:
+        await f.write(rag_context)
+
     full_path = RESULTS_JSON.resolve().absolute()
     print(f"\n📁 Results saved to:\n   {full_path}")
 
-    # RAG context example
-    rag_context = processor.get_rag_context()
-    print(f"\n📝 RAG Context generated — {len(rag_context):,} characters")
+    print(f"\n📝 RAG Context saved to:\n   {RAG_CONTEXT_MD.resolve().absolute()}")
+    print(f"   ({len(rag_context):,} characters)")
 
 
 if __name__ == "__main__":
