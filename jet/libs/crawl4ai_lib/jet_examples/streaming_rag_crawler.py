@@ -41,6 +41,8 @@ async def main():
     args = parser.parse_args()
     query: str = args.query
 
+    EXCLUDED_TAGS = ["script", "style", "nav", "footer"]
+
     urls: List[str] = await semantic_search_results(query)
 
     # Initialize processor
@@ -67,6 +69,7 @@ async def main():
         process_result=processor.process_result,  # This is now async
         user_query=query,
         bm25_threshold=0.6,
+        run_config={"excluded_tags": EXCLUDED_TAGS},
     )
 
     # Save results to JSON (outside the class, as requested)

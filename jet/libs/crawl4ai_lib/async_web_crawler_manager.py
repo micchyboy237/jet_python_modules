@@ -46,19 +46,36 @@ class AsyncWebCrawlerManager:
         self.cache_mode = cache_mode
         self.monitor_max_width = monitor_max_width
 
+        # Store defaults that will be merged into run_config dict
+        self._default_run_config = {
+            "cache_mode": self.cache_mode,
+            "stream": True,
+            "delay_before_return_html": self.delay_before_return_html,
+            "semaphore_count": self.semaphore_count,
+        }
+
         self.browser_config = BrowserConfig(
             headless=headless,
             verbose=verbose,
         )
 
-    def _create_run_config(self, markdown_generator=None) -> CrawlerRunConfig:
-        return CrawlerRunConfig(
-            cache_mode=self.cache_mode,
-            stream=True,
-            delay_before_return_html=self.delay_before_return_html,
-            markdown_generator=markdown_generator,
-            semaphore_count=self.semaphore_count,
-        )
+    def _create_run_config(self, markdown_generator=None) -> dict:
+        """Return a dict of run configuration parameters (to be passed as run_config=...).
+
+        The dict will be merged with any user-provided run_config in crawl_many().
+        """
+        cfg = self._default_run_config.copy()
+        if markdown_generator is not None:
+            cfg["markdown_generator"] = markdown_generator
+        return cfg
+
+    def _merge_run_config(self, base: dict, override: dict | None) -> dict:
+        """Merge user-provided run_config dict on top of base defaults."""
+        if not override:
+            return base.copy()
+        merged = base.copy()
+        merged.update(override)
+        return merged
 
     def _create_dispatcher(self, urls_total: int) -> MemoryAdaptiveDispatcher:
         monitor = CrawlerMonitor(
@@ -89,7 +106,8 @@ class AsyncWebCrawlerManager:
         ],  # Changed: now only takes 'result'
         user_query: str | None = None,
         bm25_threshold: float = 1.0,
-        run_config: CrawlerRunConfig | None = None,
+        run_config: dict
+        | None = None,  # Changed: now a dict of kwargs for CrawlerRunConfig
     ) -> None:
         """
         Stream crawl multiple URLs.
@@ -109,7 +127,13 @@ class AsyncWebCrawlerManager:
             )
             markdown_generator = DefaultMarkdownGenerator(content_filter=bm25_filter)
 
-        config = run_config or self._create_run_config(markdown_generator)
+        # Build final run_config dict
+        base_config = self._create_run_config(markdown_generator)
+        final_config_dict = self._merge_run_config(base_config, run_config)
+
+        # Instantiate CrawlerRunConfig from the dict (it accepts **kwargs via __init__)
+        config = CrawlerRunConfig(**final_config_dict)
+
         dispatcher = self._create_dispatcher(len(urls))
 
         print("🚀 Starting streaming multi-URL crawl with AsyncWebCrawlerManager")
@@ -128,7 +152,7 @@ class AsyncWebCrawlerManager:
         async with AsyncWebCrawler(config=self.browser_config) as crawler:
             async for result in await crawler.arun_many(
                 urls=urls,
-                config=config,
+                config=config,  # Still passes the CrawlerRunConfig instance
                 dispatcher=dispatcher,
             ):
                 await process_result(result)  # Only pass result
