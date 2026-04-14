@@ -2,17 +2,33 @@ import argparse
 import asyncio
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, TypedDict
 from urllib.parse import urlencode, urljoin
 
 import httpx
 import numpy as np
-from rich.console import Console, Group
+from rich import box
+from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
+
+
+# ============================================================
+# Type Definitions
+# ============================================================
+
+
+class SemanticResult(TypedDict):
+    """Typed dictionary for semantic search/reranking results."""
+
+    rank: int
+    score: float
+    title: str
+    url: str
+    snippet: str
 
 
 # ============================================================
@@ -60,27 +76,15 @@ async def embed_texts(
 # ============================================================
 
 
-def make_scoring_table(scored: List[tuple[str, float]], top_k: int) -> Table:
-    table = Table(
-        title="Top Semantic Seeds (Sorted by Similarity)",
-        show_header=True,
-        header_style="bold magenta",
-    )
-    table.add_column("#", justify="right", style="dim")
-    table.add_column("Score", justify="right", style="cyan")
-    table.add_column("URL", style="green")
-
-    for i, (url, score) in enumerate(scored[:top_k], 1):
-        table.add_row(f"{i}", f"{score:.3f}", url)
-    return table
-
-
 async def semantic_seed_filter(
     query: str,
     results: List[dict],
     top_k: int = 8,
     embed_url: str = os.getenv("LLAMA_CPP_EMBED_URL"),
-) -> List[str]:
+) -> List[SemanticResult]:
+    """
+    Perform semantic reranking and return results with rank, score, title, url, and snippet.
+    """
     if not results:
         return []
 
@@ -90,7 +94,9 @@ async def semantic_seed_filter(
     with Live(console=console, refresh_per_second=8) as live:
         live.update(Panel(task_description, style="bold cyan"))
 
-        texts = [query] + [f"{r['title']} {r['snippet']}" for r in results]
+        texts = [query] + [
+            f"{r.get('title', '')} {r.get('snippet', '')}" for r in results
+        ]
         embeddings = await embed_texts(texts, base_url=embed_url)
 
         live.update(
@@ -101,32 +107,37 @@ async def semantic_seed_filter(
         )
 
         # Calculate similarity scores
-        scored = []
-        for r, emb in zip(results, embeddings[1:]):
+        scored: List[SemanticResult] = []
+        for i, (r, emb) in enumerate(zip(results, embeddings[1:]), 1):
             score = cosine_similarity(embeddings[0], emb)
-            scored.append((r["url"], score))
 
-        # === SORT BY SIMILARITY SCORE IN DESCENDING ORDER ===
-        scored.sort(key=lambda x: x[1], reverse=True)
+            scored.append(
+                {
+                    "rank": i,
+                    "score": score,
+                    "title": r.get("title", "").strip(),
+                    "url": r.get("url", "").strip(),
+                    "snippet": r.get("snippet", "").strip(),
+                }
+            )
+
+        # Sort by similarity score descending
+        scored.sort(key=lambda x: x["score"], reverse=True)
+
+        # Update ranks to final order
+        for i, item in enumerate(scored, 1):
+            item["rank"] = i
 
         live.update(
-            Group(
-                Panel(
-                    "[green]Similarity scores calculated and sorted", style="bold green"
-                ),
-                make_scoring_table(scored, top_k),
-            )
+            Panel("[green]Similarity scores calculated and sorted", style="bold green")
         )
 
-    # Small delay so user can see the table
     await asyncio.sleep(0.6)
-
-    # Return top_k URLs (already sorted descending by score)
-    return [url for url, _ in scored[:top_k]]
+    return scored[:top_k]
 
 
 # ============================================================
-# Site Normalization
+# Site Normalization (unchanged)
 # ============================================================
 
 
@@ -248,10 +259,7 @@ async def search_seed_results(
             urljoin(searxng_base_url.rstrip("/") + "/", "search") + "?" + query_string
         )
 
-        console.print(
-            "[dim bright_black]SearXNG full request URL:[/]",
-            style="dim",
-        )
+        console.print("[dim bright_black]SearXNG full request URL:[/]", style="dim")
         console.print(f"[blue underline]{full_url}[/blue underline]", soft_wrap=True)
         console.print("")
 
@@ -285,7 +293,7 @@ async def semantic_search_results(
     max_search_results: int = 10,
     sites: Optional[List[str]] = None,
     embed_url: Optional[str] = None,
-) -> List[str]:
+) -> List[SemanticResult]:
     """Main semantic search pipeline using embeddings for reranking."""
 
     if embed_url is None:
@@ -304,20 +312,16 @@ async def semantic_search_results(
 
     print_startup_info(
         argparse.Namespace(
-            query=query,
-            top_k=top_k,
-            max_search_results=max_search_results,
-            sites=sites,
+            query=query, top_k=top_k, max_search_results=max_search_results, sites=sites
         ),
         effective_query,
         embed_url,
     )
 
-    # ── Phase 1 ─────────────────────────────────────────────
+    # Phase 1 — Seed Discovery
     console.rule("Phase 1 — Seed Discovery (SearXNG)", style="blue")
     raw_results = await search_seed_results(
-        effective_query,
-        max_results=max_search_results,
+        effective_query, max_results=max_search_results
     )
 
     if not raw_results:
@@ -326,29 +330,100 @@ async def semantic_search_results(
 
     console.print(f"\n[b green]Fetched {len(raw_results)} search results[/b green]\n")
 
-    # ── Phase 2 ─────────────────────────────────────────────
+    # Phase 2 — Semantic Reranking
     console.rule("Phase 2 — Semantic Reranking", style="magenta")
 
-    seed_urls = await semantic_seed_filter(
-        query,
-        raw_results,
-        top_k=top_k,
-    )
+    semantic_results = await semantic_seed_filter(query, raw_results, top_k=top_k)
 
-    if not seed_urls:
+    if not semantic_results:
         console.print("[yellow]No strong semantic matches found.[/]")
         return []
 
     console.print(
-        f"\n[b green]Selected {len(seed_urls)} strongest seed URLs[/b green]\n"
+        f"\n[b green]Selected {len(semantic_results)} strongest semantic results[/b green]\n"
     )
 
-    return seed_urls
+    return semantic_results
+
+
+# ============================================================
+# Rich Logging for Final Results
+# ============================================================
+
+
+def print_final_results(results: List[SemanticResult], query: str):
+    """Print final results with 4-column header + separate snippet box below each result. Title and URL should NOT wrap."""
+    if not results:
+        console.print("[yellow]No semantic results to display.[/yellow]")
+        return
+
+    console.rule(f"Final Semantic Results — Top {len(results)}", style="bright_green")
+
+    for item in results:
+        rank = item.get("rank", "")
+        score = f"{item.get('score', 0):.4f}"
+        title = (item.get("title", "") or "[dim]— no title —[/]").strip()
+        url_raw = item.get("url", "") or ""
+        url_display = f"[link={url_raw.strip()}]{url_raw.strip()}[/link]"
+
+        # Limit snippet
+        snippet = (item.get("snippet", "") or "").strip()
+        if len(snippet) > 350:
+            snippet = snippet[:347].rstrip() + "..."
+
+        # 1. Compact 4-column table for metadata
+        meta_table = Table(
+            show_header=True,
+            header_style="bold magenta",
+            box=box.HEAVY_HEAD,
+            expand=True,
+            padding=(0, 1),
+        )
+        meta_table.add_column("#", justify="right", style="dim", width=4, no_wrap=True)
+        meta_table.add_column(
+            "Score", justify="right", style="cyan", width=9, no_wrap=True
+        )
+        meta_table.add_column("Title", style="bold white", ratio=2, no_wrap=True)
+        meta_table.add_column("URL", style="blue underline", ratio=3, no_wrap=True)
+
+        meta_table.add_row(str(rank), score, title, url_display)
+
+        # 2. Snippet as its own full-width Panel (true "box" below)
+        snippet_panel = Panel(
+            snippet if snippet else "[dim]— no snippet available —[/]",
+            title="Snippet",
+            title_align="left",
+            border_style="green dim",
+            padding=(1, 2),
+            expand=True,
+        )
+
+        # Print them together
+        console.print(meta_table)
+        console.print(snippet_panel)
+        console.print("")  # spacing between results
+
+    console.print(
+        Panel(
+            f"[bold green]✓ Completed:[/] Found {len(results)} semantically relevant results "
+            f'for query: [cyan]"{query}"[/cyan]',
+            border_style="bright_green",
+            padding=(1, 2),
+        )
+    )
+
+
+# ============================================================
+# Entry Point
+# ============================================================
 
 
 if __name__ == "__main__":
     args = get_args()
-    asyncio.run(
+
+    console.print("\n[bold bright_blue]Starting Semantic Search Pipeline[/]\n")
+
+    results: List[SemanticResult] = asyncio.run(
         semantic_search_results(
             query=args.query,
             top_k=args.top_k,
@@ -356,3 +431,6 @@ if __name__ == "__main__":
             sites=args.sites,
         )
     )
+
+    # Rich formatted output
+    print_final_results(results, args.query)

@@ -6,13 +6,13 @@ from typing import List
 import aiofiles
 from jet.libs.crawl4ai_lib.async_web_crawler_manager import AsyncWebCrawlerManager
 from jet.libs.crawl4ai_lib.rag_crawler import CrawlResultProcessor
-from jet.libs.crawl4ai_lib.search_searxng import semantic_search_results
+from jet.libs.crawl4ai_lib.search_searxng import SemanticResult, semantic_search_results
 
 # ----------------------------------------------------------------------
 # Application helpers (unchanged)
 # ----------------------------------------------------------------------
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-RESULTS_JSON = OUTPUT_DIR / "results.json"
+RESULTS_JSON = OUTPUT_DIR / "search_results.json"
 RAG_CONTEXT_MD = OUTPUT_DIR / "rag_context.md"
 
 
@@ -43,7 +43,7 @@ async def main():
 
     EXCLUDED_TAGS = ["script", "style", "nav", "footer"]
 
-    urls: List[str] = await semantic_search_results(query)
+    search_results: List[SemanticResult] = await semantic_search_results(query)
 
     # Initialize processor
     processor = CrawlResultProcessor()
@@ -60,12 +60,12 @@ async def main():
         monitor_max_width=130,
     )
 
-    print(f"Selected {len(urls)} strongest seed URLs")
+    print(f"Selected {len(search_results)} strongest seed URLs")
     print(f"Query: {query}\n")
 
     # Pass the async method directly
     await crawler_manager.crawl_many(
-        urls=urls,
+        urls=[o["url"] for o in search_results],
         process_result=processor.process_result,  # This is now async
         user_query=query,
         bm25_threshold=0.6,
