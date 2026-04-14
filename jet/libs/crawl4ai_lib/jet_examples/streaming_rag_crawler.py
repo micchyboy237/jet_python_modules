@@ -12,14 +12,14 @@ from jet.libs.crawl4ai_lib.search_searxng import SemanticResult, semantic_search
 # Application helpers (unchanged)
 # ----------------------------------------------------------------------
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-RESULTS_JSON = OUTPUT_DIR / "search_results.json"
+SEARCH_RESULTS_JSON = OUTPUT_DIR / "search_results.json"
 RAG_CONTEXT_MD = OUTPUT_DIR / "rag_context.md"
 
 
 async def init_json_file():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    if not RESULTS_JSON.exists():
-        async with aiofiles.open(RESULTS_JSON, "w", encoding="utf-8") as f:
+    if not SEARCH_RESULTS_JSON.exists():
+        async with aiofiles.open(SEARCH_RESULTS_JSON, "w", encoding="utf-8") as f:
             await f.write("[]")
 
 
@@ -73,7 +73,7 @@ async def main():
     )
 
     # Save results to JSON (outside the class, as requested)
-    async with aiofiles.open(RESULTS_JSON, "w", encoding="utf-8") as f:
+    async with aiofiles.open(SEARCH_RESULTS_JSON, "w", encoding="utf-8") as f:
         await f.write(json.dumps(processor.get_results(), indent=2, ensure_ascii=False))
 
     # Save RAG context to markdown file
@@ -81,7 +81,7 @@ async def main():
     async with aiofiles.open(RAG_CONTEXT_MD, "w", encoding="utf-8") as f:
         await f.write(rag_context)
 
-    full_path = RESULTS_JSON.resolve().absolute()
+    full_path = SEARCH_RESULTS_JSON.resolve().absolute()
     print(f"\n📁 Results saved to:\n   {full_path}")
 
     print(f"\n📝 RAG Context saved to:\n   {RAG_CONTEXT_MD.resolve().absolute()}")

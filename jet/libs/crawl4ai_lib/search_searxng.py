@@ -17,10 +17,43 @@ console = Console()
 
 
 # ============================================================
+# HTTP Helper with Retries (NEW)
+# ============================================================
+async def _request_with_retries(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    max_retries: int = 3,
+    **kwargs,
+) -> httpx.Response:
+    """Internal helper for retrying GET/POST requests with exponential backoff."""
+    for attempt in range(max_retries + 1):
+        try:
+            if method.upper() == "GET":
+                response = await client.get(url, **kwargs)
+            elif method.upper() == "POST":
+                response = await client.post(url, **kwargs)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
+            response.raise_for_status()
+            return response
+        except (httpx.RequestError, httpx.HTTPStatusError) as e:
+            if attempt == max_retries:
+                raise
+            delay = 2**attempt  # 1s, 2s, 4s, ...
+            console.print(
+                f"[yellow]⚠ Retry {attempt + 1}/{max_retries} for {method} {url} "
+                f"(error: {type(e).__name__}) in {delay}s...[/]"
+            )
+            await asyncio.sleep(delay)
+    # unreachable
+    raise RuntimeError("Max retries exceeded")
+
+
+# ============================================================
 # Type Definitions
 # ============================================================
-
-
 class SemanticResult(TypedDict):
     """Typed dictionary for semantic search/reranking results."""
 
@@ -34,8 +67,6 @@ class SemanticResult(TypedDict):
 # ============================================================
 # CLI + Config
 # ============================================================
-
-
 @dataclass
 class AppConfig:
     query: str
@@ -46,8 +77,6 @@ class AppConfig:
 # ============================================================
 # Embedding & Similarity
 # ============================================================
-
-
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     denom = np.linalg.norm(a) * np.linalg.norm(b)
     if denom == 0:
@@ -59,14 +88,16 @@ async def embed_texts(
     texts: List[str],
     base_url: str = os.getenv("LLAMA_CPP_EMBED_URL"),
     embed_model: str = os.getenv("LLAMA_CPP_EMBED_MODEL"),
+    max_retries: int = 3,  # NEW: retry support
 ) -> List[np.ndarray]:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
+        response = await _request_with_retries(
+            client,
+            "POST",
             f"{base_url}/embeddings",
+            max_retries=max_retries,
             json={"model": embed_model, "input": texts},
         )
-        response.raise_for_status()
-
         data = response.json()
         return [np.array(item["embedding"], dtype=np.float32) for item in data["data"]]
 
@@ -74,43 +105,38 @@ async def embed_texts(
 # ============================================================
 # Semantic Reranking
 # ============================================================
-
-
 async def semantic_seed_filter(
     query: str,
     results: List[dict],
     top_k: int = 8,
     embed_url: str = os.getenv("LLAMA_CPP_EMBED_URL"),
+    max_retries: int = 3,  # NEW: retry support
 ) -> List[SemanticResult]:
     """
     Perform semantic reranking and return results with rank, score, title, url, and snippet.
     """
     if not results:
         return []
-
     console.rule("Semantic Reranking", style="bright_blue")
-
     task_description = "[cyan]Computing embeddings..."
     with Live(console=console, refresh_per_second=8) as live:
         live.update(Panel(task_description, style="bold cyan"))
-
         texts = [query] + [
             f"{r.get('title', '')} {r.get('snippet', '')}" for r in results
         ]
-        embeddings = await embed_texts(texts, base_url=embed_url)
-
+        embeddings = await embed_texts(
+            texts, base_url=embed_url, max_retries=max_retries
+        )
         live.update(
             Panel(
                 "[green]Embeddings ready — calculating similarities...",
                 style="bold green",
             )
         )
-
         # Calculate similarity scores
         scored: List[SemanticResult] = []
         for i, (r, emb) in enumerate(zip(results, embeddings[1:]), 1):
             score = cosine_similarity(embeddings[0], emb)
-
             scored.append(
                 {
                     "rank": i,
@@ -120,18 +146,14 @@ async def semantic_seed_filter(
                     "snippet": r.get("snippet", "").strip(),
                 }
             )
-
         # Sort by similarity score descending
         scored.sort(key=lambda x: x["score"], reverse=True)
-
         # Update ranks to final order
         for i, item in enumerate(scored, 1):
             item["rank"] = i
-
         live.update(
             Panel("[green]Similarity scores calculated and sorted", style="bold green")
         )
-
     await asyncio.sleep(0.6)
     return scored[:top_k]
 
@@ -139,19 +161,15 @@ async def semantic_seed_filter(
 # ============================================================
 # Site Normalization (unchanged)
 # ============================================================
-
-
 def normalize_sites(raw_sites: Optional[List[str]]) -> List[str]:
     if not raw_sites:
         return []
-
     sites: List[str] = []
     for entry in raw_sites:
         if "," in entry:
             sites.extend(part.strip() for part in entry.split(",") if part.strip())
         else:
             sites.append(entry.strip())
-
     normalized = []
     for h in sites:
         h = h.lower().strip()
@@ -160,21 +178,17 @@ def normalize_sites(raw_sites: Optional[List[str]]) -> List[str]:
         h = h.removeprefix("www.").rstrip("/")
         if h and "." in h:
             normalized.append(h)
-
     return normalized
 
 
 # ============================================================
 # Main Pipeline
 # ============================================================
-
-
 def get_args() -> argparse.Namespace:
     DEFAULT_QUERY = "Latest top anime releases 2026"
     parser = argparse.ArgumentParser(
         description="Semantic Search + Adaptive Crawl (Embedding Strategy)"
     )
-
     parser.add_argument(
         "query",
         nargs="?",
@@ -195,7 +209,13 @@ def get_args() -> argparse.Namespace:
         default=10,
         help="Maximum number of raw results to fetch from SearXNG (default: 10)",
     )
-
+    parser.add_argument(
+        "--max-retries",
+        "-r",
+        type=int,
+        default=3,
+        help="Maximum number of retries for HTTP requests (SearXNG + embeddings) with exponential backoff (default: 3)",
+    )
     parser.add_argument(
         "-s",
         "--site",
@@ -210,7 +230,6 @@ def get_args() -> argparse.Namespace:
             "or -s github.com,docs.python.org"
         ),
     )
-
     return parser.parse_args()
 
 
@@ -218,15 +237,14 @@ def print_startup_info(args: argparse.Namespace, effective_query: str, embed_url
     table = Table.grid(expand=True)
     table.add_column(style="bold cyan", width=18)
     table.add_column()
-
     table.add_row("Query", f"[i]{args.query}[/]")
     table.add_row("Effective query", f"[i]{effective_query}[/]")
     table.add_row("Top K (seeds)", f"[green]{args.top_k}[/]")
     table.add_row("Max search results", f"[magenta]{args.max_search_results}[/]")
+    table.add_row("Max retries", f"[magenta]{args.max_retries}[/]")  # NEW
     table.add_row("Embedding", embed_url)
     if args.sites:
         table.add_row("Sites filter", ", ".join(args.sites))
-
     console.print(
         Panel(
             table,
@@ -242,9 +260,9 @@ async def search_seed_results(
     searxng_base_url: str = os.getenv("SEARXNG_URL"),
     timeout: float = 12.0,
     max_results: int = 10,
+    max_retries: int = 3,  # NEW: retry support
 ) -> List[dict]:
-    console.print(f"[bold cyan]SearXNG[/]  →  [i]{query}[/i]", style="dim")
-
+    console.print(f"[bold cyan]SearXNG[/] → [i]{query}[/i]", style="dim")
     with console.status("[bold green]Querying SearXNG...", spinner="dots"):
         params = {
             "q": query,
@@ -253,22 +271,20 @@ async def search_seed_results(
             "language": "en",
             "categories": "general",
         }
-
         query_string = urlencode(params)
         full_url = (
             urljoin(searxng_base_url.rstrip("/") + "/", "search") + "?" + query_string
         )
-
         console.print("[dim bright_black]SearXNG full request URL:[/]", style="dim")
         console.print(f"[blue underline]{full_url}[/blue underline]", soft_wrap=True)
         console.print("")
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             try:
-                resp = await client.get(full_url)
-                resp.raise_for_status()
+                resp = await _request_with_retries(
+                    client, "GET", full_url, max_retries=max_retries
+                )
                 data = resp.json()
-
                 results = []
                 for r in data.get("results", []):
                     if r.get("url", "").startswith("http"):
@@ -279,9 +295,7 @@ async def search_seed_results(
                                 "snippet": r.get("content", ""),
                             }
                         )
-
                 return results[:max_results]
-
             except Exception as e:
                 console.print(f"[bold red]ERROR[/] SearXNG request failed: {e}")
                 return []
@@ -293,18 +307,16 @@ async def semantic_search_results(
     max_search_results: int = 10,
     sites: Optional[List[str]] = None,
     embed_url: Optional[str] = None,
+    max_retries: int = 3,  # NEW: retry support
 ) -> List[SemanticResult]:
     """Main semantic search pipeline using embeddings for reranking."""
-
     if embed_url is None:
         embed_url = os.getenv("LLAMA_CPP_EMBED_URL")
-
     if not embed_url:
         console.print("[bold red]Missing environment variable:[/] LLAMA_CPP_EMBED_URL")
         return []
 
     normalized_sites = normalize_sites(sites)
-
     effective_query = query
     if normalized_sites:
         site_clause = " OR ".join(f"site:{domain}" for domain in normalized_sites)
@@ -312,7 +324,11 @@ async def semantic_search_results(
 
     print_startup_info(
         argparse.Namespace(
-            query=query, top_k=top_k, max_search_results=max_search_results, sites=sites
+            query=query,
+            top_k=top_k,
+            max_search_results=max_search_results,
+            sites=sites,
+            max_retries=max_retries,  # NEW
         ),
         effective_query,
         embed_url,
@@ -321,9 +337,10 @@ async def semantic_search_results(
     # Phase 1 — Seed Discovery
     console.rule("Phase 1 — Seed Discovery (SearXNG)", style="blue")
     raw_results = await search_seed_results(
-        effective_query, max_results=max_search_results
+        effective_query,
+        max_results=max_search_results,
+        max_retries=max_retries,  # NEW
     )
-
     if not raw_results:
         console.print("[yellow]No results found.[/yellow]")
         return []
@@ -332,9 +349,13 @@ async def semantic_search_results(
 
     # Phase 2 — Semantic Reranking
     console.rule("Phase 2 — Semantic Reranking", style="magenta")
-
-    semantic_results = await semantic_seed_filter(query, raw_results, top_k=top_k)
-
+    semantic_results = await semantic_seed_filter(
+        query,
+        raw_results,
+        top_k=top_k,
+        embed_url=embed_url,
+        max_retries=max_retries,  # NEW
+    )
     if not semantic_results:
         console.print("[yellow]No strong semantic matches found.[/]")
         return []
@@ -342,35 +363,28 @@ async def semantic_search_results(
     console.print(
         f"\n[b green]Selected {len(semantic_results)} strongest semantic results[/b green]\n"
     )
-
     return semantic_results
 
 
 # ============================================================
 # Rich Logging for Final Results
 # ============================================================
-
-
 def print_final_results(results: List[SemanticResult], query: str):
     """Print final results with 4-column header + separate snippet box below each result. Title and URL should NOT wrap."""
     if not results:
         console.print("[yellow]No semantic results to display.[/yellow]")
         return
-
     console.rule(f"Final Semantic Results — Top {len(results)}", style="bright_green")
-
     for item in results:
         rank = item.get("rank", "")
         score = f"{item.get('score', 0):.4f}"
         title = (item.get("title", "") or "[dim]— no title —[/]").strip()
         url_raw = item.get("url", "") or ""
         url_display = f"[link={url_raw.strip()}]{url_raw.strip()}[/link]"
-
         # Limit snippet
         snippet = (item.get("snippet", "") or "").strip()
         if len(snippet) > 350:
             snippet = snippet[:347].rstrip() + "..."
-
         # 1. Compact 4-column table for metadata
         meta_table = Table(
             show_header=True,
@@ -385,9 +399,7 @@ def print_final_results(results: List[SemanticResult], query: str):
         )
         meta_table.add_column("Title", style="bold white", ratio=2, no_wrap=True)
         meta_table.add_column("URL", style="blue underline", ratio=3, no_wrap=True)
-
         meta_table.add_row(str(rank), score, title, url_display)
-
         # 2. Snippet as its own full-width Panel (true "box" below)
         snippet_panel = Panel(
             snippet if snippet else "[dim]— no snippet available —[/]",
@@ -397,12 +409,10 @@ def print_final_results(results: List[SemanticResult], query: str):
             padding=(1, 2),
             expand=True,
         )
-
         # Print them together
         console.print(meta_table)
         console.print(snippet_panel)
         console.print("")  # spacing between results
-
     console.print(
         Panel(
             f"[bold green]✓ Completed:[/] Found {len(results)} semantically relevant results "
@@ -416,21 +426,17 @@ def print_final_results(results: List[SemanticResult], query: str):
 # ============================================================
 # Entry Point
 # ============================================================
-
-
 if __name__ == "__main__":
     args = get_args()
-
     console.print("\n[bold bright_blue]Starting Semantic Search Pipeline[/]\n")
-
     results: List[SemanticResult] = asyncio.run(
         semantic_search_results(
             query=args.query,
             top_k=args.top_k,
             max_search_results=args.max_search_results,
             sites=args.sites,
+            max_retries=args.max_retries,  # NEW
         )
     )
-
     # Rich formatted output
     print_final_results(results, args.query)
