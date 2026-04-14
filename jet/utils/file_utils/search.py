@@ -1,7 +1,8 @@
-import os
 import fnmatch
+import os
 from pathlib import Path
-from typing import List, Set, Optional, Iterable
+from typing import Iterable, List, Optional, Set
+
 from jet.logger import logger
 
 
@@ -28,10 +29,12 @@ def find_files(
         logger.warning(f"Directory does not exist: {base_dir}")
         return []
 
-    # Normalize includes/excludes
-    def normalize_patterns(patterns: List[str], is_exclude=False) -> List[str]:
+    def normalize_patterns(patterns: List[str], is_exclude: bool = False) -> List[str]:
         out = []
         for pat in patterns:
+            pat = pat.strip()
+            if not pat:  # skip empty patterns
+                continue
             if os.path.isabs(pat):
                 out.append(pat)
             else:
@@ -45,11 +48,13 @@ def find_files(
     adjusted_include = normalize_patterns(include)
     adjusted_exclude = normalize_patterns(exclude, is_exclude=True)
 
-    # Default: search everything
     if not adjusted_include:
         adjusted_include = ["**/*"]
 
-    # Pre-split excludes into absolute/relative
+    # Split includes and excludes into relative and absolute
+    rel_includes = [p for p in adjusted_include if not os.path.isabs(p)]
+    abs_includes = [p for p in adjusted_include if os.path.isabs(p)]
+
     abs_excludes = [p for p in adjusted_exclude if os.path.isabs(p)]
     rel_excludes = [p for p in adjusted_exclude if not os.path.isabs(p)]
 
@@ -71,66 +76,93 @@ def find_files(
                 return True
         return False
 
-    # Collect candidates
-    for pattern in adjusted_include:
+    # 1. Absolute includes (outside the project) - keep old logic
+    for pattern in abs_includes:
         try:
             candidates: Iterable[Path]
-            if os.path.isabs(pattern):
-                abs_path = Path(pattern)
-                if abs_path.is_file():
-                    candidates = [abs_path]
-                elif abs_path.is_dir():
-                    candidates = abs_path.rglob("*")
-                else:
-                    # Handle absolute wildcard patterns
-                    if any(x in pattern for x in ["*", "?", "**"]):
-                        root = Path("/")
-                        try:
-                            candidates = root.glob(pattern.lstrip("/"))
-                        except NotImplementedError:
-                            # fallback: manual walk + fnmatch
-                            candidates = [
-                                p for p in root.rglob("*") if fnmatch.fnmatch(str(p), pattern)
-                            ]
-                    else:
-                        continue
+            abs_path = Path(pattern)
+            if abs_path.is_file():
+                candidates = [abs_path]
+            elif abs_path.is_dir():
+                candidates = abs_path.rglob("*")
             else:
-                candidates = base_path.rglob(pattern)
-
+                if any(x in pattern for x in ["*", "?", "**"]):
+                    root = Path("/")
+                    try:
+                        candidates = root.glob(pattern.lstrip("/"))
+                    except NotImplementedError:
+                        candidates = [
+                            p
+                            for p in root.rglob("*")
+                            if fnmatch.fnmatch(str(p), pattern)
+                        ]
+                else:
+                    continue
             for file_path in candidates:
                 if not file_path.is_file():
                     continue
-
-                # Exclude check (early)
                 if is_excluded(file_path):
                     continue
-
-                # Extension filter
                 if normalized_extensions:
                     ext = file_path.suffix.lstrip(".").lower()
                     if ext not in normalized_extensions:
                         continue
-
-                # Modified time filter
                 if modified_after:
                     try:
                         if file_path.stat().st_mtime <= modified_after:
                             continue
                     except OSError as e:
-                        logger.error(f"Failed to get modified time for {file_path}: {e}")
+                        logger.error(
+                            f"Failed to get modified time for {file_path}: {e}"
+                        )
                         continue
-
-                norm_path = os.path.normpath(str(file_path)).replace("/private/var", "/var")
+                norm_path = os.path.normpath(str(file_path)).replace(
+                    "/private/var", "/var"
+                )
                 matched_files.add(norm_path)
-
         except OSError as e:
             logger.error(f"Error traversing {pattern}: {e}")
+
+    # 2. Relative includes - single fast walk
+    if rel_includes:
+        try:
+            candidates = base_path.rglob("**/*")
+            for file_path in candidates:
+                if not file_path.is_file():
+                    continue
+                if is_excluded(file_path):
+                    continue
+                # Quick check: does this file match ANY of our include patterns?
+                rel = str(file_path.relative_to(base_path))
+                if not any(fnmatch.fnmatch(rel, pat) for pat in rel_includes):
+                    continue
+                if normalized_extensions:
+                    ext = file_path.suffix.lstrip(".").lower()
+                    if ext not in normalized_extensions:
+                        continue
+                if modified_after:
+                    try:
+                        if file_path.stat().st_mtime <= modified_after:
+                            continue
+                    except OSError as e:
+                        logger.error(
+                            f"Failed to get modified time for {file_path}: {e}"
+                        )
+                        continue
+                norm_path = os.path.normpath(str(file_path)).replace(
+                    "/private/var", "/var"
+                )
+                matched_files.add(norm_path)
+        except OSError as e:
+            logger.error(f"Error traversing base directory: {e}")
 
     # Final content filtering
     final_files = [
         f
         for f in matched_files
-        if matches_content(f, include_content_patterns, exclude_content_patterns, case_sensitive)
+        if matches_content(
+            f, include_content_patterns, exclude_content_patterns, case_sensitive
+        )
     ]
 
     return sorted(final_files)

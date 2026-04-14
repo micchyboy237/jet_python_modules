@@ -229,12 +229,12 @@ def remove_parent_paths(path: str) -> str:
 
 
 def get_file_length(file_path, shorten_funcs):
+    """Fast version: just returns raw file size on disk (bytes).
+    No reading or cleaning needed for the structure tree view.
+    'shorten_funcs' is kept for compatibility but ignored here."""
     try:
-        with open(file_path, encoding="utf-8") as file:
-            content = file.read()
-            content = clean_content(content, file_path, shorten_funcs)
-        return len(content)
-    except (OSError, UnicodeDecodeError):
+        return os.path.getsize(file_path)
+    except OSError:
         return 0
 
 
@@ -259,7 +259,6 @@ def format_file_structure(
     # Create a new set for absolute file paths
     absolute_file_paths = set()
 
-    # Iterate in reverse to avoid index shifting while popping
     for file in files:
         if not file.startswith("/"):
             file = os.path.join(file_dir, file)
@@ -271,9 +270,7 @@ def format_file_structure(
     total_char_length = 0
 
     for file in files:
-        # Convert to relative path
         file = os.path.relpath(file)
-
         dirs = file.split(os.sep)
         current_level = dir_structure
 
@@ -297,32 +294,28 @@ def format_file_structure(
             current_level[dirs[-1]] = None
 
     def print_structure(level, indent="", is_base_level=False):
-        result = ""
+        result_lines = []
         sorted_keys = sorted(
             level.items(), key=lambda x: (x[1] is not None, x[0].lower())
         )
-
         if is_base_level:
             for key, value in sorted_keys:
                 if value is None:
-                    result += key + "\n"
+                    result_lines.append(key + "\n")
                 else:
-                    result += key + "/\n"
-                    result += print_structure(value, indent + "    ", False)
+                    result_lines.append(key + "/\n")
+                    result_lines.append(print_structure(value, indent + " ", False))
         else:
             for key, value in sorted_keys:
                 if value is None:
-                    result += indent + "├── " + key + "\n"
+                    result_lines.append(indent + "├── " + key + "\n")
                 else:
-                    result += indent + "├── " + key + "/\n"
-                    result += print_structure(value, indent + "│   ", False)
-
-        return result
+                    result_lines.append(indent + "├── " + key + "/\n")
+                    result_lines.append(print_structure(value, indent + "│ ", False))
+        return "".join(result_lines)
 
     file_structure = print_structure(dir_structure, is_base_level=True)
     file_structure = file_structure.strip()
-    # file_structure = f"Base dir: {file_dir}\n" + \
-    #     f"\nFile structure:\n{file_structure}"
     print(
         f"\n----- FILES STRUCTURE -----\n{file_structure}\n----- END FILES STRUCTURE -----\n"
     )
