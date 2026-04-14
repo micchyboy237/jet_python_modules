@@ -1,4 +1,6 @@
 import asyncio
+import shutil
+from pathlib import Path
 from typing import List
 
 from crawl4ai import (
@@ -12,6 +14,10 @@ from crawl4ai.async_dispatcher import (
     MemoryAdaptiveDispatcher,
     RateLimiter,
 )
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 async def process_result(result):
@@ -72,6 +78,7 @@ async def crawl_streaming_example():
     run_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
         stream=True,  # Important: enables streaming
+        delay_before_return_html=2.0,  # safe value
         # Optional extras you can enable:
         # js_code=None,
         # screenshot=False,
