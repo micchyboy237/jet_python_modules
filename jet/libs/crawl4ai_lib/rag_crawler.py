@@ -1,235 +1,188 @@
-import json
-from typing import Any, Dict, List
-
-from jet.libs.crawl4ai_lib.async_web_crawler_manager import AsyncWebCrawlerManager
-from jet.libs.crawl4ai_lib.search_searxng import semantic_search_results
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import asyncio
+from typing import Any, List
 
 
-class SlidingWindowChunking:
-    """Exactly the class from chunking.md - creates overlapping chunks for better context."""
-
-    def __init__(self, window_size=100, step=50):
-        self.window_size = window_size
-        self.step = step
-
-    def chunk(self, text: str) -> List[str]:
-        if not text:
-            return []
-        words = text.split()
-        chunks = []
-        for i in range(0, len(words) - self.window_size + 1, self.step):
-            chunks.append(" ".join(words[i : i + self.window_size]))
-        return chunks
-
-
-class CosineSimilarityExtractor:
-    """Exactly the class from chunking.md - scores chunks against your query."""
-
-    def __init__(self, query: str):
-        self.query = query
-        self.vectorizer = TfidfVectorizer()
-
-    def find_relevant_chunks(self, chunks: List[str]) -> List[tuple[str, float]]:
-        if not chunks:
-            return []
-        vectors = self.vectorizer.fit_transform([self.query] + chunks)
-        similarities = cosine_similarity(vectors[0:1], vectors[1:]).flatten()
-        return [(chunks[i], float(similarities[i])) for i in range(len(chunks))]
-
-
-class CombinedRAGChunker:
-    """Combined approach from chunking.md: sliding window + cosine similarity.
-    This is the new recommended chunking logic for RAG."""
-
-    def __init__(self, window_size: int = 100, step: int = 50):
-        self.window_size = window_size
-        self.step = step
-
-    def get_relevant_chunks(
-        self, text: str, user_query: str, top_k: int = 10
-    ) -> List[str]:
-        """1. Cut into overlapping windows (SlidingWindowChunking)
-        2. Score with cosine similarity (CosineSimilarityExtractor)
-        3. Return the best matching chunks"""
-        if not text or not user_query:
-            return []
-
-        # Step 1: Sliding window chunking
-        chunker = SlidingWindowChunking(self.window_size, self.step)
-        chunks = chunker.chunk(text)
-
-        # Step 2: Cosine similarity ranking
-        extractor = CosineSimilarityExtractor(user_query)
-        scored_chunks = extractor.find_relevant_chunks(chunks)
-
-        # Sort by score (highest first) and keep only top_k
-        scored_chunks.sort(key=lambda x: x[1], reverse=True)
-        return [chunk for chunk, score in scored_chunks[:top_k]]
-
-
-class RAGCrawler:
-    """Easy RAG helper that reuses the existing crawler manager."""
+# ----------------------------------------------------------------------
+# Reusable Result Processor Class
+# ----------------------------------------------------------------------
+class CrawlResultProcessor:
+    """Reusable class for processing crawl results with RAG support."""
 
     def __init__(self):
-        self.crawler_manager = AsyncWebCrawlerManager(
-            headless=True,
-            verbose=False,
-            cache_mode="BYPASS",  # fresh data for RAG
-        )
+        self.results: List[dict[str, Any]] = []
+        self._current_user_query: str = ""
 
-    async def run_rag_query(self, user_query: str):
-        """Full RAG flow: crawl → BM25 markdown → chunk → return chunks."""
-        print(f"🚀 RAG query: '{user_query}'")
-        urls = semantic_search_results(user_query)
-        # The manager already knows how to use BM25 when user_query is passed
-        # In a real app you would collect results here; this is the pattern
-        print("   → Crawling with BM25 filter → fit_markdown → combined chunking")
-        # For demo we return placeholder - replace with real streaming logic
-        demo_fit_markdown = "This is the cleaned fit_markdown from the page.\n\nIt contains the important parts about Crawl4AI and RAG."
-        chunker = CombinedRAGChunker(window_size=80, step=40)
-        demo_chunks = chunker.get_relevant_chunks(demo_fit_markdown, user_query)
-        return {"fit_markdown": demo_fit_markdown, "chunks": demo_chunks}
+    def set_current_query(self, query: str) -> None:
+        """Set the current query so it can be used during processing."""
+        self._current_user_query = query
+
+    async def process_result(self, result: Any) -> None:
+        """
+        Async callback required by crawl_many.
+        This version is now properly awaitable.
+        """
+        try:
+            url = getattr(result, "url", "Unknown")
+            success = getattr(result, "success", False)
+            user_query = self._current_user_query
+
+            if success:
+                title = (
+                    result.metadata.get("title")
+                    if getattr(result, "metadata", None)
+                    else "N/A"
+                )
+                markdown_obj = getattr(result, "markdown", None)
+                raw_len = len(getattr(markdown_obj, "raw_markdown", "") or "")
+                fit_len = len(getattr(markdown_obj, "fit_markdown", "") or "")
+                score = (
+                    calculate_relevance_score(result, user_query) if user_query else 0.0
+                )
+
+                print(f"✅ [SUCCESS] {url}")
+                print(f" Title : {title}")
+                print(f" Raw Markdown : {raw_len:,} chars")
+                if fit_len:
+                    print(f" Fit Markdown : {fit_len:,} chars (BM25 filtered)")
+                print(f" Relevance Score : {score:.3f} / 1.0")
+                print("-" * 90)
+            else:
+                error_msg = getattr(result, "error_message", "Unknown error")
+                status = getattr(result, "status_code", None)
+                print(f"❌ [FAILED] {url}")
+                print(f" Error : {error_msg}")
+                if status:
+                    print(f" Status: {status}")
+                print("-" * 90)
+
+            # Store result (same structure as before)
+            data: dict[str, Any] = {
+                "url": getattr(result, "url", None),
+                "success": success,
+                "timestamp": asyncio.get_event_loop().time(),
+                "query": user_query,
+            }
+
+            if success:
+                data["title"] = (
+                    result.metadata.get("title")
+                    if getattr(result, "metadata", None)
+                    else None
+                )
+                data["status_code"] = getattr(result, "status_code", None)
+
+                markdown_obj = getattr(result, "markdown", None)
+                if hasattr(markdown_obj, "raw_markdown"):
+                    data["raw_markdown"] = markdown_obj.raw_markdown
+                    data["raw_markdown_length"] = len(markdown_obj.raw_markdown)
+
+                fit_md = getattr(markdown_obj, "fit_markdown", None)
+                if fit_md:
+                    data["fit_markdown"] = fit_md
+                    data["fit_markdown_length"] = len(fit_md)
+                    data["markdown"] = fit_md
+                else:
+                    md_str = getattr(markdown_obj, "raw_markdown", None) or str(
+                        markdown_obj or ""
+                    )
+                    data["markdown"] = md_str
+                    data["markdown_length"] = len(md_str)
+
+                data["relevance_score"] = calculate_relevance_score(result, user_query)
+
+                extracted = getattr(result, "extracted_content", None)
+                if extracted:
+                    data["extracted_content"] = extracted
+                    data["extracted_length"] = (
+                        len(extracted) if isinstance(extracted, str) else 0
+                    )
+            else:
+                data["error_message"] = getattr(
+                    result, "error_message", "Unknown error"
+                )
+                data["status_code"] = getattr(result, "status_code", None)
+                data["relevance_score"] = 0.0
+
+            self.results.append(data)
+
+            # Keep results sorted by relevance score (descending)
+            self.results.sort(
+                key=lambda x: (x.get("relevance_score", 0.0), x.get("timestamp", 0)),
+                reverse=True,
+            )
+
+        except Exception as e:
+            print(
+                f"⚠️ Error processing result for {getattr(result, 'url', 'Unknown')}: {e}"
+            )
+            self.results.append(
+                {
+                    "url": getattr(result, "url", None),
+                    "success": False,
+                    "error_message": str(e),
+                    "relevance_score": 0.0,
+                    "timestamp": asyncio.get_event_loop().time(),
+                }
+            )
+
+    def get_rag_context(self) -> str:
+        """Generate clean RAG-ready context from successful results."""
+        if not self.results:
+            return ""
+
+        parts: List[str] = []
+        for item in self.results:
+            if not item.get("success", False):
+                continue
+
+            url = item.get("url", "")
+            title = item.get("title", "Untitled")
+            markdown = (
+                item.get("markdown")
+                or item.get("fit_markdown")
+                or item.get("raw_markdown", "")
+            ).strip()
+
+            if markdown and len(markdown) > 50:
+                header = f"Source: {title}\nURL: {url}\n\n"
+                parts.append(header + markdown + "\n\n" + "---" + "\n\n")
+
+        return "".join(parts).strip()
+
+    def get_results(self) -> List[dict[str, Any]]:
+        return self.results.copy()
+
+    def clear(self) -> None:
+        self.results.clear()
 
 
-def run_generate_browser_query_context_json_schema(
-    user_query: str,
-    retrieved_chunks: List[str] | None = None,
-    fit_markdown: str | None = None,
-) -> Dict[str, Any]:
-    """
-    Creates the JSON schema for the "context" part of a browser query in RAG.
-    This tells the AI: "Here is the background info from the web".
+def calculate_relevance_score(result: Any, user_query: str) -> float:
+    """Original relevance calculation — unchanged."""
+    if not getattr(result, "success", False):
+        return 0.0
 
-    FULL USAGE EXAMPLE (copy and run):
-    ```python
-    from rag_crawler import run_generate_browser_query_context_json_schema
-    import json
+    markdown_obj = getattr(result, "markdown", None)
+    if not markdown_obj:
+        return 0.0
 
-    schema = run_generate_browser_query_context_json_schema(
-        user_query="How does Crawl4AI help with RAG?",
-        retrieved_chunks=["Chunk 1: markdown is clean...", "Chunk 2: BM25 keeps relevant parts"],
-        fit_markdown="## RAG Basics\nClean text from web pages..."
-    )
-    print(json.dumps(schema, indent=2))
-    ```
-    """
-    if retrieved_chunks is None:
-        retrieved_chunks = []
-    if fit_markdown is None:
-        fit_markdown = ""
+    fit_md = getattr(markdown_obj, "fit_markdown", None)
+    raw_md = getattr(markdown_obj, "raw_markdown", None) or str(markdown_obj)
+    content = fit_md or raw_md
 
-    schema = {
-        "type": "object",
-        "properties": {
-            "user_query": {
-                "type": "string",
-                "description": f"The original question the user asked: {user_query}",
-            },
-            "retrieved_chunks": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Best chunks picked after chunking the fit_markdown (using cosine similarity or BM25)",
-            },
-            "fit_markdown_summary": {
-                "type": "string",
-                "description": "Clean markdown produced by markdown-generation.md (BM25 or Pruning filter)",
-            },
-        },
-        "required": ["user_query", "retrieved_chunks"],
-    }
-    return schema
+    if not content or len(content) < 50:
+        return 0.0
 
+    ratio = len(content) / max(len(raw_md), 1)
+    survival_score = min(1.0, ratio * 1.8)
 
-def run_generate_browser_query_json_schema(
-    required_fields: List[str] | None = None,
-) -> Dict[str, Any]:
-    """
-    Creates the JSON schema for the final answer after the browser query.
-    This forces the AI to return data in a clean, predictable format.
+    query_terms = [term.lower() for term in user_query.split() if len(term) > 2]
+    if not query_terms:
+        return round(survival_score, 3)
 
-    FULL USAGE EXAMPLE (copy and run):
-    ```python
-    from rag_crawler import run_generate_browser_query_json_schema
-    import json
+    text_lower = content.lower()
+    hits = sum(text_lower.count(term) for term in query_terms)
+    density = hits / max(len(content.split()), 1)
+    keyword_bonus = min(0.6, density * 8)
 
-    schema = run_generate_browser_query_json_schema(
-        required_fields=["title", "summary", "key_points"]
-    )
-    print(json.dumps(schema, indent=2))
-    ```
-    """
-    if required_fields is None:
-        required_fields = ["title", "summary"]
-
-    schema = {
-        "type": "object",
-        "properties": {
-            "title": {
-                "type": "string",
-                "description": "Title of the web page (from metadata)",
-            },
-            "summary": {
-                "type": "string",
-                "description": "Short summary created from the fit_markdown",
-            },
-            "key_points": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Main ideas pulled from the chunks",
-            },
-        },
-        "required": required_fields,
-    }
-    return schema
-
-
-def run_generate_field_descriptions(fields: List[str] | None = None) -> Dict[str, str]:
-    """
-    Gives plain-English descriptions for every field.
-    Super useful when building prompts or explaining the schema to another AI.
-
-    FULL USAGE EXAMPLE (copy and run):
-    ```python
-    from rag_crawler import run_generate_field_descriptions
-    import json
-
-    descriptions = run_generate_field_descriptions(
-        fields=["title", "summary", "key_points"]
-    )
-    print(json.dumps(descriptions, indent=2))
-    ```
-    """
-    if fields is None:
-        fields = ["title", "summary", "key_points"]
-
-    all_desc = {
-        "title": "The main title of the webpage - easy to spot at the top.",
-        "summary": "A short, clear summary of the important content (comes from fit_markdown after chunking).",
-        "key_points": "Bullet-list of the most useful ideas found in the chunks.",
-        "chunks": "Small pieces of clean markdown ready for RAG retrieval.",
-    }
-    return {
-        field: all_desc.get(field, f"Description for field '{field}'")
-        for field in fields
-    }
-
-
-# Quick demo when you run the file directly
-if __name__ == "__main__":
-    print("=== RAG Schema Helpers - Full Usage Demo ===\n")
-    ctx = run_generate_browser_query_context_json_schema(
-        user_query="How does chunking help RAG?",
-        retrieved_chunks=["Chunk 1: cut text into pieces", "Chunk 2: find best match"],
-    )
-    q_schema = run_generate_browser_query_json_schema(["title", "summary"])
-    desc = run_generate_field_descriptions()
-
-    print("Context Schema:")
-    print(json.dumps(ctx, indent=2))
-    print("\nBrowser Query Schema:")
-    print(json.dumps(q_schema, indent=2))
-    print("\nField Descriptions:")
-    print(json.dumps(desc, indent=2))
-    print("\n✅ All three functions ready for your RAG pipeline!")
+    final_score = (survival_score * 0.65) + (keyword_bonus * 0.35)
+    return round(min(1.0, final_score), 3)
