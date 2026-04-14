@@ -1,8 +1,10 @@
 import asyncio
+import json
 import shutil
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 
+import aiofiles
 from crawl4ai import (
     AsyncWebCrawler,
     BrowserConfig,
@@ -19,27 +21,75 @@ OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+RESULTS_JSON = OUTPUT_DIR / "results.json"
 
-async def process_result(result):
-    """Safe processing of each streamed result."""
-    url = result.url
+
+async def init_json_file():
+    """Initialize the results.json as an empty array if it doesn't exist."""
+    if not RESULTS_JSON.exists():
+        async with aiofiles.open(RESULTS_JSON, "w", encoding="utf-8") as f:
+            await f.write("[]")
+
+
+async def save_result_to_json(result) -> None:
+    """Append a single result to results.json in a thread-safe-ish way for streaming."""
+    # Build a clean serializable dictionary
+    data: Dict[str, Any] = {
+        "url": result.url,
+        "success": result.success,
+        "timestamp": asyncio.get_event_loop().time(),  # or use datetime for ISO format
+    }
 
     if result.success:
-        # Title is in metadata
-        title = result.metadata.get("title") if result.metadata else None
-        title = title or "N/A"
+        data["title"] = result.metadata.get("title") if result.metadata else None
+        data["status_code"] = getattr(result, "status_code", None)
 
-        # Safe markdown length
+        # Markdown
+        if hasattr(result.markdown, "raw_markdown"):
+            data["markdown"] = result.markdown.raw_markdown
+            data["markdown_length"] = len(result.markdown.raw_markdown)
+        else:
+            md_str = str(result.markdown) if result.markdown else ""
+            data["markdown"] = md_str
+            data["markdown_length"] = len(md_str)
+
+        # Extracted content (e.g. from extraction strategies)
+        extracted = getattr(result, "extracted_content", None)
+        if extracted:
+            data["extracted_content"] = extracted
+            data["extracted_length"] = (
+                len(extracted) if isinstance(extracted, str) else 0
+            )
+    else:
+        data["error_message"] = result.error_message or "Unknown error"
+        data["status_code"] = getattr(result, "status_code", None)
+
+    # Append to JSON array (read → modify → write)
+    async with aiofiles.open(RESULTS_JSON, "r+", encoding="utf-8") as f:
+        content = await f.read()
+        results_list = json.loads(content) if content.strip() else []
+
+        results_list.append(data)
+
+        # Overwrite with updated list
+        await f.seek(0)
+        await f.truncate()
+        await f.write(json.dumps(results_list, indent=2, ensure_ascii=False))
+
+
+async def process_result(result):
+    """Safe processing of each streamed result + save to JSON."""
+    url = result.url
+
+    # Print to console (keep your nice formatting)
+    if result.success:
+        title = result.metadata.get("title") if result.metadata else "N/A"
         if hasattr(result.markdown, "raw_markdown"):
             md_len = len(result.markdown.raw_markdown)
         else:
             md_len = len(str(result.markdown)) if result.markdown else 0
 
-        extracted_len = (
-            len(result.extracted_content)
-            if getattr(result, "extracted_content", None)
-            else 0
-        )
+        extracted_len = len(getattr(result, "extracted_content", "") or "")
 
         print(f"✅ [SUCCESS] {url}")
         print(f"   Title : {title}")
@@ -47,7 +97,6 @@ async def process_result(result):
         if extracted_len > 0:
             print(f"   Extracted content : {extracted_len:,} characters")
         print("-" * 90)
-
     else:
         print(f"❌ [FAILED]  {url}")
         print(f"   Error : {result.error_message or 'Unknown error'}")
@@ -55,8 +104,13 @@ async def process_result(result):
             print(f"   Status code : {result.status_code}")
         print("-" * 90)
 
+    # Save to JSON (fire-and-forget style, but awaited for safety)
+    await save_result_to_json(result)
+
 
 async def crawl_streaming_example():
+    await init_json_file()  # Ensure results.json starts as []
+
     # Example URLs
     urls: List[str] = [
         "https://httpbin.org/html",
@@ -68,50 +122,42 @@ async def crawl_streaming_example():
         "https://www.wikipedia.org",
     ]
 
-    # Browser settings
     browser_config = BrowserConfig(
         headless=True,
         verbose=False,
     )
 
-    # Run config with streaming enabled
     run_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
-        stream=True,  # Important: enables streaming
-        delay_before_return_html=2.0,  # safe value
-        # Optional extras you can enable:
-        # js_code=None,
-        # screenshot=False,
-        # check_robots_txt=False,
+        stream=True,
+        delay_before_return_html=2.0,
     )
 
-    # Updated CrawlerMonitor (compatible with current __init__)
     monitor = CrawlerMonitor(
-        urls_total=len(urls),  # Helps the monitor show accurate progress
-        refresh_rate=1.0,  # Refresh UI every 1 second
-        enable_ui=True,  # Set False to disable terminal UI
-        max_width=120,  # Maximum terminal width
+        urls_total=len(urls),
+        refresh_rate=1.0,
+        enable_ui=True,
+        max_width=120,
     )
 
-    # Memory-aware dispatcher
     dispatcher = MemoryAdaptiveDispatcher(
-        memory_threshold_percent=75.0,  # Pause crawling if memory exceeds 75%
+        memory_threshold_percent=75.0,
         check_interval=1.0,
-        max_session_permit=8,  # Max concurrent sessions
+        max_session_permit=8,
         memory_wait_timeout=300.0,
         rate_limiter=RateLimiter(
             base_delay=(1.0, 2.5),
             max_delay=30.0,
             max_retries=3,
         ),
-        monitor=monitor,  # Attach the monitor
+        monitor=monitor,
     )
 
     print("🚀 Starting **streaming** multi-URL crawl...\n")
-    print("Live monitor will show progress in the terminal.\n")
+    print("Results will be appended live to:")
+    print(f"   {RESULTS_JSON}\n")
 
     async with AsyncWebCrawler(config=browser_config) as crawler:
-        # This is the streaming pattern
         async for result in await crawler.arun_many(
             urls=urls,
             config=run_config,
@@ -119,7 +165,7 @@ async def crawl_streaming_example():
         ):
             await process_result(result)
 
-    print("\n🎉 Streaming crawl finished successfully!")
+    print(f"\n🎉 Streaming crawl finished! Results saved to {RESULTS_JSON}")
 
 
 if __name__ == "__main__":
