@@ -32,7 +32,7 @@ class AsyncWebCrawlerManager:
         semaphore_count: int = 12,
         memory_threshold_percent: float = 75.0,
         base_delay: tuple[float, float] = (1.2, 3.5),  # Gentler delays
-        delay_before_return_html: float = 0.8,
+        delay_before_return_html: float = 1.0,
         cache_mode: CacheMode = CacheMode.BYPASS,
         monitor_max_width: int = 130,
     ):
