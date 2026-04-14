@@ -241,6 +241,33 @@
       }));
     },
 
+    getScrollableParent(startElement = null) {
+      // If no element is provided, start from the active element (what the user is interacting with)
+      let el =
+        startElement ||
+        document.activeElement ||
+        document.querySelector(".content") ||
+        document.body;
+
+      // Walk up the DOM tree to find the nearest scrollable ancestor
+      while (el && el !== document.body) {
+        const style = window.getComputedStyle(el);
+
+        const isScrollable =
+          (style.overflowY === "auto" || style.overflowY === "scroll") &&
+          el.scrollHeight > el.clientHeight + 1; // +1 to avoid floating point issues
+
+        if (isScrollable) {
+          return el;
+        }
+
+        el = el.parentElement;
+      }
+
+      // Fallback: Use the main document scrolling (html or body)
+      return document.documentElement || document.body;
+    },
+
     myInjectedFunction(name) {
       return `Hello from injected JS, ${name}!`;
     },
