@@ -158,7 +158,7 @@ class CrawlResultProcessor:
 
             if markdown and len(markdown) > 50:
                 header = f"Source: {title}\nURL: {url}\n\n"
-                parts.append(header + markdown + "\n\n" + "─" * 80 + "\n\n")
+                parts.append(header + markdown + "\n\n" + "─--" + "\n\n")
 
         return "".join(parts).strip()
 
