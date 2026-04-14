@@ -729,7 +729,9 @@ class OpenAIModel(ApiModel):
             # Content
             if delta.content is not None:
                 if live_print:
-                    print(delta.content, end="", flush=True)
+                    actual_content = delta.content.encode().decode("unicode-escape")
+                    print(actual_content, end="", flush=True)
+
                 accumulated_content += delta.content
                 deltas.append(ChatMessageStreamDelta(content=delta.content))
 

@@ -4,13 +4,14 @@ Streaming Crawl with Filters
 Usage Examples
 --------------
 
-python streaming_crawl_with_filters.py "https://missav.ws/en" -u "*.ws/en/*-*" -s 4
+python streaming_crawl_with_llm_query.py "https://missav.ws/en" -u "*.ws/en/*-*" -s 4
 """
 
 import argparse
 import asyncio
 import random
 import shutil
+import sys
 import time
 from math import inf as infinity
 from pathlib import Path
@@ -74,6 +75,9 @@ async def streaming_crawl_with_filters(
         verbose=True,
         stream=True,
         extraction_strategy=llm_strategy,
+        capture_network_requests=True,
+        capture_console_messages=True,
+        log_console=True,
     )
 
     async with AsyncWebCrawler() as crawler:
@@ -88,12 +92,15 @@ async def streaming_crawl_with_filters(
             idx += 1
             if idx == 1:
                 first_time = time.perf_counter() - start
-            if idx % 5 == 0:
-                console.print(
-                    f"  → #{idx:3d} | count: {len(results):3d} | {result.url}"
-                )
 
-            # Polite delay between processed items (simulates human browsing pace)
+            console.print(f" → #{idx:3d} | count: {len(results):3d} | {result.url}")
+            sys.stdout.flush()  # <-- This is the key for "flush each streamed chunk"
+
+            # Optional: show captured logs from this page
+            if result.console_messages:
+                for msg in result.console_messages[:5]:  # limit to avoid spam
+                    console.print(f"   [dim]console: {msg}[/dim]")
+
             if polite_delay_range:
                 delay = random.uniform(*polite_delay_range)
                 await asyncio.sleep(delay)

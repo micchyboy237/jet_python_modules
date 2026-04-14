@@ -11,20 +11,20 @@ def get_llm_ollama_config(
 ):
     settings = {**kwargs}
     if strategy == "embedding":
-        model = os.getenv("OLLAMA_EMBED_MODEL")
+        model = os.getenv("LLAMACPP_EMBED_MODEL")
         settings = {
             "provider": f"openai/{model}",
-            "base_url": os.getenv("OLLAMA_EMBED_URL"),
+            "base_url": os.getenv("LLAMACPP_EMBED_URL"),
             **settings,
             "max_tokens": settings["max_tokens"]
             if settings.get("max_tokens") is not None
             else 2048,
         }
     elif strategy == "llm":
-        model = os.getenv("OLLAMA_LLM_MODEL")
+        model = os.getenv("LLAMACPP_LLM_MODEL")
         settings = {
             "provider": f"openai/{model}",
-            "base_url": os.getenv("OLLAMA_LLM_URL"),
+            "base_url": os.getenv("LLAMACPP_LLM_URL"),
             **settings,
             "temperature": settings["temperature"]
             if settings.get("temperature") is not None
@@ -46,7 +46,7 @@ def get_llm_llama_cpp_config(
     settings = {**kwargs}
     if strategy == "embedding":
         settings = {
-            "provider": "openai/nomic-embed-text-v2-moe",
+            "provider": f"openai/{os.getenv('LLAMA_CPP_EMBED_MODEL')}",
             "base_url": os.getenv("LLAMA_CPP_EMBED_URL"),
             **settings,
             # "max_tokens": settings["max_tokens"]
@@ -55,7 +55,7 @@ def get_llm_llama_cpp_config(
         }
     elif strategy == "llm":
         settings = {
-            "provider": "openai/qwen3-instruct-2507:4b",
+            "provider": f"openai/{os.getenv('LLAMA_CPP_LLM_MODEL')}",
             "base_url": os.getenv("LLAMA_CPP_LLM_URL"),
             **settings,
             "temperature": settings["temperature"]

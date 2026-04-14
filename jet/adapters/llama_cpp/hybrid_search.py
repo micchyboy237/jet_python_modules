@@ -407,8 +407,8 @@ if __name__ == "__main__":
     from rich.console import Console
     from rich.table import Table
 
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
     model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
 

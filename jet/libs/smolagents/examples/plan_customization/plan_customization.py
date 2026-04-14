@@ -77,11 +77,13 @@ def display_plan(plan_content: str):
 
 
 def get_user_choice() -> int:
-    """Get user's choice for plan approval"""
+    """Get user's choice for plan approval (default to 1 if blank)"""
     while True:
         choice = input(
-            "\nChoose an option:\n1. Approve plan\n2. Modify plan\n3. Cancel\nYour choice (1-3): "
+            "\nChoose an option:\n1. Approve plan\n2. Modify plan\n3. Cancel\nYour choice (1-3) [default 1]: "
         ).strip()
+        if choice == "":  # Enter pressed with no input
+            return 1
         if choice in {"1", "2", "3"}:
             return int(choice)
         print("Invalid choice. Please enter 1, 2, or 3.")
@@ -228,6 +230,7 @@ def main():
         max_steps=args.max_steps,
         verbosity_level=args.verbosity_level,
         # system_prompt=custom_system,      # ← uncomment only if you want static injection
+        code_block_tags=("```python", "```"),
     )
 
     # Optional: tune memory compression settings
