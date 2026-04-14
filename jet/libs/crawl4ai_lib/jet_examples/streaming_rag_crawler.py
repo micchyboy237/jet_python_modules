@@ -7,13 +7,16 @@ import aiofiles
 from jet.libs.crawl4ai_lib.async_web_crawler_manager import AsyncWebCrawlerManager
 from jet.libs.crawl4ai_lib.rag_crawler import CrawlResultProcessor
 from jet.libs.crawl4ai_lib.search_searxng import SemanticResult, semantic_search_results
+from jet.utils.text import format_sub_source_dir
 
 # ----------------------------------------------------------------------
 # Application helpers (unchanged)
 # ----------------------------------------------------------------------
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 SEARCH_RESULTS_JSON = OUTPUT_DIR / "search_results.json"
+RAG_RESULTS_JSON = OUTPUT_DIR / "rag_results.json"
 RAG_CONTEXT_MD = OUTPUT_DIR / "rag_context.md"
+RAG_RESULTS_DIR = OUTPUT_DIR / "rag"
 
 
 async def init_json_file():
@@ -85,8 +88,49 @@ async def main():
     async with aiofiles.open(RAG_CONTEXT_MD, "w", encoding="utf-8") as f:
         await f.write(rag_context)
 
+    # 1. Save clean list of results (without markdown) to top-level rag_results.json
+    rag_results = processor.get_results()
+    clean_results = []
+    for o in rag_results:
+        o_copy = o.copy()
+        o_copy.pop("raw_markdown", None)
+        o_copy.pop("fit_markdown", None)
+        o_copy.pop("markdown", None)
+        clean_results.append(o_copy)
+
+    async with aiofiles.open(RAG_RESULTS_JSON, "w", encoding="utf-8") as f:
+        await f.write(json.dumps(clean_results, indent=2, ensure_ascii=False))
+
+    # 2. Save detailed per-source files (raw + fit markdown + metadata)
+    for o in rag_results:
+        sub_dir = RAG_RESULTS_DIR / format_sub_source_dir(o["url"])
+
+        sub_dir.mkdir(parents=True, exist_ok=True)
+
+        o_copy = o.copy()
+        raw_markdown = o_copy.pop("raw_markdown")
+        fit_markdown = o_copy.pop("fit_markdown")
+        o_copy.pop("markdown")
+
+        raw_md_file = sub_dir / "raw_markdown.md"
+        fit_md_file = sub_dir / "fit_markdown.md"
+        result_file = sub_dir / "result.json"
+
+        # Write files asynchronously
+        async with aiofiles.open(raw_md_file, "w", encoding="utf-8") as f:
+            await f.write(raw_markdown)
+
+        async with aiofiles.open(fit_md_file, "w", encoding="utf-8") as f:
+            await f.write(fit_markdown)
+
+        async with aiofiles.open(result_file, "w", encoding="utf-8") as f:
+            await f.write(json.dumps(o_copy, indent=2, ensure_ascii=False))
+
     full_path = SEARCH_RESULTS_JSON.resolve().absolute()
-    print(f"\n📁 Results saved to:\n   {full_path}")
+    print(f"\n📁 Search results saved to:\n   {full_path}")
+
+    full_path = RAG_RESULTS_JSON.resolve().absolute()
+    print(f"\n📁 RAG results saved to:\n   {full_path}")
 
     print(f"\n📝 RAG Context saved to:\n   {RAG_CONTEXT_MD.resolve().absolute()}")
     print(f"   ({len(rag_context):,} characters)")
