@@ -53,26 +53,43 @@ def _run_chat(
     prompt_or_messages: str | list[dict],
     model: LLAMACPP_LLM_TYPES = _DEFAULT_MODEL,
     system: str | None = None,
+    context: str | None = None,  # New optional parameter
     **kwargs: Any,
 ) -> str:
     llm = _get_llm(model)
+
     if isinstance(prompt_or_messages, str):
+        user_content = prompt_or_messages
+
+        # Only apply context formatting when we have a simple string prompt
+        if context:
+            user_content = f"""Context / Additional Information:
+{context}
+
+---
+
+User Query / Task:
+{prompt_or_messages}"""
+
         if system:
             messages = [
                 {"role": "system", "content": system},
-                {"role": "user", "content": prompt_or_messages},
+                {"role": "user", "content": user_content},
             ]
         else:
-            messages = [{"role": "user", "content": prompt_or_messages}]
+            messages = [{"role": "user", "content": user_content}]
     else:
+        # Full message list provided → do NOT modify it
         messages = prompt_or_messages
 
     response = llm.chat(messages, temperature=0.0, **kwargs)
+
     if isinstance(response, str):
         content = response
     else:
-        # If streaming, concatenate all responses to form the content
+        # If streaming, concatenate all responses
         content = "".join(response)
+
     return extract_block_content(content)
 
 
@@ -147,6 +164,18 @@ def generate_pydantic_models(
         )
 
     return python_code
+
+
+def generate_field_descriptions(
+    query: str, model: LLAMACPP_LLM_TYPES = _DEFAULT_MODEL
+) -> str:
+    """
+    Generate a short, clear description of the expected data fields
+    for the given query. Used by Pydantic models and JSON schemas.
+    """
+    prompt = _generate_prompt("Generate_Field_Descriptions.md", query=query)
+    field_desc = _run_chat(prompt, model=model)
+    return field_desc.strip()
 
 
 def generate_output_class(

@@ -46,9 +46,14 @@ async def fetch_seed_results_from_searxng(
     searxng_base_url: str,
     query: str,
     timeout: float = 12.0,
+    max_results: int = 10,
 ) -> List[dict]:
     """
-    Fetch full search results (url + title + snippet)
+    Fetch full search results (url + title + snippet) from SearXNG.
+
+    Note: SearXNG has no native "max_results" parameter. We fetch one page
+    (which usually returns ~10-20 results) and then truncate to the requested
+    max_results.
     """
     console.print(f"[bold cyan]SearXNG[/]  →  [i]{query}[/i]", style="dim")
 
@@ -89,7 +94,9 @@ async def fetch_seed_results_from_searxng(
                                 "snippet": r.get("content", ""),
                             }
                         )
-                return results
+
+                # Limit to the requested number of results
+                return results[:max_results]
 
             except Exception as e:
                 console.print(f"[bold red]ERROR[/] SearXNG request failed: {e}")
@@ -197,13 +204,26 @@ class AppConfig:
 
 
 def get_args() -> argparse.Namespace:
+    DEFAULT_QUERY = "Latest top anime releases 2026"
     parser = argparse.ArgumentParser(
         description="Semantic Search + Adaptive Crawl (Embedding Strategy)"
     )
 
-    parser.add_argument("query")
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default=DEFAULT_QUERY,
+        help=f"Search query (default: '{DEFAULT_QUERY}')",
+    )
     parser.add_argument("--top-seeds", "-n", type=int, default=8)
     parser.add_argument("--top-k", "-k", type=int, default=5)
+    parser.add_argument(
+        "--max-search-results",
+        "-m",
+        type=int,
+        default=10,
+        help="Maximum number of raw results to fetch from SearXNG (default: 10)",
+    )
 
     parser.add_argument(
         "-s",
@@ -309,6 +329,7 @@ async def main():
     raw_results = await fetch_seed_results_from_searxng(
         searxng_url,
         effective_query,
+        max_results=args.max_search_results,
     )
 
     if not raw_results:
