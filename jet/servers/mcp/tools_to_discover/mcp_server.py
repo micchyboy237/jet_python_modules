@@ -1,23 +1,20 @@
-from urllib.parse import urlparse, urljoin
-from starlette.responses import JSONResponse
-from starlette.requests import Request
-from typing import AsyncIterator, List, Dict, Optional
 from contextlib import asynccontextmanager
-from mcp.server.fastmcp.server import FastMCP, Context
-from pydantic import BaseModel, Field
-from typing import Literal
+from typing import AsyncIterator, Dict, List, Literal, Optional
+from urllib.parse import urljoin, urlparse
+
 from fake_useragent import UserAgent
+from mcp.server.fastmcp.server import Context, FastMCP
 from playwright.async_api import async_playwright
+from pydantic import BaseModel, Field
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
-
-PLAYWRIGHT_CHROMIUM_EXECUTABLE = "/Users/jethroestrada/Library/Caches/ms-playwright/chromium-1194/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
+PLAYWRIGHT_CHROMIUM_EXECUTABLE = "/Users/jethroestrada/Library/Caches/ms-playwright/chromium-1208/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
 
 
 class FileInput(BaseModel):
-    file_path: str = Field(...,
-                           description="Path to the file (e.g., 'example.txt')")
-    encoding: Literal["utf-8",
-                      "ascii"] = Field("utf-8", description="File encoding")
+    file_path: str = Field(..., description="Path to the file (e.g., 'example.txt')")
+    encoding: Literal["utf-8", "ascii"] = Field("utf-8", description="File encoding")
 
 
 class FileOutput(BaseModel):
@@ -25,24 +22,29 @@ class FileOutput(BaseModel):
 
 
 class UrlInput(BaseModel):
-    url: str = Field(..., description="URL to navigate to (e.g., 'https://example.com')",
-                     pattern=r"^https?://")
+    url: str = Field(
+        ...,
+        description="URL to navigate to (e.g., 'https://example.com')",
+        pattern=r"^https?://",
+    )
 
 
 class UrlOutput(BaseModel):
     url: str = Field(..., description="The URL that was navigated to")
-    title: Optional[str] = Field(
-        None, description="Page title or error message")
+    title: Optional[str] = Field(None, description="Page title or error message")
     nav_links: Optional[List[str]] = Field(
-        None, description="List of links from the same server")
+        None, description="List of links from the same server"
+    )
     text: Optional[str] = Field(
-        None, description="All visible text content on the page")
+        None, description="All visible text content on the page"
+    )
 
 
 class SummarizeTextInput(BaseModel):
     text: str = Field(..., description="Text to summarize")
     max_words: int = Field(
-        100, description="Maximum number of words for the summary", ge=10, le=500)
+        100, description="Maximum number of words for the summary", ge=10, le=500
+    )
 
 
 class SummarizeTextOutput(BaseModel):
@@ -62,11 +64,14 @@ server = FastMCP(
     instructions="A standalone MCP server with file and browser tools.",
     debug=True,
     log_level="DEBUG",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
-@server.tool(description="Read the contents of a file.", annotations={"audience": ["user"], "priority": 0.9})
+@server.tool(
+    description="Read the contents of a file.",
+    annotations={"audience": ["user"], "priority": 0.9},
+)
 async def read_file(arguments: FileInput, ctx: Context) -> FileOutput:
     await ctx.info(f"Reading file: {arguments.file_path}")
     try:
@@ -79,7 +84,10 @@ async def read_file(arguments: FileInput, ctx: Context) -> FileOutput:
         return FileOutput(text=f"Error reading file: {str(e)}")
 
 
-@server.tool(description="Navigate to a URL and return the page title, links from the same server, and all visible text content.", annotations={"audience": ["assistant"], "priority": 0.8})
+@server.tool(
+    description="Navigate to a URL and return the page title, links from the same server, and all visible text content.",
+    annotations={"audience": ["assistant"], "priority": 0.8},
+)
 async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
     await ctx.info(f"Navigating to {arguments.url}")
     try:
@@ -95,21 +103,21 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
             await page.goto(arguments.url, wait_until="domcontentloaded", timeout=10000)
             # Wait for JavaScript to render text (e.g., wait for body text to stabilize or a specific selector)
             await page.wait_for_function(
-                '''() => {
+                """() => {
                     return document.body.innerText.trim().length > 0;
-                }''',
-                timeout=10000
+                }""",
+                timeout=10000,
             )
             title = await page.title()
             # Extract all links with href attributes
-            link_elements = await page.query_selector_all('a[href]')
+            link_elements = await page.query_selector_all("a[href]")
             seen_links = set()  # Track unique links
             links = []  # Preserve order
             # Get the domain of the input URL
             parsed_url = urlparse(arguments.url)
             base_domain = parsed_url.netloc
             for element in link_elements:
-                href = await element.get_attribute('href')
+                href = await element.get_attribute("href")
                 if href:
                     # Resolve relative URLs to absolute
                     absolute_url = urljoin(arguments.url, href)
@@ -120,16 +128,16 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
                             seen_links.add(absolute_url)
                             links.append(absolute_url)
             # Extract all visible text content
-            text_content = await page.evaluate('''() => {
+            text_content = await page.evaluate("""() => {
                 return document.body.innerText.trim();
-            }''')
+            }""")
             await browser.close()
         await ctx.report_progress(100, 100, "Navigation complete")
         return UrlOutput(
             url=arguments.url,
             title=title,
             nav_links=links or None,  # Return None if no links
-            text=text_content or None
+            text=text_content or None,
         )
     except Exception as e:
         await ctx.error(f"Error navigating to {arguments.url}: {str(e)}")
@@ -137,17 +145,22 @@ async def navigate_to_url(arguments: UrlInput, ctx: Context) -> UrlOutput:
             url=arguments.url,
             title=None,
             nav_links=None,
-            text=f"Error navigating to {arguments.url}: {str(e)}"
+            text=f"Error navigating to {arguments.url}: {str(e)}",
         )
 
 
-@server.tool(description="Summarize text content to a specified word limit.", annotations={"audience": ["assistant"], "priority": 0.7})
-async def summarize_text(arguments: SummarizeTextInput, ctx: Context) -> SummarizeTextOutput:
+@server.tool(
+    description="Summarize text content to a specified word limit.",
+    annotations={"audience": ["assistant"], "priority": 0.7},
+)
+async def summarize_text(
+    arguments: SummarizeTextInput, ctx: Context
+) -> SummarizeTextOutput:
     await ctx.info(f"Summarizing text (max {arguments.max_words} words)")
     try:
         # Simple word-based truncation for summary (can be enhanced with NLP)
         words = arguments.text.split()
-        summary_words = words[:arguments.max_words]
+        summary_words = words[: arguments.max_words]
         summary = " ".join(summary_words)
         if len(words) > arguments.max_words:
             summary += "..."
@@ -169,6 +182,7 @@ async def summarize_text(arguments: SummarizeTextInput, ctx: Context) -> Summari
 
 # Custom routes
 
+
 @server.custom_route("/health", methods=["GET"])
 async def health_check(request: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
@@ -183,6 +197,7 @@ async def welcome_message() -> str:
 async def analyze_file(path: str) -> List[Dict]:
     content = open(path, "r").read()
     return [{"role": "user", "content": f"Analyze this content:\n{content}"}]
+
 
 if __name__ == "__main__":
     server.run(transport="stdio")

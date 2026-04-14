@@ -2,13 +2,17 @@
 PLAYWRIGHT_CACHE_DIR = "/Users/jethroestrada/Library/Caches/ms-playwright"
 
 # Specific browser versions
-PLAYWRIGHT_CHROMIUM = f"{PLAYWRIGHT_CACHE_DIR}/chromium-1194"
+PLAYWRIGHT_CHROMIUM = f"{PLAYWRIGHT_CACHE_DIR}/chromium-1208"
 PLAYWRIGHT_FIREFOX = f"{PLAYWRIGHT_CACHE_DIR}/firefox-1490"
 PLAYWRIGHT_WEBKIT = f"{PLAYWRIGHT_CACHE_DIR}/webkit-2203"
 
 # Playwright executable paths (full path to executable)
-PLAYWRIGHT_CHROMIUM_EXECUTABLE = f"{PLAYWRIGHT_CHROMIUM}/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
-PLAYWRIGHT_FIREFOX_EXECUTABLE = f"{PLAYWRIGHT_FIREFOX}/firefox/Nightly.app/Contents/MacOS/firefox"
+PLAYWRIGHT_CHROMIUM_EXECUTABLE = (
+    f"{PLAYWRIGHT_CHROMIUM}/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
+)
+PLAYWRIGHT_FIREFOX_EXECUTABLE = (
+    f"{PLAYWRIGHT_FIREFOX}/firefox/Nightly.app/Contents/MacOS/firefox"
+)
 PLAYWRIGHT_WEBKIT_EXECUTABLE = f"{PLAYWRIGHT_WEBKIT}/pw_run.sh"
 
 # Print the paths to verify
@@ -21,7 +25,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.205 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Oracle) Gecko/20100101 Firefox/130.0"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Oracle) Gecko/20100101 Firefox/130.0",
 ]
 
 USER_AGENT_CONFIGS = [
@@ -30,22 +34,22 @@ USER_AGENT_CONFIGS = [
         "sec_ch_ua": '"Google Chrome";v="134", "Chromium";v="134", "Not_A Brand";v="24"',
         "sec_ch_ua_full_version_list": '"Chromium";v="134.0.6998.205", "Not:A-Brand";v="24.0.0.0", "Opera";v="119.0.5497.141"',
         "sec_ch_ua_platform": '"macOS"',
-        "sec_ch_ua_platform_version": '"14.5.0"'
+        "sec_ch_ua_platform_version": '"14.5.0"',
     },
     {
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
         "sec_ch_ua": '"Google Chrome";v="129", "Chromium";v="129", "Not_A Brand";v="24"',
         "sec_ch_ua_full_version_list": '"Chromium";v="129.0.0.0", "Not:A-Brand";v="24.0.0.0", "Google Chrome";v="129.0.0.0"',
         "sec_ch_ua_platform": '"Windows"',
-        "sec_ch_ua_platform_version": '"10.0.0"'
+        "sec_ch_ua_platform_version": '"10.0.0"',
     },
     {
         "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
         "sec_ch_ua": '"Safari";v="17", "Not_A Brand";v="24"',
         "sec_ch_ua_full_version_list": '"Safari";v="17.0.0.0", "Not:A-Brand";v="24.0.0.0"',
         "sec_ch_ua_platform": '"macOS"',
-        "sec_ch_ua_platform_version": '"14.5.0"'
-    }
+        "sec_ch_ua_platform_version": '"14.5.0"',
+    },
 ]
 
 EXTRA_HTTP_HEADERS = {
@@ -60,7 +64,7 @@ EXTRA_HTTP_HEADERS = {
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
-    "Connection": "keep-alive"
+    "Connection": "keep-alive",
 }
 
 # # Headers based on the provided sample
@@ -105,5 +109,5 @@ HREQUESTS_HEADERS = {
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
-    "Connection": "keep-alive"
+    "Connection": "keep-alive",
 }
