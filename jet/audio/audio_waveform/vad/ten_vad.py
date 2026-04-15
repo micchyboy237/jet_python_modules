@@ -8,7 +8,7 @@ class TenVadWrapper:
     in the visualizer (has get_speech_prob method).
     """
 
-    def __init__(self, hop_size: int = 256, threshold: float = 0.5):
+    def __init__(self, hop_size: int = 160, threshold: float = 0.5):
         self.vad = TenVad(hop_size=hop_size, threshold=threshold)
         self.last_prob = 0.0
 

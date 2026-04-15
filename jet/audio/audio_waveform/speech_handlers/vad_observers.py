@@ -101,7 +101,7 @@ def create_original_observers(
     fr_model = FireRedVADWrapper(tracker=tracker, **firered_params)
 
     # NEW: TEN-VAD with wrapper for compatibility
-    ten_vad_model = TenVadWrapper(hop_size=256, threshold=0.5)
+    ten_vad_model = TenVadWrapper(hop_size=160, threshold=0.5)
 
     # 3. Wrap everything in Observer classes
     # These classes provide a standard __call__(samples) interface
