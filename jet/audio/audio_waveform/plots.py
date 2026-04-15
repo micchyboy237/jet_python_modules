@@ -3,92 +3,69 @@ from pyqtgraph.Qt import QtCore, QtWidgets
 
 
 def create_plots_layout():
-    """Create the plots layout and return window + curve tuples"""
+    """Create a widget containing a VAD selector dropdown and two plots.
 
+    Returns:
+        main_widget (QWidget): Container with dropdown and plots (top-level window).
+        wave_curves (tuple): Three curves for audio amplitude.
+        vad_curves (tuple): Three curves for selected VAD probability.
+        vad_selector (QComboBox): Dropdown to choose VAD type.
+        vad_plot (PlotItem): The VAD probability plot (for label updates).
+    """
+    # Main container widget (top-level window)
+    main_widget = QtWidgets.QWidget()
     flags = QtCore.Qt.WindowType.Window | QtCore.Qt.WindowType.WindowStaysOnTopHint
+    main_widget.setWindowFlags(flags)
+    main_widget.setWindowTitle("Realtime Audio + VAD Probability")
 
-    # Window dimensions and margin
+    # Set size and position
     win_w, win_h = 450, 380
     margin = 20
-
-    win = pg.GraphicsLayoutWidget(
-        size=(win_w, win_h),
-        title="Realtime Audio + Speech Probability",
-    )
-    win.setWindowFlags(flags)
-
-    # Position window at bottom-right
+    main_widget.resize(win_w, win_h)
     screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
     screen_w = screen.width()
     screen_h = screen.height()
-
     x = screen_w - win_w - margin
     y = screen_h - win_h - margin
-    win.move(x, y)
+    main_widget.move(x, y)
 
-    # ── Waveform ────────────────────────────────────────────────
+    # Layout for the main widget
+    layout = QtWidgets.QVBoxLayout()
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(5)
+    main_widget.setLayout(layout)
+
+    # Dropdown for VAD selection
+    vad_selector = QtWidgets.QComboBox()
+    vad_selector.addItems(["FireRed", "Silero", "SpeechBrain", "TEN VAD"])
+    vad_selector.setCurrentIndex(0)  # FireRed default
+    layout.addWidget(vad_selector)
+
+    # GraphicsLayoutWidget for plots (child widget, no window flags)
+    win = pg.GraphicsLayoutWidget()
+    layout.addWidget(win)
+
+    # Top plot: Audio Amp (waveform)
     wave_plot = win.addPlot()
     wave_plot.setYRange(0, 1.1)
     wave_plot.setLabel("left", "Audio Amp")
     wave_plot.showGrid(x=True, y=True, alpha=0.15)
-
     wave_low = wave_plot.plot(pen=pg.mkPen(150, 150, 150, width=1.2), connect="finite")
     wave_mid = wave_plot.plot(pen=pg.mkPen(0, 255, 255, width=1.8), connect="finite")
     wave_high = wave_plot.plot(pen=pg.mkPen(100, 255, 120, width=2.2), connect="finite")
 
+    # Next row: VAD Probability plot
     win.nextRow()
-
-    # ── Silero Prob ─────────────────────────────────────────────
-    prob_plot = win.addPlot()
-    prob_plot.setYRange(0, 1)
-    prob_plot.setLabel("left", "Speech Prob")
-    prob_plot.showGrid(x=True, y=True, alpha=0.15)
-
-    p_low = prob_plot.plot(pen=pg.mkPen(150, 150, 150, width=1.2), connect="finite")
-    p_mid = prob_plot.plot(pen=pg.mkPen(0, 255, 255, width=1.8), connect="finite")
-    p_high = prob_plot.plot(pen=pg.mkPen(100, 255, 120, width=2.2), connect="finite")
-
-    win.nextRow()
-
-    # ── SpeechBrain Prob ────────────────────────────────────────
-    sb_plot = win.addPlot()
-    sb_plot.setYRange(0, 1)
-    sb_plot.setLabel("left", "SB Speech Prob")
-    sb_plot.showGrid(x=True, y=True, alpha=0.15)
-
-    sb_low = sb_plot.plot(pen=pg.mkPen(180, 150, 180, width=1.2))
-    sb_mid = sb_plot.plot(pen=pg.mkPen(200, 100, 200, width=1.8))
-    sb_high = sb_plot.plot(pen=pg.mkPen(220, 60, 220, width=2.2))
-
-    win.nextRow()
-
-    # ── FireRed Prob ────────────────────────────────────────────
-    fr_plot = win.addPlot()
-    fr_plot.setYRange(0, 1)
-    fr_plot.setLabel("left", "FR Speech Prob")
-    fr_plot.showGrid(x=True, y=True, alpha=0.15)
-
-    fr_low = fr_plot.plot(pen=pg.mkPen(255, 200, 120, width=1.2))
-    fr_mid = fr_plot.plot(pen=pg.mkPen(255, 150, 80, width=1.8))
-    fr_high = fr_plot.plot(pen=pg.mkPen(255, 100, 40, width=2.2))
-
-    # === NEW: TEN-VAD plot ===
-    win.nextRow()
-    ten_plot = win.addPlot()
-    ten_plot.setYRange(0, 1)
-    ten_plot.setLabel("left", "TEN VAD Prob")
-    ten_plot.showGrid(x=True, y=True, alpha=0.15)
-    ten_low = ten_plot.plot(pen=pg.mkPen(180, 180, 100, width=1.2))
-    ten_mid = ten_plot.plot(pen=pg.mkPen(220, 220, 60, width=1.8))
-    ten_high = ten_plot.plot(pen=pg.mkPen(255, 255, 0, width=2.2))
+    vad_plot = win.addPlot()
+    vad_plot.setYRange(0, 1)
+    vad_plot.setLabel("left", "FireRed Prob")  # Default label
+    vad_plot.showGrid(x=True, y=True, alpha=0.15)
+    vad_low = vad_plot.plot(pen=pg.mkPen(255, 200, 120, width=1.2), connect="finite")
+    vad_mid = vad_plot.plot(pen=pg.mkPen(255, 150, 80, width=1.8), connect="finite")
+    vad_high = vad_plot.plot(pen=pg.mkPen(255, 100, 40, width=2.2), connect="finite")
 
     wave_curves = (wave_low, wave_mid, wave_high)
-    prob_curves = (p_low, p_mid, p_high)
-    sb_curves = (sb_low, sb_mid, sb_high)
-    fr_curves = (fr_low, fr_mid, fr_high)
-    ten_curves = (ten_low, ten_mid, ten_high)
+    vad_curves = (vad_low, vad_mid, vad_high)
 
-    # Ensure the window is visible
-    win.show()
-
-    return win, (wave_curves, prob_curves, sb_curves, fr_curves, ten_curves)
+    main_widget.show()
+    return main_widget, wave_curves, vad_curves, vad_selector, vad_plot
