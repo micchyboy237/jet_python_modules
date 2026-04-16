@@ -83,29 +83,51 @@ def compute_rms(samples: np.ndarray) -> float:
 def compute_rms_per_frame(
     audio: np.ndarray,
     hop_size: int,
-    start_frame: int,
-    end_frame: int,
+    start_frame: Optional[int] = None,
+    end_frame: Optional[int] = None,
 ) -> list[float]:
     """
     Compute RMS energy for each frame in the given frame range.
+
     Args:
         audio: Float32 audio array (mono).
-        hop_size: Number of samples per frame.
-        start_frame: First frame index (inclusive).
-        end_frame: Last frame index (inclusive).
+        hop_size: Number of samples per frame (hop length).
+        start_frame: First frame index (inclusive). If None, starts from frame 0.
+        end_frame: Last frame index (inclusive). If None, goes to the last possible frame.
+
     Returns:
         List of RMS values (one per frame).
     """
+    if len(audio) == 0:
+        return []
+
+    # Default values
+    if start_frame is None:
+        start_frame = 0
+    if end_frame is None:
+        # Last possible frame index
+        end_frame = (len(audio) - 1) // hop_size
+
+    # Safety checks
+    if start_frame < 0:
+        start_frame = 0
+    if end_frame < start_frame:
+        return []
+
     rms_values = []
     for frame_idx in range(start_frame, end_frame + 1):
         start_sample = frame_idx * hop_size
         end_sample = start_sample + hop_size
+
         frame_audio = audio[start_sample:end_sample]
+
         if len(frame_audio) == 0:
             rms = 0.0
         else:
             rms = np.sqrt(np.mean(frame_audio**2))
+
         rms_values.append(float(rms))
+
     return rms_values
 
 

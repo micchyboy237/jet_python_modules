@@ -102,7 +102,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         count = 0
         for p in reversed(window):
             if p < self.valley_threshold:
-                count += 1
+                count += 1  # count how many low probs are at the very end
                 if count >= self.min_valley_consecutive_frames:
                     return True
             else:
@@ -183,6 +183,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                 self.silence_cnt = 0
                 force_split = False
                 window = []
+                deepest_valley_frame: int | None = None
                 if self.speech_cnt >= self.hard_limit:
                     force_split = True
                 elif (
@@ -191,30 +192,53 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                 ):
                     window = list(self.recent_probs)[-self.search_window :]
                     if self._has_valid_valley(window):
+                        # Find the deepest valley inside the full search window
+                        min_prob = min(window)
+                        min_idx = window.index(min_prob)
+                        deepest_valley_frame = self.frame_cnt - (
+                            len(window) - 1 - min_idx
+                        )
                         force_split = True
 
                 if force_split:
-                    min_prob_str = (
-                        f"min_prob={min(window):.3f}" if window else "hard limit"
-                    )
+                    if window and deepest_valley_frame is not None:
+                        min_prob_str = (
+                            f"min_prob={min(window):.3f} "
+                            f"(deepest valley at frame {deepest_valley_frame})"
+                        )
+                    else:
+                        min_prob_str = "hard limit"
                     console.print(
-                        f"[SPLIT] {self.frame_cnt:5d} | SPEECH → END  ({min_prob_str}, cnt={self.speech_cnt})",
+                        f"[SPLIT] {self.frame_cnt:5d} | SPEECH → END ({min_prob_str}, cnt={self.speech_cnt})",
                         style="bold red",
                     )
+                    # Record the real split frame (could be a few frames earlier)
+                    self._last_force_split_frame = (
+                        deepest_valley_frame
+                        if deepest_valley_frame is not None
+                        else self.frame_cnt
+                    )
                     console.print(
-                        f"  soft={self.soft_limit}  hard={self.hard_limit}",
+                        f" soft={self.soft_limit} hard={self.hard_limit}",
                         style="dim magenta",
                     )
                     self.hit_max_speech = True
                     self.speech_cnt = 0
                     result.is_speech_end = True
                     self.last_force_split_reason = (
-                        "valley_detection" if window else "hard_limit"
+                        "valley_detection"
+                        if deepest_valley_frame is not None
+                        else "hard_limit"
                     )
-                    result.speech_end_frame = self.frame_cnt
+                    result.speech_end_frame = (
+                        deepest_valley_frame
+                        if deepest_valley_frame is not None
+                        else self.frame_cnt
+                    )
                     result.speech_start_frame = self.last_speech_start_frame
                     self.last_speech_start_frame = -1
                     self.last_speech_end_frame = result.speech_end_frame
+
             else:
                 self.state = VadState.POSSIBLE_SILENCE
                 self.silence_cnt += 1

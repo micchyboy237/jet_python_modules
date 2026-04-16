@@ -204,20 +204,47 @@ class SpeechSegmentTracker:
         if not self.is_speaking:
             return
 
+        # === RESPECT DEEPEST VALLEY ===
+        # The postprocessor now sets speech_end_frame to the cleanest
+        # valley point when valley_detection triggers. We must trim
+        # the audio and frames to that exact frame.
+        true_end_frame = getattr(result, "speech_end_frame", None)
+        if true_end_frame is None or true_end_frame <= 0:
+            true_end_frame = (
+                self.current_frames[-1]["frame_idx"] if self.current_frames else 0
+            )
+
         self.is_speaking = False
+
+        # Trim both lists to the true end frame (no-op for normal silence ends)
+        if self.current_frames:
+            cut_idx = 0
+            for i, entry in enumerate(self.current_frames):
+                if entry["frame_idx"] <= true_end_frame:
+                    cut_idx = i + 1
+                else:
+                    break
+            trimmed = len(self.current_frames) - cut_idx
+            if trimmed > 0:
+                console.print(
+                    f"[TRACKER] [dim cyan]Trimmed {trimmed} frame(s) "
+                    f"after deepest valley (ended at frame {true_end_frame})[/]",
+                    style="dim",
+                )
+            self.current_frames = self.current_frames[:cut_idx]
+            self.current_audio_chunks = self.current_audio_chunks[:cut_idx]
 
         if self.current_audio_chunks:
             audio = np.concatenate(self.current_audio_chunks)
         else:
             audio = np.empty(0, dtype=np.float32)
 
+        end_frame = true_end_frame
         actual_samples = len(audio)
         actual_duration = (
             actual_samples / self.sample_rate if actual_samples > 0 else 0.0
         )
         end_time_sec = self.current_start_event.start_time_sec + actual_duration
-
-        end_frame = self.current_frames[-1]["frame_idx"] if self.current_frames else 0
 
         # === NEW FILTER: prevent sending short / silent segments ===
         segment_rms = compute_rms(audio)

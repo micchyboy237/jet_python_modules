@@ -1,6 +1,32 @@
 from typing import List, Literal, Optional, TypedDict
 
 
+class SpeechWaveMeta(TypedDict):
+    has_risen: bool
+    has_multi_passed: bool
+    has_fallen: bool
+    is_valid: bool
+
+
+class SpeechWaveDetails(TypedDict):
+    """Detailed insights including frame boundaries and probability statistics for a speech wave."""
+
+    frame_start: int
+    frame_end: int
+    frame_len: int
+    duration_sec: float
+    min_prob: float
+    max_prob: float
+    avg_prob: float
+    std_prob: float
+
+
+class SpeechWave(SpeechWaveMeta):
+    start_sec: float
+    end_sec: float
+    details: SpeechWaveDetails
+
+
 class SpeechSegment(TypedDict):
     num: int
     start: float | int

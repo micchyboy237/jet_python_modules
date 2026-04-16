@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io.wavfile as wavfile
 from jet.audio.audio_types import AudioInput
+from jet.audio.helpers.energy_base import compute_rms_per_frame
 from jet.audio.speech.ten_vad.speech_types import SpeechSegment
 from jet.audio.utils import load_audio
 from rich.console import Console
@@ -14,44 +15,11 @@ from ten_vad import TenVad
 
 console = Console()
 
-OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-
 
 def float32_to_int16(audio: np.ndarray) -> np.ndarray:
     """Convert float32 audio in range [-1, 1] to int16."""
     audio_int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
     return audio_int16
-
-
-def compute_rms_per_frame(
-    audio: np.ndarray,
-    hop_size: int,
-    start_frame: int,
-    end_frame: int,
-) -> List[float]:
-    """
-    Compute RMS energy for each frame in the given frame range.
-    Args:
-        audio: Float32 audio array (mono).
-        hop_size: Number of samples per frame.
-        start_frame: First frame index (inclusive).
-        end_frame: Last frame index (inclusive).
-    Returns:
-        List of RMS values (one per frame).
-    """
-    rms_values = []
-    for frame_idx in range(start_frame, end_frame + 1):
-        start_sample = frame_idx * hop_size
-        end_sample = start_sample + hop_size
-        frame_audio = audio[start_sample:end_sample]
-        if len(frame_audio) == 0:
-            rms = 0.0
-        else:
-            rms = np.sqrt(np.mean(frame_audio**2))
-        rms_values.append(float(rms))
-    return rms_values
 
 
 def save_plot(
@@ -247,6 +215,10 @@ def extract_speech_timestamps(
 
 if __name__ == "__main__":
     import argparse
+
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
     DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
     parser = argparse.ArgumentParser(

@@ -14,6 +14,7 @@ from jet.audio.audio_waveform.speech_events import (
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_types import SpeechFrame
+from jet.audio.helpers.config import HOP_SIZE
 from jet.audio.helpers.energy import (
     LoudnessLabel,
     compute_amplitude,
@@ -23,6 +24,7 @@ from jet.audio.helpers.energy import (
     rms_to_loudness_label,
     smooth_signal,
 )
+from jet.audio.helpers.energy_base import compute_rms_per_frame
 from jet.transformers.object import make_serializable
 
 
@@ -106,6 +108,26 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
                 json.dumps({"probs": prob_frames_with_energy}, indent=2),
                 encoding="utf-8",
             )
+
+            # Save per-frame RMS energies using compute_rms_per_frame
+            if len(event.audio) > 0 and event.prob_frames:
+                hop_size = HOP_SIZE
+                # We only have the short segment audio, so we must use
+                # relative frame indices (start at 0). The old start_frame
+                # and end_frame are global numbers from the live stream
+                # and were causing every slice to be empty → all 0.0
+                energies = compute_rms_per_frame(
+                    audio=event.audio,
+                    hop_size=hop_size,
+                )
+
+                energies_path = dir_path / "energies.json"
+                energies_path.write_text(
+                    json.dumps({"energies": energies}, indent=2), encoding="utf-8"
+                )
+                print(f"  Saved {energies_path.name} ({len(energies)} frames)")
+            else:
+                print("  No audio or frames — skipping energies.json")
 
             # 4. Plot
             self._generate_speech_prob_plot(event, prob_frames_with_energy)
