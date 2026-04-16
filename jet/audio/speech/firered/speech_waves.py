@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 import shutil
 import statistics
 from pathlib import Path
 from typing import List, Literal
 
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy.io.wavfile as wavfile
 from jet.audio.audio_types import AudioInput
 from jet.audio.helpers.config import HOP_SIZE, SAMPLE_RATE
+from jet.audio.helpers.energy_base import compute_rms_per_frame
 from jet.audio.speech.firered.speech_types import SpeechWave
 from jet.audio.utils.loader import load_audio
 
@@ -177,6 +182,107 @@ def check_speech_waves(
     return waves
 
 
+def save_wave_audio(
+    audio_np: np.ndarray,
+    sampling_rate: int,
+    frame_start: int,
+    frame_end: int,
+    output_path: Path,
+    hop_size: int = HOP_SIZE,
+) -> None:
+    """Extract and save audio chunk for a wave based on frame indices."""
+    start_sample = frame_start * hop_size
+    end_sample = (frame_end + 1) * hop_size
+    wave_audio = audio_np[start_sample:end_sample]
+    wavfile.write(output_path, sampling_rate, wave_audio)
+
+
+def save_wave_plot(
+    probs: List[float],
+    rms_values: List[float],
+    output_path: Path,
+    wave_num: int,
+    seg_num: int,
+) -> None:
+    """Create visualization plot for wave probabilities and energy.
+    Handles potential length mismatches between probs and rms_values."""
+
+    # Ensure arrays have the same length by taking the minimum length
+    min_length = min(len(probs), len(rms_values))
+    probs_aligned = probs[:min_length]
+    rms_aligned = rms_values[:min_length]
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+
+    frames = np.arange(min_length)
+
+    # Plot probabilities
+    ax1.plot(frames, probs_aligned, color="blue", linewidth=1)
+    ax1.axhline(y=0.5, color="red", linestyle="--", alpha=0.5, label="Threshold")
+    ax1.set_ylabel("VAD Probability")
+    ax1.set_ylim(0, 1)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_title(f"Segment {seg_num:03d} - Wave {wave_num:03d} (Valid: {wave_num})")
+    ax1.legend()
+
+    # Plot RMS energy
+    ax2.plot(frames, rms_aligned, color="green", linewidth=1)
+    ax2.set_xlabel("Frame Index (relative to wave)")
+    ax2.set_ylabel("RMS Energy")
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_wave_data(
+    wave: SpeechWave,
+    audio_np: np.ndarray,
+    speech_probs: List[float],
+    sampling_rate: int,
+    output_dir: Path,
+    seg_num: int,
+    wave_num: int,
+    hop_size: int = HOP_SIZE,
+) -> None:
+    """Save all wave-related data to the specified directory."""
+    wave_dir = output_dir / f"segment_{seg_num:03d}_wave_{wave_num:03d}"
+    wave_dir.mkdir(parents=True, exist_ok=True)
+
+    # Extract frame info
+    frame_start = wave["details"]["frame_start"]
+    frame_end = wave["details"]["frame_end"]
+
+    # Save wave audio
+    wav_path = wave_dir / "sound.wav"
+    save_wave_audio(audio_np, sampling_rate, frame_start, frame_end, wav_path, hop_size)
+
+    # Save wave probabilities slice
+    wave_probs = speech_probs[frame_start:frame_end]
+    probs_path = wave_dir / "speech_probs.json"
+    with open(probs_path, "w") as f:
+        json.dump(wave_probs, f, indent=2)
+
+    # Calculate and save RMS energies
+    rms_values = compute_rms_per_frame(audio_np, hop_size, frame_start, frame_end)
+    energies_path = wave_dir / "energies.json"
+    with open(energies_path, "w") as f:
+        json.dump(rms_values, f, indent=2)
+
+    # Save wave metadata
+    wave_json_path = wave_dir / "wave.json"
+    wave_copy = wave.copy()
+    wave_copy["segment_num"] = seg_num
+    wave_copy["wave_num"] = wave_num
+    with open(wave_json_path, "w") as f:
+        json.dump(wave_copy, f, indent=2)
+
+    # Create and save visualization
+    plot_path = wave_dir / "wave_plot.png"
+    save_wave_plot(wave_probs, rms_values, plot_path, wave_num, seg_num)
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -184,6 +290,9 @@ if __name__ == "__main__":
         extract_speech_timestamps,
     )
     from jet.file.utils import save_file
+    from rich.console import Console
+
+    console = Console()
 
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -244,8 +353,48 @@ if __name__ == "__main__":
         with_scores=True,
     )
 
-    speech_waves = get_speech_waves(args.input, scores)
+    # Load audio for wave extraction
+    audio_np, sr = load_audio(args.input, sr=SAMPLE_RATE, mono=True)
 
+    speech_waves = get_speech_waves(args.input, scores, threshold=args.threshold)
+
+    # Save main JSON files
     save_file(segments, OUTPUT_DIR / "segments.json")
     save_file(scores, OUTPUT_DIR / "speech_probs.json")
     save_file(speech_waves, OUTPUT_DIR / "speech_waves.json")
+
+    # Create waves directory and save individual wave files
+    waves_dir = OUTPUT_DIR / "waves"
+    waves_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(
+        f"\n[bold]Generating files for {len(speech_waves)} valid speech waves...[/bold]"
+    )
+
+    # Track which segment each wave belongs to based on frame overlap
+    for wave_idx, wave in enumerate(speech_waves, 1):
+        wave_frame_start = wave["details"]["frame_start"]
+        wave_frame_end = wave["details"]["frame_end"]
+
+        # Find parent segment by checking frame overlap
+        parent_seg_num = 1  # Default to first segment
+        for seg in segments:
+            if (
+                wave_frame_start >= seg["frame_start"]
+                and wave_frame_start <= seg["frame_end"]
+            ):
+                parent_seg_num = seg["num"]
+                break
+
+        save_wave_data(
+            wave=wave,
+            audio_np=audio_np,
+            speech_probs=scores,
+            sampling_rate=sr,
+            output_dir=waves_dir,
+            seg_num=parent_seg_num,
+            wave_num=wave_idx,
+            hop_size=args.hop_size,
+        )
+
+    console.print(f"\n[bold green]All wave files saved under: {waves_dir}[/bold green]")
