@@ -47,8 +47,8 @@ def create_plots_layout():
 
     # Top plot: Audio Amp (waveform)
     wave_plot = win.addPlot()
-    wave_plot.setYRange(0, 1.1)
-    wave_plot.setLabel("left", "Audio Amp")
+    wave_plot.setYRange(0, 1.0)  # Normalized RMS is always [0, 1]
+    wave_plot.setLabel("left", "Audio RMS")
     wave_plot.showGrid(x=True, y=True, alpha=0.15)
     wave_low = wave_plot.plot(pen=pg.mkPen(150, 150, 150, width=1.2), connect="finite")
     wave_mid = wave_plot.plot(pen=pg.mkPen(0, 255, 255, width=1.8), connect="finite")

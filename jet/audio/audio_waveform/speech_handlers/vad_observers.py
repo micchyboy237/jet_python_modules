@@ -17,18 +17,43 @@ from jet.audio.audio_waveform.vad.firered_with_speech_tracking import FireRedVAD
 from jet.audio.audio_waveform.vad.silero import SileroVAD
 from jet.audio.audio_waveform.vad.speechbrain import SpeechBrainVADWrapper
 from jet.audio.audio_waveform.vad.ten_vad import TenVadWrapper  # NEW
+from jet.audio.helpers.energy_base import compute_rms, normalize_energy
 
 
 class AudioObserver(Protocol):
     def __call__(self, samples: np.ndarray) -> None: ...
 
 
-class WaveformPeakObserver:
+class WaveformRMSObserver:
+    """Observer that calculates normalized RMS energy for visualization.
+
+    Uses a rolling window of recent RMS values to provide stable normalization
+    via the normalize_energy function with adaptive max_rms.
+    """
+
     def __init__(self):
-        self.value: float = 0.0
+        self.value: float = 0.0  # Normalized RMS value [0, 1]
+        self.raw_rms: float = 0.0  # Raw RMS for debugging
+        self._rms_history: list = []  # Rolling window for normalization
+        self._history_size: int = 10  # Keep last 10 values for max calculation
 
     def __call__(self, samples: np.ndarray):
-        self.value = np.max(np.abs(samples)) if samples.size > 0 else 0.0
+        if samples.size == 0:
+            self.value = 0.0
+            self.raw_rms = 0.0
+            return
+
+        # Calculate raw RMS
+        self.raw_rms = compute_rms(samples)
+
+        # Update history and normalize
+        self._rms_history.append(self.raw_rms)
+        if len(self._rms_history) > self._history_size:
+            self._rms_history.pop(0)
+
+        # Use max from recent history for stable normalization
+        max_rms = max(self._rms_history) if self._rms_history else self.raw_rms
+        self.value = float(normalize_energy([self.raw_rms], max_rms=max_rms)[0])
 
 
 class VADObserver:
@@ -106,7 +131,7 @@ def create_original_observers(
     # 3. Wrap everything in Observer classes
     # These classes provide a standard __call__(samples) interface
     observers = {
-        "waveform": WaveformPeakObserver(),
+        "waveform": WaveformRMSObserver(),
         "silero": VADObserver(silero_model),
         "speechbrain": VADObserver(sb_model),
         "firered": VADObserver(fr_model),

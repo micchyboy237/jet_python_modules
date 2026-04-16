@@ -10,7 +10,7 @@ class VisualizerObserver:
     def __init__(self, display_points: int = 200):
         self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
         self.display_points = display_points
-        self.THRES_WAVE = (0.01, 0.15)
+        self.THRES_WAVE = (0.1, 0.5)  # Normalized RMS thresholds
         self.THRES_PROB = (0.3, 0.7)
         self.buffers = {
             "wave": CircularBuffer(display_points),

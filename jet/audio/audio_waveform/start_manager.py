@@ -83,7 +83,7 @@ def main():
             print(
                 f" VAD Probs | Silero: {obs_dict['silero'].probability:.2f} | "
                 f"SB: {obs_dict['speechbrain'].probability:.2f} | "
-                f"Peak: {obs_dict['waveform'].value:.4f}",
+                f"RMS: {obs_dict['waveform'].value:.2f} (raw: {obs_dict['waveform'].raw_rms:.3f})",
                 end="\r",
             )
             time.sleep(0.01)
