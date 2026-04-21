@@ -77,6 +77,7 @@ def main() -> None:
         presence_penalty=2.0,
         extra_body={
             "top_k": 20,
+            "enable_thinking": True,
         },
         stream=True,
     )
