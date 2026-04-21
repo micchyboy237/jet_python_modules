@@ -123,12 +123,12 @@ class SubtitlePreviewWindow(QMainWindow):
 
     def _format_entry(self, i: int, e: dict) -> str:
         # Compute gap from previous segment end
-        prev_end = 0.0
+        prev_end = None
         if i > 1:
             prev = self.accumulator.entries[i - 2]
             prev_end = prev["end"]
 
-        gap = e["start"] - prev_end
+        gap = e["start"] - prev_end if prev_end is not None else 0
         gap_str = f"{gap:.2f}s"
         duration = f"{(e['end'] - e['start']):.2f}s"
         text = self._get_entry_text(e)
