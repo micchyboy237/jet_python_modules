@@ -55,12 +55,14 @@ class SpeechSegmentTracker:
     def add_audio(self, samples: np.ndarray) -> None:
         if len(samples) == 0:
             return
-        self.pre_audio_buffer.append(samples.astype(np.float32).copy())
-        if self.is_speaking:
+        if not self.is_speaking:
+            self.pre_audio_buffer.append(samples.astype(np.float32).copy())
+        else:
             self.current_audio_chunks.append(samples.astype(np.float32))
 
     def add_prob(self, smoothed_prob: float) -> None:
-        self.pre_prob_buffer.append(float(smoothed_prob))
+        if not self.is_speaking:
+            self.pre_prob_buffer.append(float(smoothed_prob))
 
     def _has_ongoing_sound_at_end(self) -> bool:
         """Return True if the trailing audio still contains normal-to-high energy
@@ -231,7 +233,7 @@ class SpeechSegmentTracker:
                     "is_speech": prob >= self.pre_prob_thres,
                     "is_speech_start": False,
                     "is_speech_end": False,
-                    "vad_state": "PRE_RISE",
+                    "vad_state": "SPEECH",
                 }
             )
 
