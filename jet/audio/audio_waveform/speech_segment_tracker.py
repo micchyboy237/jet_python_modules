@@ -55,14 +55,12 @@ class SpeechSegmentTracker:
     def add_audio(self, samples: np.ndarray) -> None:
         if len(samples) == 0:
             return
-        if not self.is_speaking:
-            self.pre_audio_buffer.append(samples.astype(np.float32).copy())
-        else:
+        self.pre_audio_buffer.append(samples.astype(np.float32).copy())
+        if self.is_speaking:
             self.current_audio_chunks.append(samples.astype(np.float32))
 
     def add_prob(self, smoothed_prob: float) -> None:
-        if not self.is_speaking:
-            self.pre_prob_buffer.append(float(smoothed_prob))
+        self.pre_prob_buffer.append(float(smoothed_prob))
 
     def _has_ongoing_sound_at_end(self) -> bool:
         """Return True if the trailing audio still contains normal-to-high energy
@@ -174,31 +172,83 @@ class SpeechSegmentTracker:
         )
 
     def _prepend_hybrid_rise(self) -> None:
-        """Hybrid rise detection using RMS for more stable loudness check."""
+        """Energy- & probability-based rise detection.
+        Finds the last silent block and/or last low-probability block in the pre-buffer,
+        then prepends only the rising edge blocks (after both) to both audio and frame history.
+        This fixes situations where audio/prob blip up before VAD triggers speech,
+        preventing late segment starts and including early rise in frame/alignment tracking.
+        """
         if len(self.pre_audio_buffer) == 0 or len(self.pre_prob_buffer) == 0:
             return
 
-        last_low_idx = -1
-        for i in range(len(self.pre_prob_buffer)):
-            prob = self.pre_prob_buffer[i]
-            rms = compute_rms(self.pre_audio_buffer[i])
-            _has_sound = has_sound(self.pre_audio_buffer[i])
-            if _has_sound and prob < self.pre_prob_thres and rms < PRE_RMS_THRES:
-                last_low_idx = i
+        audio_list = list(self.pre_audio_buffer)
+        prob_list = list(self.pre_prob_buffer)
 
-        if last_low_idx == -1:
+        # --- STEP 1: Find last silent audio block ---
+        last_silent_audio_idx = -1
+        for i in range(len(audio_list)):
+            if not has_sound(audio_list[i]):
+                last_silent_audio_idx = i
+
+        # --- STEP 2: Find last low-prob frame (rising edge start) ---
+        last_low_prob_idx = -1
+        for i in range(len(prob_list)):
+            if prob_list[i] < self.pre_prob_thres:
+                last_low_prob_idx = i
+
+        # --- STEP 3: Combine both signals (take later start to avoid noise) ---
+        start_idx_candidates = []
+        if last_silent_audio_idx != -1:
+            start_idx_candidates.append(last_silent_audio_idx + 1)
+        if last_low_prob_idx != -1:
+            start_idx_candidates.append(last_low_prob_idx + 1)
+
+        if not start_idx_candidates:
             return
 
-        rise_audio = list(self.pre_audio_buffer)[last_low_idx:]
-        if rise_audio:
-            self.current_audio_chunks = rise_audio
-            last_rms = compute_rms(self.pre_audio_buffer[last_low_idx])
-            console.print(
-                f"[TRACKER] [yellow]Hybrid prepend: {len(rise_audio)} blocks "
-                f"(last prob={self.pre_prob_buffer[last_low_idx]:.3f}, "
-                f"rms={last_rms:.4f} → {rms_to_loudness_label(last_rms)})[/]",
-                style="yellow",
+        rise_start_idx = max(start_idx_candidates)
+
+        if rise_start_idx >= len(audio_list):
+            return
+
+        # --- STEP 4: Extract rising audio ---
+        rise_audio = audio_list[rise_start_idx:]
+
+        # --- STEP 5: Build pseudo frames for early probabilities ---
+        rise_probs = prob_list[rise_start_idx:]
+        rise_frames: list[SpeechFrame] = []
+
+        base_frame_idx = self.current_start_frame - len(rise_probs)
+        if base_frame_idx < 0:
+            base_frame_idx = 0
+
+        for i, prob in enumerate(rise_probs):
+            rise_frames.append(
+                {
+                    "frame_idx": base_frame_idx + i,
+                    "raw_prob": prob,
+                    "smoothed_prob": prob,
+                    "is_speech": prob >= self.pre_prob_thres,
+                    "is_speech_start": False,
+                    "is_speech_end": False,
+                    "vad_state": "PRE_RISE",
+                }
             )
+
+        # --- STEP 6: prepend both audio + frames ---
+        self.current_audio_chunks = rise_audio
+        self.current_frames = rise_frames
+
+        debug_rms = (
+            compute_rms(audio_list[rise_start_idx - 1]) if rise_start_idx > 0 else 0.0
+        )
+
+        console.print(
+            f"[TRACKER] [yellow]Hybrid prepend (audio+prob): {len(rise_audio)} blocks "
+            f"(start_idx={rise_start_idx}, pre_frames={len(rise_frames)}, "
+            f"rms_before={debug_rms:.4f})[/]",
+            style="yellow",
+        )
 
     def _end_segment(self, result: StreamVadFrameResult) -> None:
         if not self.is_speaking:
