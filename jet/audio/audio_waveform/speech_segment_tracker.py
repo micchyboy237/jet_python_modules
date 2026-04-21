@@ -29,7 +29,7 @@ class SpeechSegmentTracker:
     """Collects audio & probabilities, detects segment boundaries, notifies handlers."""
 
     def __init__(self, speech_threshold: float = 0.5):
-        self.pre_prob_thres = speech_threshold * 0.5
+        self.pre_prob_thres = 0.1
         self.sample_rate = 16000
         self.is_speaking = False
         self.segment_counter = 0
