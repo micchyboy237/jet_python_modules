@@ -69,13 +69,16 @@ def main() -> None:
     tracker = PerformanceTracker()
 
     stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
-        model="Qwen_Qwen3-4B-Instruct-2507-Q4_K_M",
+        model="Qwen/Qwen3.5-2B",
         messages=messages,
+        max_tokens=32768,
+        temperature=1.0,
+        top_p=1.0,
+        presence_penalty=2.0,
+        extra_body={
+            "top_k": 20,
+        },
         stream=True,
-        temperature=0.7,
-        top_p=0.95,
-        max_tokens=500,
-        stream_options={"include_usage": True},
     )
 
     for part in stream:

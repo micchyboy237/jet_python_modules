@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 import requests
-from openai import OpenAI
+from openai import OpenAI, Stream
+from openai.types.chat import ChatCompletionChunk
 from requests.exceptions import RequestException
 from rich.console import Console
 from rich.logging import RichHandler
@@ -27,7 +28,8 @@ logger = logging.getLogger("vision-stream")
 # Config
 # ────────────────────────────────────────────────
 LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:11434/v1")
-MODEL = os.getenv("LLAMA_CPP_LLM_MODEL")
+DEFAULT_MODEL = "Qwen/Qwen3.5-2B"
+MODEL = os.getenv("LLAMA_CPP_LLM_MODEL", DEFAULT_MODEL)
 
 
 def get_client() -> OpenAI:
@@ -132,30 +134,63 @@ def stream_analyze_image(
         }
     ]
 
-    stream = client.chat.completions.create(
+    # Prepare the stream (as in chat-stream.py)
+    stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
         model=model,
         messages=messages,  # type: ignore
-        stream=True,
-        max_tokens=600,
+        max_tokens=32768,
         temperature=0.7,
+        top_p=0.8,
+        presence_penalty=1.5,
+        extra_body={
+            "top_k": 20,
+        },
+        stream=True,
     )
 
     full_response = ""
+
     console.print(
         f"[bold cyan]Streaming response from {model} analyzing image:[/bold cyan] ",
         end="",
     )
 
-    for chunk in stream:
-        if chunk.choices and (delta := chunk.choices[0].delta).content is not None:
-            content = delta.content
-            full_response += content
+    # Streaming print logic updated to mimic chat-stream.py:
+    for part in stream:
+        if part.choices and part.choices[0].delta:
+            delta = part.choices[0].delta
 
-            # Live typewriter print
-            print(content, end="", flush=True)
+            # Check for reasoning_content first
+            if hasattr(delta, "reasoning_content") and getattr(
+                delta, "reasoning_content"
+            ):
+                content = delta.reasoning_content
+                full_response += content
+                # "Reasoning" (use orange)
+                console.print(
+                    f"[bold orange1]{content}[/bold orange1]",
+                    end="",
+                    highlight=False,
+                    soft_wrap=True,
+                )
+            elif hasattr(delta, "content") and getattr(delta, "content"):
+                content = delta.content
+                full_response += content
+                # Primary content (use teal)
+                console.print(
+                    f"[bold cyan]{content}[/bold cyan]",
+                    end="",
+                    highlight=False,
+                    soft_wrap=True,
+                )
 
-            # Structured logging of chunks (visible at DEBUG level)
-            logger.debug("Chunk: %s", repr(content))
+        # Usage block is likely not populated in vision mode, but check for token details
+        usage = getattr(part, "usage", None)
+        if usage is not None:
+            logger.info("\n\n=== Completion Details (llama.cpp aligned) ===")
+            logger.info(f"Prompt tokens     : {usage.prompt_tokens}")
+            logger.info(f"Completion tokens : {usage.completion_tokens}")
+            logger.info(f"Total tokens      : {usage.total_tokens}")
 
     console.print()  # final newline
     logger.info("[Stream complete] Full response length: %d chars", len(full_response))
