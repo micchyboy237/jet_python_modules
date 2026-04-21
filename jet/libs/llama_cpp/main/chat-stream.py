@@ -74,7 +74,7 @@ def main() -> None:
         stream=True,
         temperature=0.7,
         top_p=0.95,
-        max_tokens=180,
+        max_tokens=500,
         stream_options={"include_usage": True},
     )
 
