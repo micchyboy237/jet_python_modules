@@ -1,3 +1,5 @@
+# generate_professional_pic.py
+
 import base64
 import io
 import os
@@ -23,7 +25,7 @@ def edit_image(input_path: str, output_path: str):
     payload = {
         "inputs": {
             "image": image_base64,
-            "prompt": "Add a professional black suit and white shirt, corporate headshot, studio lighting",
+            "prompt": "A young professional man in a tailored black suit and white shirt, confident corporate headshot, modern studio lighting, sharp details, photorealistic, 8k",
         }
     }
 
