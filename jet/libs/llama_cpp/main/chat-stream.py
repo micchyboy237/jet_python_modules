@@ -79,9 +79,17 @@ def main() -> None:
     )
 
     for part in stream:
-        if part.choices and part.choices[0].delta.content:
-            tracker.mark_token()
-            logger.teal(part.choices[0].delta.content, flush=True, end="")
+        if part.choices and part.choices[0].delta:
+            delta = part.choices[0].delta
+
+            # Check for reasoning_content first
+            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                tracker.mark_token()
+                logger.orange(delta.reasoning_content, flush=True, end="")
+            # Then check for regular content
+            elif hasattr(delta, "content") and delta.content:
+                tracker.mark_token()
+                logger.teal(delta.content, flush=True, end="")
 
         usage = getattr(part, "usage", None)
         if usage is not None:
