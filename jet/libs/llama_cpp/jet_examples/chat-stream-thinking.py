@@ -37,7 +37,7 @@ def log_metrics(metrics: PerformanceMetrics) -> None:
         )
 
 
-def main() -> None:
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Stream chat completion from llama.cpp OpenAI API-compatible endpoint"
     )
@@ -48,22 +48,40 @@ def main() -> None:
         default="Write a 2 sentence short story about a curious robot.",
         help="User input prompt for the chat model (default: %(default)s)",
     )
+    parser.add_argument(
+        "-s",
+        "--system",
+        type=str,
+        default=None,
+        help="Optional system prompt for the chat model",
+    )
     args = parser.parse_args()
 
     user_prompt = args.prompt
+    system_prompt = args.system
 
     client = OpenAI(
         base_url=os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:1234/v1"),
         api_key="sk-1234",
     )
 
-    messages = [
+    messages = []
+    if system_prompt:
+        messages.append(
+            {
+                "role": "system",
+                "content": system_prompt,
+            }
+        )
+    messages.append(
         {
             "role": "user",
             "content": user_prompt,
-        },
-    ]
+        }
+    )
 
+    if system_prompt:
+        logger.log("System prompt: ", system_prompt, colors=["PURPLE", "DEBUG"])
     logger.log("User prompt: ", user_prompt, colors=["GRAY", "DEBUG"])
 
     tracker = PerformanceTracker()
@@ -77,7 +95,9 @@ def main() -> None:
         presence_penalty=2.0,
         extra_body={
             "top_k": 20,
-            "enable_thinking": True,
+            "chat_template_kwargs": {
+                "enable_thinking": True,
+            },
         },
         stream=True,
     )
@@ -104,7 +124,3 @@ def main() -> None:
             )
 
             log_metrics(metrics)
-
-
-if __name__ == "__main__":
-    main()
