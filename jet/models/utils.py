@@ -1,24 +1,31 @@
+import json
+import os
 import tempfile
+from pathlib import Path
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple, TypedDict, Union
+
+import requests
 from huggingface_hub import (
     CachedRepoInfo,
+    HfApi,
+    hf_hub_download,
     scan_cache_dir,
     snapshot_download,
-    hf_hub_download,
-    HfApi
 )
-from typing import Any, Dict, FrozenSet, List, Optional
-from pathlib import Path
-import requests
-from jet.models.config import MODELS_CACHE_DIR
-import os
-from typing import Dict, List, Tuple, Optional, TypedDict, Union
-from jet.models.onnx_model_checker import has_onnx_model_in_repo
-from jet.transformers.formatters import format_json
-from jet.utils.object import max_getattr
 from jet.logger import logger
-from transformers import AutoConfig
+from jet.models.config import MODELS_CACHE_DIR
+from jet.models.constants import (
+    ALL_MODEL_VALUES,
+    ALL_MODELS,
+    ALL_MODELS_REVERSED,
+    MODEL_CONTEXTS,
+    MODEL_EMBEDDING_TOKENS,
+    MODEL_VALUES_LIST,
+)
 from jet.models.model_types import ModelKey, ModelType, ModelValue
-from jet.models.constants import ALL_MODEL_VALUES, ALL_MODELS, ALL_MODELS_REVERSED, AVAILABLE_EMBED_MODELS, MODEL_CONTEXTS, MODEL_EMBEDDING_TOKENS, MODEL_VALUES_LIST
+from jet.models.onnx_model_checker import has_onnx_model_in_repo
+from jet.transformers.object import make_serializable
+from transformers import AutoConfig
 
 
 def resolve_model_key(model: ModelType) -> ModelKey:
@@ -68,7 +75,82 @@ def resolve_model_value(model: ModelType) -> ModelValue:
     return model
 
 
-def get_model_limits(model_id: Union[str, 'ModelValue']) -> Tuple[Optional[int], Optional[int]]:
+def _find_attr_recursive(
+    obj: Any,
+    target_attrs: Set[str],
+    visited: Set[int],
+    max_depth: int = 5,
+    current_depth: int = 0,
+) -> Optional[int]:
+    """
+    Recursively search for attribute values in an object.
+
+    Args:
+        obj: Object to search.
+        target_attrs: Set of attribute names to find.
+        visited: Set of visited object ids to prevent cycles.
+        max_depth: Maximum recursion depth.
+        current_depth: Current recursion depth.
+
+    Returns:
+        First found integer value or None.
+    """
+    if obj is None or current_depth > max_depth:
+        return None
+
+    obj_id = id(obj)
+    if obj_id in visited:
+        return None
+    visited.add(obj_id)
+
+    # Direct attribute match
+    for attr in target_attrs:
+        # Handle object attributes
+        if hasattr(obj, attr):
+            value = getattr(obj, attr)
+            if isinstance(value, int):
+                return value
+        # Handle dict keys (for dict-like or mixed objects)
+        elif isinstance(obj, dict) and attr in obj:
+            value = obj[attr]
+            if isinstance(value, int):
+                return value
+        # Optionally, for objects with __getitem__ (Mapping), can add below, but may skip for now
+
+    # Handle dict-like
+    if isinstance(obj, dict):
+        for value in obj.values():
+            result = _find_attr_recursive(
+                value, target_attrs, visited, max_depth, current_depth + 1
+            )
+            if result is not None:
+                return result
+
+    # Handle object attributes
+    for attr_name in dir(obj):
+        if attr_name.startswith("_"):
+            continue
+        try:
+            value = getattr(obj, attr_name)
+        except Exception:
+            continue
+
+        # Skip simple types early
+        if isinstance(value, (str, int, float, bool)):
+            continue
+
+        result = _find_attr_recursive(
+            value, target_attrs, visited, max_depth, current_depth + 1
+        )
+        if result is not None:
+            return result
+
+    return None
+
+
+def get_model_limits(
+    model_id: Union[str, "ModelValue"],
+) -> Tuple[Optional[int], Optional[int]]:
     """
     Get the maximum context length and embedding size for a given model.
 
@@ -76,49 +158,51 @@ def get_model_limits(model_id: Union[str, 'ModelValue']) -> Tuple[Optional[int],
         model_id: The model identifier or ModelValue object.
 
     Returns:
-        Tuple containing (max_context, max_embeddings).
+        Tuple containing (max_context, hidden_size).
     """
     try:
         model_path = resolve_model_value(model_id)
-        # Check if model exists remotely
+
+        # Validate model exists
         try:
             HfApi().model_info(model_path)
-            logger.info(f"Model {model_path} found on Hugging Face Hub")
-        except Exception as e:
-            logger.error(
-                f"Model {model_path} not found on Hugging Face Hub: {str(e)}")
+        except Exception:
             return None, None
 
-        # Try to load config from cache or remote
+        # Load config
         try:
+            # from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5Config
             config = AutoConfig.from_pretrained(
                 model_path,
                 trust_remote_code=True,
-                # Set to True if using private repos
                 token=os.getenv("HF_TOKEN"),
-                cache_dir=None,  # Use default cache directory
-                force_download=False,  # Use cached if available
-                resume_download=False
             )
+            config = make_serializable(config)
+            print(f"Config:\n{json.dumps(config, indent=2)}")
         except Exception as e:
-            logger.error(f"Failed to load config for {model_path}: {str(e)}")
+            print("Error loading model config:", e)
             return None, None
 
-        # Helper function to safely get attributes
-        def max_getattr(obj, attr, default=None):
-            return getattr(obj, attr, default) if hasattr(obj, attr) else default
+        visited: Set[int] = set()
 
-        max_context = max_getattr(config, 'max_position_embeddings', None)
-        max_embeddings = max_getattr(config, 'hidden_size', None)
+        max_context = _find_attr_recursive(
+            config,
+            {"max_position_embeddings"},
+            visited,
+        )
 
-        if max_context is None and max_embeddings is None:
-            logger.warning(f"No model limits found for {model_path}")
+        # Reset visited for second search
+        visited.clear()
 
-        return max_context, max_embeddings
+        hidden_size = _find_attr_recursive(
+            config,
+            {"hidden_size"},
+            visited,
+        )
 
-    except Exception as e:
-        logger.error(
-            f"Unexpected error while processing {model_path}: {str(e)}")
+        return max_context, hidden_size
+
+    except Exception:
         return None, None
 
 
@@ -160,7 +244,7 @@ def get_model_info() -> ModelInfoDict:
         "contexts": {},
         "embeddings": {},
         "has_onnx": {},
-        "missing": []
+        "missing": [],
     }
     model_paths = scan_local_hf_models()
     for model_path in model_paths:
@@ -172,23 +256,24 @@ def get_model_info() -> ModelInfoDict:
             max_contexts, max_embeddings = get_model_limits(model_path)
             if not max_contexts:
                 raise ValueError(
-                    f"Missing 'max_position_embeddings' from {model_path} config")
+                    f"Missing 'max_position_embeddings' from {model_path} config"
+                )
             elif not max_embeddings:
-                raise ValueError(
-                    f"Missing 'hidden_size' from {model_path} config")
+                raise ValueError(f"Missing 'hidden_size' from {model_path} config")
 
             print(
-                f"{short_name}: max_contexts={max_contexts}, max_embeddings={max_embeddings}")
+                f"{short_name}: max_contexts={max_contexts}, max_embeddings={max_embeddings}"
+            )
 
             model_info["models"][short_name] = model_path
             model_info["contexts"][short_name] = max_contexts
             model_info["embeddings"][short_name] = max_embeddings
-            model_info["has_onnx"][short_name] = has_onnx_model_in_repo(
-                model_path)
+            model_info["has_onnx"][short_name] = has_onnx_model_in_repo(model_path)
 
         except Exception as e:
             logger.error(
-                f"Failed to get config for {short_name}: {str(e)[:100]}", exc_info=True)
+                f"Failed to get config for {short_name}: {str(e)[:100]}", exc_info=True
+            )
             model_info["missing"].append(model_path)
             continue
 
@@ -266,7 +351,7 @@ def download_huggingface_repo(
     repo_id: str,
     cache_dir: Optional[str] = None,
     max_workers: int = 4,
-    use_symlinks: bool = False
+    use_symlinks: bool = False,
 ) -> str:
     """
     Download a Hugging Face model repository snapshot.
@@ -280,21 +365,24 @@ def download_huggingface_repo(
     Returns:
         str: Path to the downloaded snapshot.
     """
-    resolved_cache_dir = (
-        cache_dir or MODELS_CACHE_DIR
-    )
+    resolved_cache_dir = cache_dir or MODELS_CACHE_DIR
 
     path = snapshot_download(
         repo_id=repo_id,
         cache_dir=resolved_cache_dir,
         local_dir_use_symlinks=use_symlinks,
-        max_workers=max_workers
+        max_workers=max_workers,
     )
     print(f"Model repository downloaded to: {path}")
     return path
 
 
-def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite: bool = False, extract_code: bool = True) -> bool:
+def download_readme(
+    model_id: ModelType,
+    output_dir: Union[str, Path],
+    overwrite: bool = False,
+    extract_code: bool = True,
+) -> bool:
     """
     Download README.md for a Hugging Face model using API, fallback to web scraping if necessary.
     Optionally extract code blocks from the downloaded README.
@@ -306,8 +394,9 @@ def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite
     Returns:
         bool: True if download is successful, False otherwise.
     """
-    from jet.models.utils import resolve_model_key
     from jet.models.extract_hf_readme_code import extract_code_from_hf_readmes
+    from jet.models.utils import resolve_model_key
+
     if isinstance(output_dir, str):
         output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -316,8 +405,7 @@ def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite
         # Sanitize model_key to replace invalid characters for file/directory names
         sanitized_model_key = model_key.replace("/", "_").replace("\\", "_")
     except ValueError as e:
-        logger.warning(
-            f"Could not resolve model key for model_name='{model_id}': {e}")
+        logger.warning(f"Could not resolve model key for model_name='{model_id}': {e}")
         return False
     readme_path = output_dir / f"{sanitized_model_key}_README.md"
     if readme_path.exists() and not overwrite:
@@ -325,26 +413,34 @@ def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite
         if extract_code:
             code_output_dir = output_dir / "code"
             extract_code_from_hf_readmes(
-                str(output_dir), str(code_output_dir), model_id, include_text=True)
+                str(output_dir), str(code_output_dir), model_id, include_text=True
+            )
         return True
     try:
-        with tempfile.TemporaryDirectory(prefix=f"tmp_{sanitized_model_key}_") as tmp_dir:
+        with tempfile.TemporaryDirectory(
+            prefix=f"tmp_{sanitized_model_key}_"
+        ) as tmp_dir:
             tmp_path = Path(tmp_dir)
             hf_hub_download(
                 repo_id=model_id,
                 filename="README.md",
                 local_dir=tmp_path,
-                local_dir_use_symlinks=False
+                local_dir_use_symlinks=False,
             )
             downloaded_file = tmp_path / "README.md"
             if downloaded_file.exists():
                 downloaded_file.rename(readme_path)
                 logger.success(
-                    f"Downloaded README for {sanitized_model_key} via API: {str(readme_path)}")
+                    f"Downloaded README for {sanitized_model_key} via API: {str(readme_path)}"
+                )
                 if extract_code:
                     code_output_dir = output_dir / "code"
                     extract_code_from_hf_readmes(
-                        str(output_dir), str(code_output_dir), model_id, include_text=True)
+                        str(output_dir),
+                        str(code_output_dir),
+                        model_id,
+                        include_text=True,
+                    )
                 return True
     except Exception as e:
         logger.error(f"API failed for {sanitized_model_key}: {e}")
@@ -358,17 +454,21 @@ def download_readme(model_id: ModelType, output_dir: Union[str, Path], overwrite
             if extract_code:
                 code_output_dir = output_dir / "code"
                 extract_code_from_hf_readmes(
-                    str(output_dir), str(code_output_dir), model_id, include_text=True)
+                    str(output_dir), str(code_output_dir), model_id, include_text=True
+                )
             return True
         else:
             print(
-                f"Web scraping failed for {sanitized_model_key}: HTTP {response.status_code}")
+                f"Web scraping failed for {sanitized_model_key}: HTTP {response.status_code}"
+            )
     except Exception as e:
         print(f"Web scraping failed for {sanitized_model_key}: {e}")
     return False
 
 
-def download_model_readmes(output_dir: str = "hf_readmes", overwrite: bool = False, extract_code: bool = True) -> None:
+def download_model_readmes(
+    output_dir: str = "hf_readmes", overwrite: bool = False, extract_code: bool = True
+) -> None:
     """
     Download READMEs for all models in MODEL_VALUES_LIST dictionary and optionally extract code blocks.
 
@@ -377,15 +477,12 @@ def download_model_readmes(output_dir: str = "hf_readmes", overwrite: bool = Fal
         overwrite (bool): Whether to overwrite existing files.
         extract_code (bool): Whether to extract code blocks from downloaded READMEs.
     """
-    from .utils import resolve_model_key
-    from .constants import MODEL_VALUES_LIST
 
     output_dir_path = Path(output_dir)
     output_dir_path.mkdir(parents=True, exist_ok=True)
 
     model_values = scan_local_hf_models()
-    filtered_model_values = [
-        model_value for model_value in model_values if model_value]
+    filtered_model_values = [model_value for model_value in model_values if model_value]
     for model_value in filtered_model_values:
         print(f"Processing ({model_value})...")
         download_readme(model_value, output_dir_path, overwrite, extract_code)
@@ -397,8 +494,7 @@ def scan_local_hf_models() -> List[str]:
     hf_cache_info = scan_cache_dir()
     downloaded_models: FrozenSet[CachedRepoInfo] = hf_cache_info.repos
     local_models = [
-        repo.repo_id for repo in downloaded_models
-        if repo.repo_type == "model"
+        repo.repo_id for repo in downloaded_models if repo.repo_type == "model"
     ]
     return sorted(local_models)
 
@@ -407,8 +503,7 @@ def scan_local_hf_datasets() -> List[str]:
     hf_cache_info = scan_cache_dir()
     downloaded_models: FrozenSet[CachedRepoInfo] = hf_cache_info.repos
     local_models = [
-        repo.repo_id for repo in downloaded_models
-        if repo.repo_type == "dataset"
+        repo.repo_id for repo in downloaded_models if repo.repo_type == "dataset"
     ]
     return sorted(local_models)
 
@@ -417,8 +512,7 @@ def scan_local_hf_spaces() -> List[str]:
     hf_cache_info = scan_cache_dir()
     downloaded_models: FrozenSet[CachedRepoInfo] = hf_cache_info.repos
     local_models = [
-        repo.repo_id for repo in downloaded_models
-        if repo.repo_type == "space"
+        repo.repo_id for repo in downloaded_models if repo.repo_type == "space"
     ]
     return sorted(local_models)
 
@@ -445,7 +539,9 @@ def get_repo_files(repo_id: str, token: Optional[str] = None) -> List[str]:
         return []
 
 
-def get_local_repo_dir(repo_id: ModelType, filename: Optional[str] = None) -> Optional[str]:
+def get_local_repo_dir(
+    repo_id: ModelType, filename: Optional[str] = None
+) -> Optional[str]:
     """
     Retrieve the local directory path for a Hugging Face repository.
 
@@ -460,8 +556,7 @@ def get_local_repo_dir(repo_id: ModelType, filename: Optional[str] = None) -> Op
         if filename:
             cache_dir = Path(repo_id)
             files = list(cache_dir.rglob(filename))
-            logger.debug(
-                f"Found {len(files)} {filename} files in {cache_dir}")
+            logger.debug(f"Found {len(files)} {filename} files in {cache_dir}")
             if files:
                 return str(files[0])
 
@@ -472,14 +567,12 @@ def get_local_repo_dir(repo_id: ModelType, filename: Optional[str] = None) -> Op
         for repo in hf_cache_info.repos:
             if repo.repo_id == repo_id and repo.repo_type == "model":
                 local_dir = repo.repo_path
-                logger.debug(
-                    f"Found local directory for {repo_id}: {local_dir}")
+                logger.debug(f"Found local directory for {repo_id}: {local_dir}")
 
                 return str(local_dir)
 
         logger.warning(f"No local directory found for repository: {repo_id}")
         return None
     except Exception as e:
-        logger.error(
-            f"Error scanning for local repository {repo_id}: {str(e)}")
+        logger.error(f"Error scanning for local repository {repo_id}: {str(e)}")
         return None
