@@ -1,724 +1,1071 @@
 # pyannote/audio/pipelines/speaker_verification.py
 
+## Step-by-Step Analysis & Blueprint
+
+### What This File Does (Plain English)
+
+This file answers one question: _"Do these two audio clips belong to the same person?"_
+
+It does this by turning each clip into a **speaker embedding** — a compact list of numbers
+that acts like a voice fingerprint. Two clips from the same person produce embeddings that
+are close together. Two clips from different people produce embeddings that are far apart.
+The distance is measured with **cosine distance** (0 = identical, 2 = complete opposite).
+
+There are four different neural-network backends that can produce these embeddings,
+plus one smart router function that picks the right backend automatically from a model name string.
+
+---
+
+### The Core Idea in One Picture
+
+```
+Audio clip 1  ──▶  [embedding model]  ──▶  [ 0.12, -0.45, 0.88, ... ]  (512 numbers)
+                                                        │
+                                               cosine_distance()
+                                                        │
+Audio clip 2  ──▶  [embedding model]  ──▶  [ 0.11, -0.44, 0.90, ... ]  ──▶  0.03  ← same person
+
+Audio clip 3  ──▶  [embedding model]  ──▶  [-0.80,  0.22, -0.15, ... ]  ──▶  1.72  ← different person
+```
+
+---
+
+### Four Backends + One Router
+
+```
+speaker_verification.py
+│
+├── PyannoteAudioPretrainedSpeakerEmbedding   ← default, uses pyannote.audio model
+├── SpeechBrainPretrainedSpeakerEmbedding     ← uses SpeechBrain (ECAPA-TDNN, etc.)
+├── NeMoPretrainedSpeakerEmbedding            ← uses NVIDIA NeMo (TitaNet, etc.)
+├── ONNXWeSpeakerPretrainedSpeakerEmbedding   ← uses WeSpeaker .onnx model file
+│
+├── PretrainedSpeakerEmbedding()    ← ROUTER: picks the right class from model name
+│
+├── SpeakerEmbedding (Pipeline)     ← high-level: file → one embedding
+│   ├── __init__()                  → load embedding + optional segmentation model
+│   └── apply()                     → read audio → optional VAD weights → embed
+│
+└── main()                          ← CLI evaluator: computes EER on VoxCeleb trials
+```
+
+---
+
+### Shared Interface (All Four Backends)
+
+Every backend inherits from `BaseInference` and exposes the same properties and method:
+
+| Property / Method            | What it returns           | Notes                                  |
+| ---------------------------- | ------------------------- | -------------------------------------- |
+| `sample_rate`                | int (e.g. 16000)          | Audio must be resampled to this rate   |
+| `dimension`                  | int (e.g. 512)            | Length of the output embedding vector  |
+| `metric`                     | str (`"cosine"`)          | How to compare two embeddings          |
+| `min_num_samples`            | int                       | Shortest waveform the model can handle |
+| `to(device)`                 | self                      | Move model to CPU / GPU                |
+| `__call__(waveforms, masks)` | `np.ndarray (batch, dim)` | The actual embedding extraction        |
+
+---
+
 ### Key Concepts Explained
 
-| Concept                            | Plain English                                                                                                                                   |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Voice Activity Detection (VAD)** | Detecting _when_ speech happens — ignores _who_ is speaking                                                                                     |
-| **Segmentation model**             | A neural network that processes short audio windows and outputs per-frame probabilities                                                         |
-| **SlidingWindowFeature**           | A data structure holding frame-level scores, plus timing info for each window                                                                   |
-| **`np.max` over speaker axis**     | The segmentation model produces one score per speaker — VAD only needs the loudest one                                                          |
-| **Binarize**                       | Converts continuous probabilities (0.0–1.0) into discrete on/off decisions                                                                      |
-| **onset**                          | The probability threshold you must _cross going up_ to trigger "speech started"                                                                 |
-| **offset**                         | The probability threshold you must _drop below_ to trigger "speech ended" — usually lower than onset to avoid rapid toggling                    |
-| **`min_duration_on`**              | Delete any speech region shorter than this many seconds (removes blips)                                                                         |
-| **`min_duration_off`**             | Fill any silence gap shorter than this many seconds (removes stutters)                                                                          |
-| **Powerset mode**                  | A special segmentation model variant whose output is already binarized — onset/offset are fixed at 0.5                                          |
-| **Uniform**                        | A hyper-parameter type that tells the optimizer: "search this parameter between 0.0 and 1.0"                                                    |
-| **hook**                           | A progress-callback function you can pass to `apply()` — it fires after each major step                                                         |
-| **Training cache**                 | During training, `apply()` saves segmentation output to `file["cache/segmentation/inference"]` to avoid recomputing it on every optimizer trial |
-| **DER**                            | Detection Error Rate — penalises missed speech and false alarms. Lower is better.                                                               |
-| **F-measure**                      | Precision × Recall metric. Higher is better. Used when `fscore=True`.                                                                           |
+| Concept                           | Plain English                                                                                                                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Speaker embedding**             | A fixed-length list of numbers that uniquely represents a voice, like a fingerprint                                                                                                      |
+| **Cosine distance**               | How different two embeddings are. 0 = identical direction, 2 = opposite. Lower = more similar.                                                                                           |
+| **`waveforms` shape `(B, 1, N)`** | Batch of B mono audio clips, each N samples long                                                                                                                                         |
+| **`masks` shape `(B, frames)`**   | Per-frame weights — 1 = use this frame, 0 = ignore (e.g. silence). Lets the model focus only on speech.                                                                                  |
+| **`min_num_samples`**             | The model needs a minimum amount of audio to work. Too-short clips return `NaN` embeddings.                                                                                              |
+| **`cached_property`**             | A property computed only once on first access, then stored. `sample_rate` and `dimension` are computed by probing the model once.                                                        |
+| **`too_short` mask**              | When a masked clip is shorter than `min_num_samples`, its row in the output is filled with `NaN` instead of crashing.                                                                    |
+| **fbank features**                | Filter bank features — a frequency-based representation of audio. WeSpeaker needs these as input instead of raw waveforms.                                                               |
+| **ONNX**                          | A portable model format. WeSpeaker models are exported to `.onnx` so they can run without the full WeSpeaker Python library.                                                             |
+| **`SpeakerEmbedding` pipeline**   | A higher-level wrapper: takes a full audio **file** → internally loads the waveform → returns one embedding                                                                              |
+| **VAD weights (segmentation)**    | When `segmentation` is set in `SpeakerEmbedding`, speech-probability scores are cubed (`**3`) and used as per-frame weights. This makes the embedding focus on confident speech regions. |
+| **EER**                           | Equal Error Rate — the threshold where false accepts = false rejects. Lower is better. Standard benchmark for speaker verification.                                                      |
+| **DET curve**                     | Detection Error Tradeoff — a plot of false alarm vs. miss rate across all thresholds.                                                                                                    |
+
+---
+
+### The Router: `PretrainedSpeakerEmbedding()`
+
+```
+embedding string
+       │
+       ├── "pyannote/..." or Model object  →  PyannoteAudioPretrainedSpeakerEmbedding
+       ├── "speechbrain/..."               →  SpeechBrainPretrainedSpeakerEmbedding
+       ├── "nvidia/..."                    →  NeMoPretrainedSpeakerEmbedding
+       ├── "wespeaker/..." or .onnx path   →  ONNXWeSpeakerPretrainedSpeakerEmbedding
+       └── anything else                   →  PyannoteAudioPretrainedSpeakerEmbedding
+```
+
+This is the function you should call in practice — you never need to instantiate the
+backend classes directly unless you need fine-grained control.
 
 ---
 
 ### Files to Create
 
-1. `example_vad_basic.py` — Simplest end-to-end VAD on one file
-2. `example_vad_advanced.py` — Hooks, parameter tuning, fscore mode
-3. `example_vad_oracle.py` — Oracle pipeline and ground-truth comparison
-4. `example_vad_evaluation.py` — Benchmarking with DER and F-score
+1. `example_speaker_verification_basic.py` — Compare two speakers, understand cosine distance
+2. `example_speaker_verification_backends.py` — All 4 backends side by side
+3. `example_speaker_verification_pipeline.py` — `SpeakerEmbedding` pipeline + VAD masking
+4. `example_speaker_verification_evaluation.py` — EER, DET curve, batch trial evaluation
 
 ---
 
 ```python
-# example_vad_basic.py
+# example_speaker_verification_basic.py
 """
-Basic Voice Activity Detection — Is Anyone Speaking?
-=====================================================
-Goal: Take an audio file → get back a timeline of when speech occurs.
+Basic Speaker Verification — Are These Two Clips the Same Person?
+=================================================================
+Goal: Load two audio files → extract embeddings → compare with cosine distance.
 
-This is the simplest possible usage. The pipeline handles everything:
-  - loading audio
-  - running the segmentation model
-  - binarizing scores into SPEECH / SILENCE regions
+This is the core use case for speaker_verification.py.
+A small cosine distance (< ~0.5) usually means same speaker.
+A large cosine distance (> ~1.0) usually means different speakers.
+(The exact threshold depends on the model and your False Accept tolerance.)
 
 Install requirements:
-  pip install pyannote.audio
+  pip install pyannote.audio scipy
 
-You may need a HuggingFace token for gated models:
+You may need a HuggingFace token:
   https://huggingface.co/settings/tokens
-"""
-
-import torch
-from pyannote.audio.pipelines.voice_activity_detection import VoiceActivityDetection
-
-# ------------------------------------------------------------------
-# 1. Build the pipeline
-#    The default model ("pyannote/segmentation") is downloaded
-#    automatically from HuggingFace on first use.
-# ------------------------------------------------------------------
-pipeline = VoiceActivityDetection(
-    segmentation="pyannote/segmentation",
-    # token="hf_your_token_here",   # needed for gated HuggingFace models
-    # cache_dir="/tmp/pyannote",     # where to store downloaded model files
-)
-
-# Move to GPU if available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-pipeline.to(device)
-print("Pipeline ready.")
-
-# ------------------------------------------------------------------
-# 2. Set parameters — onset, offset, and duration filters
-#
-#    default_parameters() returns values tuned on a standard benchmark.
-#    These are a good starting point.
-# ------------------------------------------------------------------
-pipeline.instantiate(pipeline.default_parameters())
-print(f"Parameters in use: {pipeline.default_parameters()}\n")
-
-# ------------------------------------------------------------------
-# 3. Process an audio file
-#    AudioFile formats accepted:
-#      - plain path string:          "speech.wav"
-#      - Path object:                Path("speech.wav")
-#      - dict with waveform tensor:  {"waveform": tensor, "sample_rate": 16000}
-#      - dict with audio path:       {"uri": "my_file", "audio": "speech.wav"}
-# ------------------------------------------------------------------
-audio_file = "speech.wav"   # ← replace with your file
-
-speech = pipeline(audio_file)
-
-# ------------------------------------------------------------------
-# 4. Read the results
-#    speech is a pyannote.core.Annotation with label "SPEECH".
-#    Each track represents one detected speech region.
-# ------------------------------------------------------------------
-print("=== Detected Speech Regions ===")
-for turn, _, label in speech.itertracks(yield_label=True):
-    print(f"  [{turn.start:7.3f}s → {turn.end:7.3f}s]  {label}  "
-          f"(duration: {turn.duration:.3f}s)")
-
-total_speech = sum(seg.duration for seg, *_ in speech.itertracks())
-print(f"\nTotal speech duration : {total_speech:.3f}s")
-print(f"Number of regions     : {len(list(speech.itertracks()))}")
-print(f"Labels in output      : {speech.labels()}")   # always ["SPEECH"]
-```
-
----
-
-```python
-# example_vad_advanced.py
-"""
-Advanced VAD — Hooks, Parameter Tuning, and F-score Mode
-=========================================================
-Goal: Show the less-obvious controls available in VoiceActivityDetection.
-
-Covers:
-  1. Progress hook — watch segmentation unfold in real time
-  2. Manual parameter tuning — onset, offset, duration filters
-  3. fscore=True — switch the optimisation target from DER to F-measure
-  4. Using a newer model (pyannote/segmentation-3.0.0)
-  5. Batch size control for faster GPU processing
-  6. Passing a raw waveform tensor instead of a file path
 """
 
 import numpy as np
 import torch
-from pyannote.audio.pipelines.voice_activity_detection import VoiceActivityDetection
+from scipy.spatial.distance import cdist
 
-audio_file = "speech.wav"   # ← replace with your file
+from pyannote.audio.pipelines.speaker_verification import PretrainedSpeakerEmbedding
 
-# ==================================================================
-# FEATURE 1: Progress hook
-# ==================================================================
-print("=== Feature 1: Progress Hook ===\n")
-
-# The hook is called after each major pipeline step with:
-#   step_name     → name of the stage (str)
-#   step_artifact → what was produced (SlidingWindowFeature, Annotation, ...)
-#   completed     → batches done so far (int, only during long steps)
-#   total         → total batches in this step (int, only during long steps)
-
-def my_hook(step_name, step_artifact, file=None, completed=None, total=None):
-    if completed is not None and total is not None:
-        pct = 100 * completed / total
-        print(f"  [{step_name}] {completed}/{total} ({pct:.0f}%)")
-    else:
-        info = ""
-        if hasattr(step_artifact, "data"):
-            info = f"shape={step_artifact.data.shape}"
-        elif hasattr(step_artifact, "shape"):
-            info = f"shape={step_artifact.shape}"
-        print(f"  ✓ {step_name}  {info}")
-
-pipeline = VoiceActivityDetection(segmentation="pyannote/segmentation")
-pipeline.instantiate(pipeline.default_parameters())
-
-speech = pipeline(audio_file, hook=my_hook)
-print(f"\nFound {len(list(speech.itertracks()))} speech regions with hook.\n")
-
-
-# ==================================================================
-# FEATURE 2: Manual parameter tuning
-# ==================================================================
-print("=== Feature 2: Parameter Tuning ===\n")
-
-# Parameters and what they control:
-#
-#   onset  (float 0–1):
-#     The model's speech probability must RISE ABOVE this to start a region.
-#     Higher onset → stricter, fewer false alarms, may miss soft speech.
-#
-#   offset (float 0–1):
-#     The model's speech probability must FALL BELOW this to end a region.
-#     Lower offset → speech regions extend further into quiet sections.
-#     offset < onset is normal — creates hysteresis (avoids rapid switching).
-#
-#   min_duration_on (float, seconds):
-#     Delete any detected speech region shorter than this.
-#     Useful for removing noise spikes labelled as speech.
-#
-#   min_duration_off (float, seconds):
-#     Fill any silence gap shorter than this.
-#     Useful for merging closely-spaced words into one region.
-
-custom_params = {
-    "onset": 0.8,            # stricter — only high-confidence speech
-    "offset": 0.4,           # generous end — don't cut off word endings
-    "min_duration_on": 0.2,  # ignore blips shorter than 0.2s
-    "min_duration_off": 0.1, # fill pauses shorter than 0.1s
-}
-
-pipeline.instantiate(custom_params)
-speech_custom = pipeline(audio_file)
-
-print("Default params speech regions :", len(list(
-    VoiceActivityDetection(segmentation="pyannote/segmentation")
-    .apply.__func__  # just counting — pipeline already set above
-    if False else speech.itertracks()  # use earlier result
-)))
-print("Custom params  speech regions :", len(list(speech_custom.itertracks())))
-print()
-
-
-# ==================================================================
-# FEATURE 3: fscore=True — optimise for F-measure instead of DER
-# ==================================================================
-print("=== Feature 3: F-score Mode ===\n")
-
-# By default the pipeline minimises DER (Detection Error Rate).
-# Setting fscore=True switches the optimisation target to F-measure
-# (precision × recall harmonic mean), which is better when you care
-# equally about not missing speech AND not adding false alarms.
-
-pipeline_fscore = VoiceActivityDetection(
-    segmentation="pyannote/segmentation",
-    fscore=True,
-    # token="hf_your_token_here",
-)
-pipeline_fscore.instantiate(pipeline_fscore.default_parameters())
-
-speech_fscore = pipeline_fscore(audio_file)
-
-print(f"Optimisation target : {'F-measure (maximize)' if pipeline_fscore.fscore else 'DER (minimize)'}")
-print(f"get_direction()     : {pipeline_fscore.get_direction()}")
-print(f"get_metric() type   : {type(pipeline_fscore.get_metric()).__name__}")
-print(f"Regions found       : {len(list(speech_fscore.itertracks()))}\n")
-
-
-# ==================================================================
-# FEATURE 4: Newer model — pyannote/segmentation-3.0.0
-# ==================================================================
-print("=== Feature 4: Newer Segmentation Model ===\n")
-
-# The 3.0.0 model uses powerset mode — its output is already binarized,
-# so onset and offset are fixed at 0.5 and cannot be tuned.
-# Only min_duration_on and min_duration_off remain as free parameters.
-
-pipeline_v3 = VoiceActivityDetection(
-    segmentation="pyannote/segmentation-3.0.0",
-    # token="hf_your_token_here",
+# ------------------------------------------------------------------
+# 1. Build the embedding extractor
+#    PretrainedSpeakerEmbedding() is the smart router — it picks the
+#    right backend class automatically from the model name string.
+# ------------------------------------------------------------------
+get_embedding = PretrainedSpeakerEmbedding(
+    "pyannote/embedding",
+    # token="hf_your_token_here",   # needed for gated HuggingFace models
+    # cache_dir="/tmp/pyannote",     # where to store downloaded model files
 )
 
-defaults_v3 = pipeline_v3.default_parameters()
-print(f"v3.0 default params: {defaults_v3}")
-# → {'min_duration_on': 0.0, 'min_duration_off': 0.0}
-# onset and offset are NOT tunable in powerset mode
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+get_embedding.to(device)
 
-pipeline_v3.instantiate(defaults_v3)
-speech_v3 = pipeline_v3(audio_file)
-print(f"v3.0 regions found : {len(list(speech_v3.itertracks()))}\n")
+print(f"Backend        : {type(get_embedding).__name__}")
+print(f"Sample rate    : {get_embedding.sample_rate} Hz")
+print(f"Embedding size : {get_embedding.dimension} dimensions")
+print(f"Distance metric: {get_embedding.metric}")
+print(f"Min audio len  : {get_embedding.min_num_samples} samples "
+      f"({get_embedding.min_num_samples / get_embedding.sample_rate * 1000:.1f} ms)\n")
 
+# ------------------------------------------------------------------
+# 2. Load audio waveforms
+#    The embedding model expects:
+#      waveforms shape: (batch_size, num_channels, num_samples)
+#      - batch_size  = number of clips processed at once
+#      - num_channels = 1  (mono only)
+#      - num_samples = length of the audio clip
+# ------------------------------------------------------------------
+import torchaudio
 
-# ==================================================================
-# FEATURE 5: Batch size — faster on GPU
-# ==================================================================
-print("=== Feature 5: Batch Size Control ===\n")
+def load_mono(path: str, sample_rate: int) -> torch.Tensor:
+    """Load an audio file and return a (1, 1, num_samples) tensor."""
+    waveform, sr = torchaudio.load(path)
+    if sr != sample_rate:
+        waveform = torchaudio.functional.resample(waveform, sr, sample_rate)
+    # Ensure mono
+    if waveform.shape[0] > 1:
+        waveform = waveform.mean(dim=0, keepdim=True)
+    return waveform.unsqueeze(0)   # → (1, 1, num_samples)
 
-# inference_kwargs are forwarded straight to pyannote.audio.Inference.
-# The most useful one is batch_size — how many audio windows to process
-# in parallel. Larger = faster on GPU, but uses more VRAM.
+sr = get_embedding.sample_rate
 
-pipeline_batched = VoiceActivityDetection(
-    segmentation="pyannote/segmentation",
-    batch_size=32,   # ← passed to Inference via **inference_kwargs
-    # token="hf_your_token_here",
-)
-pipeline_batched.instantiate(pipeline_batched.default_parameters())
-speech_batched = pipeline_batched(audio_file)
-print(f"Batched (bs=32) regions: {len(list(speech_batched.itertracks()))}\n")
+# Replace these with real audio files
+clip_A1 = load_mono("speaker_A_clip1.wav", sr)   # Alice, recording 1
+clip_A2 = load_mono("speaker_A_clip2.wav", sr)   # Alice, recording 2 (same person)
+clip_B  = load_mono("speaker_B_clip1.wav", sr)   # Bob   (different person)
 
+print(f"Clip A1 shape: {clip_A1.shape}  ({clip_A1.shape[-1] / sr:.2f}s)")
+print(f"Clip A2 shape: {clip_A2.shape}  ({clip_A2.shape[-1] / sr:.2f}s)")
+print(f"Clip B  shape: {clip_B.shape}   ({clip_B.shape[-1] / sr:.2f}s)\n")
 
-# ==================================================================
-# FEATURE 6: Raw waveform tensor as input
-# ==================================================================
-print("=== Feature 6: Waveform Tensor Input ===\n")
+# ------------------------------------------------------------------
+# 3. Extract embeddings
+#    Returns np.ndarray of shape (batch_size, dimension)
+# ------------------------------------------------------------------
+emb_A1 = get_embedding(clip_A1)   # shape: (1, 512)
+emb_A2 = get_embedding(clip_A2)   # shape: (1, 512)
+emb_B  = get_embedding(clip_B)    # shape: (1, 512)
 
-# Instead of a file path you can pass a dict with:
-#   "waveform"    → torch.Tensor of shape (channels, samples)
-#   "sample_rate" → int, e.g. 16000
+print(f"Embedding shape: {emb_A1.shape}")
+print(f"Embedding norm (A1): {np.linalg.norm(emb_A1):.4f}\n")
 
-sample_rate = 16000
-duration_sec = 5
-fake_waveform = torch.randn(1, sample_rate * duration_sec)   # 5 s of noise
+# ------------------------------------------------------------------
+# 4. Compare embeddings using cosine distance
+#    cdist returns a (1, 1) matrix — we take [0][0] for the scalar
+# ------------------------------------------------------------------
+dist_same    = cdist(emb_A1, emb_A2, metric="cosine")[0][0]
+dist_diff    = cdist(emb_A1, emb_B,  metric="cosine")[0][0]
 
-audio_dict = {
-    "uri": "synthetic_audio",       # optional but useful for logging
-    "waveform": fake_waveform,
-    "sample_rate": sample_rate,
-}
+print("=== Cosine Distance Results ===")
+print(f"  Alice vs Alice (same person) : {dist_same:.4f}  ← should be LOW")
+print(f"  Alice vs Bob   (different)   : {dist_diff:.4f}  ← should be HIGH\n")
 
-pipeline_w = VoiceActivityDetection(segmentation="pyannote/segmentation")
-pipeline_w.instantiate(pipeline_w.default_parameters())
-speech_waveform = pipeline_w(audio_dict)
+# ------------------------------------------------------------------
+# 5. Make a verification decision
+#    This threshold (0.5) is a starting point — tune it on your data.
+# ------------------------------------------------------------------
+THRESHOLD = 0.5
 
-print(f"Input  : waveform tensor {fake_waveform.shape}, sr={sample_rate}")
-print(f"Output : {len(list(speech_waveform.itertracks()))} speech regions")
-for turn, _, label in speech_waveform.itertracks(yield_label=True):
-    print(f"  [{turn.start:.3f}s → {turn.end:.3f}s]  {label}")
+def verify(dist: float, threshold: float = THRESHOLD) -> str:
+    return "✓ SAME speaker" if dist < threshold else "✗ DIFFERENT speaker"
+
+print("=== Verification Decisions ===")
+print(f"  Alice vs Alice : {verify(dist_same)}")
+print(f"  Alice vs Bob   : {verify(dist_diff)}")
+
+# ------------------------------------------------------------------
+# 6. Batch processing — compare many clips at once
+#    Stack clips along the batch dimension for GPU efficiency
+# ------------------------------------------------------------------
+print("\n=== Batch Embedding Extraction ===")
+
+# Pad clips to the same length before stacking
+max_len = max(clip_A1.shape[-1], clip_A2.shape[-1], clip_B.shape[-1])
+
+def pad_to(tensor: torch.Tensor, length: int) -> torch.Tensor:
+    pad_size = length - tensor.shape[-1]
+    return torch.nn.functional.pad(tensor, (0, pad_size))
+
+batch = torch.cat([
+    pad_to(clip_A1, max_len),
+    pad_to(clip_A2, max_len),
+    pad_to(clip_B,  max_len),
+], dim=0)   # shape: (3, 1, max_len)
+
+batch_embs = get_embedding(batch)   # shape: (3, 512)
+print(f"Batch embeddings shape: {batch_embs.shape}")
+
+dist_matrix = cdist(batch_embs, batch_embs, metric="cosine")
+labels = ["Alice-1", "Alice-2", "Bob"]
+
+print("\nPairwise cosine distance matrix:")
+header = "          " + "  ".join(f"{l:>9}" for l in labels)
+print(header)
+for i, li in enumerate(labels):
+    row = "  ".join(f"{dist_matrix[i,j]:9.4f}" for j in range(len(labels)))
+    print(f"  {li:>8}: {row}")
 ```
 
 ---
 
 ```python
-# example_vad_oracle.py
+# example_speaker_verification_backends.py
 """
-Oracle VAD — Ground-Truth Speech Regions
+All Four Embedding Backends Side by Side
 =========================================
-Goal: Understand OracleVoiceActivityDetection and use it to build
-      a reference baseline for evaluation.
+Goal: Show how to load and use each of the four backend classes,
+      and understand when to choose each one.
 
-The Oracle pipeline does NOT run any model. It reads the "annotation"
-key directly from the AudioFile dict — the human-labelled ground truth.
+Quick comparison:
+┌──────────────────────────────────────────┬──────────────────────────────────────┐
+│ Backend                                  │ When to use                          │
+├──────────────────────────────────────────┼──────────────────────────────────────┤
+│ PyannoteAudioPretrainedSpeakerEmbedding  │ Default — tight pyannote integration │
+│ SpeechBrainPretrainedSpeakerEmbedding    │ ECAPA-TDNN, strong SOTA model        │
+│ NeMoPretrainedSpeakerEmbedding           │ NVIDIA TitaNet, large-scale models   │
+│ ONNXWeSpeakerPretrainedSpeakerEmbedding  │ Portable ONNX, no heavy framework    │
+└──────────────────────────────────────────┴──────────────────────────────────────┘
 
-This is useful for:
-  1. Checking your annotation format is correct
-  2. Getting an upper-bound DER of 0% for sanity checking your eval loop
-  3. Comparing oracle VAD output to a real model side by side
-
-Covers:
-  1. Building and running the oracle pipeline
-  2. Constructing a proper AudioFile dict with an annotation
-  3. Comparing oracle output to model output
-  4. Understanding the .support() + .to_annotation() chain
+All four share the same __call__ signature:
+  embeddings = backend(waveforms)            → shape (batch, dim)
+  embeddings = backend(waveforms, masks=m)   → shape (batch, dim), masked
 """
 
+import numpy as np
 import torch
-from pyannote.core import Annotation, Segment, Timeline
 
-from pyannote.audio.pipelines.voice_activity_detection import (
-    OracleVoiceActivityDetection,
-    VoiceActivityDetection,
-)
+SR = 16000
+DURATION = 3   # seconds
+BATCH    = 2
 
-# ------------------------------------------------------------------
-# 1. Build a fake AudioFile with a ground-truth annotation
-#
-#    An AudioFile is just a plain Python dict.
-#    For OracleVoiceActivityDetection it MUST contain "annotation".
-#    For VoiceActivityDetection it MUST contain "audio" (or waveform).
-# ------------------------------------------------------------------
+# Synthetic waveforms: (batch_size=2, channels=1, samples=48000)
+fake_waveforms = torch.randn(BATCH, 1, SR * DURATION)
 
-# Reference: who spoke and when (this is our "ground truth")
-reference = Annotation(uri="example_file")
-reference[Segment(0.5, 3.2)]  = "SPEAKER_A"
-reference[Segment(3.0, 6.5)]  = "SPEAKER_B"   # overlaps slightly with A
-reference[Segment(7.0, 10.0)] = "SPEAKER_A"
-reference[Segment(10.5, 13.0)] = "SPEAKER_B"
+# Soft masks: (batch_size=2, num_frames)
+# Values between 0 and 1 — 1 means "this frame is definitely speech"
+NUM_FRAMES = 300
+fake_masks = torch.ones(BATCH, NUM_FRAMES)
+fake_masks[0, 200:] = 0.0   # last third of clip 1 is silence
 
-audio_file = {
-    "uri": "example_file",
-    "audio": "example_file.wav",    # ← path to audio (used by VoiceActivityDetection)
-    "annotation": reference,        # ← ground truth (used by OracleVoiceActivityDetection)
-}
 
-# ------------------------------------------------------------------
-# 2. Run the Oracle pipeline
-#    It calls:  file["annotation"].get_timeline().support()
-#    Which means: take all labelled segments → merge overlapping ones
-#    → return a Timeline of contiguous speech blocks.
-#    Then wraps that as an Annotation with label "speech".
-# ------------------------------------------------------------------
-oracle = OracleVoiceActivityDetection()
-oracle_speech = oracle.apply(audio_file)
+def probe_backend(name, backend):
+    """Print key properties and run a quick embedding extraction."""
+    print(f"\n{'─' * 55}")
+    print(f"  Backend : {name}")
+    print(f"{'─' * 55}")
+    print(f"  sample_rate      : {backend.sample_rate}")
+    print(f"  dimension        : {backend.dimension}")
+    print(f"  metric           : {backend.metric}")
+    print(f"  min_num_samples  : {backend.min_num_samples}  "
+          f"({backend.min_num_samples / backend.sample_rate * 1000:.1f} ms)")
 
-print("=== Oracle Speech Regions ===")
-print("(These are the ground-truth speech regions, speaker identity removed)")
-for turn, _, label in oracle_speech.itertracks(yield_label=True):
-    print(f"  [{turn.start:.3f}s → {turn.end:.3f}s]  {label}")
+    embs = backend(fake_waveforms)
+    print(f"  Output shape     : {embs.shape}")
+    print(f"  Any NaN?         : {np.any(np.isnan(embs))}")
+    print(f"  Norm (clip 0)    : {np.linalg.norm(embs[0]):.4f}")
 
-# ------------------------------------------------------------------
-# 3. What .support() does — merging overlapping segments
-# ------------------------------------------------------------------
-print("\n=== Original Reference Segments (with speaker labels) ===")
-for turn, _, speaker in reference.itertracks(yield_label=True):
-    print(f"  [{turn.start:.3f}s → {turn.end:.3f}s]  {speaker}")
+    # With masks
+    embs_masked = backend(fake_waveforms, masks=fake_masks)
+    print(f"  Masked shape     : {embs_masked.shape}")
+    nan_masked = np.any(np.isnan(embs_masked))
+    print(f"  Any NaN (masked) : {nan_masked}")
 
-raw_timeline: Timeline = reference.get_timeline()
-supported_timeline: Timeline = raw_timeline.support()
 
-print("\n=== After .support() — overlapping segments merged ===")
-for seg in supported_timeline:
-    print(f"  [{seg.start:.3f}s → {seg.end:.3f}s]")
+# ==================================================================
+# BACKEND 1: PyannoteAudio
+# ==================================================================
+print("=" * 55)
+print("BACKEND 1: PyannoteAudioPretrainedSpeakerEmbedding")
+print("=" * 55)
+print("""
+Model source  : HuggingFace ("pyannote/embedding" or custom fine-tune)
+Framework     : PyTorch (pyannote.audio Model class)
+Masking       : Passes weights= to the model's forward() call
+Best for      : Tight pyannote ecosystem integration, fine-tuning
+Install       : pip install pyannote.audio
+""")
+try:
+    from pyannote.audio.pipelines.speaker_verification import (
+        PyannoteAudioPretrainedSpeakerEmbedding,
+    )
+    backend_pya = PyannoteAudioPretrainedSpeakerEmbedding(
+        "pyannote/embedding",
+        # token="hf_your_token_here",
+    )
+    probe_backend("PyannoteAudio", backend_pya)
+except Exception as e:
+    print(f"  (Skipped: {type(e).__name__}: {e})")
 
-# ------------------------------------------------------------------
-# 4. Run the real VAD model on the same file
-# ------------------------------------------------------------------
-print("\n=== Real Model Speech Regions ===")
-pipeline = VoiceActivityDetection(
-    segmentation="pyannote/segmentation",
-    # token="hf_your_token_here",
-)
-pipeline.instantiate(pipeline.default_parameters())
-model_speech = pipeline(audio_file)
 
-for turn, _, label in model_speech.itertracks(yield_label=True):
-    print(f"  [{turn.start:.3f}s → {turn.end:.3f}s]  {label}")
+# ==================================================================
+# BACKEND 2: SpeechBrain
+# ==================================================================
+print("\n" + "=" * 55)
+print("BACKEND 2: SpeechBrainPretrainedSpeakerEmbedding")
+print("=" * 55)
+print("""
+Model source  : HuggingFace ("speechbrain/spkrec-ecapa-voxceleb", etc.)
+Framework     : SpeechBrain (EncoderClassifier)
+Masking       : Passes wav_lens= (relative lengths 0–1) to encode_batch()
+Best for      : ECAPA-TDNN — strong SOTA speaker model
+Install       : pip install speechbrain
 
-# ------------------------------------------------------------------
-# 5. Side-by-side summary
-# ------------------------------------------------------------------
-oracle_dur = sum(s.duration for s, *_ in oracle_speech.itertracks())
-model_dur  = sum(s.duration for s, *_ in model_speech.itertracks())
+Tip: Use "@revision" suffix to pin a specific model version:
+     "speechbrain/spkrec-ecapa-voxceleb@v3.0.0"
+""")
+try:
+    from pyannote.audio.pipelines.speaker_verification import (
+        SpeechBrainPretrainedSpeakerEmbedding,
+    )
+    backend_sb = SpeechBrainPretrainedSpeakerEmbedding(
+        "speechbrain/spkrec-ecapa-voxceleb",
+        # token="hf_your_token_here",
+        # cache_dir="/tmp/speechbrain",
+    )
+    probe_backend("SpeechBrain", backend_sb)
+except Exception as e:
+    print(f"  (Skipped: SpeechBrain not installed or model unavailable: {e})")
 
-print(f"\n{'':30} Oracle     Model")
-print(f"{'Total speech duration':30} {oracle_dur:6.3f}s   {model_dur:6.3f}s")
-print(f"{'Number of regions':30} "
-      f"{len(list(oracle_speech.itertracks())):6}     "
-      f"{len(list(model_speech.itertracks())):6}")
+
+# ==================================================================
+# BACKEND 3: NeMo
+# ==================================================================
+print("\n" + "=" * 55)
+print("BACKEND 3: NeMoPretrainedSpeakerEmbedding")
+print("=" * 55)
+print("""
+Model source  : NVIDIA NGC / HuggingFace ("nvidia/speakerverification_en_titanet_large")
+Framework     : NVIDIA NeMo (EncDecSpeakerLabelModel)
+Masking       : Interpolates mask to waveform length, pads masked sequences
+Best for      : Large-scale NVIDIA models, TitaNet architecture
+Install       : pip install nemo_toolkit[asr]
+
+Note: NeMo's .to(device) reloads from scratch — use device= at init time
+      instead of calling .to() afterwards when possible.
+""")
+try:
+    from pyannote.audio.pipelines.speaker_verification import (
+        NeMoPretrainedSpeakerEmbedding,
+    )
+    backend_nemo = NeMoPretrainedSpeakerEmbedding(
+        "nvidia/speakerverification_en_titanet_large",
+        device=torch.device("cpu"),
+    )
+    probe_backend("NeMo", backend_nemo)
+except Exception as e:
+    print(f"  (Skipped: NeMo not installed or model unavailable: {e})")
+
+
+# ==================================================================
+# BACKEND 4: WeSpeaker (ONNX)
+# ==================================================================
+print("\n" + "=" * 55)
+print("BACKEND 4: ONNXWeSpeakerPretrainedSpeakerEmbedding")
+print("=" * 55)
+print("""
+Model source  : HuggingFace ("hbredin/wespeaker-voxceleb-resnet34-LM")
+                or local path to a .onnx file
+Framework     : ONNX Runtime (no PyTorch needed at inference time)
+Input         : fbank features (not raw waveforms) — computed internally
+Masking       : Masks are applied to the fbank feature frames
+Best for      : Portable deployment, no heavy framework dependencies
+Install       : pip install onnxruntime
+
+Quirk: compute_fbank() is called on raw waveforms first,
+       then the ONNX session receives (batch, frames, 80) fbank features.
+""")
+try:
+    from pyannote.audio.pipelines.speaker_verification import (
+        ONNXWeSpeakerPretrainedSpeakerEmbedding,
+    )
+    backend_onnx = ONNXWeSpeakerPretrainedSpeakerEmbedding(
+        "hbredin/wespeaker-voxceleb-resnet34-LM",
+        # token="hf_your_token_here",
+        # cache_dir="/tmp/wespeaker",
+    )
+    probe_backend("WeSpeaker ONNX", backend_onnx)
+
+    # Show fbank feature extraction explicitly
+    print(f"\n  Fbank feature demo:")
+    fbank = backend_onnx.compute_fbank(fake_waveforms[:1])
+    print(f"    Input waveform : {fake_waveforms[:1].shape}")
+    print(f"    fbank output   : {fbank.shape}  (batch, frames, 80 mel bins)")
+    print(f"    min_num_frames : {backend_onnx.min_num_frames}")
+except Exception as e:
+    print(f"  (Skipped: onnxruntime not installed or model unavailable: {e})")
+
+
+# ==================================================================
+# ROUTER: PretrainedSpeakerEmbedding()
+# ==================================================================
+print("\n" + "=" * 55)
+print("ROUTER: PretrainedSpeakerEmbedding()")
+print("=" * 55)
+print("""
+This is the function you should use in most cases.
+It inspects the model name string and returns the right backend.
+""")
+
+from pyannote.audio.pipelines.speaker_verification import PretrainedSpeakerEmbedding
+
+routing_table = [
+    ("pyannote/embedding",                          "PyannoteAudio"),
+    ("speechbrain/spkrec-ecapa-voxceleb",           "SpeechBrain"),
+    ("nvidia/speakerverification_en_titanet_large", "NeMo"),
+    ("hbredin/wespeaker-voxceleb-resnet34-LM",      "WeSpeaker ONNX"),
+]
+
+print(f"  {'Model string':50s}  →  Expected backend")
+for model_str, expected in routing_table:
+    # Show routing logic without actually downloading
+    if "pyannote" in model_str:
+        resolved = "PyannoteAudioPretrainedSpeakerEmbedding"
+    elif "speechbrain" in model_str:
+        resolved = "SpeechBrainPretrainedSpeakerEmbedding"
+    elif "nvidia" in model_str:
+        resolved = "NeMoPretrainedSpeakerEmbedding"
+    elif "wespeaker" in model_str:
+        resolved = "ONNXWeSpeakerPretrainedSpeakerEmbedding"
+    else:
+        resolved = "PyannoteAudioPretrainedSpeakerEmbedding (fallback)"
+    print(f"  {model_str:50s}  →  {resolved}")
 ```
 
 ---
 
 ```python
-# example_vad_evaluation.py
+# example_speaker_verification_pipeline.py
 """
-Evaluating VAD Quality — DER and F-score
-==========================================
-Goal: Measure how well VoiceActivityDetection performs against
-      a human-labelled reference.
+SpeakerEmbedding Pipeline — Audio File → One Embedding
+=========================================================
+Goal: Use the high-level SpeakerEmbedding Pipeline class, which
+      accepts an audio file dict instead of raw waveform tensors.
 
-Two metrics are supported:
+This is more convenient than using the raw backend classes directly
+when you're working with files rather than pre-loaded tensors.
 
-  DetectionErrorRate (DER) — lower is better (0 = perfect)
-    = (missed speech + false alarm speech) / total reference speech
-
-  DetectionPrecisionRecallFMeasure — higher is better (1.0 = perfect)
-    = 2 × precision × recall / (precision + recall)
+It also supports optional VAD (voice activity detection) weighting:
+  - Without segmentation: embed the entire audio uniformly
+  - With    segmentation: focus the embedding on speech frames only
+    (speech probability is cubed → strongly down-weights near-silence)
 
 Covers:
-  1. DER on a single file
-  2. F-score on a single file
-  3. Accumulating metrics over a dataset
-  4. Detailed metric breakdown (miss / false alarm)
-  5. Sweeping parameters to find the best config
-  6. Printing a confusion matrix of speech vs. silence
+  1. Basic usage — file path → embedding
+  2. With segmentation model — VAD-weighted embedding
+  3. AudioFile dict formats accepted
+  4. Comparing two speakers with the pipeline
+  5. The VAD weight formula (scores**3)
+  6. Running the CLI evaluator (main())
 """
 
-from pyannote.core import Annotation, Segment
-from pyannote.metrics.detection import (
-    DetectionErrorRate,
-    DetectionPrecisionRecallFMeasure,
-)
+import numpy as np
+import torch
+from scipy.spatial.distance import cdist
 
-from pyannote.audio.pipelines.voice_activity_detection import VoiceActivityDetection
+from pyannote.audio.pipelines.speaker_verification import SpeakerEmbedding
 
-# ------------------------------------------------------------------
-# Helper: build a simple reference annotation
-# ------------------------------------------------------------------
-def make_reference(uri: str) -> Annotation:
-    ref = Annotation(uri=uri)
-    ref[Segment(0.5,  3.2)]  = "speech"
-    ref[Segment(4.0,  6.5)]  = "speech"
-    ref[Segment(7.0, 10.0)]  = "speech"
-    ref[Segment(11.0, 13.5)] = "speech"
-    return ref
 
-# ------------------------------------------------------------------
-# Build pipelines (DER-mode and F-score-mode)
-# ------------------------------------------------------------------
-pipeline_der = VoiceActivityDetection(
-    segmentation="pyannote/segmentation",
-    fscore=False,   # optimise DER (default)
+# ==================================================================
+# FEATURE 1: Basic usage — file path → one embedding
+# ==================================================================
+print("=== Feature 1: Basic SpeakerEmbedding Pipeline ===\n")
+
+pipeline = SpeakerEmbedding(
+    embedding="pyannote/embedding",
+    segmentation=None,    # no VAD — embed the whole file uniformly
     # token="hf_your_token_here",
 )
-pipeline_der.instantiate(pipeline_der.default_parameters())
 
-pipeline_f = VoiceActivityDetection(
-    segmentation="pyannote/segmentation",
-    fscore=True,    # optimise F-measure
+# SpeakerEmbedding.apply() returns np.ndarray of shape (1, dimension)
+emb_alice = pipeline("alice.wav")    # ← replace with your file
+emb_bob   = pipeline("bob.wav")
+
+print(f"Embedding shape : {emb_alice.shape}   (1 × {emb_alice.shape[-1]} dims)")
+
+dist = cdist(emb_alice, emb_bob, metric="cosine")[0][0]
+print(f"Cosine distance : {dist:.4f}")
+print(f"Decision        : {'same speaker' if dist < 0.5 else 'different speaker'}\n")
+
+
+# ==================================================================
+# FEATURE 2: With segmentation — VAD-weighted embedding
+# ==================================================================
+print("=== Feature 2: VAD-Weighted Embedding ===\n")
+print("""
+When you add a segmentation model, the pipeline:
+  1. Runs the segmentation model on the file
+  2. Takes per-frame speech probability scores
+  3. Cubes them: weights = scores ** 3
+     → prob=0.9 → weight=0.73  (keep)
+     → prob=0.5 → weight=0.13  (down-weight heavily)
+     → prob=0.1 → weight=0.001 (nearly ignore)
+  4. Passes these weights to the embedding model
+
+Effect: the embedding becomes less polluted by silence and background noise.
+This typically improves verification accuracy on noisy recordings.
+""")
+
+pipeline_vad = SpeakerEmbedding(
+    embedding="pyannote/embedding",
+    segmentation="pyannote/segmentation",   # adds VAD weighting
     # token="hf_your_token_here",
 )
-pipeline_f.instantiate(pipeline_f.default_parameters())
 
-audio_file = {"uri": "test_file", "audio": "test.wav"}   # ← replace
-reference  = make_reference("test_file")
+emb_alice_vad = pipeline_vad("alice.wav")
+emb_alice_plain = pipeline("alice.wav")    # no VAD (from Feature 1)
 
-# ==================================================================
-# FEATURE 1: DER on a single file
-# ==================================================================
-print("=== Feature 1: Detection Error Rate ===\n")
+# Both are (1, 512) — same shape, different content
+diff = cdist(emb_alice_vad, emb_alice_plain, metric="cosine")[0][0]
+print(f"Without VAD weights embedding norm : {np.linalg.norm(emb_alice_plain):.4f}")
+print(f"With    VAD weights embedding norm : {np.linalg.norm(emb_alice_vad):.4f}")
+print(f"Distance between the two           : {diff:.4f}  (small = similar)\n")
 
-hypothesis = pipeline_der(audio_file)
-
-# get_metric() returns a new DetectionErrorRate instance
-metric_der = pipeline_der.get_metric()
-
-# Calling the metric computes the score (finds the best label mapping)
-der = metric_der(reference, hypothesis)
-print(f"Detection Error Rate: {der * 100:.2f}%  (lower is better)\n")
-
-# ==================================================================
-# FEATURE 2: F-score on a single file
-# ==================================================================
-print("=== Feature 2: Detection F-score ===\n")
-
-hypothesis_f = pipeline_f(audio_file)
-metric_f     = pipeline_f.get_metric()   # DetectionPrecisionRecallFMeasure
-
-fscore = metric_f(reference, hypothesis_f)
-print(f"Detection F-score: {fscore:.4f}  (higher is better, max = 1.0)\n")
-
-# ==================================================================
-# FEATURE 3: Detailed breakdown — miss / false alarm
-# ==================================================================
-print("=== Feature 3: Detailed DER Breakdown ===\n")
-
-# detailed=True returns a dict with per-component scores
-detail = metric_der(reference, hypothesis, detailed=True)
-
-# The keys depend on the metric class.
-# DetectionErrorRate provides these components:
-print("Metric components:")
-for key, value in detail.items():
-    if isinstance(value, float):
-        print(f"  {key:30s}: {value * 100:.2f}%")
-    else:
-        print(f"  {key:30s}: {value}")
-
-# Compute precision and recall manually from the detail dict
-# (miss rate = missed speech / reference speech)
-# (false alarm rate = false alarm / reference speech)
-ref_duration = detail.get("total", None)
-if ref_duration:
-    miss_pct = 100 * detail.get("miss", 0) / ref_duration
-    fa_pct   = 100 * detail.get("false alarm", 0) / ref_duration
-    print(f"\nMiss rate       : {miss_pct:.2f}%  (speech that was not detected)")
-    print(f"False alarm rate: {fa_pct:.2f}%  (silence that was labelled as speech)")
+# Visualise the weight formula
+print("VAD weight formula  scores**3:")
+for prob in [0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 1.0]:
+    weight = prob ** 3
+    bar = "█" * int(weight * 30)
+    print(f"  prob={prob:.2f}  weight={weight:.4f}  {bar}")
 print()
 
-# ==================================================================
-# FEATURE 4: Accumulating over a dataset
-# ==================================================================
-print("=== Feature 4: Dataset-Level Evaluation ===\n")
 
-# Build a small test set (replace with a real pyannote.database protocol)
-test_set = [
-    {"uri": "file1", "audio": "file1.wav"},
-    {"uri": "file2", "audio": "file2.wav"},
-    {"uri": "file3", "audio": "file3.wav"},
+# ==================================================================
+# FEATURE 3: AudioFile dict formats
+# ==================================================================
+print("=== Feature 3: AudioFile Dict Formats ===\n")
+print("""
+SpeakerEmbedding.apply() accepts several AudioFile formats.
+All are equivalent — use whichever is most convenient.
+""")
+
+# Format A: plain file path string
+file_a = "alice.wav"
+
+# Format B: Path object
+from pathlib import Path
+file_b = Path("alice.wav")
+
+# Format C: dict with audio path (allows adding metadata like uri)
+file_c = {
+    "uri": "alice_recording_01",   # optional identifier
+    "audio": "alice.wav",
+}
+
+# Format D: dict with pre-loaded waveform tensor
+import torchaudio
+waveform, sr = torchaudio.load("alice.wav")
+if waveform.shape[0] > 1:
+    waveform = waveform.mean(0, keepdim=True)
+file_d = {
+    "waveform": waveform,
+    "sample_rate": sr,
+}
+
+for fmt, f in [("string path", file_a), ("Path object", file_b),
+               ("dict + audio", file_c), ("dict + waveform", file_d)]:
+    emb = pipeline(f)
+    print(f"  {fmt:20s}  → embedding shape {emb.shape}")
+print()
+
+
+# ==================================================================
+# FEATURE 4: Comparing multiple speakers with the pipeline
+# ==================================================================
+print("=== Feature 4: Multi-Speaker Comparison ===\n")
+
+audio_files = {
+    "Alice" : "alice.wav",
+    "Bob"   : "bob.wav",
+    "Carol" : "carol.wav",
+}
+
+# Extract embeddings (cache them to avoid re-running the model)
+embeddings = {name: pipeline(path) for name, path in audio_files.items()}
+
+# Build pairwise distance matrix
+names = list(embeddings.keys())
+emb_matrix = np.vstack([embeddings[n] for n in names])   # (3, 512)
+dist_matrix = cdist(emb_matrix, emb_matrix, metric="cosine")
+
+print("Pairwise cosine distances:")
+header = "         " + "  ".join(f"{n:>7}" for n in names)
+print(header)
+for i, ni in enumerate(names):
+    row = "  ".join(f"{dist_matrix[i,j]:7.4f}" for j in range(len(names)))
+    print(f"  {ni:>6}: {row}")
+print()
+
+
+# ==================================================================
+# FEATURE 5: The VAD weight formula in detail
+# ==================================================================
+print("=== Feature 5: VAD Weight Formula (scores**3) ===\n")
+print("""
+Inside SpeakerEmbedding.apply():
+
+  1. self._segmentation(file).data
+     → SlidingWindowFeature.data  shape: (num_frames, 1)
+        Values are speech probabilities in [0, 1]
+
+  2. weights[np.isnan(weights)] = 0.0
+     → Replace NaN frames (no prediction) with 0 weight
+
+  3. weights = torch.from_numpy(weights ** 3)[None, :, 0]
+     → Cube the probabilities: this aggressively penalises
+        uncertain frames without completely ignoring them.
+     → Shape becomes (1, num_frames) — ready for the embedding model
+
+  4. self.embedding_model_(waveform, weights=weights)
+     → The model uses these weights to produce a weighted mean
+        embedding across frames (only confident speech contributes)
+""")
+
+# Demonstrate the cubing effect numerically
+import numpy as np
+probs = np.array([0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 0.9, 0.95, 1.0])
+weights_cubed = probs ** 3
+
+print(f"  {'prob':>6}  {'weight (prob**3)':>18}  {'relative contribution':>22}")
+for p, w in zip(probs, weights_cubed):
+    bar = "▉" * int(w * 25)
+    print(f"  {p:6.2f}  {w:18.4f}  {bar}")
+print()
+
+
+# ==================================================================
+# FEATURE 6: Running the CLI evaluator
+# ==================================================================
+print("=== Feature 6: CLI Evaluator (main()) ===\n")
+print("""
+The module includes a main() function that computes EER on VoxCeleb trial lists.
+Run it from the command line:
+
+  python speaker_verification.py \\
+    --protocol VoxCeleb.SpeakerVerification.VoxCeleb1 \\
+    --subset test \\
+    --embedding pyannote/embedding \\
+    --segmentation pyannote/segmentation
+
+What it does:
+  1. Loads all trial pairs (two audio files + same/different label)
+  2. Extracts embeddings for each unique audio file (with caching)
+  3. Computes cosine distance for each trial pair
+  4. Runs det_curve() to find the EER threshold
+  5. Prints: protocol | subset | embedding | segmentation | EER = X.XXX%
+
+EER (Equal Error Rate) — the operating point where:
+  False Accept Rate  (wrong "same") == False Reject Rate (wrong "different")
+  Lower EER = better verification system.
+  State-of-the-art systems achieve < 1% EER on VoxCeleb1.
+""")
+```
+
+---
+
+```python
+# example_speaker_verification_evaluation.py
+"""
+Speaker Verification Evaluation — EER, DET Curve, Batch Trials
+================================================================
+Goal: Measure how accurately an embedding model verifies speakers.
+
+The standard protocol:
+  1. You have a list of "trials": pairs of audio clips with a label
+     (1 = same speaker, 0 = different speaker)
+  2. For each pair: extract embeddings → compute cosine distance
+  3. At every possible threshold: count false accepts and false rejects
+  4. Find the EER — the threshold where both error types are equal
+
+Covers:
+  1. Building and evaluating a trial list
+  2. The DET curve and EER
+  3. Precision / Recall at a fixed threshold
+  4. Embedding caching for efficient evaluation
+  5. min_num_samples guard — handling very short clips
+  6. NaN embedding detection and filtering
+"""
+
+import numpy as np
+import torch
+import torchaudio
+from pathlib import Path
+from scipy.spatial.distance import cdist
+
+from pyannote.audio.pipelines.speaker_verification import PretrainedSpeakerEmbedding
+
+
+# ------------------------------------------------------------------
+# Setup
+# ------------------------------------------------------------------
+get_embedding = PretrainedSpeakerEmbedding(
+    "pyannote/embedding",
+    # token="hf_your_token_here",
+)
+SR = get_embedding.sample_rate
+MIN_SAMPLES = get_embedding.min_num_samples
+
+print(f"Model           : pyannote/embedding")
+print(f"Dimension       : {get_embedding.dimension}")
+print(f"Min audio length: {MIN_SAMPLES} samples ({MIN_SAMPLES/SR*1000:.1f} ms)\n")
+
+
+def load_clip(path: str) -> torch.Tensor:
+    """Load audio → (1, 1, num_samples) tensor at model's sample rate."""
+    wav, sr = torchaudio.load(path)
+    if sr != SR:
+        wav = torchaudio.functional.resample(wav, sr, SR)
+    if wav.shape[0] > 1:
+        wav = wav.mean(0, keepdim=True)
+    return wav.unsqueeze(0)   # (1, 1, N)
+
+
+# ==================================================================
+# FEATURE 1: Building and evaluating a trial list
+# ==================================================================
+print("=== Feature 1: Trial List Evaluation ===\n")
+
+# A trial list is a list of dicts, each with:
+#   "file1"     → path to clip 1
+#   "file2"     → path to clip 2
+#   "reference" → 1 if same speaker, 0 if different
+
+# Replace with your actual trial list (e.g. from VoxCeleb or AMI)
+trials = [
+    {"file1": "alice_1.wav", "file2": "alice_2.wav", "reference": 1},
+    {"file1": "alice_1.wav", "file2": "bob_1.wav",   "reference": 0},
+    {"file1": "bob_1.wav",   "file2": "bob_2.wav",   "reference": 1},
+    {"file1": "carol_1.wav", "file2": "alice_1.wav", "reference": 0},
+    {"file1": "carol_1.wav", "file2": "carol_2.wav", "reference": 1},
 ]
-references = {f["uri"]: make_reference(f["uri"]) for f in test_set}
 
-# Accumulate DER across all files
-accumulated_metric = pipeline_der.get_metric()   # fresh instance
+# Embed unique files only (avoid re-computing the same file twice)
+embedding_cache = {}
 
-for file in test_set:
-    hyp = pipeline_der(file)
-    ref = references[file["uri"]]
-    accumulated_metric(ref, hyp)   # adds to internal running total
+def get_cached_embedding(path: str) -> np.ndarray:
+    if path not in embedding_cache:
+        clip = load_clip(path)
+        embedding_cache[path] = get_embedding(clip)   # (1, dim)
+    return embedding_cache[path]
 
-# abs() on the metric returns the final accumulated score
-overall_der = abs(accumulated_metric)
-print(f"Overall DER across {len(test_set)} files: {overall_der * 100:.2f}%\n")
+y_true, y_pred = [], []
 
-# ==================================================================
-# FEATURE 5: Parameter sweep to find best config
-# ==================================================================
-print("=== Feature 5: Parameter Sweep ===\n")
+for trial in trials:
+    emb1 = get_cached_embedding(trial["file1"])
+    emb2 = get_cached_embedding(trial["file2"])
+    distance = cdist(emb1, emb2, metric="cosine")[0][0]
+    y_pred.append(distance)
+    y_true.append(trial["reference"])
+    same = "SAME" if trial["reference"] == 1 else "DIFF"
+    print(f"  [{same}]  {Path(trial['file1']).stem:15s} vs {Path(trial['file2']).stem:15s}"
+          f"  dist={distance:.4f}")
 
-# Sweep over onset/offset combinations on a dev file.
-# In practice: run this on a held-out development set, NOT the test set.
+print(f"\n  Cached {len(embedding_cache)} unique embeddings for {len(trials)} trials\n")
 
-dev_file      = {"uri": "dev_file", "audio": "dev.wav"}   # ← replace
-dev_reference = make_reference("dev_file")
-
-candidates = [
-    {"onset": 0.5, "offset": 0.3, "min_duration_on": 0.0, "min_duration_off": 0.0},
-    {"onset": 0.7, "offset": 0.4, "min_duration_on": 0.1, "min_duration_off": 0.05},
-    {"onset": 0.8, "offset": 0.5, "min_duration_on": 0.2, "min_duration_off": 0.1},
-]
-
-best_der    = float("inf")
-best_config = None
-
-print(f"{'Config':55s}  DER")
-print("-" * 65)
-
-for cfg in candidates:
-    pipeline_der.instantiate(cfg)
-    hyp = pipeline_der(dev_file)
-    m   = DetectionErrorRate(collar=0.0, skip_overlap=False)
-    der = m(dev_reference, hyp)
-
-    label = (f"onset={cfg['onset']:.1f}, offset={cfg['offset']:.1f}, "
-             f"on={cfg['min_duration_on']:.2f}, off={cfg['min_duration_off']:.2f}")
-    print(f"  {label:53s}  {der * 100:.2f}%")
-
-    if der < best_der:
-        best_der    = der
-        best_config = cfg
-
-print(f"\nBest config : {best_config}")
-print(f"Best DER    : {best_der * 100:.2f}%\n")
-
-# Apply best config for final inference
-pipeline_der.instantiate(best_config)
 
 # ==================================================================
-# FEATURE 6: get_direction() — tells the optimizer which way is better
+# FEATURE 2: EER and DET curve
 # ==================================================================
-print("=== Feature 6: Optimization Direction ===\n")
+print("=== Feature 2: EER (Equal Error Rate) ===\n")
+print("""
+EER is the threshold where:
+  False Accept Rate (FAR) = False Reject Rate (FRR)
 
-# The pipeline exposes get_direction() so that external hyperparameter
-# optimizers (like Optuna or pyannote's built-in optimizer) know whether
-# to minimize or maximize the metric.
+  FAR = (different-speaker pairs accepted as same) / (all different pairs)
+  FRR = (same-speaker pairs rejected as different) / (all same pairs)
 
-pipeline_min = VoiceActivityDetection(fscore=False)
-pipeline_max = VoiceActivityDetection(fscore=True)
+Lower EER = better model.
+""")
 
-print(f"fscore=False  → get_direction() = '{pipeline_min.get_direction()}'  "
-      f"(minimize DER)")
-print(f"fscore=True   → get_direction() = '{pipeline_max.get_direction()}'  "
-      f"(maximize F-score)")
+try:
+    from pyannote.metrics.binary_classification import det_curve
+    _, _, _, eer = det_curve(y_true, np.array(y_pred), distances=True)
+    print(f"  EER = {eer * 100:.3f}%")
+    print(f"  (On VoxCeleb1, state-of-the-art models achieve < 1% EER)\n")
+except ImportError:
+    print("  (pyannote.metrics not installed — install with: pip install pyannote.metrics)")
+
+    # Manual EER approximation without pyannote.metrics
+    thresholds = np.linspace(0, 2, 1000)
+    same_mask = np.array(y_true) == 1
+    diff_mask = ~same_mask
+    dists = np.array(y_pred)
+
+    best_eer, best_threshold = float("inf"), 0.5
+    for t in thresholds:
+        far = np.mean(dists[diff_mask] < t) if diff_mask.any() else 0
+        frr = np.mean(dists[same_mask] >= t) if same_mask.any() else 0
+        eer_approx = abs(far - frr)
+        if eer_approx < best_eer:
+            best_eer = eer_approx
+            best_threshold = t
+
+    print(f"  Approximate EER threshold : {best_threshold:.4f}")
+    print(f"  (Install pyannote.metrics for exact EER)\n")
+
+
+# ==================================================================
+# FEATURE 3: Precision and Recall at a fixed threshold
+# ==================================================================
+print("=== Feature 3: Precision / Recall at Fixed Threshold ===\n")
+
+THRESHOLD = 0.5   # tune on a development set
+dists  = np.array(y_pred)
+labels = np.array(y_true)
+preds  = (dists < THRESHOLD).astype(int)   # 1 = predicted same, 0 = predicted different
+
+tp = np.sum((preds == 1) & (labels == 1))
+fp = np.sum((preds == 1) & (labels == 0))
+tn = np.sum((preds == 0) & (labels == 0))
+fn = np.sum((preds == 0) & (labels == 1))
+
+precision = tp / (tp + fp) if (tp + fp) > 0 else float("nan")
+recall    = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
+f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else float("nan")
+
+print(f"  Threshold  : {THRESHOLD}")
+print(f"  Precision  : {precision:.4f}  (of predicted SAME, fraction truly SAME)")
+print(f"  Recall     : {recall:.4f}  (of all SAME pairs, fraction correctly found)")
+print(f"  F1-score   : {f1:.4f}")
+print(f"  TP={tp}  FP={fp}  TN={tn}  FN={fn}\n")
+
+
+# ==================================================================
+# FEATURE 4: min_num_samples guard — short clip handling
+# ==================================================================
+print("=== Feature 4: min_num_samples Guard ===\n")
+print(f"""
+If a clip is shorter than {MIN_SAMPLES} samples ({MIN_SAMPLES/SR*1000:.1f} ms),
+the model cannot produce a valid embedding.
+
+All four backends handle this the same way:
+  - The output row for that clip is filled with NaN
+  - No exception is raised — the batch continues processing
+  - You must check for NaN before using the embeddings
+
+The exact minimum is found at init time by binary search:
+  try increasingly small inputs until the model raises RuntimeError,
+  then take the smallest input that succeeded.
+""")
+
+SR = get_embedding.sample_rate
+MIN = get_embedding.min_num_samples
+
+short_clip = torch.randn(1, 1, max(1, MIN - 100))    # intentionally too short
+valid_clip = torch.randn(1, 1, MIN + 1000)           # safely above minimum
+
+emb_short = get_embedding(short_clip)
+emb_valid = get_embedding(valid_clip)
+
+print(f"  Short clip  ({short_clip.shape[-1]:6d} samples) → NaN? {np.any(np.isnan(emb_short))}")
+print(f"  Valid clip  ({valid_clip.shape[-1]:6d} samples) → NaN? {np.any(np.isnan(emb_valid))}\n")
+
+
+# ==================================================================
+# FEATURE 5: NaN detection and filtering in batch evaluation
+# ==================================================================
+print("=== Feature 5: Filtering NaN Embeddings ===\n")
+print("""
+When processing many clips in a batch, some may be too short or
+contain no speech (after masking). Their rows will be NaN.
+You must filter these out before computing distances.
+""")
+
+# Simulate a batch where one embedding is NaN (too-short clip)
+batch_embs = np.random.randn(5, get_embedding.dimension)
+batch_embs[2, :] = np.nan   # simulate a too-short clip
+
+valid_mask = ~np.any(np.isnan(batch_embs), axis=1)
+valid_embs = batch_embs[valid_mask]
+valid_idxs = np.where(valid_mask)[0]
+
+print(f"  Batch size          : {len(batch_embs)}")
+print(f"  NaN rows            : {(~valid_mask).sum()}  (indices: {np.where(~valid_mask)[0].tolist()})")
+print(f"  Valid rows kept     : {valid_mask.sum()}  (indices: {valid_idxs.tolist()})")
+print(f"  Valid embedding shape: {valid_embs.shape}\n")
+
+# Safe distance computation
+if len(valid_embs) >= 2:
+    dist_mat = cdist(valid_embs, valid_embs, metric="cosine")
+    print(f"  Distance matrix shape (valid only): {dist_mat.shape}")
+else:
+    print("  Not enough valid embeddings to compute distances.")
+
+
+# ==================================================================
+# FEATURE 6: EER threshold sweep — find the best operating point
+# ==================================================================
+print("\n=== Feature 6: Threshold Sweep ===\n")
+print("""
+In production you need to pick a fixed operating threshold.
+Sweep over thresholds on a development set to find the best trade-off.
+""")
+
+# Use the y_true / y_pred from Feature 1
+dists  = np.array(y_pred)
+labels = np.array(y_true)
+
+print(f"  {'Threshold':>10}  {'FAR':>8}  {'FRR':>8}  {'|FAR-FRR|':>10}")
+print("  " + "-" * 44)
+
+same_mask = labels == 1
+diff_mask = ~same_mask
+
+for t in np.arange(0.2, 1.4, 0.2):
+    far = float(np.mean(dists[diff_mask] < t)) if diff_mask.any() else 0.0
+    frr = float(np.mean(dists[same_mask] >= t)) if same_mask.any() else 0.0
+    gap = abs(far - frr)
+    marker = " ← EER point" if gap < 0.1 else ""
+    print(f"  {t:10.2f}  {far:8.3f}  {frr:8.3f}  {gap:10.4f}{marker}")
 ```
 
 ---
 
 ### How All the Pieces Fit Together
 
-```text
-┌──────────────────────────────────────────────┐
-│ VoiceActivityDetection.__init__()            │
-│                                              │
-│   segmentation="pyannote/segmentation"       │
-│   ↓                                          │
-│   get_model() → Inference object             │
-│   pre_aggregation_hook: np.max()             │
-│   (collapse speaker scores → 1 curve)        │
-│                                              │
-│   If powerset model:                         │
-│     onset = offset = 0.5 (fixed)             │
-│   Else:                                      │
-│     onset ~ Uniform(0, 1)                    │
-│     offset ~ Uniform(0, 1)                   │
-│     min_duration_on ~ Uniform(0, 1)          │
-│     min_duration_off ~ Uniform(0, 1)         │
-└───────────────────────┬──────────────────────┘
-                        │ pipeline.instantiate(params)
-                        ▼
-┌──────────────────────────────────────────────┐
-│ initialize()                                 │
-│   Builds Binarize(                           │
-│     onset, offset,                           │
-│     min_duration_on,                         │
-│     min_duration_off                         │
-│   )                                          │
-└───────────────────────┬──────────────────────┘
-                        │ pipeline(audio_file)
-                        ▼
-┌──────────────────────────────────────────────┐
-│ apply()                                      │
-│                                              │
-│  1. setup_hook()                             │
-│  2. If training → check cache                │
-│     Else → run _segmentation()               │
-│            → SlidingWindowFeature            │
-│  3. hook("segmentation", ...)                │
-│  4. _binarize(segmentations)                 │
-│            → Annotation                      │
-│  5. rename all labels → "SPEECH"             │
-│  6. return Annotation                        │
-└──────────────────────────────────────────────┘
+```
+                ┌─────────────────────────────────────────────────────┐
+                │  PretrainedSpeakerEmbedding("some/model")           │
+                │  (router function — returns the right backend)      │
+                │                                                     │
+                │  "pyannote/..." → PyannoteAudioPretrainedSpeakerEmb │
+                │  "speechbrain/..." → SpeechBrainPretrainedSpeakerEmb│
+                │  "nvidia/..."  → NeMoPretrainedSpeakerEmbedding     │
+                │  "wespeaker/..."→ ONNXWeSpeakerPretrainedSpeakerEmb │
+                └────────────────────────┬────────────────────────────┘
+                                         │
+                       backend.__call__(waveforms, masks=...)
+                                         │
+                                         ▼
+                            np.ndarray  (batch_size, dim)
+                                         │
+                         ┌───────────────┤
+                         │               │
+              ┌──────────▼──────────┐   cdist(emb1, emb2, metric="cosine")
+              │  SpeakerEmbedding   │         │
+              │  (Pipeline)         │         ▼
+              │                     │   distance  ──▶  threshold  ──▶  same / different
+              │  file → waveform    │
+              │  optional VAD mask  │
+              │  scores ** 3        │
+              └─────────────────────┘
+                         │
+                  main() CLI loop
+                         │
+              y_true, y_pred lists
+                         │
+                    det_curve()
+                         │
+                  EER printed to stdout
 ```
 
 ---
 
-### Model Versions at a Glance
+### Backend Quirks at a Glance
 
-| Model string                  | Powerset | Tunable onset/offset | Default onset | Default offset |
-| ----------------------------- | -------- | -------------------- | ------------- | -------------- |
-| `pyannote/segmentation`       | No       | Yes                  | 0.767         | 0.377          |
-| `pyannote/segmentation-3.0.0` | Yes      | No (fixed 0.5)       | 0.5           | 0.5            |
+| Backend           | Masking method                          | Special input                            | `to(device)` behaviour                   |
+| ----------------- | --------------------------------------- | ---------------------------------------- | ---------------------------------------- |
+| **PyannoteAudio** | `weights=` passed to `model_.forward()` | Raw waveform                             | Move model in-place                      |
+| **SpeechBrain**   | `wav_lens=` (relative 0–1 lengths)      | Raw waveform                             | Reload classifier from disk              |
+| **NeMo**          | Interpolate mask → pad sequences        | Raw waveform                             | Move model in-place                      |
+| **WeSpeaker**     | Mask applied to fbank frames            | **fbank features** (computed internally) | Re-create ONNX session with new provider |
 
 ---
 
 ### Common Mistakes
 
-**1. Forgetting `pipeline.instantiate()`**
+**1. Wrong waveform shape**
 
 ```python
-# ❌ Wrong — pipeline has no parameters set, will raise AttributeError
-speech = pipeline(audio_file)
+# ❌ Wrong — missing the channel dimension
+waveform = torch.randn(batch_size, num_samples)   # (B, N)
+
+# ✅ Correct — must be (batch, channels, samples) with channels=1
+waveform = torch.randn(batch_size, 1, num_samples)   # (B, 1, N)
+```
+
+**2. Not checking for NaN embeddings**
+
+```python
+# ❌ Wrong — silently produces NaN distances for short clips
+embs = get_embedding(short_clips)
+distances = cdist(embs, embs, metric="cosine")
+
+# ✅ Correct — filter NaN rows before computing distances
+valid = ~np.any(np.isnan(embs), axis=1)
+embs_clean = embs[valid]
+distances = cdist(embs_clean, embs_clean, metric="cosine")
+```
+
+**3. Using `SpeakerEmbedding` when you need the raw backend**
+
+```python
+# SpeakerEmbedding assumes ONE speaker per file.
+# ❌ Wrong for multi-speaker recordings — it embeds everything together
+pipeline = SpeakerEmbedding()
+emb = pipeline("meeting_with_multiple_speakers.wav")   # mixed embedding
+
+# ✅ For multi-speaker files, use SpeakerDiarization instead
+```
+
+**4. Forgetting to resample**
+
+```python
+# ❌ Wrong — model expects 16 kHz but file is 44.1 kHz
+waveform, sr = torchaudio.load("music.wav")   # sr=44100
+emb = get_embedding(waveform.unsqueeze(0))    # wrong sample rate
 
 # ✅ Correct
-pipeline.instantiate(pipeline.default_parameters())
-speech = pipeline(audio_file)
-```
-
-**2. Setting onset < offset**
-
-```python
-# ❌ Unusual — means speech starts at a LOWER threshold than it ends
-#    This removes the hysteresis that prevents rapid on/off switching
-pipeline.instantiate({"onset": 0.3, "offset": 0.6, ...})
-
-# ✅ Typical — onset > offset creates stable, hysteretic detection
-pipeline.instantiate({"onset": 0.7, "offset": 0.4, ...})
-```
-
-**3. Calling `default_parameters()` on a model it doesn't know**
-
-```python
-# ❌ Will raise NotImplementedError for custom/fine-tuned model paths
-pipeline = VoiceActivityDetection(segmentation="my_org/my_model")
-params = pipeline.default_parameters()   # raises NotImplementedError
-
-# ✅ Provide your own parameters
-pipeline.instantiate({
-    "onset": 0.5, "offset": 0.5,
-    "min_duration_on": 0.1, "min_duration_off": 0.05
-})
-```
-
-**4. Expecting speaker labels in the output**
-
-```python
-# ❌ VAD does not identify speakers — there is only one label
-for turn, _, label in speech.itertracks(yield_label=True):
-    print(label)   # always "SPEECH" — never "SPEAKER_00"
-
-# ✅ For speaker identity, use SpeakerDiarization instead
+waveform = torchaudio.functional.resample(waveform, sr, get_embedding.sample_rate)
+emb = get_embedding(waveform.unsqueeze(0))
 ```
