@@ -12,7 +12,6 @@ import hdbscan
 from jet.adapters.llama_cpp.embed_utils import embed
 from sentence_transformers import util
 
-user_query = "videos about cuckold and wife swapping"
 query_prefix = "search_query: "
 doc_prefix = "search_document: "
 
@@ -30,10 +29,17 @@ def parse_args():
         default=str(Path(__file__).parent / "mocks" / "04_samples.json"),
         help="Path to samples JSON file",
     )
+    parser.add_argument(
+        "-q",
+        "--user_query",
+        default="videos about cuckold and wife swapping",
+        help="User query to focus clustering (default: %(default)s)",
+    )
     return parser.parse_args()
 
 
 args = parse_args()
+user_query = args.user_query
 samples_path = Path(args.samples_path)
 with open(samples_path, "r", encoding="utf-8") as f:
     data = json.load(f)
