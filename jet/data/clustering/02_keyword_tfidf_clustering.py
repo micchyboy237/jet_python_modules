@@ -13,8 +13,25 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+
 # --- 1. Prepare data -------------------------------------------------
-samples_path = Path(__file__).parent / "mocks" / "02_samples.json"
+def parse_args():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Semantic clustering for video samples"
+    )
+    parser.add_argument(
+        "samples_path",
+        nargs="?",
+        default=str(Path(__file__).parent / "mocks" / "02_samples.json"),
+        help="Path to samples JSON file",
+    )
+    return parser.parse_args()
+
+
+args = parse_args()
+samples_path = Path(args.samples_path)
 with open(samples_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
