@@ -1,8 +1,8 @@
-# parallel_embeddings.py
+# embed_utils.py
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Literal, Union
+from typing import Literal, Union, overload
 
 import numpy as np
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
@@ -20,6 +20,72 @@ client = OpenAI(
     base_url=SERVER_URL,
     api_key="not-needed-for-local",  # llama.cpp ignores this
 )
+
+
+@overload
+def embed(
+    text: str,
+    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
+    return_format: Literal["numpy", "list"] = "numpy",
+    prefix: str | None = None,
+) -> Union[list[float], np.ndarray]: ...
+
+
+@overload
+def embed(
+    text: list[str],
+    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
+    return_format: Literal["numpy", "list"] = "numpy",
+    max_workers: int = 6,
+    show_progress: bool = True,
+    batch_size: int | None = 32,
+    progress_description: str = "Embedding texts",
+    prefix: str | None = None,
+) -> Union[list[list[float]], np.ndarray]: ...
+
+
+def embed(
+    text: Union[str, list[str]],
+    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
+    return_format: Literal["numpy", "list"] = "numpy",
+    max_workers: int = 6,
+    show_progress: bool = True,
+    batch_size: int | None = 32,
+    progress_description: str = "Embedding texts",
+    prefix: str | None = None,
+) -> Union[list[float], list[list[float]], np.ndarray]:
+    """
+    Unified embedding interface.
+
+    - str input → uses embed_single
+    - list[str] input → uses embed_batch
+
+    Keeps API ergonomic while reusing existing implementations.
+    """
+    if isinstance(text, str):
+        if prefix:
+            text = f"{prefix}{text}"
+        return embed_single(
+            text=text,
+            model=model,
+            return_format=return_format,
+        )
+
+    if isinstance(text, list):
+        if prefix:
+            text = [f"{prefix}{t}" for t in text]
+
+        return embed_batch(
+            texts=text,
+            model=model,
+            max_workers=max_workers,
+            show_progress=show_progress,
+            return_format=return_format,
+            batch_size=batch_size,
+            progress_description=progress_description,
+        )
+
+    raise TypeError(f"Unsupported input type: {type(text)}")
 
 
 def embed_single(

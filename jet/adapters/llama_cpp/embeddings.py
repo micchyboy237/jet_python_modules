@@ -7,7 +7,7 @@ from typing import (
 
 import numpy as np
 from jet._token.token_utils import token_counter
-from jet.adapters.llama_cpp.parallel_embeddings import embed_batch, embed_single
+from jet.adapters.llama_cpp.embed_utils import embed_batch, embed_single
 from jet.adapters.llama_cpp.types import (
     LLAMACPP_EMBED_KEYS,
     GenerateEmbeddingsReturnType,

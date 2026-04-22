@@ -2,7 +2,7 @@
 
 import os
 
-from jet.adapters.llama_cpp.parallel_embeddings import embed_batch, embed_single
+from jet.adapters.llama_cpp.embed_utils import embed_batch, embed_single
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 
 DEFAULT_EMBED_URL = os.getenv("LLAMA_CPP_EMBED_URL")
