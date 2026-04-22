@@ -1,7 +1,5 @@
 # pyannote/audio/pipelines/speaker_verification.py
 
----
-
 ### Key Concepts Explained
 
 | Concept                            | Plain English                                                                                                                                   |
