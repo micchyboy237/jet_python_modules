@@ -1,733 +1,726 @@
 # pyannote/audio/pipelines/speaker_verification.py
 
-## Step-by-Step Analysis & Blueprint
-
-### What This File Does (Plain English)
-
-This file answers: _"Who spoke when?"_ — the classic **speaker diarization** problem. Given an audio file with multiple people talking, it produces a timeline like: "Speaker 0 spoke from 0–5s, Speaker 1 from 4–9s, Speaker 0 again from 10–15s…"
-
----
-
-### The 3-Stage Pipeline (How It Works)
-
-```
-Audio File
-    │
-    ▼
-┌─────────────────────────────────────┐
-│  Stage 1: SEGMENTATION              │
-│  Sliding window over audio          │
-│  → "Who is speaking in each chunk?" │
-│  Output: (chunks, frames, speakers) │
-└──────────────────┬──────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────┐
-│  Stage 2: EMBEDDING                 │
-│  Extract voice fingerprint per      │
-│  (chunk, speaker) pair              │
-│  Output: (chunks, speakers, dim)    │
-└──────────────────┬──────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────┐
-│  Stage 3: CLUSTERING                │
-│  Group fingerprints by identity     │
-│  "These 5 chunks are all Speaker 0" │
-│  Output: hard_clusters array        │
-└──────────────────┬──────────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────┐
-│  RECONSTRUCT + LABEL                │
-│  Build final Annotation timeline    │
-│  → DiarizeOutput                    │
-└─────────────────────────────────────┘
-```
-
----
-
-### Feature Map / Blueprint
-
-```
-speaker_diarization.py
-│
-├── batchify()                    → Utility: split any iterable into fixed-size batches
-│
-├── DiarizeOutput (dataclass)     → Result container
-│   ├── speaker_diarization       → Full timeline (includes overlapping speech)
-│   ├── exclusive_speaker_diarization → Timeline with NO overlapping speech
-│   ├── speaker_embeddings        → One voice fingerprint per speaker (centroid)
-│   └── serialize()               → Convert to plain JSON-friendly dict
-│
-└── SpeakerDiarization (Pipeline)
-    ├── __init__()                → Load segmentation + embedding + clustering models
-    ├── segmentation_batch_size   → Property with getter/setter
-    ├── default_parameters()      → Sensible defaults for tunable params
-    ├── classes()                 → Infinite generator: SPEAKER_00, SPEAKER_01, ...
-    ├── get_segmentations()       → Stage 1: run segmentation model (with caching)
-    ├── get_embeddings()          → Stage 2: extract per-(chunk,speaker) embeddings
-    ├── reconstruct()             → Merge clustered chunks into one diarization
-    ├── apply()                   → Master orchestrator — runs all 3 stages
-    └── get_metric()              → Returns DER metric for evaluation
-```
-
 ---
 
 ### Key Concepts Explained
 
-| Concept                   | Plain English                                                               |
-| ------------------------- | --------------------------------------------------------------------------- |
-| **Segmentation**          | Chops audio into overlapping windows, asks "who's speaking here?"           |
-| **Powerset mode**         | Special segmentation where output is already binarized (on/off)             |
-| **Binarization**          | Converts soft probabilities (0.7) to hard on/off (1/0) using a threshold    |
-| **Embedding**             | A voice fingerprint — a list of numbers unique to each speaker              |
-| **Clustering**            | Groups fingerprints by identity — "these all sound like the same person"    |
-| **VBxClustering**         | The default: uses PLDA (a probabilistic model) for smarter grouping         |
-| **Hard clusters**         | An array saying which global speaker ID each local chunk-speaker belongs to |
-| **Centroids**             | Average embedding per speaker — one fingerprint to represent each person    |
-| **DER**                   | Diarization Error Rate — the standard benchmark (lower = better)            |
-| **Exclusive diarization** | Same as diarization but overlapping regions are removed                     |
-| **`exclude_overlap`**     | Only embed non-overlapping speech (cleaner signal, may be too short)        |
-| **`legacy` mode**         | Returns bare `Annotation` instead of full `DiarizeOutput`                   |
+| Concept                            | Plain English                                                                                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Voice Activity Detection (VAD)** | Detecting _when_ speech happens — ignores _who_ is speaking                                                                                     |
+| **Segmentation model**             | A neural network that processes short audio windows and outputs per-frame probabilities                                                         |
+| **SlidingWindowFeature**           | A data structure holding frame-level scores, plus timing info for each window                                                                   |
+| **`np.max` over speaker axis**     | The segmentation model produces one score per speaker — VAD only needs the loudest one                                                          |
+| **Binarize**                       | Converts continuous probabilities (0.0–1.0) into discrete on/off decisions                                                                      |
+| **onset**                          | The probability threshold you must _cross going up_ to trigger "speech started"                                                                 |
+| **offset**                         | The probability threshold you must _drop below_ to trigger "speech ended" — usually lower than onset to avoid rapid toggling                    |
+| **`min_duration_on`**              | Delete any speech region shorter than this many seconds (removes blips)                                                                         |
+| **`min_duration_off`**             | Fill any silence gap shorter than this many seconds (removes stutters)                                                                          |
+| **Powerset mode**                  | A special segmentation model variant whose output is already binarized — onset/offset are fixed at 0.5                                          |
+| **Uniform**                        | A hyper-parameter type that tells the optimizer: "search this parameter between 0.0 and 1.0"                                                    |
+| **hook**                           | A progress-callback function you can pass to `apply()` — it fires after each major step                                                         |
+| **Training cache**                 | During training, `apply()` saves segmentation output to `file["cache/segmentation/inference"]` to avoid recomputing it on every optimizer trial |
+| **DER**                            | Detection Error Rate — penalises missed speech and false alarms. Lower is better.                                                               |
+| **F-measure**                      | Precision × Recall metric. Higher is better. Used when `fscore=True`.                                                                           |
 
 ---
 
 ### Files to Create
 
-1. `example_diarization_basic.py` — Simple end-to-end diarization on a file
-2. `example_diarization_advanced.py` — Speaker constraints, hooks, output inspection
-3. `example_diarization_output.py` — Working with `DiarizeOutput` and serialization
-4. `example_diarization_evaluation.py` — Benchmarking with DER metric
+1. `example_vad_basic.py` — Simplest end-to-end VAD on one file
+2. `example_vad_advanced.py` — Hooks, parameter tuning, fscore mode
+3. `example_vad_oracle.py` — Oracle pipeline and ground-truth comparison
+4. `example_vad_evaluation.py` — Benchmarking with DER and F-score
 
 ---
 
 ```python
-# example_diarization_basic.py
+# example_vad_basic.py
 """
-Basic Speaker Diarization — Who Spoke When?
-============================================
-Goal: Take an audio file → get back a labelled timeline of speakers.
+Basic Voice Activity Detection — Is Anyone Speaking?
+=====================================================
+Goal: Take an audio file → get back a timeline of when speech occurs.
 
 This is the simplest possible usage. The pipeline handles everything:
   - loading audio
-  - detecting speech segments
-  - clustering speakers
-  - labelling them SPEAKER_00, SPEAKER_01, etc.
+  - running the segmentation model
+  - binarizing scores into SPEECH / SILENCE regions
 
 Install requirements:
   pip install pyannote.audio
 
-You'll need a HuggingFace token for gated models:
+You may need a HuggingFace token for gated models:
   https://huggingface.co/settings/tokens
 """
 
 import torch
-from pyannote.audio.pipelines.speaker_diarization import SpeakerDiarization
+from pyannote.audio.pipelines.voice_activity_detection import VoiceActivityDetection
 
 # ------------------------------------------------------------------
 # 1. Build the pipeline
-#    The defaults pull community models from HuggingFace automatically.
+#    The default model ("pyannote/segmentation") is downloaded
+#    automatically from HuggingFace on first use.
 # ------------------------------------------------------------------
-pipeline = SpeakerDiarization(
+pipeline = VoiceActivityDetection(
+    segmentation="pyannote/segmentation",
     # token="hf_your_token_here",   # needed for gated HuggingFace models
-    # cache_dir="/tmp/pyannote",     # where to store downloaded models
+    # cache_dir="/tmp/pyannote",     # where to store downloaded model files
 )
 
-# Move everything to GPU if available
+# Move to GPU if available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 pipeline.to(device)
-
 print("Pipeline ready.")
-print(f"Clustering algorithm : {pipeline.klustering}")
-print(f"Embedding batch size : {pipeline.embedding_batch_size}")
-print(f"Segmentation step    : {pipeline.segmentation_step} "
-      f"(= {pipeline.segmentation_step * 100:.0f}% overlap between windows)\n")
 
 # ------------------------------------------------------------------
-# 2. Process an audio file
-#    AudioFile can be:
-#      - a plain path string:         "meeting.wav"
-#      - a Path object:               Path("meeting.wav")
-#      - a dict with waveform tensor: {"waveform": tensor, "sample_rate": 16000}
-#      - a dict with audio path:      {"uri": "my_file", "audio": "meeting.wav"}
+# 2. Set parameters — onset, offset, and duration filters
+#
+#    default_parameters() returns values tuned on a standard benchmark.
+#    These are a good starting point.
 # ------------------------------------------------------------------
-audio_file = "meeting.wav"   # ← replace with your file
-
-output = pipeline(audio_file)
+pipeline.instantiate(pipeline.default_parameters())
+print(f"Parameters in use: {pipeline.default_parameters()}\n")
 
 # ------------------------------------------------------------------
-# 3. Read the results
-#    output is a DiarizeOutput dataclass with three fields:
-#      .speaker_diarization          → full timeline
-#      .exclusive_speaker_diarization → overlap-free timeline
-#      .speaker_embeddings           → one embedding per speaker
+# 3. Process an audio file
+#    AudioFile formats accepted:
+#      - plain path string:          "speech.wav"
+#      - Path object:                Path("speech.wav")
+#      - dict with waveform tensor:  {"waveform": tensor, "sample_rate": 16000}
+#      - dict with audio path:       {"uri": "my_file", "audio": "speech.wav"}
 # ------------------------------------------------------------------
-print("=== Speaker Timeline ===")
-for turn, _, speaker in output.speaker_diarization.itertracks(yield_label=True):
-    print(f"  [{turn.start:6.1f}s → {turn.end:6.1f}s]  {speaker}")
+audio_file = "speech.wav"   # ← replace with your file
 
-print(f"\nTotal speakers found: {len(output.speaker_diarization.labels())}")
-print(f"Speaker labels      : {output.speaker_diarization.labels()}")
+speech = pipeline(audio_file)
 
 # ------------------------------------------------------------------
-# 4. Exclusive diarization — no overlapping speech regions
-#    Useful when you need clean, non-ambiguous speaker turns
+# 4. Read the results
+#    speech is a pyannote.core.Annotation with label "SPEECH".
+#    Each track represents one detected speech region.
 # ------------------------------------------------------------------
-print("\n=== Exclusive (no-overlap) Timeline ===")
-for turn, _, speaker in output.exclusive_speaker_diarization.itertracks(yield_label=True):
-    print(f"  [{turn.start:6.1f}s → {turn.end:6.1f}s]  {speaker}")
+print("=== Detected Speech Regions ===")
+for turn, _, label in speech.itertracks(yield_label=True):
+    print(f"  [{turn.start:7.3f}s → {turn.end:7.3f}s]  {label}  "
+          f"(duration: {turn.duration:.3f}s)")
 
-# ------------------------------------------------------------------
-# 5. Speaker embeddings — one voice fingerprint per speaker
-#    Shape: (num_speakers, embedding_dimension)
-#    Useful for: identifying speakers across different meetings
-# ------------------------------------------------------------------
-if output.speaker_embeddings is not None:
-    import numpy as np
-    print(f"\n=== Speaker Embeddings ===")
-    print(f"Shape: {output.speaker_embeddings.shape}")
-    for i, label in enumerate(output.speaker_diarization.labels()):
-        emb = output.speaker_embeddings[i]
-        print(f"  {label}: embedding norm = {np.linalg.norm(emb):.4f}")
+total_speech = sum(seg.duration for seg, *_ in speech.itertracks())
+print(f"\nTotal speech duration : {total_speech:.3f}s")
+print(f"Number of regions     : {len(list(speech.itertracks()))}")
+print(f"Labels in output      : {speech.labels()}")   # always ["SPEECH"]
 ```
 
 ---
 
 ```python
-# example_diarization_advanced.py
+# example_vad_advanced.py
 """
-Advanced Diarization — Constraints, Hooks & Tuning
-====================================================
-Goal: Show how to control the pipeline more precisely:
-  1. Speaker count constraints (exact / min / max)
-  2. Progress hooks — monitor each pipeline stage in real time
-  3. Tuning segmentation & clustering parameters
-  4. Batch sizes for GPU throughput
-  5. Overlap exclusion for cleaner embeddings
-  6. Legacy mode for backward-compatible output
+Advanced VAD — Hooks, Parameter Tuning, and F-score Mode
+=========================================================
+Goal: Show the less-obvious controls available in VoiceActivityDetection.
 
-Most real-world usage needs at least one of these techniques.
+Covers:
+  1. Progress hook — watch segmentation unfold in real time
+  2. Manual parameter tuning — onset, offset, duration filters
+  3. fscore=True — switch the optimisation target from DER to F-measure
+  4. Using a newer model (pyannote/segmentation-3.0.0)
+  5. Batch size control for faster GPU processing
+  6. Passing a raw waveform tensor instead of a file path
 """
 
 import numpy as np
 import torch
-from pyannote.audio.pipelines.speaker_diarization import SpeakerDiarization
+from pyannote.audio.pipelines.voice_activity_detection import VoiceActivityDetection
 
-# ------------------------------------------------------------------
-# Setup
-# ------------------------------------------------------------------
-pipeline = SpeakerDiarization(
-    # token="hf_your_token_here",
-)
-
-audio_file = "meeting.wav"   # ← replace with your file
-
+audio_file = "speech.wav"   # ← replace with your file
 
 # ==================================================================
-# FEATURE 1: Speaker count constraints
+# FEATURE 1: Progress hook
 # ==================================================================
-print("=== Feature 1: Speaker Constraints ===\n")
+print("=== Feature 1: Progress Hook ===\n")
 
-# When you KNOW exactly how many people are in the recording
-output_exact = pipeline(audio_file, num_speakers=3)
-print(f"Exact 3 speakers → found: {len(output_exact.speaker_diarization.labels())}")
+# The hook is called after each major pipeline step with:
+#   step_name     → name of the stage (str)
+#   step_artifact → what was produced (SlidingWindowFeature, Annotation, ...)
+#   completed     → batches done so far (int, only during long steps)
+#   total         → total batches in this step (int, only during long steps)
 
-# When you only know the range
-output_range = pipeline(audio_file, min_speakers=2, max_speakers=5)
-n = len(output_range.speaker_diarization.labels())
-print(f"Range 2–5 speakers → found: {n} (within bounds: {2 <= n <= 5})")
-
-# Unconstrained — pipeline decides on its own
-output_auto = pipeline(audio_file)
-print(f"Auto speakers → found: {len(output_auto.speaker_diarization.labels())}\n")
-
-
-# ==================================================================
-# FEATURE 2: Progress hook — watch each stage as it runs
-# ==================================================================
-print("=== Feature 2: Progress Hook ===\n")
-
-# The hook is called after each major step with:
-#   step_name     → which stage just finished (str)
-#   step_artifact → what was produced (tensor / array / etc.)
-#   completed     → how many batches done so far (int, optional)
-#   total         → total batches in this step (int, optional)
-
-def my_progress_hook(step_name, step_artifact, file=None, completed=None, total=None):
+def my_hook(step_name, step_artifact, file=None, completed=None, total=None):
     if completed is not None and total is not None:
         pct = 100 * completed / total
-        print(f"  [{step_name}] {completed}/{total} batches ({pct:.0f}%)")
+        print(f"  [{step_name}] {completed}/{total} ({pct:.0f}%)")
     else:
-        artifact_info = ""
-        if hasattr(step_artifact, "shape"):
-            artifact_info = f"shape={step_artifact.shape}"
-        elif hasattr(step_artifact, "data"):
-            artifact_info = f"data.shape={step_artifact.data.shape}"
-        print(f"  ✓ Stage done: '{step_name}'  {artifact_info}")
+        info = ""
+        if hasattr(step_artifact, "data"):
+            info = f"shape={step_artifact.data.shape}"
+        elif hasattr(step_artifact, "shape"):
+            info = f"shape={step_artifact.shape}"
+        print(f"  ✓ {step_name}  {info}")
 
-output = pipeline(audio_file, hook=my_progress_hook)
+pipeline = VoiceActivityDetection(segmentation="pyannote/segmentation")
+pipeline.instantiate(pipeline.default_parameters())
+
+speech = pipeline(audio_file, hook=my_hook)
+print(f"\nFound {len(list(speech.itertracks()))} speech regions with hook.\n")
+
+
+# ==================================================================
+# FEATURE 2: Manual parameter tuning
+# ==================================================================
+print("=== Feature 2: Parameter Tuning ===\n")
+
+# Parameters and what they control:
+#
+#   onset  (float 0–1):
+#     The model's speech probability must RISE ABOVE this to start a region.
+#     Higher onset → stricter, fewer false alarms, may miss soft speech.
+#
+#   offset (float 0–1):
+#     The model's speech probability must FALL BELOW this to end a region.
+#     Lower offset → speech regions extend further into quiet sections.
+#     offset < onset is normal — creates hysteresis (avoids rapid switching).
+#
+#   min_duration_on (float, seconds):
+#     Delete any detected speech region shorter than this.
+#     Useful for removing noise spikes labelled as speech.
+#
+#   min_duration_off (float, seconds):
+#     Fill any silence gap shorter than this.
+#     Useful for merging closely-spaced words into one region.
+
+custom_params = {
+    "onset": 0.8,            # stricter — only high-confidence speech
+    "offset": 0.4,           # generous end — don't cut off word endings
+    "min_duration_on": 0.2,  # ignore blips shorter than 0.2s
+    "min_duration_off": 0.1, # fill pauses shorter than 0.1s
+}
+
+pipeline.instantiate(custom_params)
+speech_custom = pipeline(audio_file)
+
+print("Default params speech regions :", len(list(
+    VoiceActivityDetection(segmentation="pyannote/segmentation")
+    .apply.__func__  # just counting — pipeline already set above
+    if False else speech.itertracks()  # use earlier result
+)))
+print("Custom params  speech regions :", len(list(speech_custom.itertracks())))
 print()
 
 
 # ==================================================================
-# FEATURE 3: Tuning pipeline parameters
+# FEATURE 3: fscore=True — optimise for F-measure instead of DER
 # ==================================================================
-print("=== Feature 3: Parameter Tuning ===\n")
+print("=== Feature 3: F-score Mode ===\n")
 
-# You can set internal parameters directly on the pipeline object.
-# These control the segmentation binarization and clustering sensitivity.
-#
-# default_parameters() shows the recommended starting values:
-defaults = pipeline.default_parameters()
-print("Default parameters:")
-for section, params in defaults.items():
-    for key, val in params.items():
-        print(f"  {section}.{key} = {val}")
+# By default the pipeline minimises DER (Detection Error Rate).
+# Setting fscore=True switches the optimisation target to F-measure
+# (precision × recall harmonic mean), which is better when you care
+# equally about not missing speech AND not adding false alarms.
 
-# Apply defaults (or your custom values after tuning)
-pipeline.instantiate(defaults)
-
-# Alternatively, tune a specific parameter:
-# pipeline.segmentation.min_duration_off = 0.2  # seconds of silence before splitting turn
-# pipeline.clustering.threshold = 0.5           # lower = more aggressive splitting into speakers
-
-output_tuned = pipeline(audio_file)
-print(f"\nTuned pipeline → {len(output_tuned.speaker_diarization.labels())} speakers\n")
-
-
-# ==================================================================
-# FEATURE 4: Batch size — faster processing on GPU
-# ==================================================================
-print("=== Feature 4: Batch Sizes ===\n")
-
-# Segmentation batch size: how many audio windows to process at once
-# Embedding batch size: how many (chunk, speaker) pairs to embed at once
-# Larger = faster on GPU, but uses more memory
-
-pipeline.segmentation_batch_size = 32   # uses the setter → updates internal inference
-pipeline.embedding_batch_size    = 16   # set directly
-
-print(f"Segmentation batch size: {pipeline.segmentation_batch_size}")
-print(f"Embedding batch size   : {pipeline.embedding_batch_size}\n")
-
-
-# ==================================================================
-# FEATURE 5: Overlap exclusion — cleaner embeddings
-# ==================================================================
-print("=== Feature 5: Overlap-Excluded Embeddings ===\n")
-
-# When multiple speakers talk at the same time, the mixed audio
-# makes a noisy embedding. This option tells the pipeline to
-# ONLY use the parts where exactly one person is speaking.
-# Trade-off: may fall back to overlapping regions if there's not enough clean speech.
-
-pipeline_clean = SpeakerDiarization(
-    embedding_exclude_overlap=True,
+pipeline_fscore = VoiceActivityDetection(
+    segmentation="pyannote/segmentation",
+    fscore=True,
     # token="hf_your_token_here",
 )
-pipeline_clean.instantiate(pipeline_clean.default_parameters())
+pipeline_fscore.instantiate(pipeline_fscore.default_parameters())
 
-output_clean = pipeline_clean(audio_file)
-print(f"With overlap exclusion → {len(output_clean.speaker_diarization.labels())} speakers\n")
+speech_fscore = pipeline_fscore(audio_file)
+
+print(f"Optimisation target : {'F-measure (maximize)' if pipeline_fscore.fscore else 'DER (minimize)'}")
+print(f"get_direction()     : {pipeline_fscore.get_direction()}")
+print(f"get_metric() type   : {type(pipeline_fscore.get_metric()).__name__}")
+print(f"Regions found       : {len(list(speech_fscore.itertracks()))}\n")
 
 
 # ==================================================================
-# FEATURE 6: Legacy mode — returns plain Annotation (old API)
+# FEATURE 4: Newer model — pyannote/segmentation-3.0.0
 # ==================================================================
-print("=== Feature 6: Legacy Mode ===\n")
+print("=== Feature 4: Newer Segmentation Model ===\n")
 
-# Before DiarizeOutput was introduced, pipeline returned a bare Annotation.
-# legacy=True restores that behavior for code written against the old API.
+# The 3.0.0 model uses powerset mode — its output is already binarized,
+# so onset and offset are fixed at 0.5 and cannot be tuned.
+# Only min_duration_on and min_duration_off remain as free parameters.
 
-pipeline_legacy = SpeakerDiarization(legacy=True)
-pipeline_legacy.instantiate(pipeline_legacy.default_parameters())
+pipeline_v3 = VoiceActivityDetection(
+    segmentation="pyannote/segmentation-3.0.0",
+    # token="hf_your_token_here",
+)
 
-annotation = pipeline_legacy(audio_file)   # returns Annotation, not DiarizeOutput
+defaults_v3 = pipeline_v3.default_parameters()
+print(f"v3.0 default params: {defaults_v3}")
+# → {'min_duration_on': 0.0, 'min_duration_off': 0.0}
+# onset and offset are NOT tunable in powerset mode
 
-from pyannote.core import Annotation
-assert isinstance(annotation, Annotation), "Legacy mode should return an Annotation"
+pipeline_v3.instantiate(defaults_v3)
+speech_v3 = pipeline_v3(audio_file)
+print(f"v3.0 regions found : {len(list(speech_v3.itertracks()))}\n")
 
-print("Legacy output type:", type(annotation).__name__)
-for turn, _, speaker in annotation.itertracks(yield_label=True):
-    print(f"  [{turn.start:.1f}s → {turn.end:.1f}s]  {speaker}")
+
+# ==================================================================
+# FEATURE 5: Batch size — faster on GPU
+# ==================================================================
+print("=== Feature 5: Batch Size Control ===\n")
+
+# inference_kwargs are forwarded straight to pyannote.audio.Inference.
+# The most useful one is batch_size — how many audio windows to process
+# in parallel. Larger = faster on GPU, but uses more VRAM.
+
+pipeline_batched = VoiceActivityDetection(
+    segmentation="pyannote/segmentation",
+    batch_size=32,   # ← passed to Inference via **inference_kwargs
+    # token="hf_your_token_here",
+)
+pipeline_batched.instantiate(pipeline_batched.default_parameters())
+speech_batched = pipeline_batched(audio_file)
+print(f"Batched (bs=32) regions: {len(list(speech_batched.itertracks()))}\n")
+
+
+# ==================================================================
+# FEATURE 6: Raw waveform tensor as input
+# ==================================================================
+print("=== Feature 6: Waveform Tensor Input ===\n")
+
+# Instead of a file path you can pass a dict with:
+#   "waveform"    → torch.Tensor of shape (channels, samples)
+#   "sample_rate" → int, e.g. 16000
+
+sample_rate = 16000
+duration_sec = 5
+fake_waveform = torch.randn(1, sample_rate * duration_sec)   # 5 s of noise
+
+audio_dict = {
+    "uri": "synthetic_audio",       # optional but useful for logging
+    "waveform": fake_waveform,
+    "sample_rate": sample_rate,
+}
+
+pipeline_w = VoiceActivityDetection(segmentation="pyannote/segmentation")
+pipeline_w.instantiate(pipeline_w.default_parameters())
+speech_waveform = pipeline_w(audio_dict)
+
+print(f"Input  : waveform tensor {fake_waveform.shape}, sr={sample_rate}")
+print(f"Output : {len(list(speech_waveform.itertracks()))} speech regions")
+for turn, _, label in speech_waveform.itertracks(yield_label=True):
+    print(f"  [{turn.start:.3f}s → {turn.end:.3f}s]  {label}")
 ```
 
 ---
 
 ```python
-# example_diarization_output.py
+# example_vad_oracle.py
 """
-Working with DiarizeOutput
-============================
-Goal: Deep-dive into what DiarizeOutput contains and how to use each field.
-
-Covers:
-  1. Reading the full diarization timeline
-  2. Reading the exclusive (no-overlap) timeline
-  3. Speaker embeddings — cross-meeting identification
-  4. JSON serialization — save results to disk
-  5. Comparing speakers across two different recordings
-  6. The infinite speaker label generator (classes())
-"""
-
-import json
-import numpy as np
-import torch
-from pathlib import Path
-from scipy.spatial.distance import cdist
-
-from pyannote.audio.pipelines.speaker_diarization import SpeakerDiarization, DiarizeOutput
-
-# ------------------------------------------------------------------
-# Setup
-# ------------------------------------------------------------------
-pipeline = SpeakerDiarization(
-    # token="hf_your_token_here",
-)
-pipeline.instantiate(pipeline.default_parameters())
-
-audio_file_1 = "meeting_day1.wav"   # ← replace with your files
-audio_file_2 = "meeting_day2.wav"
-
-output1: DiarizeOutput = pipeline(audio_file_1)
-output2: DiarizeOutput = pipeline(audio_file_2)
-
-
-# ==================================================================
-# FEATURE 1: Full diarization — includes overlapping speech
-# ==================================================================
-print("=== Full Diarization (with overlaps) ===")
-
-# itertracks(yield_label=True) gives you: (segment, track_id, label)
-# segment has .start and .end in seconds
-for turn, track, speaker in output1.speaker_diarization.itertracks(yield_label=True):
-    print(f"  {speaker}:  {turn.start:6.2f}s → {turn.end:6.2f}s  (duration: {turn.duration:.2f}s)")
-
-# You can also get just a specific speaker's segments:
-target_speaker = output1.speaker_diarization.labels()[0]
-speaker_timeline = output1.speaker_diarization.label_timeline(target_speaker)
-total_speech = sum(seg.duration for seg in speaker_timeline)
-print(f"\n{target_speaker} total speech time: {total_speech:.2f}s\n")
-
-
-# ==================================================================
-# FEATURE 2: Exclusive diarization — overlaps removed
-# ==================================================================
-print("=== Exclusive Diarization (no overlaps) ===")
-
-# This is useful for:
-#   - Word-level alignment (transcript + speaker)
-#   - Clean speech extraction per speaker
-#   - Metrics that penalise overlap attribution
-
-for turn, _, speaker in output1.exclusive_speaker_diarization.itertracks(yield_label=True):
-    print(f"  {speaker}:  {turn.start:6.2f}s → {turn.end:6.2f}s")
-
-# Measure how much speech is overlap
-full_duration     = sum(seg.duration for seg, *_ in output1.speaker_diarization.itertracks())
-exclusive_duration= sum(seg.duration for seg, *_ in output1.exclusive_speaker_diarization.itertracks())
-overlap_pct = 100 * (1 - exclusive_duration / full_duration) if full_duration > 0 else 0
-print(f"\nOverlapping speech: {overlap_pct:.1f}% of total labelled speech\n")
-
-
-# ==================================================================
-# FEATURE 3: Speaker embeddings — voice fingerprints
-# ==================================================================
-print("=== Speaker Embeddings ===")
-
-# speaker_embeddings shape: (num_speakers, embedding_dim)
-# One centroid embedding per discovered speaker.
-# The order matches diarization.labels() — first label → row 0, etc.
-
-if output1.speaker_embeddings is not None:
-    embs  = output1.speaker_embeddings
-    labels = output1.speaker_diarization.labels()
-
-    print(f"Embedding matrix shape: {embs.shape}")
-    print(f"Speakers ({len(labels)}): {labels}\n")
-
-    # Cosine distance between all speaker pairs within the same meeting
-    dist_matrix = cdist(embs, embs, metric="cosine")
-    print("Pairwise speaker distances (cosine):")
-    header = "       " + "  ".join(f"{l:>10}" for l in labels)
-    print(header)
-    for i, label_i in enumerate(labels):
-        row = "  ".join(f"{dist_matrix[i, j]:10.4f}" for j in range(len(labels)))
-        print(f"  {label_i}: {row}")
-    print()
-
-
-# ==================================================================
-# FEATURE 4: JSON serialization — save to disk
-# ==================================================================
-print("=== JSON Serialization ===")
-
-# serialize() converts the DiarizeOutput to a plain dict
-# with "diarization" and "exclusive_diarization" lists
-serialized = output1.serialize()
-
-print("Serialized structure:")
-print(f"  Keys: {list(serialized.keys())}")
-print(f"  First 2 turns:")
-for turn in serialized["diarization"][:2]:
-    print(f"    {turn}")
-
-# Save to JSON file
-output_path = Path("diarization_result.json")
-output_path.write_text(json.dumps(serialized, indent=2))
-print(f"\nSaved to: {output_path.resolve()}\n")
-
-
-# ==================================================================
-# FEATURE 5: Cross-meeting speaker comparison
-# ==================================================================
-print("=== Cross-Meeting Speaker Comparison ===")
-
-# "Is the SPEAKER_00 from meeting 1 the same person as SPEAKER_01 from meeting 2?"
-# Compare their centroid embeddings with cosine distance.
-
-THRESHOLD = 0.7   # tune this based on your embedding model
-
-if output1.speaker_embeddings is not None and output2.speaker_embeddings is not None:
-    embs1  = output1.speaker_embeddings
-    labels1 = output1.speaker_diarization.labels()
-    embs2  = output2.speaker_embeddings
-    labels2 = output2.speaker_diarization.labels()
-
-    cross_distances = cdist(embs1, embs2, metric="cosine")
-
-    print("Cross-meeting cosine distances (< threshold → likely same person):")
-    for i, l1 in enumerate(labels1):
-        for j, l2 in enumerate(labels2):
-            d = cross_distances[i, j]
-            match = "← MATCH" if d < THRESHOLD else ""
-            print(f"  Meeting1/{l1} vs Meeting2/{l2}: {d:.4f}  {match}")
-    print()
-
-
-# ==================================================================
-# FEATURE 6: The speaker label generator
-# ==================================================================
-print("=== Speaker Label Generator ===")
-
-# SpeakerDiarization.classes() is an infinite generator producing
-# SPEAKER_00, SPEAKER_01, SPEAKER_02, ... on demand.
-# The pipeline uses this to assign standardised names to clusters.
-
-gen = pipeline.classes()
-first_10 = [next(gen) for _ in range(10)]
-print(f"First 10 labels from classes(): {first_10}")
-```
-
----
-
-```python
-# example_diarization_evaluation.py
-"""
-Evaluating Diarization Quality with DER
+Oracle VAD — Ground-Truth Speech Regions
 =========================================
-Goal: Measure how accurate our diarization is compared to a ground-truth
-      transcript (called a "reference annotation").
+Goal: Understand OracleVoiceActivityDetection and use it to build
+      a reference baseline for evaluation.
 
-DER = Diarization Error Rate (lower is better, 0% = perfect).
-It sums three types of errors:
-  1. Miss       — speaker was talking but not detected
-  2. False Alarm — detected speech where there was silence
-  3. Confusion  — right region, wrong speaker label
+The Oracle pipeline does NOT run any model. It reads the "annotation"
+key directly from the AudioFile dict — the human-labelled ground truth.
+
+This is useful for:
+  1. Checking your annotation format is correct
+  2. Getting an upper-bound DER of 0% for sanity checking your eval loop
+  3. Comparing oracle VAD output to a real model side by side
 
 Covers:
-  1. Computing DER on one file
-  2. Evaluating across multiple files
-  3. Tuning parameters to lower DER
-  4. Understanding DER variants (collar, skip_overlap)
-  5. The batchify() utility used internally
+  1. Building and running the oracle pipeline
+  2. Constructing a proper AudioFile dict with an annotation
+  3. Comparing oracle output to model output
+  4. Understanding the .support() + .to_annotation() chain
 """
 
-import numpy as np
-from pyannote.core import Annotation, Segment
-from pyannote.metrics.diarization import GreedyDiarizationErrorRate
+import torch
+from pyannote.core import Annotation, Segment, Timeline
 
-from pyannote.audio.pipelines.speaker_diarization import (
-    SpeakerDiarization,
-    batchify,
+from pyannote.audio.pipelines.voice_activity_detection import (
+    OracleVoiceActivityDetection,
+    VoiceActivityDetection,
 )
 
 # ------------------------------------------------------------------
-# Setup
+# 1. Build a fake AudioFile with a ground-truth annotation
+#
+#    An AudioFile is just a plain Python dict.
+#    For OracleVoiceActivityDetection it MUST contain "annotation".
+#    For VoiceActivityDetection it MUST contain "audio" (or waveform).
 # ------------------------------------------------------------------
-pipeline = SpeakerDiarization(
+
+# Reference: who spoke and when (this is our "ground truth")
+reference = Annotation(uri="example_file")
+reference[Segment(0.5, 3.2)]  = "SPEAKER_A"
+reference[Segment(3.0, 6.5)]  = "SPEAKER_B"   # overlaps slightly with A
+reference[Segment(7.0, 10.0)] = "SPEAKER_A"
+reference[Segment(10.5, 13.0)] = "SPEAKER_B"
+
+audio_file = {
+    "uri": "example_file",
+    "audio": "example_file.wav",    # ← path to audio (used by VoiceActivityDetection)
+    "annotation": reference,        # ← ground truth (used by OracleVoiceActivityDetection)
+}
+
+# ------------------------------------------------------------------
+# 2. Run the Oracle pipeline
+#    It calls:  file["annotation"].get_timeline().support()
+#    Which means: take all labelled segments → merge overlapping ones
+#    → return a Timeline of contiguous speech blocks.
+#    Then wraps that as an Annotation with label "speech".
+# ------------------------------------------------------------------
+oracle = OracleVoiceActivityDetection()
+oracle_speech = oracle.apply(audio_file)
+
+print("=== Oracle Speech Regions ===")
+print("(These are the ground-truth speech regions, speaker identity removed)")
+for turn, _, label in oracle_speech.itertracks(yield_label=True):
+    print(f"  [{turn.start:.3f}s → {turn.end:.3f}s]  {label}")
+
+# ------------------------------------------------------------------
+# 3. What .support() does — merging overlapping segments
+# ------------------------------------------------------------------
+print("\n=== Original Reference Segments (with speaker labels) ===")
+for turn, _, speaker in reference.itertracks(yield_label=True):
+    print(f"  [{turn.start:.3f}s → {turn.end:.3f}s]  {speaker}")
+
+raw_timeline: Timeline = reference.get_timeline()
+supported_timeline: Timeline = raw_timeline.support()
+
+print("\n=== After .support() — overlapping segments merged ===")
+for seg in supported_timeline:
+    print(f"  [{seg.start:.3f}s → {seg.end:.3f}s]")
+
+# ------------------------------------------------------------------
+# 4. Run the real VAD model on the same file
+# ------------------------------------------------------------------
+print("\n=== Real Model Speech Regions ===")
+pipeline = VoiceActivityDetection(
+    segmentation="pyannote/segmentation",
     # token="hf_your_token_here",
 )
 pipeline.instantiate(pipeline.default_parameters())
+model_speech = pipeline(audio_file)
 
+for turn, _, label in model_speech.itertracks(yield_label=True):
+    print(f"  [{turn.start:.3f}s → {turn.end:.3f}s]  {label}")
+
+# ------------------------------------------------------------------
+# 5. Side-by-side summary
+# ------------------------------------------------------------------
+oracle_dur = sum(s.duration for s, *_ in oracle_speech.itertracks())
+model_dur  = sum(s.duration for s, *_ in model_speech.itertracks())
+
+print(f"\n{'':30} Oracle     Model")
+print(f"{'Total speech duration':30} {oracle_dur:6.3f}s   {model_dur:6.3f}s")
+print(f"{'Number of regions':30} "
+      f"{len(list(oracle_speech.itertracks())):6}     "
+      f"{len(list(model_speech.itertracks())):6}")
+```
+
+---
+
+```python
+# example_vad_evaluation.py
+"""
+Evaluating VAD Quality — DER and F-score
+==========================================
+Goal: Measure how well VoiceActivityDetection performs against
+      a human-labelled reference.
+
+Two metrics are supported:
+
+  DetectionErrorRate (DER) — lower is better (0 = perfect)
+    = (missed speech + false alarm speech) / total reference speech
+
+  DetectionPrecisionRecallFMeasure — higher is better (1.0 = perfect)
+    = 2 × precision × recall / (precision + recall)
+
+Covers:
+  1. DER on a single file
+  2. F-score on a single file
+  3. Accumulating metrics over a dataset
+  4. Detailed metric breakdown (miss / false alarm)
+  5. Sweeping parameters to find the best config
+  6. Printing a confusion matrix of speech vs. silence
+"""
+
+from pyannote.core import Annotation, Segment
+from pyannote.metrics.detection import (
+    DetectionErrorRate,
+    DetectionPrecisionRecallFMeasure,
+)
+
+from pyannote.audio.pipelines.voice_activity_detection import VoiceActivityDetection
+
+# ------------------------------------------------------------------
+# Helper: build a simple reference annotation
+# ------------------------------------------------------------------
+def make_reference(uri: str) -> Annotation:
+    ref = Annotation(uri=uri)
+    ref[Segment(0.5,  3.2)]  = "speech"
+    ref[Segment(4.0,  6.5)]  = "speech"
+    ref[Segment(7.0, 10.0)]  = "speech"
+    ref[Segment(11.0, 13.5)] = "speech"
+    return ref
+
+# ------------------------------------------------------------------
+# Build pipelines (DER-mode and F-score-mode)
+# ------------------------------------------------------------------
+pipeline_der = VoiceActivityDetection(
+    segmentation="pyannote/segmentation",
+    fscore=False,   # optimise DER (default)
+    # token="hf_your_token_here",
+)
+pipeline_der.instantiate(pipeline_der.default_parameters())
+
+pipeline_f = VoiceActivityDetection(
+    segmentation="pyannote/segmentation",
+    fscore=True,    # optimise F-measure
+    # token="hf_your_token_here",
+)
+pipeline_f.instantiate(pipeline_f.default_parameters())
+
+audio_file = {"uri": "test_file", "audio": "test.wav"}   # ← replace
+reference  = make_reference("test_file")
 
 # ==================================================================
 # FEATURE 1: DER on a single file
 # ==================================================================
-print("=== Feature 1: DER on One File ===\n")
+print("=== Feature 1: Detection Error Rate ===\n")
 
-# To compute DER you need a reference annotation — a ground-truth
-# transcript of who spoke when. This would normally come from a
-# labelled dataset or a human transcript.
+hypothesis = pipeline_der(audio_file)
 
-# Fake reference annotation for demonstration
-reference = Annotation(uri="demo_file")
-reference[Segment(0.0, 5.0)]  = "Alice"
-reference[Segment(5.5, 10.0)] = "Bob"
-reference[Segment(9.0, 15.0)] = "Alice"
+# get_metric() returns a new DetectionErrorRate instance
+metric_der = pipeline_der.get_metric()
 
-# Run pipeline on the same file
-audio_file = {"uri": "demo_file", "audio": "demo.wav"}   # ← replace
-output = pipeline(audio_file)
-hypothesis = output.speaker_diarization
-
-# get_metric() returns the metric configured at pipeline init time
-metric = pipeline.get_metric()   # GreedyDiarizationErrorRate
-
-# Calling the metric object computes DER (it finds the best label mapping)
-der = metric(reference, hypothesis)
-print(f"DER: {der * 100:.2f}%")
-
-# You can also get a detailed breakdown
-detail = metric(reference, hypothesis, detailed=True)
-print(f"Miss          : {detail['miss'] * 100:.2f}%")
-print(f"False Alarm   : {detail['false alarm'] * 100:.2f}%")
-print(f"Speaker Conf. : {detail['confusion'] * 100:.2f}%\n")
-
+# Calling the metric computes the score (finds the best label mapping)
+der = metric_der(reference, hypothesis)
+print(f"Detection Error Rate: {der * 100:.2f}%  (lower is better)\n")
 
 # ==================================================================
-# FEATURE 2: Evaluating across a dataset (multiple files)
+# FEATURE 2: F-score on a single file
 # ==================================================================
-print("=== Feature 2: Multi-File Evaluation ===\n")
+print("=== Feature 2: Detection F-score ===\n")
 
-# Real evaluation loops over a test set and accumulates the metric.
-# The GreedyDiarizationErrorRate object is stateful — each call adds
-# to its running total.
+hypothesis_f = pipeline_f(audio_file)
+metric_f     = pipeline_f.get_metric()   # DetectionPrecisionRecallFMeasure
 
-# Simulated test set (replace with real data from pyannote.database)
+fscore = metric_f(reference, hypothesis_f)
+print(f"Detection F-score: {fscore:.4f}  (higher is better, max = 1.0)\n")
+
+# ==================================================================
+# FEATURE 3: Detailed breakdown — miss / false alarm
+# ==================================================================
+print("=== Feature 3: Detailed DER Breakdown ===\n")
+
+# detailed=True returns a dict with per-component scores
+detail = metric_der(reference, hypothesis, detailed=True)
+
+# The keys depend on the metric class.
+# DetectionErrorRate provides these components:
+print("Metric components:")
+for key, value in detail.items():
+    if isinstance(value, float):
+        print(f"  {key:30s}: {value * 100:.2f}%")
+    else:
+        print(f"  {key:30s}: {value}")
+
+# Compute precision and recall manually from the detail dict
+# (miss rate = missed speech / reference speech)
+# (false alarm rate = false alarm / reference speech)
+ref_duration = detail.get("total", None)
+if ref_duration:
+    miss_pct = 100 * detail.get("miss", 0) / ref_duration
+    fa_pct   = 100 * detail.get("false alarm", 0) / ref_duration
+    print(f"\nMiss rate       : {miss_pct:.2f}%  (speech that was not detected)")
+    print(f"False alarm rate: {fa_pct:.2f}%  (silence that was labelled as speech)")
+print()
+
+# ==================================================================
+# FEATURE 4: Accumulating over a dataset
+# ==================================================================
+print("=== Feature 4: Dataset-Level Evaluation ===\n")
+
+# Build a small test set (replace with a real pyannote.database protocol)
 test_set = [
     {"uri": "file1", "audio": "file1.wav"},
     {"uri": "file2", "audio": "file2.wav"},
+    {"uri": "file3", "audio": "file3.wav"},
 ]
-fake_references = {
-    "file1": Annotation(uri="file1"),
-    "file2": Annotation(uri="file2"),
-}
-fake_references["file1"][Segment(0, 3)] = "Alice"
-fake_references["file1"][Segment(3, 6)] = "Bob"
-fake_references["file2"][Segment(0, 4)] = "Carol"
-fake_references["file2"][Segment(4, 8)] = "Dave"
+references = {f["uri"]: make_reference(f["uri"]) for f in test_set}
 
-accumulated_metric = pipeline.get_metric()
+# Accumulate DER across all files
+accumulated_metric = pipeline_der.get_metric()   # fresh instance
 
 for file in test_set:
-    output = pipeline(file)
-    hypothesis = output.speaker_diarization
-    reference  = fake_references[file["uri"]]
-    accumulated_metric(reference, hypothesis)
+    hyp = pipeline_der(file)
+    ref = references[file["uri"]]
+    accumulated_metric(ref, hyp)   # adds to internal running total
 
-# abs() on the metric returns the overall accumulated DER
+# abs() on the metric returns the final accumulated score
 overall_der = abs(accumulated_metric)
 print(f"Overall DER across {len(test_set)} files: {overall_der * 100:.2f}%\n")
 
-
 # ==================================================================
-# FEATURE 3: DER variants — collar and skip_overlap
+# FEATURE 5: Parameter sweep to find best config
 # ==================================================================
-print("=== Feature 3: DER Variants ===\n")
+print("=== Feature 5: Parameter Sweep ===\n")
 
-# collar : ignore errors within N seconds of a speaker change boundary
-#          (e.g. 0.25 means ±250ms around transitions don't count)
-#          Common in academic papers to be more forgiving of timing errors.
-#
-# skip_overlap : ignore regions where 2+ speakers talk simultaneously
-#               (makes DER easier — useful if overlap detection is out of scope)
-
-pipeline_collar = SpeakerDiarization(
-    der_variant={"collar": 0.25, "skip_overlap": False},
-    # token="hf_your_token_here",
-)
-pipeline_skip = SpeakerDiarization(
-    der_variant={"collar": 0.0, "skip_overlap": True},
-    # token="hf_your_token_here",
-)
-
-metric_collar = pipeline_collar.get_metric()
-metric_skip   = pipeline_skip.get_metric()
-
-print(f"Standard metric class : {type(pipeline.get_metric()).__name__}")
-print(f"Collar metric details : collar=0.25, skip_overlap=False")
-print(f"Skip-overlap metric   : collar=0.0,  skip_overlap=True\n")
-
-
-# ==================================================================
-# FEATURE 4: Tuning to lower DER
-# ==================================================================
-print("=== Feature 4: Parameter Tuning for Lower DER ===\n")
-
-# The pipeline has tunable parameters exposed via pipeline.segmentation
-# and pipeline.clustering. In practice you'd use a held-out dev set
-# and sweep over these. Here we show manual tuning.
-
-# Key parameters to tune:
-#   segmentation.min_duration_off → merge short silences (seconds)
-#     too small → noisy splits; too large → merges different turns
-#   segmentation.threshold       → (non-powerset only) binarization cutoff
-#     higher → less speech detected; lower → more speech (more false alarms)
-#   clustering.threshold         → cosine distance cutoff for merging speakers
-#     lower → more speakers detected; higher → fewer (more confusion)
-
-candidate_configs = [
-    {"segmentation": {"min_duration_off": 0.0}, "clustering": {"threshold": 0.5, "Fa": 0.07, "Fb": 0.8}},
-    {"segmentation": {"min_duration_off": 0.1}, "clustering": {"threshold": 0.6, "Fa": 0.07, "Fb": 0.8}},
-    {"segmentation": {"min_duration_off": 0.2}, "clustering": {"threshold": 0.7, "Fa": 0.07, "Fb": 0.8}},
-]
-
-print("Sweeping over parameter configs (on one dev file):")
+# Sweep over onset/offset combinations on a dev file.
+# In practice: run this on a held-out development set, NOT the test set.
 
 dev_file      = {"uri": "dev_file", "audio": "dev.wav"}   # ← replace
-dev_reference = Annotation(uri="dev_file")
-dev_reference[Segment(0, 5)]  = "A"
-dev_reference[Segment(5, 10)] = "B"
+dev_reference = make_reference("dev_file")
+
+candidates = [
+    {"onset": 0.5, "offset": 0.3, "min_duration_on": 0.0, "min_duration_off": 0.0},
+    {"onset": 0.7, "offset": 0.4, "min_duration_on": 0.1, "min_duration_off": 0.05},
+    {"onset": 0.8, "offset": 0.5, "min_duration_on": 0.2, "min_duration_off": 0.1},
+]
 
 best_der    = float("inf")
 best_config = None
 
-for config in candidate_configs:
-    pipeline.instantiate(config)
-    output    = pipeline(dev_file)
-    m         = pipeline.get_metric()
-    der       = m(dev_reference, output.speaker_diarization)
-    label     = f"min_off={config['segmentation']['min_duration_off']}, "   \
-                f"clust_thresh={config['clustering']['threshold']}"
-    print(f"  Config [{label}] → DER = {der * 100:.2f}%")
+print(f"{'Config':55s}  DER")
+print("-" * 65)
+
+for cfg in candidates:
+    pipeline_der.instantiate(cfg)
+    hyp = pipeline_der(dev_file)
+    m   = DetectionErrorRate(collar=0.0, skip_overlap=False)
+    der = m(dev_reference, hyp)
+
+    label = (f"onset={cfg['onset']:.1f}, offset={cfg['offset']:.1f}, "
+             f"on={cfg['min_duration_on']:.2f}, off={cfg['min_duration_off']:.2f}")
+    print(f"  {label:53s}  {der * 100:.2f}%")
+
     if der < best_der:
         best_der    = der
-        best_config = config
+        best_config = cfg
 
-print(f"\nBest config: {best_config}  (DER = {best_der * 100:.2f}%)\n")
-# Apply best config for inference
-pipeline.instantiate(best_config)
+print(f"\nBest config : {best_config}")
+print(f"Best DER    : {best_der * 100:.2f}%\n")
 
+# Apply best config for final inference
+pipeline_der.instantiate(best_config)
 
 # ==================================================================
-# FEATURE 5: batchify() — the utility used inside get_embeddings()
+# FEATURE 6: get_direction() — tells the optimizer which way is better
 # ==================================================================
-print("=== Feature 5: batchify() Utility ===\n")
+print("=== Feature 6: Optimization Direction ===\n")
 
-# batchify splits any iterable into fixed-size chunks.
-# Internally used to batch (waveform, mask) pairs before feeding to the embedder.
-# Leftover slots are padded with fillvalue (default None).
+# The pipeline exposes get_direction() so that external hyperparameter
+# optimizers (like Optuna or pyannote's built-in optimizer) know whether
+# to minimize or maximize the metric.
 
-items = list(range(10))   # [0, 1, 2, ..., 9]
-batched = list(batchify(items, batch_size=3, fillvalue=-1))
+pipeline_min = VoiceActivityDetection(fscore=False)
+pipeline_max = VoiceActivityDetection(fscore=True)
 
-print(f"Input  : {items}")
-print(f"Batch size = 3")
-print(f"Output : {batched}")
-# → [(0,1,2), (3,4,5), (6,7,8), (9,-1,-1)]
+print(f"fscore=False  → get_direction() = '{pipeline_min.get_direction()}'  "
+      f"(minimize DER)")
+print(f"fscore=True   → get_direction() = '{pipeline_max.get_direction()}'  "
+      f"(maximize F-score)")
+```
 
-# In pipeline code, None-filled entries are filtered out before processing:
-# filter(lambda b: b[0] is not None, batch)
+---
+
+### How All the Pieces Fit Together
+
+```text
+┌──────────────────────────────────────────────┐
+│ VoiceActivityDetection.__init__()            │
+│                                              │
+│   segmentation="pyannote/segmentation"       │
+│   ↓                                          │
+│   get_model() → Inference object             │
+│   pre_aggregation_hook: np.max()             │
+│   (collapse speaker scores → 1 curve)        │
+│                                              │
+│   If powerset model:                         │
+│     onset = offset = 0.5 (fixed)             │
+│   Else:                                      │
+│     onset ~ Uniform(0, 1)                    │
+│     offset ~ Uniform(0, 1)                   │
+│     min_duration_on ~ Uniform(0, 1)          │
+│     min_duration_off ~ Uniform(0, 1)         │
+└───────────────────────┬──────────────────────┘
+                        │ pipeline.instantiate(params)
+                        ▼
+┌──────────────────────────────────────────────┐
+│ initialize()                                 │
+│   Builds Binarize(                           │
+│     onset, offset,                           │
+│     min_duration_on,                         │
+│     min_duration_off                         │
+│   )                                          │
+└───────────────────────┬──────────────────────┘
+                        │ pipeline(audio_file)
+                        ▼
+┌──────────────────────────────────────────────┐
+│ apply()                                      │
+│                                              │
+│  1. setup_hook()                             │
+│  2. If training → check cache                │
+│     Else → run _segmentation()               │
+│            → SlidingWindowFeature            │
+│  3. hook("segmentation", ...)                │
+│  4. _binarize(segmentations)                 │
+│            → Annotation                      │
+│  5. rename all labels → "SPEECH"             │
+│  6. return Annotation                        │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+### Model Versions at a Glance
+
+| Model string                  | Powerset | Tunable onset/offset | Default onset | Default offset |
+| ----------------------------- | -------- | -------------------- | ------------- | -------------- |
+| `pyannote/segmentation`       | No       | Yes                  | 0.767         | 0.377          |
+| `pyannote/segmentation-3.0.0` | Yes      | No (fixed 0.5)       | 0.5           | 0.5            |
+
+---
+
+### Common Mistakes
+
+**1. Forgetting `pipeline.instantiate()`**
+
+```python
+# ❌ Wrong — pipeline has no parameters set, will raise AttributeError
+speech = pipeline(audio_file)
+
+# ✅ Correct
+pipeline.instantiate(pipeline.default_parameters())
+speech = pipeline(audio_file)
+```
+
+**2. Setting onset < offset**
+
+```python
+# ❌ Unusual — means speech starts at a LOWER threshold than it ends
+#    This removes the hysteresis that prevents rapid on/off switching
+pipeline.instantiate({"onset": 0.3, "offset": 0.6, ...})
+
+# ✅ Typical — onset > offset creates stable, hysteretic detection
+pipeline.instantiate({"onset": 0.7, "offset": 0.4, ...})
+```
+
+**3. Calling `default_parameters()` on a model it doesn't know**
+
+```python
+# ❌ Will raise NotImplementedError for custom/fine-tuned model paths
+pipeline = VoiceActivityDetection(segmentation="my_org/my_model")
+params = pipeline.default_parameters()   # raises NotImplementedError
+
+# ✅ Provide your own parameters
+pipeline.instantiate({
+    "onset": 0.5, "offset": 0.5,
+    "min_duration_on": 0.1, "min_duration_off": 0.05
+})
+```
+
+**4. Expecting speaker labels in the output**
+
+```python
+# ❌ VAD does not identify speakers — there is only one label
+for turn, _, label in speech.itertracks(yield_label=True):
+    print(label)   # always "SPEECH" — never "SPEAKER_00"
+
+# ✅ For speaker identity, use SpeakerDiarization instead
 ```
