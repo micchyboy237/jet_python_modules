@@ -11,7 +11,7 @@ Note that you need a non-streaming model for this script.
 
 Usage
 
-python vad-with-non-streaming-asr.py \
+python /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/sherpa_onnx/vad-with-non-streaming-asr.py \
 --silero-vad-model /Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/vad/silero_vad.onnx \
 --tokens /Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17/tokens.txt \
 --encoder /Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17/encoder-epoch-35-avg-1.int8.onnx \
@@ -21,7 +21,7 @@ python vad-with-non-streaming-asr.py \
 --sample-rate 16000 \
 --feature-dim 80
 
-python vad-with-non-streaming-asr.py \
+python /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/libs/sherpa_onnx/vad-with-non-streaming-asr.py \
 --silero-vad-model /Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/vad/silero_vad.onnx \
 --sense-voice /Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx \
 --tokens /Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt \
