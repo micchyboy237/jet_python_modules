@@ -12,7 +12,7 @@ from jet.logger import logger
 nlp_cache = None
 nlp_cache_hash = None
 
-DEFAULT_GLNER_MODEL = "urchade/gliner_large-v2.1"
+DEFAULT_GLINER_MODEL = "urchade/gliner_large-v2.1"
 # Good default for this model (supports up to 8192 tokens)
 # Balances speed, memory & entity-boundary quality on GTX 1660 / 16 GB RAM
 DEFAULT_CHUNK_SIZE = 512
@@ -35,7 +35,7 @@ def compute_config_hash(config: dict) -> str:
 def load_nlp_pipeline(
     labels: list[str],
     style: str = "ent",
-    model: str = DEFAULT_GLNER_MODEL,
+    model: str = DEFAULT_GLINER_MODEL,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     device: DeviceType = "auto",
 ) -> spacy.language.Language:
@@ -116,3 +116,31 @@ def extract_entities_from_text(nlp, text: str, threshold: float = 0.0) -> JobEnt
             entities_dict[label].append(entity["text"])
 
     return entities_dict
+
+
+if __name__ == "__main__":
+    labels = [
+        "job title",  # Official position name (e.g. "Senior Software Engineer", "Marketing Manager")
+        "company name",  # Hiring organization (e.g. "Google", "Acme Corp")
+        "job location",  # Work location or setup (e.g. "New York, NY", "Remote", "London, UK")
+        "salary range",  # Compensation details (e.g. "$120,000 - $160,000", "€65k–€85k per year")
+        "experience level",  # Seniority or years of experience (e.g. "Senior", "Entry-level", "3–5 years")
+        "employment type",  # Nature of employment (e.g. "Full-time", "Part-time", "Contract", "Internship")
+        "required skills",  # Core skills (technical or soft) needed for the role (e.g. "Python, SQL", "communication")
+        "technology stack",  # Specific tools, frameworks, languages, or platforms (e.g. "React, Node.js, AWS, Docker")
+        "key responsibilities",  # Main duties and tasks (usually action-based descriptions of what the role does)
+        "job requirements",  # Mandatory qualifications (e.g. "Bachelor's degree", "5+ years experience", "PMP certified")
+        "employee benefits",  # Perks and benefits (e.g. "health insurance", "401(k)", "paid time off")
+        "how to apply",  # Instructions for applying (e.g. "Send resume to email", "Apply via website")
+        "application link",  # Direct application URL (e.g. "https://company.com/jobs/apply/12345")
+        "work schedule",  # Working hours or pattern (e.g. "9am–6pm", "Monday–Friday", "shifts")
+    ]
+    nlp = load_nlp_pipeline(labels)
+    sample_text = (
+        "We are looking for a Senior Python Developer at TechCorp located in New York, NY. "
+        "This is a full-time position with a salary range of $120,000 - $140,000. "
+        "Required skills include Python, Django, and AWS. Benefits include health insurance, 401(k), and paid time off."
+    )
+    entities = extract_entities_from_text(nlp, sample_text, threshold=0.3)
+    print("Extracted entities:")
+    print(entities)

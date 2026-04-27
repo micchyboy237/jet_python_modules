@@ -1,5 +1,4 @@
-# jet.audio.audio_waveform.speech_handlers.websocket_subtitle_sender
-
+# jet_python_modules/jet/audio/audio_waveform/speech_handlers/websocket_subtitle_sender.py
 import asyncio
 import json
 import os
@@ -16,8 +15,6 @@ from jet.audio.audio_waveform.speech_events import (
     SpeechSegmentStartEvent,
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
-
-# === UPDATED IMPORTS FOR WEBSOCKETS 16.0+ ===
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import (
     ConnectionClosed,
@@ -31,7 +28,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self,
         accumulator: SubtitleEntry,
         ws_url: str | None = None,
-        reconnect_attempts: int = 100,
+        reconnect_attempts: int = 100,  # kept for compatibility, but ignored
         reconnect_delay: float = 2.0,
         debug_save_audio: bool = False,
         debug_dir: str = "debug_segments",
@@ -39,20 +36,16 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self.ws_url = ws_url or os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL")
         if not self.ws_url:
             raise ValueError("LOCAL_WS_LIVE_SUBTITLES_URL not set or empty")
-
         print(f"[WS init] Using URL: {self.ws_url!r}")
-
         self.accumulator = accumulator
-        self.reconnect_attempts = reconnect_attempts
+        self.reconnect_attempts = reconnect_attempts  # stored but no longer used
         self.reconnect_delay = reconnect_delay
-
         self.debug_dir = None
         if debug_save_audio:
             self.debug_dir = os.path.join(
                 debug_dir, datetime.now().strftime("%Y%m%d_%H%M%S")
             )
             os.makedirs(self.debug_dir, exist_ok=True)
-
         self.ws: Optional[ClientConnection] = None
         self.loop = asyncio.new_event_loop()
         self._stop_event = threading.Event()
@@ -61,7 +54,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             daemon=True,
         )
         self._loop_thread.start()
-
         self.loop.call_soon_threadsafe(
             lambda: self.loop.create_task(self._connection_manager())
         )
@@ -71,29 +63,22 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self.loop.run_forever()
 
     async def _connection_manager(self):
-        attempt = 0
-
         print(f"[WS] Connecting → {self.ws_url}")
-
         while not self._stop_event.is_set():
             try:
                 async with connect(
                     self.ws_url,
-                    max_size=None,  # unlimited (matches original intent)
-                    compression=None,  # disable compression
+                    max_size=None,
+                    compression=None,
                     ping_interval=30,
                     ping_timeout=30,
                     close_timeout=10,
                 ) as ws:
                     self.ws = ws
-                    attempt = 0  # reset on successful connection
                     print(f"[WS] Connected to {self.ws_url}")
-
-                    # Run sender & receiver concurrently
                     await asyncio.gather(
                         self._receiver(),
                     )
-
             except (ConnectionClosedOK, ConnectionClosedError) as e:
                 print(f"[WS] Connection closed cleanly: {e}")
             except OSError as e:
@@ -105,26 +90,17 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 traceback.print_exc()
 
             self.ws = None
-
             if self._stop_event.is_set():
                 print("[WS] Stop requested — exiting reconnect loop")
                 break
 
-            attempt += 1
-            if attempt >= self.reconnect_attempts:
-                print(
-                    f"[WS] Max reconnection attempts ({self.reconnect_attempts}) reached. Giving up."
-                )
-                break
-
             delay = self.reconnect_delay
-            print(
-                f"[WS] Reconnecting in {delay:.1f}s (attempt {attempt}/{self.reconnect_attempts})..."
-            )
+            print(f"[WS] Reconnecting in {delay:.1f}s ... (will keep trying forever)")
             await asyncio.sleep(delay)
 
         print("[WS] Connection manager shutting down")
 
+    # ... (the rest of the class remains exactly the same: _receiver, on_segment_start, on_segment_end, close)
     async def _receiver(self):
         if self.ws is None:
             return
@@ -133,7 +109,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 try:
                     decoded = None
                     header: dict | None = None
-
                     if isinstance(msg, bytes):
                         if b"\x00" in msg:
                             header_part, _ = msg.split(b"\x00", 1)
@@ -167,12 +142,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         )
                         continue
 
-                    # Safely handle None from server (especially "transcription_ja": null)
                     ja_raw = header.get("transcription_ja")
                     en_raw = header.get("translation_en")
                     ja = str(ja_raw).strip() if ja_raw is not None else ""
                     en = str(en_raw).strip() if en_raw is not None else ""
-
                     others = {
                         k: v
                         for k, v in header.items()
@@ -182,12 +155,11 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
                     print(f"[WS ←] {uid[:8]}… ja:{len(ja)} chars | en:{len(en)} chars")
                     if en:
-                        print(f"    EN: {en[:150]}{'…' if len(en) > 150 else ''}")
+                        print(f" EN: {en[:150]}{'…' if len(en) > 150 else ''}")
                     if ja:
-                        print(f"    JA: {ja[:100]}{'…' if len(ja) > 100 else ''}")
+                        print(f" JA: {ja[:100]}{'…' if len(ja) > 100 else ''}")
 
                     self.accumulator.update(uid, ja, en, response)
-
                 except (
                     json.JSONDecodeError,
                     TypeError,
@@ -215,9 +187,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
         if event.audio.size == 0:
             return
-
         seg_uuid = str(uuid.uuid4())
-
         self.accumulator.add_pending(
             seg_uuid,
             event.start_time_sec,
@@ -227,7 +197,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             segment_dir=event.segment_dir,
             trigger_reason=event.trigger_reason,
         )
-
         if self.debug_dir:
             sf.write(
                 os.path.join(
@@ -236,17 +205,14 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 event.audio,
                 16000,
             )
-
-        # Convert float32 [-1,1] → int16 [-32768, 32767] before sending
         audio_int16 = np.int16(event.audio * 32767.0).tobytes()
-
         header = {
             "uuid": seg_uuid,
             "start_sec": event.start_time_sec,
             "end_sec": event.end_time_sec,
             "duration_sec": event.duration_sec,
             "sample_rate": 16000,
-            "format": "int16le",  # changed from float32le
+            "format": "int16le",
             "channels": 1,
             "language": "ja",
             "vad_reason": event.trigger_reason,
@@ -257,8 +223,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "started_at": event.started_at,
         }
         json_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
-
-        # Save request payload (JSON header) under segment_dir / "request.json"
         if event.segment_dir:
             try:
                 request_path = event.segment_dir / "request.json"
@@ -269,7 +233,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 print(f"[JSON] Segment request.json saved successfully: {request_path}")
             except Exception as e:
                 print(f"[JSON] Failed writing request.json: {e}")
-
         payload = json_bytes + b"\x00" + audio_int16
 
         async def send_payload():
@@ -279,7 +242,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             try:
                 await self.ws.send(payload)
                 print(
-                    f"[WS →] sent seg {event.segment_id}  uuid={seg_uuid[:8]}…  "
+                    f"[WS →] sent seg {event.segment_id} uuid={seg_uuid[:8]}… "
                     f"{len(audio_int16) / 1024:.1f} KiB"
                 )
             except ConnectionClosed:
@@ -291,20 +254,14 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
     def close(self):
         self._stop_event.set()
-
         if self.ws is not None:
             try:
                 future = asyncio.run_coroutine_threadsafe(self.ws.close(), self.loop)
                 future.result(timeout=3.0)
             except Exception as e:
                 print(f"[WS] Error during close: {e}")
-
-        # stop event loop
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(self.loop.stop)
-
-        # wait for thread to exit
         if self._loop_thread.is_alive():
             self._loop_thread.join(timeout=3.0)
-
         print("[WS] Client shutdown requested")

@@ -3,6 +3,7 @@ import sys
 import numpy as np
 from jet.audio.audio_waveform.circular_buffer import CircularBuffer
 from jet.audio.audio_waveform.plots import create_plots_layout
+from jet.audio.helpers.energy import smooth_signal
 from pyqtgraph.Qt import QtCore, QtWidgets
 
 
@@ -10,6 +11,8 @@ class VisualizerObserver:
     def __init__(self, display_points: int = 200):
         self.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
         self.display_points = display_points
+        # Smoothing for the RMS waveform only (makes the plot much cleaner)
+        self.rms_smooth_window = 7  # ← easy to tune (5–9 recommended)
         self.THRES_WAVE = (0.1, 0.5)  # Normalized RMS thresholds
         self.THRES_PROB = (0.3, 0.7)
         self.buffers = {
@@ -81,7 +84,10 @@ class VisualizerObserver:
         self.buffers["ten_vad"].append(ten_vad)
 
     def update_plots(self):
-        self._update_curve(self.buffers["wave"], self.c_wave, *self.THRES_WAVE)
+        # Apply smoothing only to the RMS waveform plot
+        self._update_curve(
+            self.buffers["wave"], self.c_wave, *self.THRES_WAVE, apply_smooth=True
+        )
 
         # Update only the selected VAD plot
         if self.current_vad == "silero":
@@ -97,10 +103,16 @@ class VisualizerObserver:
 
         self._update_curve(buffer, self.c_vad, *self.THRES_PROB)
 
-    def _update_curve(self, buffer, curves, t_med, t_high):
+    def _update_curve(self, buffer, curves, t_med, t_high, apply_smooth: bool = False):
+        """Update one of the pyqtgraph curves with optional smoothing."""
         data = buffer.to_array()
         if len(data) == 0:
             return
+
+        if apply_smooth and len(data) > 1:
+            # Smooth only the waveform (RMS) curve — VAD probs stay as-is
+            data = smooth_signal(data, window=self.rms_smooth_window)
+
         x = np.arange(len(data), dtype=np.float32)
         low_m = data < t_med
         mid_m = (data >= t_med) & (data < t_high)
