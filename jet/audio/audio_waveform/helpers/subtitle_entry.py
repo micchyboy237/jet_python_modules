@@ -120,7 +120,7 @@ class SubtitleEntry:
 
             start = self._format_time(entry["start"])
             end = self._format_time(entry["end"])
-            text = f"{entry['ja']}\n{entry['en']}".strip() or "[no transcription]"
+            text = f"{entry['ja']}\n{entry['en']}".strip()
 
             content = "\n".join(["1", f"{start} --> {end}", text, ""])
 
@@ -135,9 +135,7 @@ class SubtitleEntry:
         for i, e in enumerate(self.entries, 1):
             start = self._format_time(e["start"])
             end = self._format_time(e["end"])
-            text = f"{e['ja']}\n{e['en']}".strip()
-            if not text:
-                text = "[no transcription]"
+            text = f"{e['ja']}\n{e['en']}".strip()  # empty string if no transcription
             lines.extend([str(i), f"{start} --> {end}", text, ""])
         return "\n".join(lines)
 

@@ -8,19 +8,37 @@ DEFAULT_EXCLUDES = [
     "**/__pycache__",
 ]
 
+DEFAULT_EXCLUDE_NESTED = [
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "dist",
+    "build",
+    # Add more aggressive cache pruning if needed
+    "Cache",
+    "Cache_Data",
+    "Service Worker",
+    "crx_cache",
+]
+
 
 def traverse_directory(
     base_dir: str,
     includes: list[str],
     excludes: list[str] = [],
+    exclude_nested: list[str] = None,
     limit: int | None = None,
     direction: str = "forward",
     max_backward_depth: int | None = None,
     max_forward_depth: int | None = None,
 ) -> Generator[tuple[str, int], None, None]:
     excludes = list(set(DEFAULT_EXCLUDES + excludes))
+    if exclude_nested is None:
+        exclude_nested = DEFAULT_EXCLUDE_NESTED
     visited_paths = set()
     passed_paths = set()
+    exclude_nested_set = set(exclude_nested)
     yielded_count = 0
     current_dir = os.path.abspath(base_dir)
     passed_dirs_dict = {}
@@ -56,9 +74,15 @@ def traverse_directory(
     ) -> Generator[tuple[str, int], None, None]:
         nonlocal yielded_count
         for root, dirs, _ in os.walk(directory, followlinks=False):
+            # Prune BEFORE any matching or yielding — this is the key fix
+            if os.path.basename(root) in exclude_nested_set:
+                dirs[:] = []  # Prevent descending into this heavy folder
+                # Still allow yielding the folder itself if it matches size later
+
             root_matches_patterns = validate_match(root, includes, excludes)
             if not root_matches_patterns:
                 continue
+
             root_includes_real_path = any(
                 include in root
                 for include in includes

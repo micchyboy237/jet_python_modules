@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from pathlib import Path
 
 from jet.audio.audio_waveform.helpers.subtitle_entry import SubtitleEntry
 from jet.audio.audio_waveform.speech_events import (
@@ -7,8 +8,9 @@ from jet.audio.audio_waveform.speech_events import (
     SpeechSegmentStartEvent,
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QTextCursor
+from PyQt6.QtMultimedia import QSoundEffect
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -26,6 +28,7 @@ class SubtitlePreviewWindow(QMainWindow):
     def __init__(self, accumulator: SubtitleEntry, show_ja_text: bool = False):
         super().__init__()
         self.accumulator = accumulator
+        self.sound_effect = QSoundEffect()
 
         self.setWindowTitle("Live Subtitles")
         self.resize(450, 550)
@@ -99,6 +102,21 @@ class SubtitlePreviewWindow(QMainWindow):
 
         self._last_html: str | None = None
 
+    def _play_segment_audio(self, segment_dir: Path):
+        """Play sound.wav from the segment folder using Qt's QSoundEffect."""
+        wav_path = segment_dir / "sound.wav"
+        if not wav_path.exists():
+            print(f"[Preview] No sound.wav found at: {wav_path}")
+            return
+        try:
+            url = QUrl.fromLocalFile(str(wav_path))
+            self.sound_effect.setSource(url)
+            self.sound_effect.setVolume(1.0)
+            self.sound_effect.play()
+            print(f"[Preview] Playing audio: {wav_path}")
+        except Exception as e:
+            print(f"[Preview] Failed to play audio {wav_path}: {e}")
+
     def clear_all(self):
         # Clear in-memory entries and UI
         self.accumulator.clear()
@@ -119,7 +137,7 @@ class SubtitlePreviewWindow(QMainWindow):
         else:
             text = f"{ja}\n{en}".strip()
 
-        return text if text else "[no transcription]"
+        return text  # empty string if no transcription (no "[no transcription]")
 
     def _format_entry(self, i: int, e: dict) -> str:
         # Compute gap from previous segment end
@@ -150,6 +168,13 @@ class SubtitlePreviewWindow(QMainWindow):
             if segment_dir
             else ""
         )
+        # New: Play button - only show if sound.wav likely exists
+        play_link = (
+            f'<a href="play:{i}" style="color:#ff7b72; text-decoration:none; font-size:13px;">▶</a>'
+            if segment_dir and (segment_dir / "sound.wav").exists()
+            else ""
+        )
+
         return f"""
 <div style="margin-bottom:6px;">
 <b style="font-size:10px;">{i}</b>
@@ -159,6 +184,7 @@ class SubtitlePreviewWindow(QMainWindow):
 </span>
 <a href="copy:{i}" style="color:#58a6ff; text-decoration:none;">📋</a>
 {open_link}
+{play_link}
 <br/>
 <pre style="white-space:pre-wrap; margin:0; font-size:10px;">{text}</pre>
 </div>
@@ -174,18 +200,17 @@ class SubtitlePreviewWindow(QMainWindow):
             self._auto_scroll_enabled = False
 
     def _handle_anchor_click(self, url):
-        if url.toString().startswith("copy:"):
-            idx = int(url.toString().split(":")[1]) - 1
+        url_str = url.toString()
+        if url_str.startswith("copy:"):
+            idx = int(url_str.split(":")[1]) - 1
             if 0 <= idx < len(self.accumulator.entries):
                 e = self.accumulator.entries[idx]
                 text = f"{e['ja']}\n{e['en']}".strip()
                 QApplication.clipboard().setText(text)
-                # lightweight success feedback
                 self.setWindowTitle("Copied ✓")
                 QTimer.singleShot(800, lambda: self.setWindowTitle("Live Subtitles"))
-
-        elif url.toString().startswith("open:"):
-            idx = int(url.toString().split(":")[1]) - 1
+        elif url_str.startswith("open:"):
+            idx = int(url_str.split(":")[1]) - 1
             if 0 <= idx < len(self.accumulator.entries):
                 e = self.accumulator.entries[idx]
                 segment_dir = e.get("segment_dir")
@@ -194,29 +219,33 @@ class SubtitlePreviewWindow(QMainWindow):
                         subprocess.Popen(["open", segment_dir])
                     except Exception:
                         pass
+        elif url_str.startswith("play:"):
+            idx = int(url_str.split(":")[1]) - 1
+            if 0 <= idx < len(self.accumulator.entries):
+                e = self.accumulator.entries[idx]
+                segment_dir = e.get("segment_dir")
+                if segment_dir:
+                    self._play_segment_audio(segment_dir)
 
     def update_display(self):
-        if not self.accumulator.entries:
-            html = "Waiting for transcribed segments…"
-        else:
-            html_parts = []
-            for i, e in enumerate(self.accumulator.entries, 1):
-                html_parts.append(self._format_entry(i, e))
-            html = "".join(html_parts)
+        html_parts = []
+        for i, e in enumerate(self.accumulator.entries, 1):
+            text = self._get_entry_text(e)
+            # Skip completely empty entries in the live preview
+            if not text.strip():
+                continue
+            html_parts.append(self._format_entry(i, e))
+        html = (
+            "".join(html_parts) if html_parts else "Waiting for transcribed segments…"
+        )
 
-        # ✅ Skip if nothing changed → prevents flicker
         if html == self._last_html:
             return
-
         self._last_html = html
-
         scrollbar = self.text_area.verticalScrollBar()
         old_value = scrollbar.value()
         at_bottom = old_value >= scrollbar.maximum() - 20
-
         self.text_area.setHtml(html)
-
-        # ✅ Restore scroll position
         if at_bottom:
             cursor = self.text_area.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -225,7 +254,7 @@ class SubtitlePreviewWindow(QMainWindow):
             scrollbar.setValue(old_value)
 
     def closeEvent(self, event):
-        # Allow real close when app is shutting down
+        self.sound_effect.stop()
         event.accept()
 
 
