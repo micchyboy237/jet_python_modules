@@ -260,6 +260,7 @@ def get_speech_waves(
     audio: AudioInput,
     speech_probs: List[float],
     threshold: float = 0.5,
+    close_threshold: Optional[float] = None,
     sampling_rate: int = SAMPLE_RATE,
     shape_cfg: Optional[WaveShapeConfig] = None,
     prob_weight: float = 0.5,
@@ -271,11 +272,15 @@ def get_speech_waves(
     prob_weight / rms_weight control the hybrid VAD+energy signal used for
     threshold crossing. Both default to 0.5 (equal blend). Set rms_weight=0
     to restore the original probability-only behaviour.
+
+    close_threshold: If given, hysteresis is enabled: wave closes on a lower
+    threshold than it opens. If not, uses threshold for both open/close.
     """
     audio_np, loaded_sr = load_audio(audio, sr=sampling_rate, mono=True)
     all_waves = check_speech_waves(
         speech_probs=speech_probs,
         threshold=threshold,
+        close_threshold=close_threshold,
         sampling_rate=loaded_sr,
         shape_cfg=shape_cfg,
         audio_np=audio_np,
@@ -292,6 +297,7 @@ def get_speech_waves(
 def check_speech_waves(
     speech_probs: List[float],
     threshold: float = 0.5,
+    close_threshold: Optional[float] = None,
     sampling_rate: int = SAMPLE_RATE,
     shape_cfg: Optional[WaveShapeConfig] = None,
     audio_np: Optional[np.ndarray] = None,
@@ -311,7 +317,13 @@ def check_speech_waves(
 
     When audio_np is None the function falls back to probability-only mode
     (original behaviour).
+
+    If close_threshold is specified, the signal must drop below this value
+    to close — creating hysteresis behaviour for more stable endpointing.
     """
+
+    # If no separate close threshold is given, use the same value as open.
+    _close_threshold = close_threshold if close_threshold is not None else threshold
 
     # ──────────────────────────────────────────────────────────────
     # Phase 0: Parameter / input setup
@@ -373,6 +385,7 @@ def check_speech_waves(
         hybrid_val = float(crossing[i]) if i < len(crossing) else prob
 
         if state == "below":
+            # open: signal crosses UP past open_threshold
             if hybrid_val >= threshold:
                 rise_frame_idx = i
                 current_wave = SpeechWave(
@@ -402,49 +415,60 @@ def check_speech_waves(
                 if current_wave is not None:
                     current_wave["has_multi_passed"] = True
             else:
-                if current_wave is not None:
-                    current_wave["has_fallen"] = True
-                    frame_start = rise_frame_idx if rise_frame_idx is not None else 0
-                    frame_end = i
-                    wave_probs = speech_probs[frame_start:frame_end]
-                    wave_hybrid = list(crossing[frame_start:frame_end])
-                    frame_len = frame_end - frame_start
-                    entry_prob = (
-                        speech_probs[frame_start - 1] if frame_start > 0 else 0.0
-                    )
-                    exit_prob = prob
-                    shape_ok, shape_diag = is_prominent_wave(
-                        wave_probs, entry_prob, exit_prob, shape_cfg
-                    )
-                    current_wave["is_valid"] = (
-                        current_wave["has_risen"]
-                        and current_wave["has_multi_passed"]
-                        and shape_ok
-                    )
-                    current_wave["end_sec"] = frame_time_sec
-                    current_wave["details"] = {
-                        "frame_start": frame_start,
-                        "frame_end": frame_end,
-                        "frame_len": frame_len,
-                        "duration_sec": current_wave["end_sec"]
-                        - current_wave["start_sec"],
-                        "min_prob": min(wave_probs) if wave_probs else 0.0,
-                        "max_prob": max(wave_probs) if wave_probs else 0.0,
-                        "avg_prob": statistics.mean(wave_probs) if wave_probs else 0.0,
-                        "std_prob": statistics.stdev(wave_probs)
-                        if frame_len > 1
-                        else 0.0,
-                        "avg_hybrid": float(np.mean(wave_hybrid))
-                        if wave_hybrid
-                        else 0.0,
-                        "rms_hold_frames": sum(1 for p in wave_probs if p >= threshold),
-                        "merge_count": 0,
-                        **shape_diag,
-                    }
-                    waves.append(current_wave)
-                current_wave = None
-                rise_frame_idx = None
-                state = "below"
+                # Close only when signal drops below the (lower) close threshold.
+                # While it stays in the band [_close_threshold, threshold) the
+                # wave remains open — this is the hysteresis zone.
+                if hybrid_val < _close_threshold:
+                    if current_wave is not None:
+                        current_wave["has_fallen"] = True
+                        frame_start = (
+                            rise_frame_idx if rise_frame_idx is not None else 0
+                        )
+                        frame_end = i
+                        wave_probs = speech_probs[frame_start:frame_end]
+                        wave_hybrid = list(crossing[frame_start:frame_end])
+                        frame_len = frame_end - frame_start
+                        entry_prob = (
+                            speech_probs[frame_start - 1] if frame_start > 0 else 0.0
+                        )
+                        exit_prob = prob
+                        shape_ok, shape_diag = is_prominent_wave(
+                            wave_probs, entry_prob, exit_prob, shape_cfg
+                        )
+                        current_wave["is_valid"] = (
+                            current_wave["has_risen"]
+                            and current_wave["has_multi_passed"]
+                            and shape_ok
+                        )
+                        current_wave["end_sec"] = frame_time_sec
+                        current_wave["details"] = {
+                            "frame_start": frame_start,
+                            "frame_end": frame_end,
+                            "frame_len": frame_len,
+                            "duration_sec": current_wave["end_sec"]
+                            - current_wave["start_sec"],
+                            "min_prob": min(wave_probs) if wave_probs else 0.0,
+                            "max_prob": max(wave_probs) if wave_probs else 0.0,
+                            "avg_prob": statistics.mean(wave_probs)
+                            if wave_probs
+                            else 0.0,
+                            "std_prob": statistics.stdev(wave_probs)
+                            if frame_len > 1
+                            else 0.0,
+                            "avg_hybrid": float(np.mean(wave_hybrid))
+                            if wave_hybrid
+                            else 0.0,
+                            "rms_hold_frames": sum(
+                                1 for p in wave_probs if p >= threshold
+                            ),
+                            "merge_count": 0,
+                            **shape_diag,
+                        }
+                        waves.append(current_wave)
+                    current_wave = None
+                    rise_frame_idx = None
+                    state = "below"
+                # else: still in hysteresis band — stay open, do nothing
 
     if current_wave is not None:
         current_wave["has_fallen"] = False
@@ -763,7 +787,14 @@ if __name__ == "__main__":
         help=f"Output results dir (default: {OUTPUT_DIR})",
     )
     parser.add_argument(
-        "-t", "--threshold", type=float, default=0.3, help="VAD probability threshold"
+        "-t", "--threshold", type=float, default=0.1, help="VAD probability threshold"
+    )
+    parser.add_argument(
+        "-c",
+        "--close-threshold",
+        type=float,
+        default=None,
+        help="(Hysteresis) Threshold for wave close (default: same as open threshold)",
     )
     parser.add_argument(
         "-s", "--hop-size", type=int, default=160, help="Frame hop size in samples"
@@ -819,6 +850,7 @@ if __name__ == "__main__":
         args.input,
         scores,
         threshold=args.threshold,
+        close_threshold=args.close_threshold,
         prob_weight=args.prob_weight,
         rms_weight=args.rms_weight,
     )
