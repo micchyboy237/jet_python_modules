@@ -17,10 +17,13 @@ from jet.audio.helpers.config import HOP_SIZE, SAMPLE_RATE
 from jet.audio.speech.firered.config import SAVE_DIR
 from jet.audio.speech.firered.speech_waves import (
     WaveShapeConfig,
+    _top5_reports,
+    build_summary_rows,
     check_speech_waves,
     save_wave_data,
 )
 from jet.audio.speech.firered.vad import FireRedVAD
+from jet.file.utils import save_file
 from rich.console import Console
 
 console = Console()
@@ -91,6 +94,8 @@ class SpeechWavesTracker:
         self._wave_counter: int = 0
         # Frame index of the last wave boundary we already saved
         self._saved_up_to_frame: int = 0
+        # Accumulate all detected/saved waves for summary export
+        self._all_waves: List[SpeechWave] = []
         # Lock so feed() and flush() are safe to call from different threads
         self._lock = threading.Lock()
 
@@ -151,6 +156,38 @@ class SpeechWavesTracker:
             self._buffer = np.empty(0, dtype=np.float32)
             self._last_vad_sample = 0
             self._saved_up_to_frame = 0
+
+    def save_summary_files(
+        self,
+        speech_probs: Optional[List[float]] = None,
+        segments: Optional[List] = None,
+    ) -> None:
+        """
+        Save summary JSON files similar to speech_waves.py.
+
+        In streaming mode we don't have pre-computed segments, so we pass
+        an empty list. All waves will use the default seg_num=1, which
+        matches the current behavior in _save_wave().
+        """
+        if segments is None:
+            segments = []
+
+        # Save all detected waves
+        save_file(self._all_waves, self.output_dir / "speech_waves.json")
+
+        # Save speech probabilities if provided (optional in streaming mode)
+        if speech_probs is not None:
+            save_file(speech_probs, self.output_dir / "speech_probs.json")
+
+        # Build and save summary rows for display/table
+        rows = build_summary_rows(self._all_waves, self.output_dir, segments)
+        save_file(rows, self.output_dir / "summary.json")
+
+        # Build and save top 5 waves report
+        top5 = _top5_reports(self._all_waves, self.output_dir, segments)
+        save_file(top5, self.output_dir / "top_5_waves.json")
+
+        console.log(f"[green]✓ Summary files saved to {self.output_dir}[/green]")
 
     # ── Private helpers ──────────────────────────────────────────────────────
 
@@ -259,6 +296,8 @@ class SpeechWavesTracker:
             prob_weight=self.prob_weight,
             rms_weight=self.rms_weight,
         )
+        # Accumulate wave for final summary export
+        self._all_waves.append(wave)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -340,11 +379,18 @@ def get_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    # Define OUTPUT_DIR similar to speech_waves.py for consistent output structure
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+
     args = get_args()
 
+    # Use OUTPUT_DIR as default if user didn't specify a custom path
+    if args.output == "generated/speech_waves_tracker":
+        args.output = str(OUTPUT_DIR)
+
     output_dir = Path(args.output)
-    if args.clear:
-        shutil.rmtree(output_dir, ignore_errors=True)
+
+    shutil.rmtree(output_dir, ignore_errors=True)  # Clear before starting
     output_dir.mkdir(parents=True, exist_ok=True)
 
     tracker = SpeechWavesTracker(
@@ -406,11 +452,13 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted — flushing final buffer…[/yellow]")
 
-    # Process any audio still in the queue after the stream closed
+    # Process any remaining audio in the queue
     while not audio_queue.empty():
         tracker.feed(audio_queue.get_nowait())
 
+    # Finalize: flush buffer and save summary files
     tracker.flush()
+    tracker.save_summary_files()
 
     console.print(
         f"\n[bold green]Done.[/bold green] "
