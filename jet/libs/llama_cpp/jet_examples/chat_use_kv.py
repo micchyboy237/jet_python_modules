@@ -1,7 +1,7 @@
 """
 chat_use_kv.py
 ==============
-Demonstrates KV cache reuse via /v1/chat/completions for JA→EN subtitle translation.
+Demonstrates KV cache reuse via /v1/chat/completions for JA->EN subtitle translation.
 
 HOW KV CACHE WORKS HERE
 ------------------------
@@ -75,7 +75,7 @@ def translate(
     Returns
     -------
     dict with keys: translation, slot_id, tokens_cached, tokens_evaluated,
-                    latency_ms
+                    latency_ms, tokens_generated
     """
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)
@@ -103,6 +103,7 @@ def translate(
     usage = data.get("usage", {})
     tokens_cached = usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
     tokens_evaluated = usage.get("prompt_tokens", 0)
+    tokens_generated = usage.get("completion_tokens", 0)
     returned_slot = data.get("id_slot", slot_id)
 
     return {
@@ -110,6 +111,7 @@ def translate(
         "slot_id": returned_slot,
         "tokens_cached": tokens_cached,
         "tokens_evaluated": tokens_evaluated,
+        "tokens_generated": tokens_generated,
         "latency_ms": elapsed_ms,
     }
 
@@ -119,12 +121,13 @@ def print_result(req_num: int, subtitle: str, result: dict) -> None:
     evaluated = result["tokens_evaluated"]
     hit_pct = (cached / evaluated * 100) if evaluated else 0
     cache_tag = "CACHE HIT ✓" if cached > 0 else "cache miss"
+    gen = result["tokens_generated"]
     print(
         f"\n[Request {req_num}] {cache_tag}"
         f"\n  JA : {subtitle}"
         f"\n  EN : {result['translation']}"
         f"\n  Slot      : {result['slot_id']}"
-        f"\n  Tokens    : {evaluated} prompt  /  {cached} cached ({hit_pct:.0f}%)"
+        f"\n  Tokens    : {evaluated} prompt  /  {cached} cached ({hit_pct:.0f}%)  /  {gen} generated"
         f"\n  Latency   : {result['latency_ms']:.0f} ms"
     )
 
@@ -132,7 +135,7 @@ def print_result(req_num: int, subtitle: str, result: dict) -> None:
 # ── Demo: scenario A — stateless (no history kept) ────────────────────────────
 
 
-def demo_stateless() -> None:
+def demo_stateless() -> list[dict]:
     """
     Each call sends only [system, current_subtitle].
     The system prompt tokens are cached after request 1.
@@ -143,15 +146,18 @@ def demo_stateless() -> None:
     print("  System prompt cached after request 1.")
     print("=" * 60)
 
+    results = []
     for i, subtitle in enumerate(SUBTITLE_LINES, start=1):
         result = translate(subtitle, history=[], slot_id=0)
         print_result(i, subtitle, result)
+        results.append(result)
+    return results
 
 
 # ── Demo: scenario B — stateful (rolling history) ─────────────────────────────
 
 
-def demo_stateful() -> None:
+def demo_stateful() -> list[dict]:
     """
     Each call appends the previous (user, assistant) pair.
     The growing history gives the model context to resolve ambiguous pronouns
@@ -163,13 +169,51 @@ def demo_stateful() -> None:
     print("  System + prior turns cached on each call.")
     print("=" * 60)
 
+    results = []
     history: list[dict] = []
     for i, subtitle in enumerate(SUBTITLE_LINES, start=1):
         result = translate(subtitle, history=history, slot_id=0)
         print_result(i, subtitle, result)
-        # Grow history for next call
         history.append({"role": "user", "content": subtitle})
         history.append({"role": "assistant", "content": result["translation"]})
+        results.append(result)
+    return results
+
+
+def warmup(slot_id: int = 0) -> None:
+    """
+    Send a silent request to prime the KV cache for the system prompt.
+    Uses a short throw-away subtitle so the call is cheap.
+    Without this, Scenario A Request 1 is always a cold-cache miss and
+    confounds comparison with Scenario B.
+    """
+    translate("おはよう。", history=[], slot_id=slot_id)
+
+
+def print_summary(
+    stateless: list[dict],
+    stateful: list[dict],
+) -> None:
+    """Print a side-by-side comparison table of both scenarios."""
+    print(f"\n{'=' * 60}")
+    print("SUMMARY")
+    print(f"{'=' * 60}")
+    print(f"{'Req':<6} {'--- Stateless ---':^38} {'--- Stateful ---':^38}")
+    print(
+        f"{'':6} {'prompt / cached (%)  gen  lat':^38} {'prompt / cached (%)  gen  lat':^38}"
+    )
+    print("-" * 84)
+    for i, (a, b) in enumerate(zip(stateless, stateful), start=1):
+
+        def fmt(r):
+            ev = r["tokens_evaluated"]
+            ca = r["tokens_cached"]
+            ge = r["tokens_generated"]
+            la = int(r["latency_ms"])
+            pct = ca / ev * 100 if ev else 0
+            return f"{ev:>5}tok / {ca:>3} ({pct:>2.0f}%)  {ge:>2}gen  {la:>5}ms"
+
+        print(f"  R{i}   {fmt(a)}   {fmt(b)}")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -178,11 +222,13 @@ if __name__ == "__main__":
     print("llama-server KV cache demo — /v1/chat/completions")
     print(f"Server: {BASE_URL}")
 
-    # Warm up: first call is always a cold start (cache miss)
-    print("\n[Warming up — first call primes the KV cache for the system prompt]")
+    print("\n[Warming up — priming KV cache slot 0 with the system prompt ...]")
+    warmup(slot_id=0)
+    print("[Warmup complete — system prompt is now cached]\n")
 
-    demo_stateless()
-    demo_stateful()
+    a_results = demo_stateless()
+    b_results = demo_stateful()
+    print_summary(a_results, b_results)
 
-    print("\nDone.  Inspect 'tokens_cached' vs 'tokens_evaluated' to confirm")
-    print("cache hits.  On a cache hit, tokens_cached > 0 and latency drops.")
+    print("\nDone.  'tokens_cached > 0' confirms a prefix hit.")
+    print("Watch 'generated' to understand latency spikes — longer output = slower.")
