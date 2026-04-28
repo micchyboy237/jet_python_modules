@@ -301,6 +301,7 @@ def get_speech_waves(
     shape_cfg: Optional[WaveShapeConfig] = None,
     prob_weight: float = 0.5,
     rms_weight: float = 0.5,
+    disable_merge: bool = False,
 ) -> List[SpeechWave]:
     """
     Identify complete speech waves (rise → sustained high → fall) from FireRedVAD probabilities.
@@ -322,6 +323,7 @@ def get_speech_waves(
         audio_np=audio_np,
         prob_weight=prob_weight,
         rms_weight=rms_weight,
+        disable_merge=disable_merge,
     )
     valid_waves: List[SpeechWave] = []
     for wave in all_waves:
@@ -339,6 +341,7 @@ def check_speech_waves(
     audio_np: Optional[np.ndarray] = None,
     prob_weight: float = 0.5,
     rms_weight: float = 0.5,
+    disable_merge: bool = False,
 ) -> List[SpeechWave]:
     """
     Analyze speech probabilities from FireRedVAD and return complete wave
@@ -364,7 +367,11 @@ def check_speech_waves(
     # ──────────────────────────────────────────────────────────────
     # Phase 0: Parameter / input setup
     if shape_cfg is None:
-        shape_cfg = WaveShapeConfig()
+        shape_cfg = WaveShapeConfig(
+            max_merge_gap_frames=WaveShapeConfig.max_merge_gap_frames
+            if not disable_merge
+            else 0
+        )
 
     if not speech_probs:
         return []
@@ -578,7 +585,7 @@ def save_wave_data(
     hop_size: int = HOP_SIZE,
     prob_weight: float = 0.5,
     rms_weight: float = 0.5,
-) -> None:
+) -> Path:
     """Save all wave-related data to the specified directory."""
     wave_dir = output_dir / f"segment_{seg_num:03d}_wave_{wave_num:03d}"
     wave_dir.mkdir(parents=True, exist_ok=True)
@@ -625,6 +632,7 @@ def save_wave_data(
         prob_weight=prob_weight,
         rms_weight=rms_weight,
     )
+    return wave_dir
 
 
 # ── Reporting helpers ──
@@ -657,6 +665,7 @@ def _build_wave_report(
     parent_seg_num = _find_parent_seg_num(frame_start, segments, default=1)
 
     dir_name = f"segment_{parent_seg_num:03d}_wave_{wave_idx:03d}"
+    wave_json = (waves_dir / dir_name / "wave.json").resolve()
     wav_abs = (waves_dir / dir_name / "sound.wav").resolve()
     plot_abs = (waves_dir / dir_name / "wave_plot.png").resolve()
     short = _shorten_path(str(wav_abs))
@@ -666,6 +675,8 @@ def _build_wave_report(
         # ── identity ──────────────────────────────────────────────────
         "wave": wave_idx,
         "dir": dir_name,
+        # ── summary ────────────────────────────────────────
+        "wave_json": str(wave_json),
         # ── timing ────────────────────────────────────────────────────
         "start_sec": round(wave["start_sec"], 4),
         "end_sec": round(wave["end_sec"], 4),
@@ -744,25 +755,7 @@ def _shorten_path(path_str: str) -> str:
     return "/".join(parts[-2:])
 
 
-if __name__ == "__main__":
-    import argparse
-
-    from jet.audio.speech.firered.speech_timestamps_extractor import (
-        extract_speech_timestamps,
-    )
-    from jet.file.utils import save_file
-    from rich import box
-    from rich.console import Console
-    from rich.table import Table
-
-    console = Console()
-
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-
-    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
-
+def get_args(default_audio: str, default_output_dir: str | Path):
     parser = argparse.ArgumentParser(
         description="Extract speech timestamps from audio using TEN VAD.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -770,14 +763,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "input",
         nargs="?",
-        default=DEFAULT_AUDIO,
-        help=f"Input audio file path (default: {DEFAULT_AUDIO})",
+        default=default_audio,
+        help=f"Input audio file path (default: {default_audio})",
     )
     parser.add_argument(
         "-o",
         "--output",
-        default=str(OUTPUT_DIR),
-        help=f"Output results dir (default: {OUTPUT_DIR})",
+        dest="output_dir",
+        default=default_output_dir,
+        type=Path,
+        help=f"Output results dir (default: {default_output_dir})",
     )
     parser.add_argument(
         "-t", "--threshold", type=float, default=0.1, help="VAD probability threshold"
@@ -824,7 +819,39 @@ if __name__ == "__main__":
         default=0.5,
         help="Weight for RMS energy in hybrid signal (default 0.5)",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--disable-merge",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable merging of consecutive raw waves separated by a short gap "
+            "(up to 150 ms / 15 frames). By default, short gaps are bridged."
+        ),
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    from jet.audio.speech.firered.speech_timestamps_extractor import (
+        extract_speech_timestamps,
+    )
+    from jet.file.utils import save_file
+    from rich import box
+    from rich.console import Console
+    from rich.table import Table
+
+    console = Console()
+
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+
+    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
+
+    args = get_args(DEFAULT_AUDIO, OUTPUT_DIR)
+
+    shutil.rmtree(args.output_dir, ignore_errors=True)
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     segments, scores = extract_speech_timestamps(
         audio=args.input,
@@ -846,15 +873,16 @@ if __name__ == "__main__":
         close_threshold=args.close_threshold,
         prob_weight=args.prob_weight,
         rms_weight=args.rms_weight,
+        disable_merge=args.disable_merge,
     )
 
     # Save main JSON files
-    save_file(segments, OUTPUT_DIR / "segments.json")
-    save_file(scores, OUTPUT_DIR / "speech_probs.json")
-    save_file(speech_waves, OUTPUT_DIR / "speech_waves.json")
+    save_file(segments, args.output_dir / "segments.json")
+    save_file(scores, args.output_dir / "speech_probs.json")
+    save_file(speech_waves, args.output_dir / "speech_waves.json")
 
     # Create waves directory and save individual wave files
-    waves_dir = OUTPUT_DIR / "waves"
+    waves_dir = args.output_dir / "waves"
     waves_dir.mkdir(parents=True, exist_ok=True)
 
     console.print(
@@ -881,11 +909,11 @@ if __name__ == "__main__":
 
     # ── summary table & JSON ──────────────────────────────────────────────────
     rows = build_summary_rows(speech_waves, waves_dir, segments)
-    save_file(rows, OUTPUT_DIR / "summary.json")
+    save_file(rows, args.output_dir / "summary.json")
 
     # ── top-5 waves (built after waves_dir exists and dirs are known) ─────────
     top5 = _top5_reports(speech_waves, waves_dir, segments)
-    save_file(top5, OUTPUT_DIR / "top_5_waves.json")
+    save_file(top5, args.output_dir / "top_5_waves.json")
 
     table = Table(
         title=f"Speech Waves Summary  ({len(rows)} valid waves)",
@@ -910,7 +938,7 @@ if __name__ == "__main__":
         row_style = "bold" if is_top5 else ""
         star = "★ " if is_top5 else "  "
 
-        dir_cell = f"[link=file://{r['plot_path']}]{r['dir']}[/link]"
+        dir_cell = f"[link=file://{r['wave_json']}]{r['dir']}[/link]"
         sound_cell = f"[link=file://{r['sound_path']}]{r['sound_short']}[/link]"
         play_cell = f"[link=file://{r['sound_path']}]▶[/link]"
 
@@ -934,8 +962,8 @@ if __name__ == "__main__":
         f"[bold green]✓[/bold green] All wave files saved under : [cyan]{waves_dir}[/cyan]"
     )
     console.print(
-        f"[bold green]✓[/bold green] summary.json              : [cyan][link=file://{(OUTPUT_DIR / 'summary.json').resolve()}]{(OUTPUT_DIR / 'summary.json').resolve()}[/link][/cyan]"
+        f"[bold green]✓[/bold green] summary.json              : [cyan][link=file://{(args.output_dir / 'summary.json').resolve()}]{(args.output_dir / 'summary.json').resolve()}[/link][/cyan]"
     )
     console.print(
-        f"[bold green]✓[/bold green] top_5_waves.json          : [cyan][link=file://{(OUTPUT_DIR / 'top_5_waves.json').resolve()}]{(OUTPUT_DIR / 'top_5_waves.json').resolve()}[/link][/cyan]"
+        f"[bold green]✓[/bold green] top_5_waves.json          : [cyan][link=file://{(args.output_dir / 'top_5_waves.json').resolve()}]{(args.output_dir / 'top_5_waves.json').resolve()}[/link][/cyan]"
     )

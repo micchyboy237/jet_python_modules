@@ -57,6 +57,9 @@ class SpeechWavesTracker:
         Weight of VAD probability in the hybrid signal (default 0.5).
     rms_weight : float
         Weight of RMS energy in the hybrid signal (default 0.5).
+    disable_merge : bool
+        Disable merging of consecutive raw waves separated by a short gap
+        (default False - up to 150 ms / 15 frames).
     """
 
     def __init__(
@@ -70,6 +73,7 @@ class SpeechWavesTracker:
         max_buffer_sec: float = 30.0,
         prob_weight: float = 0.5,
         rms_weight: float = 0.5,
+        disable_merge: bool = False,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -79,7 +83,14 @@ class SpeechWavesTracker:
         self.close_threshold = (
             close_threshold if close_threshold is not None else threshold
         )
-        self.shape_cfg = shape_cfg or WaveShapeConfig()
+
+        if shape_cfg is not None:
+            self.shape_cfg = shape_cfg
+        else:
+            self.shape_cfg = WaveShapeConfig(
+                max_merge_gap_frames=15 if not disable_merge else 0
+            )
+
         self.vad_interval_sec = vad_interval_sec
         self.max_buffer_samples = int(max_buffer_sec * sample_rate)
         self.prob_weight = prob_weight
@@ -277,14 +288,7 @@ class SpeechWavesTracker:
         self._wave_counter += 1
         wave_idx = self._wave_counter
 
-        console.log(
-            f"[green]✓ Wave {wave_idx:03d}[/green] "
-            f"[white]{wave['start_sec']:.2f}s → {wave['end_sec']:.2f}s[/white]  "
-            f"dur=[yellow]{wave['details']['duration_sec']:.2f}s[/yellow]  "
-            f"peak=[magenta]{wave['details']['max_prob']:.3f}[/magenta]"
-        )
-
-        save_wave_data(
+        wave_dir = save_wave_data(
             wave=wave,
             audio_np=audio_np,
             speech_probs=speech_probs,
@@ -296,6 +300,19 @@ class SpeechWavesTracker:
             prob_weight=self.prob_weight,
             rms_weight=self.rms_weight,
         )
+
+        wave_json_path = wave_dir / "wave.json"
+
+        # Convert to file URI for Rich clickable link
+        wave_link = f"file://{wave_json_path.resolve()}"
+
+        console.log(
+            f"[green]✓ [link={wave_link}]Wave {wave_idx:03d}[/link][/green] "
+            f"[white]{wave['start_sec']:.2f}s → {wave['end_sec']:.2f}s[/white]  "
+            f"dur=[yellow]{wave['details']['duration_sec']:.2f}s[/yellow]  "
+            f"peak=[magenta]{wave['details']['max_prob']:.3f}[/magenta]"
+        )
+
         # Accumulate wave for final summary export
         self._all_waves.append(wave)
 
@@ -303,7 +320,7 @@ class SpeechWavesTracker:
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
-def get_args() -> argparse.Namespace:
+def get_args(default_output_dir: str | Path) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Stream microphone audio and save valid speech waves to disk.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -311,14 +328,16 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "-o",
         "--output",
-        default="generated/speech_waves_tracker",
+        dest="output_dir",
+        default=default_output_dir,
+        type=Path,
         help="Directory where wave files are saved.",
     )
     parser.add_argument(
         "-t",
         "--threshold",
         type=float,
-        default=0.5,
+        default=0.1,
         help="VAD probability threshold to open a speech wave.",
     )
     parser.add_argument(
@@ -375,6 +394,15 @@ def get_args() -> argparse.Namespace:
         action="store_true",
         help="Delete the output directory before starting.",
     )
+    parser.add_argument(
+        "--disable-merge",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable merging of consecutive raw waves separated by a short gap "
+            "(default False - up to 150 ms / 15 frames)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -382,19 +410,13 @@ if __name__ == "__main__":
     # Define OUTPUT_DIR similar to speech_waves.py for consistent output structure
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
-    args = get_args()
+    args = get_args(OUTPUT_DIR)
 
-    # Use OUTPUT_DIR as default if user didn't specify a custom path
-    if args.output == "generated/speech_waves_tracker":
-        args.output = str(OUTPUT_DIR)
-
-    output_dir = Path(args.output)
-
-    shutil.rmtree(output_dir, ignore_errors=True)  # Clear before starting
-    output_dir.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(args.output_dir, ignore_errors=True)
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     tracker = SpeechWavesTracker(
-        output_dir=output_dir,
+        output_dir=args.output_dir,
         sample_rate=SAMPLE_RATE,
         threshold=args.threshold,
         close_threshold=args.close_threshold,
@@ -402,6 +424,7 @@ if __name__ == "__main__":
         max_buffer_sec=args.max_buffer,
         prob_weight=args.prob_weight,
         rms_weight=args.rms_weight,
+        disable_merge=args.disable_merge,
     )
 
     # sounddevice puts chunks into this queue; the main thread drains it.
@@ -423,7 +446,7 @@ if __name__ == "__main__":
     console.print(
         "[bold cyan]🎙  Recording"
         + (f" for {args.duration}s" if args.duration else " (Ctrl-C to stop)")
-        + f" → {output_dir}[/bold cyan]"
+        + f" → {args.output_dir}[/bold cyan]"
     )
 
     start_time = time.monotonic()
@@ -462,5 +485,5 @@ if __name__ == "__main__":
 
     console.print(
         f"\n[bold green]Done.[/bold green] "
-        f"{tracker._wave_counter} wave(s) saved to [cyan]{output_dir}[/cyan]"
+        f"{tracker._wave_counter} wave(s) saved to [cyan]{args.output_dir}[/cyan]"
     )
