@@ -23,6 +23,18 @@ class SpeechWaveMeta(TypedDict):
     is_valid: bool
 
 
+class MergedWaveInfo(TypedDict):
+    """Snapshot of one constituent wave before it was absorbed into a merge."""
+
+    frame_start: int
+    frame_end: int
+    start_sec: float
+    end_sec: float
+    duration_sec: float
+    max_prob: float
+    prominence: float
+
+
 class SpeechWaveDetails(TypedDict):
     """Detailed insights including frame boundaries and probability statistics for a speech wave."""
 
@@ -38,6 +50,8 @@ class SpeechWaveDetails(TypedDict):
     # Hybrid gate bookkeeping
     rms_hold_frames: int
     merge_count: int  # how many raw waves were fused to make this one (0 = no merge)
+    merged: bool
+    merged_waves: List[MergedWaveInfo]
 
 
 class SpeechWave(SpeechWaveMeta):

@@ -10,7 +10,7 @@ from typing import List, Literal, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io.wavfile as wavfile
-from jet.audio.audio_types import AudioInput, SpeechWave
+from jet.audio.audio_types import AudioInput, MergedWaveInfo, SpeechWave
 from jet.audio.helpers.config import HOP_SIZE, SAMPLE_RATE
 from jet.audio.helpers.energy_base import (
     compute_rms_per_frame,
@@ -86,6 +86,9 @@ def _recompute_wave_details(
     start_sec = frame_start * HOP_SIZE / sampling_rate
     end_sec = frame_end * HOP_SIZE / sampling_rate
 
+    # Compose merged/recombination diagnostics.
+    merged = merge_count > 0
+
     wave["start_sec"] = start_sec
     wave["end_sec"] = end_sec
     wave["details"] = {
@@ -102,6 +105,8 @@ def _recompute_wave_details(
         # the open threshold — this is what "holding above speech level" means.
         "rms_hold_frames": int(np.sum(np.asarray(wave_hybrid) >= open_threshold)),
         "merge_count": merge_count,
+        "merged": merged,
+        "merged_waves": [],  # populated by merge_raw_waves after absorption
         **shape_diag,
     }
     wave["is_valid"] = (
@@ -147,6 +152,7 @@ def merge_raw_waves(
     merged: List[SpeechWave] = []
     current = raw_waves[0]
     merge_count = 0
+    absorbed: List[MergedWaveInfo] = []
 
     for next_wave in raw_waves[1:]:
         gap = next_wave["details"]["frame_start"] - current["details"]["frame_end"]
@@ -159,6 +165,17 @@ def merge_raw_waves(
             # A merged wave definitely crossed the threshold more than once.
             current["has_multi_passed"] = True
             merge_count += 1
+            absorbed.append(
+                MergedWaveInfo(
+                    frame_start=next_wave["details"]["frame_start"],
+                    frame_end=next_wave["details"]["frame_end"],
+                    start_sec=next_wave["start_sec"],
+                    end_sec=next_wave["end_sec"],
+                    duration_sec=next_wave["details"].get("duration_sec", 0.0),
+                    max_prob=next_wave["details"].get("max_prob", 0.0),
+                    prominence=next_wave["details"].get("prominence", 0.0),
+                )
+            )
         else:
             # ── Finalise current and start fresh ───────────────────────────
             current = _recompute_wave_details(
@@ -170,9 +187,11 @@ def merge_raw_waves(
                 open_threshold,
                 merge_count,
             )
+            current["details"]["merged_waves"] = absorbed
             merged.append(current)
             current = next_wave
             merge_count = 0
+            absorbed = []
 
     # Handle the last item in the chain.
     current = _recompute_wave_details(
@@ -184,6 +203,7 @@ def merge_raw_waves(
         open_threshold,
         merge_count,
     )
+    current["details"]["merged_waves"] = absorbed
     merged.append(current)
     return merged
 
