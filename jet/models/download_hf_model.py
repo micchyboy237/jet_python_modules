@@ -174,7 +174,19 @@ def download_dataset(
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    repo_id = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Download from Hugging Face by repo_id"
+    )
+    parser.add_argument(
+        "repo_id",
+        type=str,
+        help="Repository ID (e.g., mlx-community/Ministral-3-3B-Instruct-2512-4bit)",
+    )
+    args = parser.parse_args()
+
+    repo_id = args.repo_id
     cache_dir = MODELS_CACHE_DIR
     clean_cache = False
 

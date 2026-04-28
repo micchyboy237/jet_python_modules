@@ -7,7 +7,7 @@ LLAMACPP_LLM_KEYS = Literal[
     "llama-3.1:8b",
     "llama-3.2-instruct:3b",
     "qwen3-instruct-2507:4b",
-    "ministral-3-3b-instruct",
+    "Ministral-3B-Instruct",
 ]
 LLAMACPP_LLM_VALUES = Literal[
     "meta-llama/Llama-3.1-8B-Instruct",
