@@ -62,6 +62,7 @@ class SpeechWavesTracker:
         (default False - up to 150 ms / 15 frames).
     on_wave : Callable[[SpeechWave], None] | None
         Optional callback invoked once per saved wave, receiving the wave dict.
+        The callback receives two arguments: (wave: SpeechWave, wave_dir: Path).
     """
 
     def __init__(
@@ -76,7 +77,7 @@ class SpeechWavesTracker:
         prob_weight: float = 0.5,
         rms_weight: float = 0.5,
         disable_merge: bool = False,
-        on_wave: Optional[Callable[[SpeechWave], None]] = None,
+        on_wave: Optional[Callable[[SpeechWave, Path], None]] = None,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -273,11 +274,11 @@ class SpeechWavesTracker:
             if not wave.get("has_fallen", False) and not force:
                 continue
 
-            self._save_wave(wave, audio_np, speech_probs)
+            wave_dir = self._save_wave(wave, audio_np, speech_probs)
             self._saved_up_to_frame = max(self._saved_up_to_frame, frame_end)
 
             if self.on_wave is not None:
-                self.on_wave(wave)
+                self.on_wave(wave, wave_dir)
 
         self._last_vad_sample = len(self._buffer)
 
@@ -286,7 +287,7 @@ class SpeechWavesTracker:
         wave: SpeechWave,
         audio_np: np.ndarray,
         speech_probs: List[float],
-    ) -> None:
+    ) -> Path:
         """
         Persist audio + metadata for one valid speech wave.
 
@@ -326,6 +327,7 @@ class SpeechWavesTracker:
 
         # Accumulate wave for final summary export
         self._all_waves.append(wave)
+        return wave_dir
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────

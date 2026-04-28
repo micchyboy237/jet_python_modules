@@ -1,5 +1,5 @@
 """
-Japanese Live Speech-to-English Translation Demo
+Japanese Live Speech-to-English Translation
 
 Uses:
 
