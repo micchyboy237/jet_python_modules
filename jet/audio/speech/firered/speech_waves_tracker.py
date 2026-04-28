@@ -305,12 +305,15 @@ class SpeechWavesTracker:
 
         # Convert to file URI for Rich clickable link
         wave_link = f"file://{wave_json_path.resolve()}"
+        sound_path = wave_dir / "sound.wav"
+        play_link = f"file://{sound_path.resolve()}"
 
         console.log(
             f"[green]✓ [link={wave_link}]Wave {wave_idx:03d}[/link][/green] "
             f"[white]{wave['start_sec']:.2f}s → {wave['end_sec']:.2f}s[/white]  "
             f"dur=[yellow]{wave['details']['duration_sec']:.2f}s[/yellow]  "
-            f"peak=[magenta]{wave['details']['max_prob']:.3f}[/magenta]"
+            f"peak=[magenta]{wave['details']['max_prob']:.3f}[/magenta]  "
+            f"[bright_cyan][link={play_link}]▶[/link][/bright_cyan]"
         )
 
         # Accumulate wave for final summary export
