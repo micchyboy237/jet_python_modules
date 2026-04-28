@@ -1,21 +1,91 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import shutil
 import statistics
 from pathlib import Path
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io.wavfile as wavfile
-from jet.audio.audio_types import AudioInput
+from jet.audio.audio_types import AudioInput, SpeechWave
 from jet.audio.helpers.config import HOP_SIZE, SAMPLE_RATE
-from jet.audio.helpers.energy_base import compute_rms_per_frame
-from jet.audio.speech.firered.speech_types import SpeechWave
+from jet.audio.helpers.energy_base import (
+    compute_rms_per_frame,
+)
 from jet.audio.utils.loader import load_audio
 
 WaveState = Literal["below", "above"]
+
+
+@dataclasses.dataclass
+class WaveShapeConfig:
+    """
+    Tunable thresholds that decide whether a probability wave has a real
+    mountain shape rather than being a flat plateau or a tiny ripple.
+
+    Attributes:
+        min_prominence: How much the peak must rise above the average of the
+            two surrounding valley endpoints.
+        min_excursion: The minimum difference between the highest and lowest
+            probability inside the wave window.
+        min_peak_prob: Absolute floor — the peak frame must reach at least
+            this probability (guards against waves that never really fire).
+        min_frames: Waves shorter than this many frames are discarded.
+    """
+
+    min_prominence: float = 0.05
+    min_excursion: float = 0.04
+    min_peak_prob: float = 0.55
+    min_frames: int = 3
+
+
+def is_prominent_wave(
+    wave_probs: List[float],
+    entry_prob: float,
+    exit_prob: float,
+    cfg: WaveShapeConfig,
+) -> tuple[bool, dict]:
+    """
+    Decide whether a slice of probabilities forms a genuine mountain shape.
+
+    The algorithm:
+      1. Baseline = average of entry_prob and exit_prob (the "ground level").
+      2. Peak     = maximum probability inside the slice.
+      3. Prominence = peak - baseline.
+      4. Excursion  = max - min inside the slice (vertical range).
+
+    Returns:
+        (passed: bool, diagnostics: dict)
+    """
+    if not wave_probs:
+        return False, {}
+
+    peak_prob = max(wave_probs)
+    min_prob = min(wave_probs)
+    baseline = (entry_prob + exit_prob) / 2.0
+    prominence = peak_prob - baseline
+    excursion = peak_prob - min_prob
+    n_frames = len(wave_probs)
+
+    passed = (
+        prominence >= cfg.min_prominence
+        and excursion >= cfg.min_excursion
+        and peak_prob >= cfg.min_peak_prob
+        and n_frames >= cfg.min_frames
+    )
+
+    diagnostics = {
+        "baseline": round(baseline, 6),
+        "peak_prob": round(peak_prob, 6),
+        "prominence": round(prominence, 6),
+        "excursion": round(excursion, 6),
+        "n_frames": n_frames,
+        "shape_passed": passed,
+    }
+    return passed, diagnostics
 
 
 def get_speech_waves(
@@ -23,6 +93,7 @@ def get_speech_waves(
     speech_probs: List[float],
     threshold: float = 0.5,
     sampling_rate: int = SAMPLE_RATE,
+    shape_cfg: Optional[WaveShapeConfig] = None,
 ) -> List[SpeechWave]:
     """
     Identify complete speech waves (rise → sustained high → fall) from FireRedVAD probabilities.
@@ -32,8 +103,6 @@ def get_speech_waves(
     unless you need to derive probabilities).
     """
     # Load audio for consistency (ensures correct sample rate and format)
-    # We don't use the waveform here directly, but loading it ensures validation
-    # and normalization of the input.
     _, loaded_sr = load_audio(audio, sr=sampling_rate, mono=True)
 
     # Use the full probability list
@@ -41,6 +110,7 @@ def get_speech_waves(
         speech_probs=speech_probs,
         threshold=threshold,
         sampling_rate=loaded_sr,  # Use the confirmed sample rate
+        shape_cfg=shape_cfg,
     )
 
     # Filter only valid (complete) waves
@@ -56,11 +126,18 @@ def check_speech_waves(
     speech_probs: List[float],
     threshold: float = 0.5,
     sampling_rate: int = SAMPLE_RATE,
+    shape_cfg: Optional[WaveShapeConfig] = None,
 ) -> List[SpeechWave]:
     """
-    Analyze speech probabilities from FireRedVAD and return complete wave metadata.
-    Updated for 10ms hop length (HOP_SIZE samples per frame).
+    Analyze speech probabilities from FireRedVAD and return complete wave
+    metadata. Updated for 10ms hop length (HOP_SIZE samples per frame).
+
+    Now uses prominence-based shape validation so flat plateaus (low excursion,
+    low prominence) are rejected even when all frames exceed the threshold.
     """
+    if shape_cfg is None:
+        shape_cfg = WaveShapeConfig()
+
     if not speech_probs:
         return []
 
@@ -92,7 +169,7 @@ def check_speech_waves(
         state = "above"
 
     for i, prob in enumerate(speech_probs):
-        # Frame time in seconds using FireRedVAD hop size (10ms)
+        # Frame time in seconds
         frame_time_sec = i * HOP_SIZE / sampling_rate
 
         if state == "below":
@@ -125,29 +202,42 @@ def check_speech_waves(
             else:
                 if current_wave is not None:
                     current_wave["has_fallen"] = True
-                    current_wave["is_valid"] = (
-                        current_wave["has_risen"] and current_wave["has_multi_passed"]
-                    )
-                    current_wave["end_sec"] = frame_time_sec
-
-                    # Finalize details for complete wave
+                    # ------ shape-based validation ------------
                     frame_start = rise_frame_idx if rise_frame_idx is not None else 0
                     frame_end = i
                     wave_probs = speech_probs[frame_start:frame_end]
                     frame_len = frame_end - frame_start
 
+                    # Entry/Exit for baseline
+                    entry_prob = (
+                        speech_probs[frame_start - 1] if frame_start > 0 else 0.0
+                    )
+                    exit_prob = prob  # dropped below threshold
+                    shape_ok, shape_diag = is_prominent_wave(
+                        wave_probs, entry_prob, exit_prob, shape_cfg
+                    )
+
+                    current_wave["is_valid"] = (
+                        current_wave["has_risen"]
+                        and current_wave["has_multi_passed"]
+                        and shape_ok
+                    )
+                    current_wave["end_sec"] = frame_time_sec
+
+                    # Finalize details for complete wave
                     current_wave["details"] = {
                         "frame_start": frame_start,
                         "frame_end": frame_end,
                         "frame_len": frame_len,
                         "duration_sec": current_wave["end_sec"]
                         - current_wave["start_sec"],
-                        "min_prob": min(wave_probs),
-                        "max_prob": max(wave_probs),
-                        "avg_prob": statistics.mean(wave_probs),
+                        "min_prob": min(wave_probs) if wave_probs else 0.0,
+                        "max_prob": max(wave_probs) if wave_probs else 0.0,
+                        "avg_prob": statistics.mean(wave_probs) if wave_probs else 0.0,
                         "std_prob": statistics.stdev(wave_probs)
                         if frame_len > 1
                         else 0.0,
+                        **shape_diag,
                     }
                     waves.append(current_wave)
 
@@ -167,15 +257,23 @@ def check_speech_waves(
             wave_probs = speech_probs[frame_start:frame_end]
             frame_len = frame_end - frame_start
 
+            entry_prob = speech_probs[frame_start - 1] if frame_start > 0 else 0.0
+            # If it never fell, threshold as proxy for exit prob
+            exit_prob = threshold
+            shape_ok, shape_diag = is_prominent_wave(
+                wave_probs, entry_prob, exit_prob, shape_cfg
+            )
+
             current_wave["details"] = {
                 "frame_start": frame_start,
                 "frame_end": frame_end,
                 "frame_len": frame_len,
                 "duration_sec": current_wave["end_sec"] - current_wave["start_sec"],
-                "min_prob": min(wave_probs),
-                "max_prob": max(wave_probs),
-                "avg_prob": statistics.mean(wave_probs),
+                "min_prob": min(wave_probs) if wave_probs else 0.0,
+                "max_prob": max(wave_probs) if wave_probs else 0.0,
+                "avg_prob": statistics.mean(wave_probs) if wave_probs else 0.0,
                 "std_prob": statistics.stdev(wave_probs) if frame_len > 1 else 0.0,
+                **shape_diag,
             }
         waves.append(current_wave)
 
@@ -283,6 +381,114 @@ def save_wave_data(
     save_wave_plot(wave_probs, rms_values, plot_path, wave_num, seg_num)
 
 
+# ── Reporting helpers ──
+
+
+def _build_wave_report(
+    wave: SpeechWave,
+    wave_idx: int,
+    waves_dir: Path,
+    segments: list,
+) -> dict:
+    """
+    Flatten one SpeechWave into a clean, self-contained report dict.
+    Used for both summary.json rows and top_5_waves.json entries.
+    """
+    frame_start = wave["details"]["frame_start"]
+    parent_seg_num = 0
+    for seg in segments:
+        if seg["frame_start"] <= frame_start <= seg["frame_end"]:
+            parent_seg_num = seg["num"]
+            break
+
+    dir_name = f"segment_{parent_seg_num:03d}_wave_{wave_idx:03d}"
+    wav_abs = (waves_dir / dir_name / "sound.wav").resolve()
+    plot_abs = (waves_dir / dir_name / "wave_plot.png").resolve()
+    short = _shorten_path(str(wav_abs))
+
+    d = wave["details"]
+    return {
+        # ── identity ──────────────────────────────────────────────────
+        "wave": wave_idx,
+        "dir": dir_name,
+        # ── timing ────────────────────────────────────────────────────
+        "start_sec": round(wave["start_sec"], 4),
+        "end_sec": round(wave["end_sec"], 4),
+        "dur_sec": round(d["duration_sec"], 4),
+        # ── Plot file ────────────────────────────────────────────────
+        "plot_path": str(plot_abs),
+        # ── audio file ────────────────────────────────────────────────
+        "sound_short": short,
+        "sound_path": str(wav_abs),
+        # ── probability scores ────────────────────────────────────────
+        "scores": {
+            "min_prob": round(d["min_prob"], 6),
+            "max_prob": round(d["max_prob"], 6),
+            "avg_prob": round(d["avg_prob"], 6),
+            "std_prob": round(d["std_prob"], 6),
+            "baseline": round(d.get("baseline", 0.0), 6),
+            "prominence": round(d.get("prominence", 0.0), 6),
+            "excursion": round(d.get("excursion", 0.0), 6),
+        },
+    }
+
+
+def _top5_reports(
+    speech_waves: List[SpeechWave],
+    waves_dir: Path,
+    segments: list,
+    duration_weight: float = 0.5,
+) -> list[dict]:
+    """
+    Return the 5 waves with the highest composite score, already serialised
+    as report dicts (not raw SpeechWave objects).
+    Composite score = prominence * log(1 + duration_sec * duration_weight)
+    This rewards waves that are both prominent and long, while the log scale
+    prevents very long but flat waves from dominating short, sharp ones.
+    Set duration_weight=0 to rank by prominence only (legacy behaviour).
+    """
+    import math
+
+    indexed = list(enumerate(speech_waves, 1))  # [(1, wave), (2, wave), …]
+
+    def _composite(wave):
+        d = wave["details"]
+        prominence = d.get("prominence", d["max_prob"])
+        duration_sec = d.get("duration_sec", 0.0)
+        return prominence * math.log1p(duration_sec * duration_weight)
+
+    ranked = sorted(indexed, key=lambda iv: _composite(iv[1]), reverse=True)
+    return [
+        _build_wave_report(wave, idx, waves_dir, segments) for idx, wave in ranked[:5]
+    ]
+
+
+def build_summary_rows(
+    speech_waves: List[SpeechWave],
+    waves_dir: Path,
+    segments: list,
+) -> list[dict]:
+    """
+    Build a flat list of report dicts — one per valid wave — used for both
+    the rich summary table and summary.json.
+    """
+    return [
+        _build_wave_report(wave, idx, waves_dir, segments)
+        for idx, wave in enumerate(speech_waves, 1)
+    ]
+
+
+def _shorten_path(path_str: str) -> str:
+    """
+    Show only the last 2 components of a path to keep the table columns narrow.
+    E.g. segment_001_wave_003/sound.wav
+    """
+    parts = Path(path_str).parts
+    if len(parts) <= 2:
+        return path_str
+    return "/".join(parts[-2:])
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -290,7 +496,9 @@ if __name__ == "__main__":
         extract_speech_timestamps,
     )
     from jet.file.utils import save_file
+    from rich import box
     from rich.console import Console
+    from rich.table import Table
 
     console = Console()
 
@@ -299,6 +507,7 @@ if __name__ == "__main__":
     Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
     DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
+
     parser = argparse.ArgumentParser(
         description="Extract speech timestamps from audio using TEN VAD.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -343,13 +552,22 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # segments, scores = extract_speech_timestamps(
+    #     audio=args.input,
+    #     include_non_speech=args.include_non_speech,
+    #     hop_size=args.hop_size,
+    #     threshold=args.threshold,
+    #     min_speech_duration_ms=args.min_speech_duration,
+    #     min_silence_duration_ms=args.min_silence_duration,
+    #     with_scores=True,
+    # )
     segments, scores = extract_speech_timestamps(
         audio=args.input,
         include_non_speech=args.include_non_speech,
-        hop_size=args.hop_size,
         threshold=args.threshold,
-        min_speech_duration_ms=args.min_speech_duration,
-        min_silence_duration_ms=args.min_silence_duration,
+        min_speech_duration_sec=args.min_speech_duration / 1000,
+        min_silence_duration_sec=args.min_silence_duration / 1000,
+        # max_speech_duration_sec
         with_scores=True,
     )
 
@@ -371,18 +589,12 @@ if __name__ == "__main__":
         f"\n[bold]Generating files for {len(speech_waves)} valid speech waves...[/bold]"
     )
 
-    # Track which segment each wave belongs to based on frame overlap
     for wave_idx, wave in enumerate(speech_waves, 1):
         wave_frame_start = wave["details"]["frame_start"]
-        wave_frame_end = wave["details"]["frame_end"]
 
-        # Find parent segment by checking frame overlap
-        parent_seg_num = 1  # Default to first segment
+        parent_seg_num = 1
         for seg in segments:
-            if (
-                wave_frame_start >= seg["frame_start"]
-                and wave_frame_start <= seg["frame_end"]
-            ):
+            if seg["frame_start"] <= wave_frame_start <= seg["frame_end"]:
                 parent_seg_num = seg["num"]
                 break
 
@@ -397,4 +609,60 @@ if __name__ == "__main__":
             hop_size=args.hop_size,
         )
 
-    console.print(f"\n[bold green]All wave files saved under: {waves_dir}[/bold green]")
+    # ── summary table & JSON ──────────────────────────────────────────────────
+    rows = build_summary_rows(speech_waves, waves_dir, segments)
+    save_file(rows, OUTPUT_DIR / "summary.json")
+
+    # ── top-5 waves (built after waves_dir exists and dirs are known) ─────────
+    top5 = _top5_reports(speech_waves, waves_dir, segments)
+    save_file(top5, OUTPUT_DIR / "top_5_waves.json")
+
+    table = Table(
+        title=f"Speech Waves Summary  ({len(rows)} valid waves)",
+        box=box.ROUNDED,
+        show_lines=False,
+        header_style="bold cyan",
+    )
+    table.add_column("#", style="dim", justify="right", no_wrap=True)
+    table.add_column("Dir", style="cyan", justify="left", no_wrap=True)
+    table.add_column("Start (s)", style="white", justify="right", no_wrap=True)
+    table.add_column("End (s)", style="white", justify="right", no_wrap=True)
+    table.add_column("Dur (s)", style="yellow", justify="right", no_wrap=True)
+    table.add_column("Prominence", style="magenta", justify="right", no_wrap=True)
+    table.add_column("Peak prob", style="green", justify="right", no_wrap=True)
+    table.add_column("Sound", style="bright_black", justify="left")
+
+    top5_dirs = {w["dir"] for w in top5}
+
+    for r in rows:
+        is_top5 = r["dir"] in top5_dirs
+        row_style = "bold" if is_top5 else ""
+        star = "★ " if is_top5 else "  "
+
+        dir_cell = f"[link=file://{r['plot_path']}]{r['dir']}[/link]"
+        sound_cell = f"[link=file://{r['sound_path']}]{r['sound_short']}[/link]"
+
+        table.add_row(
+            f"{star}{r['wave']}",
+            dir_cell,
+            f"{r['start_sec']:.2f}",
+            f"{r['end_sec']:.2f}",
+            f"{r['dur_sec']:.2f}",
+            f"{r['scores']['prominence']:.3f}",
+            f"{r['scores']['max_prob']:.3f}",
+            sound_cell,
+            style=row_style,
+        )
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print(
+        f"[bold green]✓[/bold green] All wave files saved under : [cyan]{waves_dir}[/cyan]"
+    )
+    console.print(
+        f"[bold green]✓[/bold green] summary.json              : [cyan][link=file://{(OUTPUT_DIR / 'summary.json').resolve()}]{(OUTPUT_DIR / 'summary.json').resolve()}[/link][/cyan]"
+    )
+    console.print(
+        f"[bold green]✓[/bold green] top_5_waves.json          : [cyan][link=file://{(OUTPUT_DIR / 'top_5_waves.json').resolve()}]{(OUTPUT_DIR / 'top_5_waves.json').resolve()}[/link][/cyan]"
+    )
