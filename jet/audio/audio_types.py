@@ -1,9 +1,7 @@
-# audio_types.py
-
 from __future__ import annotations
 
 import os
-from typing import TypedDict, Union
+from typing import List, Literal, Optional, TypedDict, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -36,6 +34,10 @@ class SpeechWaveDetails(TypedDict):
     max_prob: float
     avg_prob: float
     std_prob: float
+    avg_hybrid: float
+    # Hybrid gate bookkeeping
+    rms_hold_frames: int
+    merge_count: int  # how many raw waves were fused to make this one (0 = no merge)
 
 
 class SpeechWave(SpeechWaveMeta):

@@ -4,6 +4,7 @@ import os
 import librosa
 import numpy as np
 import torch
+
 from jet.audio.audio_types import AudioInput
 
 
@@ -13,45 +14,48 @@ def load_audio(
     mono: bool = True,
 ) -> tuple[np.ndarray, int]:
     """
-    Robust audio loader for ASR pipelines with correct datatype, normalization, layout, and resampling.
+    Robust audio loader for ASR pipelines with correct datatype, normalization,
+    layout, and resampling.
 
     Handles:
       - File paths
       - In-memory WAV bytes
-      - NumPy arrays (any shape/layout/dtype/sr)
+      - NumPy arrays (any shape/layout/dtype)
       - Torch tensors
       - Automatically normalizes to [-1.0, 1.0] float32
-      - Always resamples to target_sr
+      - Always resamples to target sr
       - Correctly converts stereo → mono regardless of channel position
+
     Returns
     -------
     np.ndarray
         Shape (samples,), float32, [-1.0, 1.0], exactly `sr` Hz
     """
-    # ─────── FIX 1: In-memory arrays/tensors have unknown original sr ───────
+    target_sr: int = sr
+    current_sr: int | None = None
 
-    current_sr: int | None
     if isinstance(audio, (str, os.PathLike)):
         y, current_sr = librosa.load(audio, sr=None, mono=False)
     elif isinstance(audio, bytes):
         y, current_sr = librosa.load(io.BytesIO(audio), sr=None, mono=False)
     elif isinstance(audio, np.ndarray):
         y = audio.astype(np.float32, copy=False)
-        current_sr = None
+        current_sr = None  # caller is responsible for matching sr
     elif isinstance(audio, torch.Tensor):
         y = audio.float().cpu().numpy()
-        current_sr = None
+        current_sr = None  # caller is responsible for matching sr
     else:
         raise TypeError(f"Unsupported audio input type: {type(audio)}")
 
-    # ─────── FIX 2: Correct normalization (NumPy, not torch) ───────
+    # Integer → float normalisation
     if np.issubdtype(y.dtype, np.integer):
         y = y / (2 ** (np.iinfo(y.dtype).bits - 1))
 
+    # Clamp to [-1, 1] if clipped
     if len(y) > 0 and np.abs(y).max() > 1.0 + 1e-6:
         y = y / np.abs(y).max()
 
-    # ─────── FIX 3: Always make (channels, time) layout ───────
+    # Ensure 2-D layout: (channels, samples)
     if y.ndim == 1:
         y = y[None, :]
     elif y.ndim == 2:
@@ -60,14 +64,13 @@ def load_audio(
     else:
         raise ValueError(f"Audio must be 1D or 2D, got shape {y.shape}")
 
-    # Mono conversion
+    # Stereo → mono
     if mono and y.shape[0] > 1:
         y = np.mean(y, axis=0, keepdims=True)
 
-    sr = current_sr or sr
+    # Resample to target_sr when we know the source rate
+    # FIX: never overwrite target_sr with current_sr — that made orig_sr == target_sr
+    if current_sr is not None and current_sr != target_sr:
+        y = librosa.resample(y, orig_sr=current_sr, target_sr=target_sr)
 
-    # ─────── FIX 4: ALWAYS resample if current_sr is None or wrong ───────
-    if current_sr != sr:
-        y = librosa.resample(y, orig_sr=sr, target_sr=sr)
-
-    return y.squeeze(), sr
+    return y.squeeze(), target_sr
