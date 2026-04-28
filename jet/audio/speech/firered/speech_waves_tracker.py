@@ -8,7 +8,7 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import numpy as np
 import sounddevice as sd
@@ -60,6 +60,8 @@ class SpeechWavesTracker:
     disable_merge : bool
         Disable merging of consecutive raw waves separated by a short gap
         (default False - up to 150 ms / 15 frames).
+    on_wave : Callable[[SpeechWave], None] | None
+        Optional callback invoked once per saved wave, receiving the wave dict.
     """
 
     def __init__(
@@ -74,6 +76,7 @@ class SpeechWavesTracker:
         prob_weight: float = 0.5,
         rms_weight: float = 0.5,
         disable_merge: bool = False,
+        on_wave: Optional[Callable[[SpeechWave], None]] = None,
     ) -> None:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -109,6 +112,8 @@ class SpeechWavesTracker:
         self._all_waves: List[SpeechWave] = []
         # Lock so feed() and flush() are safe to call from different threads
         self._lock = threading.Lock()
+
+        self.on_wave = on_wave
 
         # VAD model (lazy-loaded on first VAD call)
         self._vad: Optional[FireRedVAD] = None
@@ -271,6 +276,9 @@ class SpeechWavesTracker:
             self._save_wave(wave, audio_np, speech_probs)
             self._saved_up_to_frame = max(self._saved_up_to_frame, frame_end)
 
+            if self.on_wave is not None:
+                self.on_wave(wave)
+
         self._last_vad_sample = len(self._buffer)
 
     def _save_wave(
@@ -428,6 +436,7 @@ if __name__ == "__main__":
         prob_weight=args.prob_weight,
         rms_weight=args.rms_weight,
         disable_merge=args.disable_merge,
+        on_wave=lambda wave: print(f"New wave detected: {wave['start_sec']:.2f}s"),
     )
 
     # sounddevice puts chunks into this queue; the main thread drains it.

@@ -33,6 +33,7 @@ wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/ten-vad.
 """
 
 import argparse
+import shutil
 import sys
 import time
 
@@ -53,6 +54,7 @@ except ImportError:
 from pathlib import Path
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 VAD_MODEL = (

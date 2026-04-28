@@ -22,6 +22,7 @@ wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_v
 
 import argparse
 from pathlib import Path
+import shutil
 from typing import Tuple
 
 import numpy as np
@@ -29,6 +30,7 @@ import sherpa_onnx
 import soundfile as sf
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 VAD_MODEL = (
