@@ -58,7 +58,7 @@ SUBTITLE_LINES = [
 
 def translate(
     subtitle: str,
-    history: list[dict],
+    history: list[dict] = [],
     slot_id: int = 0,
 ) -> dict:
     """
@@ -109,7 +109,7 @@ def translate(
     returned_slot = data.get("id_slot", slot_id)
 
     return {
-        "translation": translation,
+        "text": translation,
         "slot_id": returned_slot,
         "tokens_cached": tokens_cached,
         "tokens_evaluated": tokens_evaluated,

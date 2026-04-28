@@ -89,7 +89,7 @@ if __name__ == "__main__":
     stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
         model="Qwen/Qwen3.5-2B",
         messages=messages,
-        max_tokens=32768,
+        max_tokens=100,
         temperature=1.0,
         top_p=1.0,
         presence_penalty=2.0,

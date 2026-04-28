@@ -25,12 +25,13 @@ FIXED PREFIX = everything up to and including [INST]  (gets cached)
 SUFFIX       = the subtitle text + [IMPORTANT]...[/INST]  (changes each call)
 """
 
+import os
 import time
 
 import requests
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BASE_URL = "http://localhost:8080"
+BASE_URL = os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:8080/v1")
 COMPLETION_URL = f"{BASE_URL}/completion"
 
 SYSTEM_PROMPT = (
