@@ -5,9 +5,10 @@ Default: Zipformer ReazonSpeech (2025-01-17) for best Japanese accuracy
 
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
+import soundfile as sf
 
 try:
     import sounddevice as sd
@@ -16,6 +17,27 @@ except ImportError:
     sys.exit(-1)
 
 import sherpa_onnx
+
+
+def load_audio(filename: str) -> Tuple[np.ndarray, int]:
+    data, sample_rate = sf.read(
+        filename,
+        always_2d=True,
+        dtype="float32",
+    )
+    data = data[:, 0]  # use only the first channel
+    samples = np.ascontiguousarray(data)
+    return samples, sample_rate
+
+
+def read_audio_file(filename: str) -> Tuple[np.ndarray, int]:
+    samples, sample_rate = load_audio(filename)
+    if sample_rate != 16000:
+        import librosa
+
+        samples = librosa.resample(samples, orig_sr=sample_rate, target_sr=16000)
+        sample_rate = 16000
+    return samples, sample_rate
 
 
 class JapaneseSpeechTranscriber:
@@ -146,7 +168,7 @@ class JapaneseSpeechTranscriber:
         assert Path(audio_file).is_file(), f"Audio file not found: {audio_file}"
 
         stream = self.recognizer.create_stream()
-        samples, sr = sherpa_onnx.read_audio_file(audio_file)
+        samples, sr = read_audio_file(audio_file)
 
         if sr != self.sample_rate:
             print(f"Warning: Input sample rate {sr}Hz, expected {self.sample_rate}Hz")
