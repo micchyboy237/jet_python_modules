@@ -38,7 +38,7 @@ class WaveShapeConfig:
         max_merge_gap_frames: If two consecutive raw waves are separated by a
             gap of this many frames or fewer, they are fused into one wave
             before shape validation. Set to 0 to disable merging entirely.
-            At 10 ms/frame the default of 5 means gaps up to 50 ms are bridged.
+            At 10 ms/frame the default of 15 means gaps up to 150 ms are bridged.
         min_duration_sec: After merging, any wave whose duration is still
             shorter than this value (in seconds) is marked invalid and dropped.
             Default 0.08 s (80 ms) — roughly the shortest recognisable phoneme.
@@ -48,7 +48,7 @@ class WaveShapeConfig:
     min_excursion: float = 0.04
     min_peak_prob: float = 0.55
     min_frames: int = 3
-    max_merge_gap_frames: int = 5  # bridge gaps ≤ 50 ms (at 10 ms/frame)
+    max_merge_gap_frames: int = 15  # bridge gaps ≤ 150 ms (at 10 ms/frame)
     min_duration_sec: float = 0.08  # drop anything still shorter than 80 ms
 
 
@@ -58,6 +58,7 @@ def _recompute_wave_details(
     crossing: np.ndarray,
     sampling_rate: int,
     shape_cfg: WaveShapeConfig,
+    open_threshold: float = 0.5,
     merge_count: int = 0,
 ) -> SpeechWave:
     """
@@ -97,7 +98,9 @@ def _recompute_wave_details(
         "avg_prob": statistics.mean(wave_probs) if wave_probs else 0.0,
         "std_prob": statistics.stdev(wave_probs) if frame_len > 1 else 0.0,
         "avg_hybrid": float(np.mean(wave_hybrid)) if wave_hybrid else 0.0,
-        "rms_hold_frames": sum(1 for p in wave_probs if p >= 0.5),
+        # Count frames where the *hybrid* signal (not raw prob) stays above
+        # the open threshold — this is what "holding above speech level" means.
+        "rms_hold_frames": int(np.sum(np.asarray(wave_hybrid) >= open_threshold)),
         "merge_count": merge_count,
         **shape_diag,
     }
@@ -116,6 +119,7 @@ def merge_raw_waves(
     crossing: np.ndarray,
     sampling_rate: int,
     shape_cfg: WaveShapeConfig,
+    open_threshold: float = 0.5,
 ) -> List[SpeechWave]:
     """
     Fuse consecutive raw waves whose inter-wave gap is small.
@@ -158,7 +162,13 @@ def merge_raw_waves(
         else:
             # ── Finalise current and start fresh ───────────────────────────
             current = _recompute_wave_details(
-                current, speech_probs, crossing, sampling_rate, shape_cfg, merge_count
+                current,
+                speech_probs,
+                crossing,
+                sampling_rate,
+                shape_cfg,
+                open_threshold,
+                merge_count,
             )
             merged.append(current)
             current = next_wave
@@ -166,7 +176,13 @@ def merge_raw_waves(
 
     # Handle the last item in the chain.
     current = _recompute_wave_details(
-        current, speech_probs, crossing, sampling_rate, shape_cfg, merge_count
+        current,
+        speech_probs,
+        crossing,
+        sampling_rate,
+        shape_cfg,
+        open_threshold,
+        merge_count,
     )
     merged.append(current)
     return merged
@@ -348,37 +364,9 @@ def check_speech_waves(
     crossing = hybrid_signal  # thresholding and window logic always uses this
 
     waves: List[SpeechWave] = []
-    current_wave: SpeechWave | None = None
+    current_wave: Optional[SpeechWave] = None
     state: WaveState = "below"
-    rise_frame_idx: int | None = None
-
-    # ── Phase 1: collect raw waves (no min_duration filter yet) ──────────
-    # We intentionally keep short waves here so the merge pass in Phase 2
-    # has a chance to fuse them with their neighbours before we validate.
-
-    if len(crossing) > 0 and crossing[0] >= threshold:
-        current_wave = SpeechWave(
-            has_risen=False,
-            has_multi_passed=False,
-            has_fallen=False,
-            is_valid=False,
-            start_sec=0.0,
-            end_sec=0.0,
-            details={
-                "frame_start": 0,
-                "frame_end": 0,
-                "frame_len": 0,
-                "duration_sec": 0.0,
-                "min_prob": speech_probs[0],
-                "max_prob": speech_probs[0],
-                "avg_prob": speech_probs[0],
-                "std_prob": 0.0,
-                "avg_hybrid": float(crossing[0]),
-                "rms_hold_frames": 0,
-                "merge_count": 0,
-            },
-        )
-        state = "above"
+    rise_frame_idx: Optional[int] = None
 
     for i, prob in enumerate(speech_probs):
         frame_time_sec = i * HOP_SIZE / sampling_rate
@@ -410,102 +398,78 @@ def check_speech_waves(
                     },
                 )
                 state = "above"
-        else:
-            if hybrid_val >= threshold:
+        else:  # state == "above"
+            if hybrid_val >= _close_threshold:
+                # ── Signal is "alive" — anywhere at or above the close floor ──
+                # This covers three sub-zones:
+                #   a) hybrid_val >= threshold          → strongly above open level
+                #   b) _close_threshold <= hybrid_val < threshold → hysteresis band
+                # In all cases the wave is still open and counts as sustained.
                 if current_wave is not None:
                     current_wave["has_multi_passed"] = True
             else:
-                # Close only when signal drops below the (lower) close threshold.
-                # While it stays in the band [_close_threshold, threshold) the
-                # wave remains open — this is the hysteresis zone.
-                if hybrid_val < _close_threshold:
-                    if current_wave is not None:
-                        current_wave["has_fallen"] = True
-                        frame_start = (
-                            rise_frame_idx if rise_frame_idx is not None else 0
-                        )
-                        frame_end = i
-                        wave_probs = speech_probs[frame_start:frame_end]
-                        wave_hybrid = list(crossing[frame_start:frame_end])
-                        frame_len = frame_end - frame_start
-                        entry_prob = (
-                            speech_probs[frame_start - 1] if frame_start > 0 else 0.0
-                        )
-                        exit_prob = prob
-                        shape_ok, shape_diag = is_prominent_wave(
-                            wave_probs, entry_prob, exit_prob, shape_cfg
-                        )
-                        current_wave["is_valid"] = (
-                            current_wave["has_risen"]
-                            and current_wave["has_multi_passed"]
-                            and shape_ok
-                        )
-                        current_wave["end_sec"] = frame_time_sec
-                        current_wave["details"] = {
-                            "frame_start": frame_start,
-                            "frame_end": frame_end,
-                            "frame_len": frame_len,
-                            "duration_sec": current_wave["end_sec"]
-                            - current_wave["start_sec"],
-                            "min_prob": min(wave_probs) if wave_probs else 0.0,
-                            "max_prob": max(wave_probs) if wave_probs else 0.0,
-                            "avg_prob": statistics.mean(wave_probs)
-                            if wave_probs
-                            else 0.0,
-                            "std_prob": statistics.stdev(wave_probs)
-                            if frame_len > 1
-                            else 0.0,
-                            "avg_hybrid": float(np.mean(wave_hybrid))
-                            if wave_hybrid
-                            else 0.0,
-                            "rms_hold_frames": sum(
-                                1 for p in wave_probs if p >= threshold
-                            ),
-                            "merge_count": 0,
-                            **shape_diag,
-                        }
-                        waves.append(current_wave)
-                    current_wave = None
-                    rise_frame_idx = None
-                    state = "below"
-                # else: still in hysteresis band — stay open, do nothing
+                # ── Signal fell below the close threshold — end the wave ───────
+                if current_wave is not None:
+                    current_wave["has_fallen"] = True
+                    frame_start = rise_frame_idx if rise_frame_idx is not None else 0
+                    frame_end = i
+                    # Only update frame indices in details; keep other fields
+                    current_wave["details"]["frame_start"] = frame_start
+                    current_wave["details"]["frame_end"] = frame_end
+                    # Recompute all details cleanly for this wave
+                    current_wave = _recompute_wave_details(
+                        current_wave,
+                        speech_probs,
+                        crossing,
+                        sampling_rate,
+                        shape_cfg,
+                        open_threshold=threshold,
+                        merge_count=0,
+                    )
+                    waves.append(current_wave)
+                current_wave = None
+                rise_frame_idx = None
+                state = "below"
+
+            # else: still in hysteresis band — stay open, do nothing
 
     if current_wave is not None:
         current_wave["has_fallen"] = False
         current_wave["is_valid"] = False
-        current_wave["end_sec"] = len(speech_probs) * HOP_SIZE / sampling_rate
         if rise_frame_idx is not None:
             frame_start = rise_frame_idx
             frame_end = len(speech_probs)
-            wave_probs = speech_probs[frame_start:frame_end]
-            wave_hybrid = list(crossing[frame_start:frame_end])
-            frame_len = frame_end - frame_start
-            entry_prob = speech_probs[frame_start - 1] if frame_start > 0 else 0.0
-            exit_prob = threshold
-            shape_ok, shape_diag = is_prominent_wave(
-                wave_probs, entry_prob, exit_prob, shape_cfg
+            # Only update frame indices in details; keep other fields
+            current_wave["details"]["frame_start"] = frame_start
+            current_wave["details"]["frame_end"] = frame_end
+            # Tail waves haven't fallen — use threshold as a stand-in exit prob
+            # so _recompute can still run is_prominent_wave consistently.
+            # _recompute will also set start_sec / end_sec / duration_sec correctly.
+            current_wave = _recompute_wave_details(
+                current_wave,
+                speech_probs,
+                crossing,
+                sampling_rate,
+                shape_cfg,
+                open_threshold=threshold,
+                merge_count=0,
             )
-            current_wave["details"] = {
-                "frame_start": frame_start,
-                "frame_end": frame_end,
-                "frame_len": frame_len,
-                "duration_sec": current_wave["end_sec"] - current_wave["start_sec"],
-                "min_prob": min(wave_probs) if wave_probs else 0.0,
-                "max_prob": max(wave_probs) if wave_probs else 0.0,
-                "avg_prob": statistics.mean(wave_probs) if wave_probs else 0.0,
-                "std_prob": statistics.stdev(wave_probs) if frame_len > 1 else 0.0,
-                "avg_hybrid": float(np.mean(wave_hybrid)) if wave_hybrid else 0.0,
-                "rms_hold_frames": sum(1 for p in wave_probs if p >= threshold),
-                "merge_count": 0,
-                **shape_diag,
-            }
+            # Override is_valid: a wave that hasn't fallen is not valid yet.
+            current_wave["is_valid"] = False
         waves.append(current_wave)
 
     # ── Phase 2: merge nearby raw waves ────────────────────────────────
     # Fuse pairs (or chains) of waves whose inter-wave gap is short enough,
     # then re-validate each merged wave.  This recovers speech data that
     # would otherwise be dropped as individual short waves.
-    waves = merge_raw_waves(waves, speech_probs, crossing, sampling_rate, shape_cfg)
+    waves = merge_raw_waves(
+        waves,
+        speech_probs,
+        crossing,
+        sampling_rate,
+        shape_cfg,
+        open_threshold=threshold,
+    )
 
     return waves
 
@@ -646,6 +610,19 @@ def save_wave_data(
 # ── Reporting helpers ──
 
 
+def _find_parent_seg_num(frame_start: int, segments: list, default: int = 1) -> int:
+    """
+    Return the segment number whose frame range contains frame_start.
+    Falls back to `default` (1-based, matching the save loop) when no segment matches.
+    Using a shared helper ensures the save loop and _build_wave_report
+    always produce the same directory name.
+    """
+    for seg in segments:
+        if seg["frame_start"] <= frame_start <= seg["frame_end"]:
+            return seg["num"]
+    return default
+
+
 def _build_wave_report(
     wave: SpeechWave,
     wave_idx: int,
@@ -657,11 +634,7 @@ def _build_wave_report(
     Used for both summary.json rows and top_5_waves.json entries.
     """
     frame_start = wave["details"]["frame_start"]
-    parent_seg_num = 0
-    for seg in segments:
-        if seg["frame_start"] <= frame_start <= seg["frame_end"]:
-            parent_seg_num = seg["num"]
-            break
+    parent_seg_num = _find_parent_seg_num(frame_start, segments, default=1)
 
     dir_name = f"segment_{parent_seg_num:03d}_wave_{wave_idx:03d}"
     wav_abs = (waves_dir / dir_name / "sound.wav").resolve()
@@ -871,11 +844,7 @@ if __name__ == "__main__":
     for wave_idx, wave in enumerate(speech_waves, 1):
         wave_frame_start = wave["details"]["frame_start"]
 
-        parent_seg_num = 1
-        for seg in segments:
-            if seg["frame_start"] <= wave_frame_start <= seg["frame_end"]:
-                parent_seg_num = seg["num"]
-                break
+        parent_seg_num = _find_parent_seg_num(wave_frame_start, segments, default=1)
 
         save_wave_data(
             wave=wave,
@@ -911,6 +880,7 @@ if __name__ == "__main__":
     table.add_column("Dur (s)", style="yellow", justify="right", no_wrap=True)
     table.add_column("Prominence", style="magenta", justify="right", no_wrap=True)
     table.add_column("Peak prob", style="green", justify="right", no_wrap=True)
+    table.add_column("Play", style="bright_cyan", justify="center", no_wrap=True)
     table.add_column("Sound", style="bright_black", justify="left")
 
     top5_dirs = {w["dir"] for w in top5}
@@ -922,6 +892,7 @@ if __name__ == "__main__":
 
         dir_cell = f"[link=file://{r['plot_path']}]{r['dir']}[/link]"
         sound_cell = f"[link=file://{r['sound_path']}]{r['sound_short']}[/link]"
+        play_cell = f"[link=file://{r['sound_path']}]▶[/link]"
 
         table.add_row(
             f"{star}{r['wave']}",
@@ -931,6 +902,7 @@ if __name__ == "__main__":
             f"{r['dur_sec']:.2f}",
             f"{r['scores']['prominence']:.3f}",
             f"{r['scores']['max_prob']:.3f}",
+            play_cell,
             sound_cell,
             style=row_style,
         )
