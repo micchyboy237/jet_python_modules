@@ -1,3 +1,5 @@
+# vad_peak_analyzer.py
+
 import logging
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
@@ -5,6 +7,16 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks
+
+AUDIO_EXTENSIONS = {
+    ".wav",
+    ".mp3",
+    ".flac",
+    ".ogg",
+    ".m4a",
+    ".aac",
+    ".wma",
+}
 
 
 class VADSegment(TypedDict):
@@ -234,7 +246,7 @@ class VADPeakAnalyzer:
     def extract_active_regions(
         self,
         probs: List[float],
-        threshold: float = 0.5,
+        threshold: float = 0.3,
     ) -> List[VADSegment]:
         """
         Extract contiguous active (speech) regions where probability >= threshold.
@@ -244,7 +256,7 @@ class VADPeakAnalyzer:
 
         Args:
             probs: VAD probability list.
-            threshold: Minimum probability to count as active (default 0.5).
+            threshold: Minimum probability to count as active (default 0.3).
 
         Returns:
             List of VADSegment dicts, one per contiguous active region.
@@ -466,7 +478,7 @@ class VADPeakAnalyzer:
             )
         if active_regions:
             active_thresh = (
-                active_regions[0]["details"]["threshold"] if active_regions else 0.5
+                active_regions[0]["details"]["threshold"] if active_regions else 0.3
             )
             ax.axhline(
                 y=active_thresh,
@@ -547,14 +559,23 @@ if __name__ == "__main__":
     import shutil
     from pathlib import Path
 
+    from jet.audio.speech.firered.speech_timestamps_extractor import (
+        extract_speech_timestamps,
+    )
+
     parser = argparse.ArgumentParser(
         description="Analyze VAD speech/voice probabilities and find peaks/troughs"
     )
     parser.add_argument(
-        "probs_file",
+        "input_file",
         nargs="?",
         default=None,
-        help="Path to a JSON file containing an array of speech probabilities (floats). If not provided, uses a sample sequence.",
+        help=(
+            "Path to either:\n"
+            "- JSON file with speech probabilities\n"
+            "- Audio file (wav/mp3/flac/etc.) to run VAD on\n"
+            "If not provided, uses a sample sequence."
+        ),
     )
     parser.add_argument(
         "--sample-rate",
@@ -616,8 +637,8 @@ if __name__ == "__main__":
         "--active-threshold",
         "-at",
         type=float,
-        default=0.5,
-        help="Probability threshold for active/speech regions (default: 0.5)",
+        default=0.3,
+        help="Probability threshold for active/speech regions (default: 0.3)",
     )
     parser.add_argument(
         "--valley-threshold",
@@ -628,15 +649,37 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    if args.probs_file is not None:
-        probs_path = Path(args.probs_file)
-        if not probs_path.exists():
-            raise FileNotFoundError(f"File not found: {probs_path}")
-        with open(probs_path, "r", encoding="utf-8") as f:
-            probs = json.load(f)
-            if not isinstance(probs, list):
-                raise ValueError("The JSON file must contain a list/array of floats.")
-            probs = [float(p) for p in probs]
+    if args.input_file is not None:
+        input_path = Path(args.input_file)
+
+        if not input_path.exists():
+            raise FileNotFoundError(f"File not found: {input_path}")
+
+        suffix = input_path.suffix.lower()
+
+        # ── Audio input ───────────────────────────────────────────────
+        if suffix in AUDIO_EXTENSIONS:
+            _, probs = extract_speech_timestamps(
+                audio=str(input_path),
+                threshold=0.3,
+                min_speech_duration_sec=0.250,
+                min_silence_duration_sec=0.250,
+                with_scores=True,
+            )
+
+        # ── JSON input ────────────────────────────────────────────────
+        elif suffix == ".json":
+            with open(input_path, "r", encoding="utf-8") as f:
+                probs = json.load(f)
+                if not isinstance(probs, list):
+                    raise ValueError("JSON file must contain a list/array of floats.")
+                probs = [float(p) for p in probs]
+
+        # ── Unsupported input ─────────────────────────────────────────
+        else:
+            raise ValueError(
+                f"Unsupported file type: {suffix}. Expected audio file or JSON."
+            )
     else:
         # Default sample sequence
         probs = [0.1, 0.15, 0.8, 0.92, 0.85, 0.3, 0.12, 0.05, 0.88, 0.95, 0.7, 0.2]
