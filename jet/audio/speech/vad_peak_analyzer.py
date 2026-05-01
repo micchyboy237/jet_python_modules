@@ -943,7 +943,7 @@ if __name__ == "__main__":
         "--min-silence-duration",
         "-msd",
         type=float,
-        default=0.25,
+        default=0.5,
         help="Minimum silence duration in seconds for merging active regions (default: 0.5s)",
     )
     parser.add_argument(
@@ -1056,11 +1056,10 @@ if __name__ == "__main__":
     )
 
     # Duration-based merging (most common in real VAD pipelines)
-    if args.min_silence_duration:
-        active_regions = analyzer.merge_active_regions_by_min_silence(
-            active_regions,
-            min_silence_duration_sec=args.min_silence_duration,
-        )
+    active_regions = analyzer.merge_active_regions_by_min_silence(
+        active_regions,
+        min_silence_duration_sec=args.min_silence_duration,
+    )
 
     # Filter by minimum duration
     active_regions = analyzer.filter_short_segments(
