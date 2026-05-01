@@ -940,11 +940,18 @@ if __name__ == "__main__":
         help="Minimum active region length in frames (overrides --min-active-duration if set)",
     )
     parser.add_argument(
+        "--min-silence-duration",
+        "-msd",
+        type=float,
+        default=0.25,
+        help="Minimum silence duration in seconds for merging active regions (default: 0.5s)",
+    )
+    parser.add_argument(
         "--min-valley-duration",
         "-mvd",
         type=float,
-        default=1.0,
-        help="Minimum valley/silence duration in seconds (default: 1.0s)",
+        default=0.25,
+        help="Minimum valley/silence duration in seconds (default: 0.25s)",
     )
     parser.add_argument(
         "--min-valley-frames",
@@ -959,13 +966,6 @@ if __name__ == "__main__":
         type=int,
         default=0.0,
         help="Smoothing window size for VAD probabilities (default: 0.0)",
-    )
-    parser.add_argument(
-        "--min-silence-duration-sec",
-        "-msd",
-        type=float,
-        default=0.25,
-        help="Minimum silence duration in seconds for merging active regions (default: 0.25s)",
     )
 
     args = parser.parse_args()
@@ -983,8 +983,11 @@ if __name__ == "__main__":
             _, probs = extract_speech_timestamps(
                 audio=str(input_path),
                 threshold=0.3,
-                min_speech_duration_sec=0.250,
-                min_silence_duration_sec=0.250,
+                min_speech_duration_sec=0.25,
+                min_silence_duration_sec=0.25,
+                # threshold=args.active_threshold,
+                # min_speech_duration_sec=args.min_active_duration,
+                # min_silence_duration_sec=args.min_silence_duration,
                 with_scores=True,
             )
 
@@ -1038,8 +1041,8 @@ if __name__ == "__main__":
     active_regions = analyzer.extract_active_regions(
         probs_smoothed,
         threshold=args.active_threshold,
-        min_duration_s=args.min_active_duration,
-        min_duration_frames=args.min_active_frames,
+        # min_duration_s=args.min_active_duration,
+        # min_duration_frames=args.min_active_frames,
     )
 
     # Depth-based merging
@@ -1053,10 +1056,11 @@ if __name__ == "__main__":
     )
 
     # Duration-based merging (most common in real VAD pipelines)
-    active_regions = analyzer.merge_active_regions_by_min_silence(
-        active_regions,
-        min_silence_duration_sec=args.min_silence_duration_sec,
-    )
+    if args.min_silence_duration:
+        active_regions = analyzer.merge_active_regions_by_min_silence(
+            active_regions,
+            min_silence_duration_sec=args.min_silence_duration,
+        )
 
     # Filter by minimum duration
     active_regions = analyzer.filter_short_segments(
@@ -1068,8 +1072,8 @@ if __name__ == "__main__":
     valleys = analyzer.extract_valleys(
         probs_smoothed,
         threshold=args.valley_threshold,
-        min_duration_s=args.min_valley_duration,
-        min_duration_frames=args.min_valley_frames,
+        # min_duration_s=args.min_valley_duration,
+        # min_duration_frames=args.min_valley_frames,
     )
 
     # Filter by minimum duration
