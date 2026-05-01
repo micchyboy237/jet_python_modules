@@ -414,11 +414,6 @@ class VADPeakAnalyzer:
         if in_region:
             self._append_active_segment(segments, x, region_start, len(x), threshold)
 
-        # Filter by minimum duration
-        segments = self._filter_short_segments(
-            segments, min_duration_s, min_duration_frames
-        )
-
         self._log_debug(f"Returning {len(segments)} active region segments")
         return segments
 
@@ -452,6 +447,47 @@ class VADPeakAnalyzer:
                 },
             }
         )
+
+    def merge_active_regions_by_min_silence(
+        self,
+        active_regions: List[VADSegment],
+        min_silence_duration_sec: float = 0.25,
+    ) -> List[VADSegment]:
+        """
+        Merge adjacent active regions if the silence (valley) between them is
+        shorter than `min_silence_duration_sec`.
+
+        This is the classic VAD post-processing logic used in many toolkits
+        (Silero, NeMo, WhisperX, etc.).
+        """
+        if len(active_regions) <= 1:
+            return active_regions
+
+        merged: List[VADSegment] = []
+        current = active_regions[0].copy()
+
+        for next_region in active_regions[1:]:
+            # Calculate silence duration between the two active regions
+            silence_start_s = current["end_s"]
+            silence_end_s = next_region["start_s"]
+            silence_duration = silence_end_s - silence_start_s
+
+            if silence_duration < min_silence_duration_sec:
+                # Silence is too short → merge the two speech regions
+                self._log_debug(
+                    f"Merging regions due to short silence: "
+                    f"{current['start_s']:.3f}s–{current['end_s']:.3f}s + "
+                    f"{next_region['start_s']:.3f}s–{next_region['end_s']:.3f}s "
+                    f"(silence = {silence_duration:.3f}s < {min_silence_duration_sec:.3f}s)"
+                )
+                current = self._merge_two_regions(current, next_region)
+            else:
+                # Real silence gap → keep current and start new region
+                merged.append(current)
+                current = next_region.copy()
+
+        merged.append(current)
+        return merged
 
     def extract_valleys(
         self,
@@ -508,11 +544,6 @@ class VADPeakAnalyzer:
         # Handle valley that runs to the very end of the signal
         if in_valley:
             self._append_valley_segment(segments, x, valley_start, len(x), threshold)
-
-        # Filter by minimum duration
-        segments = self._filter_short_segments(
-            segments, min_duration_s, min_duration_frames
-        )
 
         self._log_debug(f"Returning {len(segments)} valley segments")
         return segments
@@ -637,7 +668,7 @@ class VADPeakAnalyzer:
         # Optionally merge region_probs if needed
         return merged
 
-    def _filter_short_segments(
+    def filter_short_segments(
         self,
         segments: List[VADSegment],
         min_duration_s: float = 0.0,
@@ -929,6 +960,13 @@ if __name__ == "__main__":
         default=0.0,
         help="Smoothing window size for VAD probabilities (default: 0.0)",
     )
+    parser.add_argument(
+        "--min-silence-duration-sec",
+        "-msd",
+        type=float,
+        default=0.25,
+        help="Minimum silence duration in seconds for merging active regions (default: 0.25s)",
+    )
 
     args = parser.parse_args()
 
@@ -1004,7 +1042,7 @@ if __name__ == "__main__":
         min_duration_frames=args.min_active_frames,
     )
 
-    # === NEW: Merge logic across shallow valleys ===
+    # Depth-based merging
     active_regions = analyzer.merge_active_regions_across_shallow_valleys(
         active_regions,
         probs_smoothed,
@@ -1014,9 +1052,29 @@ if __name__ == "__main__":
         min_valley_frames=2,
     )
 
+    # Duration-based merging (most common in real VAD pipelines)
+    active_regions = analyzer.merge_active_regions_by_min_silence(
+        active_regions,
+        min_silence_duration_sec=args.min_silence_duration_sec,
+    )
+
+    # Filter by minimum duration
+    active_regions = analyzer.filter_short_segments(
+        active_regions,
+        min_duration_s=args.min_active_duration,
+        min_duration_frames=args.min_active_frames,
+    )
+
     valleys = analyzer.extract_valleys(
         probs_smoothed,
         threshold=args.valley_threshold,
+        min_duration_s=args.min_valley_duration,
+        min_duration_frames=args.min_valley_frames,
+    )
+
+    # Filter by minimum duration
+    valleys = analyzer.filter_short_segments(
+        valleys,
         min_duration_s=args.min_valley_duration,
         min_duration_frames=args.min_valley_frames,
     )
