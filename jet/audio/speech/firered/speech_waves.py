@@ -290,7 +290,16 @@ def compute_hybrid_signal(
     min_len = min(len(speech_probs), len(rms_values))
     probs_arr = np.asarray(speech_probs[:min_len], dtype=np.float64)
     rms_arr = np.asarray(rms_values[:min_len], dtype=np.float64)
-    norm_rms = normalize_energy(rms_arr, clip=True)  # → [0, 1]
+    # norm_rms = normalize_energy(rms_arr, clip=True)  # → [0, 1]
+
+    # --- Robust RMS normalization (p95 instead of max to avoid spikes) ---
+    if len(rms_arr) > 0:
+        p95 = np.percentile(rms_arr, 95)
+        denom = p95 if p95 > 1e-8 else 1e-8
+        norm_rms = np.clip(rms_arr / denom, 0.0, 1.0)
+    else:
+        norm_rms = rms_arr
+
     hybrid = prob_weight * probs_arr + rms_weight * norm_rms
     return hybrid
 
