@@ -177,7 +177,6 @@ class JapaneseSpeechTranscriber:
         self.recognizer.decode_stream(stream)
 
         text = stream.result.text.strip()
-        print(f"File transcription: {text}")
         return text
 
     def _transcribe_live(self, max_duration: Optional[float] = None) -> str:

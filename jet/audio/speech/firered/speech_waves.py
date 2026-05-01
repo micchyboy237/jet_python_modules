@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import shutil
 import statistics
 from pathlib import Path
 from typing import List, Literal, Optional
 
+import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io.wavfile as wavfile
@@ -526,10 +529,9 @@ def save_wave_plot(
     rms_weight: float = 0.5,
 ) -> None:
     """Create visualization plot with three panels:
-      1. VAD speech probability
-      2. Raw RMS energy
-      3. Hybrid signal (weighted blend of the two)
-
+      1. VAD speech probability (with blue gradient fill)
+      2. Raw RMS energy (with green gradient fill)
+      3. Hybrid signal (weighted blend, with orange gradient fill)
     Handles potential length mismatches between probs and rms_values.
     """
     min_length = min(len(probs), len(rms_values))
@@ -540,8 +542,16 @@ def save_wave_plot(
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 9), sharex=True)
     frames = np.arange(min_length)
 
-    # ── Chart 1: VAD probability ──────────────────────────────────────────
-    ax1.plot(frames, probs_aligned, color="blue", linewidth=1)
+    # --- Panel 1: VAD probability with blue gradient fill ---
+    _gradient_fill(
+        ax1,
+        frames,
+        np.asarray(probs_aligned),
+        color_top="royalblue",
+        color_bottom="white",
+        alpha=0.55,
+    )
+    ax1.plot(frames, probs_aligned, color="royalblue", linewidth=1, zorder=3)
     ax1.axhline(y=0.5, color="red", linestyle="--", alpha=0.5, label="Threshold")
     ax1.set_ylabel("VAD Probability")
     ax1.set_ylim(0, 1)
@@ -549,18 +559,26 @@ def save_wave_plot(
     ax1.set_title(f"Segment {seg_num:03d} - Wave {wave_num:03d} (Valid: {wave_num})")
     ax1.legend()
 
-    # ── Chart 2: Raw RMS energy ───────────────────────────────────────────
-    ax2.plot(frames, rms_aligned, color="green", linewidth=1)
+    # --- Panel 2: RMS energy with green gradient fill ---
+    rms_arr = np.asarray(rms_aligned)
+    _gradient_fill(
+        ax2, frames, rms_arr, color_top="seagreen", color_bottom="white", alpha=0.55
+    )
+    ax2.plot(frames, rms_arr, color="seagreen", linewidth=1, zorder=3)
     ax2.set_ylabel("RMS Energy")
     ax2.grid(True, alpha=0.3)
 
-    # ── Chart 3: Hybrid signal ────────────────────────────────────────────
+    # --- Panel 3: Hybrid signal with orange gradient fill ---
+    _gradient_fill(
+        ax3, frames, hybrid, color_top="darkorange", color_bottom="white", alpha=0.55
+    )
     ax3.plot(
         frames,
         hybrid,
         color="darkorange",
         linewidth=1.5,
         label=f"Hybrid (prob×{prob_weight} + rms×{rms_weight})",
+        zorder=3,
     )
     ax3.axhline(y=0.5, color="red", linestyle="--", alpha=0.5, label="Threshold")
     ax3.set_xlabel("Frame Index (relative to wave)")
@@ -635,7 +653,169 @@ def save_wave_data(
     return wave_dir
 
 
+def save_global_wave_plot(
+    speech_probs: List[float],
+    speech_waves: List[SpeechWave],
+    output_path: Path,
+    threshold: float = 0.5,
+) -> None:
+    """
+    Save a single overview plot of the entire VAD probability timeline with
+    every valid wave's region filled by a vertical gradient.
+
+    Layout
+    ------
+    - Grey line  : full speech_probs timeline (background context).
+    - Coloured gradient fills : one per wave, each bounded exactly by the
+      wave's ``frame_start`` / ``frame_end`` edges and the wave's own
+      probability curve (not a rectangle — the top edge follows the curve).
+    - Red dashed line : the 0.5 threshold.
+
+    The gradient for each wave runs from white at y = 0 up to the wave's
+    colour at the peak, so the intensity naturally encodes height.
+    Multiple waves cycle through a qualitative colour palette so they remain
+    visually distinct even when many waves are present.
+
+    Parameters
+    ----------
+    speech_probs  : full list of per-frame VAD probabilities
+    speech_waves  : list of valid SpeechWave objects (already filtered)
+    output_path   : where to write the PNG  (e.g. output_dir / "wave.png")
+    threshold     : threshold line drawn on the plot (default 0.5)
+    """
+    if not speech_probs:
+        return
+
+    # Colour palette — cycles if there are more waves than colours
+    PALETTE = [
+        "royalblue",
+        "seagreen",
+        "darkorange",
+        "orchid",
+        "crimson",
+        "steelblue",
+        "goldenrod",
+        "teal",
+    ]
+
+    n_frames = len(speech_probs)
+    frames_all = np.arange(n_frames)
+    probs_arr = np.asarray(speech_probs, dtype=np.float64)
+
+    fig, ax = plt.subplots(figsize=(14, 4))
+
+    # Background: full probability curve in light grey
+    ax.plot(
+        frames_all,
+        probs_arr,
+        color="lightgrey",
+        linewidth=0.8,
+        zorder=1,
+        label="VAD prob (all frames)",
+    )
+
+    # One gradient fill per wave, bounded by its own frame edges & curve
+    for wave_idx, wave in enumerate(speech_waves):
+        fs = wave["details"]["frame_start"]
+        fe = wave["details"]["frame_end"]
+        wave_frames = np.arange(fs, fe)
+        wave_probs = probs_arr[fs:fe]
+
+        if len(wave_frames) == 0:
+            continue
+
+        color = PALETTE[wave_idx % len(PALETTE)]
+        _gradient_fill(
+            ax,
+            wave_frames,
+            wave_probs,
+            color_top=color,
+            color_bottom="white",
+            alpha=0.65,
+        )
+        # Solid outline on top so the wave boundary is crisp
+        ax.plot(wave_frames, wave_probs, color=color, linewidth=1.2, zorder=3)
+
+    ax.axhline(
+        y=threshold,
+        color="red",
+        linestyle="--",
+        alpha=0.6,
+        linewidth=1,
+        label=f"Threshold ({threshold})",
+    )
+    ax.set_xlim(0, n_frames - 1)
+    ax.set_ylim(0, 1.05)
+    ax.set_xlabel("Frame Index")
+    ax.set_ylabel("VAD Probability")
+    ax.set_title(f"Global Wave Overview  ({len(speech_waves)} valid waves)")
+    ax.legend(loc="upper right", fontsize=8)
+    ax.grid(True, alpha=0.25)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 # ── Reporting helpers ──
+
+
+def _gradient_fill(
+    ax: plt.Axes,
+    x: np.ndarray,
+    y: np.ndarray,
+    color_top: str,
+    color_bottom: str = "white",
+    alpha: float = 0.7,
+) -> None:
+    """
+    Fill the area under curve (x, y) with a vertical gradient.
+
+    How it works
+    ------------
+    1. Draw a solid ``fill_between`` polygon — this gives us the exact wave
+       shape as a matplotlib patch (the clip path).
+    2. Lay an ``imshow`` rectangle over the same x/y extent, coloured with a
+       two-stop gradient from *color_bottom* (at y=0) to *color_top* (at the
+       peak).  The image is clipped to the polygon so only pixels inside the
+       wave shape are visible.
+
+    Parameters
+    ----------
+    ax           : target axes
+    x            : frame indices (1-D)
+    y            : signal values (same length as x)
+    color_top    : gradient colour at the peak of the wave
+    color_bottom : gradient colour at y = 0  (default white → transparent feel)
+    alpha        : overall opacity of the gradient layer
+    """
+    if len(x) == 0:
+        return
+
+    # Step 1 — invisible filled polygon just to get the clip path
+    poly = ax.fill_between(x, 0, y, alpha=0.0)
+    clip_path = poly.get_paths()[0]
+    patch = mpatches.PathPatch(clip_path, transform=ax.transData, visible=False)
+    ax.add_patch(patch)
+
+    # Step 2 — vertical gradient image clipped to the polygon
+    gradient = np.linspace(0, 1, 256).reshape(256, 1)  # 256-row, 1-col
+    cmap = mcolors.LinearSegmentedColormap.from_list(
+        "wave_grad", [color_bottom, color_top]
+    )
+    y_min, y_max = 0, max(float(np.max(y)), 1e-6)
+    x_min, x_max = float(x[0]), float(x[-1])
+    ax.imshow(
+        gradient,
+        aspect="auto",
+        extent=[x_min, x_max, y_min, y_max],
+        origin="lower",
+        cmap=cmap,
+        alpha=alpha,
+        clip_path=patch,
+        clip_on=True,
+        zorder=2,
+    )
 
 
 def _find_parent_seg_num(frame_start: int, segments: list, default: int = 1) -> int:
@@ -713,7 +893,6 @@ def _top5_reports(
     prevents very long but flat waves from dominating short, sharp ones.
     Set duration_weight=0 to rank by prominence only (legacy behaviour).
     """
-    import math
 
     indexed = list(enumerate(speech_waves, 1))  # [(1, wave), (2, wave), …]
 
@@ -907,6 +1086,17 @@ if __name__ == "__main__":
             rms_weight=args.rms_weight,
         )
 
+    # ------------------------------------------------------------------ #
+    # Global wave overview plot                                           #
+    # ------------------------------------------------------------------ #
+    global_plot_path = args.output_dir / "wave.png"
+    save_global_wave_plot(
+        speech_probs=scores,
+        speech_waves=speech_waves,
+        output_path=global_plot_path,
+        threshold=args.threshold,
+    )
+
     # ── summary table & JSON ──────────────────────────────────────────────────
     rows = build_summary_rows(speech_waves, waves_dir, segments)
     save_file(rows, args.output_dir / "summary.json")
@@ -966,4 +1156,7 @@ if __name__ == "__main__":
     )
     console.print(
         f"[bold green]✓[/bold green] top_5_waves.json          : [cyan][link=file://{(args.output_dir / 'top_5_waves.json').resolve()}]{(args.output_dir / 'top_5_waves.json').resolve()}[/link][/cyan]"
+    )
+    console.print(
+        f"[bold green]✓[/bold green] wave.png (global overview) : [cyan][link=file://{global_plot_path.resolve()}]{global_plot_path.resolve()}[/link][/cyan]"
     )

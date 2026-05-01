@@ -1,11 +1,8 @@
-# jet.audio.speech.firered.speech_waves_tracker
-
 from __future__ import annotations
 
 import argparse
 import queue
 import shutil
-import threading
 import time
 from pathlib import Path
 from typing import Callable, List, Optional
@@ -35,6 +32,24 @@ class SpeechWavesTracker:
     runs FireRedVAD, detects completed speech waves (rise → peak → fall),
     and saves each valid wave's audio + metadata to disk.
 
+    Wave deduplication
+    ------------------
+    Every completed wave is identified by its ``frame_start`` value — the
+    frame index at which the VAD signal first crossed the open threshold.
+    Because the VAD signal must dip below the close threshold between two
+    utterances, no two distinct utterances can share the same frame_start.
+    Once a wave is saved its frame_start is recorded in
+    ``_saved_wave_starts``; subsequent VAD passes that re-detect the same
+    wave (from the growing rolling buffer) are silently ignored.
+
+    Open-wave handling
+    ------------------
+    A wave whose ``has_fallen=False`` is still being spoken and must NOT be
+    saved until the VAD signal drops (which will happen in a later pass).
+    The only exception is the final ``flush()`` call at stream end: there the
+    last open wave is saved using all buffered audio as its endpoint, provided
+    it passes shape and duration validation.
+
     Parameters
     ----------
     output_dir : Path
@@ -44,7 +59,7 @@ class SpeechWavesTracker:
     threshold : float
         VAD open threshold — hybrid signal must reach this to start a wave.
     close_threshold : float | None
-        Hysteresis close threshold (defaults to `threshold`).
+        Hysteresis close threshold (defaults to ``threshold``).
     shape_cfg : WaveShapeConfig | None
         Shape-validation settings (prominence, excursion, min frames …).
     vad_interval_sec : float
@@ -59,10 +74,10 @@ class SpeechWavesTracker:
         Weight of RMS energy in the hybrid signal (default 0.5).
     disable_merge : bool
         Disable merging of consecutive raw waves separated by a short gap
-        (default False - up to 150 ms / 15 frames).
-    on_wave : Callable[[SpeechWave], None] | None
-        Optional callback invoked once per saved wave, receiving the wave dict.
-        The callback receives two arguments: (wave: SpeechWave, wave_dir: Path).
+        (default False — up to 150 ms / 15 frames).
+    on_wave : Callable[[SpeechWave, Path], None] | None
+        Optional callback invoked once per saved wave.
+        Receives two arguments: (wave: SpeechWave, wave_dir: Path).
     """
 
     def __init__(
@@ -100,26 +115,21 @@ class SpeechWavesTracker:
         self.prob_weight = prob_weight
         self.rms_weight = rms_weight
 
-        # ── Internal state ──────────────────────────────────────────────────
-        # Raw audio accumulator (float32, mono)
         self._buffer: np.ndarray = np.empty(0, dtype=np.float32)
-        # How many samples were in the buffer the last time we ran VAD
-        self._last_vad_sample: int = 0
-        # Global wave counter (never resets within a session)
+        self._samples: np.ndarray = np.empty(0, dtype=np.float32)
         self._wave_counter: int = 0
-        # Frame index of the last wave boundary we already saved
-        self._saved_up_to_frame: int = 0
-        # Accumulate all detected/saved waves for summary export
+        # frame_start values of every wave that has already been persisted.
+        # Used to skip re-detection of the same wave on subsequent VAD passes.
+        self._saved_wave_starts: set[int] = set()
         self._all_waves: List[SpeechWave] = []
-        # Lock so feed() and flush() are safe to call from different threads
-        self._lock = threading.Lock()
-
         self.on_wave = on_wave
 
-        # VAD model (lazy-loaded on first VAD call)
         self._vad: Optional[FireRedVAD] = None
+        self.total_samples: int = 0
 
-    # ── Public interface ─────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def feed(self, chunk: np.ndarray) -> None:
         """
@@ -132,47 +142,35 @@ class SpeechWavesTracker:
         This method is intentionally lightweight — heavy work (VAD, saving)
         is triggered only when enough audio has accumulated.
         """
-        # Flatten stereo / column-vector to 1-D
         chunk = np.asarray(chunk, dtype=np.float32).squeeze()
         if chunk.ndim != 1:
             raise ValueError(f"feed() expects mono audio, got shape {chunk.shape}")
 
-        with self._lock:
-            # Append to rolling buffer
-            self._buffer = np.concatenate([self._buffer, chunk])
-
-            # Trim the front if we've exceeded the hard cap
-            if len(self._buffer) > self.max_buffer_samples:
-                excess = len(self._buffer) - self.max_buffer_samples
-                self._buffer = self._buffer[excess:]
-                # Adjust the last-VAD cursor so we don't re-run on trimmed audio
-                self._last_vad_sample = max(0, self._last_vad_sample - excess)
-
-            # Run VAD if enough new audio has arrived since the last pass
-            new_samples = len(self._buffer) - self._last_vad_sample
-            if new_samples >= int(self.vad_interval_sec * self.sample_rate):
-                self._run_vad()
+        self._buffer = np.concatenate([self._buffer, chunk])
+        self.total_samples = len(self._buffer)
+        self._run_vad()
 
     def flush(self) -> None:
         """
         Force a VAD pass on whatever audio remains in the buffer.
 
         Call this when the recording session ends to catch any wave that was
-        still open (has_fallen=False) at stream close time.
+        still open (has_fallen=False) at stream close time.  The open wave's
+        ``frame_end`` will be set to the last available frame, which is the
+        correct endpoint given the audio we have.
         """
-        with self._lock:
-            self._run_vad(force=True)
+        self._run_vad(force=True)
 
     def reset(self) -> None:
         """
         Clear all internal state so the tracker can start a fresh recording.
+
         The wave counter and saved-wave directory are NOT reset — call with
         a new ``output_dir`` if you want completely separate output.
         """
-        with self._lock:
-            self._buffer = np.empty(0, dtype=np.float32)
-            self._last_vad_sample = 0
-            self._saved_up_to_frame = 0
+        self._buffer = np.empty(0, dtype=np.float32)
+        self.total_samples = 0
+        self._saved_wave_starts.clear()
 
     def save_summary_files(
         self,
@@ -189,24 +187,26 @@ class SpeechWavesTracker:
         if segments is None:
             segments = []
 
-        # Save all detected waves
         save_file(self._all_waves, self.output_dir / "speech_waves.json")
 
-        # Save speech probabilities if provided (optional in streaming mode)
         if speech_probs is not None:
             save_file(speech_probs, self.output_dir / "speech_probs.json")
 
-        # Build and save summary rows for display/table
         rows = build_summary_rows(self._all_waves, self.output_dir, segments)
         save_file(rows, self.output_dir / "summary.json")
 
-        # Build and save top 5 waves report
         top5 = _top5_reports(self._all_waves, self.output_dir, segments)
         save_file(top5, self.output_dir / "top_5_waves.json")
 
         console.log(f"[green]✓ Summary files saved to {self.output_dir}[/green]")
 
-    # ── Private helpers ──────────────────────────────────────────────────────
+    def get_total_duration(self) -> float:
+        """Returns current buffered duration (will always be ≤ max_buffer_sec)."""
+        return self.total_samples / self.sample_rate
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _get_vad(self) -> FireRedVAD:
         """Lazy-load the VAD model (expensive; only done once)."""
@@ -221,21 +221,20 @@ class SpeechWavesTracker:
     def _run_vad(self, force: bool = False) -> None:
         """
         Run FireRedVAD on the current buffer, detect waves, and save any
-        newly-completed ones.
-
-        Must be called with ``self._lock`` already held.
+        newly-completed ones.  Waves that are still open (has_fallen=False)
+        are skipped unless *force* is True (end-of-stream flush).
 
         Parameters
         ----------
         force : bool
-            When True, process even waves that haven't fallen yet (end of
-            stream).  Normally only ``has_fallen=True`` waves are saved.
+            When True, also consider waves that haven't fallen yet (end of
+            stream).  The open wave's frame_end will be the last available
+            frame — the correct endpoint given the buffered audio.
         """
         audio_np = self._buffer.copy()
         if len(audio_np) < HOP_SIZE * 2:
-            return  # Not enough audio for even one frame
+            return
 
-        # ── Run VAD inference ────────────────────────────────────────────────
         vad = self._get_vad()
         try:
             frame_results, _ = vad.detect_full(audio_np)
@@ -245,7 +244,6 @@ class SpeechWavesTracker:
 
         speech_probs: List[float] = [r.smoothed_prob for r in frame_results]
 
-        # ── Detect waves ─────────────────────────────────────────────────────
         all_waves = check_speech_waves(
             speech_probs=speech_probs,
             threshold=self.threshold,
@@ -257,30 +255,42 @@ class SpeechWavesTracker:
             rms_weight=self.rms_weight,
         )
 
-        # ── Emit completed waves we haven't saved yet ────────────────────────
         for wave in all_waves:
-            if not wave.get("is_valid", False):
+            frame_start: int = wave["details"]["frame_start"]
+
+            is_fallen = wave.get("has_fallen", False)
+            is_valid = wave.get("is_valid", False)
+            shape_ok = wave["details"].get("shape_passed", False)
+            dur_ok = (
+                wave["details"].get("duration_sec", 0.0)
+                >= self.shape_cfg.min_duration_sec
+            )
+
+            # Decide whether to persist this wave:
+            #
+            #   Normal path  — wave is fully closed and passed all validators.
+            #   Flush path   — end of stream; accept an open wave if it has a
+            #                  real mountain shape and sufficient duration.
+            #                  frame_end is already set to len(speech_probs),
+            #                  i.e. the last available frame, by check_speech_waves.
+            if is_valid and is_fallen:
+                pass  # normal completed wave — save it
+            elif force and shape_ok and dur_ok:
+                pass  # last open wave at stream end — save it
+            else:
+                continue  # still growing mid-stream, or genuinely invalid
+
+            # Deduplicate: skip any wave whose frame_start was already saved.
+            # frame_start is a reliable unique key because the VAD signal must
+            # dip below the close threshold between two distinct utterances,
+            # so no two separate utterances can share the same opening frame.
+            if frame_start in self._saved_wave_starts:
                 continue
 
-            frame_start = wave["details"]["frame_start"]
-            frame_end = wave["details"]["frame_end"]
-
-            # Skip waves we've already saved
-            if frame_end <= self._saved_up_to_frame:
-                continue
-
-            # Only save waves that have fully closed (has_fallen=True),
-            # unless flush() forced us to emit open waves too.
-            if not wave.get("has_fallen", False) and not force:
-                continue
-
+            self._saved_wave_starts.add(frame_start)
             wave_dir = self._save_wave(wave, audio_np, speech_probs)
-            self._saved_up_to_frame = max(self._saved_up_to_frame, frame_end)
-
             if self.on_wave is not None:
                 self.on_wave(wave, wave_dir)
-
-        self._last_vad_sample = len(self._buffer)
 
     def _save_wave(
         self,
@@ -303,7 +313,7 @@ class SpeechWavesTracker:
             speech_probs=speech_probs,
             sampling_rate=self.sample_rate,
             output_dir=self.output_dir,
-            seg_num=1,  # streaming has no pre-segmented structure
+            seg_num=1,
             wave_num=wave_idx,
             hop_size=HOP_SIZE,
             prob_weight=self.prob_weight,
@@ -311,8 +321,6 @@ class SpeechWavesTracker:
         )
 
         wave_json_path = wave_dir / "wave.json"
-
-        # Convert to file URI for Rich clickable link
         wave_link = f"file://{wave_json_path.resolve()}"
         sound_path = wave_dir / "sound.wav"
         play_link = f"file://{sound_path.resolve()}"
@@ -325,12 +333,13 @@ class SpeechWavesTracker:
             f"[bright_cyan][link={play_link}]▶[/link][/bright_cyan]"
         )
 
-        # Accumulate wave for final summary export
         self._all_waves.append(wave)
         return wave_dir
 
 
-# ── CLI ──────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------------
+# CLI helpers
+# ------------------------------------------------------------------
 
 
 def get_args(default_output_dir: str | Path) -> argparse.Namespace:
@@ -420,7 +429,6 @@ def get_args(default_output_dir: str | Path) -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    # Define OUTPUT_DIR similar to speech_waves.py for consistent output structure
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
     args = get_args(OUTPUT_DIR)
@@ -438,11 +446,16 @@ if __name__ == "__main__":
         prob_weight=args.prob_weight,
         rms_weight=args.rms_weight,
         disable_merge=args.disable_merge,
-        on_wave=lambda wave: print(f"New wave detected: {wave['start_sec']:.2f}s"),
+        on_wave=lambda wave, wave_dir: print(
+            f"[WAVE] Detected new wave: "
+            f"Start={wave['start_sec']:.2f}s, "
+            f"End={wave['end_sec']:.2f}s, "
+            f"Duration={wave['details']['duration_sec']:.2f}s, "
+            f"PeakProb={wave['details']['max_prob']:.3f}, "
+            f"Dir={wave_dir.name}"
+        ),
     )
 
-    # sounddevice puts chunks into this queue; the main thread drains it.
-    # Using a queue decouples the real-time callback from slower VAD work.
     audio_queue: queue.Queue[np.ndarray] = queue.Queue()
 
     def sd_callback(
@@ -454,7 +467,6 @@ if __name__ == "__main__":
         """Called by sounddevice in a background thread for every block."""
         if status:
             console.log(f"[yellow]Stream status: {status}[/yellow]")
-        # Copy so the buffer isn't mutated after we return
         audio_queue.put(indata[:, 0].copy())
 
     console.print(
@@ -475,7 +487,6 @@ if __name__ == "__main__":
     ):
         try:
             while True:
-                # Drain the queue in the main thread
                 try:
                     chunk = audio_queue.get(timeout=0.05)
                     tracker.feed(chunk)
@@ -485,15 +496,12 @@ if __name__ == "__main__":
                 elapsed = time.monotonic() - start_time
                 if args.duration > 0 and elapsed >= args.duration:
                     break
-
         except KeyboardInterrupt:
             console.print("\n[yellow]Interrupted — flushing final buffer…[/yellow]")
 
-    # Process any remaining audio in the queue
     while not audio_queue.empty():
         tracker.feed(audio_queue.get_nowait())
 
-    # Finalize: flush buffer and save summary files
     tracker.flush()
     tracker.save_summary_files()
 
