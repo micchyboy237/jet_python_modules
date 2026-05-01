@@ -247,6 +247,8 @@ class VADPeakAnalyzer:
         self,
         probs: List[float],
         threshold: float = 0.3,
+        min_duration_s: float = 0.0,
+        min_duration_frames: Optional[int] = None,
     ) -> List[VADSegment]:
         """
         Extract contiguous active (speech) regions where probability >= threshold.
@@ -257,6 +259,8 @@ class VADPeakAnalyzer:
         Args:
             probs: VAD probability list.
             threshold: Minimum probability to count as active (default 0.3).
+            min_duration_s: Minimum duration in seconds for an active region to be kept.
+            min_duration_frames: Alternative minimum frame count (overrides min_duration_s if provided).
 
         Returns:
             List of VADSegment dicts, one per contiguous active region.
@@ -284,6 +288,11 @@ class VADPeakAnalyzer:
         # Handle region that runs to the very end of the signal
         if in_region:
             self._append_active_segment(segments, x, region_start, len(x), threshold)
+
+        # Filter by minimum duration
+        segments = self._filter_short_segments(
+            segments, min_duration_s, min_duration_frames
+        )
 
         self._log_debug(f"Returning {len(segments)} active region segments")
         return segments
@@ -323,6 +332,8 @@ class VADPeakAnalyzer:
         self,
         probs: List[float],
         threshold: float = 0.3,
+        min_duration_s: float = 0.0,
+        min_duration_frames: Optional[int] = None,
     ) -> List[VADSegment]:
         """
         Extract contiguous valley (silence) regions where probability < threshold.
@@ -343,6 +354,8 @@ class VADPeakAnalyzer:
             threshold: Frames strictly below this value are considered silent
                        (default 0.3).  Frames AT the threshold are NOT included
                        (use > instead of >= to match "below threshold" intent).
+            min_duration_s: Minimum duration in seconds for a valley to be kept.
+            min_duration_frames: Alternative minimum frame count (overrides min_duration_s if provided).
 
         Returns:
             List of VADSegment dicts, one per contiguous valley region.
@@ -370,6 +383,11 @@ class VADPeakAnalyzer:
         # Handle valley that runs to the very end of the signal
         if in_valley:
             self._append_valley_segment(segments, x, valley_start, len(x), threshold)
+
+        # Filter by minimum duration
+        segments = self._filter_short_segments(
+            segments, min_duration_s, min_duration_frames
+        )
 
         self._log_debug(f"Returning {len(segments)} valley segments")
         return segments
@@ -404,6 +422,21 @@ class VADPeakAnalyzer:
                 },
             }
         )
+
+    def _filter_short_segments(
+        self,
+        segments: List[VADSegment],
+        min_duration_s: float = 0.0,
+        min_duration_frames: Optional[int] = None,
+    ) -> List[VADSegment]:
+        """Filter out segments shorter than the specified minimum duration."""
+        if not segments:
+            return segments
+
+        if min_duration_frames is not None:
+            return [s for s in segments if s["frame_length"] >= min_duration_frames]
+        else:
+            return [s for s in segments if s["duration_s"] >= min_duration_s]
 
     def save_plot(
         self,
@@ -647,6 +680,35 @@ if __name__ == "__main__":
         default=0.3,
         help="Probability threshold below which regions are valleys (default: 0.3)",
     )
+    parser.add_argument(
+        "--min-active-duration",
+        "-mad",
+        type=float,
+        default=0.25,
+        help="Minimum active speech duration in seconds (default: 0.25s)",
+    )
+    parser.add_argument(
+        "--min-active-frames",
+        "-maf",
+        type=int,
+        default=None,
+        help="Minimum active region length in frames (overrides --min-active-duration if set)",
+    )
+    parser.add_argument(
+        "--min-valley-duration",
+        "-mvd",
+        type=float,
+        default=0.15,
+        help="Minimum valley/silence duration in seconds (default: 0.15s)",
+    )
+    parser.add_argument(
+        "--min-valley-frames",
+        "-mvf",
+        type=int,
+        default=None,
+        help="Minimum valley length in frames (overrides --min-valley-duration if set)",
+    )
+
     args = parser.parse_args()
 
     if args.input_file is not None:
@@ -709,11 +771,15 @@ if __name__ == "__main__":
     active_regions = analyzer.extract_active_regions(
         probs,
         threshold=args.active_threshold,
+        min_duration_s=args.min_active_duration,
+        min_duration_frames=args.min_active_frames,
     )
 
     valleys = analyzer.extract_valleys(
         probs,
         threshold=args.valley_threshold,
+        min_duration_s=args.min_valley_duration,
+        min_duration_frames=args.min_valley_frames,
     )
 
     print("Peaks:", peaks)
