@@ -55,8 +55,21 @@ def main():
         obs_dict["silero"](samples)
         obs_dict["speechbrain"](samples)
         obs_dict["firered"](samples)
-        obs_dict["ten_vad"](samples)  # NEW
+        obs_dict["ten_vad"](samples)
         obs_dict["tracker"](samples)
+
+        # Feed the hybrid observer the VAD probability that matches whatever
+        # the user has selected in the dropdown right now.
+        _vad_prob_map = {
+            "fr": obs_dict["firered"].probability,
+            "silero": obs_dict["silero"].probability,
+            "sb": obs_dict["speechbrain"].probability,
+            "ten_vad": obs_dict["ten_vad"].probability,
+        }
+        obs_dict["hybrid"].vad_probability = _vad_prob_map.get(
+            viz.current_vad, obs_dict["firered"].probability
+        )
+        obs_dict["hybrid"](samples)  # now computes .value correctly
 
         # Sync to UI
         viz.push_data(
@@ -64,7 +77,8 @@ def main():
             silero=obs_dict["silero"].probability,
             sb=obs_dict["speechbrain"].probability,
             fr=obs_dict["firered"].probability,
-            ten_vad=obs_dict["ten_vad"].probability,  # NEW
+            ten_vad=obs_dict["ten_vad"].probability,
+            hybrid=obs_dict["hybrid"].value,  # now non-zero and VAD-aware
         )
 
     manager.add_observer(coordinated_callback)
@@ -83,7 +97,8 @@ def main():
             print(
                 f" VAD Probs | Silero: {obs_dict['silero'].probability:.2f} | "
                 f"SB: {obs_dict['speechbrain'].probability:.2f} | "
-                f"RMS: {obs_dict['waveform'].value:.2f} (raw: {obs_dict['waveform'].raw_rms:.3f})",
+                f"RMS: {obs_dict['waveform'].value:.2f} (raw: {obs_dict['waveform'].raw_rms:.3f}) | "
+                f"Hybrid: {obs_dict['hybrid'].value:.2f}",
                 end="\r",
             )
             time.sleep(0.01)

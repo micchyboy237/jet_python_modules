@@ -74,6 +74,53 @@ class TrackerObserver:
             self.tracker.add_audio(samples)
 
 
+class HybridObserver:
+    """Observer that computes the hybrid VAD+RMS score in real time.
+
+    The hybrid score is identical to what ``compute_hybrid_signal`` produces
+    inside ``speech_waves.py`` for offline detection — this observer replicates
+    that calculation frame-by-frame so the live visualizer can show the same
+    signal that actually drives wave detection.
+
+    How it works
+    ------------
+    Each audio chunk is treated as a single frame:
+      1. Compute raw RMS energy of the chunk.
+      2. Normalize it against a short rolling history (same adaptive approach
+         used by WaveformRMSObserver) so the scale stays [0, 1].
+      3. Blend: hybrid = prob_weight × vad_prob + rms_weight × norm_rms
+
+    The caller is responsible for setting ``vad_probability`` before (or after)
+    calling this observer — the simplest way is to read it from a VADObserver
+    that has already processed the same chunk.
+    """
+
+    def __init__(
+        self, prob_weight: float = 0.5, rms_weight: float = 0.5, history_size: int = 10
+    ):
+        self.prob_weight = prob_weight
+        self.rms_weight = rms_weight
+        self.value: float = 0.0  # most recent hybrid score
+        self.vad_probability: float = 0.0  # set externally from a VADObserver
+        self._rms_history: list = []
+        self._history_size = history_size
+
+    def __call__(self, samples: np.ndarray) -> None:
+        if samples.size == 0:
+            self.value = 0.0
+            return
+        raw_rms = compute_rms(samples)
+        self._rms_history.append(raw_rms)
+        if len(self._rms_history) > self._history_size:
+            self._rms_history.pop(0)
+        max_rms = max(self._rms_history) if self._rms_history else raw_rms
+        norm_rms = float(normalize_energy([raw_rms], max_rms=max_rms)[0])
+        # Replicate compute_hybrid_signal for a single frame
+        self.value = (
+            self.prob_weight * self.vad_probability + self.rms_weight * norm_rms
+        )
+
+
 def create_original_observers(
     samplerate: int,
     tracker_params: dict,
@@ -128,6 +175,8 @@ def create_original_observers(
     # NEW: TEN-VAD with wrapper for compatibility
     ten_vad_model = TenVadWrapper(hop_size=160, threshold=0.5)
 
+    hybrid_observer = HybridObserver(prob_weight=0.5, rms_weight=0.5)
+
     # 3. Wrap everything in Observer classes
     # These classes provide a standard __call__(samples) interface
     observers = {
@@ -137,6 +186,7 @@ def create_original_observers(
         "firered": VADObserver(fr_model),
         "ten_vad": VADObserver(ten_vad_model),  # NEW
         "tracker": TrackerObserver(tracker),
+        "hybrid": hybrid_observer,  # ← new
     }
 
     return observers

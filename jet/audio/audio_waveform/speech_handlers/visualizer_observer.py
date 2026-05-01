@@ -21,16 +21,18 @@ class VisualizerObserver:
             "sb": CircularBuffer(display_points),
             "fr": CircularBuffer(display_points),
             "ten_vad": CircularBuffer(display_points),
+            "hybrid": CircularBuffer(display_points),  # ← new
         }
         self._fill_initial_buffers()
 
-        # Create UI and get references
         (
             self.main_widget,
             self.c_wave,
             self.c_vad,
+            self.c_hybrid,
             self.vad_selector,
-            self.vad_plot,  # <-- Now we have the plot item directly
+            self.vad_plot,
+            self.hybrid_plot,  # returned twice — assign once; see note below
         ) = create_plots_layout()
 
         # Set initial VAD type
@@ -39,6 +41,9 @@ class VisualizerObserver:
 
         # Connect dropdown signal
         self.vad_selector.currentTextChanged.connect(self.on_vad_selection_changed)
+
+        self._prob_weight: float = 0.5
+        self._rms_weight: float = 0.5
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plots)
@@ -74,14 +79,23 @@ class VisualizerObserver:
         pass
 
     def push_data(
-        self, wave: float, silero: float, sb: float, fr: float, ten_vad: float
+        self,
+        wave: float,
+        silero: float,
+        sb: float,
+        fr: float,
+        ten_vad: float,
+        hybrid: float = 0.0,  # kept for API compatibility but ignored — computed at render time
     ):
         """Store new data points from all observers."""
+
         self.buffers["wave"].append(wave)
         self.buffers["silero"].append(silero)
         self.buffers["sb"].append(sb)
         self.buffers["fr"].append(fr)
         self.buffers["ten_vad"].append(ten_vad)
+        # Do NOT store hybrid here. It is computed fresh in update_plots()
+        # using whichever VAD the user has selected right now.
 
     def update_plots(self):
         # Apply smoothing only to the RMS waveform plot
@@ -89,7 +103,7 @@ class VisualizerObserver:
             self.buffers["wave"], self.c_wave, *self.THRES_WAVE, apply_smooth=True
         )
 
-        # Update only the selected VAD plot
+        # Pick the right raw-VAD buffer for the middle plot
         if self.current_vad == "silero":
             buffer = self.buffers["silero"]
         elif self.current_vad == "sb":
@@ -103,6 +117,18 @@ class VisualizerObserver:
 
         self._update_curve(buffer, self.c_vad, *self.THRES_PROB)
 
+        # Recompute hybrid on-the-fly from stored raw buffers so that
+        # changing the dropdown instantly refreshes the whole hybrid curve.
+        vad_data = buffer.to_array()
+        wave_data = self.buffers["wave"].to_array()
+        min_len = min(len(vad_data), len(wave_data))
+        if min_len > 0:
+            hybrid_data = (
+                self._prob_weight * vad_data[-min_len:]
+                + self._rms_weight * wave_data[-min_len:]
+            )
+            self._update_curve_data(hybrid_data, self.c_hybrid, *self.THRES_PROB)
+
     def _update_curve(self, buffer, curves, t_med, t_high, apply_smooth: bool = False):
         """Update one of the pyqtgraph curves with optional smoothing."""
         data = buffer.to_array()
@@ -113,6 +139,28 @@ class VisualizerObserver:
             # Smooth only the waveform (RMS) curve — VAD probs stay as-is
             data = smooth_signal(data, window=self.rms_smooth_window)
 
+        x = np.arange(len(data), dtype=np.float32)
+        low_m = data < t_med
+        mid_m = (data >= t_med) & (data < t_high)
+        high_m = data >= t_high
+        for m in (low_m, mid_m, high_m):
+            m[:-1] |= m[1:]
+            m[1:] |= m[:-1]
+        low_c, mid_c, high_c = curves
+        low_c.setData(x, np.where(low_m, data, np.nan))
+        mid_c.setData(x, np.where(mid_m, data, np.nan))
+        high_c.setData(x, np.where(high_m, data, np.nan))
+
+    def _update_curve_data(
+        self, data: np.ndarray, curves, t_med, t_high, apply_smooth: bool = False
+    ):
+        """Same as _update_curve but accepts a pre-built numpy array instead of a CircularBuffer."""
+        if len(data) == 0:
+            return
+        if apply_smooth and len(data) > 1:
+            from jet.audio.helpers.energy import smooth_signal
+
+            data = smooth_signal(data, window=self.rms_smooth_window)
         x = np.arange(len(data), dtype=np.float32)
         low_m = data < t_med
         mid_m = (data >= t_med) & (data < t_high)
