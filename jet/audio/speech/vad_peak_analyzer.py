@@ -423,6 +423,95 @@ class VADPeakAnalyzer:
             }
         )
 
+    def merge_active_regions_across_shallow_valleys(
+        self,
+        active_regions: List[VADSegment],
+        probs: List[float],
+        min_valley_threshold: float = 0.25,
+        min_valley_frames: Optional[int] = None,
+    ) -> List[VADSegment]:
+        """
+        Merge adjacent active regions if the valley (gap) between them does not
+        pass the minimum valley (silence) threshold — i.e. the dip is not deep enough.
+
+        This implements "active region logic to merge the next region when the
+        valley in between doesn't pass min valley threshold".
+
+        Args:
+            active_regions: Output from extract_active_regions()
+            probs: Original VAD probability list
+            min_valley_threshold: If the *minimum* probability in the gap is
+                *above* this value, the valley is considered too shallow → merge.
+            min_valley_frames: Optional minimum frame length of a valley to be
+                considered for merging logic (short gaps are always merged).
+
+        Returns:
+            New list of merged VADSegment objects.
+        """
+        if len(active_regions) <= 1:
+            return active_regions
+
+        x = np.array(probs, dtype=float)
+        merged: List[VADSegment] = []
+        current = active_regions[0].copy()
+
+        for next_region in active_regions[1:]:
+            # Define the valley between current and next_region
+            valley_start = current["frame_end"] + 1
+            valley_end = next_region["frame_start"] - 1  # inclusive
+
+            if valley_start > valley_end:
+                # Overlapping or adjacent regions → merge
+                current = self._merge_two_regions(current, next_region)
+                continue
+
+            valley_length = valley_end - valley_start + 1
+
+            # If valley is too short, always merge (optional safety)
+            if min_valley_frames is not None and valley_length < min_valley_frames:
+                current = self._merge_two_regions(current, next_region)
+                continue
+
+            # Compute minimum probability in the valley
+            valley_probs = x[valley_start : valley_end + 1]
+            valley_min = float(np.min(valley_probs))
+
+            if valley_min > min_valley_threshold:
+                # Valley is too shallow → merge the two active regions
+                self._log_debug(
+                    f"Merging regions {current['frame_start']}-{current['frame_end']} "
+                    f"and {next_region['frame_start']}-{next_region['frame_end']} "
+                    f"(valley min={valley_min:.4f} > threshold={min_valley_threshold})"
+                )
+                current = self._merge_two_regions(current, next_region)
+            else:
+                # Real silence valley → keep current and start new one
+                merged.append(current)
+                current = next_region.copy()
+
+        merged.append(current)
+        return merged
+
+    def _merge_two_regions(self, reg1: VADSegment, reg2: VADSegment) -> VADSegment:
+        """Helper to merge two adjacent VADSegment dicts."""
+        merged = reg1.copy()
+        merged["frame_end"] = reg2["frame_end"]
+        merged["frame_length"] = merged["frame_end"] - merged["frame_start"] + 1
+        merged["end_s"] = reg2["end_s"]
+        merged["duration_s"] = round(merged["end_s"] - merged["start_s"], 4)
+
+        # Update details
+        merged["details"]["max_probability"] = max(
+            reg1["details"]["max_probability"], reg2["details"]["max_probability"]
+        )
+        merged["details"]["mean_probability"] = (
+            reg1["details"]["mean_probability"] * reg1["frame_length"]
+            + reg2["details"]["mean_probability"] * reg2["frame_length"]
+        ) / merged["frame_length"]
+        merged["details"]["frame_count"] = merged["frame_length"]
+        # Optionally merge region_probs if needed
+        return merged
+
     def _filter_short_segments(
         self,
         segments: List[VADSegment],
@@ -773,6 +862,16 @@ if __name__ == "__main__":
         threshold=args.active_threshold,
         min_duration_s=args.min_active_duration,
         min_duration_frames=args.min_active_frames,
+    )
+
+    # === NEW: Merge logic across shallow valleys ===
+    active_regions = analyzer.merge_active_regions_across_shallow_valleys(
+        active_regions,
+        probs,
+        min_valley_threshold=args.valley_threshold,
+        # min_valley_threshold=args.valley_threshold
+        # * 0.8,  # example: slightly below valley threshold
+        min_valley_frames=2,
     )
 
     valleys = analyzer.extract_valleys(
