@@ -312,6 +312,7 @@ class VADPeakAnalyzer:
 
 
 if __name__ == "__main__":
+    import json
     import shutil
     from pathlib import Path
 
@@ -353,3 +354,14 @@ if __name__ == "__main__":
     analyzer.save_plot(
         probs, peaks, troughs, output_path=str(OUTPUT_DIR / "vad_analysis_plot.png")
     )
+
+    # Save peaks and troughs as JSON, and print full saved paths
+    peaks_path = OUTPUT_DIR / "peaks.json"
+    with open(peaks_path, "w", encoding="utf-8") as f:
+        json.dump(peaks, f, ensure_ascii=False, indent=2)
+    print(f"Peaks saved to: {peaks_path.resolve()}")
+
+    troughs_path = OUTPUT_DIR / "troughs.json"
+    with open(troughs_path, "w", encoding="utf-8") as f:
+        json.dump(troughs, f, ensure_ascii=False, indent=2)
+    print(f"Troughs saved to: {troughs_path.resolve()}")
