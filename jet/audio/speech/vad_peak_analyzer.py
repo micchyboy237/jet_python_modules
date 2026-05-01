@@ -400,7 +400,6 @@ class VADPeakAnalyzer:
         troughs: List[VADSegment],
         active_regions: Optional[List[VADSegment]] = None,
         valleys: Optional[List[VADSegment]] = None,
-        valley_threshold: float = 0.3,
         output_path: str = "vad_peaks_troughs.png",
         title: str = "VAD Probability - Peaks and Troughs",
     ) -> None:
@@ -418,7 +417,6 @@ class VADPeakAnalyzer:
             troughs: List of trough segments returned by extract_troughs().
             active_regions: Optional list from extract_active_regions().
             valleys: Optional list from extract_valleys().
-            valley_threshold: Probability below which frames are shaded as valleys.
             output_path: Path where the plot image will be saved.
             title: Title of the plot.
         """
@@ -456,14 +454,16 @@ class VADPeakAnalyzer:
         ax.plot(frames, x, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
 
         # Threshold reference lines
-        ax.axhline(
-            y=valley_threshold,
-            color="red",
-            linestyle="--",
-            alpha=0.4,
-            linewidth=1,
-            label=f"Valley threshold ({valley_threshold})",
-        )
+        if valleys:
+            valley_threshold = valleys[0]["details"]["threshold"]
+            ax.axhline(
+                y=valley_threshold,
+                color="red",
+                linestyle="--",
+                alpha=0.4,
+                linewidth=1,
+                label=f"Valley threshold ({valley_threshold})",
+            )
         if active_regions:
             active_thresh = (
                 active_regions[0]["details"]["threshold"] if active_regions else 0.5
@@ -684,7 +684,6 @@ if __name__ == "__main__":
         troughs,
         active_regions=active_regions,
         valleys=valleys,
-        valley_threshold=args.valley_threshold,
         output_path=str(OUTPUT_DIR / "vad_analysis_plot.png"),
     )
 
