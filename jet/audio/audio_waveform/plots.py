@@ -26,7 +26,7 @@ def create_plots_layout():
     main_widget.setWindowTitle("Realtime Audio + VAD Probability")
 
     # Set size and position
-    win_w, win_h = 450, 530  # taller to fit the third panel
+    win_w, win_h = 450, 380
     margin = 20
     main_widget.resize(win_w, win_h)
     screen = QtWidgets.QApplication.primaryScreen().availableGeometry()
