@@ -29,6 +29,19 @@ class VADSegment(TypedDict):
     details: Dict[str, Any]  # Additional insights (peak/trough properties)
 
 
+def smooth_vad_probs(probs: List[float], window: int = 3) -> List[float]:
+    """Light moving average smoothing to reduce jitter in VAD probabilities."""
+    if window <= 1 or len(probs) <= window:
+        return probs[:]
+    x = np.array(probs, dtype=float)
+    smoothed = np.convolve(x, np.ones(window) / window, mode="same")
+    # Better edge handling
+    smoothed[0] = (x[0] + x[1]) / 2 if len(x) > 1 else x[0]
+    if len(x) > 2:
+        smoothed[-1] = (x[-1] + x[-2]) / 2
+    return smoothed.tolist()
+
+
 class VADPeakAnalyzer:
     """
     Analyzes peaks (local maxima) and troughs (local minima) in VAD speech probabilities.
@@ -797,6 +810,13 @@ if __name__ == "__main__":
         default=None,
         help="Minimum valley length in frames (overrides --min-valley-duration if set)",
     )
+    parser.add_argument(
+        "--smoothing-window",
+        "-sw",
+        type=int,
+        default=0.0,
+        help="Smoothing window size for VAD probabilities (default: 0.0)",
+    )
 
     args = parser.parse_args()
 
@@ -835,6 +855,14 @@ if __name__ == "__main__":
         # Default sample sequence
         probs = [0.1, 0.15, 0.8, 0.92, 0.85, 0.3, 0.12, 0.05, 0.88, 0.95, 0.7, 0.2]
 
+    # === NEW: Smooth probabilities before analysis ===
+    print(f"Original probs length: {len(probs)}")
+    probs_smoothed = smooth_vad_probs(
+        probs,
+        window=args.smoothing_window,
+    )
+    print("Applied Gaussian smoothing (sigma=1.0)")
+
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -844,21 +872,21 @@ if __name__ == "__main__":
     )
 
     peaks = analyzer.extract_peaks(
-        probs,
+        probs_smoothed,
         height=args.peak_height,
         prominence=args.peak_prominence,
         distance=args.peak_distance,
     )
 
     troughs = analyzer.extract_troughs(
-        probs,
+        probs_smoothed,
         height=args.trough_height,
         prominence=args.trough_prominence,
         distance=args.trough_distance,
     )
 
     active_regions = analyzer.extract_active_regions(
-        probs,
+        probs_smoothed,
         threshold=args.active_threshold,
         min_duration_s=args.min_active_duration,
         min_duration_frames=args.min_active_frames,
@@ -867,7 +895,7 @@ if __name__ == "__main__":
     # === NEW: Merge logic across shallow valleys ===
     active_regions = analyzer.merge_active_regions_across_shallow_valleys(
         active_regions,
-        probs,
+        probs_smoothed,
         min_valley_threshold=args.valley_threshold,
         # min_valley_threshold=args.valley_threshold
         # * 0.8,  # example: slightly below valley threshold
@@ -875,7 +903,7 @@ if __name__ == "__main__":
     )
 
     valleys = analyzer.extract_valleys(
-        probs,
+        probs_smoothed,
         threshold=args.valley_threshold,
         min_duration_s=args.min_valley_duration,
         min_duration_frames=args.min_valley_frames,
@@ -893,6 +921,15 @@ if __name__ == "__main__":
         active_regions=active_regions,
         valleys=valleys,
         output_path=str(OUTPUT_DIR / "vad_analysis_plot.png"),
+    )
+
+    analyzer.save_plot(
+        probs_smoothed,
+        peaks,
+        troughs,
+        active_regions=active_regions,
+        valleys=valleys,
+        output_path=str(OUTPUT_DIR / "vad_analysis_plot_smoothed.png"),
     )
 
     peaks_path = OUTPUT_DIR / "peaks.json"
