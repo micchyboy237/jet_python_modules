@@ -588,8 +588,8 @@ if __name__ == "__main__":
         "--frame-duration-ms",
         "-fd",
         type=float,
-        default=32.0,
-        help="Analysis frame duration in ms (default: 32.0)",
+        default=10.0,
+        help="Analysis frame duration in ms (default: 10.0 for FireRedVAD)",
     )
     parser.add_argument(
         "--peak-height",
