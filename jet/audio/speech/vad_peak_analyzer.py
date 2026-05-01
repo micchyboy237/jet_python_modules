@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Dict, List, Optional, TypedDict
 
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks
 
@@ -228,8 +229,96 @@ class VADPeakAnalyzer:
         self._log_debug(f"Returning {len(segments)} trough segments")
         return segments
 
+    def save_plot(
+        self,
+        probs: List[float],
+        peaks: List[VADSegment],
+        troughs: List[VADSegment],
+        output_path: str = "vad_peaks_troughs.png",
+        title: str = "VAD Probability - Peaks and Troughs",
+    ) -> None:
+        """
+        Save a visualization plot highlighting peaks and troughs.
+
+        Args:
+            probs: Original list of VAD probabilities.
+            peaks: List of peak segments returned by extract_peaks().
+            troughs: List of trough segments returned by extract_troughs().
+            output_path: Path where the plot image will be saved.
+            title: Title of the plot.
+        """
+        if not probs:
+            self._log_debug("Cannot plot: empty probability list")
+            return
+
+        x = np.array(probs, dtype=float)
+        frames = np.arange(len(x))
+
+        plt.figure(figsize=(14, 7))
+        plt.plot(frames, x, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
+
+        # Plot peaks
+        if peaks:
+            peak_indices = [p["frame_start"] for p in peaks]
+            peak_probs = [p["details"]["peak_probability"] for p in peaks]
+            plt.plot(
+                peak_indices, peak_probs, "go", markersize=10, label="Peaks (Speech)"
+            )
+            for idx, prob in zip(peak_indices, peak_probs):
+                plt.annotate(
+                    f"{prob:.2f}",
+                    xy=(idx, prob),
+                    xytext=(0, 12),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=9,
+                    color="green",
+                )
+
+        # Plot troughs
+        if troughs:
+            trough_indices = [t["frame_start"] for t in troughs]
+            trough_probs = [t["details"]["trough_probability"] for t in troughs]
+            plt.plot(
+                trough_indices,
+                trough_probs,
+                "ro",
+                markersize=10,
+                label="Troughs (Silence)",
+            )
+            for idx, prob in zip(trough_indices, trough_probs):
+                plt.annotate(
+                    f"{prob:.2f}",
+                    xy=(idx, prob),
+                    xytext=(0, -18),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=9,
+                    color="red",
+                )
+
+        plt.title(title, fontsize=16)
+        plt.xlabel("Frame Index")
+        plt.ylabel("Speech Probability")
+        plt.grid(True, alpha=0.3)
+        plt.legend(fontsize=12)
+        plt.tight_layout()
+
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close()
+
+        self._log_debug(f"Plot saved successfully to: {output_path}")
+        print(f"Plot saved to: {output_path}")
+
 
 if __name__ == "__main__":
+    import shutil
+    from pathlib import Path
+
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     # Example: 32ms frames at 16kHz
     analyzer = VADPeakAnalyzer(sample_rate=16000, frame_duration_ms=32.0)
 
@@ -259,3 +348,8 @@ if __name__ == "__main__":
 
     print("Peaks:", peaks)
     print("Troughs:", troughs)
+
+    # Save visualization
+    analyzer.save_plot(
+        probs, peaks, troughs, output_path=str(OUTPUT_DIR / "vad_analysis_plot.png")
+    )
