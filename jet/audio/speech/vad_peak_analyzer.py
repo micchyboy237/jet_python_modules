@@ -42,6 +42,118 @@ def smooth_vad_probs(probs: List[float], window: int = 3) -> List[float]:
     return smoothed.tolist()
 
 
+def save_segments_to_subdirs(
+    segments: List["VADSegment"],
+    category: str,
+    probs: List[float],
+    output_dir: "Path",
+    audio_path: Optional[str],
+    sample_rate: int,
+    frame_duration_ms: float,
+    pad_frames: int = 5,
+) -> None:
+    """
+    For each segment in `segments`, create a numbered subdirectory under
+    ``output_dir / category /`` and write three files into it:
+
+        sound.wav  – the audio slice corresponding to the segment's time range
+        meta.json  – the VADSegment dict serialised as JSON
+        plot.png   – a focused VAD-probability plot for just this segment
+
+    Parameters
+    ----------
+    segments      : list of VADSegment dicts (from extract_active_regions /
+                    extract_valleys or similar).
+    category      : subdirectory name, e.g. ``"active_regions"`` or
+                    ``"valleys"``.
+    probs         : full VAD probability list (used for the zoomed plot).
+    output_dir    : root Path under which ``category/segment_NNN/`` dirs are
+                    created.
+    audio_path    : path to the original audio file, or ``None``.  When
+                    ``None`` the function still writes ``meta.json`` and
+                    ``plot.png`` but skips ``sound.wav``.
+    sample_rate   : audio sample rate in Hz (needed to slice the waveform).
+    frame_duration_ms : duration of one VAD frame in milliseconds (needed to
+                    convert frame indices back to sample positions).
+    pad_frames    : number of extra frames to include around the segment in
+                    the plot (purely cosmetic, default 5).
+    """
+    import json
+
+    import soundfile as sf
+
+    frame_duration_s = frame_duration_ms / 1000.0
+    cat_dir = output_dir / category
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load audio once (only when needed)
+    audio_data: Optional[np.ndarray] = None
+    file_sr: int = sample_rate
+    if audio_path is not None:
+        audio_data, file_sr = sf.read(audio_path, always_2d=False)
+
+    x = np.array(probs, dtype=float)
+    n_frames = len(x)
+
+    for idx, seg in enumerate(segments):
+        seg_dir = cat_dir / f"segment_{idx:03d}"
+        seg_dir.mkdir(parents=True, exist_ok=True)
+
+        # ── meta.json ────────────────────────────────────────────────────────
+        meta_path = seg_dir / "meta.json"
+        with open(meta_path, "w", encoding="utf-8") as fh:
+            json.dump(seg, fh, ensure_ascii=False, indent=2)
+
+        # ── sound.wav ────────────────────────────────────────────────────────
+        if audio_data is not None:
+            start_sample = int(seg["start_s"] * file_sr)
+            end_sample = int(seg["end_s"] * file_sr)
+            # Clamp to valid range
+            start_sample = max(0, start_sample)
+            end_sample = min(len(audio_data), end_sample)
+            slice_audio = audio_data[start_sample:end_sample]
+            wav_path = seg_dir / "sound.wav"
+            sf.write(str(wav_path), slice_audio, file_sr)
+
+        # ── plot.png ─────────────────────────────────────────────────────────
+        f_start = max(0, seg["frame_start"] - pad_frames)
+        f_end = min(n_frames, seg["frame_end"] + pad_frames + 1)
+        frames = np.arange(f_start, f_end)
+        zoomed = x[f_start:f_end]
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(frames, zoomed, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
+
+        # Highlight the actual segment
+        ax.axvspan(
+            seg["frame_start"],
+            seg["frame_end"] + 1,
+            alpha=0.20,
+            color="green" if category == "active_regions" else "red",
+            label=category.replace("_", " ").title(),
+        )
+
+        # Annotate start / end times
+        ax.set_title(
+            f"{category} · segment {idx:03d}  "
+            f"[{seg['start_s']:.3f}s – {seg['end_s']:.3f}s]",
+            fontsize=12,
+        )
+        ax.set_xlabel("Frame Index")
+        ax.set_ylabel("Speech Probability")
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=10, loc="upper right")
+        plt.tight_layout()
+        plot_path = seg_dir / "plot.png"
+        plt.savefig(str(plot_path), dpi=150, bbox_inches="tight")
+        plt.close()
+
+    print(
+        f"[save_segments_to_subdirs] Wrote {len(segments)} '{category}' segments → {cat_dir}"
+    )
+
+
 class VADPeakAnalyzer:
     """
     Analyzes peaks (local maxima) and troughs (local minima) in VAD speech probabilities.
@@ -913,6 +1025,30 @@ if __name__ == "__main__":
     print("Troughs:", troughs)
     print("Active regions:", active_regions)
     print("Valleys:", valleys)
+
+    # ── NEW: per-segment subdirectories (only when audio was provided) ──────
+    if (
+        args.input_file is not None
+        and Path(args.input_file).suffix.lower() in AUDIO_EXTENSIONS
+    ):
+        save_segments_to_subdirs(
+            segments=active_regions,
+            category="active_regions",
+            probs=probs_smoothed,
+            output_dir=OUTPUT_DIR,
+            audio_path=args.input_file,
+            sample_rate=args.sample_rate,
+            frame_duration_ms=args.frame_duration_ms,
+        )
+        save_segments_to_subdirs(
+            segments=valleys,
+            category="valleys",
+            probs=probs_smoothed,
+            output_dir=OUTPUT_DIR,
+            audio_path=args.input_file,
+            sample_rate=args.sample_rate,
+            frame_duration_ms=args.frame_duration_ms,
+        )
 
     analyzer.save_plot(
         probs,
