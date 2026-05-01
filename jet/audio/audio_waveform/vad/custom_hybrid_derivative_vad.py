@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -46,12 +46,100 @@ class DerivativeBasedVAD:
             delta[:, t] = num / denom
         return delta[0] if features.shape[0] == 1 else delta
 
-    def process(
-        self, speech_probs: np.ndarray, rms_energy: Optional[np.ndarray] = None
-    ) -> Dict:
-        probs = np.asarray(speech_probs, dtype=float)
-        rms = np.asarray(rms_energy, dtype=float) if rms_energy is not None else None
+    # ------------------------------------------------------------------
+    # Input normalisation helpers
+    # ------------------------------------------------------------------
 
+    @staticmethod
+    def _is_batch(x) -> bool:
+        """
+        Return True when *x* represents a collection of sequences
+        (list-of-lists, list-of-arrays, 2-D ndarray whose first axis is
+        the batch dimension).
+
+        A plain Python list of numbers, or a 1-D ndarray, is treated as a
+        single sequence (not a batch).
+        """
+        if isinstance(x, np.ndarray):
+            return x.ndim == 2
+        if isinstance(x, list) and len(x) > 0:
+            first = x[0]
+            return isinstance(first, (list, np.ndarray))
+        return False
+
+    @staticmethod
+    def _to_array(x) -> np.ndarray:
+        """Convert a single sequence (list or 1-D array) to a float64 ndarray."""
+        return np.asarray(x, dtype=float)
+
+    def process(
+        self,
+        speech_probs: Union[List, np.ndarray],
+        rms_energy: Optional[Union[List, np.ndarray]] = None,
+    ) -> Union[Dict, List[Dict]]:
+        """
+        Public entry point.  Accepts:
+
+        Single-sequence inputs
+        ----------------------
+        * 1-D ``np.ndarray``          – original behaviour, unchanged.
+        * flat ``list`` of numbers    – converted to ndarray automatically.
+
+        Batch inputs (new)
+        ------------------
+        * list of lists               – e.g. [[0.1, 0.9, …], [0.2, 0.8, …]]
+        * list of 1-D ndarrays        – e.g. [arr1, arr2]
+        * 2-D ndarray (N × T)         – each row is one sequence.
+
+        ``rms_energy`` must match: either ``None``, a single sequence
+        (when ``speech_probs`` is single), or the same batch size as
+        ``speech_probs``.
+
+        Returns
+        -------
+        * Single mode  → one ``dict`` (same schema as before).
+        * Batch mode   → ``list`` of ``dict``, one per sequence.
+        """
+        if self._is_batch(speech_probs):
+            # ── BATCH MODE ──────────────────────────────────────────────
+            batch_probs = list(speech_probs)  # iterate rows/items
+            n = len(batch_probs)
+
+            # Normalise rms_energy so we always have a list of length n
+            # (or a list of Nones).
+            if rms_energy is None:
+                batch_rms = [None] * n
+            elif self._is_batch(rms_energy):
+                batch_rms = list(rms_energy)
+                if len(batch_rms) != n:
+                    raise ValueError(
+                        f"Batch size mismatch: speech_probs has {n} sequences "
+                        f"but rms_energy has {len(batch_rms)}."
+                    )
+            else:
+                # A single rms array was supplied for a batch of probs –
+                # broadcast it to every item in the batch.
+                batch_rms = [rms_energy] * n
+
+            return [
+                self._process_single(
+                    self._to_array(p),
+                    self._to_array(r) if r is not None else None,
+                )
+                for p, r in zip(batch_probs, batch_rms)
+            ]
+
+        # ── SINGLE MODE ─────────────────────────────────────────────────
+        probs = self._to_array(speech_probs)
+        rms = self._to_array(rms_energy) if rms_energy is not None else None
+        return self._process_single(probs, rms)
+
+    def _process_single(
+        self,
+        probs: np.ndarray,
+        rms: Optional[np.ndarray],
+    ) -> Dict:
+        """Core VAD logic – operates on a single, already-converted sequence."""
         if self.verbose:
             print("=== DerivativeBasedVAD v3 Hybrid Debug ===")
 
@@ -147,6 +235,7 @@ class DerivativeBasedVAD:
             "smoothed_probs": smoothed,
             "delta_probs": delta_probs,
             "original_probs": probs,
+            "rms_energy": rms,
         }
 
     def _hybrid_adaptive_smooth(
@@ -174,35 +263,3 @@ class DerivativeBasedVAD:
             smoothed[t] = alpha * probs[t] + (1 - alpha) * smoothed[t - 1]
 
         return smoothed
-
-
-# ====================== Usage Example ======================
-if __name__ == "__main__":
-    np.random.seed(42)
-
-    speech_probs = np.concatenate(
-        [
-            np.full(10, 0.08),
-            np.linspace(0.12, 0.92, 8),
-            np.full(25, 0.94) + np.random.normal(0, 0.035, 25),
-            np.linspace(0.90, 0.18, 9),
-            np.full(15, 0.09) + np.random.normal(0, 0.02, 15),
-            np.linspace(0.15, 0.85, 6),
-            np.full(7, 0.07),
-        ]
-    )
-
-    rms_energy = np.concatenate(
-        [
-            np.full(10, 0.012),
-            np.linspace(0.015, 0.13, 8),
-            np.full(25, 0.125) + np.random.normal(0, 0.01, 25),
-            np.linspace(0.13, 0.022, 9),
-            np.full(15, 0.014),
-            np.linspace(0.018, 0.10, 6),
-            np.full(7, 0.011),
-        ]
-    )
-
-    vad = DerivativeBasedVAD(verbose=True, energy_weight=0.40)
-    result = vad.process(speech_probs, rms_energy)

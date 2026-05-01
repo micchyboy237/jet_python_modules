@@ -1,6 +1,7 @@
 import logging
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks
@@ -53,7 +54,7 @@ class VADPeakAnalyzer:
         if self.debug:
             self.logger.debug(msg, extra=kwargs)
 
-    def _compute_times(self, frame_idx: int) -> tuple[float, float]:
+    def _compute_times(self, frame_idx: int) -> Tuple[float, float]:
         """Convert frame index to start/end time in seconds."""
         start_s = frame_idx * self.frame_duration_s
         end_s = (frame_idx + 1) * self.frame_duration_s
@@ -90,7 +91,8 @@ class VADPeakAnalyzer:
             height=height,
             distance=distance,
             prominence=prominence,
-            width=width,
+            # Always compute widths; use `width` only as a minimum filter
+            width=width if width is not None else 0,
             **kwargs,
         )
 
@@ -180,7 +182,7 @@ class VADPeakAnalyzer:
             height=-height if height is not None else None,  # invert threshold
             distance=distance,
             prominence=prominence,
-            width=width,
+            width=width if width is not None else 0,
             **kwargs,
         )
 
@@ -229,21 +231,194 @@ class VADPeakAnalyzer:
         self._log_debug(f"Returning {len(segments)} trough segments")
         return segments
 
+    def extract_active_regions(
+        self,
+        probs: List[float],
+        threshold: float = 0.5,
+    ) -> List[VADSegment]:
+        """
+        Extract contiguous active (speech) regions where probability >= threshold.
+
+        An "active region" is a run of consecutive frames all at or above the
+        threshold — think of them as the speech bursts between silences.
+
+        Args:
+            probs: VAD probability list.
+            threshold: Minimum probability to count as active (default 0.5).
+
+        Returns:
+            List of VADSegment dicts, one per contiguous active region.
+        """
+        if not probs:
+            return []
+
+        x = np.array(probs, dtype=float)
+        active = x >= threshold  # Boolean mask: True where speech is active
+
+        segments: List[VADSegment] = []
+        in_region = False
+        region_start = 0
+
+        for i, is_active in enumerate(active):
+            if is_active and not in_region:
+                # Rising edge — start of a new active region
+                in_region = True
+                region_start = i
+            elif not is_active and in_region:
+                # Falling edge — end of the active region (exclusive)
+                self._append_active_segment(segments, x, region_start, i, threshold)
+                in_region = False
+
+        # Handle region that runs to the very end of the signal
+        if in_region:
+            self._append_active_segment(segments, x, region_start, len(x), threshold)
+
+        self._log_debug(f"Returning {len(segments)} active region segments")
+        return segments
+
+    def _append_active_segment(
+        self,
+        segments: List[VADSegment],
+        x: np.ndarray,
+        start: int,
+        end: int,  # exclusive index
+        threshold: float,
+    ) -> None:
+        """Helper: build and append one active-region VADSegment."""
+        start_s, _ = self._compute_times(start)
+        _, end_s = self._compute_times(end - 1)  # last frame's end time
+        duration_s = end_s - start_s
+        region_probs = x[start:end].tolist()
+        segments.append(
+            {
+                "frame_start": start,
+                "frame_end": end - 1,
+                "frame_length": end - start,
+                "start_s": round(start_s, 4),
+                "end_s": round(end_s, 4),
+                "duration_s": round(duration_s, 4),
+                "details": {
+                    "threshold": threshold,
+                    "max_probability": float(np.max(x[start:end])),
+                    "mean_probability": float(np.mean(x[start:end])),
+                    "frame_count": end - start,
+                    "region_probs": region_probs,
+                },
+            }
+        )
+
+    def extract_valleys(
+        self,
+        probs: List[float],
+        threshold: float = 0.3,
+    ) -> List[VADSegment]:
+        """
+        Extract contiguous valley (silence) regions where probability < threshold.
+
+        A "valley" is a run of consecutive frames all strictly below the
+        threshold — the silence stretches between speech bursts.  This is
+        the region-based counterpart to extract_troughs(), which finds only
+        the single lowest frame inside each dip.
+
+        Relationship to other methods
+        ------------------------------
+        extract_troughs()        → single-frame local minimum inside a dip
+        extract_valleys()        → the whole contiguous low-probability region
+        extract_active_regions() → the whole contiguous high-probability region
+
+        Args:
+            probs: VAD probability list.
+            threshold: Frames strictly below this value are considered silent
+                       (default 0.3).  Frames AT the threshold are NOT included
+                       (use > instead of >= to match "below threshold" intent).
+
+        Returns:
+            List of VADSegment dicts, one per contiguous valley region.
+        """
+        if not probs:
+            return []
+
+        x = np.array(probs, dtype=float)
+        silent = x < threshold  # Boolean mask: True where frame is silent
+
+        segments: List[VADSegment] = []
+        in_valley = False
+        valley_start = 0
+
+        for i, is_silent in enumerate(silent):
+            if is_silent and not in_valley:
+                # Falling edge — entering a silent stretch
+                in_valley = True
+                valley_start = i
+            elif not is_silent and in_valley:
+                # Rising edge — leaving the silent stretch
+                self._append_valley_segment(segments, x, valley_start, i, threshold)
+                in_valley = False
+
+        # Handle valley that runs to the very end of the signal
+        if in_valley:
+            self._append_valley_segment(segments, x, valley_start, len(x), threshold)
+
+        self._log_debug(f"Returning {len(segments)} valley segments")
+        return segments
+
+    def _append_valley_segment(
+        self,
+        segments: List[VADSegment],
+        x: np.ndarray,
+        start: int,
+        end: int,  # exclusive index
+        threshold: float,
+    ) -> None:
+        """Helper: build and append one valley VADSegment."""
+        start_s, _ = self._compute_times(start)
+        _, end_s = self._compute_times(end - 1)  # last frame's end time
+        duration_s = end_s - start_s
+        region_probs = x[start:end].tolist()
+        segments.append(
+            {
+                "frame_start": start,
+                "frame_end": end - 1,
+                "frame_length": end - start,
+                "start_s": round(start_s, 4),
+                "end_s": round(end_s, 4),
+                "duration_s": round(duration_s, 4),
+                "details": {
+                    "threshold": threshold,
+                    "min_probability": float(np.min(x[start:end])),
+                    "mean_probability": float(np.mean(x[start:end])),
+                    "frame_count": end - start,
+                    "region_probs": region_probs,
+                },
+            }
+        )
+
     def save_plot(
         self,
         probs: List[float],
         peaks: List[VADSegment],
         troughs: List[VADSegment],
+        active_regions: Optional[List[VADSegment]] = None,
+        valleys: Optional[List[VADSegment]] = None,
+        valley_threshold: float = 0.3,
         output_path: str = "vad_peaks_troughs.png",
         title: str = "VAD Probability - Peaks and Troughs",
     ) -> None:
         """
         Save a visualization plot highlighting peaks and troughs.
 
+        Background gradient highlights:
+          - Green shading  → active/speech regions (prob >= active threshold)
+          - Red shading    → valley/silence regions (prob < valley_threshold)
+          - No shading     → transition zones
+
         Args:
             probs: Original list of VAD probabilities.
             peaks: List of peak segments returned by extract_peaks().
             troughs: List of trough segments returned by extract_troughs().
+            active_regions: Optional list from extract_active_regions().
+            valleys: Optional list from extract_valleys().
+            valley_threshold: Probability below which frames are shaded as valleys.
             output_path: Path where the plot image will be saved.
             title: Title of the plot.
         """
@@ -254,18 +429,62 @@ class VADPeakAnalyzer:
         x = np.array(probs, dtype=float)
         frames = np.arange(len(x))
 
-        plt.figure(figsize=(14, 7))
-        plt.plot(frames, x, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
+        fig, ax = plt.subplots(figsize=(14, 7))
 
-        # Plot peaks
+        # ── Gradient background: active (green) regions ──────────────────────
+        if active_regions:
+            for region in active_regions:
+                ax.axvspan(
+                    region["frame_start"],
+                    region["frame_end"] + 1,
+                    alpha=0.15,
+                    color="green",
+                    label="_nolegend_",
+                )
+
+        # ── Gradient background: valley (red) regions ─────────────────────────
+        if valleys:
+            for v in valleys:
+                ax.axvspan(
+                    v["frame_start"],
+                    v["frame_end"] + 1,
+                    alpha=0.12,
+                    color="red",
+                    label="_nolegend_",
+                )
+
+        ax.plot(frames, x, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
+
+        # Threshold reference lines
+        ax.axhline(
+            y=valley_threshold,
+            color="red",
+            linestyle="--",
+            alpha=0.4,
+            linewidth=1,
+            label=f"Valley threshold ({valley_threshold})",
+        )
+        if active_regions:
+            active_thresh = (
+                active_regions[0]["details"]["threshold"] if active_regions else 0.5
+            )
+            ax.axhline(
+                y=active_thresh,
+                color="green",
+                linestyle="--",
+                alpha=0.4,
+                linewidth=1,
+                label=f"Active threshold ({active_thresh})",
+            )
+
         if peaks:
             peak_indices = [p["frame_start"] for p in peaks]
             peak_probs = [p["details"]["peak_probability"] for p in peaks]
-            plt.plot(
+            ax.plot(
                 peak_indices, peak_probs, "go", markersize=10, label="Peaks (Speech)"
             )
             for idx, prob in zip(peak_indices, peak_probs):
-                plt.annotate(
+                ax.annotate(
                     f"{prob:.2f}",
                     xy=(idx, prob),
                     xytext=(0, 12),
@@ -275,11 +494,10 @@ class VADPeakAnalyzer:
                     color="green",
                 )
 
-        # Plot troughs
         if troughs:
             trough_indices = [t["frame_start"] for t in troughs]
             trough_probs = [t["details"]["trough_probability"] for t in troughs]
-            plt.plot(
+            ax.plot(
                 trough_indices,
                 trough_probs,
                 "ro",
@@ -287,7 +505,7 @@ class VADPeakAnalyzer:
                 label="Troughs (Silence)",
             )
             for idx, prob in zip(trough_indices, trough_probs):
-                plt.annotate(
+                ax.annotate(
                     f"{prob:.2f}",
                     xy=(idx, prob),
                     xytext=(0, -18),
@@ -297,13 +515,25 @@ class VADPeakAnalyzer:
                     color="red",
                 )
 
-        plt.title(title, fontsize=16)
-        plt.xlabel("Frame Index")
-        plt.ylabel("Speech Probability")
-        plt.grid(True, alpha=0.3)
-        plt.legend(fontsize=12)
-        plt.tight_layout()
+        # Custom legend patches for shaded regions
+        legend_handles = [
+            mpatches.Patch(color="green", alpha=0.4, label="Active / Speech region"),
+            mpatches.Patch(color="red", alpha=0.4, label="Valley / Silence region"),
+        ]
 
+        ax.set_title(title, fontsize=16)
+        ax.set_xlabel("Frame Index")
+        ax.set_ylabel("Speech Probability")
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.legend(
+            handles=ax.get_legend_handles_labels()[0] + legend_handles,
+            labels=ax.get_legend_handles_labels()[1]
+            + ["Active / Speech region", "Valley / Silence region"],
+            fontsize=11,
+            loc="upper right",
+        )
+        plt.tight_layout()
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
         plt.close()
 
@@ -312,50 +542,152 @@ class VADPeakAnalyzer:
 
 
 if __name__ == "__main__":
+    import argparse
     import json
     import shutil
     from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        description="Analyze VAD speech/voice probabilities and find peaks/troughs"
+    )
+    parser.add_argument(
+        "probs_file",
+        nargs="?",
+        default=None,
+        help="Path to a JSON file containing an array of speech probabilities (floats). If not provided, uses a sample sequence.",
+    )
+    parser.add_argument(
+        "--sample-rate",
+        "-sr",
+        type=int,
+        default=16000,
+        help="Audio sample rate (default: 16000)",
+    )
+    parser.add_argument(
+        "--frame-duration-ms",
+        "-fd",
+        type=float,
+        default=32.0,
+        help="Analysis frame duration in ms (default: 32.0)",
+    )
+    parser.add_argument(
+        "--peak-height",
+        "-ph",
+        type=float,
+        default=0.7,
+        help="Minimum height for a peak (default: 0.7)",
+    )
+    parser.add_argument(
+        "--peak-prominence",
+        "-pp",
+        type=float,
+        default=0.1,
+        help="Minimum prominence for a peak (default: 0.1)",
+    )
+    parser.add_argument(
+        "--peak-distance",
+        "-pd",
+        type=int,
+        default=3,
+        help="Minimum distance between peaks in frames (default: 3)",
+    )
+    parser.add_argument(
+        "--trough-height",
+        "-th",
+        type=float,
+        default=0.3,
+        help="Maximum speech probability for a trough (default: 0.3)",
+    )
+    parser.add_argument(
+        "--trough-prominence",
+        "-tp",
+        type=float,
+        default=0.5,
+        help="Minimum prominence for a trough (default: 0.5)",
+    )
+    parser.add_argument(
+        "--trough-distance",
+        "-td",
+        type=int,
+        default=3,
+        help="Minimum distance between troughs in frames (default: 3)",
+    )
+    parser.add_argument(
+        "--active-threshold",
+        "-at",
+        type=float,
+        default=0.5,
+        help="Probability threshold for active/speech regions (default: 0.5)",
+    )
+    parser.add_argument(
+        "--valley-threshold",
+        "-vt",
+        type=float,
+        default=0.3,
+        help="Probability threshold below which regions are valleys (default: 0.3)",
+    )
+    args = parser.parse_args()
+
+    if args.probs_file is not None:
+        probs_path = Path(args.probs_file)
+        if not probs_path.exists():
+            raise FileNotFoundError(f"File not found: {probs_path}")
+        with open(probs_path, "r", encoding="utf-8") as f:
+            probs = json.load(f)
+            if not isinstance(probs, list):
+                raise ValueError("The JSON file must contain a list/array of floats.")
+            probs = [float(p) for p in probs]
+    else:
+        # Default sample sequence
+        probs = [0.1, 0.15, 0.8, 0.92, 0.85, 0.3, 0.12, 0.05, 0.88, 0.95, 0.7, 0.2]
 
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Example: 32ms frames at 16kHz
-    analyzer = VADPeakAnalyzer(sample_rate=16000, frame_duration_ms=32.0)
+    analyzer = VADPeakAnalyzer(
+        sample_rate=args.sample_rate, frame_duration_ms=args.frame_duration_ms
+    )
 
-    probs = [
-        0.1,
-        0.15,
-        0.8,
-        0.92,
-        0.85,
-        0.3,
-        0.12,
-        0.05,
-        0.88,
-        0.95,
-        0.7,
-        0.2,
-    ]  # sample VAD probs
-
-    peaks = analyzer.extract_peaks(probs, height=0.7, prominence=0.1, distance=3)
+    peaks = analyzer.extract_peaks(
+        probs,
+        height=args.peak_height,
+        prominence=args.peak_prominence,
+        distance=args.peak_distance,
+    )
 
     troughs = analyzer.extract_troughs(
         probs,
-        height=0.3,  # max prob for a trough
-        prominence=0.15,
-        distance=3,
+        height=args.trough_height,
+        prominence=args.trough_prominence,
+        distance=args.trough_distance,
+    )
+
+    active_regions = analyzer.extract_active_regions(
+        probs,
+        threshold=args.active_threshold,
+    )
+
+    valleys = analyzer.extract_valleys(
+        probs,
+        threshold=args.valley_threshold,
     )
 
     print("Peaks:", peaks)
     print("Troughs:", troughs)
+    print("Active regions:", active_regions)
+    print("Valleys:", valleys)
 
-    # Save visualization
     analyzer.save_plot(
-        probs, peaks, troughs, output_path=str(OUTPUT_DIR / "vad_analysis_plot.png")
+        probs,
+        peaks,
+        troughs,
+        active_regions=active_regions,
+        valleys=valleys,
+        valley_threshold=args.valley_threshold,
+        output_path=str(OUTPUT_DIR / "vad_analysis_plot.png"),
     )
 
-    # Save peaks and troughs as JSON, and print full saved paths
     peaks_path = OUTPUT_DIR / "peaks.json"
     with open(peaks_path, "w", encoding="utf-8") as f:
         json.dump(peaks, f, ensure_ascii=False, indent=2)
@@ -365,3 +697,13 @@ if __name__ == "__main__":
     with open(troughs_path, "w", encoding="utf-8") as f:
         json.dump(troughs, f, ensure_ascii=False, indent=2)
     print(f"Troughs saved to: {troughs_path.resolve()}")
+
+    active_path = OUTPUT_DIR / "active_regions.json"
+    with open(active_path, "w", encoding="utf-8") as f:
+        json.dump(active_regions, f, ensure_ascii=False, indent=2)
+    print(f"Active regions saved to: {active_path.resolve()}")
+
+    valleys_path = OUTPUT_DIR / "valleys.json"
+    with open(valleys_path, "w", encoding="utf-8") as f:
+        json.dump(valleys, f, ensure_ascii=False, indent=2)
+    print(f"Valleys saved to: {valleys_path.resolve()}")
