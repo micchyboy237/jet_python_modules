@@ -684,8 +684,8 @@ if __name__ == "__main__":
         "--min-active-duration",
         "-mad",
         type=float,
-        default=0.25,
-        help="Minimum active speech duration in seconds (default: 0.25s)",
+        default=0.0,
+        help="Minimum active speech duration in seconds (default: 0.0s)",
     )
     parser.add_argument(
         "--min-active-frames",
