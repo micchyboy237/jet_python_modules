@@ -1,0 +1,98 @@
+{
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.insertSpaces": true,
+  "editor.stickyScroll.enabled": false,
+  "editor.tabSize": 4,
+  "editor.semanticHighlighting.enabled": true,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.semanticHighlighting.enabled": true,
+
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit", // optional but recommended: auto-apply all safe fixes (e.g. whitespace, unused vars, etc.)
+      "source.organizeImports.ruff": "explicit" // ← this is the key line: enables Ruff's import sorting + unused import removal on save
+    }
+  },
+  "editor.quickSuggestions": {
+    "comments": false,
+    "other": true,
+    "strings": true
+  },
+
+  "editor.suggestOnTriggerCharacters": true,
+  "editor.suggest.filterGraceful": true,
+  "editor.suggest.localityBonus": true,
+  "editor.suggestSelection": "first",
+  "editor.snippetSuggestions": "top",
+  "editor.acceptSuggestionOnCommitCharacter": true,
+  "editor.acceptSuggestionOnEnter": "smart",
+  "editor.largeFileOptimizations": true,
+
+  "explorer.autoRevealExclude": {
+    "**/bower_components": false,
+    "**/node_modules": false
+  },
+  "explorer.confirmDragAndDrop": false,
+  "explorer.openEditors.sortOrder": "editorOrder",
+  "explorer.sortOrder": "filesFirst",
+
+  "window.commandCenter": true,
+  "window.zoomLevel": -1,
+
+  "workbench.preferredDarkColorTheme": "Default Dark Modern",
+  "workbench.preferredLightColorTheme": "Default Dark Modern",
+  // "workbench.externalBrowser": "chrome", // comment to use system default
+  "workbench.activityBar.location": "top",
+  "workbench.activityBar.orientation": "vertical",
+  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.editor.centeredLayoutFixedWidth": true,
+  "workbench.editor.restoreViewState": true,
+  "workbench.panel.defaultLocation": "right",
+  "workbench.panel.opensMaximized": "preserve",
+  "workbench.panel.showLabels": true,
+
+  "python.venvPath": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv",
+  "python.defaultInterpreterPath": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv/bin/python",
+
+  "cursorpyright.analysis.extraPaths": [
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/dspy",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/speechbrain",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/PaddleOCR"
+  ],
+  "editor.codeActionsOnSave": {},
+
+  "files.exclude": {
+    "**/.git": true,
+    "**/__pycache__": true,
+    "**/.venv": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/public": true,
+    "**/site-packages": true
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/__pycache__": true,
+    "**/.venv": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/public": true,
+    "**/site-packages": true
+  },
+  "cursorpyright.disableTaggedHints": true,
+  "cursorpyright.disablePullDiagnostics": true,
+  "cursorpyright.disableOrganizeImports": true,
+  "cursorpyright.disableLanguageServices": true,
+  "cursorpyright.analysis.disableWorkspaceSymbol": true,
+  "cursor.localParallelAgentsDisableRecommender": true,
+  "cursor.general.disableHttp2": true,
+  "cursor.general.disableHttp1SSE": true,
+  "cursorpyright.nodeMaxOldSpaceSize": 0
+}
