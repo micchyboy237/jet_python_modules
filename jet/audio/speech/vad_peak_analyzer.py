@@ -591,6 +591,7 @@ class VADPeakAnalyzer:
         duration_s = end_s - start_s
         region_probs = x[start:end].tolist()
         min_prob_frame = int(start + np.argmin(x[start:end]))
+        min_prob_s, _ = self._compute_times(min_prob_frame)
         segments.append(
             {
                 "frame_start": start,
@@ -603,6 +604,7 @@ class VADPeakAnalyzer:
                     "threshold": threshold,
                     "min_probability": float(np.min(x[start:end])),
                     "min_prob_frame": min_prob_frame,
+                    "min_prob_s": round(min_prob_s, 4),
                     "mean_probability": float(np.mean(x[start:end])),
                     "frame_count": end - start,
                     "region_probs": region_probs,
