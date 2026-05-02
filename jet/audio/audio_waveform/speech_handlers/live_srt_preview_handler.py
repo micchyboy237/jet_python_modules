@@ -247,6 +247,15 @@ class SubtitlePreviewWindow(QMainWindow):
         speech_pctg_str = (
             f"{speech_pctg:.1f}%" if isinstance(speech_pctg, (int, float)) else "N/A"
         )
+        # Speech-only duration in seconds
+        speech_dur_sec = e.get("speech_dur_sec")
+        speech_dur_str = (
+            f"{speech_dur_sec:.2f}s"
+            if isinstance(speech_dur_sec, (int, float))
+            else "N/A"
+        )
+        speech_dur_color = _speech_pctg_color(speech_pctg)  # same quality signal
+
         speech_pctg_color = _speech_pctg_color(speech_pctg)
 
         open_link = (
@@ -267,7 +276,7 @@ class SubtitlePreviewWindow(QMainWindow):
 <span style="font-size:9px; color:#8b949e; line-height:1.1;">
 [gap: {gap_str}] ({duration}) • <span style="color:#d2a8ff;">{trigger_reason}</span>
  • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>
- • spch: <span style="color:{speech_pctg_color}; font-weight:bold;">{speech_pctg_str}</span>
+ • spch: <span style="color:{speech_pctg_color}; font-weight:bold;">{speech_pctg_str}</span> • dur: <span style="color:{speech_dur_color}; font-weight:bold;">{speech_dur_str}</span>
  • trans: <span style="color:{trans_pctg_color}; font-weight:bold;">{trans_pctg_str}</span> • cov: <span style="color:#79c0ff;">{cov_str}</span>
 </span>
 <a href="copy:{i}" style="color:#58a6ff; text-decoration:none;">📋</a>
@@ -391,6 +400,7 @@ class LiveSrtPreviewHandler(SpeechSegmentHandler):
 
         speech_frame_count = sum(1 for f in event.prob_frames if f["is_speech"])
         speech_frames_pctg = (speech_frame_count / len(event.prob_frames)) * 100
+        speech_dur_sec = round(speech_frame_count / 100.0, 2)
 
         found = self.accumulator.set_pending_extra(
             uuid_str=seg_uuid,
@@ -402,6 +412,11 @@ class LiveSrtPreviewHandler(SpeechSegmentHandler):
             uuid_str=seg_uuid,
             key="speech_frames_pctg",
             value=round(speech_frames_pctg, 1),
+        )
+        self.accumulator.set_pending_extra(
+            uuid_str=seg_uuid,
+            key="speech_dur_sec",
+            value=speech_dur_sec,
         )
 
         if not found:
