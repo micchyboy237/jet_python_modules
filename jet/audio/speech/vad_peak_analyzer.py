@@ -1021,8 +1021,8 @@ if __name__ == "__main__":
         "--smoothing-window",
         "-sw",
         type=int,
-        default=5.0,
-        help="Smoothing window size for VAD probabilities (default: 5.0)",
+        default=20,
+        help="Smoothing window size for VAD probabilities (default: 20)",
     )
 
     args = parser.parse_args()
