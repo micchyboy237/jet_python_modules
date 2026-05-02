@@ -7,7 +7,7 @@ from typing import TypedDict
 
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy.io.wavfile
+import soundfile as sf
 from jet.audio.audio_waveform.speech_events import (
     SpeechSegmentEndEvent,
     SpeechSegmentStartEvent,
@@ -87,11 +87,7 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
             # 1. Audio
             wav_path = dir_path / "sound.wav"
             if len(event.audio) > 0:
-                # Quantize float32 → int16 for WAV file writing
-                audio_for_save = (
-                    np.clip(event.audio, -1.0, 1.0) * np.iinfo(np.int16).max
-                ).astype(np.int16)
-                scipy.io.wavfile.write(str(wav_path), 16000, audio_for_save)
+                sf.write(str(wav_path), event.audio, 16000)
                 print(f"  Saved {wav_path.name} ({len(event.audio):,} samples)")
             else:
                 print("  No audio data — skipping .wav")
