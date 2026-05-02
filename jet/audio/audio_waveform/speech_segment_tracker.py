@@ -1,4 +1,3 @@
-from collections import deque
 from datetime import datetime
 
 import numpy as np
@@ -6,6 +5,7 @@ from fireredvad.core.stream_vad_postprocessor import StreamVadFrameResult
 from jet.audio.audio_waveform.hybrid_stream_vad_postprocessor import (
     HybridStreamVadPostprocessor,
 )
+from jet.audio.audio_waveform.pre_roll_buffer import PreRollBuffer
 from jet.audio.audio_waveform.speech_events import (
     SpeechSegmentEndEvent,
     SpeechSegmentStartEvent,
@@ -45,9 +45,8 @@ class SpeechSegmentTracker:
 
         self.handlers: list[SpeechSegmentHandler] = []
 
-        # Pre-speech buffers for hybrid rise detection
-        self.pre_audio_buffer: deque[np.ndarray] = deque(maxlen=200)
-        self.pre_prob_buffer: deque[float] = deque(maxlen=200)
+        # Pre-speech buffer for hybrid rise detection
+        self.pre_roll_buffer = PreRollBuffer(maxlen=200)
         self.last_segment_forced_split: bool = False
 
     def add_handler(self, handler: SpeechSegmentHandler) -> None:
@@ -56,51 +55,17 @@ class SpeechSegmentTracker:
     def add_audio(self, samples: np.ndarray) -> None:
         if len(samples) == 0:
             return
+
         if not self.is_speaking:
-            self.pre_audio_buffer.append(samples.astype(np.float32).copy())
+            self.pre_roll_buffer.add_audio(samples)
         else:
             self.current_audio_chunks.append(samples.astype(np.float32))
 
     def add_prob(self, smoothed_prob: float) -> None:
         if not self.is_speaking:
-            self.pre_prob_buffer.append(float(smoothed_prob))
+            self.pre_roll_buffer.add_prob(smoothed_prob)
 
-    def _has_ongoing_sound_at_end(self) -> bool:
-        """Return True if the trailing audio still contains normal-to-high energy
-        (i.e. the low-prob 'silence' or 'valley' is likely a VAD glitch)."""
-        if len(self.current_audio_chunks) < 5:
-            return False  # too short to judge reliably
-
-        # Last ~0.48 s (15 blocks @ 512 samples / 16 kHz) covers the
-        # consecutive low-prob region that triggered the end.
-        recent_chunks = list(self.current_audio_chunks)[-15:]
-        if not recent_chunks:
-            return False
-
-        recent_audio = np.concatenate(recent_chunks)
-        if len(recent_audio) < 1000:  # ~62 ms minimum
-            return False
-
-        recent_rms = compute_rms(recent_audio)
-
-        # Normal-to-high RMS while probs are low = false silence/valley.
-        return recent_rms >= 0.12
-
-    def _is_premature_end(self) -> bool:
-        """True if we should ignore the current is_speech_end because energy
-        is still high (prevents cutting real speech)."""
-        if self.postprocessor is None:
-            return False
-
-        trigger = getattr(
-            self.postprocessor,
-            "last_split_reason",
-            getattr(self.postprocessor, "last_force_split_reason", "silence"),
-        )
-        if trigger not in ("silence"):
-            return False  # valley_detection, hard_limit etc. are always honored
-
-        return self._has_ongoing_sound_at_end()
+    # Removed: _has_ongoing_sound_at_end() and _is_premature_end()
 
     def on_frame(self, result: StreamVadFrameResult) -> None:
         if result.is_speech_start:
@@ -119,19 +84,7 @@ class SpeechSegmentTracker:
             self.current_frames.append(entry)
 
         if result.is_speech_end:
-            if self._is_premature_end():
-                trigger = getattr(
-                    self.postprocessor,
-                    "last_split_reason",
-                    getattr(self.postprocessor, "last_force_split_reason", "silence"),
-                )
-                console.print(
-                    f"[TRACKER] [yellow]IGNORING premature end[/] (trigger={trigger}, "
-                    f"high RMS at end despite low probs) – continuing segment",
-                    style="yellow",
-                )
-            else:
-                self._end_segment(result)
+            self._end_segment(result)  # No more premature check here
 
     def _get_vad_state_name(self) -> VadStateLabel:
         if self.postprocessor is not None and hasattr(self.postprocessor, "state"):
@@ -176,76 +129,38 @@ class SpeechSegmentTracker:
         )
 
     def _prepend_hybrid_rise(self) -> None:
-        """Energy- & probability-based rise detection.
+        """Energy- & probability-based rise detection using the pre-roll buffer.
+
         Finds the last silent block and/or last low-probability block in the pre-buffer,
         then prepends only the rising edge blocks (after both) to both audio and frame history.
-        This fixes situations where audio/prob blip up before VAD triggers speech,
-        preventing late segment starts and including early rise in frame/alignment tracking.
+
+        This fixes situations where audio/probability blips up before the VAD officially
+        triggers speech start — preventing late segment starts and including early rise.
         """
-        if len(self.pre_audio_buffer) == 0 or len(self.pre_prob_buffer) == 0:
+        if len(self.pre_roll_buffer.audio) == 0 or len(self.pre_roll_buffer.probs) == 0:
             return
 
-        audio_list = list(self.pre_audio_buffer)
-        prob_list = list(self.pre_prob_buffer)
+        # Get the rising edge from pre-roll buffer
+        rise_audio, rise_frames, rise_start_idx = self.pre_roll_buffer.get_rising_edge(
+            pre_prob_thres=self.pre_prob_thres
+        )
 
-        # --- STEP 1: Find last silent audio block ---
-        last_silent_audio_idx = -1
-        for i in range(len(audio_list)):
-            if not has_sound(audio_list[i]):
-                last_silent_audio_idx = i
-
-        # --- STEP 2: Find last low-prob frame (rising edge start) ---
-        last_low_prob_idx = -1
-        for i in range(len(prob_list)):
-            if prob_list[i] < self.pre_prob_thres:
-                last_low_prob_idx = i
-
-        # --- STEP 3: Combine both signals (take later start to avoid noise) ---
-        start_idx_candidates = []
-        if last_silent_audio_idx != -1:
-            start_idx_candidates.append(last_silent_audio_idx + 1)
-        if last_low_prob_idx != -1:
-            start_idx_candidates.append(last_low_prob_idx + 1)
-
-        if not start_idx_candidates:
-            return
-
-        rise_start_idx = max(start_idx_candidates)
-
-        if rise_start_idx >= len(audio_list):
-            return
-
-        # --- STEP 4: Extract rising audio ---
-        rise_audio = audio_list[rise_start_idx:]
-
-        # --- STEP 5: Build pseudo frames for early probabilities ---
-        rise_probs = prob_list[rise_start_idx:]
-        rise_frames: list[SpeechFrame] = []
-
-        base_frame_idx = self.current_start_frame - len(rise_probs)
-        if base_frame_idx < 0:
-            base_frame_idx = 0
-
-        for i, prob in enumerate(rise_probs):
-            rise_frames.append(
-                {
-                    "frame_idx": base_frame_idx + i,
-                    "raw_prob": prob,
-                    "smoothed_prob": prob,
-                    "is_speech": prob >= self.pre_prob_thres,
-                    "is_speech_start": False,
-                    "is_speech_end": False,
-                    "vad_state": "SPEECH",
-                }
+        if not rise_audio:
+            console.print(
+                "[TRACKER] [yellow]No rising edge found in pre-roll buffer[/]",
+                style="yellow",
             )
+            return
 
-        # --- STEP 6: prepend both audio + frames ---
+        # Apply the pre-roll data to current segment
         self.current_audio_chunks = rise_audio
         self.current_frames = rise_frames
 
-        debug_rms = (
-            compute_rms(audio_list[rise_start_idx - 1]) if rise_start_idx > 0 else 0.0
-        )
+        # Debug info
+        debug_rms = 0.0
+        if rise_start_idx > 0:
+            audio_list = list(self.pre_roll_buffer.audio)
+            debug_rms = compute_rms(audio_list[rise_start_idx - 1])
 
         console.print(
             f"[TRACKER] [yellow]Hybrid prepend (audio+prob): {len(rise_audio)} blocks "
@@ -258,19 +173,14 @@ class SpeechSegmentTracker:
         if not self.is_speaking:
             return
 
-        # === RESPECT DEEPEST VALLEY ===
-        # The postprocessor now sets speech_end_frame to the cleanest
-        # valley point when valley_detection triggers. We must trim
-        # the audio and frames to that exact frame.
-        true_end_frame = getattr(result, "speech_end_frame", None)
-        if true_end_frame is None or true_end_frame <= 0:
-            true_end_frame = (
-                self.current_frames[-1]["frame_idx"] if self.current_frames else 0
-            )
+        # Simple end logic: always end at last frame available, ignore valleys
+        true_end_frame = (
+            self.current_frames[-1]["frame_idx"] if self.current_frames else 0
+        )
 
         self.is_speaking = False
 
-        # Trim both lists to the true end frame (no-op for normal silence ends)
+        # Cut frame/audio just in case (should already be aligned)
         if self.current_frames:
             cut_idx = 0
             for i, entry in enumerate(self.current_frames):
@@ -281,40 +191,36 @@ class SpeechSegmentTracker:
             trimmed = len(self.current_frames) - cut_idx
             if trimmed > 0:
                 console.print(
-                    f"[TRACKER] [dim cyan]Trimmed {trimmed} frame(s) "
-                    f"after deepest valley (ended at frame {true_end_frame})[/]",
+                    f"[TRACKER] [dim cyan]Trimmed {trimmed} frame(s) after end point[/]",
                     style="dim",
                 )
             self.current_frames = self.current_frames[:cut_idx]
             self.current_audio_chunks = self.current_audio_chunks[:cut_idx]
 
-        if self.current_audio_chunks:
-            audio = np.concatenate(self.current_audio_chunks)
-        else:
-            audio = np.empty(0, dtype=np.float32)
-
-        end_frame = true_end_frame
-        actual_samples = len(audio)
-        actual_duration = (
-            actual_samples / self.sample_rate if actual_samples > 0 else 0.0
+        # Combine audio
+        audio = (
+            np.concatenate(self.current_audio_chunks)
+            if self.current_audio_chunks
+            else np.empty(0, dtype=np.float32)
         )
-        end_time_sec = self.current_start_event.start_time_sec + actual_duration
 
-        # === NEW FILTER: prevent sending short / silent segments ===
+        # Final validation
+        actual_duration = len(audio) / self.sample_rate
         segment_rms = compute_rms(audio)
-        loudness_label = rms_to_loudness_label(segment_rms)
         segment_has_sound = has_sound(audio)
 
         if not segment_has_sound or actual_duration < 0.25:
             console.print(
-                f"[TRACKER] [dim yellow]SKIPPED silent/short segment[/] {self.segment_counter} "
-                f"dur={actual_duration:.2f}s rms={segment_rms:.4f} has_sound={segment_has_sound} "
-                f"reason={self.current_trigger_reason}",
-                style="dim",
+                "[TRACKER] [dim yellow]SKIPPED silent/short segment[/]", style="dim"
             )
             self.reset()
             return
-        # ========================================================
+
+        # Event creation and handler notification
+        end_frame = true_end_frame
+        actual_samples = len(audio)
+        end_time_sec = self.current_start_event.start_time_sec + actual_duration
+        loudness_label = rms_to_loudness_label(segment_rms)
 
         if self.postprocessor is not None:
             self.current_forced_split = getattr(
@@ -370,5 +276,4 @@ class SpeechSegmentTracker:
         self.current_frames = []
         self.current_start_frame = -1
         self.current_vad_states = []
-        self.pre_audio_buffer.clear()
-        self.pre_prob_buffer.clear()
+        self.pre_roll_buffer.clear()
