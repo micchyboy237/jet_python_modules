@@ -117,7 +117,17 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
                 json.dumps(make_serializable(summary), indent=2), encoding="utf-8"
             )
 
-            # 3. Probabilities
+            # 3a. Save raw_probs in a separate probs.json
+            if event.prob_frames and len(event.prob_frames) > 0:
+                raw_probs = [p["raw_prob"] for p in event.prob_frames]
+            else:
+                raw_probs = []
+
+            raw_probs_path = dir_path / "probs.json"
+            raw_probs_path.write_text(json.dumps(raw_probs, indent=2), encoding="utf-8")
+            print(f"  Saved {raw_probs_path.name} ({len(raw_probs)} frames)")
+
+            # 3b. Save per-frame results with energy
             prob_frames_with_energy = self._compute_energies(
                 event.audio, event.prob_frames
             )
