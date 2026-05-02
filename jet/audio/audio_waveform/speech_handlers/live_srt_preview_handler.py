@@ -220,22 +220,29 @@ class SubtitlePreviewWindow(QMainWindow):
         trigger_reason = e.get("trigger_reason") or "unknown"
         segment_dir = e.get("segment_dir")
 
-        # New fields required by the task (now stored in entry via e.update(others))
+        # % of segment duration transcribed (0-100)
         transcribed_pctg = e.get("transcribed_duration_pctg")
         coverage_label = e.get("coverage_label", "")
-        pctg_str = (
+        trans_pctg_str = (
             f"{float(transcribed_pctg):.1f}%"
             if isinstance(transcribed_pctg, (int, float))
             else "N/A"
+        )
+        trans_pctg_color = _speech_pctg_color(
+            float(transcribed_pctg)
+            if isinstance(transcribed_pctg, (int, float))
+            else None
         )
         cov_str = coverage_label or "N/A"
 
         vad_tag = _vad_tag_html(e.get("vad_type", "fr"))
 
+        # Avg VAD probability (float in [0,1])
         avg_prob = e.get("avg_vad_prob")
         avg_prob_str = f"{avg_prob:.3f}" if isinstance(avg_prob, float) else "N/A"
         avg_prob_color = _prob_color(avg_prob)
 
+        # % of frames as speech ([0,100])
         speech_pctg = e.get("speech_frames_pctg")
         speech_pctg_str = (
             f"{speech_pctg:.1f}%" if isinstance(speech_pctg, (int, float)) else "N/A"
@@ -261,7 +268,7 @@ class SubtitlePreviewWindow(QMainWindow):
 [gap: {gap_str}] ({duration}) • <span style="color:#d2a8ff;">{trigger_reason}</span>
  • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>
  • spch: <span style="color:{speech_pctg_color}; font-weight:bold;">{speech_pctg_str}</span>
- • pctg: {pctg_str} • cov: <span style="color:#79c0ff;">{cov_str}</span>
+ • trans: <span style="color:{trans_pctg_color}; font-weight:bold;">{trans_pctg_str}</span> • cov: <span style="color:#79c0ff;">{cov_str}</span>
 </span>
 <a href="copy:{i}" style="color:#58a6ff; text-decoration:none;">📋</a>
 {open_link}
