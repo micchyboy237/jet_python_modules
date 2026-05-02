@@ -894,22 +894,22 @@ if __name__ == "__main__":
         "--trough-height",
         "-th",
         type=float,
-        default=0.3,
-        help="Maximum speech probability for a trough (default: 0.3)",
+        default=0.65,
+        help="Maximum speech probability for a trough (default: 0.65)",
     )
     parser.add_argument(
         "--trough-prominence",
         "-tp",
         type=float,
-        default=0.5,
-        help="Minimum prominence for a trough (default: 0.5)",
+        default=0.15,
+        help="Minimum prominence for a trough (default: 0.15).",
     )
     parser.add_argument(
         "--trough-distance",
         "-td",
         type=int,
-        default=3,
-        help="Minimum distance between troughs in frames (default: 3)",
+        default=5,
+        help="Minimum distance between troughs in frames (default: 5).",
     )
     parser.add_argument(
         "--active-threshold",
@@ -922,8 +922,8 @@ if __name__ == "__main__":
         "--valley-threshold",
         "-vt",
         type=float,
-        default=0.3,
-        help="Probability threshold below which regions are valleys (default: 0.3)",
+        default=0.65,
+        help="Probability threshold below which regions are valleys (default: 0.65)",
     )
     parser.add_argument(
         "--min-active-duration",
@@ -1009,12 +1009,15 @@ if __name__ == "__main__":
         probs = [0.1, 0.15, 0.8, 0.92, 0.85, 0.3, 0.12, 0.05, 0.88, 0.95, 0.7, 0.2]
 
     # === NEW: Smooth probabilities before analysis ===
-    print(f"Original probs length: {len(probs)}")
-    probs_smoothed = smooth_vad_probs(
-        probs,
-        window=args.smoothing_window,
-    )
-    print("Applied Gaussian smoothing (sigma=1.0)")
+    if args.smoothing_window:
+        print(f"Original probs length: {len(probs)}")
+        probs_smoothed = smooth_vad_probs(
+            probs,
+            window=args.smoothing_window,
+        )
+        print("Applied Gaussian smoothing (sigma=1.0)")
+    else:
+        probs_smoothed = probs
 
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -1120,14 +1123,15 @@ if __name__ == "__main__":
         output_path=str(OUTPUT_DIR / "vad_analysis_plot.png"),
     )
 
-    analyzer.save_plot(
-        probs_smoothed,
-        peaks,
-        troughs,
-        active_regions=active_regions,
-        valleys=valleys,
-        output_path=str(OUTPUT_DIR / "vad_analysis_plot_smoothed.png"),
-    )
+    if args.smoothing_window:
+        analyzer.save_plot(
+            probs_smoothed,
+            peaks,
+            troughs,
+            active_regions=active_regions,
+            valleys=valleys,
+            output_path=str(OUTPUT_DIR / "vad_analysis_plot_smoothed.png"),
+        )
 
     peaks_path = OUTPUT_DIR / "peaks.json"
     with open(peaks_path, "w", encoding="utf-8") as f:
