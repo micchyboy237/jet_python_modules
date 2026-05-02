@@ -261,21 +261,26 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                 window: List[float] = []
                 deepest_valley_frame: Optional[int] = None
 
+                dynamic_window = self.speech_cnt // 2
+
                 if self.speech_cnt >= self.hard_limit:
                     force_split = True
+                    if len(self.recent_probs) >= self.search_window:
+                        window = list(self.recent_probs)[-dynamic_window:]
+                        frame_offset = self.frame_cnt - len(window) + 1
+                        valleys = self._build_vad_valleys(window, frame_offset)
+                        troughs = extract_valley_troughs(valleys, duration_s=0.15)
+                        best = self._select_best_trough(troughs)
+                        if best is not None:
+                            deepest_valley_frame = best["frame"]
                 elif (
                     self.speech_cnt > self.soft_limit
                     and len(self.recent_probs) >= self.search_window
                 ):
-                    window = list(self.recent_probs)[-self.search_window :]
-                    # Absolute frame index of window[0]
+                    window = list(self.recent_probs)[-dynamic_window:]
                     frame_offset = self.frame_cnt - len(window) + 1
-
                     valleys = self._build_vad_valleys(window, frame_offset)
-                    # Use duration_s=0.3 s (30 frames) so only valleys that
-                    # are long enough to be real pauses pass through.
                     troughs = extract_valley_troughs(valleys, duration_s=0.3)
-
                     best = self._select_best_trough(troughs)
                     if best is not None:
                         deepest_valley_frame = best["frame"]

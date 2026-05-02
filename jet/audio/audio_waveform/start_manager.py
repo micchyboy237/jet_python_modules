@@ -23,7 +23,7 @@ CONFIG = {
         "pad_start_frame": 5,
         "min_speech_frame": 8,
         "soft_max_speech_frame": 450,
-        "hard_max_speech_frame": 2000,
+        "hard_max_speech_frame": 1200,
         "min_silence_frame": 90,
         "search_window": 250,
         "valley_threshold": 0.65,
