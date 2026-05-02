@@ -47,69 +47,68 @@ def main():
     # 2. Instantiate UI Observer
     viz = VisualizerObserver(display_points=200)
 
-    # ── Sync the tracker whenever the user changes the VAD dropdown ──────────
-    # obs_dict["tracker"] is a TrackerObserver; its set_active_vad() method
-    # records which VAD key is driving tracker.add_prob().
     tracker_observer = obs_dict["tracker"]
+    # Map from internal key to the VADObserver that should run for that key.
+    # FireRed is excluded here because it always runs unconditionally.
+    _SKIPPABLE_VAD_MAP = {
+        "silero": obs_dict["silero"],
+        "sb": obs_dict["speechbrain"],
+        "ten_vad": obs_dict["ten_vad"],
+    }
 
     def _on_vad_selection_changed(vad_key: str) -> None:
-        """Called by VisualizerObserver whenever the dropdown changes.
-
-        We update the TrackerObserver so that coordinated_callback will
-        immediately start feeding the new VAD's probability into the tracker.
-        """
         tracker_observer.set_active_vad(vad_key)
-        # Also update the hybrid observer's source to stay consistent.
-        obs_dict["hybrid"].vad_probability = 0.0  # reset stale value
+        obs_dict["hybrid"].vad_probability = 0.0
 
     viz.add_vad_changed_callback(_on_vad_selection_changed)
-    # Initialise tracker to match the visualizer's default selection.
     tracker_observer.set_active_vad(viz.current_vad)
-    # ─────────────────────────────────────────────────────────────────────────
 
-    # 3. Create a Coordinator Function
-    # This ensures all analysis happens before we push to the UI buffer
     def coordinated_callback(samples):
-        # Update Analysis
         obs_dict["waveform"](samples)
-        obs_dict["silero"](samples)
-        obs_dict["speechbrain"](samples)
+
+        # FireRed always runs — it is the sole source of on_frame() boundary
+        # events (speech start / end) that the tracker depends on.
         obs_dict["firered"](samples)
-        obs_dict["ten_vad"](samples)
+
+        # Only run the currently selected non-FireRed VAD.
+        # This avoids paying the inference cost of idle neural nets.
+        active_key = tracker_observer.active_vad
+        if active_key in _SKIPPABLE_VAD_MAP:
+            _SKIPPABLE_VAD_MAP[active_key](samples)
+
         obs_dict["tracker"](samples)
 
-        # Build a map of each model's latest probability.
+        # Build the probability map. Inactive models keep their .probability
+        # at the last value they produced, but since they are no longer called
+        # those slots will be stale. Use 0.0 for any model that didn't run
+        # this frame so plots don't show phantom signals.
         _vad_prob_map = {
             "fr": obs_dict["firered"].probability,
-            "silero": obs_dict["silero"].probability,
-            "sb": obs_dict["speechbrain"].probability,
-            "ten_vad": obs_dict["ten_vad"].probability,
+            "silero": obs_dict["silero"].probability if active_key == "silero" else 0.0,
+            "sb": obs_dict["speechbrain"].probability if active_key == "sb" else 0.0,
+            "ten_vad": obs_dict["ten_vad"].probability
+            if active_key == "ten_vad"
+            else 0.0,
         }
 
-        # Feed the active VAD's probability into the tracker.
-        # Previously this was done only by FireRedVADWrapper internally,
-        # meaning the tracker always used FireRed even when another VAD was
-        # selected in the dropdown.
         active_prob = _vad_prob_map.get(
-            tracker_observer.active_vad,
-            obs_dict["firered"].probability,  # safe fallback
+            active_key,
+            obs_dict["firered"].probability,
         )
         obs_dict["tracker"].tracker.add_prob(active_prob)
 
-        # Drive the hybrid score from the same active VAD.
         obs_dict["hybrid"].vad_probability = _vad_prob_map.get(
             viz.current_vad, obs_dict["firered"].probability
         )
-        obs_dict["hybrid"](samples)  # now computes .value correctly
+        obs_dict["hybrid"](samples)
 
-        # Sync to UI
         viz.push_data(
             wave=obs_dict["waveform"].value,
-            silero=obs_dict["silero"].probability,
-            sb=obs_dict["speechbrain"].probability,
-            fr=obs_dict["firered"].probability,
-            ten_vad=obs_dict["ten_vad"].probability,
-            hybrid=obs_dict["hybrid"].value,  # now non-zero and VAD-aware
+            silero=_vad_prob_map["silero"],
+            sb=_vad_prob_map["sb"],
+            fr=_vad_prob_map["fr"],
+            ten_vad=_vad_prob_map["ten_vad"],
+            hybrid=obs_dict["hybrid"].value,
         )
 
     manager.add_observer(coordinated_callback)

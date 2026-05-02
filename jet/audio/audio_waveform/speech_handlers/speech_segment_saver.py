@@ -78,6 +78,7 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
             # 2. Summary
             summary = {
                 "segment_id": event.segment_id,
+                "vad_type": event.vad_type,
                 "start_frame": event.start_frame,
                 "end_frame": event.end_frame,
                 "start_time_sec": round(event.start_time_sec, 3),

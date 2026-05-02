@@ -16,6 +16,7 @@ class SpeechSegmentStartEvent:
     start_time_sec: float
     started_at: str
     segment_dir: Path | None = None  # to be set by a handler if desired
+    vad_type: str = "fr"  # which VAD was active when segment began
 
 
 @dataclass
@@ -36,3 +37,4 @@ class SpeechSegmentEndEvent:
     has_sound: bool
     stats: SpeechSegmentStats | None = None
     segment_dir: Path | None = None
+    vad_type: str = "fr"  # carried through so handlers can use it

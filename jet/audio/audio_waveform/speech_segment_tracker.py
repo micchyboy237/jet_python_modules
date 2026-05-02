@@ -31,6 +31,7 @@ class SpeechSegmentTracker:
     def __init__(self, speech_threshold: float = 0.5):
         self.pre_prob_thres = 0.1
         self.sample_rate = 16000
+        self.active_vad: str = "fr"  # set externally by TrackerObserver
         self.is_speaking = False
         self.segment_counter = 0
         self.current_audio_chunks: list[np.ndarray] = []
@@ -153,6 +154,7 @@ class SpeechSegmentTracker:
             start_time_sec=(result.frame_idx - 1) / 100.0,
             started_at=now_str,
             segment_dir=None,
+            vad_type=self.active_vad,
         )
 
         for handler in self.handlers:
@@ -341,6 +343,7 @@ class SpeechSegmentTracker:
             segment_rms=segment_rms,
             loudness=loudness_label,
             has_sound=segment_has_sound,
+            vad_type=self.current_start_event.vad_type,
         )
 
         for handler in self.handlers:

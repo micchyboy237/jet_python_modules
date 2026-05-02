@@ -87,6 +87,9 @@ class TrackerObserver:
         inside start_manager.py, which reads this attribute each frame.
         """
         self.active_vad = vad_key
+        # Mirror onto the tracker so it can stamp events with the correct type.
+        if self.tracker:
+            self.tracker.active_vad = vad_key
         print(f"[TrackerObserver] Active VAD switched to: {vad_key}")
 
 

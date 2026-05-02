@@ -32,6 +32,7 @@ class SubtitleEntry:
         started_at: str,
         segment_dir: Path | None = None,
         trigger_reason: str | None = None,
+        vad_type: str = "fr",
     ):
         with self._lock:
             entry = {
@@ -47,6 +48,7 @@ class SubtitleEntry:
                 "final": False,
                 "trigger_reason": trigger_reason,
                 "segment_dir": segment_dir,  # will be used for per-segment other_results.json
+                "vad_type": vad_type,
             }
             self.by_uuid[uuid_str] = entry
             # segment_dir is now stored only inside the entry dict (no duplicate mapping)

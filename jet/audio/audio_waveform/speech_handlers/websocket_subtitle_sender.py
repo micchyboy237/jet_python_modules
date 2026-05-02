@@ -196,6 +196,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             event.started_at,
             segment_dir=event.segment_dir,
             trigger_reason=event.trigger_reason,
+            vad_type=event.vad_type,
         )
         if self.debug_dir:
             sf.write(

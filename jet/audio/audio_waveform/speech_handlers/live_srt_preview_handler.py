@@ -21,6 +21,26 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+# VAD tag rendering
+_VAD_TAG_META: dict[str, tuple[str, str, str]] = {
+    #  key        code    bg colour   text colour
+    "fr": ("FRD", "#3b1f6b", "#c084fc"),  # purple — FireRed
+    "silero": ("SIL", "#1a3a2a", "#4ade80"),  # green  — Silero
+    "sb": ("SPB", "#1a2e4a", "#60a5fa"),  # blue   — SpeechBrain
+    "ten_vad": ("TEN", "#3a2210", "#fb923c"),  # orange — TEN VAD
+}
+
+
+def _vad_tag_html(vad_type: str) -> str:
+    """Return an inline HTML badge for the given VAD key."""
+    code, bg, fg = _VAD_TAG_META.get(vad_type, ("???", "#2a2a2a", "#888888"))
+    return (
+        f'<span style="'
+        f"background:{bg}; color:{fg}; font-family:monospace; "
+        f"font-size:9px; font-weight:bold; padding:1px 5px; "
+        f'border-radius:3px; letter-spacing:0.5px;">{code}</span>'
+    )
+
 
 class SubtitlePreviewWindow(QMainWindow):
     """Standalone window showing live .srt content"""
@@ -163,6 +183,8 @@ class SubtitlePreviewWindow(QMainWindow):
         )
         cov_str = coverage_label or "N/A"
 
+        vad_tag = _vad_tag_html(e.get("vad_type", "fr"))
+
         open_link = (
             f'<a href="open:{i}" style="color:#58a6ff; text-decoration:none;">📂</a>'
             if segment_dir
@@ -177,7 +199,7 @@ class SubtitlePreviewWindow(QMainWindow):
 
         return f"""
 <div style="margin-bottom:6px;">
-<b style="font-size:10px;">{i}</b>
+<b style="font-size:10px;">{i}</b> {vad_tag}
 <span style="font-size:9px; color:#8b949e; line-height:1.1;">
 [gap: {gap_str}] ({duration}) • <span style="color:#d2a8ff;">{trigger_reason}</span>
  • pctg: {pctg_str} • cov: <span style="color:#79c0ff;">{cov_str}</span>
