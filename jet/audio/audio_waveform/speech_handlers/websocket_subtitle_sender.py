@@ -188,6 +188,12 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         if event.audio.size == 0:
             return
         seg_uuid = str(uuid.uuid4())
+
+        # Write the uuid back onto the event so later handlers in the same
+        # chain (e.g. LiveSrtPreviewHandler) can reference the same pending
+        # entry without needing to re-derive or guess the key.
+        event.seg_uuid = seg_uuid
+
         self.accumulator.add_pending(
             seg_uuid,
             event.start_time_sec,

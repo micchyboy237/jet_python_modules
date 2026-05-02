@@ -83,6 +83,22 @@ class SubtitleEntry:
                 self.entries.sort(key=lambda x: x["start"])
                 self._write_global_srt()
 
+    def set_pending_extra(self, uuid_str: str, key: str, value) -> bool:
+        """
+        Attach an arbitrary key-value pair to a *pending* entry (still in
+        by_uuid, waiting for transcription).
+
+        Returns True if the entry was found and updated, False otherwise.
+        Safe to call from any thread — protected by the same lock as add_pending
+        and update.
+        """
+        with self._lock:
+            entry = self.by_uuid.get(uuid_str)
+            if entry is None:
+                return False
+            entry[key] = value
+            return True
+
     def _write_segment_response(self, segment_dir: Path | None, response: dict):
         """Save the full response dictionary (including ja and en) as response.json
         inside the segment_dir."""

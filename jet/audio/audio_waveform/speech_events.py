@@ -38,3 +38,4 @@ class SpeechSegmentEndEvent:
     stats: SpeechSegmentStats | None = None
     segment_dir: Path | None = None
     vad_type: str = "fr"  # carried through so handlers can use it
+    seg_uuid: str | None = None  # filled in by WebsocketSubtitleSender.on_segment_end

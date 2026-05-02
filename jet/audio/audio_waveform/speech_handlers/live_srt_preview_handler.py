@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 from jet.audio.audio_waveform.helpers.subtitle_entry import SubtitleEntry
 from jet.audio.audio_waveform.speech_events import (
@@ -21,7 +22,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-# VAD tag rendering
+# ---------------------------------------------------------------------------
+# VAD badge metadata
+# ---------------------------------------------------------------------------
 _VAD_TAG_META: dict[str, tuple[str, str, str]] = {
     #  key        code    bg colour   text colour
     "fr": ("FRD", "#3b1f6b", "#c084fc"),  # purple — FireRed
@@ -42,6 +45,29 @@ def _vad_tag_html(vad_type: str) -> str:
     )
 
 
+def _prob_color(prob: Optional[float]) -> str:
+    """
+    Map a VAD probability [0.0–1.0] to a readable colour for the overlay.
+
+      < 0.30  →  red    (low confidence / likely noise)
+      < 0.55  →  amber  (borderline)
+      < 0.75  →  yellow (moderate confidence)
+      >= 0.75 →  green  (high confidence speech)
+    """
+    if prob is None:
+        return "#8b949e"
+    if prob < 0.30:
+        return "#f85149"  # red
+    if prob < 0.55:
+        return "#fb923c"  # amber
+    if prob < 0.75:
+        return "#e3b341"  # yellow
+    return "#3fb950"  # green
+
+
+# ---------------------------------------------------------------------------
+# Preview window
+# ---------------------------------------------------------------------------
 class SubtitlePreviewWindow(QMainWindow):
     """Standalone window showing live .srt content"""
 
@@ -185,6 +211,10 @@ class SubtitlePreviewWindow(QMainWindow):
 
         vad_tag = _vad_tag_html(e.get("vad_type", "fr"))
 
+        avg_prob = e.get("avg_vad_prob")
+        avg_prob_str = f"{avg_prob:.3f}" if isinstance(avg_prob, float) else "N/A"
+        avg_prob_color = _prob_color(avg_prob)
+
         open_link = (
             f'<a href="open:{i}" style="color:#58a6ff; text-decoration:none;">📂</a>'
             if segment_dir
@@ -202,6 +232,7 @@ class SubtitlePreviewWindow(QMainWindow):
 <b style="font-size:10px;">{i}</b> {vad_tag}
 <span style="font-size:9px; color:#8b949e; line-height:1.1;">
 [gap: {gap_str}] ({duration}) • <span style="color:#d2a8ff;">{trigger_reason}</span>
+ • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>
  • pctg: {pctg_str} • cov: <span style="color:#79c0ff;">{cov_str}</span>
 </span>
 <a href="copy:{i}" style="color:#58a6ff; text-decoration:none;">📋</a>
@@ -280,6 +311,9 @@ class SubtitlePreviewWindow(QMainWindow):
         event.accept()
 
 
+# ---------------------------------------------------------------------------
+# Handler
+# ---------------------------------------------------------------------------
 class LiveSrtPreviewHandler(SpeechSegmentHandler):
     def __init__(self, accumulator: SubtitleEntry, show_ja_text: bool = False):
         self.accumulator = accumulator
@@ -299,7 +333,37 @@ class LiveSrtPreviewHandler(SpeechSegmentHandler):
         pass
 
     def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
-        pass
+        """Compute the average smoothed VAD probability for the segment and
+        store it on the pending subtitle entry so it survives into entries[]
+        when update() is called later by the transcription handler.  The uuid
+        is written onto the event by WebsocketSubtitleSender, which runs just
+        before this handler in the chain.
+        """
+        if not event.prob_frames:
+            return
+
+        seg_uuid = getattr(event, "seg_uuid", None)
+        if not seg_uuid:
+            print(
+                "[LiveSrtPreview] Warning: seg_uuid missing on event — "
+                "WebsocketSubtitleSender must run before this handler."
+            )
+            return
+
+        avg_vad_prob: float = sum(f["smoothed_prob"] for f in event.prob_frames) / len(
+            event.prob_frames
+        )
+
+        found = self.accumulator.set_pending_extra(
+            uuid_str=seg_uuid,
+            key="avg_vad_prob",
+            value=round(avg_vad_prob, 4),
+        )
+        if not found:
+            print(
+                f"[LiveSrtPreview] Warning: pending entry not found for uuid={seg_uuid!r}. "
+                "avg_vad_prob will not be displayed for this segment."
+            )
 
     def close(self):
         if self.preview_window:
