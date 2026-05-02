@@ -158,6 +158,13 @@ class FireRedVADWrapper:
         if self.tracker is not None:
             for result in results:
                 self.tracker.on_frame(result)
-            self.tracker.add_prob(prob)
+            # self.tracker.add_prob(prob)
+            # NOTE: tracker.add_prob() is intentionally NOT called here.
+            # It is called once per frame in coordinated_callback() in
+            # start_manager.py, using whichever VAD the user has selected
+            # in the dropdown.  Calling it here too would double-count
+            # FireRed's probability and bypass the VAD selector.
+            # The on_frame() calls above are kept because only FireRed
+            # generates the segment boundary events (speech_start / speech_end).
 
         return prob

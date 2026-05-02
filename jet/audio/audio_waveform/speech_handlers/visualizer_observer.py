@@ -1,4 +1,5 @@
 import sys
+from typing import Callable, List
 
 import numpy as np
 from jet.audio.audio_waveform.circular_buffer import CircularBuffer
@@ -25,6 +26,10 @@ class VisualizerObserver:
         }
         self._fill_initial_buffers()
 
+        # Listeners notified whenever the VAD dropdown changes.
+        # Each callable receives the internal key string, e.g. "fr", "silero".
+        self._vad_changed_callbacks: List[Callable[[str], None]] = []
+
         (
             self.main_widget,
             self.c_wave,
@@ -49,6 +54,16 @@ class VisualizerObserver:
         self.timer.timeout.connect(self.update_plots)
         self.timer.start(30)
 
+    def add_vad_changed_callback(self, cb: Callable[[str], None]) -> None:
+        """Register a function to be called whenever the VAD selector changes.
+
+        The callback receives the internal VAD key (e.g. "fr", "silero",
+        "sb", "ten_vad") so the caller can immediately act on the change
+        without polling ``viz.current_vad``.
+        """
+        if cb not in self._vad_changed_callbacks:
+            self._vad_changed_callbacks.append(cb)
+
     def on_vad_selection_changed(self, text: str):
         """Handle dropdown selection."""
         vad_map = {
@@ -59,6 +74,12 @@ class VisualizerObserver:
         }
         self.current_vad = vad_map.get(text, "fr")
         self._update_vad_label(self.current_vad)
+        # Notify every registered listener about the new VAD key.
+        for cb in self._vad_changed_callbacks:
+            try:
+                cb(self.current_vad)
+            except Exception as e:
+                print(f"[VisualizerObserver] vad_changed callback error: {e}")
 
     def _update_vad_label(self, vad_key: str):
         """Update the left axis label of the VAD plot."""

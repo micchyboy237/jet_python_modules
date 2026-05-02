@@ -47,6 +47,26 @@ def main():
     # 2. Instantiate UI Observer
     viz = VisualizerObserver(display_points=200)
 
+    # ── Sync the tracker whenever the user changes the VAD dropdown ──────────
+    # obs_dict["tracker"] is a TrackerObserver; its set_active_vad() method
+    # records which VAD key is driving tracker.add_prob().
+    tracker_observer = obs_dict["tracker"]
+
+    def _on_vad_selection_changed(vad_key: str) -> None:
+        """Called by VisualizerObserver whenever the dropdown changes.
+
+        We update the TrackerObserver so that coordinated_callback will
+        immediately start feeding the new VAD's probability into the tracker.
+        """
+        tracker_observer.set_active_vad(vad_key)
+        # Also update the hybrid observer's source to stay consistent.
+        obs_dict["hybrid"].vad_probability = 0.0  # reset stale value
+
+    viz.add_vad_changed_callback(_on_vad_selection_changed)
+    # Initialise tracker to match the visualizer's default selection.
+    tracker_observer.set_active_vad(viz.current_vad)
+    # ─────────────────────────────────────────────────────────────────────────
+
     # 3. Create a Coordinator Function
     # This ensures all analysis happens before we push to the UI buffer
     def coordinated_callback(samples):
@@ -58,14 +78,25 @@ def main():
         obs_dict["ten_vad"](samples)
         obs_dict["tracker"](samples)
 
-        # Feed the hybrid observer the VAD probability that matches whatever
-        # the user has selected in the dropdown right now.
+        # Build a map of each model's latest probability.
         _vad_prob_map = {
             "fr": obs_dict["firered"].probability,
             "silero": obs_dict["silero"].probability,
             "sb": obs_dict["speechbrain"].probability,
             "ten_vad": obs_dict["ten_vad"].probability,
         }
+
+        # Feed the active VAD's probability into the tracker.
+        # Previously this was done only by FireRedVADWrapper internally,
+        # meaning the tracker always used FireRed even when another VAD was
+        # selected in the dropdown.
+        active_prob = _vad_prob_map.get(
+            tracker_observer.active_vad,
+            obs_dict["firered"].probability,  # safe fallback
+        )
+        obs_dict["tracker"].tracker.add_prob(active_prob)
+
+        # Drive the hybrid score from the same active VAD.
         obs_dict["hybrid"].vad_probability = _vad_prob_map.get(
             viz.current_vad, obs_dict["firered"].probability
         )

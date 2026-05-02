@@ -68,10 +68,26 @@ class VADObserver:
 class TrackerObserver:
     def __init__(self, tracker: SpeechSegmentTracker):
         self.tracker = tracker
+        # Tracks which VAD is currently "active". Used by start_manager to
+        # decide which probability to feed into tracker.add_prob().
+        self.active_vad: str = "fr"
 
     def __call__(self, samples: np.ndarray):
         if self.tracker:
             self.tracker.add_audio(samples)
+
+    def set_active_vad(self, vad_key: str) -> None:
+        """Switch the tracker to follow a different VAD source.
+
+        This does NOT retrain or reset any VAD model — it only records
+        which key (e.g. "fr", "silero") should be used when feeding
+        probabilities to the underlying SpeechSegmentTracker.
+
+        The actual probability feeding happens in coordinated_callback()
+        inside start_manager.py, which reads this attribute each frame.
+        """
+        self.active_vad = vad_key
+        print(f"[TrackerObserver] Active VAD switched to: {vad_key}")
 
 
 class HybridObserver:

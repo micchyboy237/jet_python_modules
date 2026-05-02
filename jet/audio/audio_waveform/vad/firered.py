@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import override
 
 import numpy as np
 import torch
@@ -11,6 +12,7 @@ from fireredvad.core.detect_model import DetectModel
 from jet.audio.audio_waveform.hybrid_stream_vad_postprocessor import (
     HybridStreamVadPostprocessor,
 )
+from jet.audio.audio_waveform.vad.base_vad import BaseVAD
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,7 +36,7 @@ BUFFER_OVERLAP_SAMPLES = (
 # ────────────────────────────────────────────────
 
 
-class FireRedVADWrapper:
+class FireRedVADWrapper(BaseVAD):
     """Streaming FireRedVAD wrapper"""
 
     def __init__(
@@ -117,6 +119,7 @@ class FireRedVADWrapper:
             chunk = chunk * gain
         return chunk
 
+    @override
     def get_speech_prob(self, chunk: np.ndarray) -> float:
         if len(chunk) == 0:
             return self.last_prob

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-import torch
+from typing import override
+
 import numpy as np
+import torch
+from jet.audio.audio_waveform.vad.base_vad import BaseVAD
 
 
-class SileroVAD:
+class SileroVAD(BaseVAD):
     """Thin streaming wrapper around Silero VAD"""
 
     def __init__(self, samplerate: int = 16000, device: str | None = None) -> None:
@@ -31,6 +34,7 @@ class SileroVAD:
         print("done.")
 
     @torch.inference_mode()
+    @override
     def get_speech_prob(self, chunk: np.ndarray) -> float:
         if chunk.ndim != 1:
             raise ValueError("Expected 1D audio chunk")

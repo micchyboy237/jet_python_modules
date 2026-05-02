@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-import torch
+from typing import override
+
 import numpy as np
+import torch
+from jet.audio.audio_waveform.vad.base_vad import BaseVAD
 
 
-class SpeechBrainVADWrapper:
+class SpeechBrainVADWrapper(BaseVAD):
     """Streaming-like wrapper for speechbrain vad-crdnn-libriparty"""
 
     def __init__(self, device: str | None = None) -> None:
@@ -31,6 +34,7 @@ class SpeechBrainVADWrapper:
         self.write_pos = 0
 
     @torch.inference_mode()
+    @override
     def get_speech_prob(self, chunk: np.ndarray) -> float:
         if len(chunk) == 0:
             return 0.0
