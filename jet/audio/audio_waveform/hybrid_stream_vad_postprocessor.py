@@ -1,9 +1,15 @@
 from collections import deque
+from typing import List, Optional
 
 from fireredvad.core.stream_vad_postprocessor import (
     StreamVadFrameResult,
     StreamVadPostprocessor,
     VadState,
+)
+from jet.audio.speech.vad_peak_analyzer import (
+    VADSegment,
+    ValleyTrough,
+    extract_valley_troughs,
 )
 from rich.console import Console
 
@@ -20,8 +26,8 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         soft_max_speech_frame: int = 450,  # start waiting for natural split
         hard_max_speech_frame: int = 800,
         min_silence_frame: int = 20,
-        search_window: int = 200,  # n second look-back for shortest valley
-        valley_threshold: float = 0.65,  # probability dip below this = good split point
+        search_window: int = 200,
+        valley_threshold: float = 0.65,
         min_valley_consecutive_frames: int = 5,
     ):
         self.soft_limit = soft_max_speech_frame
@@ -55,7 +61,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
         return self.last_force_split_reason in ("valley_detection", "hard_limit")
 
     @property
-    def last_split_reason(self) -> str | None:
+    def last_split_reason(self) -> Optional[str]:
         return self.last_force_split_reason
 
     def reset(self):
@@ -88,26 +94,121 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
 
         return self.state_transition(is_speech, result)
 
-    def _has_valid_valley(self, window: list[float]) -> bool:
-        """True if the *end* of the window contains at least
-        min_valley_consecutive_frames consecutive probabilities
-        below valley_threshold.
-
-        This guarantees that a valley split only ever occurs while
-        we are currently sitting inside (or just finishing) a low-prob
-        valley, never after the probability has already risen again.
+    # ------------------------------------------------------------------
+    # Valley detection helpers (replace _has_valid_valley)
+    # ------------------------------------------------------------------
+    def _build_vad_valleys(
+        self, window: List[float], frame_offset: int
+    ) -> List[VADSegment]:
         """
-        if not window:
-            return False
-        count = 0
-        for p in reversed(window):
+        Scan `window` for contiguous runs of frames below valley_threshold
+        and return them in (start_frame, end_frame, min_prob, min_idx) format.
+        """
+        valleys = []
+        run_start = None
+        run_min_prob = float("inf")
+        min_local_idx = -1
+
+        for idx, p in enumerate(window):
             if p < self.valley_threshold:
-                count += 1  # count how many low probs are at the very end
-                if count >= self.min_valley_consecutive_frames:
-                    return True
+                if run_start is None:
+                    run_start = idx
+                    run_min_prob = p
+                    min_local_idx = idx
+                else:
+                    if p < run_min_prob:
+                        run_min_prob = p
+                        min_local_idx = idx
             else:
-                break  # trailing run interrupted
-        return False
+                if run_start is not None:
+                    run_end = idx - 1
+                    frame_length = run_end - run_start + 1
+                    if frame_length >= self.min_valley_consecutive_frames:
+                        min_abs_frame = frame_offset + min_local_idx
+                        start_s = (frame_offset + run_start) * getattr(
+                            self, "FRAME_DURATION_S", 0.02
+                        )
+                        end_s = (frame_offset + run_end) * getattr(
+                            self, "FRAME_DURATION_S", 0.02
+                        )
+                        duration_s = (run_end - run_start + 1) * getattr(
+                            self, "FRAME_DURATION_S", 0.02
+                        )
+                        details = {
+                            "troughs": [min_local_idx],
+                            "min_prob_frame": min_abs_frame,
+                            "min_prob_s": min_abs_frame
+                            * getattr(self, "FRAME_DURATION_S", 0.02),
+                            "min_probability": run_min_prob,
+                        }
+                        valley = {
+                            "frame_start": frame_offset + run_start,
+                            "frame_end": frame_offset + run_end,
+                            "frame_length": frame_length,
+                            "start_s": start_s,
+                            "end_s": end_s,
+                            "duration_s": duration_s,
+                            "details": details,
+                        }
+                        valleys.append(valley)
+                    run_start = None
+                    run_min_prob = float("inf")
+                    min_local_idx = -1
+
+        if run_start is not None:
+            run_end = len(window) - 1
+            frame_length = run_end - run_start + 1
+            if frame_length >= self.min_valley_consecutive_frames:
+                min_abs_frame = frame_offset + min_local_idx
+                start_s = (frame_offset + run_start) * getattr(
+                    self, "FRAME_DURATION_S", 0.02
+                )
+                end_s = (frame_offset + run_end) * getattr(
+                    self, "FRAME_DURATION_S", 0.02
+                )
+                duration_s = (run_end - run_start + 1) * getattr(
+                    self, "FRAME_DURATION_S", 0.02
+                )
+                details = {
+                    "troughs": [min_local_idx],
+                    "min_prob_frame": min_abs_frame,
+                    "min_prob_s": min_abs_frame
+                    * getattr(self, "FRAME_DURATION_S", 0.02),
+                    "min_probability": run_min_prob,
+                }
+                valley = {
+                    "frame_start": frame_offset + run_start,
+                    "frame_end": frame_offset + run_end,
+                    "frame_length": frame_length,
+                    "start_s": start_s,
+                    "end_s": end_s,
+                    "duration_s": duration_s,
+                    "details": details,
+                }
+                valleys.append(valley)
+
+        return valleys
+
+    def _select_best_trough(
+        self, troughs: List[ValleyTrough]
+    ) -> Optional[ValleyTrough]:
+        """
+        Pick the most appropriate trough to use as the split point.
+
+        Strategy
+        --------
+        1. Take the **last** (most recent) trough — minimises how much
+           speech audio is discarded.
+        2. If several troughs share the same valley end frame (unlikely but
+           possible), prefer the one with the **lowest probability** (deepest
+           silence = cleanest cut).
+        3. Returns None if the list is empty.
+        """
+        if not troughs:
+            return None
+        # Sort: primary key = valley end frame descending (most recent first),
+        #       secondary key = prob ascending (deepest first).
+        return sorted(troughs, key=lambda t: (-t["valley"]["frame_end"], t["prob"]))[0]
 
     def state_transition(
         self, is_speech: bool, result: StreamVadFrameResult
@@ -147,7 +248,6 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
                     )
                     self.last_speech_start_frame = result.speech_start_frame
                     self.silence_cnt = 0
-
             else:
                 self.state = VadState.SILENCE
                 self.silence_cnt = 1
@@ -158,32 +258,50 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
             if is_speech:
                 self.silence_cnt = 0
                 force_split = False
-                window = []
-                deepest_valley_frame: int | None = None
+                window: List[float] = []
+                deepest_valley_frame: Optional[int] = None
+
+                dynamic_window = self.speech_cnt // 2
+
                 if self.speech_cnt >= self.hard_limit:
                     force_split = True
+                    if len(self.recent_probs) >= self.search_window:
+                        window = list(self.recent_probs)[-dynamic_window:]
+                        frame_offset = self.frame_cnt - len(window) + 1
+                        valleys = self._build_vad_valleys(window, frame_offset)
+                        troughs = extract_valley_troughs(valleys, duration_s=0.15)
+                        best = self._select_best_trough(troughs)
+                        if best is not None:
+                            deepest_valley_frame = best["frame"]
                 elif (
                     self.speech_cnt > self.soft_limit
                     and len(self.recent_probs) >= self.search_window
                 ):
-                    window = list(self.recent_probs)[-self.search_window :]
-                    if self._has_valid_valley(window):
-                        # Find the deepest valley inside the full search window
-                        min_prob = min(window)
-                        min_idx = window.index(min_prob)
-                        deepest_valley_frame = self.frame_cnt - (
-                            len(window) - 1 - min_idx
-                        )
+                    window = list(self.recent_probs)[-dynamic_window:]
+                    frame_offset = self.frame_cnt - len(window) + 1
+                    valleys = self._build_vad_valleys(window, frame_offset)
+                    troughs = extract_valley_troughs(valleys, duration_s=0.3)
+                    best = self._select_best_trough(troughs)
+                    if best is not None:
+                        deepest_valley_frame = best["frame"]
                         force_split = True
 
                 if force_split:
                     if window and deepest_valley_frame is not None:
+                        best_prob = best["prob"] if "prob" in best else min(window)
                         min_prob_str = (
-                            f"min_prob={min(window):.3f} "
-                            f"(deepest valley at frame {deepest_valley_frame})"
+                            (
+                                f"min_prob={best_prob:.3f} "
+                                f"(trough frame={deepest_valley_frame}, "
+                                f"valley {best['valley']['start_s']:.2f}s"
+                                f"–{best['valley']['end_s']:.2f}s)"
+                            )
+                            if best is not None
+                            else f"min_prob={min(window):.3f}"
                         )
                     else:
                         min_prob_str = "hard limit"
+
                     console.print(
                         f"[SPLIT] {self.frame_cnt:5d} | SPEECH → END ({min_prob_str}, cnt={self.speech_cnt})",
                         style="bold red",
@@ -240,28 +358,7 @@ class HybridStreamVadPostprocessor(StreamVadPostprocessor):
             else:
                 self.silence_cnt += 1
 
-                # --------------------------------------------------
-                # PREVENT SHORT SEGMENTS (NEW LOGIC)
-                # --------------------------------------------------
-                # If segment is still shorter than soft_limit,
-                # DO NOT end yet — keep collecting frames.
-                #
-                # This avoids:
-                # - speech bursts getting cut early
-                # - segments ending in trailing silence too quickly
-                # if self.speech_cnt < self.soft_limit:
-                #     console.print(
-                #         f"[HOLD] {self.frame_cnt:5d} | delaying END "
-                #         f"(speech_cnt={self.speech_cnt} < soft_limit={self.soft_limit})",
-                #         style="yellow",
-                #     )
-                #     # Don't end the segment yet
-                #     # Soft-hold: just return result as-is for now
-                #     # (No state change, not marking is_speech_end)
-                #     # end of soft segment hold logic
-                #     return result
-                # --------------------------------------------------
-
+                # See original comment about avoiding short segments.
                 if self.silence_cnt >= self.min_silence_frame:
                     self.state = VadState.SILENCE
                     result.is_speech_end = True
