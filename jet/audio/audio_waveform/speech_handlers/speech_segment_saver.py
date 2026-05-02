@@ -27,6 +27,23 @@ from jet.audio.helpers.energy import (
 from jet.audio.helpers.energy_base import compute_rms_per_frame
 from jet.transformers.object import make_serializable
 
+# ── VAD badge metadata (mirrors live_srt_preview_handler) ───────────────────
+_VAD_BADGE: dict[str, tuple[str, str, str]] = {
+    #  key        code    face colour  box colour
+    "fr": ("FRD", "#c084fc", "#3b1f6b"),  # purple — FireRed
+    "silero": ("SIL", "#4ade80", "#1a3a2a"),  # green  — Silero
+    "sb": ("SPB", "#60a5fa", "#1a2e4a"),  # blue   — SpeechBrain
+    "ten_vad": ("TEN", "#fb923c", "#3a2210"),  # orange — TEN VAD
+}
+
+
+def _vad_badge(vad_type: str) -> tuple[str, str, str]:
+    """Return (code, text_colour, box_colour) for matplotlib bbox annotation."""
+    return _VAD_BADGE.get(vad_type, ("???", "#888888", "#2a2a2a"))
+
+
+# ────────────────────────────────────────────────────────────────────────────
+
 
 class SpeechFrameEnergy(TypedDict):
     has_sound: bool
@@ -205,10 +222,10 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
 
         # ── Prepare data ───────────────────────────────────────────────────────
         xs = np.array([p["frame_idx"] for p in prob_frames])
-
         smoothed_probs = np.array([p["smoothed_prob"] for p in prob_frames])
-
         rms_values = np.array([p["energy"]["rms"] for p in prob_frames])
+
+        vad_code, vad_fg, vad_bg = _vad_badge(getattr(event, "vad_type", "fr"))
 
         # Adaptive normalization + smoothing
         norm_energy, norm_max = normalize_energy(
@@ -221,7 +238,9 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
 
         fig = plt.figure(figsize=(9, 6.2), dpi=140)
         fig.suptitle(
-            f"Segment {event.segment_id}  •  {event.duration_sec:.1f}s  •  {len(prob_frames)} frames • max_rms={norm_max:.4f} • smooth_win={SMOOTH_WINDOW}",
+            f"Segment {event.segment_id}  •  {event.duration_sec:.1f}s  •  "
+            f"{len(prob_frames)} frames  •  VAD: {vad_code}  •  "
+            f"max_rms={norm_max:.4f}  •  smooth_win={SMOOTH_WINDOW}",
             fontsize=11,
             y=0.975,
         )
@@ -235,6 +254,21 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         ax1 = fig.add_subplot(gs[0, 0])
         ax1.plot(xs, smoothed_probs, color="#1f77b4", lw=1.4, label="smoothed prob")
         ax1.axhline(0.5, color="darkred", ls="--", lw=0.9, alpha=0.7, label="threshold")
+
+        # VAD badge — top-left corner of the probability panel
+        ax1.text(
+            0.01,
+            0.97,
+            vad_code,
+            transform=ax1.transAxes,
+            fontsize=8,
+            fontfamily="monospace",
+            fontweight="bold",
+            color=vad_fg,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor=vad_bg, edgecolor="none"),
+        )
+
         ax1.set_title("Smoothed Speech Probability", fontsize=10)
         ax1.set_ylabel("Probability", fontsize=9)
         ax1.set_ylim(-0.05, 1.05)
