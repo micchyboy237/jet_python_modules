@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+from jet.audio.speech.vad_valley_utils import ThresholdStrategy, auto_threshold
 from scipy.signal import find_peaks
 
 AUDIO_EXTENSIONS = {
@@ -175,6 +176,8 @@ class VADPeakAnalyzer:
         self.sample_rate = sample_rate
         self.frame_duration_ms = frame_duration_ms
         self.frame_duration_s = frame_duration_ms / 1000.0
+        self.auto_threshold_strategy: ThresholdStrategy = ThresholdStrategy.OTSU
+        """Strategy used when valley_threshold or trough_height is None."""
         self.hop_length = int(sample_rate * self.frame_duration_s)  # samples per frame
         self.debug = debug
 
@@ -293,9 +296,7 @@ class VADPeakAnalyzer:
     def extract_troughs(
         self,
         probs: List[float],
-        height: Optional[
-            float
-        ] = None,  # For troughs, this acts as max height (use negative for find_peaks)
+        height: Optional[float] = None,  # None → auto-compute via auto_threshold()
         distance: Optional[int] = None,
         prominence: Optional[float] = None,
         width: Optional[int] = None,
@@ -307,6 +308,18 @@ class VADPeakAnalyzer:
         if not probs:
             return []
 
+        # ── Auto-compute trough_height when not supplied ──────────────────
+        resolved_height = height
+        if resolved_height is None:
+            resolved_height = auto_threshold(
+                probs, strategy=self.auto_threshold_strategy
+            )
+            self._log_debug(
+                f"extract_troughs: auto-computed height={resolved_height:.4f} "
+                f"via {self.auto_threshold_strategy.value}"
+            )
+        # ─────────────────────────────────────────────────────────────────
+
         x = np.array(probs, dtype=float)
         self._log_debug(
             f"extract_troughs called with height={height}, distance={distance}, prominence={prominence}"
@@ -316,7 +329,7 @@ class VADPeakAnalyzer:
         # Negate to turn minima into maxima
         troughs_idx, properties = find_peaks(
             -x,
-            height=-height if height is not None else None,  # invert threshold
+            height=-resolved_height,  # always set now — never None
             distance=distance,
             prominence=prominence,
             width=width if width is not None else 0,
@@ -492,7 +505,7 @@ class VADPeakAnalyzer:
     def extract_valleys(
         self,
         probs: List[float],
-        threshold: float = 0.3,
+        threshold: Optional[float] = None,  # None → auto-compute via auto_threshold()
         min_duration_s: float = 0.0,
         min_duration_frames: Optional[int] = None,
     ) -> List[VADSegment]:
@@ -524,8 +537,20 @@ class VADPeakAnalyzer:
         if not probs:
             return []
 
+        # ── Auto-compute valley threshold when not supplied ───────────────
+        resolved_threshold = threshold
+        if resolved_threshold is None:
+            resolved_threshold = auto_threshold(
+                probs, strategy=self.auto_threshold_strategy
+            )
+            self._log_debug(
+                f"extract_valleys: auto-computed threshold={resolved_threshold:.4f} "
+                f"via {self.auto_threshold_strategy.value}"
+            )
+        # ─────────────────────────────────────────────────────────────────
+
         x = np.array(probs, dtype=float)
-        silent = x < threshold  # Boolean mask: True where frame is silent
+        silent = x < resolved_threshold  # Boolean mask: True where frame is silent
 
         segments: List[VADSegment] = []
         in_valley = False
@@ -538,12 +563,16 @@ class VADPeakAnalyzer:
                 valley_start = i
             elif not is_silent and in_valley:
                 # Rising edge — leaving the silent stretch
-                self._append_valley_segment(segments, x, valley_start, i, threshold)
+                self._append_valley_segment(
+                    segments, x, valley_start, i, resolved_threshold
+                )
                 in_valley = False
 
         # Handle valley that runs to the very end of the signal
         if in_valley:
-            self._append_valley_segment(segments, x, valley_start, len(x), threshold)
+            self._append_valley_segment(
+                segments, x, valley_start, len(x), resolved_threshold
+            )
 
         self._log_debug(f"Returning {len(segments)} valley segments")
         return segments
@@ -583,7 +612,7 @@ class VADPeakAnalyzer:
         self,
         active_regions: List[VADSegment],
         probs: List[float],
-        min_valley_threshold: float = 0.25,
+        min_valley_threshold: Optional[float] = None,
         min_valley_frames: Optional[int] = None,
     ) -> List[VADSegment]:
         """
@@ -598,6 +627,8 @@ class VADPeakAnalyzer:
             probs: Original VAD probability list
             min_valley_threshold: If the *minimum* probability in the gap is
                 *above* this value, the valley is considered too shallow → merge.
+                If None, auto-computed via auto_threshold() using the configured
+                strategy (default: Otsu). Defaults to None.
             min_valley_frames: Optional minimum frame length of a valley to be
                 considered for merging logic (short gaps are always merged).
 
@@ -606,6 +637,19 @@ class VADPeakAnalyzer:
         """
         if len(active_regions) <= 1:
             return active_regions
+
+        # ── Auto-compute min_valley_threshold when not supplied ───────────────
+        resolved_threshold = min_valley_threshold
+        if resolved_threshold is None:
+            resolved_threshold = auto_threshold(
+                probs, strategy=self.auto_threshold_strategy
+            )
+            self._log_debug(
+                f"merge_active_regions_across_shallow_valleys: auto-computed "
+                f"min_valley_threshold={resolved_threshold:.4f} "
+                f"via {self.auto_threshold_strategy.value}"
+            )
+        # ─────────────────────────────────────────────────────────────────────
 
         x = np.array(probs, dtype=float)
         merged: List[VADSegment] = []
@@ -632,12 +676,12 @@ class VADPeakAnalyzer:
             valley_probs = x[valley_start : valley_end + 1]
             valley_min = float(np.min(valley_probs))
 
-            if valley_min > min_valley_threshold:
+            if valley_min > resolved_threshold:
                 # Valley is too shallow → merge the two active regions
                 self._log_debug(
                     f"Merging regions {current['frame_start']}-{current['frame_end']} "
                     f"and {next_region['frame_start']}-{next_region['frame_end']} "
-                    f"(valley min={valley_min:.4f} > threshold={min_valley_threshold})"
+                    f"(valley min={valley_min:.4f} > threshold={resolved_threshold:.4f})"
                 )
                 current = self._merge_two_regions(current, next_region)
             else:
@@ -894,8 +938,8 @@ if __name__ == "__main__":
         "--trough-height",
         "-th",
         type=float,
-        default=0.65,
-        help="Maximum speech probability for a trough (default: 0.65)",
+        default=None,
+        help="Maximum speech probability for a trough (default: None; auto-computed if not set)",
     )
     parser.add_argument(
         "--trough-prominence",
@@ -922,8 +966,8 @@ if __name__ == "__main__":
         "--valley-threshold",
         "-vt",
         type=float,
-        default=0.65,
-        help="Probability threshold below which regions are valleys (default: 0.65)",
+        default=None,
+        help="Probability threshold below which regions are valleys (default: None; auto-computed if not set)",
     )
     parser.add_argument(
         "--min-active-duration",
