@@ -65,6 +65,27 @@ def _prob_color(prob: Optional[float]) -> str:
     return "#3fb950"  # green
 
 
+def _speech_pctg_color(pctg: Optional[float]) -> str:
+    """
+    Map speech-frame percentage [0–100] to a colour for the overlay.
+      < 30  →  red    (segment is mostly noise / silence)
+      < 50  →  amber  (more noise than speech)
+      < 70  →  yellow (borderline — mixed content)
+      >= 70 →  green  (predominantly speech)
+    Mirrors the _prob_color() thresholds so the two indicators stay visually
+    consistent with each other.
+    """
+    if pctg is None:
+        return "#8b949e"
+    if pctg < 30:
+        return "#f85149"
+    if pctg < 50:
+        return "#fb923c"
+    if pctg < 70:
+        return "#e3b341"
+    return "#3fb950"
+
+
 # ---------------------------------------------------------------------------
 # Preview window
 # ---------------------------------------------------------------------------
@@ -215,6 +236,12 @@ class SubtitlePreviewWindow(QMainWindow):
         avg_prob_str = f"{avg_prob:.3f}" if isinstance(avg_prob, float) else "N/A"
         avg_prob_color = _prob_color(avg_prob)
 
+        speech_pctg = e.get("speech_frames_pctg")
+        speech_pctg_str = (
+            f"{speech_pctg:.1f}%" if isinstance(speech_pctg, (int, float)) else "N/A"
+        )
+        speech_pctg_color = _speech_pctg_color(speech_pctg)
+
         open_link = (
             f'<a href="open:{i}" style="color:#58a6ff; text-decoration:none;">📂</a>'
             if segment_dir
@@ -233,6 +260,7 @@ class SubtitlePreviewWindow(QMainWindow):
 <span style="font-size:9px; color:#8b949e; line-height:1.1;">
 [gap: {gap_str}] ({duration}) • <span style="color:#d2a8ff;">{trigger_reason}</span>
  • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>
+ • spch: <span style="color:{speech_pctg_color}; font-weight:bold;">{speech_pctg_str}</span>
  • pctg: {pctg_str} • cov: <span style="color:#79c0ff;">{cov_str}</span>
 </span>
 <a href="copy:{i}" style="color:#58a6ff; text-decoration:none;">📋</a>
@@ -354,11 +382,21 @@ class LiveSrtPreviewHandler(SpeechSegmentHandler):
             event.prob_frames
         )
 
+        speech_frame_count = sum(1 for f in event.prob_frames if f["is_speech"])
+        speech_frames_pctg = (speech_frame_count / len(event.prob_frames)) * 100
+
         found = self.accumulator.set_pending_extra(
             uuid_str=seg_uuid,
             key="avg_vad_prob",
             value=round(avg_vad_prob, 4),
         )
+
+        self.accumulator.set_pending_extra(
+            uuid_str=seg_uuid,
+            key="speech_frames_pctg",
+            value=round(speech_frames_pctg, 1),
+        )
+
         if not found:
             print(
                 f"[LiveSrtPreview] Warning: pending entry not found for uuid={seg_uuid!r}. "

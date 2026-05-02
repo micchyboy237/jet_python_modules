@@ -93,6 +93,8 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
                 print("  No audio data — skipping .wav")
 
             # 2. Summary
+            speech_frames = sum(1 for f in event.prob_frames if f["is_speech"])
+            speech_frames_pctg = (speech_frames / len(event.prob_frames)) * 100
             summary = {
                 "segment_id": event.segment_id,
                 "vad_type": event.vad_type,
@@ -103,6 +105,8 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
                 "duration_sec": round(event.duration_sec, 3),
                 "audio_samples": len(event.audio),
                 "prob_frames": len(event.prob_frames),
+                "speech_frames": speech_frames,
+                "speech_frames_pctg": round(speech_frames_pctg, 1),
                 "forced_split": event.forced_split,
                 "trigger_reason": event.trigger_reason,
                 "started_at": event.started_at,

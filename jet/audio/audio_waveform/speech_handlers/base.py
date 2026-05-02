@@ -1,4 +1,4 @@
-# jet.audio.audio_waveform.speech_segment_handler
+# jet.audio.audio_waveform.speech_handlers.base
 
 from abc import ABC, abstractmethod
 
