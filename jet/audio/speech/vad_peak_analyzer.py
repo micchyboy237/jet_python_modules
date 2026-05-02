@@ -508,6 +508,7 @@ class VADPeakAnalyzer:
         threshold: Optional[float] = None,  # None → auto-compute via auto_threshold()
         min_duration_s: float = 0.0,
         min_duration_frames: Optional[int] = None,
+        troughs: Optional[List[VADSegment]] = None,
     ) -> List[VADSegment]:
         """
         Extract contiguous valley (silence) regions where probability < threshold.
@@ -530,6 +531,11 @@ class VADPeakAnalyzer:
                        (use > instead of >= to match "below threshold" intent).
             min_duration_s: Minimum duration in seconds for a valley to be kept.
             min_duration_frames: Alternative minimum frame count (overrides min_duration_s if provided).
+            troughs: Optional pre-extracted trough VADSegments (from
+                     extract_troughs()).  Each trough whose frame index falls
+                     within a valley's [frame_start, frame_end] boundary is
+                     attached to that valley's details["troughs"] list.  Valley
+                     boundaries are never modified.
 
         Returns:
             List of VADSegment dicts, one per contiguous valley region.
@@ -574,6 +580,21 @@ class VADPeakAnalyzer:
                 segments, x, valley_start, len(x), resolved_threshold
             )
 
+        # ── Attach troughs that fall within each valley's frame boundaries ───
+        if troughs and segments:
+            for segment in segments:
+                v_start = segment["frame_start"]
+                v_end = segment["frame_end"]
+                contained = [t for t in troughs if v_start <= t["frame_start"] <= v_end]
+                segment["details"]["troughs"] = contained
+                if contained:
+                    self._log_debug(
+                        f"extract_valleys: valley [{v_start}, {v_end}] "
+                        f"contains {len(contained)} trough(s) at frames "
+                        f"{[t['frame_start'] for t in contained]}"
+                    )
+        # ─────────────────────────────────────────────────────────────────────
+
         self._log_debug(f"Returning {len(segments)} valley segments")
         return segments
 
@@ -593,11 +614,7 @@ class VADPeakAnalyzer:
         min_prob_frame = int(start + np.argmin(x[start:end]))
         min_prob_s, _ = self._compute_times(min_prob_frame)
 
-        # Calculate middle frame and time
         frame_length = end - start
-        mid_offset = frame_length // 2
-        mid_prob_frame = start + mid_offset
-        mid_prob_s, _ = self._compute_times(mid_prob_frame)
 
         segments.append(
             {
@@ -612,8 +629,6 @@ class VADPeakAnalyzer:
                     "min_probability": float(np.min(x[start:end])),
                     "min_prob_frame": min_prob_frame,
                     "min_prob_s": round(min_prob_s, 4),
-                    "mid_prob_frame": mid_prob_frame,
-                    "mid_prob_s": round(mid_prob_s, 4),
                     "mean_probability": float(np.mean(x[start:end])),
                     "frame_count": frame_length,
                     "region_probs": region_probs,
@@ -1133,6 +1148,7 @@ if __name__ == "__main__":
         threshold=args.valley_threshold,
         # min_duration_s=args.min_valley_duration,
         # min_duration_frames=args.min_valley_frames,
+        troughs=troughs,
     )
 
     # Filter by minimum duration
