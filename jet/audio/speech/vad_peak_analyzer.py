@@ -30,7 +30,7 @@ class VADSegment(TypedDict):
     details: Dict[str, Any]  # Additional insights (peak/trough properties)
 
 
-def smooth_vad_probs(probs: List[float], window: int = 3) -> List[float]:
+def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
     """Light moving average smoothing to reduce jitter in VAD probabilities."""
     if window <= 1 or len(probs) <= window:
         return probs[:]
