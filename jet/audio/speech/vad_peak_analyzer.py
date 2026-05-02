@@ -30,6 +30,60 @@ class VADSegment(TypedDict):
     details: Dict[str, Any]  # Additional insights (peak/trough properties)
 
 
+class ValleyInfo(TypedDict):
+    frame_start: int
+    frame_end: int
+    frame_length: int
+    start_s: float
+    end_s: float
+    duration_s: float
+
+
+class ValleyTrough(TypedDict):
+    frame: int
+    time_s: float
+    prob: float
+    valley: ValleyInfo
+
+
+def extract_valley_troughs(
+    valleys: List[VADSegment], duration_s: float = 1.0
+) -> List[ValleyTrough]:
+    """
+    Extracts the lowest-probability frames (troughs) from a list of VADSegment valleys,
+    but only includes valleys that have exactly one trough and duration >= duration_s.
+    Returns a list of ValleyTrough dicts with typed fields.
+
+    Parameters
+    ----------
+    valleys: list of VADSegment dicts
+    duration_s: minimum valley duration (in seconds) to include (default: 1.0)
+    """
+    filtered_valleys = [
+        valley
+        for valley in valleys
+        if len(valley["details"].get("troughs", [])) == 1
+        and valley["duration_s"] >= duration_s
+    ]
+    valley_troughs: List[ValleyTrough] = [
+        ValleyTrough(
+            frame=valley["details"]["min_prob_frame"],
+            time_s=valley["details"]["min_prob_s"],
+            prob=valley["details"]["min_probability"],
+            valley=ValleyInfo(
+                frame_start=valley["frame_start"],
+                frame_end=valley["frame_end"],
+                frame_length=valley["frame_length"],
+                start_s=valley["start_s"],
+                end_s=valley["end_s"],
+                duration_s=valley["duration_s"],
+            ),
+        )
+        for valley in filtered_valleys
+    ]
+    return valley_troughs
+
+
 def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
     """Light moving average smoothing to reduce jitter in VAD probabilities."""
     if window <= 1 or len(probs) <= window:
@@ -903,15 +957,8 @@ class VADPeakAnalyzer:
         print(f"Plot saved to: {output_path}")
 
 
-if __name__ == "__main__":
+def get_args():
     import argparse
-    import json
-    import shutil
-    from pathlib import Path
-
-    from jet.audio.speech.firered.speech_timestamps_extractor import (
-        extract_speech_timestamps,
-    )
 
     parser = argparse.ArgumentParser(
         description="Analyze VAD speech/voice probabilities and find peaks/troughs"
@@ -1040,7 +1087,23 @@ if __name__ == "__main__":
         help="Smoothing window size for VAD probabilities (default: 20)",
     )
 
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    import json
+    import shutil
+    from pathlib import Path
+
+    from jet.audio.speech.firered.speech_timestamps_extractor import (
+        extract_speech_timestamps,
+    )
+
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    args = get_args()
 
     if args.input_file is not None:
         input_path = Path(args.input_file)
@@ -1090,10 +1153,6 @@ if __name__ == "__main__":
         print("Applied Gaussian smoothing (sigma=1.0)")
     else:
         probs_smoothed = probs
-
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     analyzer = VADPeakAnalyzer(
         sample_rate=args.sample_rate, frame_duration_ms=args.frame_duration_ms
@@ -1225,3 +1284,9 @@ if __name__ == "__main__":
     with open(valleys_path, "w", encoding="utf-8") as f:
         json.dump(valleys, f, ensure_ascii=False, indent=2)
     print(f"Valleys saved to: {valleys_path.resolve()}")
+
+    valley_troughs = extract_valley_troughs(valleys)
+    valley_troughs_path = OUTPUT_DIR / "valley_troughs.json"
+    with open(valley_troughs_path, "w", encoding="utf-8") as f:
+        json.dump(valley_troughs, f, ensure_ascii=False, indent=2)
+    print(f"Valley troughs saved to: {valley_troughs_path.resolve()}")
