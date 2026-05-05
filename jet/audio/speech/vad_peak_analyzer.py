@@ -47,7 +47,7 @@ class ValleyTrough(TypedDict):
 
 
 def extract_valley_troughs(
-    valleys: List[VADSegment], duration_s: float = 1.0
+    valleys: List[VADSegment], duration_s: float = 0.25
 ) -> List[ValleyTrough]:
     """
     Extracts the lowest-probability frames (troughs) from a list of VADSegment valleys,
@@ -57,7 +57,7 @@ def extract_valley_troughs(
     Parameters
     ----------
     valleys: list of VADSegment dicts
-    duration_s: minimum valley duration (in seconds) to include (default: 1.0)
+    duration_s: minimum valley duration (in seconds) to include (default: 0.25)
     """
     filtered_valleys = [
         valley
@@ -1083,8 +1083,8 @@ def get_args():
         "--smoothing-window",
         "-sw",
         type=int,
-        default=20,
-        help="Smoothing window size for VAD probabilities (default: 20)",
+        default=0,
+        help="Smoothing window size for VAD probabilities (default: 0)",
     )
 
     return parser.parse_args()
