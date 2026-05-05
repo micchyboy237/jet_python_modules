@@ -685,7 +685,7 @@ class VADPeakAnalyzer:
                     "min_prob_s": round(min_prob_s, 4),
                     "mean_probability": float(np.mean(x[start:end])),
                     "frame_count": frame_length,
-                    "region_probs": region_probs,
+                    # "region_probs": region_probs,
                 },
             }
         )
