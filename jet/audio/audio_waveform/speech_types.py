@@ -9,6 +9,8 @@ class SpeechFrame(TypedDict):
     frame_idx: int
     raw_prob: float
     smoothed_prob: float
+    rms: float
+    hybrid_prob: float
     is_speech: bool
     is_speech_start: bool
     is_speech_end: bool

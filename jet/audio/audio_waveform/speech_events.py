@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from jet.audio.audio_waveform.speech_stats import SpeechSegmentStats
 from jet.audio.audio_waveform.speech_types import SpeechFrame
+from jet.audio.speech.vad_peak_analyzer import ValleyTrough
 
 
 @dataclass
@@ -39,3 +40,4 @@ class SpeechSegmentEndEvent:
     segment_dir: Path | None = None
     vad_type: str = "fr"  # carried through so handlers can use it
     seg_uuid: str | None = None  # filled in by WebsocketSubtitleSender.on_segment_end
+    valley_troughs: list[ValleyTrough] | None = None

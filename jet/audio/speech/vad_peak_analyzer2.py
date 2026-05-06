@@ -1,18 +1,12 @@
 # vad_peak_analyzer.py
 
 import logging
-import tempfile
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
-import soundfile as sf
 from jet.audio.helpers.config import FRAME_LENGTH_MS, SAMPLE_RATE
-from jet.audio.speech.firered.speech_timestamps_extractor import (
-    extract_speech_timestamps,
-)
 from jet.audio.speech.vad_valley_utils import ThresholdStrategy, auto_threshold
 from scipy.signal import find_peaks
 
@@ -44,6 +38,9 @@ class ValleyInfo(TypedDict):
     start_s: float
     end_s: float
     duration_s: float
+    valley_score: float
+    trough_score: float
+    final_score: float
 
 
 class ValleyTrough(TypedDict):
@@ -54,76 +51,103 @@ class ValleyTrough(TypedDict):
 
 
 def extract_valley_troughs(
-    probs: List[float],
-    duration_s: float = 0.25,
+    probs: list[float] | np.ndarray,
     sample_rate: int = SAMPLE_RATE,
     frame_duration_ms: float = FRAME_LENGTH_MS,
-    smoothing_window: int = 0,
-    trough_height: Optional[float] = None,
+    trough_height: float | None = None,
     trough_prominence: float = 0.15,
     trough_distance: int = 5,
-    valley_threshold: Optional[float] = None,
+    valley_threshold: float | None = None,
     min_valley_duration_s: float = 0.25,
-    min_valley_frames: Optional[int] = None,
 ) -> List[ValleyTrough]:
     """
-    Extracts the lowest-probability frames (troughs) from valleys in a VAD
-    probability sequence, returning only valleys with exactly one trough and
-    duration >= duration_s.
-
-    Internally constructs a VADPeakAnalyzer, optionally smooths `probs`,
-    extracts troughs and valleys, attaches troughs to their parent valleys,
-    then filters and maps to ValleyTrough dicts.
+    Identifies and extracts the lowest-probability frames ("troughs")
+    from automatically detected valleys (regions of low VAD probability)
+    in the given VAD probability sequence. Only valleys that contain exactly
+    one identified trough and have duration at least `min_valley_duration_s`
+    are included in the output. Returns a typed list of ValleyTrough dicts,
+    each containing detailed information about the trough and its valley.
 
     Parameters
     ----------
-    probs               : VAD frame probabilities (one float per frame).
-    duration_s          : Minimum valley duration to include (default: 0.25s).
-    sample_rate         : Audio sample rate in Hz (default: 16000).
-    frame_duration_ms   : Duration of one VAD frame in ms (default: FRAME_LENGTH_MS).
-    smoothing_window    : Moving-average window size; 0 disables smoothing (default: 0).
-    trough_height       : Max speech prob for a trough; None → auto via Otsu.
-    trough_prominence   : Min prominence for a trough (default: 0.15).
-    trough_distance     : Min frames between troughs (default: 5).
-    valley_threshold    : Prob below which frames are silent; None → auto via Otsu.
-    min_valley_duration_s : Min valley duration in seconds (default: 0.25s).
-    min_valley_frames   : Min valley length in frames (overrides min_valley_duration_s).
-    """
-    analyzer = VADPeakAnalyzer(
-        sample_rate=sample_rate,
-        frame_duration_ms=frame_duration_ms,
-    )
+    probs : list[float] or np.ndarray
+        Sequence of VAD probabilities, one per frame.
+    sample_rate : int, optional
+        Audio sample rate in Hz (default: 16000).
+    frame_duration_ms : float, optional
+        Duration of one VAD frame in milliseconds (default: FRAME_LENGTH_MS).
+    trough_height : float or None, optional
+        Maximum speech probability for a trough (default: None; auto-computed if not set).
+    trough_prominence : float, optional
+        Minimum prominence for a trough (default: 0.15).
+    trough_distance : int, optional
+        Minimum distance between troughs in frames (default: 5).
+    valley_threshold : float or None, optional
+        Optional override for the threshold used to define valleys.
+        If None, a threshold is automatically determined.
+    min_valley_duration_s : float, optional
+        Minimum duration (in seconds) for a valley to be included
+        (default: 0.25).
 
-    smoothed = (
-        smooth_vad_probs(probs, window=smoothing_window) if smoothing_window else probs
+    Returns
+    -------
+    List[ValleyTrough]
+        List of ValleyTrough dicts describing the troughs and their valleys.
+    """
+    if isinstance(probs, np.ndarray):
+        probs = probs.tolist()
+
+    analyzer = VADPeakAnalyzer(
+        sample_rate=sample_rate, frame_duration_ms=frame_duration_ms
     )
 
     troughs = analyzer.extract_troughs(
-        smoothed,
+        probs,
         height=trough_height,
         prominence=trough_prominence,
         distance=trough_distance,
     )
 
     valleys = analyzer.extract_valleys(
-        smoothed,
+        probs,
         threshold=valley_threshold,
+        # min_duration_s=min_valley_duration,
+        # min_duration_frames=min_valley_frames,
         troughs=troughs,
     )
 
+    # Filter by minimum duration
     valleys = analyzer.filter_short_segments(
         valleys,
         min_duration_s=min_valley_duration_s,
-        min_duration_frames=min_valley_frames,
     )
 
     filtered_valleys = [
         valley
         for valley in valleys
         if len(valley["details"].get("troughs", [])) == 1
-        and valley["duration_s"] >= duration_s
+        and valley["duration_s"] >= min_valley_duration_s
     ]
-    return [
+
+    # ── Combine valley + trough scores ─────────────────────────────────────
+    for valley in filtered_valleys:
+        trough = valley["details"]["troughs"][0]
+
+        trough_details = trough.get("details", {})
+
+        trough_score = compute_trough_score(
+            min_prob=trough_details.get("trough_probability", 0.0),
+            prominence=trough_details.get("prominence", 0.0),
+            width=trough_details.get("width", 0.0),
+        )
+
+        # Multiply to enforce BOTH good valley AND good trough
+        final_score = valley["details"]["valley_score"] * trough_score
+
+        valley["details"]["trough_score"] = trough_score
+        valley["details"]["final_score"] = final_score
+
+    valley_troughs: List[ValleyTrough] = [
         ValleyTrough(
             frame=valley["details"]["min_prob_frame"],
             time_s=valley["details"]["min_prob_s"],
@@ -135,217 +159,78 @@ def extract_valley_troughs(
                 start_s=valley["start_s"],
                 end_s=valley["end_s"],
                 duration_s=valley["duration_s"],
+                valley_score=valley["details"]["valley_score"],
+                trough_score=valley["details"]["trough_score"],
+                final_score=valley["details"]["final_score"],
             ),
         )
         for valley in filtered_valleys
     ]
+    return valley_troughs
 
 
-def extract_valley_troughs_from_np_audio(
-    audio: np.ndarray,
-    sample_rate: int = 16000,
-    vad_threshold: float = 0.3,
-    min_speech_duration_sec: float = 0.25,
-    min_silence_duration_sec: float = 0.25,
-    smoothing_window: int = 20,
-    temp_dir: str | Path | None = None,
-) -> List[ValleyTrough]:
+def compute_valley_score(
+    min_prob: float,
+    mean_prob: float,
+    duration_s: float,
+    max_duration_ref: float = 1.0,
+    w_depth: float = 0.4,
+    w_mean: float = 0.4,
+    w_duration: float = 0.2,
+) -> float:
     """
-    Reusable standalone function to extract valley troughs from raw numpy audio.
+    Composite score for valley quality.
 
-    Workflow (mirrors _run_timestamp_analysis):
-        1. Saves audio to a temporary WAV file (float32, 16kHz)
-        2. Runs extract_speech_timestamps (FireRed VAD) to get speech probabilities
-        3. Runs extract_valley_troughs on those probabilities
-        4. Returns the troughs list
-        5. Cleans up the temporary file
+    Higher score = stronger silence (safe to cut).
 
     Args:
-        audio: numpy array of audio samples (1D, float32 or float64 recommended)
-        sample_rate: sample rate of the audio (default 16000)
-        vad_threshold: VAD threshold passed to extract_speech_timestamps
-        min_speech_duration_sec: minimum speech duration
-        min_silence_duration_sec: minimum silence duration
-        smoothing_window: window size for extract_valley_troughs
-        temp_dir: optional directory for temporary WAV file
+        min_prob: Minimum probability in valley
+        mean_prob: Mean probability in valley
+        duration_s: Duration in seconds
+        max_duration_ref: Duration normalization cap
+        w_depth, w_mean, w_duration: Weights
 
     Returns:
-        List of valley trough dictionaries from extract_valley_troughs
+        float score in [0, 1]
     """
-    if len(audio) == 0:
-        return []
+    duration_norm = min(duration_s / max_duration_ref, 1.0)
 
-    # Ensure audio is float32 and normalized-ish
-    audio = np.asarray(audio, dtype=np.float32)
-    # Basic safety normalization
-    if np.max(np.abs(audio)) > 1.0:
-        audio = audio / (np.max(np.abs(audio)) + 1e-8)
-
-    # Create temporary WAV file
-    with tempfile.NamedTemporaryFile(suffix=".wav", dir=temp_dir, delete=False) as tmp:
-        temp_wav_path = Path(tmp.name)
-
-    try:
-        # Save to temp WAV
-        sf.write(
-            str(temp_wav_path),
-            audio,
-            sample_rate,
-            subtype="FLOAT",  # Preserve full precision
-        )
-
-        # Run VAD timestamp extraction (gets probabilities)
-        _, probs = extract_speech_timestamps(
-            audio=str(temp_wav_path),
-            threshold=vad_threshold,
-            min_speech_duration_sec=min_speech_duration_sec,
-            min_silence_duration_sec=min_silence_duration_sec,
-            with_scores=True,
-        )
-
-        if not probs:
-            return []
-
-        # Extract valley troughs from the probabilities
-        troughs = extract_valley_troughs(
-            probs=probs,
-            smoothing_window=smoothing_window,
-        )
-
-        return troughs
-
-    finally:
-        # Clean up temporary file
-        try:
-            if temp_wav_path.exists():
-                temp_wav_path.unlink()
-        except Exception:
-            pass  # Best effort cleanup
-
-
-def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
-    """Light moving average smoothing to reduce jitter in VAD probabilities."""
-    if window <= 1 or len(probs) <= window:
-        return probs[:]
-    x = np.array(probs, dtype=float)
-    smoothed = np.convolve(x, np.ones(window) / window, mode="same")
-    # Better edge handling
-    smoothed[0] = (x[0] + x[1]) / 2 if len(x) > 1 else x[0]
-    if len(x) > 2:
-        smoothed[-1] = (x[-1] + x[-2]) / 2
-    return smoothed.tolist()
-
-
-def save_segments_to_subdirs(
-    segments: List["VADSegment"],
-    category: str,
-    probs: List[float],
-    output_dir: "Path",
-    audio_path: Optional[str],
-    sample_rate: int,
-    frame_duration_ms: float,
-    pad_frames: int = 5,
-) -> None:
-    """
-    For each segment in `segments`, create a numbered subdirectory under
-    ``output_dir / category /`` and write three files into it:
-
-        sound.wav  – the audio slice corresponding to the segment's time range
-        meta.json  – the VADSegment dict serialised as JSON
-        plot.png   – a focused VAD-probability plot for just this segment
-
-    Parameters
-    ----------
-    segments      : list of VADSegment dicts (from extract_active_regions /
-                    extract_valleys or similar).
-    category      : subdirectory name, e.g. ``"active_regions"`` or
-                    ``"valleys"``.
-    probs         : full VAD probability list (used for the zoomed plot).
-    output_dir    : root Path under which ``category/segment_NNN/`` dirs are
-                    created.
-    audio_path    : path to the original audio file, or ``None``.  When
-                    ``None`` the function still writes ``meta.json`` and
-                    ``plot.png`` but skips ``sound.wav``.
-    sample_rate   : audio sample rate in Hz (needed to slice the waveform).
-    frame_duration_ms : duration of one VAD frame in milliseconds (needed to
-                    convert frame indices back to sample positions).
-    pad_frames    : number of extra frames to include around the segment in
-                    the plot (purely cosmetic, default 5).
-    """
-    import json
-
-    import soundfile as sf
-
-    frame_duration_s = frame_duration_ms / 1000.0
-    cat_dir = output_dir / category
-    cat_dir.mkdir(parents=True, exist_ok=True)
-
-    # Load audio once (only when needed)
-    audio_data: Optional[np.ndarray] = None
-    file_sr: int = sample_rate
-    if audio_path is not None:
-        audio_data, file_sr = sf.read(audio_path, always_2d=False)
-
-    x = np.array(probs, dtype=float)
-    n_frames = len(x)
-
-    for idx, seg in enumerate(segments):
-        seg_dir = cat_dir / f"segment_{idx:03d}"
-        seg_dir.mkdir(parents=True, exist_ok=True)
-
-        # ── meta.json ────────────────────────────────────────────────────────
-        meta_path = seg_dir / "meta.json"
-        with open(meta_path, "w", encoding="utf-8") as fh:
-            json.dump(seg, fh, ensure_ascii=False, indent=2)
-
-        # ── sound.wav ────────────────────────────────────────────────────────
-        if audio_data is not None:
-            start_sample = int(seg["start_s"] * file_sr)
-            end_sample = int(seg["end_s"] * file_sr)
-            # Clamp to valid range
-            start_sample = max(0, start_sample)
-            end_sample = min(len(audio_data), end_sample)
-            slice_audio = audio_data[start_sample:end_sample]
-            wav_path = seg_dir / "sound.wav"
-            sf.write(str(wav_path), slice_audio, file_sr)
-
-        # ── plot.png ─────────────────────────────────────────────────────────
-        f_start = max(0, seg["frame_start"] - pad_frames)
-        f_end = min(n_frames, seg["frame_end"] + pad_frames + 1)
-        frames = np.arange(f_start, f_end)
-        zoomed = x[f_start:f_end]
-
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(frames, zoomed, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
-
-        # Highlight the actual segment
-        ax.axvspan(
-            seg["frame_start"],
-            seg["frame_end"] + 1,
-            alpha=0.20,
-            color="green" if category == "active_regions" else "red",
-            label=category.replace("_", " ").title(),
-        )
-
-        # Annotate start / end times
-        ax.set_title(
-            f"{category} · segment {idx:03d}  "
-            f"[{seg['start_s']:.3f}s – {seg['end_s']:.3f}s]",
-            fontsize=12,
-        )
-        ax.set_xlabel("Frame Index")
-        ax.set_ylabel("Speech Probability")
-        ax.set_ylim(-0.05, 1.05)
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=10, loc="upper right")
-        plt.tight_layout()
-        plot_path = seg_dir / "plot.png"
-        plt.savefig(str(plot_path), dpi=150, bbox_inches="tight")
-        plt.close()
-
-    print(
-        f"[save_segments_to_subdirs] Wrote {len(segments)} '{category}' segments → {cat_dir}"
+    score = (
+        w_depth * (1.0 - min_prob)
+        + w_mean * (1.0 - mean_prob)
+        + w_duration * duration_norm
     )
+
+    return float(score)
+
+
+def compute_trough_score(
+    min_prob: float,
+    prominence: float,
+    width: float,
+    max_width_ref: float = 20.0,
+    w_depth: float = 0.4,
+    w_prominence: float = 0.4,
+    w_width: float = 0.2,
+) -> float:
+    """
+    Score how safe a trough is for cutting.
+
+    Higher score = safer cut point.
+    """
+    depth_score = 1.0 - min_prob
+
+    # Normalize prominence (clip to avoid extreme scaling)
+    prominence_norm = min(prominence / 0.5, 1.0) if prominence is not None else 0.0
+
+    # Normalize width (frames)
+    width_norm = min(width / max_width_ref, 1.0) if width is not None else 0.0
+
+    score = (
+        w_depth * depth_score + w_prominence * prominence_norm + w_width * width_norm
+    )
+
+    return float(score)
 
 
 class VADPeakAnalyzer:
@@ -356,8 +241,8 @@ class VADPeakAnalyzer:
 
     def __init__(
         self,
-        sample_rate: int = 16000,
-        frame_duration_ms: float = 32.0,
+        sample_rate: int = SAMPLE_RATE,
+        frame_duration_ms: float = FRAME_LENGTH_MS,
         debug: bool = False,
     ):
         """
@@ -809,6 +694,12 @@ class VADPeakAnalyzer:
 
         frame_length = end - start
 
+        score = compute_valley_score(
+            min_prob=float(np.min(x[start:end])),
+            mean_prob=float(np.mean(x[start:end])),
+            duration_s=duration_s,
+        )
+
         segments.append(
             {
                 "frame_start": start,
@@ -824,6 +715,7 @@ class VADPeakAnalyzer:
                     "min_prob_s": round(min_prob_s, 4),
                     "mean_probability": float(np.mean(x[start:end])),
                     "frame_count": frame_length,
+                    "valley_score": score,
                     # "region_probs": region_probs,
                 },
             }
@@ -1060,8 +952,11 @@ class VADPeakAnalyzer:
                 label="Troughs (Silence)",
             )
             for idx, prob in zip(trough_indices, trough_probs):
+                # Convert frame index → time in seconds
+                time_s = idx * self.frame_duration_s
+
                 ax.annotate(
-                    f"{prob:.2f}",
+                    f"{time_s:.1f}s",
                     xy=(idx, prob),
                     xytext=(0, -18),
                     textcoords="offset points",
@@ -1096,6 +991,131 @@ class VADPeakAnalyzer:
         print(f"Plot saved to: {output_path}")
 
 
+def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
+    """Light moving average smoothing to reduce jitter in VAD probabilities."""
+    if window <= 1 or len(probs) <= window:
+        return probs[:]
+    x = np.array(probs, dtype=float)
+    smoothed = np.convolve(x, np.ones(window) / window, mode="same")
+    # Better edge handling
+    smoothed[0] = (x[0] + x[1]) / 2 if len(x) > 1 else x[0]
+    if len(x) > 2:
+        smoothed[-1] = (x[-1] + x[-2]) / 2
+    return smoothed.tolist()
+
+
+def save_segments_to_subdirs(
+    segments: List["VADSegment"],
+    category: str,
+    probs: List[float],
+    output_dir: "Path",
+    audio_path: Optional[str],
+    sample_rate: int,
+    frame_duration_ms: float,
+    pad_frames: int = 5,
+) -> None:
+    """
+    For each segment in `segments`, create a numbered subdirectory under
+    ``output_dir / category /`` and write three files into it:
+
+        sound.wav  – the audio slice corresponding to the segment's time range
+        meta.json  – the VADSegment dict serialised as JSON
+        plot.png   – a focused VAD-probability plot for just this segment
+
+    Parameters
+    ----------
+    segments      : list of VADSegment dicts (from extract_active_regions /
+                    extract_valleys or similar).
+    category      : subdirectory name, e.g. ``"active_regions"`` or
+                    ``"valleys"``.
+    probs         : full VAD probability list (used for the zoomed plot).
+    output_dir    : root Path under which ``category/segment_NNN/`` dirs are
+                    created.
+    audio_path    : path to the original audio file, or ``None``.  When
+                    ``None`` the function still writes ``meta.json`` and
+                    ``plot.png`` but skips ``sound.wav``.
+    sample_rate   : audio sample rate in Hz (needed to slice the waveform).
+    frame_duration_ms : duration of one VAD frame in milliseconds (needed to
+                    convert frame indices back to sample positions).
+    pad_frames    : number of extra frames to include around the segment in
+                    the plot (purely cosmetic, default 5).
+    """
+    import json
+
+    import soundfile as sf
+
+    frame_duration_s = frame_duration_ms / 1000.0
+    cat_dir = output_dir / category
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load audio once (only when needed)
+    audio_data: Optional[np.ndarray] = None
+    file_sr: int = sample_rate
+    if audio_path is not None:
+        audio_data, file_sr = sf.read(audio_path, always_2d=False)
+
+    x = np.array(probs, dtype=float)
+    n_frames = len(x)
+
+    for idx, seg in enumerate(segments):
+        seg_dir = cat_dir / f"segment_{idx:03d}"
+        seg_dir.mkdir(parents=True, exist_ok=True)
+
+        # ── meta.json ────────────────────────────────────────────────────────
+        meta_path = seg_dir / "meta.json"
+        with open(meta_path, "w", encoding="utf-8") as fh:
+            json.dump(seg, fh, ensure_ascii=False, indent=2)
+
+        # ── sound.wav ────────────────────────────────────────────────────────
+        if audio_data is not None:
+            start_sample = int(seg["start_s"] * file_sr)
+            end_sample = int(seg["end_s"] * file_sr)
+            # Clamp to valid range
+            start_sample = max(0, start_sample)
+            end_sample = min(len(audio_data), end_sample)
+            slice_audio = audio_data[start_sample:end_sample]
+            wav_path = seg_dir / "sound.wav"
+            sf.write(str(wav_path), slice_audio, file_sr)
+
+        # ── plot.png ─────────────────────────────────────────────────────────
+        f_start = max(0, seg["frame_start"] - pad_frames)
+        f_end = min(n_frames, seg["frame_end"] + pad_frames + 1)
+        frames = np.arange(f_start, f_end)
+        zoomed = x[f_start:f_end]
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(frames, zoomed, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
+
+        # Highlight the actual segment
+        ax.axvspan(
+            seg["frame_start"],
+            seg["frame_end"] + 1,
+            alpha=0.20,
+            color="green" if category == "active_regions" else "red",
+            label=category.replace("_", " ").title(),
+        )
+
+        # Annotate start / end times
+        ax.set_title(
+            f"{category} · segment {idx:03d}  "
+            f"[{seg['start_s']:.3f}s – {seg['end_s']:.3f}s]",
+            fontsize=12,
+        )
+        ax.set_xlabel("Frame Index")
+        ax.set_ylabel("Speech Probability")
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=10, loc="upper right")
+        plt.tight_layout()
+        plot_path = seg_dir / "plot.png"
+        plt.savefig(str(plot_path), dpi=150, bbox_inches="tight")
+        plt.close()
+
+    print(
+        f"[save_segments_to_subdirs] Wrote {len(segments)} '{category}' segments → {cat_dir}"
+    )
+
+
 def get_args():
     import argparse
 
@@ -1117,7 +1137,7 @@ def get_args():
         "--sample-rate",
         "-sr",
         type=int,
-        default=SAMPLE_RATE,
+        default=16000,
         help="Audio sample rate (default: 16000)",
     )
     parser.add_argument(
@@ -1232,6 +1252,11 @@ def get_args():
 if __name__ == "__main__":
     import json
     import shutil
+    from pathlib import Path
+
+    from jet.audio.speech.firered.speech_timestamps_extractor import (
+        extract_speech_timestamps,
+    )
 
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -1380,15 +1405,6 @@ if __name__ == "__main__":
             frame_duration_ms=args.frame_duration_ms,
         )
 
-    analyzer.save_plot(
-        probs,
-        peaks,
-        troughs,
-        active_regions=active_regions,
-        valleys=valleys,
-        output_path=str(OUTPUT_DIR / "vad_analysis_plot.png"),
-    )
-
     if args.smoothing_window:
         analyzer.save_plot(
             probs_smoothed,
@@ -1397,6 +1413,15 @@ if __name__ == "__main__":
             active_regions=active_regions,
             valleys=valleys,
             output_path=str(OUTPUT_DIR / "vad_analysis_plot_smoothed.png"),
+        )
+    else:
+        analyzer.save_plot(
+            probs,
+            peaks,
+            troughs,
+            active_regions=active_regions,
+            valleys=valleys,
+            output_path=str(OUTPUT_DIR / "vad_analysis_plot.png"),
         )
 
     peaks_path = OUTPUT_DIR / "peaks.json"
@@ -1419,7 +1444,9 @@ if __name__ == "__main__":
         json.dump(valleys, f, ensure_ascii=False, indent=2)
     print(f"Valleys saved to: {valleys_path.resolve()}")
 
-    valley_troughs = extract_valley_troughs(probs_smoothed)
+    valley_troughs = extract_valley_troughs(
+        probs_smoothed, min_valley_duration_s=args.min_valley_duration
+    )
     valley_troughs_path = OUTPUT_DIR / "valley_troughs.json"
     with open(valley_troughs_path, "w", encoding="utf-8") as f:
         json.dump(valley_troughs, f, ensure_ascii=False, indent=2)

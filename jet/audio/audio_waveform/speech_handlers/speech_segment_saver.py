@@ -26,6 +26,9 @@ from jet.audio.helpers.energy import (
 )
 from jet.audio.helpers.energy_base import compute_rms_per_frame
 from jet.transformers.object import make_serializable
+from rich.console import Console
+
+console = Console()
 
 # ── VAD badge metadata (mirrors live_srt_preview_handler) ───────────────────
 _VAD_BADGE: dict[str, tuple[str, str, str]] = {
@@ -74,23 +77,49 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         dir_name = f"segment_{now_str}_{event.segment_id:03d}"
         event.segment_dir = self.base_dir / dir_name
         event.segment_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[SAVER] Created directory → {event.segment_dir}")
+        short = event.segment_dir.name
+        console.print(
+            f"[SAVER] Created directory → [bold blue link=file://{event.segment_dir}]{short}[/bold blue link=file://{event.segment_dir}]",
+            highlight=False,
+        )
 
     def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
         if event.segment_dir is None:
-            print("[SAVER] Warning: no segment_dir → cannot save")
+            console.print(
+                "[SAVER] [yellow]Warning: no segment_dir → cannot save[/yellow]",
+                highlight=False,
+            )
             return
 
         dir_path = event.segment_dir
+        dir_short = dir_path.name
 
         try:
-            # 1. Audio
+            # 1. Audio - Save in full precision (32-bit float)
             wav_path = dir_path / "sound.wav"
+            wav_short = wav_path.name
             if len(event.audio) > 0:
-                sf.write(str(wav_path), event.audio, 16000)
-                print(f"  Saved {wav_path.name} ({len(event.audio):,} samples)")
+                try:
+                    sf.write(
+                        str(wav_path),
+                        event.audio,
+                        16000,
+                        # subtype="FLOAT",  # ← Preserve float32
+                        # subtype="PCM_32",  # Alternative: 32-bit integer
+                    )
+                    console.print(
+                        f"  Saved [green link=file://{wav_path}]{wav_short}[/green link=file://{wav_path}] ([cyan]{len(event.audio):,}[/cyan] samples) [32-bit float]",
+                        highlight=False,
+                    )
+                except Exception as e:
+                    console.print(
+                        f"  [red]Failed to save {wav_short}[/red]: {e}",
+                        highlight=False,
+                    )
             else:
-                print("  No audio data — skipping .wav")
+                console.print(
+                    "  [yellow]No audio data — skipping .wav[/yellow]", highlight=False
+                )
 
             # 2. Summary
             speech_frames = sum(1 for f in event.prob_frames if f["is_speech"])
@@ -128,14 +157,19 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
                 raw_probs = []
 
             raw_probs_path = dir_path / "probs.json"
+            raw_probs_short = raw_probs_path.name
             raw_probs_path.write_text(json.dumps(raw_probs, indent=2), encoding="utf-8")
-            print(f"  Saved {raw_probs_path.name} ({len(raw_probs)} frames)")
+            console.print(
+                f"  Saved [green link=file://{raw_probs_path}]{raw_probs_short}[/green link=file://{raw_probs_path}] ([cyan]{len(raw_probs)}[/cyan] frames)",
+                highlight=False,
+            )
 
             # 3b. Save per-frame results with energy
             prob_frames_with_energy = self._compute_energies(
                 event.audio, event.prob_frames
             )
             probs_path = dir_path / "speech_probs.json"
+            probs_short = probs_path.name
             probs_path.write_text(
                 json.dumps({"probs": prob_frames_with_energy}, indent=2),
                 encoding="utf-8",
@@ -144,29 +178,37 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
             # Save per-frame RMS energies using compute_rms_per_frame
             if len(event.audio) > 0 and event.prob_frames:
                 hop_size = HOP_SIZE
-                # We only have the short segment audio, so we must use
-                # relative frame indices (start at 0). The old start_frame
-                # and end_frame are global numbers from the live stream
-                # and were causing every slice to be empty → all 0.0
                 energies = compute_rms_per_frame(
                     audio=event.audio,
                     hop_size=hop_size,
                 )
 
                 energies_path = dir_path / "energies.json"
+                energies_short = energies_path.name
                 energies_path.write_text(
                     json.dumps({"energies": energies}, indent=2), encoding="utf-8"
                 )
-                print(f"  Saved {energies_path.name} ({len(energies)} frames)")
+                console.print(
+                    f"  Saved [green link=file://{energies_path}]{energies_short}[/green link=file://{energies_path}] ([cyan]{len(energies)}[/cyan] frames)",
+                    highlight=False,
+                )
             else:
-                print("  No audio or frames — skipping energies.json")
+                console.print(
+                    "  [yellow]No audio or frames — skipping energies.json[/yellow]",
+                    highlight=False,
+                )
 
             # 4. Plot
             self._generate_speech_prob_plot(event, prob_frames_with_energy)
 
-            print(f"[SAVER] Finished → {dir_path}\n")
+            console.print(
+                f"[SAVER] [bold green]Finished →[/bold green] [bold blue link=file://{dir_path}]{dir_short}[/bold blue link=file://{dir_path}]\n",
+                highlight=False,
+            )
         except Exception as e:
-            print(f"[SAVER] Failed writing file: {e}")
+            console.print(
+                f"[SAVER] [red]Failed writing file[/red]: {e}", highlight=False
+            )
 
     def _compute_stats(self, audio: np.ndarray, frames: list[SpeechFrame]):
         # Compute statistics
@@ -229,7 +271,9 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         self, event: SpeechSegmentEndEvent, prob_frames: list[SpeechFrameWithEnergy]
     ):
         if not prob_frames:
-            print("  No prob frames → skipping plot")
+            console.print(
+                "  [yellow]No prob frames → skipping plot[/yellow]", highlight=False
+            )
             return
         dir_path = event.segment_dir
         # ── Prepare data ───────────────────────────────────────────────────────
@@ -249,18 +293,36 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         # hybrid[i] = 0.5 × smoothed_prob[i] + 0.5 × norm_rms[i]
         # Both operands are already computed above, so no new plumbing needed.
         hybrid_probs = 0.5 * smoothed_probs + 0.5 * norm_energy
+        hybrid_probs = [float(v) for v in hybrid_probs]
         smoothed_hybrid = smooth_signal(hybrid_probs, window=SMOOTH_WINDOW)
 
         # Persist hybrid_probs.json alongside the other per-segment artefacts
         hybrid_path = dir_path / "hybrid_probs.json"
+        hybrid_short = hybrid_path.name
         hybrid_path.write_text(
             json.dumps(
-                [float(v) for v in hybrid_probs],
+                hybrid_probs,
                 indent=2,
             ),
             encoding="utf-8",
         )
-        print(f"  Saved {hybrid_path.name} ({len(hybrid_probs)} values)")
+        console.print(
+            f"  Saved [green link=file://{hybrid_path}]{hybrid_short}[/green link=file://{hybrid_path}] ([cyan]{len(hybrid_probs)}[/cyan] values)",
+            highlight=False,
+        )
+
+        # Persist valley_troughs.json
+        if event.valley_troughs:
+            valley_troughs_path = dir_path / "_valley_troughs.json"
+            valley_troughs_short = valley_troughs_path.name
+            valley_troughs_path.write_text(
+                json.dumps(event.valley_troughs, indent=2),
+                encoding="utf-8",
+            )
+            console.print(
+                f"  Saved [green link=file://{valley_troughs_path}]{valley_troughs_short}[/green link=file://{valley_troughs_path}] ([cyan]{len(event.valley_troughs)}[/cyan] entries)",
+                highlight=False,
+            )
 
         # ── Figure: expand to 3 panels ────────────────────────────────────────
         fig = plt.figure(figsize=(9, 9.0), dpi=140)
@@ -358,6 +420,10 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         # ── Final styling & save ──────────────────────────────────────────────
         plt.tight_layout(rect=[0.06, 0.04, 0.94, 0.92])
         chart_path = dir_path / "speech_prob_energy_2panel.png"
+        chart_short = chart_path.name
         plt.savefig(chart_path, bbox_inches="tight", dpi=160)
         plt.close(fig)
-        print(f"  Saved chart: {chart_path.name}")
+        console.print(
+            f"  Saved chart: [green link=file://{chart_path}]{chart_short}[/green link=file://{chart_path}]",
+            highlight=False,
+        )

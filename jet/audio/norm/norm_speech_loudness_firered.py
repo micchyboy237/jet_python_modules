@@ -104,8 +104,6 @@ def normalize_speech_loudness(
         audio,
         sr=target_sr,
         mono=True,
-        normalize=True,
-        original_sr=original_sr,  # ← critical line
     )
 
     # Helpful warning for the most common mistake
