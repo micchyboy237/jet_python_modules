@@ -240,7 +240,9 @@ class SpeechSegmentTracker:
         self.last_segment_forced_split = self.current_forced_split
 
         # Only apply valley-based trimming for forced splits (non-silence)
-        apply_valley_trim = self.current_trigger_reason == "hard_limit"
+        apply_valley_trim = (
+            self.current_forced_split and self.current_trigger_reason != "silence"
+        )
 
         # === Valley Trough Analysis for Smart Trimming ===
         valley_troughs = []
