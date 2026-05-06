@@ -245,6 +245,7 @@ class SpeechSegmentTracker:
             sample_rate=self.sample_rate,
             frame_offset=self.current_start_frame,
             min_trough_offset_s=2.0,
+            min_valley_duration_s=0.8,
         )
 
         # Only apply valley-based trimming for forced splits (non-silence)
@@ -308,6 +309,19 @@ class SpeechSegmentTracker:
         segment_rms = compute_rms(audio)
         segment_has_sound = has_sound(audio)
 
+        start_time_sec = None
+        if self.current_start_event is not None:
+            start_time_sec = self.current_start_event.start_time_sec
+
+        end_time_sec = None
+        if start_time_sec is not None:
+            end_time_sec = start_time_sec + actual_duration
+
+        console.print(
+            f"[TRACKER] Segment start: {start_time_sec}, end: {end_time_sec}, duration: {actual_duration:.3f} sec",
+            style="dim",
+        )
+
         if not segment_has_sound or actual_duration < 0.25:
             console.print(
                 "[TRACKER] [dim yellow]SKIPPED silent/short segment[/]", style="dim"
@@ -316,14 +330,14 @@ class SpeechSegmentTracker:
             return
 
         # === Create End Event ===
-        end_time_sec = self.current_start_event.start_time_sec + actual_duration
+        # `start_time_sec` and `end_time_sec` are already set above
         loudness_label = rms_to_loudness_label(segment_rms)
 
         end_event = SpeechSegmentEndEvent(
             segment_id=self.segment_counter,
             start_frame=self.current_start_event.start_frame,
             end_frame=int(true_end_frame),
-            start_time_sec=self.current_start_event.start_time_sec,
+            start_time_sec=start_time_sec,
             end_time_sec=end_time_sec,
             duration_sec=actual_duration,
             audio=audio,

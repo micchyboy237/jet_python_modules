@@ -1,4 +1,4 @@
-# jet.audio.speech.vad_peak_analyzer
+# vad_peak_analyzer.py
 
 import logging
 import tempfile
@@ -9,7 +9,7 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf
-from jet.audio.helpers.config import FRAME_LENGTH_MS, SAMPLE_RATE
+from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
 from jet.audio.speech.firered.speech_timestamps_extractor import (
     extract_speech_timestamps,
 )
@@ -38,40 +38,64 @@ class VADSegment(TypedDict):
 
 
 class ValleyInfo(TypedDict):
-    # Local (relative to the current probs window)
     frame_start: int
     frame_end: int
     frame_length: int
-
-    # Global (absolute position in full audio)
-    global_frame_start: int
-    global_frame_end: int
-
-    # Time-based (always global)
     start_s: float
     end_s: float
     duration_s: float
 
-    # Global time equivalents
-    global_start_s: float
-    global_end_s: float
-    global_duration_s: float
-
 
 class ValleyTrough(TypedDict):
-    frame: int  # trough frame index within the provided probs list
-    global_frame: int
-    prob: float
+    frame: int
     time_s: float
-    global_time_s: float
+    prob: float
     valley: ValleyInfo
+
+
+def base_extract_valley_troughs(
+    valleys: List[VADSegment], duration_s: float = 0.25
+) -> List[ValleyTrough]:
+    """
+    Extracts the lowest-probability frames (troughs) from a list of VADSegment valleys,
+    but only includes valleys that have exactly one trough and duration >= duration_s.
+    Returns a list of ValleyTrough dicts with typed fields.
+
+    Parameters
+    ----------
+    valleys: list of VADSegment dicts
+    duration_s: minimum valley duration (in seconds) to include (default: 0.25)
+    """
+    filtered_valleys = [
+        valley
+        for valley in valleys
+        if len(valley["details"].get("troughs", [])) == 1
+        and valley["duration_s"] >= duration_s
+    ]
+    valley_troughs: List[ValleyTrough] = [
+        ValleyTrough(
+            frame=valley["details"]["min_prob_frame"],
+            time_s=valley["details"]["min_prob_s"],
+            prob=valley["details"]["min_probability"],
+            valley=ValleyInfo(
+                frame_start=valley["frame_start"],
+                frame_end=valley["frame_end"],
+                frame_length=valley["frame_length"],
+                start_s=valley["start_s"],
+                end_s=valley["end_s"],
+                duration_s=valley["duration_s"],
+            ),
+        )
+        for valley in filtered_valleys
+    ]
+    return valley_troughs
 
 
 def extract_valley_troughs(
     probs: List[float],
     duration_s: float = 0.25,
     sample_rate: int = SAMPLE_RATE,
-    frame_duration_ms: float = FRAME_LENGTH_MS,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
     smoothing_window: int = 0,
     trough_height: Optional[float] = None,
     trough_prominence: float = 0.15,
@@ -93,7 +117,7 @@ def extract_valley_troughs(
         probs: List of speech probability values for each frame (0~1), typically from a VAD or speech model.
         duration_s: Minimum duration (in seconds) for a valley to be considered valid.
         sample_rate: Audio sample rate (used for time/frame conversions).
-        frame_duration_ms: Duration of each frame (in milliseconds).
+        frame_shift_ms: Size of the step (in milliseconds) between consecutive frames.
         smoothing_window: Window size for smoothing VAD probabilities (set 0 to skip smoothing).
         trough_height: Maximum allowed probability value for a trough (silence valley),
             or None for default/auto.
@@ -112,7 +136,7 @@ def extract_valley_troughs(
     """
     analyzer = VADPeakAnalyzer(
         sample_rate=sample_rate,
-        frame_duration_ms=frame_duration_ms,
+        frame_shift_ms=frame_shift_ms,
     )
 
     smoothed = (
@@ -146,7 +170,7 @@ def extract_valley_troughs(
     ]
 
     result: List[ValleyTrough] = []
-    seconds_per_frame = frame_duration_ms / 1000.0
+    seconds_per_frame = frame_shift_ms / 1000.0
 
     for valley in filtered_valleys:
         local_trough_frame = valley["details"]["min_prob_frame"]
@@ -198,6 +222,7 @@ def extract_valley_troughs_from_np_audio(
     smoothing_window: int = 20,
     frame_offset: int = 0,
     min_trough_offset_s: float = 0.4,
+    min_valley_duration_s: float = 0.8,
     temp_dir: str | Path | None = None,
 ) -> list[ValleyTrough]:
     """
@@ -268,6 +293,7 @@ def extract_valley_troughs_from_np_audio(
             smoothing_window=smoothing_window,
             frame_offset=frame_offset,
             min_trough_offset_s=min_trough_offset_s,
+            min_valley_duration_s=min_valley_duration_s,
         )
 
         return troughs
@@ -301,7 +327,7 @@ def save_segments_to_subdirs(
     output_dir: "Path",
     audio_path: Optional[str],
     sample_rate: int,
-    frame_duration_ms: float,
+    frame_shift_ms: float,
     pad_frames: int = 5,
 ) -> None:
     """
@@ -325,16 +351,17 @@ def save_segments_to_subdirs(
                     ``None`` the function still writes ``meta.json`` and
                     ``plot.png`` but skips ``sound.wav``.
     sample_rate   : audio sample rate in Hz (needed to slice the waveform).
-    frame_duration_ms : duration of one VAD frame in milliseconds (needed to
-                    convert frame indices back to sample positions).
+    frame_shift_ms: step size between VAD frames in milliseconds (used to
+                    convert frame indices to time and sample positions).
     pad_frames    : number of extra frames to include around the segment in
                     the plot (purely cosmetic, default 5).
+
     """
     import json
 
     import soundfile as sf
 
-    frame_duration_s = frame_duration_ms / 1000.0
+    frame_duration_s = frame_shift_ms / 1000.0
     cat_dir = output_dir / category
     cat_dir.mkdir(parents=True, exist_ok=True)
 
@@ -415,18 +442,18 @@ class VADPeakAnalyzer:
     def __init__(
         self,
         sample_rate: int = 16000,
-        frame_duration_ms: float = 32.0,
+        frame_shift_ms: float = FRAME_SHIFT_MS,
         debug: bool = False,
     ):
         """
         Args:
             sample_rate: Audio sample rate in Hz.
-            frame_duration_ms: Duration of each VAD frame in milliseconds.
+            frame_shift_ms: Frame shift (hop length) in milliseconds between consecutive VAD frames.
             debug: If True, enable debug logging.
         """
         self.sample_rate = sample_rate
-        self.frame_duration_ms = frame_duration_ms
-        self.frame_duration_s = frame_duration_ms / 1000.0
+        self.frame_shift_ms = frame_shift_ms
+        self.frame_duration_s = frame_shift_ms / 1000.0
         self.auto_threshold_strategy: ThresholdStrategy = ThresholdStrategy.OTSU
         """Strategy used when valley_threshold or trough_height is None."""
         self.hop_length = int(sample_rate * self.frame_duration_s)  # samples per frame
@@ -1157,35 +1184,33 @@ class VADPeakAnalyzer:
 def get_args():
     import argparse
 
-    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
-
     parser = argparse.ArgumentParser(
         description="Analyze VAD speech/voice probabilities and find peaks/troughs"
     )
     parser.add_argument(
         "input_file",
         nargs="?",
-        default=DEFAULT_AUDIO,
+        default=None,
         help=(
             "Path to either:\n"
             "- JSON file with speech probabilities\n"
             "- Audio file (wav/mp3/flac/etc.) to run VAD on\n"
-            f"If not provided, uses default: {DEFAULT_AUDIO}"
+            "If not provided, uses a sample sequence."
         ),
     )
     parser.add_argument(
         "--sample-rate",
         "-sr",
         type=int,
-        default=SAMPLE_RATE,
+        default=16000,
         help="Audio sample rate (default: 16000)",
     )
     parser.add_argument(
-        "--frame-duration-ms",
-        "-fd",
+        "--frame-shift-ms",
+        "-fsm",
         type=float,
-        default=FRAME_LENGTH_MS,
-        help="Analysis frame duration in ms (default: FRAME_LENGTH_MS for FireRedVAD)",
+        default=FRAME_SHIFT_MS,
+        help="Frame shift (hop length) in ms between analysis frames (default: FRAME_SHIFT_MS for FireRedVAD)",
     )
     parser.add_argument(
         "--peak-height",
@@ -1349,7 +1374,7 @@ if __name__ == "__main__":
         probs_smoothed = probs
 
     analyzer = VADPeakAnalyzer(
-        sample_rate=args.sample_rate, frame_duration_ms=args.frame_duration_ms
+        sample_rate=args.sample_rate, frame_shift_ms=args.frame_shift_ms
     )
 
     peaks = analyzer.extract_peaks(
@@ -1428,7 +1453,7 @@ if __name__ == "__main__":
             output_dir=OUTPUT_DIR,
             audio_path=args.input_file,
             sample_rate=args.sample_rate,
-            frame_duration_ms=args.frame_duration_ms,
+            frame_shift_ms=args.frame_shift_ms,
         )
         save_segments_to_subdirs(
             segments=valleys,
@@ -1437,7 +1462,7 @@ if __name__ == "__main__":
             output_dir=OUTPUT_DIR,
             audio_path=args.input_file,
             sample_rate=args.sample_rate,
-            frame_duration_ms=args.frame_duration_ms,
+            frame_shift_ms=args.frame_shift_ms,
         )
 
     analyzer.save_plot(
@@ -1479,15 +1504,20 @@ if __name__ == "__main__":
         json.dump(valleys, f, ensure_ascii=False, indent=2)
     print(f"Valleys saved to: {valleys_path.resolve()}")
 
-    # === Valley Troughs with local + global support ===
+    base_valley_troughs = base_extract_valley_troughs(valleys)
+    base_valley_troughs_path = OUTPUT_DIR / "base_valley_troughs.json"
+    with open(base_valley_troughs_path, "w", encoding="utf-8") as f:
+        json.dump(base_valley_troughs, f, ensure_ascii=False, indent=2)
+    print(f"Valley troughs saved to: {base_valley_troughs_path.resolve()}")
+
     valley_troughs = extract_valley_troughs(
-        probs=probs_smoothed,
-        duration_s=args.min_valley_duration,  # or keep your preferred default
+        probs=probs,
+        duration_s=args.min_valley_duration,
+        sample_rate=args.sample_rate,  # ← add this
+        frame_shift_ms=args.frame_shift_ms,  # ← add this (was defaulting to 25ms!)
         frame_offset=args.frame_offset if hasattr(args, "frame_offset") else 0,
         smoothing_window=args.smoothing_window,
-        # You can pass other parameters as needed
     )
-
     valley_troughs_path = OUTPUT_DIR / "valley_troughs.json"
     with open(valley_troughs_path, "w", encoding="utf-8") as f:
         json.dump(valley_troughs, f, ensure_ascii=False, indent=2)
