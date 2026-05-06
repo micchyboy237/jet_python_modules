@@ -1,3 +1,5 @@
+# jet.audio.audio_waveform.speech_segment_tracker
+
 import math
 from datetime import datetime
 
@@ -65,13 +67,18 @@ class SpeechSegmentTracker:
         else:
             self.current_audio_chunks.append(samples.astype(np.float32))
 
-    def add_prob(self, smoothed_prob: float) -> None:
+    def add_prob(
+        self, smoothed_prob: float, rms: float = 0.0, hybrid_prob: float = 0.0
+    ) -> None:
         if not self.is_speaking:
             self.pre_roll_buffer.add_prob(smoothed_prob)
 
-    # Removed: _has_ongoing_sound_at_end() and _is_premature_end()
-
-    def on_frame(self, result: StreamVadFrameResult) -> None:
+    def on_frame(
+        self,
+        result: StreamVadFrameResult,
+        rms: float = 0.0,
+        hybrid_prob: float = 0.0,
+    ) -> None:
         if result.is_speech_start:
             self._start_new_segment(result)
 
@@ -80,6 +87,8 @@ class SpeechSegmentTracker:
                 "frame_idx": result.frame_idx,
                 "raw_prob": result.raw_prob,
                 "smoothed_prob": result.smoothed_prob,
+                "rms": round(rms, 6),
+                "hybrid_prob": round(hybrid_prob, 4),
                 "is_speech": result.is_speech,
                 "is_speech_start": result.is_speech_start,
                 "is_speech_end": result.is_speech_end,
@@ -177,14 +186,14 @@ class SpeechSegmentTracker:
         if not self.is_speaking:
             return
 
-        # Simple end logic: always end at last frame available, ignore valleys
+        # Record the original end frame before any trimming
         true_end_frame = (
             self.current_frames[-1]["frame_idx"] if self.current_frames else 0
         )
 
         self.is_speaking = False
 
-        # Cut frame/audio just in case (should already be aligned)
+        # Trim any frames beyond the official end point (safety cleanup)
         if self.current_frames:
             cut_idx = 0
             for i, entry in enumerate(self.current_frames):
@@ -192,23 +201,24 @@ class SpeechSegmentTracker:
                     cut_idx = i + 1
                 else:
                     break
-            trimmed = len(self.current_frames) - cut_idx
-            if trimmed > 0:
+
+            if cut_idx < len(self.current_frames):
+                trimmed_count = len(self.current_frames) - cut_idx
                 console.print(
-                    f"[TRACKER] [dim cyan]Trimmed {trimmed} frame(s) after end point[/]",
+                    f"[TRACKER] [dim cyan]Trimmed {trimmed_count} frame(s) after end point[/]",
                     style="dim",
                 )
-            self.current_frames = self.current_frames[:cut_idx]
-            self.current_audio_chunks = self.current_audio_chunks[:cut_idx]
+                self.current_frames = self.current_frames[:cut_idx]
+                self.current_audio_chunks = self.current_audio_chunks[:cut_idx]
 
-        # Combine audio
+        # Combine audio chunks
         audio = (
             np.concatenate(self.current_audio_chunks)
             if self.current_audio_chunks
             else np.empty(0, dtype=np.float32)
         )
 
-        # Postprocessing logic may update forced_split/trigger_reason:
+        # Update forced split info from postprocessor
         if self.postprocessor is not None:
             self.current_forced_split = getattr(
                 self.postprocessor, "was_force_splitted", False
@@ -219,71 +229,71 @@ class SpeechSegmentTracker:
 
         self.last_segment_forced_split = self.current_forced_split
 
+        # === Valley Trough Analysis for Smart Trimming ===
         valley_troughs = extract_valley_troughs_from_np_audio(
             audio,
             sample_rate=self.sample_rate,
+            frame_offset=self.current_start_frame,
+            min_trough_offset_s=2.0,
         )
 
-        # Only apply valley trough trim if current_forced_split is set and != "silence"
+        # Only apply valley-based trimming for forced splits (non-silence)
         apply_valley_trim = (
             self.current_forced_split and self.current_trigger_reason != "silence"
         )
 
+        last_trough = None
+
         if valley_troughs and apply_valley_trim:
+            last_trough = valley_troughs[-1]
+            valley = last_trough["valley"]
+
             orig_dur = len(audio) / self.sample_rate
-            # samples per 10ms VAD frame
-            frame_samples = int(self.sample_rate * self.frame_duration_ms / 1000)
-            cut_sample = valley_troughs[-1]["frame"] * frame_samples
+
+            # Use LOCAL time for slicing the local audio buffer!
+            cut_time_s = last_trough["time_s"]  # ← Local time
+            cut_sample = int(cut_time_s * self.sample_rate)
+
             trimmed_audio = audio[:cut_sample]
             trimmed_dur = len(trimmed_audio) / self.sample_rate
             diff = orig_dur - trimmed_dur
+
             console.print(
-                f"[TRACKER] [dim cyan]Comparing audio durations: orig={orig_dur:.2f}s, trimmed={trimmed_dur:.2f}s, diff={diff:.2f}s[/]",
+                f"[TRACKER] [dim cyan]Valley trim: cut at local={cut_time_s:.3f}s "
+                f"(global={last_trough['global_time_s']:.3f}s, frame={last_trough['global_frame']}) | "
+                f"orig={orig_dur:.3f}s → trimmed={trimmed_dur:.3f}s (diff={diff:.3f}s)[/]",
                 style="dim",
             )
 
             audio = trimmed_audio
 
-            # Re-sync current_frames to match the valley-trimmed audio duration.
-            # Each VAD frame is frame_duration_ms wide; find the last frame whose
-            # start time falls within the trimmed window and drop everything after.
-            frame_dur_s = 0.01  # 10 ms per VAD frame
-            valley_cut_s = valley_troughs[-1]["time_s"]
-            segment_start_s = self.current_start_event.start_time_sec
-            keep_frames = []
-            for entry in self.current_frames:
-                # frame_idx is a global counter; convert to local time within segment
-                local_frame = entry["frame_idx"] - self.current_start_frame
-                frame_start_s = local_frame * frame_dur_s
-                if frame_start_s <= valley_cut_s:
-                    keep_frames.append(entry)
-            valley_trimmed_count = len(self.current_frames) - len(keep_frames)
-            if valley_trimmed_count > 0:
-                console.print(
-                    f"[TRACKER] [dim cyan]Valley trim: dropped {valley_trimmed_count} frame(s) "
-                    f"beyond valley trough at {valley_cut_s:.3f}s[/]",
-                    style="dim",
-                )
+            # Trim frames using global_frame for safety
+            keep_frames = [
+                entry
+                for entry in self.current_frames
+                if entry["frame_idx"] <= last_trough["global_frame"]
+            ]
             self.current_frames = keep_frames
 
-            # Re-sync current_audio_chunks: drop chunks whose cumulative end time
-            # exceeds the valley cut point, partial-trim the boundary chunk.
+            # Re-sync audio chunks using local cut time
             synced_chunks: list[np.ndarray] = []
             accumulated_s = 0.0
             for chunk in self.current_audio_chunks:
                 chunk_dur_s = len(chunk) / self.sample_rate
-                if accumulated_s >= valley_cut_s:
+                if accumulated_s >= cut_time_s:
                     break
-                remaining_s = valley_cut_s - accumulated_s
-                if accumulated_s + chunk_dur_s > valley_cut_s:
-                    keep_samples = math.floor(remaining_s * self.sample_rate)
+                if accumulated_s + chunk_dur_s > cut_time_s:
+                    keep_samples = math.floor(
+                        (cut_time_s - accumulated_s) * self.sample_rate
+                    )
                     synced_chunks.append(chunk[:keep_samples])
                     break
                 synced_chunks.append(chunk)
                 accumulated_s += chunk_dur_s
+
             self.current_audio_chunks = synced_chunks
 
-        # Final validation
+        # === Final Validation ===
         actual_duration = len(audio) / self.sample_rate
         segment_rms = compute_rms(audio)
         segment_has_sound = has_sound(audio)
@@ -295,16 +305,14 @@ class SpeechSegmentTracker:
             self.reset()
             return
 
-        # Event creation and handler notification
-        end_frame = true_end_frame
-        actual_samples = len(audio)
+        # === Create End Event ===
         end_time_sec = self.current_start_event.start_time_sec + actual_duration
         loudness_label = rms_to_loudness_label(segment_rms)
 
         end_event = SpeechSegmentEndEvent(
             segment_id=self.segment_counter,
             start_frame=self.current_start_event.start_frame,
-            end_frame=int(end_frame),
+            end_frame=int(true_end_frame),
             start_time_sec=self.current_start_event.start_time_sec,
             end_time_sec=end_time_sec,
             duration_sec=actual_duration,
@@ -314,11 +322,12 @@ class SpeechSegmentTracker:
             trigger_reason=self.current_trigger_reason,
             started_at=self.current_start_event.started_at,
             segment_dir=self.current_start_event.segment_dir,
-            # Energy RMS fields
+            # Energy fields
             segment_rms=segment_rms,
             loudness=loudness_label,
             has_sound=segment_has_sound,
             vad_type=self.current_start_event.vad_type,
+            last_trough=last_trough,
             valley_troughs=valley_troughs,
         )
 
@@ -331,7 +340,7 @@ class SpeechSegmentTracker:
 
         console.print(
             f"[TRACKER] [bold red]END[/] segment [cyan]{self.segment_counter}[/] "
-            f"duration [yellow]{end_event.duration_sec:.2f}s[/] • rms={segment_rms:.4f} "
+            f"duration [yellow]{actual_duration:.2f}s[/] • rms={segment_rms:.4f} "
             f"({loudness_label}) • has_sound={segment_has_sound} • [italic magenta]{reason}[/]\n",
             style="bold",
         )

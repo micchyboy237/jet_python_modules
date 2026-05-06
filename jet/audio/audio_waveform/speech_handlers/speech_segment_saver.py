@@ -14,7 +14,6 @@ from jet.audio.audio_waveform.speech_events import (
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_types import SpeechFrame
-from jet.audio.helpers.config import HOP_SIZE
 from jet.audio.helpers.energy import (
     LoudnessLabel,
     compute_amplitude,
@@ -24,7 +23,6 @@ from jet.audio.helpers.energy import (
     rms_to_loudness_label,
     smooth_signal,
 )
-from jet.audio.helpers.energy_base import compute_rms_per_frame
 from jet.transformers.object import make_serializable
 from rich.console import Console
 
@@ -175,28 +173,9 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
                 encoding="utf-8",
             )
 
-            # Save per-frame RMS energies using compute_rms_per_frame
-            if len(event.audio) > 0 and event.prob_frames:
-                hop_size = HOP_SIZE
-                energies = compute_rms_per_frame(
-                    audio=event.audio,
-                    hop_size=hop_size,
-                )
-
-                energies_path = dir_path / "energies.json"
-                energies_short = energies_path.name
-                energies_path.write_text(
-                    json.dumps({"energies": energies}, indent=2), encoding="utf-8"
-                )
-                console.print(
-                    f"  Saved [green link=file://{energies_path}]{energies_short}[/green link=file://{energies_path}] ([cyan]{len(energies)}[/cyan] frames)",
-                    highlight=False,
-                )
-            else:
-                console.print(
-                    "  [yellow]No audio or frames — skipping energies.json[/yellow]",
-                    highlight=False,
-                )
+            # No longer saving standalone energies.json; energies are included per-frame in speech_probs.json
+            # The following block is deprecated and removed per refactor:
+            # If needed, energies can be extracted from prob_frames_with_energy
 
             # 4. Plot
             self._generate_speech_prob_plot(event, prob_frames_with_energy)
@@ -246,12 +225,21 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         frame_size = int(len(audio) / len(frames)) if frames else 0
 
         for idx, frame in enumerate(frames):
-            # frame["frame_idx"] is assumed to be ordered and sequential
-            # Calculate the start and end indices for the audio chunk corresponding to this frame
+            # Use the RMS already captured at record time. Falls back to
+            # audio-slice recomputation only if the field is absent (e.g. old
+            # pre-roll frames from before this change).
+            rms = frame.get("rms") or compute_rms(
+                audio[
+                    idx * frame_size : (
+                        (idx + 1) * frame_size if idx < len(frames) - 1 else len(audio)
+                    )
+                ]
+            )
+
             start = idx * frame_size
             end = (idx + 1) * frame_size if idx < len(frames) - 1 else len(audio)
             audio_frame = audio[start:end]
-            rms = compute_rms(audio_frame)
+
             energy_info: SpeechFrameEnergy = {
                 "has_sound": has_sound(audio_frame),
                 "loudness": rms_to_loudness_label(rms),
@@ -279,7 +267,15 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         # ── Prepare data ───────────────────────────────────────────────────────
         xs = np.array([p["frame_idx"] for p in prob_frames])
         smoothed_probs = np.array([p["smoothed_prob"] for p in prob_frames])
-        rms_values = np.array([p["energy"]["rms"] for p in prob_frames])
+
+        # Prefer the pre-computed hybrid_prob stored in each SpeechFrame.
+        # This is the value produced by the wrapper using the correct chunk
+        # boundary and the running _peak_rms, so it's more accurate than
+        # recomputing here.
+        hybrid_probs_raw = np.array([p.get("hybrid_prob", 0.0) for p in prob_frames])
+        # We still need norm_rms per frame to draw the energy panel.
+        # Read rms from the frame; normalize against the segment maximum.
+        rms_values = np.array([p.get("rms") or p["energy"]["rms"] for p in prob_frames])
         vad_code, vad_fg, vad_bg = _vad_badge(getattr(event, "vad_type", "fr"))
         # Adaptive normalization + smoothing
         norm_energy, norm_max = normalize_energy(
@@ -289,12 +285,9 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         SMOOTH_WINDOW = 5
         smoothed_norm_energy = smooth_signal(norm_energy, window=SMOOTH_WINDOW)
 
-        # ── Hybrid signal: same formula as the live visualizer ────────────────
-        # hybrid[i] = 0.5 × smoothed_prob[i] + 0.5 × norm_rms[i]
-        # Both operands are already computed above, so no new plumbing needed.
-        hybrid_probs = 0.5 * smoothed_probs + 0.5 * norm_energy
-        hybrid_probs = [float(v) for v in hybrid_probs]
-        smoothed_hybrid = smooth_signal(hybrid_probs, window=SMOOTH_WINDOW)
+        # ── Hybrid signal: use pre-computed value ─────────────────────────────
+        hybrid_probs = [float(v) for v in hybrid_probs_raw]
+        smoothed_hybrid = smooth_signal(hybrid_probs_raw, window=SMOOTH_WINDOW)
 
         # Persist hybrid_probs.json alongside the other per-segment artefacts
         hybrid_path = dir_path / "hybrid_probs.json"
@@ -321,6 +314,19 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
             )
             console.print(
                 f"  Saved [green link=file://{valley_troughs_path}]{valley_troughs_short}[/green link=file://{valley_troughs_path}] ([cyan]{len(event.valley_troughs)}[/cyan] entries)",
+                highlight=False,
+            )
+
+        # Persist last_trough.json
+        if event.last_trough:
+            last_trough_path = dir_path / "_last_trough.json"
+            last_trough_short = last_trough_path.name
+            last_trough_path.write_text(
+                json.dumps(event.last_trough, indent=2),
+                encoding="utf-8",
+            )
+            console.print(
+                f"  Saved [green link=file://{last_trough_path}]{last_trough_short}[/green link=file://{last_trough_path}]",
                 highlight=False,
             )
 

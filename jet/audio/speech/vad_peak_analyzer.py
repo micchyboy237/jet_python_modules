@@ -1,4 +1,4 @@
-# vad_peak_analyzer.py
+# jet.audio.speech.vad_peak_analyzer
 
 import logging
 import tempfile
@@ -38,18 +38,32 @@ class VADSegment(TypedDict):
 
 
 class ValleyInfo(TypedDict):
+    # Local (relative to the current probs window)
     frame_start: int
     frame_end: int
     frame_length: int
+
+    # Global (absolute position in full audio)
+    global_frame_start: int
+    global_frame_end: int
+
+    # Time-based (always global)
     start_s: float
     end_s: float
     duration_s: float
 
+    # Global time equivalents
+    global_start_s: float
+    global_end_s: float
+    global_duration_s: float
+
 
 class ValleyTrough(TypedDict):
-    frame: int
-    time_s: float
+    frame: int  # trough frame index within the provided probs list
+    global_frame: int
     prob: float
+    time_s: float
+    global_time_s: float
     valley: ValleyInfo
 
 
@@ -65,29 +79,36 @@ def extract_valley_troughs(
     valley_threshold: Optional[float] = None,
     min_valley_duration_s: float = 0.25,
     min_valley_frames: Optional[int] = None,
+    frame_offset: int = 0,
+    min_trough_offset_s: float = 0.4,
 ) -> List[ValleyTrough]:
     """
-    Extracts the lowest-probability frames (troughs) from valleys in a VAD
-    probability sequence, returning only valleys with exactly one trough and
-    duration >= duration_s.
+    Extract salient valley troughs (regions of strong silence) from a sequence of speech probability values.
 
-    Internally constructs a VADPeakAnalyzer, optionally smooths `probs`,
-    extracts troughs and valleys, attaches troughs to their parent valleys,
-    then filters and maps to ValleyTrough dicts.
+    This function uses a peak/trough analyzer to identify single-trough valleys in speech
+    probability arrays (such as those from VAD models) and returns detailed information
+    about eligible valleys and their troughs.
 
-    Parameters
-    ----------
-    probs               : VAD frame probabilities (one float per frame).
-    duration_s          : Minimum valley duration to include (default: 0.25s).
-    sample_rate         : Audio sample rate in Hz (default: 16000).
-    frame_duration_ms   : Duration of one VAD frame in ms (default: FRAME_LENGTH_MS).
-    smoothing_window    : Moving-average window size; 0 disables smoothing (default: 0).
-    trough_height       : Max speech prob for a trough; None → auto via Otsu.
-    trough_prominence   : Min prominence for a trough (default: 0.15).
-    trough_distance     : Min frames between troughs (default: 5).
-    valley_threshold    : Prob below which frames are silent; None → auto via Otsu.
-    min_valley_duration_s : Min valley duration in seconds (default: 0.25s).
-    min_valley_frames   : Min valley length in frames (overrides min_valley_duration_s).
+    Args:
+        probs: List of speech probability values for each frame (0~1), typically from a VAD or speech model.
+        duration_s: Minimum duration (in seconds) for a valley to be considered valid.
+        sample_rate: Audio sample rate (used for time/frame conversions).
+        frame_duration_ms: Duration of each frame (in milliseconds).
+        smoothing_window: Window size for smoothing VAD probabilities (set 0 to skip smoothing).
+        trough_height: Maximum allowed probability value for a trough (silence valley),
+            or None for default/auto.
+        trough_prominence: Minimum prominence for a trough to be counted (minimum difference from surroundings).
+        trough_distance: Minimum distance (in frames) between troughs.
+        valley_threshold: Threshold for classifying a region as a valley.
+        min_valley_duration_s: Minimum duration (s) for valleys (applied directly to raw valley candidates).
+        min_valley_frames: Minimum number of frames for valleys (None disables; overrides min_valley_duration_s if set).
+        frame_offset: Offset for global frame/time output (for combining/joining windowed analyses).
+        min_trough_offset_s: Minimum time (in seconds) into a valley segment before the trough can be a candidate
+            (e.g., to avoid selecting troughs that are too close to the start of a segment).
+
+    Returns:
+        List of ValleyTrough dictionaries, each containing detailed local/global trough and valley info.
+        Each entry includes frame, global_frame, prob, time_s, global_time_s, and a nested ValleyInfo.
     """
     analyzer = VADPeakAnalyzer(
         sample_rate=sample_rate,
@@ -118,27 +139,54 @@ def extract_valley_troughs(
     )
 
     filtered_valleys = [
-        valley
-        for valley in valleys
-        if len(valley["details"].get("troughs", [])) == 1
-        and valley["duration_s"] >= duration_s
+        v
+        for v in valleys
+        if len(v.get("details", {}).get("troughs", [])) == 1
+        and v["duration_s"] >= duration_s
     ]
-    return [
-        ValleyTrough(
-            frame=valley["details"]["min_prob_frame"],
-            time_s=valley["details"]["min_prob_s"],
-            prob=valley["details"]["min_probability"],
-            valley=ValleyInfo(
-                frame_start=valley["frame_start"],
-                frame_end=valley["frame_end"],
-                frame_length=valley["frame_length"],
-                start_s=valley["start_s"],
-                end_s=valley["end_s"],
-                duration_s=valley["duration_s"],
-            ),
+
+    result: List[ValleyTrough] = []
+    seconds_per_frame = frame_duration_ms / 1000.0
+
+    for valley in filtered_valleys:
+        local_trough_frame = valley["details"]["min_prob_frame"]
+
+        # === LOCAL TIMES (relative to this segment only) ===
+        local_trough_time_s = valley["details"]["min_prob_s"]
+
+        # === NEW FILTER ===
+        if local_trough_time_s < min_trough_offset_s:
+            continue  # Skip troughs too close to the start of this segment
+
+        # === GLOBAL TIMES ===
+        global_trough_time_s = local_trough_time_s + (frame_offset * seconds_per_frame)
+
+        valley_info: ValleyInfo = {
+            "frame_start": valley["frame_start"],
+            "frame_end": valley["frame_end"],
+            "frame_length": valley["frame_length"],
+            "start_s": valley["start_s"],  # local
+            "end_s": valley["end_s"],  # local
+            "duration_s": valley["duration_s"],
+            "global_frame_start": valley["frame_start"] + frame_offset,
+            "global_frame_end": valley["frame_end"] + frame_offset,
+            "global_start_s": valley["start_s"] + (frame_offset * seconds_per_frame),
+            "global_end_s": valley["end_s"] + (frame_offset * seconds_per_frame),
+            "global_duration_s": valley["duration_s"],
+        }
+
+        result.append(
+            {
+                "frame": local_trough_frame,
+                "global_frame": local_trough_frame + frame_offset,
+                "prob": valley["details"]["min_probability"],
+                "time_s": local_trough_time_s,
+                "global_time_s": global_trough_time_s,
+                "valley": valley_info,
+            }
         )
-        for valley in filtered_valleys
-    ]
+
+    return result
 
 
 def extract_valley_troughs_from_np_audio(
@@ -148,29 +196,37 @@ def extract_valley_troughs_from_np_audio(
     min_speech_duration_sec: float = 0.25,
     min_silence_duration_sec: float = 0.25,
     smoothing_window: int = 20,
+    frame_offset: int = 0,
+    min_trough_offset_s: float = 0.4,
     temp_dir: str | Path | None = None,
-) -> List[ValleyTrough]:
+) -> list[ValleyTrough]:
     """
-    Reusable standalone function to extract valley troughs from raw numpy audio.
+    Extract valley troughs (strong silence positions) from a raw numpy audio clip.
 
-    Workflow (mirrors _run_timestamp_analysis):
-        1. Saves audio to a temporary WAV file (float32, 16kHz)
-        2. Runs extract_speech_timestamps (FireRed VAD) to get speech probabilities
-        3. Runs extract_valley_troughs on those probabilities
-        4. Returns the troughs list
-        5. Cleans up the temporary file
+    This is a high-level utility that computes speech probability curves using a VAD, then
+    analyzes the result to return a list of the most prominent troughs located in sufficiently
+    silent zones. This is suitable for downstream alignment, trimming, splitting, etc.
+
+    Workflow:
+        1. Saves the provided audio (float32, 16kHz recommended) to a temporary WAV file.
+        2. Runs extract_speech_timestamps (FireRed VAD) to obtain framewise speech probabilities.
+        3. Runs extract_valley_troughs on those probabilities to extract valley/trough regions.
+        4. Returns the troughs list, each with local and global info.
+        5. Always removes the temporary WAV file (even on error/exit).
 
     Args:
-        audio: numpy array of audio samples (1D, float32 or float64 recommended)
-        sample_rate: sample rate of the audio (default 16000)
-        vad_threshold: VAD threshold passed to extract_speech_timestamps
-        min_speech_duration_sec: minimum speech duration
-        min_silence_duration_sec: minimum silence duration
-        smoothing_window: window size for extract_valley_troughs
-        temp_dir: optional directory for temporary WAV file
+        audio: 1D numpy array of the audio waveform (float32/float64 preferred).
+        sample_rate: Sampling rate of audio (Hz).
+        vad_threshold: Threshold for considering a frame as speech (used by extract_speech_timestamps).
+        min_speech_duration_sec: Minimum number of seconds required to be considered a speech segment.
+        min_silence_duration_sec: Minimum required silence (sec) between segments.
+        smoothing_window: Smoothing window (in frames) for VAD probability smoothing.
+        frame_offset: Frame index offset for adjusting global/local outputs.
+        min_trough_offset_s: Minimum time since start of segment before a trough is eligible.
+        temp_dir: Optional path (or Path) for placing temporary WAV file; defaults to system temp dir.
 
     Returns:
-        List of valley trough dictionaries from extract_valley_troughs
+        List of ValleyTrough dictionaries like those from extract_valley_troughs, or an empty list on failure.
     """
     if len(audio) == 0:
         return []
@@ -210,6 +266,8 @@ def extract_valley_troughs_from_np_audio(
         troughs = extract_valley_troughs(
             probs=probs,
             smoothing_window=smoothing_window,
+            frame_offset=frame_offset,
+            min_trough_offset_s=min_trough_offset_s,
         )
 
         return troughs
@@ -1099,18 +1157,20 @@ class VADPeakAnalyzer:
 def get_args():
     import argparse
 
+    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
+
     parser = argparse.ArgumentParser(
         description="Analyze VAD speech/voice probabilities and find peaks/troughs"
     )
     parser.add_argument(
         "input_file",
         nargs="?",
-        default=None,
+        default=DEFAULT_AUDIO,
         help=(
             "Path to either:\n"
             "- JSON file with speech probabilities\n"
             "- Audio file (wav/mp3/flac/etc.) to run VAD on\n"
-            "If not provided, uses a sample sequence."
+            f"If not provided, uses default: {DEFAULT_AUDIO}"
         ),
     )
     parser.add_argument(
@@ -1419,7 +1479,15 @@ if __name__ == "__main__":
         json.dump(valleys, f, ensure_ascii=False, indent=2)
     print(f"Valleys saved to: {valleys_path.resolve()}")
 
-    valley_troughs = extract_valley_troughs(probs_smoothed)
+    # === Valley Troughs with local + global support ===
+    valley_troughs = extract_valley_troughs(
+        probs=probs_smoothed,
+        duration_s=args.min_valley_duration,  # or keep your preferred default
+        frame_offset=args.frame_offset if hasattr(args, "frame_offset") else 0,
+        smoothing_window=args.smoothing_window,
+        # You can pass other parameters as needed
+    )
+
     valley_troughs_path = OUTPUT_DIR / "valley_troughs.json"
     with open(valley_troughs_path, "w", encoding="utf-8") as f:
         json.dump(valley_troughs, f, ensure_ascii=False, indent=2)

@@ -13,6 +13,7 @@ from jet.audio.audio_waveform.hybrid_stream_vad_postprocessor import (
     HybridStreamVadPostprocessor,
 )
 from jet.audio.audio_waveform.speech_segment_tracker import SpeechSegmentTracker
+from jet.audio.helpers.energy_base import compute_rms
 
 logging.basicConfig(
     level=logging.INFO,
@@ -115,6 +116,11 @@ class FireRedVADWrapper:
         # Give tracker access to postprocessor so it can read forced_split etc.
         self.tracker.postprocessor = self.vad.postprocessor
 
+        # Rolling peak RMS used to normalize energy into [0, 1].
+        # Starts at a small positive value so the first frame never divides by zero.
+        # It grows whenever a louder chunk arrives, ensuring norm_rms stays in [0, 1].
+        self._peak_rms: float = 1e-6
+
     def _normalize_chunk(self, chunk: np.ndarray) -> np.ndarray:
         # Simple dynamic range compression / normalization
         chunk_max = np.max(np.abs(chunk)) + 1e-10
@@ -133,6 +139,20 @@ class FireRedVADWrapper:
 
         chunk = self._normalize_chunk(chunk)
         self.audio_chunks.append(chunk)
+
+        # ── RMS of this single chunk ──────────────────────────────────────────
+        # compute_rms returns Root-Mean-Square energy (0 = silence, ~0.7 = loud).
+        chunk_rms = compute_rms(chunk)
+
+        # Keep a running maximum so we can scale any chunk's RMS to [0, 1].
+        # Using max() means the scale never shrinks mid-stream, which would
+        # cause earlier frames to look artificially louder.
+        if chunk_rms > self._peak_rms:
+            self._peak_rms = chunk_rms
+
+        # norm_rms: how loud is this chunk relative to the loudest chunk seen so far?
+        # Result is always in [0, 1].
+        norm_rms = min(chunk_rms / self._peak_rms, 1.0)
 
         total_len = sum(len(c) for c in self.audio_chunks)
 
@@ -157,7 +177,16 @@ class FireRedVADWrapper:
         self.last_prob = prob
         if self.tracker is not None:
             for result in results:
-                self.tracker.on_frame(result)
+                # smoothed_prob comes from the VAD model (speech probability, 0–1).
+                # norm_rms is the energy signal we computed above (0–1).
+                # hybrid blends them 50/50 as per the formula:
+                #   hybrid[i] = 0.5 × smoothed_prob[i] + 0.5 × norm_rms[i]
+                hybrid_prob = 0.5 * result.smoothed_prob + 0.5 * norm_rms
+                self.tracker.on_frame(
+                    result,
+                    rms=chunk_rms,
+                    hybrid_prob=round(hybrid_prob, 4),
+                )
             # self.tracker.add_prob(prob)
             # NOTE: tracker.add_prob() is intentionally NOT called here.
             # It is called once per frame in coordinated_callback() in

@@ -1,3 +1,5 @@
+# jet.audio.audio_waveform.hybrid_stream_vad_postprocessor
+
 from collections import deque
 
 from fireredvad.core.stream_vad_postprocessor import (
