@@ -23,6 +23,11 @@ from jet.audio.helpers.energy import (
     rms_to_loudness_label,
     smooth_signal,
 )
+from jet.audio.norm.norm_audio import normalize_audio
+from jet.audio.speech.vad_peak_analyzer import (
+    extract_valley_troughs,
+    extract_valley_troughs_from_np_audio,
+)
 from jet.transformers.object import make_serializable
 from rich.console import Console
 
@@ -303,6 +308,51 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
             f"  Saved [green link=file://{hybrid_path}]{hybrid_short}[/green link=file://{hybrid_path}] ([cyan]{len(hybrid_probs)}[/cyan] values)",
             highlight=False,
         )
+
+        ##### For Testing #####
+        # Persist hybrid_probs_valley_troughs.json
+
+        # Compute valley troughs based on hybrid_probs (probabilities, not waveform)
+        # The idea is to extract where the hybrid speech probability signal finds its valleys/troughs.
+        hybrid_probs_valley_troughs = extract_valley_troughs(
+            hybrid_probs,
+            min_trough_offset_s=2.0,  # This parameter may need adjusting as hybrid_probs is frame-level, not samples
+        )
+
+        if hybrid_probs_valley_troughs:
+            hybrid_probs_valley_troughs_path = (
+                dir_path / "_hybrid_probs_valley_troughs.json"
+            )
+            hybrid_probs_valley_troughs_short = hybrid_probs_valley_troughs_path.name
+            hybrid_probs_valley_troughs_path.write_text(
+                json.dumps(hybrid_probs_valley_troughs, indent=2),
+                encoding="utf-8",
+            )
+            console.print(
+                f"  Saved [green link=file://{hybrid_probs_valley_troughs_path}]{hybrid_probs_valley_troughs_short}[/green link=file://{hybrid_probs_valley_troughs_path}] ([cyan]{len(hybrid_probs_valley_troughs)}[/cyan] entries)",
+                highlight=False,
+            )
+
+        # Normalize audio
+        norm_audio_np = normalize_audio(event.audio)
+        norm_valley_troughs = extract_valley_troughs_from_np_audio(
+            norm_audio_np,
+            min_trough_offset_s=2.0,
+        )
+
+        # Persist norm_valley_troughs.json
+        if norm_valley_troughs:
+            norm_valley_troughs_path = dir_path / "_norm_valley_troughs.json"
+            norm_valley_troughs_short = norm_valley_troughs_path.name
+            norm_valley_troughs_path.write_text(
+                json.dumps(norm_valley_troughs, indent=2),
+                encoding="utf-8",
+            )
+            console.print(
+                f"  Saved [green link=file://{norm_valley_troughs_path}]{norm_valley_troughs_short}[/green link=file://{norm_valley_troughs_path}] ([cyan]{len(norm_valley_troughs)}[/cyan] entries)",
+                highlight=False,
+            )
+        ##### End For Testing #####
 
         # Persist valley_troughs.json
         if event.valley_troughs:
