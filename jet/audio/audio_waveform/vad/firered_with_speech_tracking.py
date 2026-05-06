@@ -23,22 +23,20 @@ logger = logging.getLogger("fireredvad.bin.stream_vad")
 
 
 # ────────────────────────────────────────────────
-# Streaming / buffer constants (all assuming 16 kHz sample rate)
+# Updated Streaming Constants (aligned with FireRedVAD)
 # ────────────────────────────────────────────────
-MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD = (
-    4800  # ≈ 300 ms – don't run VAD until we have at least this much audio
-)
-VAD_CONTEXT_WINDOW_SAMPLES = (
-    9600  # ≈ 600 ms – how much recent audio to feed the model each time
-)
-BUFFER_OVERLAP_SAMPLES = (
-    512  # ≈  32 ms – how much audio to keep for smooth continuity / next call
-)
+MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD = 4800  # ~300 ms
+
+# Context window: multiple of frame shift for clean processing
+VAD_CONTEXT_WINDOW_SAMPLES = 9600  # 600 ms (60 frames)
+
+# Overlap must be multiple of FRAME_SHIFT_SAMPLE (160)
+BUFFER_OVERLAP_SAMPLES = 640  # 40 frames (~40 ms) — good trade-off
 # ────────────────────────────────────────────────
 
 
 class FireRedVADWrapper:
-    """Streaming FireRedVAD wrapper"""
+    """Streaming FireRedVAD wrapper — optimized"""
 
     def __init__(
         self,
@@ -100,37 +98,31 @@ class FireRedVADWrapper:
             min_valley_consecutive_frames=min_valley_consecutive_frames,
         )
 
-        # Use list buffer to avoid repeated concatenate
         self.vad = FireRedStreamVad(
             audio_feat=feat_extractor,
             vad_model=vad_model,
             postprocessor=postprocessor,
             config=config,
         )
-        # self.vad = FireRedStreamVad.from_pretrained(model_dir, config=config)
 
-        self.audio_chunks: list[np.ndarray] = []
+        # Rolling buffer (list of arrays is efficient for this pattern)
+        self.audio_buffer: list[np.ndarray] = []
         self.last_prob = 0.0
-
-        self.tracker = tracker or SpeechSegmentTracker()
-        # Give tracker access to postprocessor so it can read forced_split etc.
-        self.tracker.postprocessor = self.vad.postprocessor
-
-        # Rolling peak RMS used to normalize energy into [0, 1].
-        # Starts at a small positive value so the first frame never divides by zero.
-        # It grows whenever a louder chunk arrives, ensuring norm_rms stays in [0, 1].
         self._peak_rms: float = 1e-6
 
+        self.tracker = tracker or SpeechSegmentTracker()
+        self.tracker.postprocessor = self.vad.postprocessor
+
     def _normalize_chunk(self, chunk: np.ndarray) -> np.ndarray:
-        # Simple dynamic range compression / normalization
+        """Simple dynamic normalization"""
         chunk_max = np.max(np.abs(chunk)) + 1e-10
         target_peak = 0.30
         if chunk_max < 0.20:
             gain = min(target_peak / chunk_max, 8.0)
-            chunk = chunk * gain
+            return chunk * gain
         elif chunk_max > 0.60:
             gain = 0.60 / chunk_max
-            chunk = chunk * gain
+            return chunk * gain
         return chunk
 
     def get_speech_prob(self, chunk: np.ndarray) -> float:
@@ -138,62 +130,54 @@ class FireRedVADWrapper:
             return self.last_prob
 
         chunk = self._normalize_chunk(chunk)
-        self.audio_chunks.append(chunk)
+        self.audio_buffer.append(chunk)
 
-        # ── RMS of this single chunk ──────────────────────────────────────────
-        # compute_rms returns Root-Mean-Square energy (0 = silence, ~0.7 = loud).
         chunk_rms = compute_rms(chunk)
-
-        # Keep a running maximum so we can scale any chunk's RMS to [0, 1].
-        # Using max() means the scale never shrinks mid-stream, which would
-        # cause earlier frames to look artificially louder.
         if chunk_rms > self._peak_rms:
             self._peak_rms = chunk_rms
-
-        # norm_rms: how loud is this chunk relative to the loudest chunk seen so far?
-        # Result is always in [0, 1].
         norm_rms = min(chunk_rms / self._peak_rms, 1.0)
 
-        total_len = sum(len(c) for c in self.audio_chunks)
-
-        if total_len < MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD:
+        # Early exit if not enough audio yet
+        total_samples = sum(len(c) for c in self.audio_buffer)
+        if total_samples < MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD:
             return self.last_prob
 
-        # Concatenate only when needed
-        audio_buffer = np.concatenate(self.audio_chunks)
-        to_process = audio_buffer[-VAD_CONTEXT_WINDOW_SAMPLES:]
-        results = self.vad.detect_chunk(to_process)
+        # Concatenate only when processing
+        full_buffer = np.concatenate(self.audio_buffer)
+        to_process = full_buffer[-VAD_CONTEXT_WINDOW_SAMPLES:]
 
-        # Keep only overlap (convert back to list)
-        overlap = audio_buffer[-BUFFER_OVERLAP_SAMPLES:]
-        self.audio_chunks = [overlap]
+        try:
+            results = self.vad.detect_chunk(to_process)
 
-        if not results:
+            # Keep only the overlap portion for next iteration
+            overlap = full_buffer[-BUFFER_OVERLAP_SAMPLES:]
+            self.audio_buffer = [overlap]
+
+            if not results:
+                return self.last_prob
+
+            last = results[-1]
+            prob = last.smoothed_prob
+            self.last_prob = prob
+
+            # Feed to tracker
+            if self.tracker is not None:
+                for result in results:
+                    # smoothed_prob comes from the VAD model (speech probability, 0–1).
+                    # norm_rms is the energy signal we computed above (0–1).
+                    # hybrid blends them 50/50 as per the formula:
+                    # hybrid[i] = 0.5 × smoothed_prob[i] + 0.5 × norm_rms[i]
+                    hybrid_prob = 0.5 * result.smoothed_prob + 0.5 * norm_rms
+                    self.tracker.on_frame(
+                        result,
+                        rms=chunk_rms,
+                        hybrid_prob=round(hybrid_prob, 4),
+                    )
+
+            return prob
+
+        except Exception as e:
+            logger.error(f"VAD detect_chunk error: {e}")
+            # Fallback: keep last prob and trim buffer
+            self.audio_buffer = [full_buffer[-BUFFER_OVERLAP_SAMPLES:]]
             return self.last_prob
-
-        last = results[-1]
-        prob = last.smoothed_prob
-
-        self.last_prob = prob
-        if self.tracker is not None:
-            for result in results:
-                # smoothed_prob comes from the VAD model (speech probability, 0–1).
-                # norm_rms is the energy signal we computed above (0–1).
-                # hybrid blends them 50/50 as per the formula:
-                #   hybrid[i] = 0.5 × smoothed_prob[i] + 0.5 × norm_rms[i]
-                hybrid_prob = 0.5 * result.smoothed_prob + 0.5 * norm_rms
-                self.tracker.on_frame(
-                    result,
-                    rms=chunk_rms,
-                    hybrid_prob=round(hybrid_prob, 4),
-                )
-            # self.tracker.add_prob(prob)
-            # NOTE: tracker.add_prob() is intentionally NOT called here.
-            # It is called once per frame in coordinated_callback() in
-            # start_manager.py, using whichever VAD the user has selected
-            # in the dropdown.  Calling it here too would double-count
-            # FireRed's probability and bypass the VAD selector.
-            # The on_frame() calls above are kept because only FireRed
-            # generates the segment boundary events (speech_start / speech_end).
-
-        return prob

@@ -5,6 +5,7 @@ from typing import List, Tuple
 
 import numpy as np
 from jet.audio.audio_waveform.speech_types import SpeechFrame
+from jet.audio.helpers.config import FRAME_SHIFT_SAMPLE
 from jet.audio.helpers.energy import has_sound
 from jet.audio.helpers.energy_base import compute_rms
 
@@ -17,6 +18,7 @@ class PreRollBuffer:
         self.audio: deque[np.ndarray] = deque(maxlen=maxlen)
         self.probs: deque[float] = deque(maxlen=maxlen)
         self.maxlen = maxlen
+        self.frame_shift_samples = FRAME_SHIFT_SAMPLE  # 160
 
     def add_audio(self, samples: np.ndarray) -> None:
         """Store raw audio chunk while not yet in a speech segment."""
@@ -73,6 +75,13 @@ class PreRollBuffer:
             # Compute RMS for this pre-roll audio chunk so rms is never zero
             # when real audio exists in the buffer.
             chunk_rms = compute_rms(audio_chunk) if len(audio_chunk) > 0 else 0.0
+
+            # Safety check for alignment
+            if len(audio_chunk) % self.frame_shift_samples != 0:
+                print(
+                    f"[PreRollBuffer] Warning: audio chunk size {len(audio_chunk)} "
+                    f"is not multiple of {self.frame_shift_samples} samples"
+                )
 
             # hybrid_prob during the pre-roll:
             #   norm_rms is unknown here (no global peak yet), so we use rms

@@ -5,21 +5,31 @@ from typing import Callable, List, Optional
 import numpy as np
 import sounddevice as sd
 
-# Type alias for clarity: Receive a numpy array of samples
+# Type alias for clarity
 AudioCallback = Callable[[np.ndarray], None]
 
 
 class AudioStreamManager:
     """
-    A reusable engine for capturing live audio and distributing
-    samples to registered observers/callbacks.
+    Reusable engine for capturing live audio, optimized for FireRedVAD.
+
+    - samplerate = 16000 Hz (required)
+    - block_size = multiple of 160 (recommended)
+    - dtype = int16 (preferred for VAD)
     """
 
     def __init__(
-        self, samplerate: int = 16000, block_size: int = 512, max_queue_size: int = 400
+        self,
+        samplerate: int = 16000,
+        max_queue_size: int = 400,
+        block_size: int = 480,
+        dtype: str | None = "float32",
+        # block_size: int = 160,  # Changed default
+        # dtype: str = "int16",  # Added explicit dtype
     ) -> None:
         self.samplerate = samplerate
         self.block_size = block_size
+        self.dtype = dtype
 
         # Threading and Data Flow
         self._audio_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=max_queue_size)
@@ -32,6 +42,7 @@ class AudioStreamManager:
             channels=1,
             samplerate=self.samplerate,
             blocksize=self.block_size,
+            dtype=self.dtype,  # Explicit int16
             callback=self._sd_callback,
         )
 
@@ -46,18 +57,17 @@ class AudioStreamManager:
             self._observers.remove(callback)
 
     def _sd_callback(self, indata, frames, time, status) -> None:
-        """Internal sounddevice callback to move data to the queue."""
+        """Internal sounddevice callback."""
         if status:
             print(f"Stream Status: {status}")
 
-        # Ensure we are working with a copy to prevent memory corruption
-        samples = indata[:, 0].astype(np.float32).copy()
+        # indata shape: (block_size, channels) -> take mono channel
+        samples = indata[:, 0].copy()  # int16 copy
 
         try:
-            # Drop oldest frame if queue is full to prevent latency buildup
             if self._audio_queue.full():
                 try:
-                    self._audio_queue.get_nowait()
+                    self._audio_queue.get_nowait()  # drop oldest
                 except queue.Empty:
                     pass
             self._audio_queue.put_nowait(samples)
@@ -65,24 +75,24 @@ class AudioStreamManager:
             pass
 
     def _processing_loop(self) -> None:
-        """Background thread that consumes queue and notifies observers."""
+        """Background thread that notifies observers."""
         while self._running:
             try:
-                # Blocks for a short time to keep thread alive but responsive to shutdown
                 samples = self._audio_queue.get(timeout=0.1)
 
-                # Notify all observers
                 for callback in self._observers:
                     try:
                         callback(samples)
                     except Exception as e:
-                        print(f"Error in observer {callback.__name__}: {e}")
+                        print(
+                            f"Error in observer {getattr(callback, '__name__', callback)}: {e}"
+                        )
 
             except queue.Empty:
                 continue
 
     def start(self) -> None:
-        """Start the audio stream and the background processing thread."""
+        """Start the audio stream and processing thread."""
         if self._running:
             return
 
@@ -92,42 +102,78 @@ class AudioStreamManager:
         )
         self._worker_thread.start()
         self.stream.start()
-        print(f"Audio stream started at {self.samplerate}Hz...")
+        print(
+            f"Audio stream started at {self.samplerate}Hz (block_size={self.block_size}, dtype={self.dtype})"
+        )
 
     def stop(self) -> None:
-        """Gracefully stop the stream and background thread."""
+        """Gracefully stop everything."""
         self._running = False
         if self.stream:
             self.stream.stop()
             self.stream.close()
-        if self._worker_thread:
+        if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=1.0)
         print("Audio stream stopped.")
 
 
-# --- Example Usage ---
+# ============================
+# Example Usage with FireRedVAD
+# ============================
 if __name__ == "__main__":
     import time
 
-    # 1. Define your custom logic (VAD, Plotting, Logging, etc.)
-    def volume_monitor(samples: np.ndarray):
-        rms = np.sqrt(np.mean(samples**2))
-        if rms > 0.05:
-            print(f"Peak detected! RMS: {rms:.4f}")
+    from fireredvad import FireRedStreamVad, FireRedStreamVadConfig
 
-    def data_logger(samples: np.ndarray):
-        # Pretend we're saving to a file or database
-        pass
+    # --- VAD Observer ---
+    class FireRedVADObserver:
+        def __init__(self):
+            vad_config = FireRedStreamVadConfig(
+                use_gpu=False,
+                smooth_window_size=5,
+                speech_threshold=0.4,
+                pad_start_frame=5,
+                min_speech_frame=8,
+                max_speech_frame=2000,
+                min_silence_frame=20,
+                chunk_max_frame=30000,
+            )
+            self.vad = FireRedStreamVad.from_pretrained(
+                "pretrained_models/FireRedVAD/Stream-VAD",  # or HF path
+                vad_config,
+            )
+            self.buffer = np.array([], dtype=np.int16)
 
-    # 2. Initialize and Run
-    manager = AudioStreamManager(samplerate=16000)
-    manager.add_observer(volume_monitor)
-    manager.add_observer(data_logger)
+        def __call__(self, samples: np.ndarray):
+            """Called for every incoming audio block (160 samples)."""
+            self.buffer = np.concatenate((self.buffer, samples))
+
+            # Process in multiples of 160 samples
+            while len(self.buffer) >= 160:
+                chunk_size = (len(self.buffer) // 160) * 160
+                chunk = self.buffer[:chunk_size]
+                self.buffer = self.buffer[chunk_size:]
+
+                try:
+                    results = self.vad.detect_chunk(chunk)
+                    # results is usually a list of StreamVadFrameResult
+                    for res in results:
+                        if res.is_speech:  # or check probability
+                            print(f"🎤 Speech detected! Prob: {res.probability:.3f}")
+                        # You can also accumulate speech segments here
+                except Exception as e:
+                    print(f"VAD error: {e}")
+
+    # --- Create Manager and Attach VAD ---
+    manager = AudioStreamManager(samplerate=16000, block_size=160)
+
+    vad_observer = FireRedVADObserver()
+    manager.add_observer(vad_observer)
 
     try:
         manager.start()
-        # Keep main thread alive
+        print("Listening... Press Ctrl+C to stop")
         while True:
-            time.sleep(1)
+            time.sleep(0.5)
     except KeyboardInterrupt:
         manager.stop()

@@ -15,7 +15,7 @@ from jet.audio.audio_waveform.speech_events import (
 )
 from jet.audio.audio_waveform.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.audio_waveform.speech_types import SpeechFrame, VadStateLabel
-from jet.audio.helpers.config import FRAME_LENGTH_MS, SAMPLE_RATE
+from jet.audio.helpers.config import FRAME_LENGTH_MS, FRAME_SHIFT_SAMPLE, SAMPLE_RATE
 from jet.audio.helpers.energy import (
     compute_rms,
     has_sound,
@@ -55,12 +55,22 @@ class SpeechSegmentTracker:
         self.pre_roll_buffer = PreRollBuffer(maxlen=200)
         self.last_segment_forced_split: bool = False
 
+        # Ensure audio blocks are aligned to VAD frame shift
+        self._block_size = FRAME_SHIFT_SAMPLE
+
     def add_handler(self, handler: SpeechSegmentHandler) -> None:
         self.handlers.append(handler)
 
     def add_audio(self, samples: np.ndarray) -> None:
         if len(samples) == 0:
             return
+
+        # Optional safety: ensure block is multiple of frame shift
+        if len(samples) % self._block_size != 0:
+            console.print(
+                f"[TRACKER] [yellow]Warning: audio block size {len(samples)} not multiple of {self._block_size}[/]",
+                style="yellow",
+            )
 
         if not self.is_speaking:
             self.pre_roll_buffer.add_audio(samples)
