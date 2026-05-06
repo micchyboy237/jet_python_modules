@@ -26,7 +26,7 @@ CONFIG = {
         "hard_max_speech_frame": 1200,
         "min_silence_frame": 90,
         "search_window": 250,
-        "valley_threshold": 0.5,
+        "valley_threshold": 0.65,
         "chunk_max_frame": 30000,
         "min_valley_consecutive_frames": 10,
     },
