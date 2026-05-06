@@ -317,6 +317,7 @@ class SpeechSegmentSaver(SpeechSegmentHandler):
         hybrid_probs_valley_troughs = extract_valley_troughs(
             hybrid_probs,
             min_trough_offset_s=2.0,  # This parameter may need adjusting as hybrid_probs is frame-level, not samples
+            smoothing_window=20,
         )
 
         if hybrid_probs_valley_troughs:

@@ -22,7 +22,7 @@ from jet.audio.helpers.energy import (
     rms_to_loudness_label,
 )
 from jet.audio.helpers.energy_base import SILENCE_MAX_THRESHOLD
-from jet.audio.speech.vad_peak_analyzer import extract_valley_troughs_from_np_audio
+from jet.audio.speech.vad_peak_analyzer import extract_valley_troughs
 from rich.console import Console
 
 console = Console()
@@ -240,11 +240,21 @@ class SpeechSegmentTracker:
         self.last_segment_forced_split = self.current_forced_split
 
         # === Valley Trough Analysis for Smart Trimming ===
-        valley_troughs = extract_valley_troughs_from_np_audio(
-            audio,
-            sample_rate=self.sample_rate,
-            frame_offset=self.current_start_frame,
-            min_trough_offset_s=2.0,
+
+        # Extract hybrid_prob values directly from already-collected frames.
+        # This avoids re-running the VAD on the audio (no temp WAV, no second
+        # inference pass). hybrid_prob = 0.5 * smoothed_vad + 0.5 * norm_rms,
+        # which is a better split-point signal than raw VAD alone.
+        hybrid_probs = [f["hybrid_prob"] for f in self.current_frames]
+        valley_troughs = (
+            extract_valley_troughs(
+                probs=hybrid_probs,
+                frame_offset=self.current_start_frame,
+                min_trough_offset_s=2.0,
+                smoothing_window=20,
+            )
+            if hybrid_probs
+            else []
         )
 
         # Only apply valley-based trimming for forced splits (non-silence)
