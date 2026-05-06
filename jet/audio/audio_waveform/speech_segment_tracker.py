@@ -244,9 +244,17 @@ class SpeechSegmentTracker:
             audio,
             sample_rate=self.sample_rate,
             frame_offset=self.current_start_frame,
-            min_trough_offset_s=2.0,
-            min_valley_duration_s=0.8,
+            # min_trough_offset_s=2.0,
+            # min_valley_duration_s=0.8,
         )
+        # hybrid_probs = [frame["hybrid_prob"] for frame in self.current_frames]
+        # valley_troughs = extract_valley_troughs(
+        #     hybrid_probs,
+        #     sample_rate=self.sample_rate,
+        #     frame_offset=self.current_start_frame,
+        #     min_trough_offset_s=2.0,
+        #     min_valley_duration_s=0.8,
+        # )
 
         # Only apply valley-based trimming for forced splits (non-silence)
         apply_valley_trim = (

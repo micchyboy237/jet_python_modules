@@ -215,14 +215,15 @@ def extract_valley_troughs(
 
 def extract_valley_troughs_from_np_audio(
     audio: np.ndarray,
-    sample_rate: int = 16000,
+    sample_rate: int = SAMPLE_RATE,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
     vad_threshold: float = 0.3,
     min_speech_duration_sec: float = 0.25,
     min_silence_duration_sec: float = 0.25,
     smoothing_window: int = 20,
     frame_offset: int = 0,
     min_trough_offset_s: float = 0.4,
-    min_valley_duration_s: float = 0.8,
+    min_valley_duration_s: float = 0.25,
     temp_dir: str | Path | None = None,
 ) -> list[ValleyTrough]:
     """
@@ -294,6 +295,7 @@ def extract_valley_troughs_from_np_audio(
             frame_offset=frame_offset,
             min_trough_offset_s=min_trough_offset_s,
             min_valley_duration_s=min_valley_duration_s,
+            frame_shift_ms=frame_shift_ms,
         )
 
         return troughs
