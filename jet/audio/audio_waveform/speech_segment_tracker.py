@@ -57,6 +57,7 @@ class SpeechSegmentTracker:
 
         # Ensure audio blocks are aligned to VAD frame shift
         self._block_size = FRAME_SHIFT_SAMPLE
+        self._tail_chunks: list[np.ndarray] = []
 
     def add_handler(self, handler: SpeechSegmentHandler) -> None:
         self.handlers.append(handler)
@@ -313,6 +314,12 @@ class SpeechSegmentTracker:
                 synced_chunks.append(chunk)
                 accumulated_s += chunk_dur_s
 
+            self._tail_chunks = self.current_audio_chunks[len(synced_chunks) :]
+            console.print(
+                f"[TRACKER] [dim cyan]Valley tail: saved {len(self._tail_chunks)} chunk(s) "
+                f"({sum(len(c) for c in self._tail_chunks) / self.sample_rate:.3f}s) for next segment pre-roll[/]",
+                style="dim",
+            )
             self.current_audio_chunks = synced_chunks
 
         # === Final Validation ===
@@ -391,3 +398,12 @@ class SpeechSegmentTracker:
         self.current_start_frame = -1
         self.current_vad_states = []
         self.pre_roll_buffer.clear()
+        if self._tail_chunks:
+            console.print(
+                f"[TRACKER] [dim cyan]Seeding pre-roll with {len(self._tail_chunks)} tail chunk(s) "
+                f"({sum(len(c) for c in self._tail_chunks) / self.sample_rate:.3f}s) from previous valley trim[/]",
+                style="dim",
+            )
+            for chunk in self._tail_chunks:
+                self.pre_roll_buffer.add_audio(chunk)
+            self._tail_chunks = []

@@ -1201,6 +1201,13 @@ def get_args():
         ),
     )
     parser.add_argument(
+        "--output-dir",
+        "-o",
+        type=str,
+        default=str((Path(__file__).parent / "generated" / Path(__file__).stem)),
+        help="Output directory for generated files (default: ./generated/<script name>)",
+    )
+    parser.add_argument(
         "--sample-rate",
         "-sr",
         type=int,
@@ -1320,11 +1327,11 @@ if __name__ == "__main__":
     import json
     import shutil
 
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     args = get_args()
+
+    output_dir = Path(args.output_dir)
+    shutil.rmtree(output_dir, ignore_errors=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.input_file is not None:
         input_path = Path(args.input_file)
@@ -1452,7 +1459,7 @@ if __name__ == "__main__":
             segments=active_regions,
             category="active_regions",
             probs=probs_smoothed,
-            output_dir=OUTPUT_DIR,
+            output_dir=output_dir,
             audio_path=args.input_file,
             sample_rate=args.sample_rate,
             frame_shift_ms=args.frame_shift_ms,
@@ -1461,7 +1468,7 @@ if __name__ == "__main__":
             segments=valleys,
             category="valleys",
             probs=probs_smoothed,
-            output_dir=OUTPUT_DIR,
+            output_dir=output_dir,
             audio_path=args.input_file,
             sample_rate=args.sample_rate,
             frame_shift_ms=args.frame_shift_ms,
@@ -1473,7 +1480,7 @@ if __name__ == "__main__":
         troughs,
         active_regions=active_regions,
         valleys=valleys,
-        output_path=str(OUTPUT_DIR / "vad_analysis_plot.png"),
+        output_path=str(output_dir / "vad_analysis_plot.png"),
     )
 
     if args.smoothing_window:
@@ -1483,31 +1490,31 @@ if __name__ == "__main__":
             troughs,
             active_regions=active_regions,
             valleys=valleys,
-            output_path=str(OUTPUT_DIR / "vad_analysis_plot_smoothed.png"),
+            output_path=str(output_dir / "vad_analysis_plot_smoothed.png"),
         )
 
-    peaks_path = OUTPUT_DIR / "peaks.json"
+    peaks_path = output_dir / "peaks.json"
     with open(peaks_path, "w", encoding="utf-8") as f:
         json.dump(peaks, f, ensure_ascii=False, indent=2)
     print(f"Peaks saved to: {peaks_path.resolve()}")
 
-    troughs_path = OUTPUT_DIR / "troughs.json"
+    troughs_path = output_dir / "troughs.json"
     with open(troughs_path, "w", encoding="utf-8") as f:
         json.dump(troughs, f, ensure_ascii=False, indent=2)
     print(f"Troughs saved to: {troughs_path.resolve()}")
 
-    active_path = OUTPUT_DIR / "active_regions.json"
+    active_path = output_dir / "active_regions.json"
     with open(active_path, "w", encoding="utf-8") as f:
         json.dump(active_regions, f, ensure_ascii=False, indent=2)
     print(f"Active regions saved to: {active_path.resolve()}")
 
-    valleys_path = OUTPUT_DIR / "valleys.json"
+    valleys_path = output_dir / "valleys.json"
     with open(valleys_path, "w", encoding="utf-8") as f:
         json.dump(valleys, f, ensure_ascii=False, indent=2)
     print(f"Valleys saved to: {valleys_path.resolve()}")
 
     base_valley_troughs = base_extract_valley_troughs(valleys)
-    base_valley_troughs_path = OUTPUT_DIR / "base_valley_troughs.json"
+    base_valley_troughs_path = output_dir / "base_valley_troughs.json"
     with open(base_valley_troughs_path, "w", encoding="utf-8") as f:
         json.dump(base_valley_troughs, f, ensure_ascii=False, indent=2)
     print(f"Valley troughs saved to: {base_valley_troughs_path.resolve()}")
@@ -1520,7 +1527,7 @@ if __name__ == "__main__":
         frame_offset=args.frame_offset if hasattr(args, "frame_offset") else 0,
         smoothing_window=args.smoothing_window,
     )
-    valley_troughs_path = OUTPUT_DIR / "valley_troughs.json"
+    valley_troughs_path = output_dir / "valley_troughs.json"
     with open(valley_troughs_path, "w", encoding="utf-8") as f:
         json.dump(valley_troughs, f, ensure_ascii=False, indent=2)
     print(f"Valley troughs saved to: {valley_troughs_path.resolve()}")
