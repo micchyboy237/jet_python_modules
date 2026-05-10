@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import queue
+import shutil
 import sys
 import threading
 import time
@@ -65,6 +66,8 @@ console = Console()
 SAMPLE_RATE = 16_000  # FireRedVAD hard requirement
 CHUNK_SAMPLES = 160  # 10 ms per chunk (160 / 16000 = 0.01 s)
 CHUNK_SEC = CHUNK_SAMPLES / SAMPLE_RATE
+
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
 # ── state labels ─────────────────────────────────────────────────────────────
 _SILENCE = "silence"
@@ -338,7 +341,11 @@ def _default_on_segment(
             encoding="PCM_S",
             bits_per_sample=16,
         )
-        console.print(f"  [dim]saved → {wav_path}[/dim]")
+        rel_display = f"{wav_path.parent.name}/{wav_path.name}"
+        console.print(
+            f"  [dim]saved → [link=file://{wav_path}]{rel_display}[/link][/dim]"
+        )
+
     except Exception as exc:
         console.print(f"  [red]WAV save failed: {exc}[/red]")
 
@@ -509,7 +516,6 @@ class LiveVADCapture:
                     self._postroll.reset()
                     self._postroll.push(chunk, prob)
                     self._state = _POSTROLL
-                    console.print("[dim]▸ post-roll start[/dim]")
 
                 elif self._speech_frame_count >= self.max_speech_frames:
                     # Force-emit: speaker never paused within max duration.
@@ -531,7 +537,6 @@ class LiveVADCapture:
                         self._speech_buf.append(resumed_audio)
                     self._postroll.reset()
                     self._state = _SPEECH
-                    console.print("[dim]▸ resumed speech[/dim]")
 
                 elif self._postroll.is_done():
                     # Score stayed low long enough — the segment is finished.
@@ -682,11 +687,20 @@ def main() -> None:
     parser.add_argument(
         "--postroll-rms-weight", type=float, default=DEFAULT_POSTROLL_RMS_WEIGHT
     )
-    parser.add_argument("--output-dir", type=Path, default=Path("live_segments"))
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        default=OUTPUT_DIR,
+        type=Path,
+        help=f"output directory (default: '{OUTPUT_DIR}')",
+    )
     parser.add_argument(
         "--no-save", action="store_true", help="print info but don't write WAV files"
     )
     args = parser.parse_args()
+
+    shutil.rmtree(args.output_dir, ignore_errors=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.list_devices:
         _list_devices()
