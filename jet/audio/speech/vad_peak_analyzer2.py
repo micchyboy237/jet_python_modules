@@ -101,6 +101,7 @@ def extract_valley_troughs(
         sample_rate=sample_rate, frame_duration_ms=frame_duration_ms
     )
 
+    # Extract troughs (deep local minima)
     troughs = analyzer.extract_troughs(
         probs,
         height=trough_height,
@@ -108,11 +109,10 @@ def extract_valley_troughs(
         distance=trough_distance,
     )
 
+    # Extract valleys (regions of low probability)
     valleys = analyzer.extract_valleys(
         probs,
         threshold=valley_threshold,
-        # min_duration_s=min_valley_duration,
-        # min_duration_frames=min_valley_frames,
         troughs=troughs,
     )
 
@@ -122,31 +122,43 @@ def extract_valley_troughs(
         min_duration_s=min_valley_duration_s,
     )
 
+    # ── Enrich valleys with scores ─────────────────────────────────────
+    for valley in valleys:
+        details = valley["details"]
+
+        # Compute valley_score using the dedicated function
+        valley_score = compute_valley_score(
+            min_prob=details.get("min_probability", 1.0),
+            mean_prob=details.get("mean_probability", 1.0),
+            duration_s=valley["duration_s"],
+        )
+        details["valley_score"] = valley_score
+
+        # Trough scoring (only if we have troughs)
+        if details.get("troughs") and len(details["troughs"]) > 0:
+            trough = details["troughs"][0]  # We will filter to exactly 1 later
+            trough_details = trough.get("details", {})
+
+            trough_score = compute_trough_score(
+                min_prob=trough_details.get("trough_probability", 1.0),
+                prominence=trough_details.get("prominence", 0.0),
+                width=trough_details.get("width", 0.0),
+            )
+
+            final_score = valley_score * trough_score
+
+            details["trough_score"] = trough_score
+            details["final_score"] = final_score
+        else:
+            details["trough_score"] = 0.0
+            details["final_score"] = 0.0
+
+    # ── Filter to valleys with exactly one trough ─────────────────────
     filtered_valleys = [
-        valley
-        for valley in valleys
-        if len(valley["details"].get("troughs", [])) == 1
-        and valley["duration_s"] >= min_valley_duration_s
+        valley for valley in valleys if len(valley["details"].get("troughs", [])) == 1
     ]
 
-    # ── Combine valley + trough scores ─────────────────────────────────────
-    for valley in filtered_valleys:
-        trough = valley["details"]["troughs"][0]
-
-        trough_details = trough.get("details", {})
-
-        trough_score = compute_trough_score(
-            min_prob=trough_details.get("trough_probability", 0.0),
-            prominence=trough_details.get("prominence", 0.0),
-            width=trough_details.get("width", 0.0),
-        )
-
-        # Multiply to enforce BOTH good valley AND good trough
-        final_score = valley["details"]["valley_score"] * trough_score
-
-        valley["details"]["trough_score"] = trough_score
-        valley["details"]["final_score"] = final_score
-
+    # Convert to ValleyTrough format
     valley_troughs: List[ValleyTrough] = [
         ValleyTrough(
             frame=valley["details"]["min_prob_frame"],
@@ -166,6 +178,7 @@ def extract_valley_troughs(
         )
         for valley in filtered_valleys
     ]
+
     return valley_troughs
 
 
@@ -694,12 +707,6 @@ class VADPeakAnalyzer:
 
         frame_length = end - start
 
-        score = compute_valley_score(
-            min_prob=float(np.min(x[start:end])),
-            mean_prob=float(np.mean(x[start:end])),
-            duration_s=duration_s,
-        )
-
         segments.append(
             {
                 "frame_start": start,
@@ -715,7 +722,6 @@ class VADPeakAnalyzer:
                     "min_prob_s": round(min_prob_s, 4),
                     "mean_probability": float(np.mean(x[start:end])),
                     "frame_count": frame_length,
-                    "valley_score": score,
                     # "region_probs": region_probs,
                 },
             }

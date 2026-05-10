@@ -1,5 +1,3 @@
-# python_scripts/samples/audio/features/live_vad_capture.py
-
 """
 live_vad_capture.py
 ───────────────────
