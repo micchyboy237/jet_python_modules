@@ -3,16 +3,16 @@ from pathlib import Path
 from typing import List, Literal, Optional, Union
 
 import matplotlib
+from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.utils.loader import load_audio
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torchaudio
-from _types import SpeechSegment
 from fireredvad.core.constants import SAMPLE_RATE
 from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
-from loader import load_audio
 from rich.console import Console
 from rich.progress import (
     BarColumn,
