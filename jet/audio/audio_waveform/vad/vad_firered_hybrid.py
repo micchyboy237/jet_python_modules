@@ -41,11 +41,17 @@ DEFAULT_INCLUDE_NON_SPEECH = False
 DEFAULT_SMOOTH_WINDOW_SIZE = 5
 DEFAULT_MAX_BUFFER_SEC = 1.2
 
-# Pre-roll defaults
+# Pre-roll defaults (head extension — looks backward from onset)
 DEFAULT_PREROLL_MAX_SEC = 0.300  # maximum look-back window
 DEFAULT_PREROLL_HYBRID_THRESHOLD = 0.15  # hybrid score below which we stop extending
 DEFAULT_PREROLL_PROB_WEIGHT = 0.5  # weight for speech probability
 DEFAULT_PREROLL_RMS_WEIGHT = 0.5  # weight for normalised RMS energy
+
+# Post-roll defaults (tail extension — looks forward from detected end)
+DEFAULT_POSTROLL_MAX_SEC = 0.300  # maximum look-forward window
+DEFAULT_POSTROLL_HYBRID_THRESHOLD = 0.15  # hybrid score below which we stop extending
+DEFAULT_POSTROLL_PROB_WEIGHT = 0.5  # weight for speech probability
+DEFAULT_POSTROLL_RMS_WEIGHT = 0.5  # weight for normalised RMS energy
 
 
 # ---------------------------------------------------------------------------
@@ -330,8 +336,77 @@ def _compute_preroll(
 
 
 # ---------------------------------------------------------------------------
-# extract_speech_timestamps
+# Post-roll computation helper  (symmetric tail extension)
 # ---------------------------------------------------------------------------
+
+
+def _compute_postroll(
+    end_sample: int,
+    audio_np: np.ndarray,
+    probs: list[float],
+    sample_rate: int,
+    max_postroll_sec: float,
+    hybrid_threshold: float,
+    prob_weight: float,
+    rms_weight: float,
+) -> int:
+    """
+    Given a speech-segment end (in samples), look *forward* through the
+    post-speech audio and find how many additional samples to append.
+
+    Strategy
+    --------
+    1. Build per-frame hybrid scores for up to *max_postroll_sec* after end.
+    2. Walk forward from the end frame; extend the post-roll for every
+       consecutive frame whose hybrid score >= hybrid_threshold.
+    3. Return the number of *samples* to append (>= 0).
+
+    The hybrid score per 10 ms frame:
+        score = prob_weight * smoothed_prob + rms_weight * rms_norm
+
+    RMS is normalised using the 99th-percentile of the look-forward window.
+    """
+    FRAME_SAMPLES = 160  # 10 ms @ 16 kHz
+    hop_sec = 0.010
+    max_postroll_samples = int(max_postroll_sec * sample_rate)
+
+    stop_sample = min(len(audio_np), end_sample + max_postroll_samples)
+    lookahead_audio = audio_np[end_sample:stop_sample]
+
+    if len(lookahead_audio) == 0:
+        return 0
+
+    # Align to frame grid
+    n_frames = len(lookahead_audio) // FRAME_SAMPLES
+    if n_frames == 0:
+        return 0
+
+    lookahead_audio = lookahead_audio[: n_frames * FRAME_SAMPLES]
+
+    # Per-frame RMS
+    frames = lookahead_audio.reshape(n_frames, FRAME_SAMPLES)
+    rms_arr = np.sqrt(np.mean(frames**2, axis=1))
+    rms_ceil = np.percentile(rms_arr, 99) + 1e-10
+    rms_norm = np.clip(rms_arr / rms_ceil, 0.0, 1.0)
+
+    # Per-frame smoothed prob (align frame index to global prob array)
+    end_frame = int(end_sample / sample_rate / hop_sec)
+
+    hybrid = np.zeros(n_frames, dtype=np.float32)
+    for i in range(n_frames):
+        global_f = end_frame + i
+        prob = probs[global_f] if 0 <= global_f < len(probs) else 0.0
+        hybrid[i] = prob_weight * prob + rms_weight * float(rms_norm[i])
+
+    # Walk forward from the frame immediately after the detected end
+    keep_frames = 0
+    for i in range(n_frames):
+        if hybrid[i] >= hybrid_threshold:
+            keep_frames = i + 1  # extend at least through this frame
+        else:
+            break  # stop at first sub-threshold frame
+
+    return keep_frames * FRAME_SAMPLES
 
 
 def extract_speech_timestamps(
@@ -349,14 +424,19 @@ def extract_speech_timestamps(
     preroll_hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
     preroll_prob_weight: float = DEFAULT_PREROLL_PROB_WEIGHT,
     preroll_rms_weight: float = DEFAULT_PREROLL_RMS_WEIGHT,
+    postroll_max_sec: float = DEFAULT_POSTROLL_MAX_SEC,
+    postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
+    postroll_prob_weight: float = DEFAULT_POSTROLL_PROB_WEIGHT,
+    postroll_rms_weight: float = DEFAULT_POSTROLL_RMS_WEIGHT,
     **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
-    Extract speech timestamps using FireRedVAD with hybrid pre-roll extension.
+    Extract speech timestamps using FireRedVAD with symmetric hybrid
+    pre-roll (head) and post-roll (tail) boundary extension.
 
-    Each detected speech onset is extended backward by a variable pre-roll
-    computed from a weighted combination of smoothed speech probability and
-    normalised RMS energy (equal 0.5/0.5 weights by default).
+    Both boundaries are extended by a variable amount computed from a
+    weighted combination of smoothed speech probability and normalised RMS
+    energy (equal 0.5/0.5 weights by default).
 
     When include_non_speech=True, returns both speech and non-speech segments.
     """
@@ -385,11 +465,14 @@ def extract_speech_timestamps(
     hop_sec = 0.010
 
     # ------------------------------------------------------------------
-    # Apply hybrid pre-roll to each onset
+    # Apply hybrid pre-roll (head) and post-roll (tail) to each segment
     # ------------------------------------------------------------------
     extended_timestamps: list[tuple[float, float]] = []
+    total_samples = len(audio_np)
     for start_sec, end_sec in timestamps:
         onset_sample = int(start_sec * sr)
+        end_sample = int(end_sec * sr)
+
         preroll_samples = _compute_preroll(
             onset_sample=onset_sample,
             audio_np=audio_np,
@@ -400,8 +483,20 @@ def extract_speech_timestamps(
             prob_weight=preroll_prob_weight,
             rms_weight=preroll_rms_weight,
         )
+        postroll_samples = _compute_postroll(
+            end_sample=end_sample,
+            audio_np=audio_np,
+            probs=probs,
+            sample_rate=sr,
+            max_postroll_sec=postroll_max_sec,
+            hybrid_threshold=postroll_hybrid_threshold,
+            prob_weight=postroll_prob_weight,
+            rms_weight=postroll_rms_weight,
+        )
+
         new_start_sec = max(0.0, (onset_sample - preroll_samples) / sr)
-        extended_timestamps.append((new_start_sec, end_sec))
+        new_end_sec = min(total_samples / sr, (end_sample + postroll_samples) / sr)
+        extended_timestamps.append((new_start_sec, new_end_sec))
 
     # Merge overlapping segments that may arise after pre-roll extension
     merged: list[tuple[float, float]] = []
@@ -491,12 +586,16 @@ def extract_speech_audio(
     preroll_hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
     preroll_prob_weight: float = DEFAULT_PREROLL_PROB_WEIGHT,
     preroll_rms_weight: float = DEFAULT_PREROLL_RMS_WEIGHT,
+    postroll_max_sec: float = DEFAULT_POSTROLL_MAX_SEC,
+    postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
+    postroll_prob_weight: float = DEFAULT_POSTROLL_PROB_WEIGHT,
+    postroll_rms_weight: float = DEFAULT_POSTROLL_RMS_WEIGHT,
 ) -> List[np.ndarray]:
     """
     Extract contiguous speech segments from the input audio using FireRedVAD.
 
-    Speech onsets are extended backward via a hybrid (prob + RMS) pre-roll
-    before slicing the audio.
+    Both the head (onset) and tail (end) of each segment are extended via a
+    hybrid (prob + RMS) pre-roll / post-roll before slicing the audio.
 
     Returns a flat list of numpy arrays where each array represents one
     complete speech segment in float32 format, normalised to [-1.0, 1.0].
@@ -518,6 +617,10 @@ def extract_speech_audio(
         preroll_hybrid_threshold=preroll_hybrid_threshold,
         preroll_prob_weight=preroll_prob_weight,
         preroll_rms_weight=preroll_rms_weight,
+        postroll_max_sec=postroll_max_sec,
+        postroll_hybrid_threshold=postroll_hybrid_threshold,
+        postroll_prob_weight=postroll_prob_weight,
+        postroll_rms_weight=postroll_rms_weight,
     )
 
     audio_np, sr = load_audio(audio=audio, sr=sampling_rate, mono=True)
@@ -578,14 +681,17 @@ def _generate_plot(
     output_path: Path,
     is_dummy: bool = False,
     rms: Optional[np.ndarray] = None,
+    hybrid: Optional[np.ndarray] = None,
+    hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
 ) -> None:
-    """Save a speech-probability (+ optional RMS energy) plot to *output_path*."""
+    """Save a speech-probability, RMS energy, and hybrid score plot to *output_path*."""
     num_frames = len(probs)
     if num_frames == 0:
         return
 
     has_rms = rms is not None and len(rms) > 0
-    rows = 2 if has_rms else 1
+    has_hybrid = hybrid is not None and len(hybrid) > 0
+    rows = 1 + int(has_rms) + int(has_hybrid)
     fig, axes = plt.subplots(rows, 1, figsize=(9.5, 3.2 * rows), dpi=140)
     if rows == 1:
         axes = [axes]
@@ -618,8 +724,9 @@ def _generate_plot(
     ax.grid(True, alpha=0.28, linestyle="--", zorder=0)
     ax.legend(loc="upper right", fontsize=9.5, framealpha=0.92)
 
+    ax_idx = 1
     if has_rms:
-        ax_rms = axes[1]
+        ax_rms = axes[ax_idx]
         ax_rms.plot(range(len(rms)), rms, linewidth=1.6, label="RMS energy")
         ax_rms.fill_between(range(len(rms)), rms, alpha=0.15)
         ax_rms.set_ylabel("RMS Energy", fontsize=10.5)
@@ -627,6 +734,32 @@ def _generate_plot(
         ax_rms.set_xlim(0, len(rms) - 1)
         ax_rms.grid(True, alpha=0.28, linestyle="--", zorder=0)
         ax_rms.legend(loc="upper right", fontsize=9.5, framealpha=0.92)
+        ax_idx += 1
+
+    if has_hybrid:
+        ax_hyb = axes[ax_idx]
+        n_hyb = len(hybrid)
+        ax_hyb.plot(
+            hybrid,
+            color="#9467bd",
+            linewidth=1.8,
+            label="Hybrid score (0.5·prob + 0.5·RMS)",
+        )
+        ax_hyb.fill_between(range(n_hyb), hybrid, color="#9467bd", alpha=0.14)
+        ax_hyb.axhline(
+            y=hybrid_threshold,
+            linestyle="--",
+            color="#d62728",
+            alpha=0.65,
+            linewidth=1.2,
+            label=f"threshold = {hybrid_threshold}",
+        )
+        ax_hyb.set_ylim(-0.03, 1.03)
+        ax_hyb.set_xlim(0, n_hyb - 1)
+        ax_hyb.set_ylabel("Hybrid Score", fontsize=10.5)
+        ax_hyb.set_xlabel("Frame (10 ms)", fontsize=10.5)
+        ax_hyb.grid(True, alpha=0.28, linestyle="--", zorder=0)
+        ax_hyb.legend(loc="upper right", fontsize=9.5, framealpha=0.92)
 
     fig.tight_layout(pad=0.9)
     plt.savefig(output_path, bbox_inches="tight", dpi=140)
@@ -765,6 +898,20 @@ def save_segments(
                 )
 
             # ── 7. speech_and_rms.png ─────────────────────────────────────
+            # Align rms to the same frame count as probs for the hybrid score.
+            # Both are 10 ms frames; length may differ slightly at boundaries.
+            n_prob = len(seg_probs_arr)
+            n_rms = len(rms)
+            n_min = min(n_prob, n_rms)
+            if n_min > 0:
+                rms_ceil = np.percentile(rms[:n_min], 99) + 1e-10
+                rms_norm = np.clip(rms[:n_min] / rms_ceil, 0.0, 1.0)
+                hybrid_arr = (0.5 * seg_probs_arr[:n_min] + 0.5 * rms_norm).astype(
+                    np.float32
+                )
+            else:
+                hybrid_arr = np.array([], dtype=np.float32)
+
             _generate_plot(
                 probs=seg_probs_arr,
                 segment_idx=idx,
@@ -772,6 +919,8 @@ def save_segments(
                 output_path=seg_dir / "speech_and_rms.png",
                 is_dummy=is_dummy,
                 rms=rms,
+                hybrid=hybrid_arr,
+                hybrid_threshold=DEFAULT_PREROLL_HYBRID_THRESHOLD,
             )
 
             meta["output_path"] = meta_to_save["output_path"]
@@ -879,19 +1028,50 @@ if __name__ == "__main__":
         default=DEFAULT_PREROLL_RMS_WEIGHT,
         help=f"weight for RMS energy in hybrid score (default: {DEFAULT_PREROLL_RMS_WEIGHT})",
     )
+    # Post-roll args
+    parser.add_argument(
+        "--postroll-max-sec",
+        type=float,
+        default=DEFAULT_POSTROLL_MAX_SEC,
+        help=f"max post-roll look-forward in seconds (default: {DEFAULT_POSTROLL_MAX_SEC})",
+    )
+    parser.add_argument(
+        "--postroll-threshold",
+        type=float,
+        default=DEFAULT_POSTROLL_HYBRID_THRESHOLD,
+        help=f"hybrid score threshold for post-roll extension (default: {DEFAULT_POSTROLL_HYBRID_THRESHOLD})",
+    )
+    parser.add_argument(
+        "--postroll-prob-weight",
+        type=float,
+        default=DEFAULT_POSTROLL_PROB_WEIGHT,
+        help=f"weight for speech prob in hybrid score (default: {DEFAULT_POSTROLL_PROB_WEIGHT})",
+    )
+    parser.add_argument(
+        "--postroll-rms-weight",
+        type=float,
+        default=DEFAULT_POSTROLL_RMS_WEIGHT,
+        help=f"weight for RMS energy in hybrid score (default: {DEFAULT_POSTROLL_RMS_WEIGHT})",
+    )
 
     args = parser.parse_args()
     audio_path = args.audio_path
     output_dir = Path(args.output_dir)
     shutil.rmtree(output_dir, ignore_errors=True)
 
-    console.rule("Audio Segmenter – FireRedVAD2 + Hybrid Pre-Roll", style="blue")
+    console.rule("Audio Segmenter – FireRedVAD2 + Hybrid Pre/Post-Roll", style="blue")
     console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_path).name}\n")
     console.print(
-        f"[dim]Pre-roll: max={args.preroll_max_sec}s  "
+        f"[dim]Pre-roll:  max={args.preroll_max_sec}s  "
         f"threshold={args.preroll_threshold}  "
         f"prob_w={args.preroll_prob_weight}  "
-        f"rms_w={args.preroll_rms_weight}[/dim]\n"
+        f"rms_w={args.preroll_rms_weight}[/dim]"
+    )
+    console.print(
+        f"[dim]Post-roll: max={args.postroll_max_sec}s  "
+        f"threshold={args.postroll_threshold}  "
+        f"prob_w={args.postroll_prob_weight}  "
+        f"rms_w={args.postroll_rms_weight}[/dim]\n"
     )
 
     # ── Step 1: detect segments (with per-frame probabilities) ────────────
@@ -910,6 +1090,10 @@ if __name__ == "__main__":
         preroll_hybrid_threshold=args.preroll_threshold,
         preroll_prob_weight=args.preroll_prob_weight,
         preroll_rms_weight=args.preroll_rms_weight,
+        postroll_max_sec=args.postroll_max_sec,
+        postroll_hybrid_threshold=args.postroll_threshold,
+        postroll_prob_weight=args.postroll_prob_weight,
+        postroll_rms_weight=args.postroll_rms_weight,
     )
 
     console.print(f"\n[bold green]Segments found:[/bold green] {len(segments)}\n")
@@ -942,6 +1126,10 @@ if __name__ == "__main__":
         preroll_hybrid_threshold=args.preroll_threshold,
         preroll_prob_weight=args.preroll_prob_weight,
         preroll_rms_weight=args.preroll_rms_weight,
+        postroll_max_sec=args.postroll_max_sec,
+        postroll_hybrid_threshold=args.postroll_threshold,
+        postroll_prob_weight=args.postroll_prob_weight,
+        postroll_rms_weight=args.postroll_rms_weight,
     )
 
     # ── Step 3: save everything to disk ───────────────────────────────────
