@@ -1,17 +1,23 @@
 # vad_peak_analyzer.py
 
+import json
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
 import soundfile as sf
+from jet.audio.audio_types import AudioInput
 from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
 from jet.audio.speech.firered.speech_timestamps_extractor import (
     extract_speech_timestamps,
 )
 from jet.audio.speech.vad_peak_analyzer import VADPeakAnalyzer
 from jet.audio.speech.vad_types import VADSegment, ValleyInfo, ValleyTrough
+from jet.audio.utils.loader import load_audio
+from rich.console import Console
+
+console = Console()
 
 AUDIO_EXTENSIONS = {
     ".wav",
@@ -24,6 +30,106 @@ AUDIO_EXTENSIONS = {
 }
 
 SplitResult = Tuple[Tuple[List[float], ValleyTrough], Tuple[List[float], ValleyTrough]]
+
+
+def is_probs_list(obj):
+    """Returns True if obj is a list of floats."""
+    return (
+        isinstance(obj, list)
+        and len(obj) > 0
+        and all(isinstance(x, float) for x in obj)
+    )
+
+
+def _linkify(path: Path):
+    return f"[link=file://{path}]{path.name}[/link]"
+
+
+def load_probs(
+    probs_or_path: list[float] | AudioInput, default_audio: str | Path | None = None
+) -> tuple[list[float], Optional[np.ndarray]]:
+    """
+    Attempts to load probability scores for VAD either from a list of floats,
+    from a file (audio or probabilities), or as a JSON string. Falls back on default_audio if parsing fails.
+    Returns:
+        probs (list[float]): VAD probability scores.
+        audio_np (Optional[numpy.ndarray]): Loaded audio if necessary for extraction, otherwise None.
+    Raises:
+        ValueError: If unable to parse input and no default_audio is provided.
+    """
+    input_value = probs_or_path
+    probs = None
+    audio_np = None
+
+    # First: if already a list of floats
+    if is_probs_list(input_value):
+        probs = input_value
+        return probs, audio_np
+
+    # If AudioInput is a file path
+    if isinstance(input_value, (str, Path)):
+        input_path = Path(input_value)
+        if input_path.is_file():
+            ext = input_path.suffix.lower()
+            if ext == ".npy":
+                console.print(f"Loading probabilities from: {_linkify(input_path)}")
+                np_load = np.load(input_path, allow_pickle=True)
+                if isinstance(np_load, np.ndarray):
+                    np_load = np_load.tolist()
+                probs = np_load
+                return probs, None
+            elif ext in {".json", ".txt"}:
+                console.print(f"Loading probabilities from: {_linkify(input_path)}")
+                with open(input_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if is_probs_list(loaded):
+                    return loaded, None
+                else:
+                    raise ValueError(
+                        f"JSON file is not a list of floats: {_linkify(input_path)}"
+                    )
+            else:
+                # Treat as audio file
+                console.print(f"Loading audio from: {_linkify(input_path)}")
+                audio = load_audio(input_path)
+                audio_np = (
+                    audio[0] if isinstance(audio, tuple) and len(audio) == 2 else audio
+                )
+                _, probs = extract_speech_timestamps(
+                    audio=audio_np,
+                    threshold=0.5,
+                    min_speech_duration_sec=0.250,
+                    min_silence_duration_sec=0.250,
+                    with_scores=True,
+                )
+                return probs, audio_np
+
+    # Try parsing inline string list, e.g., "[0.2, 0.3, ...]"
+    if isinstance(input_value, str):
+        try:
+            loaded = json.loads(input_value)
+            if is_probs_list(loaded):
+                return loaded, None
+        except Exception:
+            pass  # Will try fallback
+
+    # Fallback to default_audio
+    if default_audio is not None:
+        console.print(
+            f"[yellow]Input not recognized, falling back to default audio: {_linkify(Path(default_audio))}[/yellow]"
+        )
+        audio = load_audio(default_audio)
+        audio_np = audio[0] if isinstance(audio, tuple) and len(audio) == 2 else audio
+        _, probs = extract_speech_timestamps(
+            audio=audio_np,
+            threshold=0.5,
+            min_speech_duration_sec=0.250,
+            min_silence_duration_sec=0.250,
+            with_scores=True,
+        )
+        return probs, audio_np
+
+    raise ValueError("Input could not be parsed and no default_audio was provided.")
 
 
 def base_extract_valley_troughs(

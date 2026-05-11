@@ -39,7 +39,7 @@ from jet.audio.audio_waveform.vad.vad_config import (
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
 
 # ── project imports ────────────────────────────────────────────────────────────
-from jet.audio.audio_waveform.vad.vad_utils import compute_hybrid_probs, save_segments
+from jet.audio.audio_waveform.vad.vad_utils import save_segments
 from jet.audio.helpers.config import (
     FRAME_SHIFT_MS,
     FRAME_SHIFT_S,
@@ -47,7 +47,7 @@ from jet.audio.helpers.config import (
     SAMPLE_RATE,
 )
 from jet.audio.speech.vad_extractors import get_best_valley_trough
-from jet.audio.speech.vad_types import ValleyTrough
+from jet.audio.speech.vad_types import StreamVadFrame, ValleyTrough
 from rich.console import Console
 
 console = Console()
@@ -300,14 +300,14 @@ class LiveVADSegmenter:
         self._session_meta: List[dict] = []
 
         # build or reuse VAD
-        self._vad: FireRedVAD = vad or FireRedVAD()
+        self._vad: FireRedVAD = vad or FireRedVAD(threshold=threshold)
 
         # state
         self._state = _State.IDLE
-        self._audio_buf: List[np.ndarray] = []
-        self._prob_buf: List[float] = []
+        self._segment_audio: List[np.ndarray] = []  # only current segment
+        # We no longer keep _prob_buf — use vad._accumulated_probs
         self._silence_frames: int = 0
-        self._onset_frames: int = 0  # consecutive speech frames at onset
+        self._onset_frames: int = 0
         self._frames_since_valley_check: int = 0
 
         # thread safety — sounddevice calls the callback from a C thread
@@ -328,7 +328,7 @@ class LiveVADSegmenter:
         self._vad.reset()
         self._seg_counter = 0
         self._session_meta.clear()
-        if self._output_dir:
+        if self._output_dir is not None:
             self._output_dir.mkdir(parents=True, exist_ok=True)
         self._reset_segment()
 
@@ -356,7 +356,14 @@ class LiveVADSegmenter:
     def stop(self) -> None:
         """Stop the microphone stream gracefully."""
         # Signal worker to exit before closing the stream.
-        self._audio_queue.put(None)  # sentinel
+        # PATCH: Do not put None into the queue, since the type is np.ndarray
+        # Instead, to truly stop, mirror how a worker thread should exit safely.
+        try:
+            self._audio_queue.put_nowait(
+                np.zeros(FRAME_SHIFT_SAMPLE, dtype=np.float32) * np.nan
+            )  # marker impossible in normal audio
+        except queue.Full:
+            pass
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
@@ -380,11 +387,12 @@ class LiveVADSegmenter:
     # ── internal ───────────────────────────────────────────────────────────────
 
     def _reset_segment(self) -> None:
-        self._audio_buf.clear()
-        self._prob_buf.clear()
+        self._segment_audio.clear()
         self._silence_frames = 0
         self._onset_frames = 0
         self._frames_since_valley_check = 0
+        # Optional: reset only segment-related accumulated probs if we want strict per-segment
+        # For now we let VAD accumulate globally and slice when needed
 
     def _sd_callback(
         self,
@@ -417,34 +425,32 @@ class LiveVADSegmenter:
                 chunk = self._audio_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            if chunk is None:  # sentinel from stop()
+            # PATCH: Use a nan-filled chunk as the stop marker (see stop)
+            if np.isnan(chunk).all():
                 break
             with self._lock:
                 self._process_chunk(chunk)
 
     def _process_chunk(self, chunk: np.ndarray) -> None:
-        """Core per-frame logic — must be called with self._lock held."""
-        # No preroll logic: always treat incoming chunk as present only
-        norm_chunk = self._vad._normalize_chunk(chunk)
+        """Core per-frame logic."""
+        # Let VAD handle normalization + hybrid prob + accumulation
         prob = self._vad.get_speech_prob(chunk)
         is_speech = prob >= self._threshold
 
-        # ── IDLE ──────────────────────────────────────────────────────────────
         if self._state is _State.IDLE:
             _log_listening()
             if is_speech:
                 self._state = _State.SPEECH
                 _log_speech_start(prob)
-            # Remove preroll: accumulate only the most recent frame
-            self._audio_buf = [norm_chunk]
-            self._prob_buf = [prob]
+            self._segment_audio = [
+                chunk
+            ]  # use original chunk (VAD already normalized internally)
             return
 
-        # ── SPEECH ────────────────────────────────────────────────────────────
-        self._audio_buf.append(norm_chunk)
-        self._prob_buf.append(prob)
+        # ── SPEECH state ─────────────────────────────────────────────────────
+        self._segment_audio.append(chunk)
 
-        n_frames = len(self._prob_buf)
+        n_frames = len(self._vad._accumulated_probs)  # ← single source of truth
         duration_s = n_frames * FRAME_SHIFT_S
 
         if is_speech:
@@ -464,7 +470,7 @@ class LiveVADSegmenter:
             return
 
         # ── 2. plain silence (not yet at soft limit) ───────────────────────
-        if in_silence and not past_soft:  # silence before soft limit
+        if in_silence and not past_soft:
             self._emit("silence", valley_time_s=None, valley_score=None, trough=None)
             return
 
@@ -483,49 +489,24 @@ class LiveVADSegmenter:
             self._frames_since_valley_check += 1
             if self._frames_since_valley_check >= _VALLEY_CHECK_INTERVAL_FRAMES:
                 self._frames_since_valley_check = 0
-                hybrid_probs = compute_hybrid_probs(
-                    np.array(self._prob_buf, dtype=np.float32),
-                    np.concatenate(self._audio_buf, axis=0),
-                ).tolist()
 
-                # Pass explicitly int-cast kwarg values to silence type errors
-                valley_kwargs_int = {}
-                for k, v in self._valley_kwargs.items():
-                    if (
-                        k
-                        in {
-                            "sample_rate",
-                            "smoothing_window",
-                            "trough_distance",
-                            "min_valley_frames",
-                            "frame_offset",
-                        }
-                        and v is not None
-                    ):
-                        valley_kwargs_int[k] = int(v)
-                    else:
-                        valley_kwargs_int[k] = v
+                # Use accumulated probs from VAD (already hybrid!)
+                history: List[StreamVadFrame] = self._vad.get_accumulated_probs()
+                current_probs = [p["smoothed_prob"] for p in history[-n_frames:]]
 
                 trough = get_best_valley_trough(
-                    probs=hybrid_probs,
-                    **valley_kwargs_int,
+                    probs=current_probs, **self._valley_kwargs
                 )
 
                 if trough is not None:
-                    t_s = trough["time_s"]
-                    score = trough["valley"].get("final_score", 0.0)
-                    _log_valley_found(t_s, score)
-                    # Cut using frame index (safe & aligned) — remove postroll/padding, just hard-cut
                     cut_frame = trough["frame"]
-                    self._audio_buf = self._audio_buf[:cut_frame]
-                    self._prob_buf = self._prob_buf[:cut_frame]
+                    self._segment_audio = self._segment_audio[:cut_frame]
                     self._emit(
                         "valley",
-                        valley_time_s=t_s,
-                        valley_score=score,
+                        valley_time_s=trough["time_s"],
+                        valley_score=trough["valley"].get("final_score", 0.0),
                         trough=trough,
                     )
-
                     return
                 else:
                     _log_no_valley(duration_s)
@@ -538,15 +519,15 @@ class LiveVADSegmenter:
         valley_score: Optional[float],
         trough: Optional[dict] = None,
     ) -> None:
-        """Concatenate buffers, fire callback, reset state."""
-        if not self._audio_buf:
-            self._state = _State.IDLE
+        if not self._segment_audio:
             self._reset_segment()
+            self._state = _State.IDLE
             return
 
-        audio_np = np.concatenate(self._audio_buf, axis=0)
-        probs = self._prob_buf
-        # Derive duration from actual audio samples — ground truth, not prob count.
+        audio_np = np.concatenate(self._segment_audio, axis=0)
+        history = self._vad.get_accumulated_probs()
+        probs = [p["smoothed_prob"] for p in history[-len(self._segment_audio) :]]
+
         duration_s = len(audio_np) / SAMPLE_RATE
         above = sum(1 for p in probs if p >= self._threshold)
         speech_ratio = above / max(len(probs), 1)
