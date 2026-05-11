@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf
-from jet.audio.helpers.config import FRAME_SHIFT_MS
+from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
 from jet.audio.speech.firered.speech_timestamps_extractor import (
     extract_speech_timestamps,
 )
@@ -37,7 +37,7 @@ class VADPeakAnalyzer:
 
     def __init__(
         self,
-        sample_rate: int = 16000,
+        sample_rate: int = SAMPLE_RATE,
         frame_shift_ms: float = FRAME_SHIFT_MS,
         debug: bool = False,
     ):
@@ -314,13 +314,13 @@ class VADPeakAnalyzer:
     ) -> None:
         """Helper: build and append one active-region VADSegment."""
         start_s, _ = self._compute_times(start)
-        _, end_s = self._compute_times(end - 1)  # last frame's end time
+        _, end_s = self._compute_times(end + 1)  # last frame's end time
         duration_s = end_s - start_s
         region_probs = x[start:end].tolist()
         segments.append(
             {
                 "frame_start": start,
-                "frame_end": end - 1,
+                "frame_end": end + 1,
                 "frame_length": end - start,
                 "start_s": round(start_s, 4),
                 "end_s": round(end_s, 4),
@@ -482,7 +482,7 @@ class VADPeakAnalyzer:
     ) -> None:
         """Helper: build and append one valley VADSegment."""
         start_s, _ = self._compute_times(start)
-        _, end_s = self._compute_times(end - 1)  # last frame's end time
+        _, end_s = self._compute_times(end + 1)  # last frame's end time
         duration_s = end_s - start_s
         region_probs = x[start:end].tolist()
         min_prob_frame = int(start + np.argmin(x[start:end]))
@@ -493,7 +493,7 @@ class VADPeakAnalyzer:
         segments.append(
             {
                 "frame_start": start,
-                "frame_end": end - 1,
+                "frame_end": end + 1,
                 "frame_length": frame_length,
                 "start_s": round(start_s, 4),
                 "end_s": round(end_s, 4),
@@ -867,8 +867,8 @@ def get_args():
         "--sample-rate",
         "-sr",
         type=int,
-        default=16000,
-        help="Audio sample rate (default: 16000)",
+        default=SAMPLE_RATE,
+        help="Audio sample rate (default: SAMPLE_RATE)",
     )
     parser.add_argument(
         "--frame-shift-ms",

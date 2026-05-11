@@ -110,9 +110,13 @@ Update patterns to be optional
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
-Provide step by step analysis and outline architecture flow first.
-Show unified diff for updated files, while show language code block for new files.
-Use easy to understand terms when explaining.
+Provide step-by-step analysis and explain the flow first.
+Use visuals, diagrams, or tables when helpful.
+
+Show unified diffs for updated files and code blocks for new files.
+Keep explanations simple and clear.
+
+Write flexible, reusable, and maintainable code.
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """

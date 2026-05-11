@@ -14,8 +14,7 @@ import librosa
 import numpy as np
 import sounddevice as sd
 import soundfile as sf  # <-- fast, supports many formats, free & popular
-from jet.audio.helpers.energy_base import get_audio_duration
-from jet.audio.utils.loader import load_audio
+from jet.audio.helpers.config import SAMPLE_RATE
 from jet.logger import logger
 from numpy.typing import NDArray
 from rich.console import Console
@@ -340,7 +339,7 @@ def split_audio(
     audio: Union[np.ndarray, str, Path],
     segment_duration: float = 20.0,
     overlap_duration: float = 2.0,
-    sample_rate: int = 16000,
+    sample_rate: int = SAMPLE_RATE,
 ) -> List[AudioSegment]:
     """
     Yield richly annotated audio segments with precise overlap information.
@@ -401,7 +400,7 @@ def save_audio_chunks(
     prefix: str = "chunk",
     format: str = "wav",  # or "flac", "ogg", etc.
     subtype: str = "PCM_16",  # good quality/default for wav
-    sample_rate: int = 16000,
+    sample_rate: int = SAMPLE_RATE,
 ) -> list[Path]:
     """
     Save all chunks yielded by split_audio() to individual files.
@@ -461,7 +460,7 @@ def merge_audio_chunks(
     output_path: Union[str, Path] = "merged_output.wav",
     *,
     overlap_duration: float = 0.0,
-    sample_rate: int = 16000,
+    sample_rate: int = SAMPLE_RATE,
     expected_channels: int = 2,
     subtype: str = "PCM_16",
     recursive: bool = True,
@@ -573,7 +572,7 @@ def merge_audio_chunks(
 def merge_in_memory_chunks(
     chunks_with_times: Iterator[Tuple[np.ndarray, float, float]],
     overlap_duration: float = 0.0,
-    sample_rate: int = 16000,
+    sample_rate: int = SAMPLE_RATE,
 ) -> np.ndarray:
     """Merge list of (audio_segment, start, end) with overlap removal (in-memory only)."""
     overlap_samples = int(sample_rate * overlap_duration)
@@ -591,13 +590,31 @@ def extract_audio_segment(
     *,
     start: float = 0.0,
     end: Optional[float] = None,
-    sample_rate: int = 16000,
+    start_frame: Optional[int] = None,
+    end_frame: Optional[int] = None,
+    sample_rate: int = SAMPLE_RATE,
 ) -> Tuple[np.ndarray, int]:
     """
     Extract a partial audio segment from a file path, raw bytes, or numpy array.
 
-    For numpy input, sample_rate must be provided.
+    Positions can be specified in seconds (start/end) or in frame/sample units
+    (start_frame/end_frame). Frame arguments take priority over their second
+    counterparts when both are supplied.
+
+    Args:
+        audio_path:   File path, raw bytes, or numpy array of audio samples.
+        start:        Start position in seconds (default 0.0).
+        end:          End position in seconds (default: full duration).
+        start_frame:  Start position in samples. Overrides `start` when given.
+        end_frame:    End position in samples. Overrides `end` when given.
+        sample_rate:  Target sample rate (default: SAMPLE_RATE from config).
+
+    For numpy input, sample_rate must match the array's actual rate.
     """
+    if start_frame is not None and start_frame < 0:
+        raise ValueError("start_frame must be >= 0")
+    if end_frame is not None and end_frame < 0:
+        raise ValueError("end_frame must be >= 0")
     if start < 0:
         raise ValueError("start must be >= 0")
 
@@ -623,20 +640,33 @@ def extract_audio_segment(
         raise TypeError("audio_path must be Path, bytes, or np.ndarray")
 
     total_frames = data.shape[0]
-    start_frame = int(start * sr)
 
-    if start_frame >= total_frames:
+    # --- Resolve start position ---
+    # start_frame (samples) takes priority over start (seconds)
+    if start_frame is not None:
+        resolved_start_frame = start_frame
+    else:
+        resolved_start_frame = int(start * sr)
+
+    if resolved_start_frame >= total_frames:
         raise ValueError("start is beyond audio duration")
 
-    if end is None:
-        audio_np, _ = load_audio(audio_path, sample_rate)
-        end = get_audio_duration(audio_np, sample_rate)
+    # --- Resolve end position ---
+    # end_frame (samples) takes priority over end (seconds)
+    if end_frame is not None:
+        resolved_end_frame = min(end_frame, total_frames)
+    elif end is not None:
+        resolved_end_frame = min(int(end * sr), total_frames)
+    else:
+        resolved_end_frame = total_frames
 
-    if end <= start:
-        raise ValueError("end must be greater than start")
-    end_frame = min(int(end * sr), total_frames)
+    if resolved_end_frame <= resolved_start_frame:
+        raise ValueError(
+            f"Resolved end frame ({resolved_end_frame}) must be greater than "
+            f"resolved start frame ({resolved_start_frame})"
+        )
 
-    return data[start_frame:end_frame], sr
+    return data[resolved_start_frame:resolved_end_frame], sr
 
 
 def load_audio_files_to_bytes(

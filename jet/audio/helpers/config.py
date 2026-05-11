@@ -1,3 +1,5 @@
+# jet.audio.helpers.config
+
 SILENCE_MAX_THRESHOLD = 0.001
 SAMPLE_RATE = 16000
 
