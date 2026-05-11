@@ -51,6 +51,7 @@ from jet.audio.helpers.config import (
     SAMPLE_RATE,
 )
 from jet.audio.speech.vad_extractors import get_best_valley_trough
+from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
 
 console = Console()
@@ -89,6 +90,12 @@ _VALLEY_CHECK_INTERVAL_FRAMES = 10
 # Minimum frames that must be above threshold before we leave IDLE
 _MIN_SPEECH_ONSET_FRAMES = 3
 
+
+def linkify(path: Path):
+    # Provide clickable file link with basename (for rich/terminal that support it)
+    return f"[link=file://{path}]{path.name}[/link]"
+
+
 # ── disk persistence (mirrors vad_firered_hybrid.save_segments) ────────────────
 
 
@@ -99,6 +106,7 @@ def save_live_segment(
     reason: str,
     duration_s: float,
     output_dir: Path,
+    trough: Optional[ValleyTrough] = None,
 ) -> Path:
     """
     Persist one live segment to *output_dir/segments/segment_NNN/* with the
@@ -147,11 +155,19 @@ def save_live_segment(
         "speech_ratio": float(
             sum(1 for p in probs if p >= DEFAULT_THRESHOLD) / max(len(probs), 1)
         ),
+        "first_prob": float(probs_arr[0]) if len(probs_arr) else 0.0,
+        "last_prob": float(probs_arr[-1]) if len(probs_arr) else 0.0,
         "output_path": str(wav_path.relative_to(output_dir)),
         "probs_info": probs_info,
+        "vad_state": "valley_trough" if trough else "silence",
     }
     with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
         json.dump(meta, fh, indent=2, ensure_ascii=False)
+
+    # Save best_trough.json if trough is present
+    if trough is not None:
+        with open(seg_dir / "best_trough.json", "w", encoding="utf-8") as fh:
+            json.dump(trough, fh, indent=2, ensure_ascii=False)
 
     # ── speech_probs.json ──────────────────────────────────────────────────
     with open(seg_dir / "speech_probs.json", "w", encoding="utf-8") as fh:
@@ -213,8 +229,7 @@ def save_session_summary(
     with open(summary_path, "w", encoding="utf-8") as fh:
         json.dump(all_meta, fh, ensure_ascii=False, indent=2)
     console.print(
-        f"[bold green]✓ Session summary:[/bold green] "
-        f"[link=file://{summary_path.resolve()}]{summary_path}[/link]"
+        f"[bold green]✓ Session summary:[/bold green] {linkify(summary_path)}"
     )
 
 
@@ -509,12 +524,12 @@ class LiveVADSegmenter:
 
         # ── 1. hard limit (safety net) ─────────────────────────────────────
         if past_hard:
-            self._emit("hard_limit", valley_time_s=None, valley_score=None)
+            self._emit("hard_limit", valley_time_s=None, valley_score=None, trough=None)
             return
 
         # ── 2. plain silence (not yet at soft limit) ───────────────────────
         if in_silence and not past_soft:
-            self._emit("silence", valley_time_s=None, valley_score=None)
+            self._emit("silence", valley_time_s=None, valley_score=None, trough=None)
             return
 
         # ── 3. past soft limit ─────────────────────────────────────────────
@@ -523,7 +538,9 @@ class LiveVADSegmenter:
 
             # 3a. silence while past soft limit
             if in_silence:
-                self._emit("soft_silence", valley_time_s=None, valley_score=None)
+                self._emit(
+                    "soft_silence", valley_time_s=None, valley_score=None, trough=None
+                )
                 return
 
             # 3b. valley trough check (throttled)
@@ -559,7 +576,9 @@ class LiveVADSegmenter:
                         "valley",
                         valley_time_s=t_s,
                         valley_score=score,
+                        trough=trough,
                     )
+
                     return
                 else:
                     _log_no_valley(duration_s)
@@ -570,6 +589,7 @@ class LiveVADSegmenter:
         *,
         valley_time_s: Optional[float],
         valley_score: Optional[float],
+        trough: Optional[dict] = None,
     ) -> None:
         """Concatenate buffers, fire callback, reset state."""
         if not self._audio_buf:
@@ -597,6 +617,9 @@ class LiveVADSegmenter:
             ),
         )
 
+        # Capture trough before resetting state for closure
+        trough_to_save = trough
+
         self._state = _State.IDLE
         self._reset_segment()
 
@@ -607,8 +630,15 @@ class LiveVADSegmenter:
             def _save() -> None:
                 try:
                     seg_dir = save_live_segment(
-                        seg_num, audio_np, probs, reason, duration_s, out_dir
+                        seg_num,
+                        audio_np,
+                        probs,
+                        reason,
+                        duration_s,
+                        out_dir,
+                        trough=trough_to_save,
                     )
+
                     meta = {
                         "num": seg_num,
                         "duration_s": duration_s,
@@ -623,7 +653,7 @@ class LiveVADSegmenter:
                         save_session_summary(self._session_meta, out_dir)
                     console.print(
                         f"[dim green]  💾 Saved segment {seg_num:03d} → "
-                        f"{seg_dir.relative_to(out_dir)}[/dim green]"
+                        f"{linkify(seg_dir)}[/dim green]"
                     )
                 except Exception as exc:
                     console.print(f"[red]  Save failed (seg {seg_num}): {exc}[/red]")
