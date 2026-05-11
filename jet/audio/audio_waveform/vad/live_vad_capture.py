@@ -41,25 +41,23 @@ import numpy as np
 import sounddevice as sd
 import torch
 import torchaudio
-from rich.console import Console
-from vad_firered_hybrid import (
+from jet.audio.audio_waveform.vad.vad_firered_hybrid import (
     DEFAULT_MAX_BUFFER_SEC,
     DEFAULT_MAX_SPEECH_SEC,
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_MIN_SPEECH_SEC,
     DEFAULT_POSTROLL_HYBRID_THRESHOLD,
     DEFAULT_POSTROLL_MAX_SEC,
-    DEFAULT_POSTROLL_PROB_WEIGHT,
-    DEFAULT_POSTROLL_RMS_WEIGHT,
     DEFAULT_PREROLL_HYBRID_THRESHOLD,
     DEFAULT_PREROLL_MAX_SEC,
-    DEFAULT_PREROLL_PROB_WEIGHT,
-    DEFAULT_PREROLL_RMS_WEIGHT,
+    DEFAULT_PROB_WEIGHT,
+    DEFAULT_RMS_WEIGHT,
     DEFAULT_SMOOTH_WINDOW_SIZE,
     DEFAULT_THRESHOLD,
     SAVE_DIR,
     FireRedVAD,
 )
+from rich.console import Console
 
 console = Console()
 
@@ -106,8 +104,8 @@ class PreRollBuffer:
         self,
         max_preroll_sec: float = DEFAULT_PREROLL_MAX_SEC,
         hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
-        prob_weight: float = DEFAULT_PREROLL_PROB_WEIGHT,
-        rms_weight: float = DEFAULT_PREROLL_RMS_WEIGHT,
+        prob_weight: float = DEFAULT_PROB_WEIGHT,
+        rms_weight: float = DEFAULT_RMS_WEIGHT,
         sample_rate: int = SAMPLE_RATE,
     ) -> None:
         self.max_preroll_sec = max_preroll_sec
@@ -211,8 +209,8 @@ class PostRollBuffer:
         self,
         max_postroll_sec: float = DEFAULT_POSTROLL_MAX_SEC,
         hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
-        prob_weight: float = DEFAULT_POSTROLL_PROB_WEIGHT,
-        rms_weight: float = DEFAULT_POSTROLL_RMS_WEIGHT,
+        prob_weight: float = DEFAULT_PROB_WEIGHT,
+        rms_weight: float = DEFAULT_RMS_WEIGHT,
         min_silence_frames: int = 25,  # filled in by LiveVADCapture
         sample_rate: int = SAMPLE_RATE,
     ) -> None:
@@ -377,12 +375,12 @@ class LiveVADCapture:
         max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
         preroll_max_sec: float = DEFAULT_PREROLL_MAX_SEC,
         preroll_hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
-        preroll_prob_weight: float = DEFAULT_PREROLL_PROB_WEIGHT,
-        preroll_rms_weight: float = DEFAULT_PREROLL_RMS_WEIGHT,
+        preroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
+        preroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
         postroll_max_sec: float = DEFAULT_POSTROLL_MAX_SEC,
         postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
-        postroll_prob_weight: float = DEFAULT_POSTROLL_PROB_WEIGHT,
-        postroll_rms_weight: float = DEFAULT_POSTROLL_RMS_WEIGHT,
+        postroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
+        postroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
         output_dir: Path = Path("live_segments"),
         save_wav: bool = True,
     ) -> None:
@@ -670,11 +668,9 @@ def main() -> None:
         "--preroll-threshold", type=float, default=DEFAULT_PREROLL_HYBRID_THRESHOLD
     )
     parser.add_argument(
-        "--preroll-prob-weight", type=float, default=DEFAULT_PREROLL_PROB_WEIGHT
+        "--preroll-prob-weight", type=float, default=DEFAULT_PROB_WEIGHT
     )
-    parser.add_argument(
-        "--preroll-rms-weight", type=float, default=DEFAULT_PREROLL_RMS_WEIGHT
-    )
+    parser.add_argument("--preroll-rms-weight", type=float, default=DEFAULT_RMS_WEIGHT)
     parser.add_argument(
         "--postroll-max-sec", type=float, default=DEFAULT_POSTROLL_MAX_SEC
     )
@@ -682,11 +678,9 @@ def main() -> None:
         "--postroll-threshold", type=float, default=DEFAULT_POSTROLL_HYBRID_THRESHOLD
     )
     parser.add_argument(
-        "--postroll-prob-weight", type=float, default=DEFAULT_POSTROLL_PROB_WEIGHT
+        "--postroll-prob-weight", type=float, default=DEFAULT_PROB_WEIGHT
     )
-    parser.add_argument(
-        "--postroll-rms-weight", type=float, default=DEFAULT_POSTROLL_RMS_WEIGHT
-    )
+    parser.add_argument("--postroll-rms-weight", type=float, default=DEFAULT_RMS_WEIGHT)
     parser.add_argument(
         "-o",
         "--output-dir",

@@ -5,7 +5,9 @@ from typing import Optional, Tuple
 import numpy as np
 from jet.audio.helpers.config import (
     FRAME_LENGTH_MS,
+    FRAME_LENGTH_SAMPLE,
     FRAME_SHIFT_MS,
+    FRAME_SHIFT_SAMPLE,
     LOUD_MAX,
     NORMAL_MAX,
     SAMPLE_RATE,
@@ -65,19 +67,44 @@ def compute_rms_delta(
 
 
 def compute_rms(samples: np.ndarray) -> float:
-    """Root Mean Square – best simple measure of perceived loudness/energy.
+    """
+    Compute Root Mean Square (RMS) of a signal.
 
-    Range: 0.0 (true silence) → ~0.707 (full-scale sine wave)
-    Typical speech values:
-      - < SILENCE_MAX_THRESHOLD     → silence / noise floor
-      - SILENCE_MAX_THRESHOLD–VERY_QUIET_MAX → very quiet / breath
-      - VERY_QUIET_MAX–NORMAL_MAX → normal conversational speech
-      - NORMAL_MAX–LOUD_MAX       → loud speech
-      - > LOUD_MAX                → very loud / shouting
+    Description: Returns the overall energy/loudness of the entire audio array.
+
+    Best use cases:
+    - Single overall loudness measurement
+    - Comparing energy between different audio clips
     """
     if len(samples) == 0:
         return 0.0
     return float(np.sqrt(np.mean(np.square(samples.astype(np.float64)))))
+
+
+def compute_frame_rms(
+    signal: np.ndarray,
+    frame_length: int = FRAME_LENGTH_SAMPLE,
+    hop_length: int = FRAME_SHIFT_SAMPLE,
+) -> np.ndarray:
+    """
+    Compute RMS energy for each frame of the signal.
+
+    Description: Breaks the signal into overlapping frames and calculates RMS
+                 for each frame (time-varying energy).
+
+    Best use cases:
+    - Voice Activity Detection (VAD)
+    - Audio segmentation
+    - Visualizing volume envelope over time
+    - Feature extraction for ML models
+    """
+    return np.array(
+        [
+            np.sqrt(np.mean(signal[i : i + frame_length] ** 2))
+            for i in range(0, len(signal) - frame_length + 1, hop_length)
+        ],
+        dtype=np.float32,
+    )
 
 
 def compute_rms_per_frame(

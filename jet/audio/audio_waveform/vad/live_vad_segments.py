@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import queue
 import threading
 import time
 from dataclasses import dataclass
@@ -25,9 +26,8 @@ from typing import Callable, List, Optional
 
 import numpy as np
 import sounddevice as sd
-import torch
-import torchaudio
-from jet.audio.audio_waveform.vad.vad_firered_hybrid import (
+import soundfile as sf
+from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_PREROLL_HYBRID_THRESHOLD,
     DEFAULT_PROB_WEIGHT,
@@ -38,8 +38,9 @@ from jet.audio.audio_waveform.vad.vad_firered_hybrid import (
     DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
     DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
     DEFAULT_THRESHOLD,
-    FireRedVAD,
-    _compute_rms,
+)
+from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
+from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     _generate_plot,
 )
 
@@ -50,6 +51,7 @@ from jet.audio.helpers.config import (
     FRAME_SHIFT_SAMPLE,
     SAMPLE_RATE,
 )
+from jet.audio.helpers.energy_base import compute_frame_rms
 from jet.audio.speech.vad_extractors import get_best_valley_trough
 from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
@@ -87,9 +89,6 @@ class SegmentInfo:
 # 10 frames = 100 ms between checks — avoids running scipy every chunk.
 _VALLEY_CHECK_INTERVAL_FRAMES = 10
 
-# Minimum frames that must be above threshold before we leave IDLE
-_MIN_SPEECH_ONSET_FRAMES = 3
-
 
 def linkify(path: Path):
     # Provide clickable file link with basename (for rich/terminal that support it)
@@ -126,12 +125,10 @@ def save_live_segment(
 
     # ── sound.wav ──────────────────────────────────────────────────────────
     wav_path = seg_dir / "sound.wav"
-    torchaudio.save(
-        str(wav_path),
-        torch.from_numpy(audio_np).unsqueeze(0),
+    sf.write(
+        wav_path,
+        audio_np,
         SAMPLE_RATE,
-        encoding="PCM_S",
-        bits_per_sample=16,
     )
 
     # ── probs summary ──────────────────────────────────────────────────────
@@ -183,7 +180,7 @@ def save_live_segment(
         )
 
     # ── energies.json ──────────────────────────────────────────────────────
-    rms = _compute_rms(audio_np)
+    rms = compute_frame_rms(audio_np)
     with open(seg_dir / "energies.json", "w", encoding="utf-8") as fh:
         json.dump(
             {
@@ -247,7 +244,7 @@ def _throttled(key: str, interval_s: float = 2.0) -> bool:
 
 
 def _log_listening() -> None:
-    if _throttled("idle", 3.0):
+    if _throttled("idle", 15.0):
         console.print("[dim cyan]🎙  Listening…[/dim cyan]")
 
 
@@ -403,6 +400,12 @@ class LiveVADSegmenter:
         # thread safety — sounddevice calls the callback from a C thread
         self._lock = threading.Lock()
         self._save_lock = threading.Lock()
+
+        # Queue mirrors AudioStreamManager's pattern: decouples the real-time
+        # SD callback from all heavy VAD / state-machine work.
+        self._audio_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
+        self._worker_thread: Optional[threading.Thread] = None
+
         self._stream: Optional[sd.InputStream] = None
 
     # ── public API ─────────────────────────────────────────────────────────────
@@ -415,6 +418,12 @@ class LiveVADSegmenter:
         if self._output_dir:
             self._output_dir.mkdir(parents=True, exist_ok=True)
         self._reset_segment()
+
+        self._worker_thread = threading.Thread(
+            target=self._processing_loop, daemon=True
+        )
+        self._worker_thread.start()
+
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=1,
@@ -433,10 +442,15 @@ class LiveVADSegmenter:
 
     def stop(self) -> None:
         """Stop the microphone stream gracefully."""
+        # Signal worker to exit before closing the stream.
+        self._audio_queue.put(None)  # sentinel
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+        if self._worker_thread and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=2.0)
+        self._worker_thread = None
         console.print("[bold red]LiveVADSegmenter stopped.[/bold red]")
 
     def run_forever(self) -> None:
@@ -466,19 +480,39 @@ class LiveVADSegmenter:
         time_info,  # noqa: ANN001 — CData struct, not typed
         status: sd.CallbackFlags,
     ) -> None:
-        """Called by sounddevice from its audio thread for every block."""
+        """Real-time SD callback — only enqueues; never does heavy work."""
         if status:
             console.print(f"[red]sounddevice status: {status}[/red]")
 
         chunk = indata[:, 0].copy()  # mono, shape (FRAME_SHIFT_SAMPLE,)
 
-        with self._lock:
-            self._process_chunk(chunk)
+        # Mirror AudioStreamManager's drop-oldest strategy.
+        if self._audio_queue.full():
+            try:
+                self._audio_queue.get_nowait()
+            except queue.Empty:
+                pass
+        try:
+            self._audio_queue.put_nowait(chunk)
+        except queue.Full:
+            pass
+
+    def _processing_loop(self) -> None:
+        """Worker thread — drains the queue and runs the VAD state machine."""
+        while True:
+            try:
+                chunk = self._audio_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if chunk is None:  # sentinel from stop()
+                break
+            with self._lock:
+                self._process_chunk(chunk)
 
     def _process_chunk(self, chunk: np.ndarray) -> None:
         """Core per-frame logic — must be called with self._lock held."""
-        # Store the RAW chunk for audio reconstruction BEFORE VAD normalises it
-        raw_chunk = chunk.copy()
+        # No preroll logic: always treat incoming chunk as present only
+        norm_chunk = self._vad._normalize_chunk(chunk)
         prob = self._vad.get_speech_prob(chunk)
         is_speech = prob >= self._threshold
 
@@ -486,25 +520,15 @@ class LiveVADSegmenter:
         if self._state is _State.IDLE:
             _log_listening()
             if is_speech:
-                self._onset_frames += 1
-                if self._onset_frames >= _MIN_SPEECH_ONSET_FRAMES:
-                    self._state = _State.SPEECH
-                    _log_speech_start(prob)
-                    self._onset_frames = 0
-            else:
-                self._onset_frames = 0
-            # always accumulate a tiny look-back so we don't clip onset
-            self._audio_buf.append(raw_chunk)
-            self._prob_buf.append(prob)
-            # keep only the last few frames as pre-roll context
-            max_preroll = _MIN_SPEECH_ONSET_FRAMES + 2
-            if len(self._audio_buf) > max_preroll:
-                self._audio_buf = self._audio_buf[-max_preroll:]
-                self._prob_buf = self._prob_buf[-max_preroll:]
+                self._state = _State.SPEECH
+                _log_speech_start(prob)
+            # Remove preroll: accumulate only the most recent frame
+            self._audio_buf = [norm_chunk]
+            self._prob_buf = [prob]
             return
 
         # ── SPEECH ────────────────────────────────────────────────────────────
-        self._audio_buf.append(raw_chunk)
+        self._audio_buf.append(norm_chunk)
         self._prob_buf.append(prob)
 
         n_frames = len(self._prob_buf)
@@ -547,7 +571,7 @@ class LiveVADSegmenter:
             if self._frames_since_valley_check >= _VALLEY_CHECK_INTERVAL_FRAMES:
                 self._frames_since_valley_check = 0
                 audio_np_so_far = np.concatenate(self._audio_buf, axis=0)
-                rms = _compute_rms(audio_np_so_far)
+                rms = compute_frame_rms(audio_np_so_far)
                 n = min(len(self._prob_buf), len(rms))
                 if n > 0:
                     rms_ceil = np.percentile(rms[:n], 99) + 1e-10
@@ -558,16 +582,35 @@ class LiveVADSegmenter:
                     ).tolist()
                 else:
                     hybrid_probs = self._prob_buf
+
+                # Pass explicitly int-cast kwarg values to silence type errors
+                valley_kwargs_int = {}
+                for k, v in self._valley_kwargs.items():
+                    if (
+                        k
+                        in {
+                            "sample_rate",
+                            "smoothing_window",
+                            "trough_distance",
+                            "min_valley_frames",
+                            "frame_offset",
+                        }
+                        and v is not None
+                    ):
+                        valley_kwargs_int[k] = int(v)
+                    else:
+                        valley_kwargs_int[k] = v
+
                 trough = get_best_valley_trough(
                     probs=hybrid_probs,
-                    **self._valley_kwargs,
+                    **valley_kwargs_int,
                 )
 
                 if trough is not None:
                     t_s = trough["time_s"]
                     score = trough["valley"].get("final_score", 0.0)
                     _log_valley_found(t_s, score)
-                    # trim audio to the trough frame
+                    # Cut using frame index (safe & aligned) — remove postroll/padding, just hard-cut
                     cut_frame = trough["frame"]
                     self._audio_buf = self._audio_buf[:cut_frame]
                     self._prob_buf = self._prob_buf[:cut_frame]
@@ -596,9 +639,8 @@ class LiveVADSegmenter:
             self._reset_segment()
             return
 
-        audio_np = np.concatenate(self._audio_buf, axis=0).astype(np.float32)
-        audio_np = np.clip(audio_np, -1.0, 1.0)
-        probs = list(self._prob_buf)
+        audio_np = np.concatenate(self._audio_buf, axis=0)
+        probs = self._prob_buf
         # Derive duration from actual audio samples — ground truth, not prob count.
         duration_s = len(audio_np) / SAMPLE_RATE
         above = sum(1 for p in probs if p >= self._threshold)
