@@ -201,6 +201,7 @@ def save_segments(
     segments: List[SpeechSegment],
     audio_chunks: List[np.ndarray],
     output_base_dir: Path,
+    show_progress: bool = True,
 ) -> List[SpeechSegment]:
     """
     Persist every speech segment to *output_base_dir/segments/segment_NNN/*.
@@ -227,18 +228,24 @@ def save_segments(
     pairs = list(zip(speech_segments, audio_chunks))
     saved: List[SpeechSegment] = []
 
-    progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        "[progress.percentage]{task.percentage:>3.0f}%",
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    )
+    _progress: Optional[Progress] = None
+    if show_progress and len(pairs) > 0:
+        _progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+        )
 
-    with progress:
-        task = progress.add_task("[cyan]Saving segments + plots…", total=len(pairs))
+    def _run_saves() -> None:
+        task = (
+            _progress.add_task("[cyan]Saving segments + plots…", total=len(pairs))
+            if _progress
+            else None
+        )
 
         for meta, audio_np in pairs:
             idx = meta["num"]
@@ -257,7 +264,8 @@ def save_segments(
                 )
             except Exception as exc:
                 console.print(f"[red]Failed to save WAV {wav_path}: {exc}[/red]")
-                progress.advance(task)
+                if _progress and task is not None:
+                    _progress.advance(task)
                 continue
 
             # ── 2. Probability array ──────────────────────────────────────
@@ -351,7 +359,14 @@ def save_segments(
 
             meta["output_path"] = meta_to_save["output_path"]
             saved.append(meta)
-            progress.advance(task)
+            if _progress and task is not None:
+                _progress.advance(task)
+
+    if _progress:
+        with _progress:
+            _run_saves()
+    else:
+        _run_saves()
 
     console.print(f"[bold green]✓ Saved {len(saved)} segments[/bold green]")
     console.print(

@@ -1,34 +1,61 @@
-# live_vad_segments.py
-
 """
-Live VAD Segmenter — streams mic audio via sounddevice, accumulates speech
-chunks, and fires on_segment() when a natural boundary is detected.
-Optionally saves results to disk in the same layout as vad_firered_hybrid.py.
+live_vad_segments.py
+════════════════════
+Bridges a live sounddevice microphone stream into VadSpeechSegmentsTracker,
+saving result files for every completed segment and calling an optional
+on_segment callback.
 
-Segment-end triggers (in priority order):
-  1. "silence"       — prob stayed below threshold for >= min_silence_sec
-  2. "soft_silence"  — past soft_limit AND currently in silence
-  3. "valley"        — past soft_limit AND a clean valley trough was found
-  4. "hard_limit"    — past hard_limit (safety fallback, no trough needed)
+Saved per segment  (OUTPUT_DIR / "segments" / "segment_NNN/")
+─────────────────
+  sound.wav           – 16-kHz PCM-16 audio
+  meta.json           – SpeechSegment metadata + probs_info summary
+  raw_probs.json      – per-frame raw model probabilities
+  smoothed_probs.json – per-frame smoothed probabilities used for VAD
+  energies.json       – per-frame RMS energy
+  plot.png            – speech prob + RMS + hybrid overlay plot
+
+Threading model
+───────────────
+  sounddevice callback  →  queue.Queue  →  worker thread
+                                              ├─ FireRedVAD.get_speech_prob()
+                                              ├─ VadSpeechSegmentsTracker.push()
+                                              ├─ _save_segment()    (on result)
+                                              └─ on_segment(result) (on result)
+
+The sounddevice callback ONLY does `queue.put_nowait(chunk)` — no blocking,
+no Python-level computation.  All VAD and I/O live in the worker thread.
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import queue
+import shutil
 import threading
 import time
-from dataclasses import dataclass
-from enum import Enum, auto
 from pathlib import Path
 from typing import Callable, List, Optional
 
+import matplotlib
+from jet.audio.audio_waveform.vad.vad_logging import log_accumulating
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import sounddevice as sd
+import torch
+import torchaudio
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
+    DEFAULT_MAX_SPEECH_SEC,
     DEFAULT_MIN_SILENCE_SEC,
+    DEFAULT_MIN_SPEECH_SEC,
+    DEFAULT_POSTROLL_HYBRID_THRESHOLD,
+    DEFAULT_POSTROLL_MAX_SEC,
+    DEFAULT_PREROLL_HYBRID_THRESHOLD,
+    DEFAULT_PREROLL_MAX_SEC,
+    DEFAULT_PROB_WEIGHT,
+    DEFAULT_RMS_WEIGHT,
     DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     DEFAULT_SOFT_LIMIT_SEC,
@@ -37,303 +64,411 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_THRESHOLD,
 )
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
-
-# ── project imports ────────────────────────────────────────────────────────────
-from jet.audio.audio_waveform.vad.vad_utils import save_segments
-from jet.audio.helpers.config import (
-    FRAME_SHIFT_MS,
-    FRAME_SHIFT_S,
-    FRAME_SHIFT_SAMPLE,
-    SAMPLE_RATE,
+from jet.audio.audio_waveform.vad.vad_speech_segments_tracker import (
+    SegmentResult,
+    VadSpeechSegmentsTracker,
 )
-from jet.audio.speech.vad_extractors import get_best_valley_trough
-from jet.audio.speech.vad_types import StreamVadFrame, ValleyTrough
+from jet.audio.helpers.config import HOP_SIZE, HOP_STEP_S, SAMPLE_RATE
 from rich.console import Console
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TextColumn,
+    TimeElapsedColumn,
+)
+from rich.table import Table
 
 console = Console()
 
-# ── types ──────────────────────────────────────────────────────────────────────
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
-SegmentCallback = Callable[
-    [np.ndarray, List[float], str, float],  # audio, probs, reason, duration_s
-    None,
-]
+# ── Sentinel: signals worker thread to stop ────────────────────────────────────
+_STOP = object()
 
 
-class _State(Enum):
-    IDLE = auto()
-    SPEECH = auto()
+# ─────────────────────────────────────────────────────────────────────────────
+# Segment file saver
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-@dataclass
-class SegmentInfo:
-    """Metadata passed alongside the audio to on_segment."""
-
-    duration_s: float
-    num_frames: int
-    end_reason: str  # "silence" | "soft_silence" | "valley" | "hard_limit"
-    valley_time_s: Optional[float]  # set when reason == "valley"
-    valley_score: Optional[float]
-    speech_ratio: float  # fraction of frames above threshold
+def _compute_frame_rms(audio_np: np.ndarray, frame_size: int = HOP_SIZE) -> np.ndarray:
+    """Per-frame RMS energy aligned to VAD frames (10 ms each)."""
+    n_frames = len(audio_np) // frame_size
+    if n_frames == 0:
+        return np.array([], dtype=np.float32)
+    frames = audio_np[: n_frames * frame_size].reshape(n_frames, frame_size)
+    return np.sqrt(np.mean(frames**2, axis=1)).astype(np.float32)
 
 
-# ── constants ──────────────────────────────────────────────────────────────────
-
-# How often (in frames) we run valley detection while past the soft limit.
-# 10 frames = 100 ms between checks — avoids running scipy every chunk.
-_VALLEY_CHECK_INTERVAL_FRAMES = 10
-
-
-def linkify(path: Path):
-    # Provide clickable file link with basename (for rich/terminal that support it)
-    return f"[bold blue][link=file://{path}]{path.name}[/link][/bold blue]"
-
-
-# ── disk persistence (mirrors vad_firered_hybrid.save_segments) ────────────────
-
-
-def save_live_segment(
+def _save_segment(
     seg_num: int,
-    audio_np: np.ndarray,
-    probs: List[float],
-    reason: str,
-    duration_s: float,
+    result: SegmentResult,
+    segment: SpeechSegment,
+    raw_probs: List[float],
     output_dir: Path,
-    trough: Optional[ValleyTrough] = None,
 ) -> Path:
     """
-    Build a SpeechSegment from live VAD data and delegate to save_segments.
-    Returns the segment directory (output_dir/segments/segment_NNN).
-    """
-    n_frames = len(probs)
-    segment: SpeechSegment = {
-        "num": seg_num,
-        "start": 0.0,
-        "end": duration_s,
-        "prob": float(max(probs)) if probs else 0.0,
-        "duration": duration_s,
-        "frames_length": n_frames,
-        "frame_start": 0,
-        "frame_end": max(n_frames - 1, 0),
-        "type": "speech",
-        "segment_probs": list(probs),
-    }
-
-    save_segments(
-        segments=[segment],
-        audio_chunks=[audio_np],
-        output_base_dir=output_dir,
-    )
-
-    seg_dir = output_dir / "segments" / f"segment_{seg_num:03d}"
-    return seg_dir
-
-
-def save_session_summary(
-    all_meta: List[dict],
-    output_dir: Path,
-) -> None:
-    """Write all_speech_segments.json to *output_dir*, same as vad_firered_hybrid."""
-    summary_path = output_dir / "all_speech_segments.json"
-    with open(summary_path, "w", encoding="utf-8") as fh:
-        json.dump(all_meta, fh, ensure_ascii=False, indent=2)
-    console.print(
-        f"[bold green]✓ Session summary:[/bold green] {linkify(summary_path)}"
-    )
-
-
-# ── logging helpers ────────────────────────────────────────────────────────────
-
-_LAST_LOG: dict[str, float] = {}
-
-
-def _throttled(key: str, interval_s: float = 2.0) -> bool:
-    """Return True if we should emit a log for *key* (rate-limited)."""
-    now = time.monotonic()
-    if now - _LAST_LOG.get(key, 0.0) >= interval_s:
-        _LAST_LOG[key] = now
-        return True
-    return False
-
-
-def _log_listening() -> None:
-    if _throttled("idle", 15.0):
-        console.print("[dim cyan]🎙  Listening…[/dim cyan]")
-
-
-def _log_speech_start(prob: float) -> None:
-    console.print(
-        f"[bold green]▶  Speech started[/bold green]  [dim](prob={prob:.2f})[/dim]"
-    )
-
-
-def _log_accumulating(duration_s: float, prob: float) -> None:
-    if _throttled("accum", 1.5):
-        console.print(
-            f"[cyan]   ↳ accumulating[/cyan]  "
-            f"[yellow]{duration_s:.1f}s[/yellow]  "
-            f"[dim]prob={prob:.2f}[/dim]"
-        )
-
-
-def _log_soft_limit_check(duration_s: float, soft_limit_s: float) -> None:
-    if _throttled("soft", 2.0):
-        console.print(
-            f"[magenta]   ⚠  Past soft limit[/magenta]  "
-            f"[yellow]{duration_s:.1f}s[/yellow] > "
-            f"[yellow]{soft_limit_s:.1f}s[/yellow]  — watching for valley…"
-        )
-
-
-def _log_segment_end(reason: str, duration_s: float, extra: str = "") -> None:
-    color = {
-        "silence": "green",
-        "soft_silence": "yellow",
-        "valley": "magenta",
-        "hard_limit": "red",
-    }.get(reason, "white")
-    console.print(
-        f"[bold {color}]■  Segment ended[/bold {color}]  "
-        f"reason=[bold]{reason}[/bold]  "
-        f"dur=[bold yellow]{duration_s:.2f}s[/bold yellow]"
-        + (f"  {extra}" if extra else "")
-    )
-
-
-def _log_valley_found(time_s: float, score: float) -> None:
-    console.print(
-        f"[magenta]   🔍 Valley trough found[/magenta]  "
-        f"at [bold]{time_s:.2f}s[/bold]  "
-        f"score=[bold]{score:.3f}[/bold]"
-    )
-
-
-def _log_no_valley(duration_s: float) -> None:
-    if _throttled("no_valley", 2.0):
-        console.print(
-            f"[dim yellow]   ⏳ No valley found yet at {duration_s:.1f}s — continuing…[/dim yellow]"
-        )
-
-
-# ── main class ─────────────────────────────────────────────────────────────────
-
-
-class LiveVADSegmenter:
-    """
-    Real-time microphone segmenter using FireRedVAD.
+    Persist all artefacts for one completed speech segment.
 
     Parameters
     ----------
-    on_segment:
-        Callback fired at the end of each speech segment::
+    seg_num     Global segment counter (used for the directory name).
+    result      The SegmentResult from VadSpeechSegmentsTracker.
+    segment     The specific SpeechSegment dict to save (result may contain
+                multiple when soft-limit splits occurred).
+    raw_probs   Raw (un-smoothed) per-frame probabilities for this segment,
+                aligned with result.probs (smoothed).
+    output_dir  Root output directory; files go under
+                output_dir / "segments" / "segment_NNN".
 
-            on_segment(audio_np, probs, reason, duration_s)
+    Returns
+    -------
+    Path to the segment subdirectory.
+    """
+    seg_dir = output_dir / "segments" / f"segment_{seg_num:03d}"
+    seg_dir.mkdir(parents=True, exist_ok=True)
 
-        *audio_np*   – float32 array of accumulated speech samples
-        *probs*      – list of per-frame VAD probabilities
-        *reason*     – one of "silence", "soft_silence", "valley", "hard_limit"
-        *duration_s* – segment duration in seconds
+    audio_np: np.ndarray = result.audio_np
+    smoothed_probs: List[float] = result.probs
 
-    threshold:
-        VAD speech probability threshold (default 0.5).
+    # ── 1. sound.wav ──────────────────────────────────────────────────────────
+    wav_path = seg_dir / "sound.wav"
+    if len(audio_np) > 0:
+        try:
+            torchaudio.save(
+                str(wav_path),
+                torch.from_numpy(audio_np).unsqueeze(0),
+                SAMPLE_RATE,
+                encoding="PCM_S",
+                bits_per_sample=16,
+            )
+        except Exception as exc:
+            console.print(f"[red]  WAV save error: {exc}[/red]")
+    else:
+        console.print(
+            f"[yellow]  segment {seg_num:03d}: empty audio — skipping WAV[/yellow]"
+        )
 
-    min_silence_sec:
-        Consecutive silence required to close a segment (default 0.8 s).
+    # ── 2. RMS energies ───────────────────────────────────────────────────────
+    rms = _compute_frame_rms(audio_np)
 
-    soft_limit_sec:
-        After this many seconds the segmenter actively looks for a valley
-        to cut early (default 6 s).
+    # ── 3. Probs summary ──────────────────────────────────────────────────────
+    sp_arr = np.array(smoothed_probs, dtype=np.float32)
+    probs_info = {
+        "num_frames": int(len(sp_arr)),
+        "mean": float(np.mean(sp_arr)) if len(sp_arr) else 0.0,
+        "max": float(np.max(sp_arr)) if len(sp_arr) else 0.0,
+        "min": float(np.min(sp_arr)) if len(sp_arr) else 0.0,
+        "std": float(np.std(sp_arr)) if len(sp_arr) else 0.0,
+        "median": float(np.median(sp_arr)) if len(sp_arr) else 0.0,
+        "frame_rate_hz": int(1.0 / HOP_STEP_S),
+    }
 
-    hard_limit_sec:
-        Absolute max segment length — fires even without a valley (default 15 s).
+    # ── 4. meta.json ──────────────────────────────────────────────────────────
+    meta_out = dict(segment)
+    meta_out["output_path"] = str(wav_path.relative_to(output_dir))
+    meta_out["end_reason"] = result.end_reason
+    meta_out["end_condition_label"] = result.end_condition_label
+    meta_out["probs_info"] = probs_info
+    meta_out.pop("segment_probs", None)
+    with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
+        json.dump(meta_out, fh, indent=2, ensure_ascii=False)
 
-    device:
-        sounddevice input device index or name.  None → system default.
+    # ── 5. raw_probs.json ─────────────────────────────────────────────────────
+    with open(seg_dir / "raw_probs.json", "w", encoding="utf-8") as fh:
+        json.dump(
+            {
+                "probs": [float(p) for p in raw_probs],
+                "frame_shift_sec": HOP_STEP_S,
+                "frame_start": segment.get("frame_start", 0),
+                "num_frames": len(raw_probs),
+            },
+            fh,
+            indent=2,
+        )
 
-    All ``valley_*`` kwargs are forwarded directly to
-    ``get_best_valley_trough`` and mirror the defaults in
-    ``vad_firered_hybrid.py``.
+    # ── 6. smoothed_probs.json ────────────────────────────────────────────────
+    with open(seg_dir / "smoothed_probs.json", "w", encoding="utf-8") as fh:
+        json.dump(
+            {
+                "probs": smoothed_probs,
+                "frame_shift_sec": HOP_STEP_S,
+                "frame_start": segment.get("frame_start", 0),
+                "summary": probs_info,
+            },
+            fh,
+            indent=2,
+        )
+
+    # ── 7. energies.json ──────────────────────────────────────────────────────
+    with open(seg_dir / "energies.json", "w", encoding="utf-8") as fh:
+        json.dump(
+            {
+                "rms": rms.tolist(),
+                "frame_shift_sec": HOP_STEP_S,
+                "num_frames": int(len(rms)),
+            },
+            fh,
+            indent=2,
+        )
+
+    # ── 8. plot.png ───────────────────────────────────────────────────────────
+    _save_plot(
+        seg_dir=seg_dir,
+        seg_num=seg_num,
+        smoothed_probs=sp_arr,
+        raw_probs=np.array(raw_probs, dtype=np.float32),
+        rms=rms,
+        threshold=DEFAULT_THRESHOLD,
+        end_reason=result.end_reason,
+        end_label=result.end_condition_label,
+    )
+
+    return seg_dir
+
+
+def _save_plot(
+    seg_dir: Path,
+    seg_num: int,
+    smoothed_probs: np.ndarray,
+    raw_probs: np.ndarray,
+    rms: np.ndarray,
+    threshold: float,
+    end_reason: str,
+    end_label: str,
+) -> None:
+    """Generate a 3-panel plot: raw probs, smoothed probs, RMS + hybrid."""
+    n = len(smoothed_probs)
+    if n == 0:
+        return
+
+    times = np.arange(n) * HOP_STEP_S
+
+    # Hybrid score (prob + RMS)
+    n_rms = len(rms)
+    n_min = min(n, n_rms)
+    if n_min > 0:
+        rms_ceil = np.percentile(rms[:n_min], 99) + 1e-10
+        rms_norm = np.clip(rms[:n_min] / rms_ceil, 0.0, 1.0)
+        hybrid = (0.5 * smoothed_probs[:n_min] + 0.5 * rms_norm).astype(np.float32)
+    else:
+        hybrid = np.array([], dtype=np.float32)
+
+    fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
+    fig.suptitle(
+        f"Segment {seg_num:03d}  —  {end_reason} [{end_label}]  "
+        f"({n * HOP_STEP_S:.2f} s)",
+        fontsize=11,
+    )
+
+    # Panel 1: raw probs
+    ax = axes[0]
+    if len(raw_probs) == n:
+        ax.fill_between(times, raw_probs, alpha=0.4, color="#7F77DD", label="raw prob")
+        ax.plot(times, raw_probs, linewidth=0.8, color="#534AB7")
+    ax.axhline(
+        threshold,
+        color="#E24B4A",
+        linewidth=0.8,
+        linestyle="--",
+        label=f"threshold={threshold}",
+    )
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("Raw prob", fontsize=9)
+    ax.legend(fontsize=8, loc="upper right")
+
+    # Panel 2: smoothed probs
+    ax = axes[1]
+    ax.fill_between(
+        times, smoothed_probs, alpha=0.4, color="#1D9E75", label="smoothed prob"
+    )
+    ax.plot(times, smoothed_probs, linewidth=0.8, color="#0F6E56")
+    ax.axhline(threshold, color="#E24B4A", linewidth=0.8, linestyle="--")
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("Smoothed prob", fontsize=9)
+    ax.legend(fontsize=8, loc="upper right")
+
+    # Panel 3: RMS + hybrid
+    ax = axes[2]
+    h_times = np.arange(len(hybrid)) * HOP_STEP_S
+    r_times = np.arange(n_min) * HOP_STEP_S
+    if n_min > 0:
+        ax.fill_between(
+            r_times, rms_norm, alpha=0.25, color="#BA7517", label="RMS norm"
+        )
+        ax.plot(r_times, rms_norm, linewidth=0.6, color="#BA7517")
+    if len(hybrid) > 0:
+        ax.fill_between(h_times, hybrid, alpha=0.35, color="#D85A30", label="hybrid")
+        ax.plot(h_times, hybrid, linewidth=0.8, color="#993C1D")
+    ax.axhline(
+        DEFAULT_PREROLL_HYBRID_THRESHOLD,
+        color="#378ADD",
+        linewidth=0.8,
+        linestyle=":",
+        label=f"hybrid thr={DEFAULT_PREROLL_HYBRID_THRESHOLD}",
+    )
+    ax.set_ylim(0, 1.05)
+    ax.set_ylabel("Energy / hybrid", fontsize=9)
+    ax.set_xlabel("Time (s)", fontsize=9)
+    ax.legend(fontsize=8, loc="upper right")
+
+    plt.tight_layout()
+    plt.savefig(seg_dir / "plot.png", dpi=120)
+    plt.close(fig)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main class
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class LiveVadRecorder:
+    """
+    Records from the microphone in real time, detects speech segments using
+    FireRedVAD + VadSpeechSegmentsTracker, saves result files, and fires an
+    optional callback for each completed segment.
+
+    Parameters
+    ----------
+    on_segment
+        Called on the worker thread after files are saved.
+        Signature: ``on_segment(result: SegmentResult, seg_dir: Path) -> None``
+        Keep it fast — heavy work should be dispatched elsewhere.
+    output_dir
+        Root directory for saved segment folders.
+        Default: ``<script_dir>/generated/live_vad_segments``
+    device
+        sounddevice device index or name.  None = system default.
+    chunk_duration_ms
+        How many ms of audio per sounddevice callback.  20–40 ms is typical.
+        Smaller = lower latency; larger = fewer Python thread-switch overheads.
+    threshold / min_silence_sec / ...
+        Passed directly to VadSpeechSegmentsTracker.
+    vad_model_dir
+        Path to the FireRedVAD pretrained model directory.
+    verbose
+        Enable per-frame rich logging inside the tracker.
+
+    Usage
+    -----
+    def handle(result, seg_dir):
+        print(f"Saved to {seg_dir}  ({result.duration_s:.1f}s)")
+
+    recorder = LiveVadRecorder(on_segment=handle)
+    recorder.start()
+    input("Press Enter to stop...")
+    recorder.stop()
     """
 
     def __init__(
         self,
-        on_segment: SegmentCallback,
-        *,
+        on_segment: Optional[Callable[[SegmentResult, Path], None]] = None,
+        output_dir: Path = OUTPUT_DIR,
+        device: Optional[int | str] = None,
+        chunk_duration_ms: int = 30,
+        # VAD model
+        vad_model_dir: Optional[str] = None,
+        # Tracker params (forwarded)
         threshold: float = DEFAULT_THRESHOLD,
         min_silence_sec: float = DEFAULT_MIN_SILENCE_SEC,
+        min_speech_sec: float = DEFAULT_MIN_SPEECH_SEC,
         soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
-        hard_limit_sec: float = 15.0,
-        # valley-detection knobs (reuse vad_firered_hybrid defaults)
-        valley_min_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
-        valley_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
-        valley_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
-        valley_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
-        # sounddevice
-        device: Optional[int | str] = None,
-        # optional disk output (None = don't save)
-        output_dir: Optional[Path] = None,
-        # VAD model
-        vad: Optional[FireRedVAD] = None,
+        hard_limit_sec: float = DEFAULT_MAX_SPEECH_SEC,
+        preroll_max_sec: float = DEFAULT_PREROLL_MAX_SEC,
+        preroll_hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
+        preroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
+        preroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
+        postroll_max_sec: float = DEFAULT_POSTROLL_MAX_SEC,
+        postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
+        postroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
+        postroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
+        soft_limit_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+        soft_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+        soft_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+        soft_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+        verbose: bool = False,
     ) -> None:
-        self._cb = on_segment
-        self._threshold = threshold
-        self._min_silence_frames = int(min_silence_sec / FRAME_SHIFT_S)
-        self._soft_limit_frames = int(soft_limit_sec / FRAME_SHIFT_S)
-        self._hard_limit_frames = int(hard_limit_sec / FRAME_SHIFT_S)
-        self._soft_limit_sec = soft_limit_sec
+        self.on_segment = on_segment
+        self.output_dir = Path(output_dir)
+        self.device = device
+        self.chunk_samples = int(SAMPLE_RATE * chunk_duration_ms / 1000)
+        self.threshold = threshold
+        self.verbose = verbose
 
-        # valley kwargs forwarded verbatim
-        self._valley_kwargs = dict(
-            min_valley_duration_s=valley_min_duration_s,
-            smoothing_window=valley_smoothing_window,
-            trough_prominence=valley_trough_prominence,
-            min_trough_offset_s=valley_min_trough_offset_s,
-            frame_shift_ms=float(FRAME_SHIFT_MS),
-            sample_rate=SAMPLE_RATE,
+        # Lazy-import default model dir from the same place FireRedVAD uses
+        if vad_model_dir is None:
+            from jet.audio.audio_waveform.vad.vad_firered_hybrid import SAVE_DIR
+
+            vad_model_dir = SAVE_DIR
+
+        # ── Build VAD model ────────────────────────────────────────────────
+        self._vad = FireRedVAD(
+            model_dir=vad_model_dir,
+            threshold=threshold,
+            min_silence_duration_sec=min_silence_sec,
+            min_speech_duration_sec=min_speech_sec,
         )
 
-        self._device = device
+        # ── Build tracker ──────────────────────────────────────────────────
+        self._tracker = VadSpeechSegmentsTracker(
+            threshold=threshold,
+            min_silence_sec=min_silence_sec,
+            min_speech_sec=min_speech_sec,
+            soft_limit_sec=soft_limit_sec,
+            hard_limit_sec=hard_limit_sec,
+            preroll_max_sec=preroll_max_sec,
+            preroll_hybrid_threshold=preroll_hybrid_threshold,
+            preroll_prob_weight=preroll_prob_weight,
+            preroll_rms_weight=preroll_rms_weight,
+            postroll_max_sec=postroll_max_sec,
+            postroll_hybrid_threshold=postroll_hybrid_threshold,
+            postroll_prob_weight=postroll_prob_weight,
+            postroll_rms_weight=postroll_rms_weight,
+            soft_limit_min_valley_duration_s=soft_limit_min_valley_duration_s,
+            soft_limit_smoothing_window=soft_limit_smoothing_window,
+            soft_limit_trough_prominence=soft_limit_trough_prominence,
+            soft_limit_min_trough_offset_s=soft_limit_min_trough_offset_s,
+            verbose=verbose,
+        )
 
-        # output
-        self._output_dir = output_dir
-        self._seg_counter = 0
-        self._session_meta: List[dict] = []
-
-        # build or reuse VAD
-        self._vad: FireRedVAD = vad or FireRedVAD(threshold=threshold)
-
-        # state
-        self._state = _State.IDLE
-        self._segment_audio: List[np.ndarray] = []  # only current segment
-        # We no longer keep _prob_buf — use vad._accumulated_probs
-        self._silence_frames: int = 0
-        self._onset_frames: int = 0
-        self._frames_since_valley_check: int = 0
-
-        # thread safety — sounddevice calls the callback from a C thread
-        self._lock = threading.Lock()
-        self._save_lock = threading.Lock()
-
-        # Queue mirrors AudioStreamManager's pattern: decouples the real-time
-        # SD callback from all heavy VAD / state-machine work.
-        self._audio_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
+        # ── Internal state ─────────────────────────────────────────────────
+        self._audio_queue: queue.Queue[np.ndarray | object] = queue.Queue(maxsize=200)
         self._worker_thread: Optional[threading.Thread] = None
-
         self._stream: Optional[sd.InputStream] = None
+        self._running = False
+        self._seg_counter = 0
 
-    # ── public API ─────────────────────────────────────────────────────────────
+        # Raw prob accumulation: we keep raw probs per segment in parallel
+        # with the tracker so we can save them separately.
+        self._raw_probs_buf: List[float] = []
+
+        # Progress stats
+        self._frames_processed = 0
+        self._start_time: float = 0.0
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Public API ─────────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Open the microphone stream and begin processing."""
+        """Open the microphone stream and start the worker thread."""
+        if self._running:
+            console.print("[yellow]LiveVadRecorder already running[/yellow]")
+            return
+
+        self._running = True
+        self._start_time = time.monotonic()
+        self._tracker.reset()
         self._vad.reset()
-        self._seg_counter = 0
-        self._session_meta.clear()
-        if self._output_dir is not None:
-            self._output_dir.mkdir(parents=True, exist_ok=True)
-        self._reset_segment()
+        self._raw_probs_buf.clear()
 
         self._worker_thread = threading.Thread(
-            target=self._processing_loop, daemon=True
+            target=self._worker_loop,
+            name="vad-worker",
+            daemon=True,
         )
         self._worker_thread.start()
 
@@ -341,348 +476,243 @@ class LiveVADSegmenter:
             samplerate=SAMPLE_RATE,
             channels=1,
             dtype="float32",
-            blocksize=FRAME_SHIFT_SAMPLE,  # one 10 ms frame per callback — matches VAD input size
-            device=self._device,
+            blocksize=self.chunk_samples,
+            device=self.device,
             callback=self._sd_callback,
         )
         self._stream.start()
+
         console.print(
-            f"[bold cyan]LiveVADSegmenter started[/bold cyan]  "
-            f"block={FRAME_SHIFT_SAMPLE} samples (one frame)"
-            f"({FRAME_SHIFT_MS} ms)  "
-            f"sr={SAMPLE_RATE}"
+            f"[bold green]LiveVadRecorder started[/bold green]  "
+            f"[dim]device={self.device or 'default'}  "
+            f"chunk={self.chunk_samples} samples "
+            f"({self.chunk_samples / SAMPLE_RATE * 1000:.0f} ms)[/dim]"
         )
 
     def stop(self) -> None:
-        """Stop the microphone stream gracefully."""
-        # Signal worker to exit before closing the stream.
-        # PATCH: Do not put None into the queue, since the type is np.ndarray
-        # Instead, to truly stop, mirror how a worker thread should exit safely.
-        try:
-            self._audio_queue.put_nowait(
-                np.zeros(FRAME_SHIFT_SAMPLE, dtype=np.float32) * np.nan
-            )  # marker impossible in normal audio
-        except queue.Full:
-            pass
+        """
+        Stop recording.  Flushes any buffered audio as a final segment
+        before shutting down the worker thread.
+        """
+        if not self._running:
+            return
+
+        self._running = False
+
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
             self._stream = None
-        if self._worker_thread and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=2.0)
-        self._worker_thread = None
-        console.print("[bold red]LiveVADSegmenter stopped.[/bold red]")
 
-    def run_forever(self) -> None:
-        """Block until KeyboardInterrupt, then stop cleanly."""
+        # Signal worker to flush and exit
+        self._audio_queue.put(_STOP)
+
+        if self._worker_thread is not None:
+            self._worker_thread.join(timeout=10)
+            self._worker_thread = None
+
+        elapsed = time.monotonic() - self._start_time
+        console.print(
+            f"[bold red]LiveVadRecorder stopped[/bold red]  "
+            f"[dim]wall={elapsed:.1f}s  segments={self._seg_counter}[/dim]"
+        )
+
+    def __enter__(self) -> "LiveVadRecorder":
         self.start()
-        try:
-            while True:
-                time.sleep(0.1)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            self.stop()
+        return self
 
-    # ── internal ───────────────────────────────────────────────────────────────
+    def __exit__(self, *_) -> None:
+        self.stop()
 
-    def _reset_segment(self) -> None:
-        self._segment_audio.clear()
-        self._silence_frames = 0
-        self._onset_frames = 0
-        self._frames_since_valley_check = 0
-        # Optional: reset only segment-related accumulated probs if we want strict per-segment
-        # For now we let VAD accumulate globally and slice when needed
+    # ── sounddevice callback (audio thread) ────────────────────────────────────
 
     def _sd_callback(
         self,
         indata: np.ndarray,
         frames: int,
-        time_info,  # noqa: ANN001 — CData struct, not typed
+        time_info,
         status: sd.CallbackFlags,
     ) -> None:
-        """Real-time SD callback — only enqueues; never does heavy work."""
+        """
+        Called by sounddevice on the C-level audio thread.
+
+        RULES:
+          - No blocking calls.
+          - No Python I/O.
+          - Only array copy + queue.put_nowait.
+        """
         if status:
-            console.print(f"[red]sounddevice status: {status}[/red]")
-
-        chunk = indata[:, 0].copy()  # mono, shape (FRAME_SHIFT_SAMPLE,)
-
-        # Mirror AudioStreamManager's drop-oldest strategy.
-        if self._audio_queue.full():
-            try:
-                self._audio_queue.get_nowait()
-            except queue.Empty:
-                pass
+            # Log overflow/underflow on the next console flush — not here
+            pass
+        chunk = indata[:, 0].copy()  # (N,) float32, mono
         try:
             self._audio_queue.put_nowait(chunk)
         except queue.Full:
-            pass
+            pass  # drop frame rather than block the audio thread
 
-    def _processing_loop(self) -> None:
-        """Worker thread — drains the queue and runs the VAD state machine."""
+    # ── Worker thread ──────────────────────────────────────────────────────────
+
+    def _worker_loop(self) -> None:
+        """
+        Consumes audio chunks from the queue.
+
+        For each chunk:
+          1. Run FireRedVAD → smoothed_prob, raw_prob
+          2. Push into VadSpeechSegmentsTracker
+          3. If result → save files → call on_segment
+        """
+        console.print("[dim cyan]  worker thread started[/dim cyan]")
+
         while True:
             try:
-                chunk = self._audio_queue.get(timeout=0.1)
+                item = self._audio_queue.get(timeout=0.5)
             except queue.Empty:
+                if not self._running:
+                    break
                 continue
-            # PATCH: Use a nan-filled chunk as the stop marker (see stop)
-            if np.isnan(chunk).all():
+
+            if item is _STOP:
+                self._flush_final()
                 break
-            with self._lock:
-                self._process_chunk(chunk)
+
+            chunk: np.ndarray = item
+            self._process_chunk(chunk)
+
+        console.print("[dim cyan]  worker thread exiting[/dim cyan]")
 
     def _process_chunk(self, chunk: np.ndarray) -> None:
-        """Core per-frame logic."""
-        # Let VAD handle normalization + hybrid prob + accumulation
-        prob = self._vad.get_speech_prob(chunk)
-        is_speech = prob >= self._threshold
+        """Run VAD on one audio chunk and push result into tracker."""
+        self._frames_processed += 1
 
-        if self._state is _State.IDLE:
-            _log_listening()
-            if is_speech:
-                self._state = _State.SPEECH
-                _log_speech_start(prob)
-            self._segment_audio = [
-                chunk
-            ]  # use original chunk (VAD already normalized internally)
-            return
+        # ── VAD inference ──────────────────────────────────────────────────
+        smoothed_prob = self._vad.get_speech_prob(chunk)
 
-        # ── SPEECH state ─────────────────────────────────────────────────────
-        self._segment_audio.append(chunk)
+        duration_s = self._tracker.get_current_duration_s()
+        log_accumulating(duration_s, smoothed_prob)
 
-        n_frames = len(self._vad._accumulated_probs)  # ← single source of truth
-        duration_s = n_frames * FRAME_SHIFT_S
+        # Raw prob: last accumulated frame from the VAD model
+        acc = self._vad.get_accumulated_probs()
+        raw_prob = acc[-1]["raw_prob"] if acc else smoothed_prob
 
-        if is_speech:
-            self._silence_frames = 0
-        else:
-            self._silence_frames += 1
+        self._raw_probs_buf.append(raw_prob)
 
-        _log_accumulating(duration_s, prob)
+        # ── Tracker push ───────────────────────────────────────────────────
+        result: Optional[SegmentResult] = self._tracker.push(smoothed_prob, chunk)
 
-        in_silence = self._silence_frames >= self._min_silence_frames
-        past_soft = n_frames >= self._soft_limit_frames
-        past_hard = n_frames >= self._hard_limit_frames
+        if result is not None:
+            self._handle_result(result)
 
-        # ── 1. hard limit (safety net) ─────────────────────────────────────
-        if past_hard:
-            self._emit("hard_limit", valley_time_s=None, valley_score=None, trough=None)
-            return
+    def _flush_final(self) -> None:
+        """Called at stop() — drain any partial segment."""
+        result = self._tracker.flush()
+        if result is not None:
+            self._handle_result(result)
 
-        # ── 2. plain silence (not yet at soft limit) ───────────────────────
-        if in_silence and not past_soft:
-            self._emit("silence", valley_time_s=None, valley_score=None, trough=None)
-            return
+    def _handle_result(self, result: SegmentResult) -> None:
+        """Save files for every sub-segment in the result and fire callback."""
+        # Raw probs accumulated so far belong to this segment
+        raw_probs_for_seg = list(self._raw_probs_buf)
+        self._raw_probs_buf.clear()
 
-        # ── 3. past soft limit ─────────────────────────────────────────────
-        if past_soft:
-            _log_soft_limit_check(duration_s, self._soft_limit_sec)
+        for seg in result.segments:
+            self._seg_counter += 1
+            num = self._seg_counter
 
-            # 3a. silence while past soft limit
-            if in_silence:
-                self._emit(
-                    "soft_silence", valley_time_s=None, valley_score=None, trough=None
-                )
-                return
+            seg_dir = _save_segment(
+                seg_num=num,
+                result=result,
+                segment=seg,
+                raw_probs=raw_probs_for_seg,
+                output_dir=self.output_dir,
+            )
 
-            # 3b. valley trough check (throttled)
-            self._frames_since_valley_check += 1
-            if self._frames_since_valley_check >= _VALLEY_CHECK_INTERVAL_FRAMES:
-                self._frames_since_valley_check = 0
+            console.print(
+                f"[bold green]  saved segment {num:03d}[/bold green]  "
+                f"[dim]{result.end_reason}[{result.end_condition_label}]  "
+                f"{result.duration_s:.2f}s  →  {seg_dir}[/dim]"
+            )
 
-                # Use accumulated probs from VAD (already hybrid!)
-                history: List[StreamVadFrame] = self._vad.get_accumulated_probs()
-                current_probs = [p["smoothed_prob"] for p in history[-n_frames:]]
-
-                trough = get_best_valley_trough(
-                    probs=current_probs, **self._valley_kwargs
-                )
-
-                if trough is not None:
-                    cut_frame = trough["frame"]
-                    self._segment_audio = self._segment_audio[:cut_frame]
-                    self._emit(
-                        "valley",
-                        valley_time_s=trough["time_s"],
-                        valley_score=trough["valley"].get("final_score", 0.0),
-                        trough=trough,
-                    )
-                    return
-                else:
-                    _log_no_valley(duration_s)
-
-    def _emit(
-        self,
-        reason: str,
-        *,
-        valley_time_s: Optional[float],
-        valley_score: Optional[float],
-        trough: Optional[dict] = None,
-    ) -> None:
-        if not self._segment_audio:
-            self._reset_segment()
-            self._state = _State.IDLE
-            return
-
-        audio_np = np.concatenate(self._segment_audio, axis=0)
-        history = self._vad.get_accumulated_probs()
-        probs = [p["smoothed_prob"] for p in history[-len(self._segment_audio) :]]
-
-        duration_s = len(audio_np) / SAMPLE_RATE
-        above = sum(1 for p in probs if p >= self._threshold)
-        speech_ratio = above / max(len(probs), 1)
-
-        self._seg_counter += 1
-        seg_num = self._seg_counter
-
-        _log_segment_end(
-            reason,
-            duration_s,
-            extra=(
-                f"valley_t={valley_time_s:.2f}s  score={valley_score:.3f}"
-                if valley_time_s is not None
-                else f"frames={len(probs)}  speech_ratio={speech_ratio:.0%}"
-            ),
-        )
-
-        # Capture trough before resetting state for closure
-        trough_to_save = trough
-
-        self._state = _State.IDLE
-        self._reset_segment()
-
-        # ── optional disk save (done outside lock, in a daemon thread) ────
-        if self._output_dir is not None:
-            out_dir = self._output_dir
-
-            def _save() -> None:
+            if self.on_segment is not None:
                 try:
-                    seg_dir = save_live_segment(
-                        seg_num,
-                        audio_np,
-                        probs,
-                        reason,
-                        duration_s,
-                        out_dir,
-                        trough=trough_to_save,
-                    )
-
-                    meta = {
-                        "num": seg_num,
-                        "duration_s": duration_s,
-                        "end_reason": reason,
-                        "output_path": str(
-                            (seg_dir / "sound.wav").relative_to(out_dir)
-                        ),
-                    }
-                    with self._lock:
-                        self._session_meta.append(meta)
-                    with self._save_lock:
-                        save_session_summary(self._session_meta, out_dir)
-                    console.print(
-                        f"[dim green]  💾 Saved segment {seg_num:03d} → "
-                        f"{linkify(seg_dir)}[/dim green]"
-                    )
+                    self.on_segment(result, seg_dir)
                 except Exception as exc:
-                    console.print(f"[red]  Save failed (seg {seg_num}): {exc}[/red]")
-
-            threading.Thread(target=_save, daemon=True).start()
-
-        # fire callback outside the lock to avoid deadlocks
-        try:
-            self._cb(audio_np, probs, reason, duration_s)
-        except Exception as exc:
-            console.print(f"[red]on_segment callback raised: {exc}[/red]")
+                    console.print(f"[red]  on_segment callback error: {exc}[/red]")
 
 
-# ── demo ───────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Standalone demo
+# ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    DEFAULT_OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
-    parser = argparse.ArgumentParser(
-        description="Live VAD segmenter — streams mic and saves speech segments.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
+def _demo_callback(result: SegmentResult, seg_dir: Path) -> None:
+    """Simple demo callback — prints a summary table."""
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_row("[cyan]reason[/cyan]", result.end_reason)
+    table.add_row("[cyan]condition[/cyan]", result.end_condition_label)
+    table.add_row("[cyan]duration[/cyan]", f"{result.duration_s:.2f} s")
+    table.add_row("[cyan]sub-segments[/cyan]", str(len(result.segments)))
+    table.add_row("[cyan]output[/cyan]", str(seg_dir))
+    console.print(Panel(table, title="Segment complete", border_style="green"))
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Live VAD segment recorder")
     parser.add_argument(
-        "-o",
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help="Directory to save segments (same layout as vad_firered_hybrid)",
+        "--device", default=None, help="sounddevice device index or name"
     )
-    parser.add_argument(
-        "--no-save",
-        action="store_true",
-        help="Disable disk output (callback-only mode)",
-    )
-    parser.add_argument(
-        "-t",
-        "--threshold",
-        type=float,
-        default=DEFAULT_THRESHOLD,
-        help="VAD speech probability threshold",
-    )
-    parser.add_argument(
-        "--min-silence",
-        type=float,
-        default=DEFAULT_MIN_SILENCE_SEC,
-        help="Consecutive silence (s) required to close a segment",
-    )
-    parser.add_argument(
-        "--soft-limit",
-        type=float,
-        default=DEFAULT_SOFT_LIMIT_SEC,
-        help="Soft segment duration limit before valley search (s)",
-    )
-    parser.add_argument(
-        "--hard-limit",
-        type=float,
-        default=15.0,
-        help="Hard maximum segment duration (s)",
-    )
-    parser.add_argument(
-        "--device",
-        default=None,
-        help="sounddevice input device index or name",
-    )
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    parser.add_argument("--min-silence", type=float, default=DEFAULT_MIN_SILENCE_SEC)
+    parser.add_argument("--soft-limit", type=float, default=DEFAULT_SOFT_LIMIT_SEC)
+    parser.add_argument("--hard-limit", type=float, default=DEFAULT_MAX_SPEECH_SEC)
+    parser.add_argument("--chunk-ms", type=int, default=30)
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
-    output_dir = None if args.no_save else args.output_dir
-    if output_dir:
-        import shutil
+    # Reset output dir
+    shutil.rmtree(args.output_dir, ignore_errors=True)
 
-        shutil.rmtree(output_dir, ignore_errors=True)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        console.print(f"[cyan]Output dir:[/cyan] {output_dir}")
-
-    seg_count = 0
-
-    def on_segment(  # noqa: F811
-        audio: np.ndarray,
-        probs: List[float],
-        reason: str,
-        duration_s: float,
-    ) -> None:
-        global seg_count
-        seg_count += 1
-        above = sum(1 for p in probs if p >= DEFAULT_THRESHOLD)
-        console.rule(
-            f"[bold green]Segment #{seg_count}[/bold green]  "
-            f"reason=[bold]{reason}[/bold]  "
-            f"{duration_s:.2f}s  "
-            f"speech={above}/{len(probs)} frames",
-            style="green",
-        )
-
-    segmenter = LiveVADSegmenter(
-        on_segment=on_segment,
+    recorder = LiveVadRecorder(
+        on_segment=_demo_callback,
+        output_dir=args.output_dir,
+        device=args.device,
+        chunk_duration_ms=args.chunk_ms,
         threshold=args.threshold,
         min_silence_sec=args.min_silence,
         soft_limit_sec=args.soft_limit,
         hard_limit_sec=args.hard_limit,
-        device=args.device,
-        output_dir=output_dir,
+        verbose=args.verbose,
     )
-    console.print("[bold]Press Ctrl+C to stop.[/bold]")
-    segmenter.run_forever()
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=30),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    )
+
+    with progress:
+        task: TaskID = progress.add_task(
+            "[green]Recording…  (Ctrl-C to stop)", total=None
+        )
+        recorder.start()
+        try:
+            while True:
+                time.sleep(0.1)
+                progress.advance(task)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Stopping…[/yellow]")
+        finally:
+            recorder.stop()
+
+    console.print(
+        f"\n[bold]Output:[/bold] [link=file://{args.output_dir.resolve()}]{args.output_dir}[/link]"
+    )
+
+
+if __name__ == "__main__":
+    main()
