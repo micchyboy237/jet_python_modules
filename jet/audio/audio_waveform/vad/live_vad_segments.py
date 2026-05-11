@@ -419,14 +419,14 @@ class LiveVADSegmenter:
             samplerate=SAMPLE_RATE,
             channels=1,
             dtype="float32",
-            blocksize=FRAME_SHIFT_SAMPLE,  # 160 samples = 10 ms, from config
+            blocksize=FRAME_SHIFT_SAMPLE,  # one 10 ms frame per callback — matches VAD input size
             device=self._device,
             callback=self._sd_callback,
         )
         self._stream.start()
         console.print(
             f"[bold cyan]LiveVADSegmenter started[/bold cyan]  "
-            f"block={FRAME_SHIFT_SAMPLE} samples  "
+            f"block={FRAME_SHIFT_SAMPLE} samples (one frame)"
             f"({FRAME_SHIFT_MS} ms)  "
             f"sr={SAMPLE_RATE}"
         )
@@ -599,7 +599,8 @@ class LiveVADSegmenter:
         audio_np = np.concatenate(self._audio_buf, axis=0).astype(np.float32)
         audio_np = np.clip(audio_np, -1.0, 1.0)
         probs = list(self._prob_buf)
-        duration_s = len(probs) * FRAME_SHIFT_S
+        # Derive duration from actual audio samples — ground truth, not prob count.
+        duration_s = len(audio_np) / SAMPLE_RATE
         above = sum(1 for p in probs if p >= self._threshold)
         speech_ratio = above / max(len(probs), 1)
 

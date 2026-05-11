@@ -4,6 +4,7 @@ from typing import List, Literal, Optional, Union
 
 import matplotlib
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.helpers.config import SAMPLE_RATE
 from jet.audio.speech.vad_extractors import get_best_valley_trough
 from jet.audio.utils.loader import load_audio
 
@@ -12,7 +13,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torchaudio
-from fireredvad.core.constants import SAMPLE_RATE
 from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 from rich.console import Console
 from rich.progress import (
