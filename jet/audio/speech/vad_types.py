@@ -35,6 +35,7 @@ class ValleyInfo(TypedDict):
     global_valley_score: float
     global_trough_score: float
     global_final_score: float
+    is_last: bool
 
 
 class ValleyTrough(TypedDict):

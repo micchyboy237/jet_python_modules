@@ -40,6 +40,10 @@ def base_extract_valley_troughs(
         and valley["duration_s"] >= duration_s
     ]
 
+    # Determine the last frame across all provided valleys so we can mark
+    # whichever valley ends there with is_last=True.
+    last_frame = max((v["frame_end"] for v in filtered_valleys), default=-1)
+
     valley_troughs: List[ValleyTrough] = []
 
     for valley in filtered_valleys:
@@ -68,6 +72,7 @@ def base_extract_valley_troughs(
             "global_valley_score": valley_score,
             "global_trough_score": trough_score,
             "global_final_score": final_score,
+            "is_last": valley["frame_end"] >= last_frame,
         }
 
         valley_troughs.append(
@@ -121,6 +126,50 @@ def get_best_valley_trough(
     # Get the ValleyTrough dictionary with the highest final_score (stored in valley["final_score"])
     best = max(all_troughs, key=lambda t: t["valley"].get("final_score", 0.0))
     return best
+
+
+def get_last_valley_trough(
+    probs: List[float],
+    sample_rate: int = SAMPLE_RATE,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    smoothing_window: int = 20,
+    trough_height: Optional[float] = None,
+    trough_prominence: float = 0.15,
+    trough_distance: int = 5,
+    valley_threshold: Optional[float] = None,
+    min_valley_duration_s: float = 0.8,
+    min_valley_frames: Optional[int] = None,
+    frame_offset: int = 0,
+    min_trough_offset_s: float = 0.4,
+) -> Optional[ValleyTrough]:
+    """
+    Return the valley trough whose valley covers the last audio frame
+    (i.e. ``valley.is_last == True``).
+
+    "Covers the last frame" means the valley's ``frame_end`` reaches
+    ``len(probs) - 1`` (accounting for the ``frame_offset`` shift).
+    If more than one such trough exists, the one with the highest
+    ``final_score`` is returned.  Returns ``None`` when no matching
+    trough is found.
+    """
+    all_troughs = extract_valley_troughs(
+        probs=probs,
+        sample_rate=sample_rate,
+        frame_shift_ms=frame_shift_ms,
+        smoothing_window=smoothing_window,
+        trough_height=trough_height,
+        trough_prominence=trough_prominence,
+        trough_distance=trough_distance,
+        valley_threshold=valley_threshold,
+        min_valley_duration_s=min_valley_duration_s,
+        min_valley_frames=min_valley_frames,
+        frame_offset=frame_offset,
+        min_trough_offset_s=min_trough_offset_s,
+    )
+    last_troughs = [t for t in all_troughs if t["valley"]["is_last"]]
+    if not last_troughs:
+        return None
+    return max(last_troughs, key=lambda t: t["valley"].get("final_score", 0.0))
 
 
 def split_best_valley_trough(
@@ -268,6 +317,7 @@ def extract_valley_troughs(
     # ── Build Result ───────────────────────────────────────────────────────
     result: List[ValleyTrough] = []
     seconds_per_frame = frame_shift_ms / 1000.0
+    total_frames = len(probs)
 
     for valley in filtered_valleys:
         details = valley["details"]
@@ -297,6 +347,7 @@ def extract_valley_troughs(
             "global_valley_score": details["valley_score"],
             "global_trough_score": details["trough_score"],
             "global_final_score": details["final_score"],
+            "is_last": valley["frame_end"] >= total_frames - 1,
         }
 
         result.append(
