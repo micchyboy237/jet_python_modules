@@ -4,6 +4,7 @@ from typing import List, Literal, Optional, Union
 
 import matplotlib
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.speech.vad_extractors import get_best_valley_trough
 from jet.audio.utils.loader import load_audio
 
 matplotlib.use("Agg")
@@ -41,17 +42,16 @@ DEFAULT_INCLUDE_NON_SPEECH = False
 DEFAULT_SMOOTH_WINDOW_SIZE = 5
 DEFAULT_MAX_BUFFER_SEC = 1.2
 
-# Pre-roll defaults (head extension — looks backward from onset)
+# Pre/Post-roll defaults (extension settings)
 DEFAULT_PREROLL_MAX_SEC = 0.300  # maximum look-back window
 DEFAULT_PREROLL_HYBRID_THRESHOLD = 0.15  # hybrid score below which we stop extending
-DEFAULT_PREROLL_PROB_WEIGHT = 0.5  # weight for speech probability
-DEFAULT_PREROLL_RMS_WEIGHT = 0.5  # weight for normalised RMS energy
 
-# Post-roll defaults (tail extension — looks forward from detected end)
 DEFAULT_POSTROLL_MAX_SEC = 0.300  # maximum look-forward window
 DEFAULT_POSTROLL_HYBRID_THRESHOLD = 0.15  # hybrid score below which we stop extending
-DEFAULT_POSTROLL_PROB_WEIGHT = 0.5  # weight for speech probability
-DEFAULT_POSTROLL_RMS_WEIGHT = 0.5  # weight for normalised RMS energy
+
+# Unified weights for speech probability and RMS energy in hybrid scoring (used for both preroll and postroll)
+DEFAULT_PROB_WEIGHT = 0.5  # weight for speech probability
+DEFAULT_RMS_WEIGHT = 0.5  # weight for normalised RMS energy
 
 # Soft-limit split defaults
 DEFAULT_SOFT_LIMIT_SEC = 6.0
@@ -309,6 +309,7 @@ def _compute_postroll(
 def _apply_soft_limit_splits(
     segments: List[SpeechSegment],
     probs: List[float],
+    audio_np: np.ndarray,  # Insert audio_np argument
     sample_rate: int,
     hop_sec: float,
     soft_limit_sec: float,
@@ -318,6 +319,8 @@ def _apply_soft_limit_splits(
     min_trough_offset_s: float,
     return_seconds: bool,
     with_scores: bool,
+    hybrid_prob_weight: float = DEFAULT_PROB_WEIGHT,  # Add hybrid_prob_weight argument
+    hybrid_rms_weight: float = DEFAULT_RMS_WEIGHT,  # Add hybrid_rms_weight argument
 ) -> List[SpeechSegment]:
     """
     Recursively split speech segments that exceed *soft_limit_sec* by finding
@@ -326,6 +329,7 @@ def _apply_soft_limit_splits(
     Args:
         segments:              The current list of SpeechSegment dicts.
         probs:                 Full-audio framewise speech probabilities.
+        audio_np:              Full audio signal as numpy array.
         sample_rate:           Audio sample rate (Hz).
         hop_sec:               Seconds per probability frame (typically 0.010).
         soft_limit_sec:        Maximum preferred segment duration before splitting.
@@ -335,6 +339,8 @@ def _apply_soft_limit_splits(
         min_trough_offset_s:   Trough must be >= this many seconds from segment start.
         return_seconds:        Whether segment start/end are in seconds or samples.
         with_scores:           Whether segment_probs should be populated.
+        hybrid_prob_weight:    Weight for probability when combining with RMS.
+        hybrid_rms_weight:     Weight for RMS when combining with probability.
 
     Returns:
         New (possibly longer) list of SpeechSegment dicts with renumbered ``num``
@@ -342,6 +348,18 @@ def _apply_soft_limit_splits(
     """
     result: List[SpeechSegment] = []
     seg_num = 1
+
+    def _compute_rms(segment_audio: np.ndarray) -> np.ndarray:
+        FRAME_SAMPLES = 160  # 10 ms @ 16 kHz
+        # Split audio into frames
+        n_frames = len(segment_audio) // FRAME_SAMPLES
+        if n_frames == 0:
+            return np.zeros(0, dtype=np.float32)
+        frames = segment_audio[: n_frames * FRAME_SAMPLES].reshape(
+            n_frames, FRAME_SAMPLES
+        )
+        rms_arr = np.sqrt(np.mean(frames**2, axis=1)).astype(np.float32)
+        return rms_arr
 
     def _split_recursive(seg: SpeechSegment) -> List[SpeechSegment]:
         """Return one or more segments produced from *seg*, splitting if needed."""
@@ -352,7 +370,18 @@ def _apply_soft_limit_splits(
         # Extract the probability slice for this segment
         frame_start: int = seg["frame_start"]
         frame_end: int = seg["frame_end"]
-        seg_probs: List[float] = probs[frame_start : frame_end + 1]
+
+        # --- Start Hybrid Score Calculation (from file_context_0) ---
+        seg_audio = audio_np[int(frame_start * 160) : int((frame_end + 1) * 160)]
+        rms = _compute_rms(seg_audio)
+        n = min(frame_end - frame_start + 1, len(rms))
+        rms_ceil = np.percentile(rms[:n], 99) + 1e-10
+        rms_norm = np.clip(rms[:n] / rms_ceil, 0.0, 1.0)
+        raw_probs = probs[frame_start : frame_start + n]
+        seg_probs: List[float] = (
+            hybrid_prob_weight * np.array(raw_probs) + hybrid_rms_weight * rms_norm
+        ).tolist()
+        # --- End Hybrid Score Calculation ---
 
         if not seg_probs:
             return [seg]
@@ -441,12 +470,12 @@ def extract_speech_timestamps(
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
     preroll_max_sec: float = DEFAULT_PREROLL_MAX_SEC,
     preroll_hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
-    preroll_prob_weight: float = DEFAULT_PREROLL_PROB_WEIGHT,
-    preroll_rms_weight: float = DEFAULT_PREROLL_RMS_WEIGHT,
+    preroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
+    preroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
     postroll_max_sec: float = DEFAULT_POSTROLL_MAX_SEC,
     postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
-    postroll_prob_weight: float = DEFAULT_POSTROLL_PROB_WEIGHT,
-    postroll_rms_weight: float = DEFAULT_POSTROLL_RMS_WEIGHT,
+    postroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
+    postroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
     soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
     soft_limit_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     soft_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
@@ -599,6 +628,7 @@ def extract_speech_timestamps(
         enhanced = _apply_soft_limit_splits(
             segments=enhanced,
             probs=probs,
+            audio_np=audio_np,
             sample_rate=sr,
             hop_sec=hop_sec,
             soft_limit_sec=soft_limit_sec,
@@ -631,12 +661,12 @@ def extract_speech_audio(
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
     preroll_max_sec: float = DEFAULT_PREROLL_MAX_SEC,
     preroll_hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
-    preroll_prob_weight: float = DEFAULT_PREROLL_PROB_WEIGHT,
-    preroll_rms_weight: float = DEFAULT_PREROLL_RMS_WEIGHT,
+    preroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
+    preroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
     postroll_max_sec: float = DEFAULT_POSTROLL_MAX_SEC,
     postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
-    postroll_prob_weight: float = DEFAULT_POSTROLL_PROB_WEIGHT,
-    postroll_rms_weight: float = DEFAULT_POSTROLL_RMS_WEIGHT,
+    postroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
+    postroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
 ) -> List[np.ndarray]:
     """
     Extract contiguous speech segments from the input audio using FireRedVAD.
@@ -989,7 +1019,7 @@ if __name__ == "__main__":
     import argparse
     import shutil
 
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
+    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
     parser = argparse.ArgumentParser(
@@ -1066,14 +1096,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--preroll-prob-weight",
         type=float,
-        default=DEFAULT_PREROLL_PROB_WEIGHT,
-        help=f"weight for speech prob in hybrid score (default: {DEFAULT_PREROLL_PROB_WEIGHT})",
+        default=DEFAULT_PROB_WEIGHT,
+        help=f"weight for speech prob in hybrid score (default: {DEFAULT_PROB_WEIGHT})",
     )
     parser.add_argument(
         "--preroll-rms-weight",
         type=float,
-        default=DEFAULT_PREROLL_RMS_WEIGHT,
-        help=f"weight for RMS energy in hybrid score (default: {DEFAULT_PREROLL_RMS_WEIGHT})",
+        default=DEFAULT_RMS_WEIGHT,
+        help=f"weight for RMS energy in hybrid score (default: {DEFAULT_RMS_WEIGHT})",
     )
     # Post-roll args
     parser.add_argument(
@@ -1091,14 +1121,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--postroll-prob-weight",
         type=float,
-        default=DEFAULT_POSTROLL_PROB_WEIGHT,
-        help=f"weight for speech prob in hybrid score (default: {DEFAULT_POSTROLL_PROB_WEIGHT})",
+        default=DEFAULT_PROB_WEIGHT,
+        help=f"weight for speech prob in hybrid score (default: {DEFAULT_PROB_WEIGHT})",
     )
     parser.add_argument(
         "--postroll-rms-weight",
         type=float,
-        default=DEFAULT_POSTROLL_RMS_WEIGHT,
-        help=f"weight for RMS energy in hybrid score (default: {DEFAULT_POSTROLL_RMS_WEIGHT})",
+        default=DEFAULT_RMS_WEIGHT,
+        help=f"weight for RMS energy in hybrid score (default: {DEFAULT_RMS_WEIGHT})",
     )
     parser.add_argument(
         "--soft-limit",

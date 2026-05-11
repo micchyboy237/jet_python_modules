@@ -1,3 +1,5 @@
+# live_vad_segments.py
+
 """
 Live VAD Segmenter — streams mic audio via sounddevice, accumulates speech
 chunks, and fires on_segment() when a natural boundary is detected.
@@ -28,6 +30,8 @@ import torchaudio
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import (
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_PREROLL_HYBRID_THRESHOLD,
+    DEFAULT_PROB_WEIGHT,
+    DEFAULT_RMS_WEIGHT,
     DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     DEFAULT_SOFT_LIMIT_SEC,
@@ -384,6 +388,7 @@ class LiveVADSegmenter:
 
         # thread safety — sounddevice calls the callback from a C thread
         self._lock = threading.Lock()
+        self._save_lock = threading.Lock()
         self._stream: Optional[sd.InputStream] = None
 
     # ── public API ─────────────────────────────────────────────────────────────
@@ -418,8 +423,6 @@ class LiveVADSegmenter:
             self._stream.stop()
             self._stream.close()
             self._stream = None
-        if self._output_dir and self._session_meta:
-            save_session_summary(self._session_meta, self._output_dir)
         console.print("[bold red]LiveVADSegmenter stopped.[/bold red]")
 
     def run_forever(self) -> None:
@@ -460,6 +463,8 @@ class LiveVADSegmenter:
 
     def _process_chunk(self, chunk: np.ndarray) -> None:
         """Core per-frame logic — must be called with self._lock held."""
+        # Store the RAW chunk for audio reconstruction BEFORE VAD normalises it
+        raw_chunk = chunk.copy()
         prob = self._vad.get_speech_prob(chunk)
         is_speech = prob >= self._threshold
 
@@ -475,7 +480,7 @@ class LiveVADSegmenter:
             else:
                 self._onset_frames = 0
             # always accumulate a tiny look-back so we don't clip onset
-            self._audio_buf.append(chunk)
+            self._audio_buf.append(raw_chunk)
             self._prob_buf.append(prob)
             # keep only the last few frames as pre-roll context
             max_preroll = _MIN_SPEECH_ONSET_FRAMES + 2
@@ -485,7 +490,7 @@ class LiveVADSegmenter:
             return
 
         # ── SPEECH ────────────────────────────────────────────────────────────
-        self._audio_buf.append(chunk)
+        self._audio_buf.append(raw_chunk)
         self._prob_buf.append(prob)
 
         n_frames = len(self._prob_buf)
@@ -525,10 +530,23 @@ class LiveVADSegmenter:
             self._frames_since_valley_check += 1
             if self._frames_since_valley_check >= _VALLEY_CHECK_INTERVAL_FRAMES:
                 self._frames_since_valley_check = 0
+                audio_np_so_far = np.concatenate(self._audio_buf, axis=0)
+                rms = _compute_rms(audio_np_so_far)
+                n = min(len(self._prob_buf), len(rms))
+                if n > 0:
+                    rms_ceil = np.percentile(rms[:n], 99) + 1e-10
+                    rms_norm = np.clip(rms[:n] / rms_ceil, 0.0, 1.0)
+                    hybrid_probs = (
+                        DEFAULT_PROB_WEIGHT * np.array(self._prob_buf[:n])
+                        + DEFAULT_RMS_WEIGHT * rms_norm
+                    ).tolist()
+                else:
+                    hybrid_probs = self._prob_buf
                 trough = get_best_valley_trough(
-                    probs=self._prob_buf,
+                    probs=hybrid_probs,
                     **self._valley_kwargs,
                 )
+
                 if trough is not None:
                     t_s = trough["time_s"]
                     score = trough["valley"].get("final_score", 0.0)
@@ -560,6 +578,7 @@ class LiveVADSegmenter:
             return
 
         audio_np = np.concatenate(self._audio_buf, axis=0).astype(np.float32)
+        audio_np = np.clip(audio_np, -1.0, 1.0)
         probs = list(self._prob_buf)
         duration_s = len(probs) * FRAME_SHIFT_S
         above = sum(1 for p in probs if p >= self._threshold)
@@ -600,6 +619,8 @@ class LiveVADSegmenter:
                     }
                     with self._lock:
                         self._session_meta.append(meta)
+                    with self._save_lock:
+                        save_session_summary(self._session_meta, out_dir)
                     console.print(
                         f"[dim green]  💾 Saved segment {seg_num:03d} → "
                         f"{seg_dir.relative_to(out_dir)}[/dim green]"
