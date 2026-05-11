@@ -351,7 +351,25 @@ def extract_valley_troughs(
     min_trough_offset_s: float = 0.4,
 ) -> List[ValleyTrough]:
     """
-    Extract salient valley troughs with composite scoring (valley + trough).
+    Extract salient valley troughs (composite valley + trough detection) with scoring.
+
+    Args:
+        probs: List of VAD speech probabilities [0.0, 1.0].
+        sample_rate: Audio sample rate in Hz.
+        frame_shift_ms: Frame shift in milliseconds.
+        smoothing_window: Smoothing window size (0 = disabled).
+        trough_height: Min trough height (None = auto).
+        trough_prominence: Trough prominence. Default 0.15.
+        trough_distance: Min frames between troughs. Default 5.
+        valley_threshold: Valley threshold (None = auto).
+        min_valley_duration_s: Minimum valley duration. Default 0.25.
+        min_valley_frames: Min valley frames (overrides duration if set).
+        frame_offset: Global frame offset for chunked processing.
+        min_trough_offset_s: Min seconds from start for valid trough. Default 0.4.
+
+    Returns:
+        List[ValleyTrough]: Detected troughs with enclosing valley info,
+        local/global coordinates, and composite scores (valley_score × trough_score).
     """
     analyzer = VADPeakAnalyzer(
         sample_rate=sample_rate,
