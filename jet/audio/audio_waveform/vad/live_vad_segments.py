@@ -68,7 +68,7 @@ from jet.audio.audio_waveform.vad.vad_speech_segments_tracker import (
     SegmentResult,
     VadSpeechSegmentsTracker,
 )
-from jet.audio.helpers.config import HOP_SIZE, HOP_STEP_S, SAMPLE_RATE
+from jet.audio.helpers.config import FRAME_SHIFT_MS, HOP_SIZE, HOP_STEP_S, SAMPLE_RATE
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (
@@ -368,7 +368,7 @@ class LiveVadRecorder:
         on_segment: Optional[Callable[[SegmentResult, Path], None]] = None,
         output_dir: Path = OUTPUT_DIR,
         device: Optional[int | str] = None,
-        chunk_duration_ms: int = 30,
+        chunk_duration_ms: int = FRAME_SHIFT_MS,
         # VAD model
         vad_model_dir: Optional[str] = None,
         # Tracker params (forwarded)
@@ -666,7 +666,7 @@ def main() -> None:
     parser.add_argument("--min-silence", type=float, default=DEFAULT_MIN_SILENCE_SEC)
     parser.add_argument("--soft-limit", type=float, default=DEFAULT_SOFT_LIMIT_SEC)
     parser.add_argument("--hard-limit", type=float, default=DEFAULT_MAX_SPEECH_SEC)
-    parser.add_argument("--chunk-ms", type=int, default=30)
+    parser.add_argument("--chunk-ms", type=int, default=FRAME_SHIFT_MS)
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
