@@ -93,7 +93,7 @@ _MIN_SPEECH_ONSET_FRAMES = 3
 
 def linkify(path: Path):
     # Provide clickable file link with basename (for rich/terminal that support it)
-    return f"[link=file://{path}]{path.name}[/link]"
+    return f"[bold blue][link=file://{path}]{path.name}[/link][/bold blue]"
 
 
 # ── disk persistence (mirrors vad_firered_hybrid.save_segments) ────────────────
@@ -159,7 +159,6 @@ def save_live_segment(
         "last_prob": float(probs_arr[-1]) if len(probs_arr) else 0.0,
         "output_path": str(wav_path.relative_to(output_dir)),
         "probs_info": probs_info,
-        "vad_state": "valley_trough" if trough else "silence",
     }
     with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
         json.dump(meta, fh, indent=2, ensure_ascii=False)
