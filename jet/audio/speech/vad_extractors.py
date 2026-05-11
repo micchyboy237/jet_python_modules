@@ -349,6 +349,19 @@ def extract_valley_troughs_from_np_audio(
             pass  # Best effort cleanup
 
 
+def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
+    """Light moving average smoothing to reduce jitter in VAD probabilities."""
+    if window <= 1 or len(probs) <= window:
+        return probs[:]
+    x = np.array(probs, dtype=float)
+    smoothed = np.convolve(x, np.ones(window) / window, mode="same")
+    # Better edge handling
+    smoothed[0] = (x[0] + x[1]) / 2 if len(x) > 1 else x[0]
+    if len(x) > 2:
+        smoothed[-1] = (x[-1] + x[-2]) / 2
+    return smoothed.tolist()
+
+
 def compute_valley_score(
     min_prob: float,
     mean_prob: float,
@@ -411,19 +424,6 @@ def compute_trough_score(
     )
 
     return float(score)
-
-
-def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
-    """Light moving average smoothing to reduce jitter in VAD probabilities."""
-    if window <= 1 or len(probs) <= window:
-        return probs[:]
-    x = np.array(probs, dtype=float)
-    smoothed = np.convolve(x, np.ones(window) / window, mode="same")
-    # Better edge handling
-    smoothed[0] = (x[0] + x[1]) / 2 if len(x) > 1 else x[0]
-    if len(x) > 2:
-        smoothed[-1] = (x[-1] + x[-2]) / 2
-    return smoothed.tolist()
 
 
 if __name__ == "__main__":
