@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 import soundfile as sf
@@ -22,6 +22,8 @@ AUDIO_EXTENSIONS = {
     ".aac",
     ".wma",
 }
+
+SplitResult = Tuple[Tuple[List[float], ValleyTrough], Tuple[List[float], ValleyTrough]]
 
 
 def base_extract_valley_troughs(
@@ -119,6 +121,64 @@ def get_best_valley_trough(
     # Get the ValleyTrough dictionary with the highest final_score (stored in valley["final_score"])
     best = max(all_troughs, key=lambda t: t["valley"].get("final_score", 0.0))
     return best
+
+
+def split_best_valley_trough(
+    probs: List[float],
+    sample_rate: int = SAMPLE_RATE,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    smoothing_window: int = 20,
+    trough_height: Optional[float] = None,
+    trough_prominence: float = 0.15,
+    trough_distance: int = 5,
+    valley_threshold: Optional[float] = None,
+    min_valley_duration_s: float = 0.8,
+    min_valley_frames: Optional[int] = None,
+    frame_offset: int = 0,
+    min_trough_offset_s: float = 0.4,
+) -> Optional[SplitResult]:
+    """
+    Split a VAD probability list into two halves at the best valley trough.
+
+    Calls get_best_valley_trough to find the single most prominent silence
+    point, then slices ``probs`` at that frame index.
+
+    Args:
+        probs: Flat list of VAD frame probabilities.
+        All other kwargs are forwarded directly to get_best_valley_trough.
+
+    Returns:
+        A tuple of two ``(probs_slice, ValleyTrough)`` pairs::
+
+            (
+                (probs[:split_frame], best_trough),   # left half
+                (probs[split_frame:], best_trough),   # right half
+            )
+
+        ``None`` if no suitable valley trough was found.
+    """
+    best_trough = get_best_valley_trough(
+        probs=probs,
+        sample_rate=sample_rate,
+        frame_shift_ms=frame_shift_ms,
+        smoothing_window=smoothing_window,
+        trough_height=trough_height,
+        trough_prominence=trough_prominence,
+        trough_distance=trough_distance,
+        valley_threshold=valley_threshold,
+        min_valley_duration_s=min_valley_duration_s,
+        min_valley_frames=min_valley_frames,
+        frame_offset=frame_offset,
+        min_trough_offset_s=min_trough_offset_s,
+    )
+    if best_trough is None:
+        return None
+
+    split_frame: int = best_trough["frame"]
+    left_probs: List[float] = probs[:split_frame]
+    right_probs: List[float] = probs[split_frame:]
+
+    return (left_probs, best_trough), (right_probs, best_trough)
 
 
 def extract_valley_troughs(
