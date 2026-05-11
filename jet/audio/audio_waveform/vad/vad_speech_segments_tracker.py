@@ -56,7 +56,10 @@ from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     _compute_preroll,
 )
 from jet.audio.helpers.config import HOP_SIZE, HOP_STEP_S, SAMPLE_RATE
-from jet.audio.speech.vad_extractors import get_best_valley_trough
+from jet.audio.speech.vad_extractors import (
+    extract_valley_troughs_from_np_audio,
+    get_best_valley_trough,
+)
 from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
 from rich.table import Table
@@ -449,6 +452,35 @@ class VadSpeechSegmentsTracker:
                 min_valley_duration_s=self.soft_limit_min_valley_duration_s,
                 min_trough_offset_s=self.soft_limit_min_trough_offset_s,
             )
+            valley_troughs = extract_valley_troughs_from_np_audio(
+                self._state.audio_np,
+                smoothing_window=self.soft_limit_smoothing_window,
+                trough_prominence=self.soft_limit_trough_prominence,
+                min_valley_duration_s=self.soft_limit_min_valley_duration_s,
+                min_trough_offset_s=self.soft_limit_min_trough_offset_s,
+            )
+
+            if trough is None and valley_troughs and len(valley_troughs) > 0:
+                trough = valley_troughs[-1]
+                if self.verbose:
+                    from rich.console import Console
+
+                    console = Console()
+                    console.print(
+                        "[yellow][soft] No trough found by _find_valley_trough, falling back to last item from valley_troughs.[/yellow]"
+                    )
+                    console.print(
+                        f"[yellow][soft] Using valley_troughs[-1]: {trough}[/yellow]"
+                    )
+            elif trough:
+                if self.verbose:
+                    from rich.console import Console
+
+                    console = Console()
+                    console.print(
+                        f"[yellow][soft] Using trough object: {trough}[/yellow]"
+                    )
+
             if trough is not None:
                 if self.verbose:
                     vad_logging.log_cond_2a_valley_found(trough, frame_idx)
@@ -468,6 +500,34 @@ class VadSpeechSegmentsTracker:
                 min_valley_duration_s=self.hard_limit_min_valley_duration_s,
                 min_trough_offset_s=self.hard_limit_min_trough_offset_s,
             )
+            valley_troughs = extract_valley_troughs_from_np_audio(
+                self._state.audio_np,
+                smoothing_window=self.hard_limit_smoothing_window,
+                trough_prominence=self.hard_limit_trough_prominence,
+                min_valley_duration_s=self.hard_limit_min_valley_duration_s,
+                min_trough_offset_s=self.hard_limit_min_trough_offset_s,
+            )
+
+            if trough is None and valley_troughs and len(valley_troughs) > 0:
+                trough = valley_troughs[-1]
+                if self.verbose:
+                    from rich.console import Console
+
+                    console = Console()
+                    console.print(
+                        "[yellow][hard] No trough found by _find_valley_trough (2b), falling back to last item from valley_troughs.[/yellow]"
+                    )
+                    console.print(
+                        f"[yellow][hard] Using valley_troughs[-1]: {trough}[/yellow]"
+                    )
+            elif trough:
+                if self.verbose:
+                    from rich.console import Console
+
+                    console = Console()
+                    console.print(
+                        f"[yellow][hard] Using trough object (2b): {trough}[/yellow]"
+                    )
 
             if trough is not None:
                 if self.verbose:
@@ -512,7 +572,7 @@ class VadSpeechSegmentsTracker:
             trough_prominence=trough_prominence,
             min_valley_duration_s=min_valley_duration_s,
             min_trough_offset_s=min_trough_offset_s,
-            frame_offset=self._state.global_frame_offset,
+            # frame_offset=self._state.global_frame_offset,
         )
 
     # ── Emission helpers ──────────────────────────────────────────────────────

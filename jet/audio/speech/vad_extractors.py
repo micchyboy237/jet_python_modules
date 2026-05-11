@@ -500,6 +500,9 @@ def extract_valley_troughs_from_np_audio(
     min_trough_offset_s: float = 0.4,
     min_valley_duration_s: float = 0.25,
     temp_dir: str | Path | None = None,
+    trough_height: float | None = None,
+    trough_prominence: float = 0.15,
+    trough_distance: int = 5,
 ) -> list[ValleyTrough]:
     """
     Extract valley troughs (strong silence positions) from a raw numpy audio clip.
@@ -525,6 +528,9 @@ def extract_valley_troughs_from_np_audio(
         frame_offset: Frame index offset for adjusting global/local outputs.
         min_trough_offset_s: Minimum time since start of segment before a trough is eligible.
         temp_dir: Optional path (or Path) for placing temporary WAV file; defaults to system temp dir.
+        trough_height: Optional minimum height threshold for valley trough detection.
+        trough_prominence: Minimum prominence for detected troughs.
+        trough_distance: Minimum distance (in frames) between detected troughs.
 
     Returns:
         List of ValleyTrough dictionaries like those from extract_valley_troughs, or an empty list on failure.
@@ -571,6 +577,9 @@ def extract_valley_troughs_from_np_audio(
             min_trough_offset_s=min_trough_offset_s,
             min_valley_duration_s=min_valley_duration_s,
             frame_shift_ms=frame_shift_ms,
+            trough_height=trough_height,
+            trough_prominence=trough_prominence,
+            trough_distance=trough_distance,
         )
 
         return troughs
