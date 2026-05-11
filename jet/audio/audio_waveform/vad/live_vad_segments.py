@@ -26,12 +26,9 @@ from typing import Callable, List, Optional
 
 import numpy as np
 import sounddevice as sd
-import soundfile as sf
+from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MIN_SILENCE_SEC,
-    DEFAULT_PREROLL_HYBRID_THRESHOLD,
-    DEFAULT_PROB_WEIGHT,
-    DEFAULT_RMS_WEIGHT,
     DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     DEFAULT_SOFT_LIMIT_SEC,
@@ -40,18 +37,15 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_THRESHOLD,
 )
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
-from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
-    _generate_plot,
-)
 
 # ── project imports ────────────────────────────────────────────────────────────
+from jet.audio.audio_waveform.vad.vad_utils import compute_hybrid_probs, save_segments
 from jet.audio.helpers.config import (
     FRAME_SHIFT_MS,
     FRAME_SHIFT_S,
     FRAME_SHIFT_SAMPLE,
     SAMPLE_RATE,
 )
-from jet.audio.helpers.energy_base import compute_frame_rms
 from jet.audio.speech.vad_extractors import get_best_valley_trough
 from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
@@ -108,111 +102,30 @@ def save_live_segment(
     trough: Optional[ValleyTrough] = None,
 ) -> Path:
     """
-    Persist one live segment to *output_dir/segments/segment_NNN/* with the
-    same file layout produced by vad_firered_hybrid.save_segments():
-
-      sound.wav          – 16-kHz PCM-16 mono WAV
-      meta.json          – segment metadata + probs summary
-      speech_probs.json  – per-frame probabilities + summary stats
-      energies.json      – per-frame RMS energy
-      speech_and_rms.png – probability + RMS + hybrid plot
-
-    Returns the segment directory path.
+    Build a SpeechSegment from live VAD data and delegate to save_segments.
+    Returns the segment directory (output_dir/segments/segment_NNN).
     """
-    segments_dir = output_dir / "segments"
-    seg_dir = segments_dir / f"segment_{seg_num:03d}"
-    seg_dir.mkdir(parents=True, exist_ok=True)
-
-    # ── sound.wav ──────────────────────────────────────────────────────────
-    wav_path = seg_dir / "sound.wav"
-    sf.write(
-        wav_path,
-        audio_np,
-        SAMPLE_RATE,
-    )
-
-    # ── probs summary ──────────────────────────────────────────────────────
-    probs_arr = np.asarray(probs, dtype=np.float32)
-    probs_info = {
-        "num_frames": int(len(probs_arr)),
-        "mean": float(np.mean(probs_arr)) if len(probs_arr) else 0.0,
-        "max": float(np.max(probs_arr)) if len(probs_arr) else 0.0,
-        "min": float(np.min(probs_arr)) if len(probs_arr) else 0.0,
-        "std": float(np.std(probs_arr)) if len(probs_arr) else 0.0,
-        "median": float(np.median(probs_arr)) if len(probs_arr) else 0.0,
-        "frame_rate_hz": 100,
-    }
-
-    # ── meta.json ──────────────────────────────────────────────────────────
-    meta = {
+    n_frames = len(probs)
+    segment: SpeechSegment = {
         "num": seg_num,
-        "duration_s": duration_s,
-        "end_reason": reason,
-        "num_frames": int(len(probs_arr)),
-        "speech_ratio": float(
-            sum(1 for p in probs if p >= DEFAULT_THRESHOLD) / max(len(probs), 1)
-        ),
-        "first_prob": float(probs_arr[0]) if len(probs_arr) else 0.0,
-        "last_prob": float(probs_arr[-1]) if len(probs_arr) else 0.0,
-        "output_path": str(wav_path.relative_to(output_dir)),
-        "probs_info": probs_info,
+        "start": 0.0,
+        "end": duration_s,
+        "prob": float(max(probs)) if probs else 0.0,
+        "duration": duration_s,
+        "frames_length": n_frames,
+        "frame_start": 0,
+        "frame_end": max(n_frames - 1, 0),
+        "type": "speech",
+        "segment_probs": list(probs),
     }
-    with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
-        json.dump(meta, fh, indent=2, ensure_ascii=False)
 
-    # Save best_trough.json if trough is present
-    if trough is not None:
-        with open(seg_dir / "best_trough.json", "w", encoding="utf-8") as fh:
-            json.dump(trough, fh, indent=2, ensure_ascii=False)
-
-    # ── speech_probs.json ──────────────────────────────────────────────────
-    with open(seg_dir / "speech_probs.json", "w", encoding="utf-8") as fh:
-        json.dump(
-            {
-                "probs": probs_arr.tolist(),
-                "frame_shift_sec": FRAME_SHIFT_S,
-                "frame_start": 0,
-                "summary": probs_info,
-                "is_dummy": False,
-            },
-            fh,
-            indent=2,
-        )
-
-    # ── energies.json ──────────────────────────────────────────────────────
-    rms = compute_frame_rms(audio_np)
-    with open(seg_dir / "energies.json", "w", encoding="utf-8") as fh:
-        json.dump(
-            {
-                "rms": rms.tolist(),
-                "frame_shift_sec": FRAME_SHIFT_S,
-                "num_frames": int(len(rms)),
-            },
-            fh,
-            indent=2,
-        )
-
-    # ── speech_and_rms.png ─────────────────────────────────────────────────
-    n_min = min(len(probs_arr), len(rms))
-    hybrid_arr: np.ndarray
-    if n_min > 0:
-        rms_ceil = np.percentile(rms[:n_min], 99) + 1e-10
-        rms_norm = np.clip(rms[:n_min] / rms_ceil, 0.0, 1.0)
-        hybrid_arr = (0.5 * probs_arr[:n_min] + 0.5 * rms_norm).astype(np.float32)
-    else:
-        hybrid_arr = np.array([], dtype=np.float32)
-
-    _generate_plot(
-        probs=probs_arr,
-        segment_idx=seg_num,
-        duration_sec=duration_s,
-        output_path=seg_dir / "speech_and_rms.png",
-        is_dummy=False,
-        rms=rms,
-        hybrid=hybrid_arr,
-        hybrid_threshold=DEFAULT_PREROLL_HYBRID_THRESHOLD,
+    save_segments(
+        segments=[segment],
+        audio_chunks=[audio_np],
+        output_base_dir=output_dir,
     )
 
+    seg_dir = output_dir / "segments" / f"segment_{seg_num:03d}"
     return seg_dir
 
 
@@ -551,7 +464,7 @@ class LiveVADSegmenter:
             return
 
         # ── 2. plain silence (not yet at soft limit) ───────────────────────
-        if in_silence and not past_soft:
+        if in_silence and not past_soft:  # silence before soft limit
             self._emit("silence", valley_time_s=None, valley_score=None, trough=None)
             return
 
@@ -570,18 +483,10 @@ class LiveVADSegmenter:
             self._frames_since_valley_check += 1
             if self._frames_since_valley_check >= _VALLEY_CHECK_INTERVAL_FRAMES:
                 self._frames_since_valley_check = 0
-                audio_np_so_far = np.concatenate(self._audio_buf, axis=0)
-                rms = compute_frame_rms(audio_np_so_far)
-                n = min(len(self._prob_buf), len(rms))
-                if n > 0:
-                    rms_ceil = np.percentile(rms[:n], 99) + 1e-10
-                    rms_norm = np.clip(rms[:n] / rms_ceil, 0.0, 1.0)
-                    hybrid_probs = (
-                        DEFAULT_PROB_WEIGHT * np.array(self._prob_buf[:n])
-                        + DEFAULT_RMS_WEIGHT * rms_norm
-                    ).tolist()
-                else:
-                    hybrid_probs = self._prob_buf
+                hybrid_probs = compute_hybrid_probs(
+                    np.array(self._prob_buf, dtype=np.float32),
+                    np.concatenate(self._audio_buf, axis=0),
+                ).tolist()
 
                 # Pass explicitly int-cast kwarg values to silence type errors
                 valley_kwargs_int = {}
