@@ -26,6 +26,10 @@ from typing import List, Literal, Optional
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
+    DEFAULT_HARD_LIMIT_MIN_TROUGH_OFFSET_S,
+    DEFAULT_HARD_LIMIT_MIN_VALLEY_DURATION_S,
+    DEFAULT_HARD_LIMIT_SMOOTHING_WINDOW,
+    DEFAULT_HARD_LIMIT_TROUGH_PROMINENCE,
     DEFAULT_INCLUDE_NON_SPEECH,
     DEFAULT_MAX_SPEECH_SEC,
     DEFAULT_MIN_SILENCE_SEC,
@@ -57,8 +61,6 @@ from rich.table import Table
 
 console = Console()
 
-# ── Relaxed valley duration used once past hard_limit ─────────────────────────
-HARD_LIMIT_MIN_VALLEY_DURATION_S: float = 0.5
 
 EndReason = Literal["silence", "valley", "hard_limit", "none"]
 
@@ -226,6 +228,11 @@ class VadSpeechSegmentsTracker:
         soft_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
         soft_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
         soft_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+        # valley / hard-limit params
+        hard_limit_min_valley_duration_s: float = DEFAULT_HARD_LIMIT_MIN_VALLEY_DURATION_S,
+        hard_limit_smoothing_window: int = DEFAULT_HARD_LIMIT_SMOOTHING_WINDOW,
+        hard_limit_trough_prominence: float = DEFAULT_HARD_LIMIT_TROUGH_PROMINENCE,
+        hard_limit_min_trough_offset_s: float = DEFAULT_HARD_LIMIT_MIN_TROUGH_OFFSET_S,
         verbose: bool = True,
     ) -> None:
         # Config
@@ -253,6 +260,11 @@ class VadSpeechSegmentsTracker:
         self.soft_limit_smoothing_window = soft_limit_smoothing_window
         self.soft_limit_trough_prominence = soft_limit_trough_prominence
         self.soft_limit_min_trough_offset_s = soft_limit_min_trough_offset_s
+
+        self.hard_limit_min_valley_duration_s = hard_limit_min_valley_duration_s
+        self.hard_limit_smoothing_window = hard_limit_smoothing_window
+        self.hard_limit_trough_prominence = hard_limit_trough_prominence
+        self.hard_limit_min_trough_offset_s = hard_limit_min_trough_offset_s
 
         self.verbose = verbose
 
@@ -406,7 +418,11 @@ class VadSpeechSegmentsTracker:
         # 2a — valley trough past soft limit ──────────────────────────────
         if past_soft and not past_hard:
             trough = self._find_valley_trough(
-                min_valley_duration_s=self.soft_limit_min_valley_duration_s
+                probs=self._state.probs,
+                smoothing_window=self.soft_limit_smoothing_window,
+                trough_prominence=self.soft_limit_trough_prominence,
+                min_valley_duration_s=self.soft_limit_min_valley_duration_s,
+                min_trough_offset_s=self.soft_limit_min_trough_offset_s,
             )
             if trough is not None:
                 return self._emit_at_trough(trough, "valley", "2a")
@@ -414,8 +430,13 @@ class VadSpeechSegmentsTracker:
         # 2b — valley trough past hard limit (relaxed duration) ───────────
         if past_hard:
             trough = self._find_valley_trough(
-                min_valley_duration_s=HARD_LIMIT_MIN_VALLEY_DURATION_S
+                probs=self._state.probs,
+                smoothing_window=self.hard_limit_smoothing_window,
+                trough_prominence=self.hard_limit_trough_prominence,
+                min_valley_duration_s=self.hard_limit_min_valley_duration_s,
+                min_trough_offset_s=self.hard_limit_min_trough_offset_s,
             )
+
             if trough is not None:
                 return self._emit_at_trough(trough, "valley", "2b")
 
@@ -427,7 +448,14 @@ class VadSpeechSegmentsTracker:
 
     # ── Valley trough search ─────────────────────────────────────────────────
 
-    def _find_valley_trough(self, min_valley_duration_s: float):
+    def _find_valley_trough(
+        self,
+        probs,
+        smoothing_window,
+        trough_prominence,
+        min_valley_duration_s,
+        min_trough_offset_s,
+    ):
         """
         Run get_best_valley_trough over the currently accumulated probs.
 
@@ -438,10 +466,10 @@ class VadSpeechSegmentsTracker:
             return None
         return get_best_valley_trough(
             probs=probs,
-            smoothing_window=self.soft_limit_smoothing_window,
-            trough_prominence=self.soft_limit_trough_prominence,
+            smoothing_window=smoothing_window,
+            trough_prominence=trough_prominence,
             min_valley_duration_s=min_valley_duration_s,
-            min_trough_offset_s=self.soft_limit_min_trough_offset_s,
+            min_trough_offset_s=min_trough_offset_s,
             frame_offset=self._state.global_frame_offset,
         )
 
