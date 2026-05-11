@@ -37,7 +37,10 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 import matplotlib
-from jet.audio.audio_waveform.vad.vad_logging import log_accumulating
+from jet.audio.audio_waveform.vad.vad_logging import (
+    linkify,
+    log_accumulating,
+)
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -71,14 +74,6 @@ from jet.audio.audio_waveform.vad.vad_speech_segments_tracker import (
 from jet.audio.helpers.config import FRAME_SHIFT_MS, HOP_SIZE, HOP_STEP_S, SAMPLE_RATE
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TaskID,
-    TextColumn,
-    TimeElapsedColumn,
-)
 from rich.table import Table
 
 console = Console()
@@ -226,6 +221,28 @@ def _save_segment(
         end_reason=result.end_reason,
         end_label=result.end_condition_label,
     )
+
+    # ── 9. valley_trough.json (if present) ────────────────────────────────────
+    if result.valley_trough is not None:
+        valley_trough_file = seg_dir / "valley_trough.json"
+        with open(valley_trough_file, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "frame": result.valley_trough.get("frame"),
+                    "time_s": result.valley_trough.get("time_s"),
+                    "prob": result.valley_trough.get("prob"),
+                    "prominence": result.valley_trough.get("prominence"),
+                    "valley_duration_s": result.valley_trough.get("valley_duration_s"),
+                    "frame_offset": result.valley_trough.get("frame_offset"),
+                },
+                fh,
+                indent=2,
+            )
+
+        console.print(
+            f"[dim green]  💾 Saved valley trough {seg_num:03d} → "
+            f"{linkify(valley_trough_file)}[/dim green]"
+        )
 
     return seg_dir
 
@@ -683,31 +700,21 @@ def main() -> None:
         min_silence_sec=args.min_silence,
         soft_limit_sec=args.soft_limit,
         hard_limit_sec=args.hard_limit,
-        verbose=args.verbose,
+        # verbose=args.verbose,
+        verbose=True,
     )
 
-    progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(bar_width=30),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    )
+    console.print("[green]Recording…[/green] [dim](Ctrl-C to stop)[/dim]")
 
-    with progress:
-        task: TaskID = progress.add_task(
-            "[green]Recording…  (Ctrl-C to stop)", total=None
-        )
-        recorder.start()
-        try:
-            while True:
-                time.sleep(0.1)
-                progress.advance(task)
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Stopping…[/yellow]")
-        finally:
-            recorder.stop()
+    recorder.start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopping…[/yellow]")
+    finally:
+        recorder.stop()
 
     console.print(
         f"\n[bold]Output:[/bold] [link=file://{args.output_dir.resolve()}]{args.output_dir}[/link]"

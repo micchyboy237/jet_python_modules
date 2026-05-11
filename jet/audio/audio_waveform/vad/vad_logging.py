@@ -1,4 +1,4 @@
-# live_vad_segments.py
+# vad_logging.py
 
 """
 Live VAD Segmenter — streams mic audio via sounddevice, accumulates speech
@@ -15,6 +15,9 @@ Segment-end triggers (in priority order):
 from __future__ import annotations
 
 import time
+from pathlib import Path
+
+from jet.audio.speech.vad_types import ValleyTrough
 
 # ── project imports ────────────────────────────────────────────────────────────
 from rich.console import Console
@@ -80,10 +83,89 @@ def log_segment_end(reason: str, duration_s: float, extra: str = "") -> None:
     )
 
 
-def log_valley_found(time_s: float, score: float) -> None:
+def log_cond_1a(
+    silence_frames: int, soft_limit_sec: float, frame_idx: int, duration: float
+) -> None:
+    if throttled("cond_1a", 2.0):
+        console.print(
+            f"[cyan][cond 1a][/cyan] Silence long enough ({silence_frames} frames), not past soft limit ({soft_limit_sec:.2f}s). [Frame: {frame_idx}] [Duration: {duration:.2f}s]"
+        )
+
+
+def log_cond_1b(
+    soft_limit_sec: float,
+    in_silence: bool,
+    silence_frames: int,
+    frame_idx: int,
+    duration: float,
+) -> None:
+    if throttled("cond_1b", 2.0):
+        console.print(
+            f"[cyan][cond 1b][/cyan] Silence while past soft limit (soft_limit_sec={soft_limit_sec:.2f}s), in_silence={in_silence}, silence_frames={silence_frames}. [Frame: {frame_idx}] [Duration: {duration:.2f}s]"
+        )
+
+
+def log_cond_2a_check(
+    soft_limit_sec: float, hard_limit_sec: float, frame_idx: int, duration: float
+) -> None:
+    if throttled("cond_2a_check", 2.0):
+        console.print(
+            f"[cyan][cond 2a][/cyan] Checking valley trough, past soft limit ({soft_limit_sec:.2f}s), not past hard limit ({hard_limit_sec:.2f}s). [Frame: {frame_idx}] [Duration: {duration:.2f}s]"
+        )
+
+
+def log_cond_2a_valley_found(trough, frame_idx: int) -> None:
+    if throttled("cond_2a_found", 2.0):
+        console.print(
+            f"[green][cond 2a match][/green] Valley trough found: {trough} [Frame: {frame_idx}]"
+        )
+
+
+def log_cond_2a_no_valley() -> None:
+    if throttled("cond_2a_no_valley", 2.0):
+        console.print("[dim][cond 2a] No valley trough found.[/dim]")
+
+
+def log_cond_2b_check(hard_limit_sec: float, frame_idx: int, duration: float) -> None:
+    if throttled("cond_2b_check", 2.0):
+        console.print(
+            f"[cyan][cond 2b][/cyan] Checking valley trough, past hard limit ({hard_limit_sec:.2f}s). [Frame: {frame_idx}] [Duration: {duration:.2f}s]"
+        )
+
+
+def log_cond_2b_valley_found(trough, frame_idx: int) -> None:
+    if throttled("cond_2b_found", 2.0):
+        console.print(
+            f"[green][cond 2b match][/green] Valley trough (relaxed) found: {trough} [Frame: {frame_idx}]"
+        )
+
+
+def log_cond_2b_no_valley_relaxed() -> None:
+    if throttled("cond_2b_no_valley", 2.0):
+        console.print(
+            "[dim][cond 2b] No valley trough found (relaxed after hard limit).[/dim]"
+        )
+
+
+def log_cond_3(frame_idx: int, duration: float) -> None:
+    if throttled("cond_3", 2.0):
+        console.print(
+            f"[red][cond 3][/red] Hard limit reached — emitting safety fallback. [Frame: {frame_idx}] [Duration: {duration:.2f}s]"
+        )
+
+
+def log_cond_none(frame_idx: int, duration: float) -> None:
+    if throttled("cond_none", 2.0):
+        console.print(
+            f"[dim][cond none][/dim] No end condition met. [Frame: {frame_idx}] [Duration: {duration:.2f}s]"
+        )
+
+
+def log_valley_found(valley_trough: ValleyTrough) -> None:
+    score = valley_trough["valley"]["final_score"]
     console.print(
         f"[magenta]   🔍 Valley trough found[/magenta]  "
-        f"at [bold]{time_s:.2f}s[/bold]  "
+        f"at [bold]{valley_trough['time_s']:.2f}s[/bold]  "
         f"score=[bold]{score:.3f}[/bold]"
     )
 
@@ -93,3 +175,9 @@ def log_no_valley(duration_s: float) -> None:
         console.print(
             f"[dim yellow]   ⏳ No valley found yet at {duration_s:.1f}s — continuing…[/dim yellow]"
         )
+
+
+def linkify(path: str | Path):
+    path = Path(path)
+    # Provide clickable file link with basename (for rich/terminal that support it)
+    return f"[bold blue][link=file://{path}]{path.name}[/link][/bold blue]"

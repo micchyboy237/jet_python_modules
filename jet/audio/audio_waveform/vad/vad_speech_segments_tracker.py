@@ -13,7 +13,7 @@ objects.  One segment is emitted when any of the five end conditions fires:
 Reuses:
   _compute_preroll          (from vad_speech_segments_extractor)
   _compute_postroll         (from vad_speech_segments_extractor)
-  _apply_soft_limit_splits  (from vad_speech_segments_extractor)
+  _apply_limit_splits  (from vad_speech_segments_extractor)
   get_best_valley_trough    (from vad_extractors)
 """
 
@@ -24,14 +24,15 @@ from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
 import numpy as np
+from jet.audio.audio_waveform.vad import vad_logging
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_HARD_LIMIT_MIN_TROUGH_OFFSET_S,
     DEFAULT_HARD_LIMIT_MIN_VALLEY_DURATION_S,
+    DEFAULT_HARD_LIMIT_SEC,
     DEFAULT_HARD_LIMIT_SMOOTHING_WINDOW,
     DEFAULT_HARD_LIMIT_TROUGH_PROMINENCE,
     DEFAULT_INCLUDE_NON_SPEECH,
-    DEFAULT_MAX_SPEECH_SEC,
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_MIN_SPEECH_SEC,
     DEFAULT_POSTROLL_HYBRID_THRESHOLD,
@@ -50,12 +51,13 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_WITH_SCORES,
 )
 from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
-    _apply_soft_limit_splits,
+    _apply_limit_splits,
     _compute_postroll,
     _compute_preroll,
 )
 from jet.audio.helpers.config import HOP_SIZE, HOP_STEP_S, SAMPLE_RATE
 from jet.audio.speech.vad_extractors import get_best_valley_trough
+from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
 from rich.table import Table
 
@@ -145,6 +147,9 @@ class SegmentResult:
     audio_np: np.ndarray
     """Concatenated audio for the full segment (before pre/post-roll trim)."""
 
+    valley_trough: Optional[ValleyTrough] = None
+    """Valley trough dict from get_best_valley_trough, present when end_reason='valley'."""
+
     def __repr__(self) -> str:
         return (
             f"<SegmentResult reason={self.end_reason!r} "
@@ -208,7 +213,7 @@ class VadSpeechSegmentsTracker:
         min_silence_sec: float = DEFAULT_MIN_SILENCE_SEC,
         min_speech_sec: float = DEFAULT_MIN_SPEECH_SEC,
         soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
-        hard_limit_sec: float = DEFAULT_MAX_SPEECH_SEC,
+        hard_limit_sec: float = DEFAULT_HARD_LIMIT_SEC,
         sample_rate: int = SAMPLE_RATE,
         return_seconds: bool = DEFAULT_RETURN_SECONDS,
         with_scores: bool = DEFAULT_WITH_SCORES,
@@ -401,6 +406,7 @@ class VadSpeechSegmentsTracker:
 
         Returns a SegmentResult on the first match, else None.
         """
+
         past_soft = duration >= self.soft_limit_sec
         past_hard = duration >= self.hard_limit_sec
         silence_long_enough = (
@@ -409,14 +415,33 @@ class VadSpeechSegmentsTracker:
 
         # 1a — plain silence (no limit required) ──────────────────────────
         if silence_long_enough and not past_soft:
+            if self.verbose:
+                vad_logging.log_cond_1a(
+                    self._state.silence_frame_count,
+                    self.soft_limit_sec,
+                    frame_idx,
+                    duration,
+                )
             return self._maybe_emit("silence", "1a", frame_idx, duration)
 
         # 1b — silence while past soft limit ──────────────────────────────
         if past_soft and self._state.in_silence and silence_long_enough:
+            if self.verbose:
+                vad_logging.log_cond_1b(
+                    self.soft_limit_sec,
+                    self._state.in_silence,
+                    self._state.silence_frame_count,
+                    frame_idx,
+                    duration,
+                )
             return self._maybe_emit("silence", "1b", frame_idx, duration)
 
         # 2a — valley trough past soft limit ──────────────────────────────
         if past_soft and not past_hard:
+            if self.verbose:
+                vad_logging.log_cond_2a_check(
+                    self.soft_limit_sec, self.hard_limit_sec, frame_idx, duration
+                )
             trough = self._find_valley_trough(
                 probs=self._state.probs,
                 smoothing_window=self.soft_limit_smoothing_window,
@@ -425,10 +450,17 @@ class VadSpeechSegmentsTracker:
                 min_trough_offset_s=self.soft_limit_min_trough_offset_s,
             )
             if trough is not None:
+                if self.verbose:
+                    vad_logging.log_cond_2a_valley_found(trough, frame_idx)
                 return self._emit_at_trough(trough, "valley", "2a")
+            else:
+                if self.verbose:
+                    vad_logging.log_cond_2a_no_valley()
 
         # 2b — valley trough past hard limit (relaxed duration) ───────────
         if past_hard:
+            if self.verbose:
+                vad_logging.log_cond_2b_check(self.hard_limit_sec, frame_idx, duration)
             trough = self._find_valley_trough(
                 probs=self._state.probs,
                 smoothing_window=self.hard_limit_smoothing_window,
@@ -438,11 +470,21 @@ class VadSpeechSegmentsTracker:
             )
 
             if trough is not None:
+                if self.verbose:
+                    vad_logging.log_cond_2b_valley_found(trough, frame_idx)
                 return self._emit_at_trough(trough, "valley", "2b")
+            else:
+                if self.verbose:
+                    vad_logging.log_cond_2b_no_valley_relaxed()
 
         # 3 — hard limit safety fallback ──────────────────────────────────
         if past_hard:
+            if self.verbose:
+                vad_logging.log_cond_3(frame_idx, duration)
             return self._emit("hard_limit", "3")
+
+        if self.verbose:
+            vad_logging.log_cond_none(frame_idx, duration)
 
         return None
 
@@ -495,7 +537,12 @@ class VadSpeechSegmentsTracker:
             return None
         return self._emit(end_reason, label)
 
-    def _emit(self, end_reason: EndReason, label: str) -> SegmentResult:
+    def _emit(
+        self,
+        end_reason: EndReason,
+        label: str,
+        valley_trough: Optional[ValleyTrough] = None,
+    ) -> SegmentResult:
         """Build, log, and return a SegmentResult for the full current buffer."""
         probs = list(self._state.probs)
         audio_np = self._state.audio_np
@@ -517,6 +564,7 @@ class VadSpeechSegmentsTracker:
             duration_s=duration,
             probs=probs,
             audio_np=audio_np,
+            valley_trough=valley_trough,
         )
 
         self._segments_emitted += 1
@@ -562,7 +610,7 @@ class VadSpeechSegmentsTracker:
         self._state.probs = head_probs
         self._state.audio_chunks = [head_audio] if len(head_audio) > 0 else []
 
-        result = self._emit(end_reason, label)
+        result = self._emit(end_reason, label, valley_trough=trough)
 
         # Re-seed with tail so the caller's next push() continues naturally
         if tail_probs:
@@ -592,7 +640,7 @@ class VadSpeechSegmentsTracker:
         1. Compute start / end times (in samples or seconds).
         2. Apply pre-roll / post-roll boundary extension.
         3. Build the initial SpeechSegment.
-        4. Run _apply_soft_limit_splits for any sub-splits.
+        4. Run _apply_limit_splits for any sub-splits.
         """
         start_s = frame_start * HOP_STEP_S
         end_s = (frame_end + 1) * HOP_STEP_S
@@ -654,13 +702,13 @@ class VadSpeechSegmentsTracker:
         )
 
         # ── Soft-limit sub-splits ─────────────────────────────────────────
-        segments = _apply_soft_limit_splits(
+        segments = _apply_limit_splits(
             segments=[seg],
             probs=probs,
             audio_np=audio_np,
             sample_rate=self.sample_rate,
             hop_sec=HOP_STEP_S,
-            soft_limit_sec=self.soft_limit_sec,
+            max_limit_sec=self.soft_limit_sec,
             min_valley_duration_s=self.soft_limit_min_valley_duration_s,
             smoothing_window=self.soft_limit_smoothing_window,
             trough_prominence=self.soft_limit_trough_prominence,
@@ -749,8 +797,8 @@ class VadSpeechSegmentsTracker:
         console.print(
             f"[bold {label_colour}]■ Segment #{self._segments_emitted}[/bold {label_colour}] "
             f"emitted  "
-            f"[dim]reason=[/{label_colour}][bold]{result.end_reason}[/bold] "
-            f"[dim]cond=[/dim][bold]{result.end_condition_label}[/bold]  "
+            f"[dim]reason=[/dim][bold {label_colour}]{result.end_reason}[/bold {label_colour}] "
+            f"[dim]cond=[/dim][bold {label_colour}]{result.end_condition_label}[/bold {label_colour}]  "
             f"duration=[bold]{result.duration_s:.2f}s[/bold]  "
             f"sub_segs=[bold]{len(result.segments)}[/bold]"
         )

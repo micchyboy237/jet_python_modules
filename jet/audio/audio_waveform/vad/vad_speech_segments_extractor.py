@@ -204,13 +204,13 @@ def _compute_postroll(
     return keep_frames * HOP_SIZE
 
 
-def _apply_soft_limit_splits(
+def _apply_limit_splits(
     segments: List[SpeechSegment],
     probs: List[float],
     audio_np: np.ndarray,  # Insert audio_np argument
     sample_rate: int,
     hop_sec: float,
-    soft_limit_sec: float,
+    max_limit_sec: float,
     min_valley_duration_s: float,
     smoothing_window: int,
     trough_prominence: float,
@@ -221,7 +221,7 @@ def _apply_soft_limit_splits(
     hybrid_rms_weight: float = DEFAULT_RMS_WEIGHT,  # Add hybrid_rms_weight argument
 ) -> List[SpeechSegment]:
     """
-    Recursively split speech segments that exceed *soft_limit_sec* by finding
+    Recursively split speech segments that exceed *max_limit_sec* by finding
     the best valley trough in the segment's probability slice and splitting there.
 
     Args:
@@ -230,7 +230,7 @@ def _apply_soft_limit_splits(
         audio_np:              Full audio signal as numpy array.
         sample_rate:           Audio sample rate (Hz).
         hop_sec:               Seconds per probability frame (typically 0.010).
-        soft_limit_sec:        Maximum preferred segment duration before splitting.
+        max_limit_sec:         Maximum preferred segment duration before splitting.
         min_valley_duration_s: Min silence width to qualify as a split candidate.
         smoothing_window:      Smoothing window passed to get_best_valley_trough.
         trough_prominence:     Min trough prominence for detection.
@@ -250,7 +250,7 @@ def _apply_soft_limit_splits(
     def _split_recursive(seg: SpeechSegment) -> List[SpeechSegment]:
         """Return one or more segments produced from *seg*, splitting if needed."""
         duration = seg["duration"]
-        if duration <= soft_limit_sec:
+        if duration <= max_limit_sec:
             return [seg]
 
         # Extract the probability slice for this segment
@@ -284,7 +284,7 @@ def _apply_soft_limit_splits(
             # No suitable silence found — return the long segment as-is
             console.print(
                 f"[yellow]Soft limit: segment {seg['num']} is {duration:.1f}s "
-                f"(>{soft_limit_sec}s) but no valley trough found — keeping intact.[/yellow]"
+                f"(>{max_limit_sec}s) but no valley trough found — keeping intact.[/yellow]"
             )
             return [seg]
 
@@ -361,21 +361,21 @@ def extract_speech_timestamps(
     postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
     postroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
     postroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
-    soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
-    soft_limit_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
-    soft_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
-    soft_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
-    soft_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+    max_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
+    max_limit_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+    max_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    max_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+    max_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
     Extract speech timestamps using FireRedVAD with symmetric hybrid
     pre-roll (head) and post-roll (tail) boundary extension.
 
-    When a speech segment exceeds *soft_limit_sec*, valley trough detection
+    When a speech segment exceeds *max_limit_sec*, valley trough detection
     is used to find the best natural silence and split the segment there.
     Splitting is recursive: each half is re-checked until no segment exceeds
-    the soft limit or no trough can be found.
+    the max limit or no trough can be found.
 
     Both boundaries are extended by a variable amount computed from a
     weighted combination of smoothed speech probability and normalised RMS
@@ -508,18 +508,18 @@ def extract_speech_timestamps(
     # ------------------------------------------------------------------
     # Soft-limit: split long segments at valley troughs
     # ------------------------------------------------------------------
-    if soft_limit_sec > 0:
-        enhanced = _apply_soft_limit_splits(
+    if max_limit_sec > 0:
+        enhanced = _apply_limit_splits(
             segments=enhanced,
             probs=probs,
             audio_np=audio_np,
             sample_rate=sr,
             hop_sec=HOP_STEP_S,
-            soft_limit_sec=soft_limit_sec,
-            min_valley_duration_s=soft_limit_min_valley_duration_s,
-            smoothing_window=soft_limit_smoothing_window,
-            trough_prominence=soft_limit_trough_prominence,
-            min_trough_offset_s=soft_limit_min_trough_offset_s,
+            max_limit_sec=max_limit_sec,
+            min_valley_duration_s=max_limit_min_valley_duration_s,
+            smoothing_window=max_limit_smoothing_window,
+            trough_prominence=max_limit_trough_prominence,
+            min_trough_offset_s=max_limit_min_trough_offset_s,
             return_seconds=return_seconds,
             with_scores=with_scores,
         )
