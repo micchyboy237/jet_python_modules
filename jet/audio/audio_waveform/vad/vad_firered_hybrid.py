@@ -30,7 +30,7 @@ SAVE_DIR = str(
 )
 
 DEFAULT_THRESHOLD = 0.5
-DEFAULT_MIN_SILENCE_SEC = 0.250
+DEFAULT_MIN_SILENCE_SEC = 0.8
 DEFAULT_MIN_SPEECH_SEC = 0.250
 DEFAULT_MAX_SPEECH_SEC = 15.0
 DEFAULT_SAMPLING_RATE = 16000
@@ -53,6 +53,12 @@ DEFAULT_POSTROLL_HYBRID_THRESHOLD = 0.15  # hybrid score below which we stop ext
 DEFAULT_POSTROLL_PROB_WEIGHT = 0.5  # weight for speech probability
 DEFAULT_POSTROLL_RMS_WEIGHT = 0.5  # weight for normalised RMS energy
 
+# Soft-limit split defaults
+DEFAULT_SOFT_LIMIT_SEC = 6.0
+DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S = 0.25
+DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW = 20
+DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE = 0.15
+DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S = 0.4
 
 # ---------------------------------------------------------------------------
 # FireRedVAD wrapper
@@ -300,6 +306,128 @@ def _compute_postroll(
     return keep_frames * FRAME_SAMPLES
 
 
+def _apply_soft_limit_splits(
+    segments: List[SpeechSegment],
+    probs: List[float],
+    sample_rate: int,
+    hop_sec: float,
+    soft_limit_sec: float,
+    min_valley_duration_s: float,
+    smoothing_window: int,
+    trough_prominence: float,
+    min_trough_offset_s: float,
+    return_seconds: bool,
+    with_scores: bool,
+) -> List[SpeechSegment]:
+    """
+    Recursively split speech segments that exceed *soft_limit_sec* by finding
+    the best valley trough in the segment's probability slice and splitting there.
+
+    Args:
+        segments:              The current list of SpeechSegment dicts.
+        probs:                 Full-audio framewise speech probabilities.
+        sample_rate:           Audio sample rate (Hz).
+        hop_sec:               Seconds per probability frame (typically 0.010).
+        soft_limit_sec:        Maximum preferred segment duration before splitting.
+        min_valley_duration_s: Min silence width to qualify as a split candidate.
+        smoothing_window:      Smoothing window passed to get_best_valley_trough.
+        trough_prominence:     Min trough prominence for detection.
+        min_trough_offset_s:   Trough must be >= this many seconds from segment start.
+        return_seconds:        Whether segment start/end are in seconds or samples.
+        with_scores:           Whether segment_probs should be populated.
+
+    Returns:
+        New (possibly longer) list of SpeechSegment dicts with renumbered ``num``
+        fields, long segments replaced by their split children.
+    """
+    result: List[SpeechSegment] = []
+    seg_num = 1
+
+    def _split_recursive(seg: SpeechSegment) -> List[SpeechSegment]:
+        """Return one or more segments produced from *seg*, splitting if needed."""
+        duration = seg["duration"]
+        if duration <= soft_limit_sec:
+            return [seg]
+
+        # Extract the probability slice for this segment
+        frame_start: int = seg["frame_start"]
+        frame_end: int = seg["frame_end"]
+        seg_probs: List[float] = probs[frame_start : frame_end + 1]
+
+        if not seg_probs:
+            return [seg]
+
+        # Find the best valley trough inside this segment
+        best_trough = get_best_valley_trough(
+            probs=seg_probs,
+            smoothing_window=smoothing_window,
+            trough_prominence=trough_prominence,
+            min_valley_duration_s=min_valley_duration_s,
+            min_trough_offset_s=min_trough_offset_s,
+        )
+
+        if best_trough is None:
+            # No suitable silence found — return the long segment as-is
+            console.print(
+                f"[yellow]Soft limit: segment {seg['num']} is {duration:.1f}s "
+                f"(>{soft_limit_sec}s) but no valley trough found — keeping intact.[/yellow]"
+            )
+            return [seg]
+
+        # Trough frame is local to seg_probs; convert to global frame index
+        local_trough_frame: int = best_trough["frame"]
+        global_trough_frame: int = frame_start + local_trough_frame
+        split_time_s: float = global_trough_frame * hop_sec
+
+        # Build left and right child segments
+        def _make_child(
+            child_frame_start: int,
+            child_frame_end: int,
+        ) -> SpeechSegment:
+            child_start_s = child_frame_start * hop_sec
+            child_end_s = child_frame_end * hop_sec
+            child_probs_slice = probs[child_frame_start : child_frame_end + 1]
+            avg_prob = float(np.mean(child_probs_slice)) if child_probs_slice else 0.0
+            duration_s = child_end_s - child_start_s
+            start_val = (
+                child_start_s if return_seconds else int(child_start_s * sample_rate)
+            )
+            end_val = child_end_s if return_seconds else int(child_end_s * sample_rate)
+            return SpeechSegment(
+                num=0,  # renumbered after recursion
+                start=start_val,
+                end=end_val,
+                prob=avg_prob,
+                duration=duration_s,
+                frames_length=len(child_probs_slice),
+                frame_start=child_frame_start,
+                frame_end=child_frame_end,
+                type=seg["type"],
+                segment_probs=child_probs_slice if with_scores else [],
+            )
+
+        left = _make_child(frame_start, global_trough_frame)
+        right = _make_child(global_trough_frame, frame_end)
+
+        console.print(
+            f"[cyan]Soft limit: split segment {seg['num']} "
+            f"({duration:.1f}s) at {split_time_s:.2f}s "
+            f"→ {left['duration']:.1f}s + {right['duration']:.1f}s[/cyan]"
+        )
+
+        # Recurse on each half independently
+        return _split_recursive(left) + _split_recursive(right)
+
+    for seg in segments:
+        children = _split_recursive(seg)
+        for child in children:
+            child["num"] = seg_num
+            seg_num += 1
+            result.append(child)
+
+    return result
+
+
 def extract_speech_timestamps(
     audio: Union[str, Path, np.ndarray, torch.Tensor, list[np.ndarray]],
     threshold: float = DEFAULT_THRESHOLD,
@@ -319,11 +447,21 @@ def extract_speech_timestamps(
     postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
     postroll_prob_weight: float = DEFAULT_POSTROLL_PROB_WEIGHT,
     postroll_rms_weight: float = DEFAULT_POSTROLL_RMS_WEIGHT,
+    soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
+    soft_limit_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+    soft_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    soft_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+    soft_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
     Extract speech timestamps using FireRedVAD with symmetric hybrid
     pre-roll (head) and post-roll (tail) boundary extension.
+
+    When a speech segment exceeds *soft_limit_sec*, valley trough detection
+    is used to find the best natural silence and split the segment there.
+    Splitting is recursive: each half is re-checked until no segment exceeds
+    the soft limit or no trough can be found.
 
     Both boundaries are extended by a variable amount computed from a
     weighted combination of smoothed speech probability and normalised RMS
@@ -452,6 +590,24 @@ def extract_speech_timestamps(
     if include_non_speech and current_time < total_duration - 0.01:
         enhanced.append(
             make_segment(seg_num, current_time, total_duration, "non-speech")
+        )
+
+    # ------------------------------------------------------------------
+    # Soft-limit: split long segments at valley troughs
+    # ------------------------------------------------------------------
+    if soft_limit_sec > 0:
+        enhanced = _apply_soft_limit_splits(
+            segments=enhanced,
+            probs=probs,
+            sample_rate=sr,
+            hop_sec=hop_sec,
+            soft_limit_sec=soft_limit_sec,
+            min_valley_duration_s=soft_limit_min_valley_duration_s,
+            smoothing_window=soft_limit_smoothing_window,
+            trough_prominence=soft_limit_trough_prominence,
+            min_trough_offset_s=soft_limit_min_trough_offset_s,
+            return_seconds=return_seconds,
+            with_scores=with_scores,
         )
 
     if with_scores:
@@ -833,7 +989,7 @@ if __name__ == "__main__":
     import argparse
     import shutil
 
-    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
     parser = argparse.ArgumentParser(
@@ -943,6 +1099,36 @@ if __name__ == "__main__":
         type=float,
         default=DEFAULT_POSTROLL_RMS_WEIGHT,
         help=f"weight for RMS energy in hybrid score (default: {DEFAULT_POSTROLL_RMS_WEIGHT})",
+    )
+    parser.add_argument(
+        "--soft-limit",
+        type=float,
+        default=DEFAULT_SOFT_LIMIT_SEC,
+        help=f"Soft max segment duration before valley-trough splitting (default: {DEFAULT_SOFT_LIMIT_SEC}s; 0 = disabled)",
+    )
+    parser.add_argument(
+        "--soft-limit-min-valley",
+        type=float,
+        default=DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+        help="Min silence duration for a split-candidate valley (default: %(default)ss)",
+    )
+    parser.add_argument(
+        "--soft-limit-smoothing",
+        type=int,
+        default=DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+        help="Smoothing window for soft-limit trough detection (default: %(default)s frames)",
+    )
+    parser.add_argument(
+        "--soft-limit-prominence",
+        type=float,
+        default=DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+        help="Min trough prominence for soft-limit splitting (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--soft-limit-offset",
+        type=float,
+        default=DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+        help="Trough must be >= this many seconds into the segment (default: %(default)ss)",
     )
 
     args = parser.parse_args()
