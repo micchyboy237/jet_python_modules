@@ -22,7 +22,7 @@ from jet.audio.helpers.energy import (
     rms_to_loudness_label,
 )
 from jet.audio.helpers.energy_base import SILENCE_MAX_THRESHOLD
-from jet.audio.speech.vad_peak_analyzer import extract_valley_troughs_from_np_audio
+from jet.audio.speech.vad_extractors import extract_valley_troughs_from_np_audio
 from rich.console import Console
 
 console = Console()

@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import List, Optional
 
 import numpy as np
 import soundfile as sf
@@ -11,6 +11,7 @@ from jet.audio.speech.firered.speech_timestamps_extractor import (
     extract_speech_timestamps,
 )
 from jet.audio.speech.vad_peak_analyzer import VADPeakAnalyzer
+from jet.audio.speech.vad_types import VADSegment, ValleyInfo, ValleyTrough
 
 AUDIO_EXTENSIONS = {
     ".wav",
@@ -21,51 +22,6 @@ AUDIO_EXTENSIONS = {
     ".aac",
     ".wma",
 }
-
-
-class VADSegment(TypedDict):
-    frame_start: int  # Starting frame index (inclusive)
-    frame_end: int  # Ending frame index (inclusive)
-    frame_length: int  # Number of frames
-    start_s: float  # Start time in seconds
-    end_s: float  # End time in seconds
-    duration_s: float  # Duration in seconds
-    details: Dict[str, Any]  # Additional insights (peak/trough properties)
-
-
-class ValleyInfo(TypedDict):
-    frame_start: int
-    frame_end: int
-    frame_length: int
-    start_s: float
-    end_s: float
-    duration_s: float
-
-    # Local scores
-    valley_score: float
-    trough_score: float
-    final_score: float
-
-    # Global fields (for consistency with time/frame offsets)
-    global_frame_start: int
-    global_frame_end: int
-    global_start_s: float
-    global_end_s: float
-    global_duration_s: float
-
-    # Global score references (same values as local, duplicated for API consistency)
-    global_valley_score: float
-    global_trough_score: float
-    global_final_score: float
-
-
-class ValleyTrough(TypedDict):
-    frame: int
-    global_frame: int
-    prob: float
-    time_s: float
-    global_time_s: float
-    valley: ValleyInfo
 
 
 def base_extract_valley_troughs(
@@ -126,9 +82,47 @@ def base_extract_valley_troughs(
     return valley_troughs
 
 
+def get_best_valley_trough(
+    probs: List[float],
+    sample_rate: int = SAMPLE_RATE,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    smoothing_window: int = 20,
+    trough_height: Optional[float] = None,
+    trough_prominence: float = 0.15,
+    trough_distance: int = 5,
+    valley_threshold: Optional[float] = None,
+    min_valley_duration_s: float = 0.8,
+    min_valley_frames: Optional[int] = None,
+    frame_offset: int = 0,
+    min_trough_offset_s: float = 0.4,
+) -> Optional[ValleyTrough]:
+    """
+    Returns the single best ValleyTrough based on the highest final_score.
+    Returns None if no suitable trough is found.
+    """
+    all_troughs = extract_valley_troughs(
+        probs=probs,
+        sample_rate=sample_rate,
+        frame_shift_ms=frame_shift_ms,
+        smoothing_window=smoothing_window,
+        trough_height=trough_height,
+        trough_prominence=trough_prominence,
+        trough_distance=trough_distance,
+        valley_threshold=valley_threshold,
+        min_valley_duration_s=min_valley_duration_s,
+        min_valley_frames=min_valley_frames,
+        frame_offset=frame_offset,
+        min_trough_offset_s=min_trough_offset_s,
+    )
+    if not all_troughs:
+        return None
+    # Get the ValleyTrough dictionary with the highest final_score (stored in valley["final_score"])
+    best = max(all_troughs, key=lambda t: t["valley"].get("final_score", 0.0))
+    return best
+
+
 def extract_valley_troughs(
     probs: List[float],
-    duration_s: float = 0.25,
     sample_rate: int = SAMPLE_RATE,
     frame_shift_ms: float = FRAME_SHIFT_MS,
     smoothing_window: int = 0,
@@ -208,7 +202,7 @@ def extract_valley_troughs(
         v
         for v in valleys
         if len(v.get("details", {}).get("troughs", [])) == 1
-        and v["duration_s"] >= duration_s
+        and v["duration_s"] >= min_valley_duration_s
     ]
 
     # ── Build Result ───────────────────────────────────────────────────────
@@ -540,7 +534,7 @@ if __name__ == "__main__":
 
             troughs = extract_valley_troughs(
                 probs=probs,
-                duration_s=args.min_duration,
+                min_valley_duration_s=args.min_duration,
                 smoothing_window=args.smoothing,
                 trough_prominence=args.trough_prominence,
                 valley_threshold=args.valley_threshold,

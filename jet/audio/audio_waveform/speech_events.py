@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from jet.audio.audio_waveform.speech_stats import SpeechSegmentStats
 from jet.audio.audio_waveform.speech_types import SpeechFrame
-from jet.audio.speech.vad_peak_analyzer import ValleyTrough
+from jet.audio.speech.vad_types import ValleyTrough
 
 
 @dataclass
