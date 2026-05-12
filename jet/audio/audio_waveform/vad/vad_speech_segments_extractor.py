@@ -3,7 +3,7 @@ from typing import List, Literal, Union
 
 import matplotlib
 from jet.audio.audio_waveform.vad._main_vad_speech_segments_extractor import main
-from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.audio_waveform.vad._types import SpeechEndReason, SpeechSegment
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
 from jet.audio.audio_waveform.vad.vad_utils import compute_hybrid_probs
 from jet.audio.helpers.config import (
@@ -216,6 +216,7 @@ def _apply_limit_splits(
     min_trough_offset_s: float,
     return_seconds: bool,
     with_scores: bool,
+    end_reason_on_split: SpeechEndReason = "valley",
     hybrid_prob_weight: float = DEFAULT_PROB_WEIGHT,  # Add hybrid_prob_weight argument
     hybrid_rms_weight: float = DEFAULT_RMS_WEIGHT,  # Add hybrid_rms_weight argument
 ) -> List[SpeechSegment]:
@@ -235,6 +236,7 @@ def _apply_limit_splits(
         trough_prominence:     Min trough prominence for detection.
         min_trough_offset_s:   Trough must be >= this many seconds from segment start.
         return_seconds:        Whether segment start/end are in seconds or samples.
+        end_reason_on_split:   Value set on the *left* child's end_reason when a valley split occurs.
         with_scores:           Whether segment_probs should be populated.
         hybrid_prob_weight:    Weight for probability when combining with RMS.
         hybrid_rms_weight:     Weight for RMS when combining with probability.
@@ -319,6 +321,7 @@ def _apply_limit_splits(
                 frame_end=child_frame_end,
                 type=seg["type"],
                 segment_probs=child_probs_slice if with_scores else [],
+                end_reason=None,  # filled in by caller after recursion
             )
 
         left = _make_child(frame_start, global_trough_frame)
@@ -331,7 +334,13 @@ def _apply_limit_splits(
         )
 
         # Recurse on each half independently
-        return _split_recursive(left) + _split_recursive(right)
+        # Mark the left child: it ended at a valley boundary.
+        # The right child inherits the original segment's end_reason.
+        left_children = _split_recursive(left)
+        right_children = _split_recursive(right)
+        if left_children:
+            left_children[-1]["end_reason"] = end_reason_on_split
+        return left_children + right_children
 
     for seg in segments:
         children = _split_recursive(seg)
@@ -459,6 +468,7 @@ def extract_speech_timestamps(
         start_sec: float,
         end_sec: float,
         seg_type: Literal["speech", "non-speech"],
+        end_reason: "SpeechEndReason | None" = None,
     ) -> SpeechSegment:
         start_sample = int(start_sec * sr)
         end_sample = int(end_sec * sr)
@@ -480,11 +490,15 @@ def extract_speech_timestamps(
             frame_end=frame_end,
             type=seg_type,
             segment_probs=segment_probs_slice if with_scores else [],
+            end_reason=end_reason,
         )
 
     enhanced: List[SpeechSegment] = []
     current_time = 0.0
     seg_num = 1
+
+    # Tolerance for detecting a hard-limit cut (one VAD frame = 10 ms).
+    _HARD_LIMIT_TOLERANCE_S = HOP_STEP_S
 
     if include_non_speech and timestamps and timestamps[0][0] > 0.001:
         enhanced.append(make_segment(seg_num, 0.0, timestamps[0][0], "non-speech"))
@@ -497,7 +511,17 @@ def extract_speech_timestamps(
                 make_segment(seg_num, current_time, start_sec, "non-speech")
             )
             seg_num += 1
-        enhanced.append(make_segment(seg_num, start_sec, end_sec, "speech"))
+        # Determine end_reason: if the segment duration is within one frame of
+        # max_speech_duration_sec it was force-cut by the VAD hard limit.
+        seg_duration = end_sec - start_sec
+        end_reason: SpeechEndReason = (
+            "hard_limit"
+            if abs(seg_duration - max_speech_duration_sec) <= _HARD_LIMIT_TOLERANCE_S
+            else "silence"
+        )
+        enhanced.append(
+            make_segment(seg_num, start_sec, end_sec, "speech", end_reason=end_reason)
+        )
         seg_num += 1
         current_time = end_sec
 

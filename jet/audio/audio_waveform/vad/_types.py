@@ -1,7 +1,7 @@
-import numpy as np
-
 from pathlib import Path
 from typing import List, Literal, Optional, TypedDict, Union
+
+import numpy as np
 
 AudioInput = Union[np.ndarray, bytes, bytearray, str, Path]
 
@@ -32,7 +32,10 @@ class SpeechWave(SpeechWaveMeta):
     details: SpeechWaveDetails
 
 
-class SpeechSegment(TypedDict):
+SpeechEndReason = Literal["silence", "valley", "hard_limit"]
+
+
+class _SpeechSegmentRequired(TypedDict):
     num: int
     start: float | int
     end: float | int
@@ -43,6 +46,10 @@ class SpeechSegment(TypedDict):
     frame_end: int
     type: Literal["speech", "non-speech"]
     segment_probs: List[float]
+
+
+class SpeechSegment(_SpeechSegmentRequired, total=False):
+    end_reason: Optional[SpeechEndReason]  # only this key is optional
 
 
 class WordSegment(TypedDict):
