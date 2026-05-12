@@ -11,7 +11,6 @@ from jet.audio.helpers.config import (
     HOP_STEP_S,
     SAMPLE_RATE,
 )
-from jet.audio.speech.vad_extractors import get_best_valley_trough
 from jet.audio.utils.loader import load_audio
 
 matplotlib.use("Agg")
@@ -244,6 +243,8 @@ def _apply_limit_splits(
         New (possibly longer) list of SpeechSegment dicts with renumbered ``num``
         fields, long segments replaced by their split children.
     """
+    from jet.audio.speech.vad_extractors import get_best_valley_trough
+
     result: List[SpeechSegment] = []
     seg_num = 1
 
@@ -366,6 +367,7 @@ def extract_speech_timestamps(
     max_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
     max_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
     max_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+    vad: FireRedVAD | None = None,
     **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
@@ -390,7 +392,7 @@ def extract_speech_timestamps(
     if sr != SAMPLE_RATE:
         raise ValueError(f"FireRedVAD requires SAMPLE_RATE Hz, got {sr}")
 
-    vad = FireRedVAD(
+    vad = vad or FireRedVAD(
         model_dir=SAVE_DIR,
         threshold=threshold,
         min_silence_duration_sec=min_silence_duration_sec,

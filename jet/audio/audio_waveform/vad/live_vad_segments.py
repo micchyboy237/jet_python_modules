@@ -448,6 +448,7 @@ class LiveVadRecorder:
             soft_limit_smoothing_window=soft_limit_smoothing_window,
             soft_limit_trough_prominence=soft_limit_trough_prominence,
             soft_limit_min_trough_offset_s=soft_limit_min_trough_offset_s,
+            vad=self._vad,
             verbose=verbose,
         )
 

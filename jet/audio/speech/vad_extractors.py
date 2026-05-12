@@ -8,10 +8,11 @@ from typing import List, Optional, Tuple
 import numpy as np
 import soundfile as sf
 from jet.audio.audio_types import AudioInput
-from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
-from jet.audio.speech.firered.speech_timestamps_extractor import (
+from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
+from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
+from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
 from jet.audio.speech.vad_peak_analyzer import VADPeakAnalyzer
 from jet.audio.speech.vad_types import VADSegment, ValleyInfo, ValleyTrough
 from jet.audio.utils.loader import load_audio
@@ -503,6 +504,7 @@ def extract_valley_troughs_from_np_audio(
     trough_height: float | None = None,
     trough_prominence: float = 0.15,
     trough_distance: int = 5,
+    vad: FireRedVAD | None = None,
 ) -> list[ValleyTrough]:
     """
     Extract valley troughs (strong silence positions) from a raw numpy audio clip.
@@ -564,6 +566,7 @@ def extract_valley_troughs_from_np_audio(
             min_speech_duration_sec=min_speech_duration_sec,
             min_silence_duration_sec=min_silence_duration_sec,
             with_scores=True,
+            vad=vad,
         )
 
         if not probs:
