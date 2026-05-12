@@ -30,22 +30,16 @@ def compute_preroll(
     hybrid_threshold: float,
     prob_weight: float,
     rms_weight: float,
+    compute_hybrid: bool = False,  # ← New parameter
 ) -> int:
     """
     Given a speech-segment onset (in samples), look backward through the
     pre-speech audio and find how many additional samples to prepend.
 
-    Strategy
-    --------
-    1. Build per-frame hybrid scores for up to *max_preroll_sec* before onset.
-    2. Walk backward from the onset frame; extend the pre-roll for every
-       consecutive frame whose hybrid score >= hybrid_threshold.
-    3. Return the number of *samples* to prepend (>= 0).
-
-    The hybrid score per 10 ms frame:
-        score = prob_weight * smoothed_prob + rms_weight * rms_norm
-
-    RMS is normalised using the 99th-percentile of the look-back window.
+    Args:
+        ...
+        compute_hybrid: If True, compute hybrid scores (prob + RMS).
+                        If False, treat `probs` as already-computed hybrid scores.
     """
     max_preroll_samples = int(max_preroll_sec * sample_rate)
 
@@ -77,13 +71,17 @@ def compute_preroll(
         dtype=np.float32,
     )
 
-    hybrid = compute_hybrid_probs(
-        probs=lookback_probs,
-        audio_np=lookback_audio,
-        prob_weight=prob_weight,
-        rms_weight=rms_weight,
-        frame_samples=HOP_SIZE,
-    )
+    # === Hybrid handling ===
+    if compute_hybrid:
+        hybrid = compute_hybrid_probs(
+            probs=lookback_probs,
+            audio_np=lookback_audio,
+            prob_weight=prob_weight,
+            rms_weight=rms_weight,
+            frame_samples=HOP_SIZE,
+        )
+    else:
+        hybrid = lookback_probs  # Already hybrid scores
 
     # Walk backward from the frame immediately before onset
     keep_frames = 0
@@ -110,22 +108,16 @@ def compute_postroll(
     hybrid_threshold: float,
     prob_weight: float,
     rms_weight: float,
+    compute_hybrid: bool = False,  # ← New parameter
 ) -> int:
     """
-    Given a speech-segment end (in samples), look *forward* through the
+    Given a speech-segment end (in samples), look forward through the
     post-speech audio and find how many additional samples to append.
 
-    Strategy
-    --------
-    1. Build per-frame hybrid scores for up to *max_postroll_sec* after end.
-    2. Walk forward from the end frame; extend the post-roll for every
-       consecutive frame whose hybrid score >= hybrid_threshold.
-    3. Return the number of *samples* to append (>= 0).
-
-    The hybrid score per 10 ms frame:
-        score = prob_weight * smoothed_prob + rms_weight * rms_norm
-
-    RMS is normalised using the 99th-percentile of the look-forward window.
+    Args:
+        ...
+        compute_hybrid: If True, compute hybrid scores (prob + RMS).
+                        If False, treat `probs` as already-computed hybrid scores.
     """
     max_postroll_samples = int(max_postroll_sec * sample_rate)
 
@@ -152,21 +144,25 @@ def compute_postroll(
         dtype=np.float32,
     )
 
-    hybrid = compute_hybrid_probs(
-        probs=lookahead_probs,
-        audio_np=lookahead_audio,
-        prob_weight=prob_weight,
-        rms_weight=rms_weight,
-        frame_samples=HOP_SIZE,
-    )
+    # === Hybrid handling ===
+    if compute_hybrid:
+        hybrid = compute_hybrid_probs(
+            probs=lookahead_probs,
+            audio_np=lookahead_audio,
+            prob_weight=prob_weight,
+            rms_weight=rms_weight,
+            frame_samples=HOP_SIZE,
+        )
+    else:
+        hybrid = lookahead_probs  # Already hybrid scores
 
     # Walk forward from the frame immediately after the detected end
     keep_frames = 0
     for i in range(n_frames):
         if hybrid[i] >= hybrid_threshold:
-            keep_frames = i + 1  # extend at least through this frame
+            keep_frames = i + 1
         else:
-            break  # stop at first sub-threshold frame
+            break
 
     return keep_frames * HOP_SIZE
 
