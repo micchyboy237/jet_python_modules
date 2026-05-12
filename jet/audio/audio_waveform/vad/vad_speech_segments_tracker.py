@@ -11,9 +11,9 @@ objects.  One segment is emitted when any of the five end conditions fires:
   3.  "hard_limit" — past hard_limit, safety fallback (no trough needed)
 
 Reuses:
-  _compute_preroll          (from vad_speech_segments_extractor)
-  _compute_postroll         (from vad_speech_segments_extractor)
-  _apply_limit_splits  (from vad_speech_segments_extractor)
+  compute_preroll          (from vad_speech_splitter)
+  compute_postroll         (from vad_speech_splitter)
+  apply_limit_splits  (from vad_speech_splitter)
   get_best_valley_trough    (from vad_extractors)
 """
 
@@ -51,10 +51,10 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_WITH_SCORES,
 )
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
-from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
-    _apply_limit_splits,
-    _compute_postroll,
-    _compute_preroll,
+from jet.audio.audio_waveform.vad.vad_speech_splitter import (
+    apply_limit_splits,
+    compute_postroll,
+    compute_preroll,
 )
 from jet.audio.helpers.config import HOP_SIZE, HOP_STEP_S, SAMPLE_RATE
 from jet.audio.speech.vad_extractors import (
@@ -706,7 +706,7 @@ class VadSpeechSegmentsTracker:
         1. Compute start / end times (in samples or seconds).
         2. Apply pre-roll / post-roll boundary extension.
         3. Build the initial SpeechSegment.
-        4. Run _apply_limit_splits for any sub-splits.
+        4. Run apply_limit_splits for any sub-splits.
         """
         start_s = frame_start * HOP_STEP_S
         end_s = (frame_end + 1) * HOP_STEP_S
@@ -718,7 +718,7 @@ class VadSpeechSegmentsTracker:
         # ── Pre-roll ──────────────────────────────────────────────────────
         preroll_samples = 0
         if len(audio_np) > 0 and onset_sample <= total_samples:
-            preroll_samples = _compute_preroll(
+            preroll_samples = compute_preroll(
                 onset_sample=onset_sample,
                 audio_np=audio_np,
                 probs=probs,
@@ -732,7 +732,7 @@ class VadSpeechSegmentsTracker:
         # ── Post-roll ─────────────────────────────────────────────────────
         postroll_samples = 0
         if len(audio_np) > 0 and end_sample <= total_samples:
-            postroll_samples = _compute_postroll(
+            postroll_samples = compute_postroll(
                 end_sample=end_sample,
                 audio_np=audio_np,
                 probs=probs,
@@ -768,7 +768,7 @@ class VadSpeechSegmentsTracker:
         )
 
         # ── Soft-limit sub-splits ─────────────────────────────────────────
-        segments = _apply_limit_splits(
+        segments = apply_limit_splits(
             segments=[seg],
             probs=probs,
             audio_np=audio_np,

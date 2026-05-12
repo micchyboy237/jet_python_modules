@@ -227,18 +227,6 @@ def main():
         postroll_rms_weight=args.postroll_rms_weight,
     )
 
-    console.print(f"\n[bold green]Segments found:[/bold green] {len(segments)}\n")
-    for seg in segments:
-        seg_type = seg["type"]
-        type_color = "bold green" if seg_type == "speech" else "bold red"
-        console.print(
-            f"[yellow][[/yellow] [bold white]{seg['start']:.2f}[/bold white]"
-            f" - [bold white]{seg['end']:.2f}[/bold white] [yellow]][/yellow] "
-            f"dur=[bold magenta]{seg['duration']:.2f}s[/bold magenta] "
-            f"prob=[bold cyan]{seg['prob']:.3f}[/bold cyan] "
-            f"type=[{type_color}]{seg_type}[/{type_color}]"
-        )
-
     if not any(s["type"] == "speech" for s in segments):
         console.print("[red]No speech segments found.[/red]")
         raise SystemExit(0)
@@ -264,7 +252,7 @@ def main():
     )
 
     # ── Step 3: save everything to disk ───────────────────────────────────
-    saved_metas = save_segments(segments, audio_chunks, output_dir)
+    saved_segments = save_segments(segments, audio_chunks, output_dir)
 
     # ── Step 4: write summary JSON files ──────────────────────────────────
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -272,7 +260,7 @@ def main():
     summary_path = output_dir / "all_speech_segments.json"
     with open(summary_path, "w", encoding="utf-8") as fh:
         slim = [
-            {k: v for k, v in m.items() if k != "segment_probs"} for m in saved_metas
+            {k: v for k, v in m.items() if k != "segment_probs"} for m in saved_segments
         ]
         json.dump(slim, fh, ensure_ascii=False, indent=2)
     console.print(
@@ -291,5 +279,45 @@ def main():
         f"[bold green]✓ Full probs saved to:[/bold green] "
         f"[link=file://{all_probs_path.resolve()}]{all_probs_path}[/link]"
     )
+
+    # ── Step 5: Display summary table ──────────────────────────────────
+    console.print(f"\n[bold green]Segments found:[/bold green] {len(segments)}\n")
+
+    END_REASON_COLORS = {
+        "valley": "cyan",
+        "silence": "yellow",
+        "hard_limit": "red",
+        None: "dim",
+    }
+
+    segments_dir = output_dir / "segments"
+
+    for seg in saved_segments:
+        idx = seg["num"]
+        end_reason = seg.get("end_reason")
+        # Use a placeholder if None
+        if end_reason is None:
+            end_reason_display = "-"
+        else:
+            end_reason_display = str(end_reason)
+        end_reason_color = END_REASON_COLORS.get(end_reason, "dim")
+
+        seg_dir = segments_dir / f"segment_{idx:03d}"
+
+        meta_path = seg_dir / "meta.json"
+        png_path = seg_dir / "speech_and_rms.png"
+        wav_path = seg_dir / "sound.wav"
+
+        console.print(
+            f"[yellow][[/yellow] [bold white]{seg['start']:.2f}[/bold white]"
+            f" - [bold white]{seg['end']:.2f}[/bold white] [yellow]][/yellow] "
+            f"dur=[bold magenta]{seg['duration']:.2f}s[/bold magenta] "
+            f"prob=[bold cyan]{seg['prob']:.3f}[/bold cyan] "
+            f"end=[{end_reason_color}]{end_reason_display}[/{end_reason_color}]"
+            f"  "
+            f"[bold][link=file://{meta_path.resolve()}]📄[/link][/bold]  "
+            f"[bold][link=file://{png_path.resolve()}]📊[/link][/bold]  "
+            f"[bold][link=file://{wav_path.resolve()}]🔊[/link][/bold]"
+        )
 
     console.rule("Done", style="green")
