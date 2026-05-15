@@ -1,3 +1,5 @@
+# jet.audio.speech_detector
+
 from typing import Generator, List, Optional, Tuple
 
 import numpy as np
@@ -84,7 +86,8 @@ def record_from_mic(
 
     curr_segment: Optional[SpeechSegment] = None
     prev_segment: Optional[SpeechSegment] = None
-    last_yielded_end_sample: int = 0
+    # Stored as absolute seconds from recording start (not window-relative).
+    last_yielded_end_sec: float = 0.0
     speech_ts: List[SpeechSegment] = []
 
     # Initialize progress bar: determinate if duration is set, indeterminate otherwise
@@ -128,6 +131,11 @@ def record_from_mic(
 
                             yield prev_segment, seg_audio_np
 
+                            # Drop the yielded segment from the buffer so the
+                            # next VAD call only processes audio from this point
+                            # onward.
+                            audio_data.trim_to_sec(float(prev_segment["end"]))
+
                             # Reset segments
                             prev_segment = None
 
@@ -154,19 +162,23 @@ def record_from_mic(
                     and prev_segment
                     and curr_segment["start"] != prev_segment["start"]
                 ):
-                    # Apply overlap: start the yielded segment earlier by overlap_seconds (but not before last_yielded_end_sample)
-                    overlap_samples = int(overlap_seconds * SAMPLE_RATE)
-                    effective_start = max(
-                        last_yielded_end_sample,
-                        int(prev_segment["start"]) - overlap_samples,
+                    # Convert last_yielded_end_sec (absolute) to window-relative
+                    # seconds for comparison against VAD timestamps.
+                    last_yielded_window_sec = max(
+                        0.0, last_yielded_end_sec - audio_data.trimmed_sec
+                    )
+                    overlap_sec = overlap_seconds  # already in seconds
+                    effective_start_sec = max(
+                        last_yielded_window_sec,
+                        float(prev_segment["start"]) - overlap_sec,
                     )
                     # Safety: if effective_start >= end, skip yielding this segment to avoid empty audio
-                    if effective_start >= int(prev_segment["end"]):
+                    if effective_start_sec >= float(prev_segment["end"]):
                         prev_segment = curr_segment
                         continue
                     # Temporarily adjust the segment start for audio extraction
                     original_start = prev_segment["start"]
-                    prev_segment["start"] = effective_start  # type: ignore
+                    prev_segment["start"] = effective_start_sec  # type: ignore
 
                     seg_audio_np = extract_segment_data(
                         prev_segment,
@@ -182,10 +194,17 @@ def record_from_mic(
                         prev_segment["end"] - prev_segment["start"]
                     )
 
-                    # Update the tracking of the last yielded end
-                    last_yielded_end_sample = int(prev_segment["end"])
+                    # Record absolute end time before trimming.
+                    last_yielded_end_sec = (
+                        float(prev_segment["end"]) + audio_data.trimmed_sec
+                    )
 
                     yield prev_segment, seg_audio_np
+
+                    # Drop the completed segment from the buffer so the next
+                    # VAD call doesn't re-process already-yielded audio.
+                    audio_data.trim_to_sec(float(prev_segment["end"]))
+
                 prev_segment = curr_segment
 
     if not audio_data:
@@ -196,16 +215,21 @@ def record_from_mic(
     if prev_segment:
         display_segments(speech_ts)
         # Final segment overlap handling
-        overlap_samples = int(overlap_seconds * SAMPLE_RATE)
-        effective_start = max(
-            last_yielded_end_sample, int(prev_segment["start"]) - overlap_samples
+        last_yielded_window_sec = max(
+            0.0, last_yielded_end_sec - audio_data.trimmed_sec
         )
-        if effective_start >= int(prev_segment["end"]):
+        overlap_sec = overlap_seconds  # already in seconds
+        effective_start_sec = max(
+            last_yielded_window_sec,
+            float(prev_segment["start"]) - overlap_sec,
+        )
+        if effective_start_sec >= float(prev_segment["end"]):
             logger.info(
                 "Skipping final segment yield due to overlap causing empty audio"
             )
             return
 
+        prev_segment["start"] = effective_start_sec  # type: ignore
         seg_audio_np = extract_segment_data(
             prev_segment,
             audio_data,

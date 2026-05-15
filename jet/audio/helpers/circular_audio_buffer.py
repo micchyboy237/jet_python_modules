@@ -44,6 +44,7 @@ class CircularAudioBuffer:
         self._chunks: deque[np.ndarray] = deque()
         self._window_samples: int = 0  # samples currently in the deque
         self._total_samples: int = 0  # cumulative samples ever appended
+        self._trimmed_samples: int = 0  # samples removed via trim_to_sec
 
     # ------------------------------------------------------------------
     # Core mutation
@@ -65,6 +66,40 @@ class CircularAudioBuffer:
         """Reset the window (does not reset total_samples)."""
         self._chunks.clear()
         self._window_samples = 0
+
+    def trim_to_sec(self, sec: float) -> None:
+        """Drop the first *sec* seconds from the front of the window.
+
+        After this call all timestamps returned by VAD (which are relative
+        to the window start) remain correct — the window simply starts later.
+        Use ``trimmed_sec`` to convert between absolute recording time and
+        window-relative time when needed.
+
+        Clamped to the current window length; asking to trim more than the
+        buffer holds trims everything.
+        """
+        samples_to_drop = min(
+            int(sec * self.sample_rate),
+            self._window_samples,
+        )
+        dropped = 0
+        while self._chunks and dropped < samples_to_drop:
+            chunk = self._chunks[0]
+            remaining = samples_to_drop - dropped
+            if len(chunk) <= remaining:
+                self._chunks.popleft()
+                dropped += len(chunk)
+            else:
+                # Partial trim: slice off the consumed prefix.
+                self._chunks[0] = chunk[remaining:]
+                dropped = samples_to_drop
+        self._window_samples -= dropped
+        self._trimmed_samples += dropped
+
+    @property
+    def trimmed_sec(self) -> float:
+        """Total seconds trimmed from the front of the buffer since construction."""
+        return self._trimmed_samples / self.sample_rate
 
     # ------------------------------------------------------------------
     # Read access
