@@ -2,6 +2,10 @@ from typing import Generator, List, Optional, Tuple
 
 import numpy as np
 import sounddevice as sd
+from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
+    extract_speech_timestamps,
+)
 from jet.audio.helpers.silence import (
     CHANNELS,
     DTYPE,
@@ -10,10 +14,11 @@ from jet.audio.helpers.silence import (
     detect_silence,
     trim_silent_chunks,
 )
-from jet.audio.speech.speechbrain.speech_timestamps_extractor import (
-    SpeechSegment,
-    extract_speech_timestamps,
-)
+
+# from jet.audio.speech.speechbrain.speech_timestamps_extractor import (
+#     SpeechSegment,
+#     extract_speech_timestamps,
+# )
 from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
@@ -157,7 +162,8 @@ def record_from_mic(
                     # Update duration/prob if needed (Silero already provides them based on original boundaries)
                     prev_segment["duration"] = (
                         prev_segment["end"] - prev_segment["start"]
-                    ) / SAMPLE_RATE  # type: ignore
+                    )
+
                     # Update the tracking of the last yielded end
                     last_yielded_end_sample = int(prev_segment["end"])
 
@@ -234,8 +240,10 @@ def extract_and_display_speech_segments(
     audio_data: List[np.ndarray],
     max_speech_duration_sec: float,
 ) -> List[SpeechSegment]:
+    # Concatenate list of np.ndarray chunks into one 1D np.ndarray
+    full_audio_np = np.concatenate(audio_data, axis=0)
     speech_ts, speech_probs = extract_speech_timestamps(
-        audio=audio_data,
+        audio=full_audio_np,
         with_scores=True,
         return_seconds=True,
         max_speech_duration_sec=max_speech_duration_sec,
