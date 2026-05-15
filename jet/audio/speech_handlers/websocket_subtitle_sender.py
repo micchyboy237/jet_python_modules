@@ -28,6 +28,11 @@ from typing import Optional
 
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.speech_handlers.api_types import (
+    ClientHeader,
+    ServerResponse,
+    ServerSuccessResponse,
+)
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import (
     SpeechSegmentEndEvent,
@@ -80,7 +85,7 @@ def _to_pcm_int16_bytes(audio_np: np.ndarray) -> bytes:
     return (arr * 32767).astype("<i2").tobytes()
 
 
-def _build_message(header: dict, audio_bytes: bytes) -> bytes:
+def _build_message(header: ClientHeader, audio_bytes: bytes) -> bytes:
     """Encode: UTF-8 JSON header + null byte + raw PCM bytes."""
     return (
         json.dumps(header, ensure_ascii=False).encode("utf-8") + b"\x00" + audio_bytes
@@ -100,7 +105,7 @@ def _log_request(header: dict, audio_bytes: bytes) -> None:
     console.print(table)
 
 
-def _log_response(response: dict, seg_num: int) -> None:
+def _log_response(response: ServerResponse, seg_num: int) -> None:
     success = response.get("success", False)
     title_color = "bold green" if success else "bold red"
     status = "✅ success" if success else "❌ error"
@@ -250,9 +255,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
     async def _send_and_receive(
         self,
-        header: dict,
+        header: ClientHeader,
         audio_bytes: bytes,
-    ) -> dict:
+    ) -> ServerResponse:
         """
         Wait until connected, send the binary message, await the text response.
         Raises RuntimeError if no response arrives within send_timeout.
@@ -282,7 +287,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     # ── File persistence ─────────────────────────────────────────────────────
 
     @staticmethod
-    def _save_request(seg_dir: Path, header: dict, audio_bytes: bytes) -> Path:
+    def _save_request(seg_dir: Path, header: ClientHeader, audio_bytes: bytes) -> Path:
         payload = {**header, "audio_bytes_len": len(audio_bytes)}
         path = seg_dir / "request.json"
         path.write_text(
@@ -291,7 +296,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         return path
 
     @staticmethod
-    def _save_response(seg_dir: Path, response: dict) -> Path:
+    def _save_response(seg_dir: Path, response: ServerResponse) -> Path:
         path = seg_dir / "response.json"
         path.write_text(
             json.dumps(response, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -301,7 +306,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     @staticmethod
     def _save_srt(
         seg_dir: Path,
-        response: dict,
+        response: ServerSuccessResponse,
         start_sec: float,
         end_sec: float,
         seg_number: int,
@@ -352,7 +357,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         end_sec = float(seg["end"])
         duration = float(seg["duration"])
 
-        header = {
+        header: ClientHeader = {
             "uuid": str(uuid.uuid4()),
             "sample_rate": event.sample_rate,
             "duration_sec": round(duration, 4),
@@ -379,12 +384,16 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
-        srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
-
-        # ── update global subtitles.srt immediately after each segment ───────
+        if response.get("success") and "transcription_ja" in response:
+            srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
         global_path = self._update_global_srt(seg_dir)
-
-        _log_saved(seg_dir, [req_path, resp_path, srt_path], global_path)
+        _log_saved(
+            seg_dir,
+            [req_path, resp_path, srt_path]
+            if "srt_path" in locals()
+            else [req_path, resp_path],
+            global_path,
+        )
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
 
