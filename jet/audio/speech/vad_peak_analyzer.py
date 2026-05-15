@@ -1208,7 +1208,7 @@ if __name__ == "__main__":
     )
 
     valley_troughs = extract_valley_troughs(
-        probs=probs,
+        probs_or_audio=probs,
         min_valley_duration_s=args.min_valley_duration,
         sample_rate=args.sample_rate,  # ← add this
         frame_shift_ms=args.frame_shift_ms,  # ← add this (was defaulting to 25ms!)

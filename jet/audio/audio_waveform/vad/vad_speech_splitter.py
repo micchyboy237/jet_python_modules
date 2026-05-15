@@ -240,7 +240,7 @@ def apply_limit_splits(
 
         # Find the best valley trough inside this segment
         best_trough = get_best_valley_trough(
-            probs=seg_probs,
+            probs_or_audio=seg_probs,
             smoothing_window=smoothing_window,
             trough_prominence=trough_prominence,
             min_valley_duration_s=min_valley_duration_s,

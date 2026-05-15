@@ -6,22 +6,24 @@ from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
+from jet.audio.helpers.circular_audio_buffer import CircularAudioBuffer
 from jet.audio.helpers.silence import (
     CHANNELS,
     DTYPE,
     SAMPLE_RATE,
     calibrate_silence_threshold,
     detect_silence,
-    trim_silent_chunks,
 )
-
-# from jet.audio.speech.speechbrain.speech_timestamps_extractor import (
-#     SpeechSegment,
-#     extract_speech_timestamps,
-# )
 from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
+
+DEFAULT_THRESHOLD = 0.3
+DEFAULT_MIN_SILENCE_SEC = 0.8
+DEFAULT_MIN_SPEECH_SEC = 0.250
+DEFAULT_MAX_SPEECH_SEC = 12.0
+# How many seconds of audio to keep in the sliding window for VAD.
+DEFAULT_BUFFER_MAX_SEC = 120.0
 
 
 def record_from_mic(
@@ -31,8 +33,12 @@ def record_from_mic(
     trim_silent: bool = False,
     overlap_seconds: float = 0.0,
     quit_on_silence: bool = False,
-    max_speech_duration_sec: float = 8.0,
-) -> Generator[Tuple[SpeechSegment, np.ndarray, np.ndarray], None, None]:
+    threshold: float = DEFAULT_THRESHOLD,
+    min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
+    min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
+    max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
+    buffer_max_sec: float = DEFAULT_BUFFER_MAX_SEC,
+) -> Generator[Tuple[SpeechSegment, np.ndarray], None, None]:
     """Record audio from microphone with silence detection and progress tracking.
 
     Args:
@@ -41,6 +47,8 @@ def record_from_mic(
         silence_duration: Seconds of continuous silence to stop recording.
         trim_silent: If True, removes silent edges from the segments and final audio.
         overlap_seconds: Seconds of overlap to add from the previous segment when yielding a new one (prevents information loss at boundaries).
+        buffer_max_sec: Maximum seconds of audio kept in the sliding window.
+            Older audio is evicted automatically. Defaults to 120 s.
     """
     silence_threshold = (
         silence_threshold
@@ -63,7 +71,14 @@ def record_from_mic(
     silence_frames = int(silence_duration * SAMPLE_RATE)
     grace_frames = int(SAMPLE_RATE * 1.0)  # 1-second grace period
 
-    audio_data = []
+    # Replace the unbounded list with a fixed-duration circular buffer.
+    # The buffer satisfies the list[np.ndarray] duck-type so all downstream
+    # calls (len, iteration, extract_segment_data) keep working unchanged.
+    audio_data = CircularAudioBuffer(
+        max_sec=buffer_max_sec,
+        sample_rate=SAMPLE_RATE,
+        dtype=DTYPE,
+    )
     silent_count = 0
     recorded_frames = 0
 
@@ -110,9 +125,8 @@ def record_from_mic(
                                 trim_silent=trim_silent,
                                 silence_threshold=silence_threshold,
                             )
-                            full_audio_np = np.concatenate(audio_data, axis=0)
 
-                            yield prev_segment, seg_audio_np, full_audio_np
+                            yield prev_segment, seg_audio_np
 
                             # Reset segments
                             prev_segment = None
@@ -126,7 +140,11 @@ def record_from_mic(
 
                 # Run Silero VAD every chunk to detect speech segments in real-time
                 speech_ts = extract_and_display_speech_segments(
-                    audio_data, max_speech_duration_sec
+                    audio_data,
+                    threshold=threshold,
+                    min_silence_duration_sec=min_silence_duration_sec,
+                    min_speech_duration_sec=min_speech_duration_sec,
+                    max_speech_duration_sec=max_speech_duration_sec,
                 )
                 curr_segment = speech_ts[-1] if speech_ts else prev_segment
                 prev_segment = speech_ts[-2] if len(speech_ts) > 1 else None
@@ -167,9 +185,7 @@ def record_from_mic(
                     # Update the tracking of the last yielded end
                     last_yielded_end_sample = int(prev_segment["end"])
 
-                    full_audio_np = np.concatenate(audio_data, axis=0)
-
-                    yield prev_segment, seg_audio_np, full_audio_np
+                    yield prev_segment, seg_audio_np
                 prev_segment = curr_segment
 
     if not audio_data:
@@ -196,9 +212,8 @@ def record_from_mic(
             trim_silent=trim_silent,
             silence_threshold=silence_threshold,
         )
-        full_audio_np = np.concatenate(audio_data, axis=0)
 
-        yield prev_segment, seg_audio_np, full_audio_np
+        yield prev_segment, seg_audio_np
 
     actual_duration = len(audio_data) / SAMPLE_RATE
     logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
@@ -206,39 +221,29 @@ def record_from_mic(
 
 def extract_segment_data(
     segment: SpeechSegment,
-    audio_np: List[np.ndarray],
+    audio_np: CircularAudioBuffer,
     trim_silent: bool = True,
     silence_threshold: Optional[float] = None,
 ) -> np.ndarray:
-    start_sample = int(segment["start"] * SAMPLE_RATE)
-    end_sample = int(segment["end"] * SAMPLE_RATE)
+    """Extract the audio for *segment* from the circular buffer.
 
-    full_audio_np = np.concatenate(audio_np, axis=0)
-
-    # Extract raw segment (including possible silence at edges)
-    seg_audio = full_audio_np[start_sample:end_sample]
-
-    if trim_silent:
-        if silence_threshold is None:
-            silence_threshold = calibrate_silence_threshold()
-
-        chunk_size = int(0.1 * SAMPLE_RATE)  # 100 ms chunks
-        chunks = [
-            seg_audio[i : i + chunk_size] for i in range(0, len(seg_audio), chunk_size)
-        ]
-        trimmed_chunks = trim_silent_chunks(chunks, silence_threshold)
-
-        if not trimmed_chunks:
-            seg_audio = np.array([], dtype=DTYPE)
-        else:
-            seg_audio = np.concatenate(trimmed_chunks, axis=0)
-
-    return seg_audio
+    VAD timestamps are relative to the start of ``audio_np``'s current window,
+    so we can pass them directly to ``slice_seconds`` without any index math.
+    """
+    return audio_np.slice_seconds(
+        start_sec=float(segment["start"]),
+        end_sec=float(segment["end"]),
+        trim_silent=trim_silent,
+        silence_threshold=silence_threshold,
+    )
 
 
 def extract_and_display_speech_segments(
-    audio_data: List[np.ndarray],
-    max_speech_duration_sec: float,
+    audio_data: CircularAudioBuffer,
+    threshold: float = DEFAULT_THRESHOLD,
+    min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
+    min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
+    max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
 ) -> List[SpeechSegment]:
     # Concatenate list of np.ndarray chunks into one 1D np.ndarray
     full_audio_np = np.concatenate(audio_data, axis=0)
@@ -246,6 +251,9 @@ def extract_and_display_speech_segments(
         audio=full_audio_np,
         with_scores=True,
         return_seconds=True,
+        threshold=threshold,
+        min_silence_duration_sec=min_silence_duration_sec,
+        min_speech_duration_sec=min_speech_duration_sec,
         max_speech_duration_sec=max_speech_duration_sec,
     )
     display_segments(speech_ts)

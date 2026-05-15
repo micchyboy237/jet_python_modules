@@ -31,6 +31,9 @@ from rich.console import Console
 
 console = Console()
 
+DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
+OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -42,9 +45,6 @@ def main():
         extract_speech_audio,
         extract_speech_timestamps,
     )
-
-    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
     parser = argparse.ArgumentParser(
         description="Extract speech segments with FireRedVAD + hybrid pre-roll"

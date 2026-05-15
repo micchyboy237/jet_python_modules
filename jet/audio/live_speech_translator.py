@@ -68,7 +68,6 @@ def dispatch_handlers(
     handlers: list[SpeechSegmentHandler],
     speech_seg: SpeechSegment,
     seg_audio_np: np.ndarray,
-    full_audio_np: np.ndarray,
     seg_dir: Path,
     seg_number: int,
     sample_rate: int,
@@ -79,7 +78,6 @@ def dispatch_handlers(
         segment=speech_seg,
         segment_number=seg_number,
         audio_np=seg_audio_np,
-        full_audio_np=full_audio_np,
         segment_dir=seg_dir,
         started_at=started_at,
         sample_rate=sample_rate,
@@ -384,7 +382,7 @@ if __name__ == "__main__":
 
     segments: list[dict] = []
 
-    for speech_seg, seg_audio_np, full_audio_np in data_stream:
+    for speech_seg, seg_audio_np in data_stream:
         # start / end / duration are already in seconds — no conversion needed
         seg_dir, seg_number = save_segment_data(
             speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
@@ -393,7 +391,6 @@ if __name__ == "__main__":
             handlers,
             speech_seg,
             seg_audio_np,
-            full_audio_np,
             seg_dir,
             seg_number,
             SAMPLE_RATE,
@@ -401,7 +398,6 @@ if __name__ == "__main__":
         )
         segments.append(speech_seg)
         save_file(segments, OUTPUT_DIR / "all_segments.json", verbose=False)
-        save_wav_file(OUTPUT_DIR / "full_recording.wav", full_audio_np)
 
     for h in handlers:
         if hasattr(h, "close"):

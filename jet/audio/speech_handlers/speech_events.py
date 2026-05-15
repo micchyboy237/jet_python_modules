@@ -27,7 +27,6 @@ class SpeechSegmentEndEvent:
     segment: SpeechSegment
     segment_number: int
     audio_np: np.ndarray  # raw segment audio (int16 or float32)
-    full_audio_np: np.ndarray  # full recording so far
     segment_dir: Path  # path to segment_NNN/ directory
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     sample_rate: int = 16000

@@ -56,7 +56,7 @@ def extract_speech_timestamps(
     threshold: float = DEFAULT_THRESHOLD,
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
-    max_speech_duration_sec: float | None = None,
+    max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
     return_seconds: bool = DEFAULT_RETURN_SECONDS,
     with_scores: bool = DEFAULT_WITH_SCORES,
     include_non_speech: bool = DEFAULT_INCLUDE_NON_SPEECH,
@@ -93,9 +93,6 @@ def extract_speech_timestamps(
 
     When include_non_speech=True, returns both speech and non-speech segments.
     """
-    if max_speech_duration_sec is None:
-        max_speech_duration_sec = DEFAULT_MAX_SPEECH_SEC
-
     audio_np, sr = load_audio(audio, sr=SAMPLE_RATE, mono=True)
     if sr != SAMPLE_RATE:
         raise ValueError(f"FireRedVAD requires SAMPLE_RATE Hz, got {sr}")
@@ -182,14 +179,14 @@ def extract_speech_timestamps(
             num=num,
             start=start_val,
             end=end_val,
-            prob=avg_prob,
             duration=duration_sec,
+            end_reason=end_reason,
+            prob=avg_prob,
             frames_length=len(segment_probs_slice),
             frame_start=frame_start,
             frame_end=frame_end,
             type=seg_type,
             segment_probs=segment_probs_slice if with_scores else [],
-            end_reason=end_reason,
         )
 
     enhanced: List[SpeechSegment] = []
