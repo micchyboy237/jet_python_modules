@@ -50,6 +50,8 @@ class _SpeechSegmentRequired(TypedDict):
 
 class SpeechSegment(_SpeechSegmentRequired, total=False):
     end_reason: Optional[SpeechEndReason]  # only this key is optional
+    is_ongoing: bool  # true for final open/ongoing segment in streaming/full audio
+    last_non_speech_sec: Optional[float]  # duration of trailing silence with energy
 
 
 class WordSegment(TypedDict):

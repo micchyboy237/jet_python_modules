@@ -1,17 +1,35 @@
 import numpy as np
 import torch
+from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.helpers.silence import (
     SAMPLE_RATE,
 )
 from rich.table import Table
 
 
-def display_segments(speech_ts, done: bool = False):
-    """Display detected speech segments in a clean Rich table with correct time in seconds (includes Speech flag column)."""
+def display_segments(
+    speech_ts: list[SpeechSegment],
+    done: bool = False,
+    include_speech_type: bool = False,
+):
+    """Display detected speech segments in a clean Rich table.
+
+    Args:
+        speech_ts: List of speech segments.
+        done: Whether all segments are finalized (highlights current/last).
+        include_speech_type: Whether to include a column for segment type ('speech' or 'non-speech').
+    """
     if not speech_ts:
         return
 
-    # Total recorded time approximated by the end of the last speech segment (in samples)
+    # Color mapping for end reasons
+    END_REASON_COLORS = {
+        "silence": "yellow",
+        "valley": "blue",
+        "hard_limit": "red",
+    }
+
+    # Total recorded time approximated by the end of the last speech segment (in seconds)
     total_samples = max(seg["end"] for seg in speech_ts)
     recorded_seconds = total_samples
 
@@ -20,25 +38,51 @@ def display_segments(speech_ts, done: bool = False):
     table.add_column("Segment", style="cyan", justify="right")
     table.add_column("Start (s)", justify="right")
     table.add_column("End (s)", justify="right")
-    table.add_column("Duration (s)", justify="right")
+    table.add_column("Dur (s)", justify="right")
     table.add_column("Score", justify="right")
-    table.add_column("Speech", justify="center")
+    if include_speech_type:
+        table.add_column("Speech", justify="center")
+    table.add_column("Ongoing", justify="center")
+    table.add_column("Reason", justify="center")
     table.add_column("Status", style="green")
 
     for i, seg in enumerate(speech_ts, 1):
         start_sec = seg["start"]
         end_sec = seg["end"]
-        duration_sec = seg["end"] - seg["start"]
+        duration_sec = end_sec - start_sec
+        prob = seg.get("prob", seg.get("score", "-"))
+        try:
+            prob_val = f"{prob:.2f}"
+        except Exception:
+            prob_val = str(prob)
         speech_check = "✅" if seg.get("type") == "speech" else "❌"
-        table.add_row(
+
+        # Ongoing logic and icon
+        is_ongoing = seg.get("is_ongoing", False)
+        ongoing_icon = "✅" if (isinstance(is_ongoing, bool) and is_ongoing) else "❌"
+
+        # Fetch/format end reason, add placeholder for None, and colorize if known
+        end_reason = seg.get("end_reason", None)
+
+        if end_reason is None:
+            pretty_end_reason = "-"
+        else:
+            color = END_REASON_COLORS.get(end_reason, "magenta")
+            pretty_end_reason = f"[{color}]{end_reason}[/]"
+
+        row = [
             str(i),
             f"{start_sec:.2f}",
             f"{end_sec:.2f}",
             f"{duration_sec:.2f}",
-            f"{seg.get('prob', seg.get('score', '-')):.2f}",
-            speech_check,
-            "active" if not done and i == len(speech_ts) else "",
-        )
+            prob_val,
+        ]
+        if include_speech_type:
+            row.append(speech_check)
+        row.append(ongoing_icon)
+        row.append(pretty_end_reason)
+        row.append("active" if not done and i == len(speech_ts) else "")
+        table.add_row(*row)
 
     from rich import print as rprint
 

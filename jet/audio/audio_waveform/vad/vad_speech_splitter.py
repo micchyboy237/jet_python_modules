@@ -278,14 +278,14 @@ def apply_limit_splits(
                 num=0,  # renumbered after recursion
                 start=start_val,
                 end=end_val,
-                prob=avg_prob,
                 duration=duration_s,
+                end_reason=None,  # filled in by caller after recursion
+                prob=avg_prob,
                 frames_length=len(child_probs_slice),
                 frame_start=child_frame_start,
                 frame_end=child_frame_end,
                 type=seg["type"],
                 segment_probs=child_probs_slice if with_scores else [],
-                end_reason=None,  # filled in by caller after recursion
             )
 
         left = _make_child(frame_start, global_trough_frame)

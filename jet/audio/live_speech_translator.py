@@ -7,10 +7,15 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.helpers.silence import SAMPLE_RATE
+from jet.audio.speech.utils import display_segments
 from jet.audio.speech.wav_utils import save_wav_file
 from jet.audio.speech_detector import record_from_mic
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import SpeechSegmentEndEvent
+from jet.audio.speech_handlers.websocket_subtitle_sender import (
+    WebsocketSubtitleSender,
+)
 from jet.file.utils import save_file
 from jet.logger import logger
 
@@ -356,34 +361,26 @@ def save_segment_data(
 # Entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    from jet.audio.helpers.silence import SAMPLE_RATE
-    from jet.audio.speech_handlers.websocket_subtitle_sender import (
-        WebsocketSubtitleSender,
-    )
 
-    duration_seconds = None
-    trim_silent = False
-    quit_on_silence = False
+def main_live_speech_translation():
+    """Main entry point with accumulated display."""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     handlers: list[SpeechSegmentHandler] = [
-        # add or remove handlers here
-        WebsocketSubtitleSender(
-            global_srt_path=OUTPUT_DIR / "subtitles.srt",
-        ),
+        WebsocketSubtitleSender(global_srt_path=OUTPUT_DIR / "subtitles.srt"),
     ]
+
     recording_started_at = datetime.now(timezone.utc)
+    completed_segments: list[SpeechSegment] = []  # ← accumulation
 
     data_stream = record_from_mic(
-        duration_seconds,
-        trim_silent=trim_silent,
-        quit_on_silence=quit_on_silence,
+        duration=None,
+        trim_silent=False,
+        quit_on_silence=False,
     )
 
-    segments: list[dict] = []
-
     for speech_seg, seg_audio_np in data_stream:
-        # start / end / duration are already in seconds — no conversion needed
+        # Save and dispatch
         seg_dir, seg_number = save_segment_data(
             speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
         )
@@ -396,9 +393,21 @@ if __name__ == "__main__":
             SAMPLE_RATE,
             recording_started_at,
         )
-        segments.append(speech_seg)
-        save_file(segments, OUTPUT_DIR / "all_segments.json", verbose=False)
+
+        # Accumulate and display
+        completed_segments.append(speech_seg)
+        display_segments(completed_segments, done=False)  # ← updated usage
+
+        # Optional: persist full list
+        save_file(completed_segments, OUTPUT_DIR / "all_segments.json", verbose=False)
+
+    # Final display with done=True
+    display_segments(completed_segments, done=True)
 
     for h in handlers:
         if hasattr(h, "close"):
             h.close()
+
+
+if __name__ == "__main__":
+    main_live_speech_translation()

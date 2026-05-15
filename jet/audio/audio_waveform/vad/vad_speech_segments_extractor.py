@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Literal, Union
+from typing import List, Literal, Optional, Union
 
 import matplotlib
 from jet.audio.audio_waveform.vad._main_vad_speech_segments_extractor import main
@@ -13,6 +13,7 @@ from jet.audio.audio_waveform.vad.vad_speech_splitter import (
 from jet.audio.helpers.config import (
     HOP_STEP_S,
     SAMPLE_RATE,
+    SILENCE_MAX_THRESHOLD,
 )
 from jet.audio.utils.loader import load_audio
 
@@ -70,28 +71,16 @@ def extract_speech_timestamps(
     postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
     postroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
     postroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
-    max_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
-    max_limit_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
-    max_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
-    max_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
-    max_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+    soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
+    soft_limit_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+    soft_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    soft_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+    soft_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     vad: FireRedVAD | None = None,
     **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
-    Extract speech timestamps using FireRedVAD with symmetric hybrid
-    pre-roll (head) and post-roll (tail) boundary extension.
-
-    When a speech segment exceeds *max_limit_sec*, valley trough detection
-    is used to find the best natural silence and split the segment there.
-    Splitting is recursive: each half is re-checked until no segment exceeds
-    the max limit or no trough can be found.
-
-    Both boundaries are extended by a variable amount computed from a
-    weighted combination of smoothed speech probability and normalised RMS
-    energy (equal 0.5/0.5 weights by default).
-
-    When include_non_speech=True, returns both speech and non-speech segments.
+    Extract speech timestamps using FireRedVAD with hybrid pre/post-roll.
     """
     audio_np, sr = load_audio(audio, sr=SAMPLE_RATE, mono=True)
     if sr != SAMPLE_RATE:
@@ -113,11 +102,10 @@ def extract_speech_timestamps(
     timestamps = result["timestamps"]
     probs = [r.smoothed_prob for r in frame_results]
 
-    # ------------------------------------------------------------------
-    # Apply hybrid pre-roll (head) and post-roll (tail) to each segment
-    # ------------------------------------------------------------------
+    # === Boundary extension + merging (unchanged) ===
     extended_timestamps: list[tuple[float, float]] = []
     total_samples = len(audio_np)
+
     for start_sec, end_sec in timestamps:
         onset_sample = int(start_sec * sr)
         end_sample = int(end_sec * sr)
@@ -147,40 +135,45 @@ def extract_speech_timestamps(
         new_end_sec = min(total_samples / sr, (end_sample + postroll_samples) / sr)
         extended_timestamps.append((new_start_sec, new_end_sec))
 
-    # Merge overlapping segments that may arise after pre-roll extension
+    # Merge
     merged: list[tuple[float, float]] = []
     for seg in extended_timestamps:
         if merged and seg[0] <= merged[-1][1]:
             merged[-1] = (merged[-1][0], max(merged[-1][1], seg[1]))
         else:
-            merged.append(list(seg))
+            merged.append(tuple(seg))
     timestamps = [tuple(s) for s in merged]
 
-    # ------------------------------------------------------------------
-    # Build SpeechSegment objects
-    # ------------------------------------------------------------------
+    # === make_segment helper (with new field) ===
     def make_segment(
         num: int,
         start_sec: float,
         end_sec: float,
         seg_type: Literal["speech", "non-speech"],
         end_reason: "SpeechEndReason | None" = None,
+        is_ongoing: bool = False,
+        last_non_speech_sec: Optional[float] = None,
     ) -> SpeechSegment:
         start_sample = int(start_sec * sr)
         end_sample = int(end_sec * sr)
         frame_start = int(start_sec / HOP_STEP_S)
         frame_end = int(end_sec / HOP_STEP_S)
+
         segment_probs_slice = probs[frame_start : frame_end + 1]
         avg_prob = float(np.mean(segment_probs_slice)) if segment_probs_slice else 0.0
         duration_sec = end_sec - start_sec
+
         start_val = start_sec if return_seconds else start_sample
         end_val = end_sec if return_seconds else end_sample
+
         return SpeechSegment(
             num=num,
             start=start_val,
             end=end_val,
             duration=duration_sec,
             end_reason=end_reason,
+            is_ongoing=is_ongoing,
+            last_non_speech_sec=last_non_speech_sec,
             prob=avg_prob,
             frames_length=len(segment_probs_slice),
             frame_start=frame_start,
@@ -189,11 +182,10 @@ def extract_speech_timestamps(
             segment_probs=segment_probs_slice if with_scores else [],
         )
 
+    # === Build initial segments (same as before) ===
     enhanced: List[SpeechSegment] = []
     current_time = 0.0
     seg_num = 1
-
-    # Tolerance for detecting a hard-limit cut (one VAD frame = 10 ms).
     _HARD_LIMIT_TOLERANCE_S = HOP_STEP_S
 
     if include_non_speech and timestamps and timestamps[0][0] > 0.001:
@@ -207,44 +199,78 @@ def extract_speech_timestamps(
                 make_segment(seg_num, current_time, start_sec, "non-speech")
             )
             seg_num += 1
-        # Determine end_reason: if the segment duration is within one frame of
-        # max_speech_duration_sec it was force-cut by the VAD hard limit.
+
         seg_duration = end_sec - start_sec
-        end_reason: SpeechEndReason = (
+        initial_reason = (
             "hard_limit"
             if abs(seg_duration - max_speech_duration_sec) <= _HARD_LIMIT_TOLERANCE_S
-            else "silence"
+            else None
         )
+
         enhanced.append(
-            make_segment(seg_num, start_sec, end_sec, "speech", end_reason=end_reason)
+            make_segment(
+                seg_num,
+                start_sec,
+                end_sec,
+                "speech",
+                end_reason=initial_reason,
+            )
         )
         seg_num += 1
         current_time = end_sec
 
-    total_duration = result["dur"]
-    if include_non_speech and current_time < total_duration - 0.01:
+    if include_non_speech and current_time < result["dur"] - 0.01:
         enhanced.append(
-            make_segment(seg_num, current_time, total_duration, "non-speech")
+            make_segment(seg_num, current_time, result["dur"], "non-speech")
         )
 
-    # ------------------------------------------------------------------
-    # Soft-limit: split long segments at valley troughs
-    # ------------------------------------------------------------------
-    if max_limit_sec > 0:
+    # === Soft limit splitting (preserves "valley") ===
+    if soft_limit_sec > 0:
         enhanced = apply_limit_splits(
             segments=enhanced,
             probs=probs,
             audio_np=audio_np,
             sample_rate=sr,
             hop_sec=HOP_STEP_S,
-            max_limit_sec=max_limit_sec,
-            min_valley_duration_s=max_limit_min_valley_duration_s,
-            smoothing_window=max_limit_smoothing_window,
-            trough_prominence=max_limit_trough_prominence,
-            min_trough_offset_s=max_limit_min_trough_offset_s,
+            max_limit_sec=soft_limit_sec,
+            min_valley_duration_s=soft_limit_min_valley_duration_s,
+            smoothing_window=soft_limit_smoothing_window,
+            trough_prominence=soft_limit_trough_prominence,
+            min_trough_offset_s=soft_limit_min_trough_offset_s,
             return_seconds=return_seconds,
             with_scores=with_scores,
         )
+
+    # === FINAL REFINEMENT - FIXED LOGIC ===
+    for i, seg in enumerate(enhanced):
+        if seg["type"] != "speech":
+            seg.setdefault("is_ongoing", False)
+            seg.setdefault("last_non_speech_sec", None)
+            continue
+
+        # IMPORTANT: Preserve "valley" and "hard_limit"
+        current_reason = seg.get("end_reason")
+
+        start_s = (
+            int(seg["start"] * sr)
+            if isinstance(seg["start"], (int, float))
+            else seg["start"]
+        )
+        end_s = (
+            int(seg["end"] * sr) if isinstance(seg["end"], (int, float)) else seg["end"]
+        )
+        audio_slice = audio_np[start_s:end_s]
+
+        refined_reason, last_non_speech = _determine_end_reason_with_duration(
+            seg.get("segment_probs", []), audio_slice
+        )
+
+        # Only override if we have no strong reason yet OR it's a weak "silence"
+        if current_reason in (None, "silence"):
+            seg["end_reason"] = refined_reason or current_reason
+
+        seg["last_non_speech_sec"] = last_non_speech
+        seg["is_ongoing"] = bool(i == len(enhanced) - 1)
 
     if with_scores:
         return enhanced, probs
@@ -324,6 +350,52 @@ def extract_speech_audio(
         speech_audio_chunks.append(segment_audio.astype(np.float32, copy=False))
 
     return speech_audio_chunks
+
+
+def _determine_end_reason_with_duration(
+    segment_probs: List[float],
+    audio_np_slice: np.ndarray,
+    min_silence_frames: int = 8,
+) -> tuple[Optional[SpeechEndReason], Optional[float]]:
+    """
+    Returns (end_reason, last_non_speech_sec)
+    - Only suggests 'silence' if there is a clear trailing low-prob + energy tail.
+    - Returns None for end_reason if no strong silence evidence.
+    """
+    if not segment_probs or len(segment_probs) < min_silence_frames:
+        return None, None
+
+    tail_probs = np.array(segment_probs[-min_silence_frames:], dtype=np.float32)
+
+    if len(audio_np_slice) < min_silence_frames * 160:
+        return ("silence" if float(np.mean(tail_probs)) < 0.35 else None, None)
+
+    # Trailing audio analysis
+    tail_audio = audio_np_slice[-min_silence_frames * 160 :]
+    frames = tail_audio.reshape(-1, 160)
+    rms = np.sqrt(np.mean(frames**2, axis=1))
+
+    is_low_prob = tail_probs < 0.32
+    has_energy = (
+        rms > SILENCE_MAX_THRESHOLD * 0.4
+    )  # has some audio energy (not dead silence)
+    is_trailing_non_speech = is_low_prob & has_energy
+
+    # Count consecutive trailing silent-but-energetic frames
+    count = 0
+    for i in range(len(is_trailing_non_speech) - 1, -1, -1):
+        if is_trailing_non_speech[i]:
+            count += 1
+        else:
+            break
+
+    duration_sec = round(count * HOP_STEP_S, 4)
+
+    # Only call it "silence" if we have meaningful trailing non-speech
+    if count >= 4:  # at least ~40ms
+        return "silence", duration_sec
+    else:
+        return None, duration_sec if duration_sec > 0 else None
 
 
 # ---------------------------------------------------------------------------

@@ -147,7 +147,7 @@ def record_from_mic(
                     silent_count = 0
 
                 # Run Silero VAD every chunk to detect speech segments in real-time
-                speech_ts = extract_and_display_speech_segments(
+                speech_ts = extract_current_speech_segment(
                     audio_data,
                     threshold=threshold,
                     min_silence_duration_sec=min_silence_duration_sec,
@@ -262,7 +262,7 @@ def extract_segment_data(
     )
 
 
-def extract_and_display_speech_segments(
+def extract_current_speech_segment(
     audio_data: CircularAudioBuffer,
     threshold: float = DEFAULT_THRESHOLD,
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
