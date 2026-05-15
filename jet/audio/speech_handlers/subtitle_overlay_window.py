@@ -35,6 +35,7 @@ from abc import ABCMeta
 from pathlib import Path
 from typing import Optional
 
+from jet.audio.speech_handlers.api_types import SubtitleNotification
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import (
     SpeechSegmentEndEvent,
@@ -294,15 +295,15 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
 
     # ── Qt slot ───────────────────────────────────────────────────────────────
 
-    def on_subtitle_received(self, response: dict) -> None:
+    def on_subtitle_received(self, notification: SubtitleNotification) -> None:
         """
         Qt slot — always runs on the Qt main thread (via queued signal).
 
-        Maps the raw ServerResponse dict to an internal entry dict and
+        Maps the SubtitleNotification dict to an internal entry dict and
         appends it to the log.  Display is refreshed by the poll timer.
         """
-        ja = response.get("transcription_ja", "").strip()
-        en = response.get("translation_en", "").strip()
+        ja = notification.get("transcription_ja", "").strip()
+        en = notification.get("translation_en", "").strip()
         if not ja and not en:
             return
 
@@ -310,15 +311,17 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
             {
                 "ja": ja,
                 "en": en,
-                "start": response.get("start_sec", 0.0),
-                "end": response.get("end_sec", 0.0),
-                "trigger_reason": response.get("vad_reason", "unknown"),
-                "avg_vad_prob": response.get("avg_vad_prob"),
-                "speech_frames_pctg": response.get("speech_frames_pctg"),
-                "speech_dur_sec": response.get("speech_dur_sec"),
-                "transcribed_duration_pctg": response.get("transcribed_duration_pctg"),
-                "coverage_label": response.get("coverage_label", ""),
-                "segment_dir": response.get("segment_dir"),
+                "start": notification.get("start_sec", 0.0),
+                "end": notification.get("end_sec", 0.0),
+                "trigger_reason": notification.get("trigger_reason", "unknown"),
+                "avg_vad_prob": notification.get("avg_vad_prob"),
+                "speech_frames_pctg": notification.get("speech_frames_pctg"),
+                "speech_dur_sec": notification.get("speech_dur_sec"),
+                "transcribed_duration_pctg": notification.get(
+                    "transcribed_duration_pctg"
+                ),
+                "coverage_label": notification.get("coverage_label", ""),
+                "segment_dir": notification.get("segment_dir"),
             }
         )
         # Invalidate the render cache so the next timer tick re-renders immediately.

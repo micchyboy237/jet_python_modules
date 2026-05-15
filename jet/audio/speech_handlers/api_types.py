@@ -95,6 +95,41 @@ class ServerResponse(TypedDict, total=False):
     error: str
 
 
+class SubtitleNotification(TypedDict, total=False):
+    """
+    Payload passed to subtitle observers. Combines the server response
+    with locally‑available segment metadata so the UI can display everything.
+    """
+
+    # --- fields from the server response ---
+    uuid: str
+    transcription_ja: str
+    translation_en: str
+    success: bool
+    context_uuid: str
+    context_duration: float
+    new_duration: float
+    new_ja_similarity: Optional[float]
+    new_ja_start_index: Optional[int]
+    transcribed_duration_sec: float
+    transcribed_duration_pctg: float
+    coverage_label: str
+    old_ja_sents: list[str]
+    new_ja_sents: list[str]
+    old_en_sents: list[str]
+    new_en_sents: list[str]
+    phrase_segments: list[PhraseSegment]
+    error: str
+    # --- local segment metadata ---
+    start_sec: float
+    end_sec: float
+    trigger_reason: str
+    segment_dir: str  # path as string; UI converts to Path
+    avg_vad_prob: Optional[float]
+    speech_frames_pctg: Optional[float]
+    speech_dur_sec: Optional[float]
+
+
 # Type aliases for convenience
 ClientMessageHeader = ClientHeader
 SubtitleServerResponse = ServerResponse

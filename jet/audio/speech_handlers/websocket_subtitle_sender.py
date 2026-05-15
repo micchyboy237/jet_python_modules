@@ -32,6 +32,7 @@ from jet.audio.speech_handlers.api_types import (
     ClientHeader,
     ServerResponse,
     ServerSuccessResponse,
+    SubtitleNotification,
 )
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import (
@@ -158,6 +159,39 @@ def _log_saved(
             expand=False,
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Helpers for segment‑local metrics that the overlay displays
+# ---------------------------------------------------------------------------
+
+
+def _compute_avg_vad_prob(segment: SpeechSegment) -> Optional[float]:
+    """Average of per‑frame VAD probabilities (if available)."""
+    probs = segment.get("segment_probs")
+    if not probs:
+        return None
+    return float(np.mean(probs))
+
+
+def _compute_speech_frames_pctg(segment: SpeechSegment) -> Optional[float]:
+    """Percentage of frames with VAD probability > 0.5."""
+    probs = segment.get("segment_probs")
+    if not probs:
+        return None
+    speech_count = sum(1 for p in probs if p > 0.5)
+    return (speech_count / len(probs)) * 100.0
+
+
+def _compute_speech_dur_sec(
+    segment: SpeechSegment, frame_dur: float = 0.01
+) -> Optional[float]:
+    """Total duration (seconds) of frames with VAD probability > 0.5 (default 10 ms frames)."""
+    probs = segment.get("segment_probs")
+    if not probs:
+        return None
+    speech_count = sum(1 for p in probs if p > 0.5)
+    return speech_count * frame_dur
 
 
 # ── Main class ──────────────────────────────────────────────────────────────
@@ -412,7 +446,19 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         _log_response(response, seg_num)
 
         # Fan out to all observers
-        self._notify_observers(response)
+        # Build the combined notification that includes both the server response
+        # and the local segment metadata the overlay needs.
+        notification: SubtitleNotification = {
+            **response,
+            "start_sec": round(start_sec, 4),
+            "end_sec": round(end_sec, 4),
+            "trigger_reason": _vad_reason(seg),
+            "segment_dir": str(seg_dir),
+            "avg_vad_prob": _compute_avg_vad_prob(seg),
+            "speech_frames_pctg": _compute_speech_frames_pctg(seg),
+            "speech_dur_sec": _compute_speech_dur_sec(seg),
+        }
+        self._notify_observers(notification)
 
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
