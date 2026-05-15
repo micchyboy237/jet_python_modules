@@ -91,6 +91,7 @@ def record_from_mic(
     )
 
     silent_count = 0
+    true_silence = False
     recorded_frames = 0
     curr_segment: Optional[SpeechSegment] = None
     prev_segment: Optional[SpeechSegment] = None
@@ -121,10 +122,14 @@ def record_from_mic(
                     chunk, silence_threshold
                 ):
                     silent_count += chunk_size
+
                     if silent_count >= silence_frames:
-                        logger.info(
-                            f"Silence detected for {silence_duration}s, stopping recording"
-                        )
+                        if not true_silence:  # ← Only log once
+                            logger.info(
+                                f"Silence detected for {silence_duration}s, stopping recording"
+                            )
+                            true_silence = True
+
                         if quit_on_silence:
                             break
                         if prev_segment:
@@ -142,6 +147,7 @@ def record_from_mic(
                         continue
                 else:
                     silent_count = 0
+                    true_silence = False  # ← Reset when speech returns
 
                 curr_speech_segs = extract_current_speech_segment(
                     audio_data,
