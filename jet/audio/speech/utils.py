@@ -42,18 +42,19 @@ def display_segments(
 
     table = Table(title=f"Speech segments (total ~{recorded_seconds:.1f}s recorded)")
 
-    table.add_column("Segment", style="cyan", justify="right")
-    table.add_column("Start (s)", justify="right")
-    table.add_column("End (s)", justify="right")
-    table.add_column("Dur (s)", justify="right")
+    table.add_column("#", style="cyan", justify="right")
+    table.add_column("Start", justify="right")
+    table.add_column("End", justify="right")
+    table.add_column("Dur", justify="right")
     table.add_column("Score", justify="right")
+    table.add_column("LastNS", justify="right")
     if include_speech_type:
-        table.add_column("Speech", justify="center")
-    table.add_column("Ongoing", justify="center")
-    table.add_column("Reason", justify="center")
+        table.add_column("Spch", justify="center")
+    table.add_column("Ongng", justify="center")
+    table.add_column("EndRsn", justify="center")
     table.add_column("Status", style="green")
 
-    for i, seg in enumerate(segs_to_display, 1):
+    for seg in segs_to_display:
         start_sec = seg["start"]
         end_sec = seg["end"]
         duration_sec = end_sec - start_sec
@@ -62,6 +63,9 @@ def display_segments(
             prob_val = f"{prob:.2f}"
         except Exception:
             prob_val = str(prob)
+        last_ns = seg.get("last_non_speech_sec")
+        last_ns_val = f"{last_ns:.2f}" if (last_ns is not None) else "-"
+
         speech_check = "✅" if seg.get("type") == "speech" else "❌"
 
         # Ongoing logic and icon
@@ -78,17 +82,20 @@ def display_segments(
             pretty_end_reason = f"[{color}]{end_reason}[/]"
 
         row = [
-            str(i),
+            str(seg["num"]),
             f"{start_sec:.2f}",
             f"{end_sec:.2f}",
             f"{duration_sec:.2f}",
             prob_val,
+            last_ns_val,
         ]
         if include_speech_type:
             row.append(speech_check)
         row.append(ongoing_icon)
         row.append(pretty_end_reason)
-        row.append("active" if not done and i == len(segs_to_display) else "")
+        # Determine if this is the last segment for "active" status
+        is_last = seg is segs_to_display[-1]
+        row.append("active" if not done and is_last else "")
         table.add_row(*row)
 
     from rich import print as rprint

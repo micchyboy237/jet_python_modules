@@ -46,11 +46,11 @@ class _SpeechSegmentRequired(TypedDict):
     frame_end: int
     type: Literal["speech", "non-speech"]
     is_ongoing: bool  # true for final open/ongoing segment in streaming/full audio
-    last_non_speech_sec: Optional[float]  # duration of trailing silence with energy
     segment_probs: List[float]
 
 
 class SpeechSegment(_SpeechSegmentRequired):
+    last_non_speech_sec: Optional[float]  # duration of trailing silence with energy
     end_reason: Optional[SpeechEndReason]  # only this key is optional
 
 

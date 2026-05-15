@@ -48,6 +48,44 @@ from rich.console import Console
 
 console = Console()
 
+# Single global cached instance to avoid repeated model loading
+_global_vad_cache: Optional[FireRedVAD] = None
+
+
+def get_global_vad(
+    threshold: float = DEFAULT_THRESHOLD,
+    min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
+    min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
+    max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
+    smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
+    max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
+    **model_kwargs,
+) -> FireRedVAD:
+    """Get or create the global cached VAD instance."""
+    global _global_vad_cache
+
+    if _global_vad_cache is None:
+        with console.status(
+            "[bold blue]Loading FireRedVAD model (global cache)...[/bold blue]"
+        ):
+            _global_vad_cache = FireRedVAD(
+                model_dir=SAVE_DIR,
+                threshold=threshold,
+                min_silence_duration_sec=min_silence_duration_sec,
+                min_speech_duration_sec=min_speech_duration_sec,
+                max_speech_duration_sec=max_speech_duration_sec,
+                smooth_window_size=smooth_window_size,
+                max_buffer_sec=max_buffer_sec,
+                **model_kwargs,
+            )
+    else:
+        # Optional: update parameters if they differ significantly
+        _global_vad_cache.threshold = threshold
+        _global_vad_cache.min_silence_duration_sec = min_silence_duration_sec
+        # Add other param updates as needed
+
+    return _global_vad_cache
+
 
 def extract_speech_timestamps(
     audio: Union[str, Path, np.ndarray, torch.Tensor, list[np.ndarray]],
@@ -73,7 +111,7 @@ def extract_speech_timestamps(
     soft_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
     soft_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
     soft_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
-    vad: FireRedVAD | None = None,
+    vad: FireRedVAD | None = None,  # if None, uses global cache
     **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
@@ -83,15 +121,16 @@ def extract_speech_timestamps(
     if sr != SAMPLE_RATE:
         raise ValueError(f"FireRedVAD requires SAMPLE_RATE Hz, got {sr}")
 
-    vad = vad or FireRedVAD(
-        model_dir=SAVE_DIR,
-        threshold=threshold,
-        min_silence_duration_sec=min_silence_duration_sec,
-        min_speech_duration_sec=min_speech_duration_sec,
-        max_speech_duration_sec=max_speech_duration_sec,
-        smooth_window_size=smooth_window_size,
-        max_buffer_sec=max_buffer_sec,
-    )
+    if vad is None:
+        vad = get_global_vad(
+            threshold=threshold,
+            min_silence_duration_sec=min_silence_duration_sec,
+            min_speech_duration_sec=min_speech_duration_sec,
+            max_speech_duration_sec=max_speech_duration_sec,
+            smooth_window_size=smooth_window_size,
+            max_buffer_sec=max_buffer_sec,
+            **kwargs,
+        )
 
     with console.status("[bold blue]Running FireRedVAD inference...[/bold blue]"):
         frame_results, result = vad.detect_full(audio_np)

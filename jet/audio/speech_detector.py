@@ -5,11 +5,6 @@ from typing import Generator, List, Optional, Tuple
 import numpy as np
 import sounddevice as sd
 from jet.audio.audio_waveform.vad._types import SpeechSegment
-from jet.audio.audio_waveform.vad.vad_config import (
-    DEFAULT_MAX_BUFFER_SEC,
-    DEFAULT_SMOOTH_WINDOW_SIZE,
-)
-from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
 from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
@@ -21,7 +16,6 @@ from jet.audio.helpers.silence import (
     calibrate_silence_threshold,
     detect_silence,
 )
-from jet.audio.speech.firered.config import SAVE_DIR
 from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
@@ -45,8 +39,7 @@ def record_from_mic(
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
     max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
-    smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
-    max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
+    buffer_max_sec: float = DEFAULT_BUFFER_MAX_SEC,
 ) -> Generator[Tuple[SpeechSegment, np.ndarray], None, None]:
     """Record audio from microphone with silence detection and progress tracking.
 
@@ -56,24 +49,13 @@ def record_from_mic(
         silence_duration: Seconds of continuous silence to stop recording.
         trim_silent: If True, removes silent edges from the segments and final audio.
         overlap_seconds: Seconds of overlap to add from the previous segment when yielding a new one (prevents information loss at boundaries).
-        max_buffer_sec: Maximum seconds of audio kept in the sliding window.
+        buffer_max_sec: Maximum seconds of audio kept in the sliding window.
             Older audio is evicted automatically. Defaults to 120 s.
     """
     silence_threshold = (
         silence_threshold
         if silence_threshold is not None
         else calibrate_silence_threshold()
-    )
-
-    # Initialize the FireRedVAD instance
-    vad = FireRedVAD(
-        model_dir=SAVE_DIR,  # If you have a known model directory you may specify it, otherwise let it be auto-selected
-        threshold=threshold,
-        min_silence_duration_sec=min_silence_duration_sec,
-        min_speech_duration_sec=min_speech_duration_sec,
-        max_speech_duration_sec=max_speech_duration_sec,
-        smooth_window_size=smooth_window_size,
-        max_buffer_sec=max_buffer_sec,
     )
 
     duration_str = f"{duration}s" if duration is not None else "indefinite"
@@ -95,7 +77,7 @@ def record_from_mic(
     # The buffer satisfies the list[np.ndarray] duck-type so all downstream
     # calls (len, iteration, extract_segment_data) keep working unchanged.
     audio_data = CircularAudioBuffer(
-        max_sec=max_buffer_sec,
+        max_sec=buffer_max_sec,
         sample_rate=SAMPLE_RATE,
         dtype=DTYPE,
     )
@@ -167,7 +149,6 @@ def record_from_mic(
                 # Run Silero VAD every chunk to detect speech segments in real-time
                 curr_speech_segs = extract_current_speech_segment(
                     audio_data,
-                    vad=vad,
                     threshold=threshold,
                     min_silence_duration_sec=min_silence_duration_sec,
                     min_speech_duration_sec=min_speech_duration_sec,
@@ -287,7 +268,6 @@ def extract_segment_data(
 
 def extract_current_speech_segment(
     audio_data: CircularAudioBuffer,
-    vad: FireRedVAD,
     threshold: float = DEFAULT_THRESHOLD,
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
@@ -303,7 +283,6 @@ def extract_current_speech_segment(
         min_silence_duration_sec=min_silence_duration_sec,
         min_speech_duration_sec=min_speech_duration_sec,
         max_speech_duration_sec=max_speech_duration_sec,
-        vad=vad,
     )
     display_segments(curr_speech_segs)
     return curr_speech_segs
