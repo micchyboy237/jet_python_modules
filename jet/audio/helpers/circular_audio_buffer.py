@@ -1,4 +1,5 @@
-# jet_python_modules/jet/audio/circular_audio_buffer.py
+# jet.audio.helpers.circular_audio_buffer
+
 from collections import deque
 from typing import Iterator, List, Optional
 
