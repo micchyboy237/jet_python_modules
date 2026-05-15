@@ -8,18 +8,25 @@ from rich.table import Table
 
 
 def display_segments(
-    speech_ts: list[SpeechSegment],
+    speech_segs: list[SpeechSegment],
     done: bool = False,
     include_speech_type: bool = False,
 ):
     """Display detected speech segments in a clean Rich table.
 
     Args:
-        speech_ts: List of speech segments.
+        speech_segs: List of speech segments.
         done: Whether all segments are finalized (highlights current/last).
         include_speech_type: Whether to include a column for segment type ('speech' or 'non-speech').
     """
-    if not speech_ts:
+    if not speech_segs:
+        return  # Do not log anything if empty
+
+    # Make an immutable shallow copy with the last segment removed if done is True
+    segs_to_display = speech_segs[:-1] if done else speech_segs
+
+    # If there is nothing to display, do not log anything
+    if not segs_to_display:
         return
 
     # Color mapping for end reasons
@@ -30,7 +37,7 @@ def display_segments(
     }
 
     # Total recorded time approximated by the end of the last speech segment (in seconds)
-    total_samples = max(seg["end"] for seg in speech_ts)
+    total_samples = max(seg["end"] for seg in segs_to_display)
     recorded_seconds = total_samples
 
     table = Table(title=f"Speech segments (total ~{recorded_seconds:.1f}s recorded)")
@@ -46,7 +53,7 @@ def display_segments(
     table.add_column("Reason", justify="center")
     table.add_column("Status", style="green")
 
-    for i, seg in enumerate(speech_ts, 1):
+    for i, seg in enumerate(segs_to_display, 1):
         start_sec = seg["start"]
         end_sec = seg["end"]
         duration_sec = end_sec - start_sec
@@ -81,7 +88,7 @@ def display_segments(
             row.append(speech_check)
         row.append(ongoing_icon)
         row.append(pretty_end_reason)
-        row.append("active" if not done and i == len(speech_ts) else "")
+        row.append("active" if not done and i == len(segs_to_display) else "")
         table.add_row(*row)
 
     from rich import print as rprint

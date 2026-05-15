@@ -15,6 +15,7 @@ from jet.audio.helpers.config import (
     SAMPLE_RATE,
     SILENCE_MAX_THRESHOLD,
 )
+from jet.audio.speech.firered.config import SAVE_DIR
 from jet.audio.utils.loader import load_audio
 
 matplotlib.use("Agg")
@@ -46,10 +47,6 @@ from jet.audio.audio_waveform.vad.vad_config import (
 from rich.console import Console
 
 console = Console()
-
-SAVE_DIR = str(
-    Path("~/.cache/pretrained_models/FireRedVAD/Stream-VAD").expanduser().resolve()
-)
 
 
 def extract_speech_timestamps(

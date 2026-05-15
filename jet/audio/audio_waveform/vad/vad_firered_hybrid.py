@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Union
 
 import matplotlib
@@ -6,6 +5,7 @@ from jet.audio.helpers.config import (
     FRAME_PER_SECONDS,
     SAMPLE_RATE,
 )
+from jet.audio.speech.firered.config import SAVE_DIR
 from jet.audio.speech.vad_types import StreamVadFrame
 
 matplotlib.use("Agg")
@@ -31,10 +31,6 @@ from jet.audio.audio_waveform.vad.vad_hybrid_stream_vad_postprocessor import (
 from rich.console import Console
 
 console = Console()
-
-SAVE_DIR = str(
-    Path("~/.cache/pretrained_models/FireRedVAD/Stream-VAD").expanduser().resolve()
-)
 
 
 # ---------------------------------------------------------------------------
