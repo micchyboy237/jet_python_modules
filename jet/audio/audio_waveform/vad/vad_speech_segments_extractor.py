@@ -1,3 +1,5 @@
+# vad_speech_segments_extractor.py
+
 from pathlib import Path
 from typing import List, Literal, Optional, Union
 
@@ -11,7 +13,8 @@ from jet.audio.audio_waveform.vad.vad_speech_splitter import (
     compute_preroll,
 )
 from jet.audio.helpers.config import (
-    HOP_STEP_S,
+    FRAME_SHIFT_S,
+    FRAME_SHIFT_SAMPLE,
     SAMPLE_RATE,
     SILENCE_MAX_THRESHOLD,
 )
@@ -112,6 +115,7 @@ def extract_speech_timestamps(
     soft_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
     soft_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     vad: FireRedVAD | None = None,  # if None, uses global cache
+    prior_probs: Optional[List[float]] = None,
     **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
@@ -136,7 +140,18 @@ def extract_speech_timestamps(
         frame_results, result = vad.detect_full(audio_np)
 
     timestamps = result["timestamps"]
-    probs = [r.smoothed_prob for r in frame_results]
+    current_probs = [r.smoothed_prob for r in frame_results]
+
+    # Prepend retained probs from before the current buffer window.
+    # All frame_start/frame_end values computed below will be relative to
+    # current_probs only (window-relative audio), so we offset them by
+    # len(prior_probs) when indexing into the combined list for the splitter.
+    if prior_probs:
+        probs = list(prior_probs) + current_probs
+        _prior_len = len(prior_probs)
+    else:
+        probs = current_probs
+        _prior_len = 0
 
     # === Boundary extension + merging (unchanged) ===
     extended_timestamps: list[tuple[float, float]] = []
@@ -192,10 +207,13 @@ def extract_speech_timestamps(
     ) -> SpeechSegment:
         start_sample = int(start_sec * sr)
         end_sample = int(end_sec * sr)
-        frame_start = int(start_sec / HOP_STEP_S)
-        frame_end = int(end_sec / HOP_STEP_S)
+        frame_start = int(start_sec / FRAME_SHIFT_S)
+        frame_end = int(end_sec / FRAME_SHIFT_S)
 
-        segment_probs_slice = probs[frame_start : frame_end + 1]
+        # frame_start/frame_end are window-relative; shift into combined probs array
+        segment_probs_slice = probs[
+            _prior_len + frame_start : _prior_len + frame_end + 1
+        ]
         avg_prob = float(np.mean(segment_probs_slice)) if segment_probs_slice else 0.0
         duration_sec = end_sec - start_sec
 
@@ -212,8 +230,9 @@ def extract_speech_timestamps(
             last_non_speech_sec=last_non_speech_sec,
             prob=avg_prob,
             frames_length=len(segment_probs_slice),
-            frame_start=frame_start,
-            frame_end=frame_end,
+            # store shifted frame indices so apply_limit_splits indexes correctly
+            frame_start=_prior_len + frame_start,
+            frame_end=_prior_len + frame_end,
             type=seg_type,
             segment_probs=segment_probs_slice if with_scores else [],
         )
@@ -222,7 +241,7 @@ def extract_speech_timestamps(
     enhanced: List[SpeechSegment] = []
     current_time = 0.0
     seg_num = 1
-    _HARD_LIMIT_TOLERANCE_S = HOP_STEP_S
+    _HARD_LIMIT_TOLERANCE_S = FRAME_SHIFT_S
 
     if include_non_speech and timestamps and timestamps[0][0] > 0.001:
         enhanced.append(make_segment(seg_num, 0.0, timestamps[0][0], "non-speech"))
@@ -264,10 +283,10 @@ def extract_speech_timestamps(
     if soft_limit_sec > 0:
         enhanced = apply_limit_splits(
             segments=enhanced,
-            probs=probs,
+            probs=probs,  # full history, valley search works correctly
             audio_np=audio_np,
             sample_rate=sr,
-            hop_sec=HOP_STEP_S,
+            hop_sec=FRAME_SHIFT_S,
             max_limit_sec=soft_limit_sec,
             min_valley_duration_s=soft_limit_min_valley_duration_s,
             smoothing_window=soft_limit_smoothing_window,
@@ -335,6 +354,7 @@ def extract_speech_audio(
     postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
     postroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
     postroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
+    prior_probs: Optional[List[float]] = None,
 ) -> List[np.ndarray]:
     """
     Extract contiguous speech segments from the input audio using FireRedVAD.
@@ -403,12 +423,12 @@ def _determine_end_reason_with_duration(
 
     tail_probs = np.array(segment_probs[-min_silence_frames:], dtype=np.float32)
 
-    if len(audio_np_slice) < min_silence_frames * 160:
+    if len(audio_np_slice) < min_silence_frames * FRAME_SHIFT_SAMPLE:
         return ("silence" if float(np.mean(tail_probs)) < 0.35 else None, None)
 
     # Trailing audio analysis
-    tail_audio = audio_np_slice[-min_silence_frames * 160 :]
-    frames = tail_audio.reshape(-1, 160)
+    tail_audio = audio_np_slice[-min_silence_frames * FRAME_SHIFT_SAMPLE :]
+    frames = tail_audio.reshape(-1, FRAME_SHIFT_SAMPLE)
     rms = np.sqrt(np.mean(frames**2, axis=1))
 
     is_low_prob = tail_probs < 0.32
@@ -425,7 +445,7 @@ def _determine_end_reason_with_duration(
         else:
             break
 
-    duration_sec = round(count * HOP_STEP_S, 4)
+    duration_sec = round(count * FRAME_SHIFT_S, 4)
 
     # Only call it "silence" if we have meaningful trailing non-speech
     if count >= 4:  # at least ~40ms

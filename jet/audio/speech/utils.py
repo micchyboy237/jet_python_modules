@@ -50,8 +50,8 @@ def display_segments(
     table.add_column("LastNS", justify="right")
     if include_speech_type:
         table.add_column("Spch", justify="center")
-    table.add_column("Ongng", justify="center")
     table.add_column("EndRsn", justify="center")
+    table.add_column("Ongng", justify="center")
     table.add_column("Status", style="green")
 
     for seg in segs_to_display:
@@ -91,8 +91,8 @@ def display_segments(
         ]
         if include_speech_type:
             row.append(speech_check)
-        row.append(ongoing_icon)
         row.append(pretty_end_reason)
+        row.append(ongoing_icon)
         # Determine if this is the last segment for "active" status
         is_last = seg is segs_to_display[-1]
         row.append("active" if not done and is_last else "")

@@ -10,6 +10,7 @@ import shutil
 
 from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MAX_BUFFER_SEC,
+    DEFAULT_MAX_SPEECH_SEC,
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_MIN_SPEECH_SEC,
     DEFAULT_POSTROLL_HYBRID_THRESHOLD,
@@ -87,7 +88,7 @@ def main():
         "-mx",
         "--max-speech",
         type=float,
-        default=8.0,
+        default=DEFAULT_MAX_SPEECH_SEC,
         help="maximum speech duration in seconds",
     )
     parser.add_argument(

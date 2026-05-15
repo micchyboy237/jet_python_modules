@@ -1,5 +1,10 @@
 # jet.audio.helpers.config
 
+"""
+These constants are exactly the same as in fireredvad.core.constants.
+Keep them synchronized with FireRedVAD for compatibility.
+"""
+
 SILENCE_MAX_THRESHOLD = 0.001
 SAMPLE_RATE = 16000
 

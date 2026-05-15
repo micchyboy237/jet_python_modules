@@ -141,7 +141,9 @@ def build_summary(
             "frame_end": speech_seg.get("frame_end", 0),
         },
         "audio": {
-            "samples": int(seg_audio_np.size),
+            # Use shape[0] (frame count) so the number matches duration_sec × sample_rate
+            # regardless of channel count. .size would double-count for stereo.
+            "samples": int(seg_audio_np.shape[0]),
             "rms": round(rms, 6),
             "rms_db": round(_db(rms), 2),
             "peak": round(peak, 6),
@@ -384,6 +386,7 @@ def main_live_speech_translation():
         seg_dir, seg_number = save_segment_data(
             speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
         )
+        speech_seg["num"] = seg_number  # sync num before save/display
         dispatch_handlers(
             handlers,
             speech_seg,
