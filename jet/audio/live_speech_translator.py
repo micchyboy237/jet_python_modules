@@ -16,7 +16,7 @@ from jet.audio.speech.wav_utils import save_wav_file
 from jet.audio.speech_detector import record_from_mic
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import SpeechSegmentEndEvent
-from jet.audio.speech_handlers.subtitle_overlay import SubtitleOverlay
+from jet.audio.speech_handlers.subtitle_overlay_window import SubtitleOverlay
 from jet.audio.speech_handlers.websocket_subtitle_sender import (
     WebsocketSubtitleSender,
 )

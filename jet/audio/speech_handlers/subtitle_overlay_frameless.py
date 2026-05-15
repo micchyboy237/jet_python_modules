@@ -1,4 +1,4 @@
-# jet.audio.speech_handlers.subtitle_overlay
+# jet.audio.speech_handlers.subtitle_overlay_frameless
 
 """
 SubtitleOverlay

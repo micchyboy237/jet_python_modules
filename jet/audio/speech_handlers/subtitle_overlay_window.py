@@ -1,0 +1,466 @@
+# jet.audio.speech_handlers.subtitle_overlay_window
+
+"""
+SubtitleOverlay  (FireRed VAD edition)
+======================================
+A PyQt6 always-on-top preview window that displays live subtitle entries
+received from the WebSocket subtitle server.
+
+Features
+--------
+- Rich HTML log of all segments: Japanese + English text, per-segment metadata
+- Per-entry action links: copy 📋, open folder 📂, play audio ▶
+- Toggle Japanese line visibility
+- Clear all entries
+- Auto-scroll that follows new entries unless the user has scrolled up
+- QSoundEffect for in-app WAV playback
+- VAD badge: FireRed only (hard-coded; no registry)
+- Metadata row: gap, duration, avg VAD prob, speech %, speech duration,
+  transcription %, coverage label
+- Implements SpeechSegmentHandler (on_segment_end is a no-op;
+  subtitle data arrives via SubtitleResponseNotifier Qt signal)
+
+Observer wiring (done in main)
+-------------------------------
+    app = QApplication(sys.argv)
+    overlay = SubtitleOverlay.create_and_connect(sender)
+    overlay.show()
+    sys.exit(app.exec())
+"""
+
+from __future__ import annotations
+
+import subprocess
+from abc import ABCMeta
+from pathlib import Path
+from typing import Optional
+
+from jet.audio.speech_handlers.base import SpeechSegmentHandler
+from jet.audio.speech_handlers.speech_events import (
+    SpeechSegmentEndEvent,
+    SpeechSegmentStartEvent,
+)
+from jet.audio.speech_handlers.subtitle_observer import SubtitleResponseNotifier
+from PyQt6.QtCore import Qt, QTimer, QUrl
+from PyQt6.QtGui import QTextCursor
+from PyQt6.QtMultimedia import QSoundEffect
+from PyQt6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QMainWindow,
+    QPushButton,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
+)
+
+OVERLAY_WIDTH = 450
+OVERLAY_HEIGHT = 800
+
+
+# ── metaclass fix ─────────────────────────────────────────────────────────────
+# QMainWindow uses Qt's internal sip metaclass; SpeechSegmentHandler uses
+# ABCMeta.  Python requires a single unified metaclass for classes that
+# inherit from both.  type(QMainWindow) retrieves Qt's actual metaclass
+# portably across all PyQt6 versions.
+class _QtABCMeta(type(QMainWindow), ABCMeta):
+    pass
+
+
+# ── colour helpers ────────────────────────────────────────────────────────────
+
+
+def _prob_color(prob: Optional[float]) -> str:
+    """Map a VAD probability [0.0–1.0] → display colour."""
+    if prob is None:
+        return "#8b949e"
+    if prob < 0.30:
+        return "#f85149"  # red   — low confidence
+    if prob < 0.55:
+        return "#fb923c"  # amber — borderline
+    if prob < 0.75:
+        return "#e3b341"  # yellow — moderate
+    return "#3fb950"  # green — high confidence
+
+
+def _speech_pctg_color(pctg: Optional[float]) -> str:
+    """Map speech-frame percentage [0–100] → display colour."""
+    if pctg is None:
+        return "#8b949e"
+    if pctg < 30:
+        return "#f85149"
+    if pctg < 50:
+        return "#fb923c"
+    if pctg < 70:
+        return "#e3b341"
+    return "#3fb950"
+
+
+# FireRed VAD badge — fixed, no lookup needed
+_VAD_BADGE_HTML = (
+    '<span style="'
+    "background:#3b1f6b; color:#c084fc; font-family:monospace; "
+    "font-size:9px; font-weight:bold; padding:1px 5px; "
+    'border-radius:3px; letter-spacing:0.5px;">FRD</span>'
+)
+
+
+# ── entry HTML formatter ──────────────────────────────────────────────────────
+
+
+def _format_entry(
+    index: int,
+    entry: dict,
+    prev_end: Optional[float],
+    hide_japanese: bool,
+) -> str:
+    """Return an HTML block for one subtitle entry."""
+    ja = entry.get("ja", "").strip()
+    en = entry.get("en", "").strip()
+    text = en if hide_japanese else f"{ja}\n{en}".strip()
+
+    start: float = entry.get("start", 0.0)
+    end: float = entry.get("end", 0.0)
+    gap = (start - prev_end) if prev_end is not None else 0.0
+    duration = end - start
+    trigger_reason = entry.get("trigger_reason") or "unknown"
+    segment_dir: Optional[Path] = (
+        Path(entry["segment_dir"]) if entry.get("segment_dir") else None
+    )
+
+    # VAD probability
+    avg_prob: Optional[float] = entry.get("avg_vad_prob")
+    avg_prob_str = f"{avg_prob:.3f}" if isinstance(avg_prob, float) else "N/A"
+    avg_prob_color = _prob_color(avg_prob)
+
+    # Speech frame percentage + duration
+    speech_pctg: Optional[float] = entry.get("speech_frames_pctg")
+    speech_pctg_str = (
+        f"{speech_pctg:.1f}%" if isinstance(speech_pctg, (int, float)) else "N/A"
+    )
+    speech_pctg_color = _speech_pctg_color(speech_pctg)
+
+    speech_dur_sec: Optional[float] = entry.get("speech_dur_sec")
+    speech_dur_str = (
+        f"{speech_dur_sec:.2f}s" if isinstance(speech_dur_sec, (int, float)) else "N/A"
+    )
+    speech_dur_color = _speech_pctg_color(speech_pctg)
+
+    # Transcription coverage
+    transcribed_pctg = entry.get("transcribed_duration_pctg")
+    trans_pctg_str = (
+        f"{float(transcribed_pctg):.1f}%"
+        if isinstance(transcribed_pctg, (int, float))
+        else "N/A"
+    )
+    trans_pctg_color = _speech_pctg_color(
+        float(transcribed_pctg) if isinstance(transcribed_pctg, (int, float)) else None
+    )
+    coverage_label = entry.get("coverage_label") or "N/A"
+
+    # Action links — only rendered when segment_dir is available
+    open_link = (
+        f'<a href="open:{index}" style="color:#58a6ff; text-decoration:none;">📂</a>'
+        if segment_dir
+        else ""
+    )
+    play_link = (
+        f'<a href="play:{index}" style="color:#ff7b72; text-decoration:none;'
+        f' font-size:13px;">▶</a>'
+        if segment_dir and (segment_dir / "sound.wav").exists()
+        else ""
+    )
+
+    return (
+        f'<div style="margin-bottom:6px;">'
+        f'<b style="font-size:10px;">{index}</b> {_VAD_BADGE_HTML} '
+        f'<span style="font-size:9px; color:#8b949e; line-height:1.1;">'
+        f"[gap: {gap:.2f}s] ({duration:.2f}s)"
+        f' • <span style="color:#d2a8ff;">{trigger_reason}</span>'
+        f' • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>'
+        f' • spch: <span style="color:{speech_pctg_color}; font-weight:bold;">{speech_pctg_str}</span>'
+        f' • dur: <span style="color:{speech_dur_color}; font-weight:bold;">{speech_dur_str}</span>'
+        f' • trans: <span style="color:{trans_pctg_color}; font-weight:bold;">{trans_pctg_str}</span>'
+        f' • cov: <span style="color:#79c0ff;">{coverage_label}</span>'
+        f"</span> "
+        f'<a href="copy:{index}" style="color:#58a6ff; text-decoration:none;">📋</a>'
+        f" {open_link} {play_link}"
+        f'<br/><pre style="white-space:pre-wrap; margin:0; font-size:10px;">{text}</pre>'
+        f"</div>"
+        f'<hr style="border:none; border-top:1px solid #30363d; margin:4px 0;">'
+    )
+
+
+# ── overlay window ────────────────────────────────────────────────────────────
+
+
+class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
+    """
+    Always-on-top subtitle preview window.
+
+    Subtitle data arrives via on_subtitle_received (Qt slot, main thread),
+    connected to a SubtitleResponseNotifier.  on_segment_end is a no-op.
+
+    Typical wiring via factory
+    --------------------------
+        overlay = SubtitleOverlay.create_and_connect(sender)
+        overlay.show()
+    """
+
+    _POLL_MS: int = 800
+    _WINDOW_TITLE: str = "Live Subtitles"
+    _TEXT_AREA_STYLE: str = """
+        QTextEdit {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: Consolas, 'Courier New', monospace;
+            font-size: 11px;
+            line-height: 1.25;
+            padding: 6px;
+            border: 1px solid #30363d;
+        }
+    """
+
+    def __init__(
+        self,
+        show_ja_text: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
+        QMainWindow.__init__(self, parent)
+        self._entries: list[dict] = []
+        self._hide_japanese: bool = not show_ja_text
+        self._last_html: Optional[str] = None
+        self._auto_scroll_enabled: bool = True
+
+        self._setup_window()
+        self._setup_ui()
+        self._setup_sound()
+        self._setup_poll_timer()
+
+    # ── window / layout ───────────────────────────────────────────────────────
+
+    def _setup_window(self) -> None:
+        self.setWindowTitle(self._WINDOW_TITLE)
+        self.resize(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+        screen = QApplication.primaryScreen()
+        if screen:
+            geom = screen.availableGeometry()
+            self.move(geom.right() - self.width() - 20, 20)
+
+    def _setup_ui(self) -> None:
+        central = QWidget()
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        # Top control bar
+        top_bar = QHBoxLayout()
+
+        self._clear_btn = QPushButton("🗑")
+        self._clear_btn.setToolTip("Clear all entries")
+        self._clear_btn.clicked.connect(self._clear_all)
+
+        self._hide_ja_btn = QPushButton("🇯🇵")
+        self._hide_ja_btn.setToolTip("Toggle Japanese text")
+        self._hide_ja_btn.setCheckable(True)
+        self._hide_ja_btn.setChecked(self._hide_japanese)
+        self._hide_ja_btn.clicked.connect(self._toggle_japanese)
+
+        top_bar.addWidget(self._clear_btn)
+        top_bar.addWidget(self._hide_ja_btn)
+        top_bar.addStretch()
+        layout.addLayout(top_bar)
+
+        # Scrollable rich-text area
+        self._text_area = QTextBrowser()
+        self._text_area.setReadOnly(True)
+        self._text_area.setAcceptRichText(True)
+        self._text_area.setStyleSheet(self._TEXT_AREA_STYLE)
+        self._text_area.setOpenExternalLinks(False)
+        self._text_area.setOpenLinks(False)
+        self._text_area.anchorClicked.connect(self._handle_anchor_click)
+        self._text_area.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        layout.addWidget(self._text_area)
+
+        self.setCentralWidget(central)
+
+    def _setup_sound(self) -> None:
+        self._sound_effect = QSoundEffect()
+
+    def _setup_poll_timer(self) -> None:
+        self._poll_timer = QTimer(self)
+        self._poll_timer.timeout.connect(self._refresh_display)
+        self._poll_timer.start(self._POLL_MS)
+
+    # ── Qt slot ───────────────────────────────────────────────────────────────
+
+    def on_subtitle_received(self, response: dict) -> None:
+        """
+        Qt slot — always runs on the Qt main thread (via queued signal).
+
+        Maps the raw ServerResponse dict to an internal entry dict and
+        appends it to the log.  Display is refreshed by the poll timer.
+        """
+        ja = response.get("transcription_ja", "").strip()
+        en = response.get("translation_en", "").strip()
+        if not ja and not en:
+            return
+
+        self._entries.append(
+            {
+                "ja": ja,
+                "en": en,
+                "start": response.get("start_sec", 0.0),
+                "end": response.get("end_sec", 0.0),
+                "trigger_reason": response.get("vad_reason", "unknown"),
+                "avg_vad_prob": response.get("avg_vad_prob"),
+                "speech_frames_pctg": response.get("speech_frames_pctg"),
+                "speech_dur_sec": response.get("speech_dur_sec"),
+                "transcribed_duration_pctg": response.get("transcribed_duration_pctg"),
+                "coverage_label": response.get("coverage_label", ""),
+                "segment_dir": response.get("segment_dir"),
+            }
+        )
+        # Invalidate the render cache so the next timer tick re-renders immediately.
+        self._last_html = None
+
+    # ── display refresh ───────────────────────────────────────────────────────
+
+    def _refresh_display(self) -> None:
+        """Called by poll timer. Rebuilds HTML only when entries have changed."""
+        html_parts: list[str] = []
+        prev_end: Optional[float] = None
+
+        for i, entry in enumerate(self._entries, 1):
+            ja = entry.get("ja", "").strip()
+            en = entry.get("en", "").strip()
+            text = en if self._hide_japanese else f"{ja}\n{en}".strip()
+            if not text.strip():
+                prev_end = entry.get("end")
+                continue
+            html_parts.append(_format_entry(i, entry, prev_end, self._hide_japanese))
+            prev_end = entry.get("end")
+
+        html = (
+            "".join(html_parts)
+            if html_parts
+            else "<span style='color:#8b949e;'>Waiting for transcribed segments…</span>"
+        )
+
+        if html == self._last_html:
+            return  # nothing changed — skip expensive setHtml
+        self._last_html = html
+
+        scrollbar = self._text_area.verticalScrollBar()
+        old_value = scrollbar.value()
+        at_bottom = old_value >= scrollbar.maximum() - 20
+
+        self._text_area.setHtml(html)
+
+        if at_bottom or self._auto_scroll_enabled:
+            cursor = self._text_area.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self._text_area.setTextCursor(cursor)
+        else:
+            scrollbar.setValue(old_value)
+
+    # ── scroll tracking ───────────────────────────────────────────────────────
+
+    def _on_scroll(self) -> None:
+        scrollbar = self._text_area.verticalScrollBar()
+        self._auto_scroll_enabled = scrollbar.value() >= scrollbar.maximum() - 20
+
+    # ── control bar ───────────────────────────────────────────────────────────
+
+    def _clear_all(self) -> None:
+        self._entries.clear()
+        self._last_html = None
+        self._text_area.clear()
+
+    def _toggle_japanese(self) -> None:
+        self._hide_japanese = self._hide_ja_btn.isChecked()
+        self._last_html = None
+        self._refresh_display()
+
+    # ── anchor click dispatcher ───────────────────────────────────────────────
+
+    def _handle_anchor_click(self, url) -> None:
+        url_str = url.toString()
+        if url_str.startswith("copy:"):
+            self._action_copy(int(url_str.split(":")[1]) - 1)
+        elif url_str.startswith("open:"):
+            self._action_open(int(url_str.split(":")[1]) - 1)
+        elif url_str.startswith("play:"):
+            self._action_play(int(url_str.split(":")[1]) - 1)
+
+    def _action_copy(self, idx: int) -> None:
+        if not (0 <= idx < len(self._entries)):
+            return
+        e = self._entries[idx]
+        text = f"{e.get('ja', '')}\n{e.get('en', '')}".strip()
+        QApplication.clipboard().setText(text)
+        self.setWindowTitle("Copied ✓")
+        QTimer.singleShot(800, lambda: self.setWindowTitle(self._WINDOW_TITLE))
+
+    def _action_open(self, idx: int) -> None:
+        if not (0 <= idx < len(self._entries)):
+            return
+        segment_dir = self._entries[idx].get("segment_dir")
+        if segment_dir:
+            try:
+                subprocess.Popen(["open", str(segment_dir)])
+            except Exception:
+                pass
+
+    def _action_play(self, idx: int) -> None:
+        if not (0 <= idx < len(self._entries)):
+            return
+        segment_dir = self._entries[idx].get("segment_dir")
+        if not segment_dir:
+            return
+        wav_path = Path(segment_dir) / "sound.wav"
+        if not wav_path.exists():
+            return
+        self._sound_effect.setSource(QUrl.fromLocalFile(str(wav_path)))
+        self._sound_effect.setVolume(1.0)
+        self._sound_effect.play()
+
+    # ── SpeechSegmentHandler interface ────────────────────────────────────────
+
+    def on_segment_start(self, event: SpeechSegmentStartEvent) -> None:
+        """No-op. Overlay is driven by WS responses, not raw segment boundaries."""
+
+    def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
+        """No-op. Subtitle text arrives via on_subtitle_received (Qt signal)."""
+
+    # ── lifecycle ─────────────────────────────────────────────────────────────
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._poll_timer.stop()
+        self._sound_effect.stop()
+        event.accept()
+
+    # ── convenience factory ───────────────────────────────────────────────────
+
+    @classmethod
+    def create_and_connect(
+        cls,
+        sender,  # WebsocketSubtitleSender
+        show_ja_text: bool = False,
+    ) -> "SubtitleOverlay":
+        """
+        Create an overlay, wire it to sender via SubtitleResponseNotifier, return it.
+
+        Example
+        -------
+            app = QApplication(sys.argv)
+            sender = WebsocketSubtitleSender(...)
+            overlay = SubtitleOverlay.create_and_connect(sender)
+            overlay.show()
+            sys.exit(app.exec())
+        """
+        overlay = cls(show_ja_text=show_ja_text)
+        notifier = SubtitleResponseNotifier(parent=overlay)
+        notifier.subtitle_received.connect(overlay.on_subtitle_received)
+        sender.add_observer(notifier)
+        return overlay
