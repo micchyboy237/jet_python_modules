@@ -371,7 +371,7 @@ if __name__ == "__main__":
     handlers: list[SpeechSegmentHandler] = [
         # add or remove handlers here
         WebsocketSubtitleSender(
-            global_srt_path=OUTPUT_DIR,
+            global_srt_path=OUTPUT_DIR / "subtitles.srt",
         ),
     ]
     recording_started_at = datetime.now(timezone.utc)

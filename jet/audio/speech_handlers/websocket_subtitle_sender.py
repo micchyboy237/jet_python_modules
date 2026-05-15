@@ -128,10 +128,29 @@ def _log_response(response: dict, seg_num: int) -> None:
     console.print(table)
 
 
-def _log_saved(seg_dir: Path, files: list[str]) -> None:
-    lines = "\n".join(f"  [dim]→[/dim] [cyan]{f}[/cyan]" for f in files)
+def _file_link(path: Path) -> str:
+    """Return a Rich markup string that is a clickable hyperlink to *path*."""
+    uri = path.as_uri()  # file:///absolute/path
+    return f"[link={uri}][cyan]{path}[/cyan][/link]"
+
+
+def _log_saved(
+    seg_dir: Path, files: list[Path], global_path: Path | None = None
+) -> None:
+    lines_parts: list[str] = []
+    for p in files:
+        lines_parts.append(f"  [dim]→[/dim] {_file_link(p)}")
+    if global_path is not None:
+        lines_parts.append(
+            f"  [dim]→[/dim] [dim](global)[/dim] {_file_link(global_path)}"
+        )
+    lines = "\n".join(lines_parts)
     console.print(
-        Panel(lines, title=f"[bold]Saved to {seg_dir.name}[/bold]", expand=False)
+        Panel(
+            lines,
+            title=f"[bold]Saved to [link={seg_dir.as_uri()}]{seg_dir.name}[/link][/bold]",
+            expand=False,
+        )
     )
 
 
@@ -347,18 +366,25 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         audio_bytes = _to_pcm_int16_bytes(event.audio_np)
         _log_request(header, audio_bytes)
 
-        response = await self._send_and_receive(header, audio_bytes)
+        try:
+            response = await self._send_and_receive(header, audio_bytes)
+        except Exception as exc:
+            console.print(
+                f"[bold red][WS][/bold red] Segment {seg_num} send/receive failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return
+
         _log_response(response, seg_num)
 
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
         srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
+
+        # ── update global subtitles.srt immediately after each segment ───────
         global_path = self._update_global_srt(seg_dir)
 
-        saved = [req_path.name, resp_path.name, srt_path.name]
-        if global_path:
-            saved.append(f"[dim](global)[/dim] {global_path}")
-        _log_saved(seg_dir, saved)
+        _log_saved(seg_dir, [req_path, resp_path, srt_path], global_path)
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
 
