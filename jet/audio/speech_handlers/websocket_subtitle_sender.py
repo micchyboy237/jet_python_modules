@@ -43,6 +43,7 @@ from jet.audio.speech_handlers.srt_utils import (
     merge_and_write_global_srt,
     write_srt,
 )
+from jet.audio.speech_handlers.subtitle_observer import SubtitleObserver
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -204,6 +205,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             f"[bold blue][WS][/bold blue] Connecting → [cyan]{self.ws_url}[/cyan]"
         )
 
+        self._observers: list[SubtitleObserver] = []
+        self._observers_lock = threading.Lock()
+
     # ── Loop thread ─────────────────────────────────────────────────────────
 
     def _run_loop(self) -> None:
@@ -348,6 +352,31 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         asyncio.run_coroutine_threadsafe(self._handle_segment(event), self._loop)
         # intentionally no .result() — non-blocking fire-and-forget
 
+    # ── observer management ───────────────────────────────────────────────────
+
+    def add_observer(self, observer: SubtitleObserver) -> None:
+        """Register an observer to receive every ServerResponse."""
+        with self._observers_lock:
+            if observer not in self._observers:
+                self._observers.append(observer)
+
+    def remove_observer(self, observer: SubtitleObserver) -> None:
+        """Unregister a previously added observer."""
+        with self._observers_lock:
+            self._observers = [o for o in self._observers if o is not observer]
+
+    def _notify_observers(self, response: ServerResponse) -> None:
+        """Call on_subtitle_response on all registered observers (errors caught per-observer)."""
+        with self._observers_lock:
+            observers = list(self._observers)
+        for observer in observers:
+            try:
+                observer.on_subtitle_response(response)
+            except Exception as exc:
+                console.print(
+                    f"[yellow][WS][/yellow] Observer {type(observer).__name__} failed: {exc}"
+                )
+
     async def _handle_segment(self, event: SpeechSegmentEndEvent) -> None:
         seg: SpeechSegment = event.segment
         seg_num: int = event.segment_number
@@ -381,6 +410,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             return
 
         _log_response(response, seg_num)
+
+        # Fan out to all observers
+        self._notify_observers(response)
 
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)

@@ -1,5 +1,7 @@
 import json
 import shutil
+import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,11 +15,14 @@ from jet.audio.speech.wav_utils import save_wav_file
 from jet.audio.speech_detector import record_from_mic
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import SpeechSegmentEndEvent
+from jet.audio.speech_handlers.subtitle_observer import SubtitleResponseNotifier
+from jet.audio.speech_handlers.subtitle_overlay import SubtitleOverlay
 from jet.audio.speech_handlers.websocket_subtitle_sender import (
     WebsocketSubtitleSender,
 )
 from jet.file.utils import save_file
 from jet.logger import logger
+from PyQt6.QtWidgets import QApplication
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
@@ -366,50 +371,61 @@ def save_segment_data(
 
 def main_live_speech_translation():
     """Main entry point with accumulated display."""
+    # Qt must own the main thread, so the recording loop runs in a daemon thread.
+    app = QApplication(sys.argv)
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Build the overlay and notifier; connect them before starting.
+    overlay = SubtitleOverlay()
+    notifier = SubtitleResponseNotifier()
+    notifier.subtitle_received.connect(overlay.on_subtitle_received)
 
     handlers: list[SpeechSegmentHandler] = [
         WebsocketSubtitleSender(global_srt_path=OUTPUT_DIR / "subtitles.srt"),
     ]
 
-    recording_started_at = datetime.now(timezone.utc)
-    completed_segments: list[SpeechSegment] = []  # ← accumulation
+    # Wire the sender's observer to the notifier.
+    ws_sender = handlers[0]  # type: ignore[assignment]
+    ws_sender.add_observer(notifier)
 
-    data_stream = record_from_mic(
-        duration=None,
-        trim_silent=False,
-        quit_on_silence=False,
-    )
-
-    for speech_seg, seg_audio_np in data_stream:
-        # Save and dispatch
-        seg_dir, seg_number = save_segment_data(
-            speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
+    def _recording_loop() -> None:
+        recording_started_at = datetime.now(timezone.utc)
+        completed_segments: list[SpeechSegment] = []
+        data_stream = record_from_mic(
+            duration=None,
+            trim_silent=False,
+            quit_on_silence=False,
         )
-        speech_seg["num"] = seg_number  # sync num before save/display
-        dispatch_handlers(
-            handlers,
-            speech_seg,
-            seg_audio_np,
-            seg_dir,
-            seg_number,
-            SAMPLE_RATE,
-            recording_started_at,
-        )
+        for speech_seg, seg_audio_np in data_stream:
+            seg_dir, seg_number = save_segment_data(
+                speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
+            )
+            speech_seg["num"] = seg_number
+            dispatch_handlers(
+                handlers,
+                speech_seg,
+                seg_audio_np,
+                seg_dir,
+                seg_number,
+                SAMPLE_RATE,
+                recording_started_at,
+            )
+            completed_segments.append(speech_seg)
+            display_segments(completed_segments, done=False)
+            save_file(
+                completed_segments, OUTPUT_DIR / "all_segments.json", verbose=False
+            )
+        display_segments(completed_segments, done=True)
+        for h in handlers:
+            if hasattr(h, "close"):
+                h.close()
 
-        # Accumulate and display
-        completed_segments.append(speech_seg)
-        display_segments(completed_segments, done=False)  # ← updated usage
+    rec_thread = threading.Thread(target=_recording_loop, daemon=True, name="recorder")
+    rec_thread.start()
 
-        # Optional: persist full list
-        save_file(completed_segments, OUTPUT_DIR / "all_segments.json", verbose=False)
-
-    # Final display with done=True
-    display_segments(completed_segments, done=True)
-
-    for h in handlers:
-        if hasattr(h, "close"):
-            h.close()
+    overlay.show()
+    sys.exit(app.exec())  # Qt event loop — blocks until window is closed
 
 
 if __name__ == "__main__":
