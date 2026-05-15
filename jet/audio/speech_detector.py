@@ -88,7 +88,7 @@ def record_from_mic(
     prev_segment: Optional[SpeechSegment] = None
     # Stored as absolute seconds from recording start (not window-relative).
     last_yielded_end_sec: float = 0.0
-    speech_ts: List[SpeechSegment] = []
+    curr_speech_segs: List[SpeechSegment] = []
 
     # Initialize progress bar: determinate if duration is set, indeterminate otherwise
     pbar_kwargs = (
@@ -139,23 +139,27 @@ def record_from_mic(
                             # Reset segments
                             prev_segment = None
 
-                        if speech_ts:
-                            display_segments(speech_ts)
+                        if curr_speech_segs:
+                            display_segments(curr_speech_segs)
 
                         continue
                 else:
                     silent_count = 0
 
                 # Run Silero VAD every chunk to detect speech segments in real-time
-                speech_ts = extract_current_speech_segment(
+                curr_speech_segs = extract_current_speech_segment(
                     audio_data,
                     threshold=threshold,
                     min_silence_duration_sec=min_silence_duration_sec,
                     min_speech_duration_sec=min_speech_duration_sec,
                     max_speech_duration_sec=max_speech_duration_sec,
                 )
-                curr_segment = speech_ts[-1] if speech_ts else prev_segment
-                prev_segment = speech_ts[-2] if len(speech_ts) > 1 else None
+                curr_segment = (
+                    curr_speech_segs[-1] if curr_speech_segs else prev_segment
+                )
+                prev_segment = (
+                    curr_speech_segs[-2] if len(curr_speech_segs) > 1 else None
+                )
 
                 if (
                     curr_segment
@@ -213,7 +217,7 @@ def record_from_mic(
 
     # === FINAL FLUSH: save any remaining speech ===
     if prev_segment:
-        display_segments(speech_ts)
+        display_segments(curr_speech_segs)
         # Final segment overlap handling
         last_yielded_window_sec = max(
             0.0, last_yielded_end_sec - audio_data.trimmed_sec
@@ -271,7 +275,7 @@ def extract_current_speech_segment(
 ) -> List[SpeechSegment]:
     # Concatenate list of np.ndarray chunks into one 1D np.ndarray
     full_audio_np = np.concatenate(audio_data, axis=0)
-    speech_ts, speech_probs = extract_speech_timestamps(
+    curr_speech_segs, speech_probs = extract_speech_timestamps(
         audio=full_audio_np,
         with_scores=True,
         return_seconds=True,
@@ -280,5 +284,5 @@ def extract_current_speech_segment(
         min_speech_duration_sec=min_speech_duration_sec,
         max_speech_duration_sec=max_speech_duration_sec,
     )
-    display_segments(speech_ts)
-    return speech_ts
+    display_segments(curr_speech_segs)
+    return curr_speech_segs
