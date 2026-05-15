@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from jet.audio.norm.norm_speech_loudness import (
+from jet.audio.normalization.norm_speech_loudness import (
     normalize_speech_loudness,  # ← added import
 )
 from jet.audio.speech.silero.speech_types import SpeechSegment

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 import torch
-from jet.audio.norm import normalize_speech_loudness
+from jet.audio.normalization import normalize_speech_loudness
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ def mock_silero_all_speech(monkeypatch):
         return np.ones(len(audio), dtype=np.float32)
 
     monkeypatch.setattr(
-        "jet.audio.norm.norm_speech_loudness._speech_probability",
+        "jet.audio.normalization.norm_speech_loudness._speech_probability",
         fake_probs,
     )
 
@@ -67,7 +67,7 @@ def mock_silero_no_speech(monkeypatch):
         return np.zeros(len(audio), dtype=np.float32)
 
     monkeypatch.setattr(
-        "jet.audio.norm.norm_speech_loudness._speech_probability",
+        "jet.audio.normalization.norm_speech_loudness._speech_probability",
         fake_probs,
     )
 
@@ -87,7 +87,7 @@ def mock_silero_partial_speech(monkeypatch):
         return probs
 
     monkeypatch.setattr(
-        "jet.audio.norm.norm_speech_loudness._speech_probability",
+        "jet.audio.normalization.norm_speech_loudness._speech_probability",
         fake_probs,
     )
 

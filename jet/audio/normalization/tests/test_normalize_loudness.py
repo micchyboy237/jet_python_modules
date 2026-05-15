@@ -13,7 +13,7 @@ import numpy as np
 import pyloudnorm as pyln
 import pytest
 import soundfile as sf
-from jet.audio.norm import normalize_loudness
+from jet.audio.normalization import normalize_loudness
 
 try:
     import torch

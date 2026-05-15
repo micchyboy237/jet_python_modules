@@ -23,7 +23,7 @@ from jet.audio.helpers.energy import (
     rms_to_loudness_label,
     smooth_signal,
 )
-from jet.audio.norm.norm_audio import normalize_audio
+from jet.audio.normalization.norm_audio import normalize_audio
 from jet.audio.speech.vad_extractors import (
     extract_valley_troughs,
     extract_valley_troughs_from_np_audio,
