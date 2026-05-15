@@ -34,8 +34,8 @@ from jet.audio.speech_handlers.speech_events import (
     SpeechSegmentStartEvent,
 )
 from jet.audio.speech_handlers.srt_utils import (
-    build_srt_from_phrase_segments,
-    build_srt_single_block,
+    build_segment_srt,
+    merge_and_write_global_srt,
     write_srt,
 )
 from rich.console import Console
@@ -149,6 +149,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         ws_url: str | None = None,
         reconnect_delay: float = 2.0,
         send_timeout: float = 30.0,
+        global_srt_path: Path | None = None,
     ) -> None:
         self.ws_url = ws_url or os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL")
         if not self.ws_url:
@@ -158,6 +159,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             )
         self.reconnect_delay = reconnect_delay
         self.send_timeout = send_timeout
+        self.global_srt_path = global_srt_path  # written after every segment
 
         self._ws: Optional[ClientConnection] = None
         self._ws_lock = asyncio.Lock()  # guarded inside the async loop
@@ -285,25 +287,25 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         end_sec: float,
         seg_number: int,
     ) -> Path:
+        """Write a single-block subtitle.srt: Japanese line 1, English line 2."""
         path = seg_dir / "subtitle.srt"
-        phrase_segments = response.get("phrase_segments") or []
-
-        if phrase_segments:
-            srt_content = build_srt_from_phrase_segments(
-                phrase_segments, global_start_sec=start_sec
-            )
-        else:
-            # fallback: single block for the whole segment
-            srt_content = build_srt_single_block(
-                index=seg_number,
-                start_sec=start_sec,
-                end_sec=end_sec,
-                transcription_ja=response.get("transcription_ja", ""),
-                translation_en=response.get("translation_en", ""),
-            )
-
+        srt_content = build_segment_srt(
+            index=seg_number,
+            start_sec=start_sec,
+            end_sec=end_sec,
+            transcription_ja=response.get("transcription_ja", ""),
+            translation_en=response.get("translation_en", ""),
+        )
         write_srt(path, srt_content)
         return path
+
+    def _update_global_srt(self, seg_dir: Path) -> Path | None:
+        """Re-merge all segment subtitle.srt files into the global subtitles.srt."""
+        if self.global_srt_path is None:
+            return None
+        segments_root = seg_dir.parent
+        merge_and_write_global_srt(segments_root, self.global_srt_path)
+        return self.global_srt_path
 
     # ── Handler interface ────────────────────────────────────────────────────
 
@@ -351,8 +353,12 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
         srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
+        global_path = self._update_global_srt(seg_dir)
 
-        _log_saved(seg_dir, [req_path.name, resp_path.name, srt_path.name])
+        saved = [req_path.name, resp_path.name, srt_path.name]
+        if global_path:
+            saved.append(f"[dim](global)[/dim] {global_path}")
+        _log_saved(seg_dir, saved)
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
 
