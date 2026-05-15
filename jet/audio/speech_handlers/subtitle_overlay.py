@@ -299,3 +299,7 @@ class SubtitleOverlay(QWidget, SpeechSegmentHandler, metaclass=_QtABCMeta):
         notifier.subtitle_received.connect(overlay.on_subtitle_received)
         sender.add_observer(notifier)
         return overlay
+
+    def closeEvent(self, event) -> None:
+        """Accept immediately — actual cleanup is done via app.aboutToQuit."""
+        event.accept()
