@@ -11,7 +11,7 @@ from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
 from jet.audio.speech.firered.speech_timestamps_extractor import (
     extract_speech_timestamps,
 )
-from jet.audio.speech.vad_types import VADSegment
+from jet.audio.speech.vad_types import VADSegment, ValleyTrough
 from jet.audio.speech.vad_valley_utils import ThresholdStrategy, auto_threshold
 from rich.console import Console
 from scipy.signal import find_peaks
@@ -837,6 +837,105 @@ def save_segments_to_subdirs(
     )
 
 
+def save_valley_trough_segments(
+    valley_troughs: List["ValleyTrough"],
+    probs: List[float],
+    output_dir: "Path",
+    audio_path: Optional[str],
+    sample_rate: int,
+    frame_shift_ms: float,
+) -> None:
+    """
+    For each ValleyTrough, create a segment that spans from the start of the
+    audio (t=0) to the trough's position (global_time_s).  Each segment is
+    saved as a numbered subdirectory under ``output_dir / "valley_troughs" /``
+    containing three files:
+
+        sound.wav  – audio from sample 0 to the trough sample
+        meta.json  – the ValleyTrough dict plus derived start_s/end_s/duration_s
+        plot.png   – VAD probability from frame 0 to the trough frame
+    """
+    import json
+
+    cat_dir = output_dir / "valley_troughs"
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
+    audio_data: Optional[np.ndarray] = None
+    file_sr: int = sample_rate
+    if audio_path is not None:
+        audio_data, file_sr = sf.read(audio_path, always_2d=False)
+
+    x = np.array(probs, dtype=float)
+    n_frames = len(x)
+
+    for idx, vt in enumerate(valley_troughs):
+        seg_dir = cat_dir / f"segment_{idx:03d}"
+        seg_dir.mkdir(parents=True, exist_ok=True)
+
+        # Derived times: segment always starts at 0, ends at the trough
+        start_s: float = 0.0
+        end_s: float = float(vt["global_time_s"])
+        duration_s: float = round(end_s - start_s, 4)
+
+        # ── meta.json ────────────────────────────────────────────────────────
+        meta = dict(vt)  # shallow copy of the ValleyTrough TypedDict
+        meta["start_s"] = start_s
+        meta["end_s"] = end_s
+        meta["duration_s"] = duration_s
+        with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
+            json.dump(meta, fh, ensure_ascii=False, indent=2)
+
+        # ── sound.wav ────────────────────────────────────────────────────────
+        if audio_data is not None:
+            end_sample = int(end_s * file_sr)
+            end_sample = min(len(audio_data), end_sample)
+            slice_audio = audio_data[0:end_sample]
+            sf.write(str(seg_dir / "sound.wav"), slice_audio, file_sr)
+
+        # ── plot.png ─────────────────────────────────────────────────────────
+        trough_frame: int = int(vt["global_frame"])
+        f_end = min(n_frames, trough_frame + 1)
+        frames = np.arange(0, f_end)
+        zoomed = x[0:f_end]
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(frames, zoomed, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
+        # Shade the entire excerpt in a neutral blue
+        ax.axvspan(0, trough_frame, alpha=0.12, color="blue", label="excerpt")
+        # Mark the trough itself
+        ax.axvline(
+            x=trough_frame,
+            color="red",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"trough (frame {trough_frame})",
+        )
+        ax.plot(
+            trough_frame,
+            x[trough_frame] if trough_frame < n_frames else 0.0,
+            "ro",
+            markersize=9,
+        )
+        ax.set_title(
+            f"valley_troughs · segment {idx:03d}  [0.000 s – {end_s:.3f} s]",
+            fontsize=12,
+        )
+        ax.set_xlabel("Frame Index")
+        ax.set_ylabel("Speech Probability")
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=10, loc="upper right")
+        plt.tight_layout()
+        plt.savefig(str(seg_dir / "plot.png"), dpi=150, bbox_inches="tight")
+        plt.close()
+
+    console.print(
+        f"🔻 [bold]{len(valley_troughs)} Valley Troughs[/bold] segments saved to: "
+        f"[link=file:///{cat_dir.resolve()}]{cat_dir.resolve()}[/link]",
+        style="green",
+    )
+
+
 def get_args():
     import argparse
 
@@ -1108,6 +1207,15 @@ if __name__ == "__main__":
         min_duration_frames=args.min_valley_frames,
     )
 
+    valley_troughs = extract_valley_troughs(
+        probs=probs,
+        min_valley_duration_s=args.min_valley_duration,
+        sample_rate=args.sample_rate,  # ← add this
+        frame_shift_ms=args.frame_shift_ms,  # ← add this (was defaulting to 25ms!)
+        frame_offset=args.frame_offset if hasattr(args, "frame_offset") else 0,
+        smoothing_window=args.smoothing_window,
+    )
+
     # === Results Summary ===
     console.print("\n[bold cyan]📊 Analysis Summary[/bold cyan]")
     console.print(f"   • Peaks          : {len(peaks)}", style="green")
@@ -1129,6 +1237,14 @@ if __name__ == "__main__":
         save_segments_to_subdirs(
             segments=valleys,
             category="valleys",
+            probs=probs_smoothed,
+            output_dir=output_dir,
+            audio_path=args.input_file,
+            sample_rate=args.sample_rate,
+            frame_shift_ms=args.frame_shift_ms,
+        )
+        save_valley_trough_segments(
+            valley_troughs=valley_troughs,
             probs=probs_smoothed,
             output_dir=output_dir,
             audio_path=args.input_file,
@@ -1180,14 +1296,6 @@ if __name__ == "__main__":
     base_valley_troughs = base_extract_valley_troughs(valleys)
     save_json(base_valley_troughs, "base_valley_troughs.json", "Base Valley Troughs")
 
-    valley_troughs = extract_valley_troughs(
-        probs=probs,
-        min_valley_duration_s=args.min_valley_duration,
-        sample_rate=args.sample_rate,  # ← add this
-        frame_shift_ms=args.frame_shift_ms,  # ← add this (was defaulting to 25ms!)
-        frame_offset=args.frame_offset if hasattr(args, "frame_offset") else 0,
-        smoothing_window=args.smoothing_window,
-    )
     save_json(valley_troughs, "valley_troughs.json", "Valley Troughs")
 
     console.rule("[bold green]Analysis Complete ✓[/bold green]")

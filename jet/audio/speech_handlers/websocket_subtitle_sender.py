@@ -1,0 +1,380 @@
+"""
+WebsocketSubtitleSender
+========================
+Implements SpeechSegmentHandler.
+On each completed segment it:
+  1. Builds the binary WS message  (JSON header \x00 PCM int16 audio)
+  2. Sends it to the live-subtitles WebSocket server
+  3. Awaits the JSON response
+  4. Persists request.json, response.json, and subtitle.srt
+     inside the matching segment_NNN/ directory
+
+Architecture
+------------
+A dedicated asyncio event loop runs in a background daemon thread.
+`on_segment_end` submits work to that loop via run_coroutine_threadsafe,
+so it is safe to call from the synchronous recorder thread.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import threading
+import uuid
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.speech_handlers.base import SpeechSegmentHandler
+from jet.audio.speech_handlers.speech_events import (
+    SpeechSegmentEndEvent,
+    SpeechSegmentStartEvent,
+)
+from jet.audio.speech_handlers.srt_utils import (
+    build_srt_from_phrase_segments,
+    build_srt_single_block,
+    write_srt,
+)
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from websockets.asyncio.client import ClientConnection, connect
+from websockets.exceptions import (
+    ConnectionClosedError,
+    ConnectionClosedOK,
+)
+
+console = Console()
+
+# ── VAD reason mapping ──────────────────────────────────────────────────────
+_END_REASON_TO_VAD: dict[str | None, str] = {
+    "silence": "silence",
+    "hard_limit": "forced",
+    "valley": "silence",
+    None: "silence",
+}
+
+
+def _vad_reason(segment: SpeechSegment) -> str:
+    return _END_REASON_TO_VAD.get(segment.get("end_reason"), "silence")
+
+
+# ── Audio helpers ───────────────────────────────────────────────────────────
+
+
+def _to_pcm_int16_bytes(audio_np: np.ndarray) -> bytes:
+    """
+    Normalise to float32 [-1, 1], convert to int16, return raw little-endian bytes.
+    Handles int16 input (passthrough) and multi-channel (mean to mono).
+    """
+    arr = audio_np
+    if arr.ndim > 1:
+        arr = arr.mean(axis=1)
+    arr = arr.astype(np.float32)
+    if np.issubdtype(audio_np.dtype, np.integer):
+        arr = arr / np.iinfo(audio_np.dtype).max
+    arr = np.clip(arr, -1.0, 1.0)
+    return (arr * 32767).astype("<i2").tobytes()
+
+
+def _build_message(header: dict, audio_bytes: bytes) -> bytes:
+    """Encode: UTF-8 JSON header + null byte + raw PCM bytes."""
+    return (
+        json.dumps(header, ensure_ascii=False).encode("utf-8") + b"\x00" + audio_bytes
+    )
+
+
+# ── Logging helpers ─────────────────────────────────────────────────────────
+
+
+def _log_request(header: dict, audio_bytes: bytes) -> None:
+    table = Table(title="[bold cyan]WS Request[/bold cyan]", show_header=False)
+    table.add_column("Key", style="dim cyan", no_wrap=True)
+    table.add_column("Value", style="white")
+    for k, v in header.items():
+        table.add_row(k, str(v))
+    table.add_row("audio_bytes", f"{len(audio_bytes):,} bytes")
+    console.print(table)
+
+
+def _log_response(response: dict, seg_num: int) -> None:
+    success = response.get("success", False)
+    title_color = "bold green" if success else "bold red"
+    status = "✅ success" if success else "❌ error"
+    table = Table(
+        title=f"[{title_color}]WS Response — Segment {seg_num}  {status}[/{title_color}]",
+        show_header=False,
+    )
+    table.add_column("Key", style="dim green", no_wrap=True)
+    table.add_column("Value", style="white")
+    highlights = [
+        "uuid",
+        "success",
+        "transcription_ja",
+        "translation_en",
+        "context_duration",
+        "new_duration",
+        "coverage_label",
+        "transcribed_duration_pctg",
+        "new_ja_similarity",
+        "error",
+    ]
+    for k in highlights:
+        if k in response:
+            table.add_row(k, str(response[k]))
+    console.print(table)
+
+
+def _log_saved(seg_dir: Path, files: list[str]) -> None:
+    lines = "\n".join(f"  [dim]→[/dim] [cyan]{f}[/cyan]" for f in files)
+    console.print(
+        Panel(lines, title=f"[bold]Saved to {seg_dir.name}[/bold]", expand=False)
+    )
+
+
+# ── Main class ──────────────────────────────────────────────────────────────
+
+
+class WebsocketSubtitleSender(SpeechSegmentHandler):
+    """
+    Thread-safe WebSocket handler.
+    Keeps a single persistent connection; auto-reconnects on drops.
+    """
+
+    def __init__(
+        self,
+        ws_url: str | None = None,
+        reconnect_delay: float = 2.0,
+        send_timeout: float = 30.0,
+    ) -> None:
+        self.ws_url = ws_url or os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL")
+        if not self.ws_url:
+            raise ValueError(
+                "WebSocket URL not provided. "
+                "Pass ws_url= or set LOCAL_WS_LIVE_SUBTITLES_URL."
+            )
+        self.reconnect_delay = reconnect_delay
+        self.send_timeout = send_timeout
+
+        self._ws: Optional[ClientConnection] = None
+        self._ws_lock = asyncio.Lock()  # guarded inside the async loop
+        self._stop_event = threading.Event()
+        self._connected_event = asyncio.Event()  # set when ws is live
+
+        self._loop = asyncio.new_event_loop()
+        self._loop_thread = threading.Thread(
+            target=self._run_loop, daemon=True, name="ws-subtitle-loop"
+        )
+        self._loop_thread.start()
+
+        # schedule connection manager on the new loop
+        self._loop.call_soon_threadsafe(
+            lambda: self._loop.create_task(self._connection_manager())
+        )
+        console.print(
+            f"[bold blue][WS][/bold blue] Connecting → [cyan]{self.ws_url}[/cyan]"
+        )
+
+    # ── Loop thread ─────────────────────────────────────────────────────────
+
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    # ── Connection manager ───────────────────────────────────────────────────
+
+    async def _connection_manager(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                async with connect(
+                    self.ws_url,
+                    max_size=None,
+                    compression=None,
+                    ping_interval=30,
+                    ping_timeout=30,
+                    close_timeout=10,
+                ) as ws:
+                    self._ws = ws
+                    self._connected_event.set()
+                    console.print(
+                        f"[bold green][WS][/bold green] Connected → [cyan]{self.ws_url}[/cyan]"
+                    )
+                    # keep connection alive until it breaks
+                    await ws.wait_closed()
+            except (ConnectionClosedOK, ConnectionClosedError) as exc:
+                console.print(f"[yellow][WS][/yellow] Connection closed: {exc}")
+            except OSError as exc:
+                console.print(f"[red][WS][/red] Network error: {exc}")
+            except Exception as exc:
+                console.print(
+                    f"[red][WS][/red] Unexpected error: {type(exc).__name__}: {exc}"
+                )
+            finally:
+                self._ws = None
+                self._connected_event.clear()
+
+            if self._stop_event.is_set():
+                break
+            console.print(
+                f"[yellow][WS][/yellow] Reconnecting in {self.reconnect_delay:.1f}s …"
+            )
+            await asyncio.sleep(self.reconnect_delay)
+
+        console.print("[dim][WS] Connection manager exited.[/dim]")
+
+    # ── Internal send + receive ──────────────────────────────────────────────
+
+    async def _send_and_receive(
+        self,
+        header: dict,
+        audio_bytes: bytes,
+    ) -> dict:
+        """
+        Wait until connected, send the binary message, await the text response.
+        Raises RuntimeError if no response arrives within send_timeout.
+        """
+        # wait for connection (up to send_timeout)
+        try:
+            await asyncio.wait_for(
+                self._connected_event.wait(), timeout=self.send_timeout
+            )
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"[WS] Timed out waiting for connection after {self.send_timeout}s"
+            )
+
+        ws = self._ws
+        if ws is None:
+            raise RuntimeError("[WS] Connection lost right before send")
+
+        message = _build_message(header, audio_bytes)
+        await ws.send(message)
+
+        raw = await asyncio.wait_for(ws.recv(), timeout=self.send_timeout)
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        return json.loads(raw)
+
+    # ── File persistence ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _save_request(seg_dir: Path, header: dict, audio_bytes: bytes) -> Path:
+        payload = {**header, "audio_bytes_len": len(audio_bytes)}
+        path = seg_dir / "request.json"
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return path
+
+    @staticmethod
+    def _save_response(seg_dir: Path, response: dict) -> Path:
+        path = seg_dir / "response.json"
+        path.write_text(
+            json.dumps(response, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return path
+
+    @staticmethod
+    def _save_srt(
+        seg_dir: Path,
+        response: dict,
+        start_sec: float,
+        end_sec: float,
+        seg_number: int,
+    ) -> Path:
+        path = seg_dir / "subtitle.srt"
+        phrase_segments = response.get("phrase_segments") or []
+
+        if phrase_segments:
+            srt_content = build_srt_from_phrase_segments(
+                phrase_segments, global_start_sec=start_sec
+            )
+        else:
+            # fallback: single block for the whole segment
+            srt_content = build_srt_single_block(
+                index=seg_number,
+                start_sec=start_sec,
+                end_sec=end_sec,
+                transcription_ja=response.get("transcription_ja", ""),
+                translation_en=response.get("translation_en", ""),
+            )
+
+        write_srt(path, srt_content)
+        return path
+
+    # ── Handler interface ────────────────────────────────────────────────────
+
+    def on_segment_start(self, event: SpeechSegmentStartEvent) -> None:
+        """Nothing to do on start — reserved for future use."""
+        pass
+
+    def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
+        """
+        Called from the recorder thread.
+        Submits async work to the WS loop and returns immediately —
+        the recorder is free to keep accumulating audio while the
+        WS round-trip runs concurrently in the background loop thread.
+        Errors are caught and logged inside _handle_segment.
+        """
+        asyncio.run_coroutine_threadsafe(self._handle_segment(event), self._loop)
+        # intentionally no .result() — non-blocking fire-and-forget
+
+    async def _handle_segment(self, event: SpeechSegmentEndEvent) -> None:
+        seg: SpeechSegment = event.segment
+        seg_num: int = event.segment_number
+        seg_dir: Path = event.segment_dir
+
+        start_sec = float(seg["start"])
+        end_sec = float(seg["end"])
+        duration = float(seg["duration"])
+
+        header = {
+            "uuid": str(uuid.uuid4()),
+            "sample_rate": event.sample_rate,
+            "duration_sec": round(duration, 4),
+            "start_sec": round(start_sec, 4),
+            "end_sec": round(end_sec, 4),
+            "vad_reason": _vad_reason(seg),
+            "forced": seg.get("end_reason") == "hard_limit",
+            "started_at": event.started_at.isoformat(),
+        }
+
+        audio_bytes = _to_pcm_int16_bytes(event.audio_np)
+        _log_request(header, audio_bytes)
+
+        response = await self._send_and_receive(header, audio_bytes)
+        _log_response(response, seg_num)
+
+        req_path = self._save_request(seg_dir, header, audio_bytes)
+        resp_path = self._save_response(seg_dir, response)
+        srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
+
+        _log_saved(seg_dir, [req_path.name, resp_path.name, srt_path.name])
+
+    # ── Shutdown ─────────────────────────────────────────────────────────────
+
+    def close(self) -> None:
+        self._stop_event.set()
+        # drain any in-flight _handle_segment tasks before tearing down the loop
+        drain = asyncio.run_coroutine_threadsafe(
+            asyncio.sleep(0),
+            self._loop,  # yields control so queued tasks can finish
+        )
+        try:
+            drain.result(timeout=self.send_timeout + 5)
+        except Exception:
+            pass
+        if self._ws is not None:
+            try:
+                future = asyncio.run_coroutine_threadsafe(self._ws.close(), self._loop)
+                future.result(timeout=5.0)
+            except Exception as exc:
+                console.print(f"[yellow][WS][/yellow] Error during close: {exc}")
+        if self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop_thread.is_alive():
+            self._loop_thread.join(timeout=5.0)
+        console.print("[dim][WS] Shutdown complete.[/dim]")

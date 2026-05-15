@@ -8,8 +8,10 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-from jet.audio.speech.speechbrain.utterance_processor import StreamingSpeechProcessor
-from jet.audio.speech.speechbrain.ws_client import PersistentWSClient
+from jet.audio.speech.speechbrain.live_speech_acc.utterance_processor import (
+    StreamingSpeechProcessor,
+)
+from jet.audio.speech.speechbrain.live_speech_acc.ws_client import PersistentWSClient
 from rich.console import Console
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
