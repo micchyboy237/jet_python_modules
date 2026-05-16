@@ -2,6 +2,8 @@
 
 from typing import Literal, Optional, TypedDict
 
+from jet.audio.audio_waveform.vad._types import SpeechSegment
+
 
 class PhraseSegment(TypedDict):
     """Represents a phrase segment with timing information."""
@@ -102,6 +104,7 @@ class SubtitleNotification(TypedDict, total=False):
     """
 
     # --- fields from the server response ---
+    segment: SpeechSegment
     num: int
     uuid: str
     transcription_ja: str

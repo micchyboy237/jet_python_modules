@@ -464,10 +464,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
         _log_response(response, seg_num)
 
-        # Fan out to all observers
         # Build the combined notification that includes both the server response
         # and the local segment metadata the overlay needs.
         notification: SubtitleNotification = {
+            "segment": seg,
             "num": seg_num,
             **response,
             "start_sec": round(start_sec, 4),
@@ -478,6 +478,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "speech_frames_pctg": _compute_speech_frames_pctg(seg),
             "speech_dur_sec": _compute_speech_dur_sec(seg),
         }
+        # Fan out to all observers
         self._notify_observers(notification)
 
         req_path = self._save_request(seg_dir, header, audio_bytes)

@@ -1,5 +1,3 @@
-# jet.audio.speech_handlers.subtitle_overlay_window
-
 """
 SubtitleOverlay  (FireRed VAD edition)
 ======================================
@@ -17,6 +15,7 @@ Features
 - VAD badge: FireRed only (hard-coded; no registry)
 - Metadata row: gap, duration, avg VAD prob, speech %, speech duration,
   transcription %, coverage label
+- VADScorer row: composite score and quality label with colour coding
 - Implements SpeechSegmentHandler (on_segment_end is a no-op;
   subtitle data arrives via SubtitleResponseNotifier Qt signal)
 
@@ -35,6 +34,8 @@ from abc import ABCMeta
 from pathlib import Path
 from typing import Optional, Sequence
 
+from jet.audio.audio_waveform.vad.vad_scorer import VADScorer
+from jet.audio.helpers.config import FRAME_SHIFT_S
 from jet.audio.speech_handlers.api_types import SubtitleNotification
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import (
@@ -62,11 +63,6 @@ OVERLAY_WIDTH = 450
 OVERLAY_HEIGHT = 600
 
 
-# ── metaclass fix ─────────────────────────────────────────────────────────────
-# QMainWindow uses Qt's internal sip metaclass; SpeechSegmentHandler uses
-# ABCMeta.  Python requires a single unified metaclass for classes that
-# inherit from both.  type(QMainWindow) retrieves Qt's actual metaclass
-# portably across all PyQt6 versions.
 class _QtABCMeta(type(QMainWindow), ABCMeta):
     pass
 
@@ -79,12 +75,12 @@ def _prob_color(prob: Optional[float]) -> str:
     if prob is None:
         return "#8b949e"
     if prob < 0.30:
-        return "#f85149"  # red   — low confidence
+        return "#f85149"
     if prob < 0.55:
-        return "#fb923c"  # amber — borderline
+        return "#fb923c"
     if prob < 0.75:
-        return "#e3b341"  # yellow — moderate
-    return "#3fb950"  # green — high confidence
+        return "#e3b341"
+    return "#3fb950"
 
 
 def _speech_pctg_color(pctg: Optional[float]) -> str:
@@ -100,7 +96,49 @@ def _speech_pctg_color(pctg: Optional[float]) -> str:
     return "#3fb950"
 
 
-# FireRed VAD badge — fixed, no lookup needed
+def _composite_score_color(score: Optional[float]) -> str:
+    """
+    Map a VADScorer composite_score [0.0–1.0] → display colour.
+
+    Mirrors the QUALITY_BANDS thresholds from vad_scorer.py:
+      > 0.80 → Very good  (green)
+      > 0.60 → Good       (light green)
+      > 0.40 → Fair       (amber)
+      > 0.20 → Bad        (orange)
+      ≤ 0.20 → Very bad   (red)
+    """
+    if score is None:
+        return "#8b949e"
+    if score > 0.80:
+        return "#3fb950"  # green  — Very good
+    if score > 0.60:
+        return "#56d364"  # light green — Good
+    if score > 0.40:
+        return "#e3b341"  # amber  — Fair
+    if score > 0.20:
+        return "#fb923c"  # orange — Bad
+    return "#f85149"  # red    — Very bad
+
+
+def _quality_label_color(label: Optional[str]) -> str:
+    """
+    Map a VADScorer quality_label string → display colour.
+
+    Provides a fallback for cases where composite_score is unavailable
+    but quality_label is already known.
+    """
+    _MAP = {
+        "Very good": "#3fb950",
+        "Good": "#56d364",
+        "Fair": "#e3b341",
+        "Bad": "#fb923c",
+        "Very bad": "#f85149",
+    }
+    return _MAP.get(label or "", "#8b949e")
+
+
+# ── VAD badge ─────────────────────────────────────────────────────────────────
+
 _VAD_BADGE_HTML = (
     '<span style="'
     "background:#3b1f6b; color:#c084fc; font-family:monospace; "
@@ -109,7 +147,7 @@ _VAD_BADGE_HTML = (
 )
 
 
-# ── entry HTML formatter ──────────────────────────────────────────────────────
+# ── entry formatter ───────────────────────────────────────────────────────────
 
 
 def _format_entry(
@@ -128,16 +166,16 @@ def _format_entry(
     gap = (start - prev_end) if prev_end is not None else 0.0
     duration = end - start
     end_reason = entry.get("end_reason") or "true_silence"
+
     segment_dir: Optional[Path] = (
         Path(entry["segment_dir"]) if entry.get("segment_dir") else None
     )
 
-    # VAD probability
+    # ── existing metadata fields ──────────────────────────────────────────────
     avg_prob: Optional[float] = entry.get("avg_vad_prob")
     avg_prob_str = f"{avg_prob:.3f}" if isinstance(avg_prob, float) else "N/A"
     avg_prob_color = _prob_color(avg_prob)
 
-    # Speech frame percentage + duration
     speech_pctg: Optional[float] = entry.get("speech_frames_pctg")
     speech_pctg_str = (
         f"{speech_pctg:.1f}%" if isinstance(speech_pctg, (int, float)) else "N/A"
@@ -150,7 +188,6 @@ def _format_entry(
     )
     speech_dur_color = _speech_pctg_color(speech_pctg)
 
-    # Transcription coverage
     transcribed_pctg = entry.get("transcribed_duration_pctg")
     trans_pctg_str = (
         f"{float(transcribed_pctg):.1f}%"
@@ -162,7 +199,20 @@ def _format_entry(
     )
     coverage_label = entry.get("coverage_label") or "N/A"
 
-    # Action links — only rendered when segment_dir is available
+    # ── NEW: VADScorer fields ─────────────────────────────────────────────────
+    composite_score: Optional[float] = entry.get("vad_composite_score")
+    composite_str = (
+        f"{composite_score:.3f}" if isinstance(composite_score, (int, float)) else "N/A"
+    )
+    composite_color = _composite_score_color(
+        float(composite_score) if isinstance(composite_score, (int, float)) else None
+    )
+
+    quality_label: Optional[str] = entry.get("vad_quality_label")
+    quality_str = quality_label or "N/A"
+    quality_color = _quality_label_color(quality_label)
+
+    # ── action links ─────────────────────────────────────────────────────────
     open_link = (
         f'<a href="open:{index}" style="color:#58a6ff; text-decoration:none;">📂</a>'
         if segment_dir
@@ -177,25 +227,36 @@ def _format_entry(
 
     return (
         f'<div style="margin-bottom:6px;">'
+        # Header row: index, badge, timing
         f'<b style="font-size:10px;">{index}</b> {_VAD_BADGE_HTML} '
         f'<span style="font-size:9px; color:#8b949e; line-height:1.1;">'
         f"[gap: {gap:.2f}s] ({duration:.2f}s)"
         f' • <span style="color:#d2a8ff;">{end_reason}</span>'
+        # avg prob
         f' • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>'
+        # speech stats
         f' • spch: <span style="color:{speech_pctg_color}; font-weight:bold;">{speech_pctg_str}</span>'
         f' • dur: <span style="color:{speech_dur_color}; font-weight:bold;">{speech_dur_str}</span>'
+        # transcription stats
         f' • trans: <span style="color:{trans_pctg_color}; font-weight:bold;">{trans_pctg_str}</span>'
         f' • cov: <span style="color:#79c0ff;">{coverage_label}</span>'
-        f"</span> "
-        f'<a href="copy:{index}" style="color:#58a6ff; text-decoration:none;">📋</a>'
+        f"</span>"
+        # action links
+        f' <a href="copy:{index}" style="color:#58a6ff; text-decoration:none;">📋</a>'
         f" {open_link} {play_link}"
-        f'<br/><pre style="white-space:pre-wrap; margin:0; font-size:10px;">{text}</pre>'
+        # VADScorer row (new)
+        f'<br/><span style="font-size:9px; color:#8b949e;">'
+        f'score: <span style="color:{composite_color}; font-weight:bold;">{composite_str}</span>'
+        f' • quality: <span style="color:{quality_color}; font-weight:bold;">{quality_str}</span>'
+        f"</span>"
+        # transcript text
+        f'<br/><pre style="white-space:pre-wrap; margin:0; font-size:12px;">{text}</pre>'
         f"</div>"
         f'<hr style="border:none; border-top:1px solid #30363d; margin:4px 0;">'
     )
 
 
-# ── overlay window ────────────────────────────────────────────────────────────
+# ── main window ───────────────────────────────────────────────────────────────
 
 
 class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
@@ -244,8 +305,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._setup_sound()
         self._setup_poll_timer()
 
-    # ── window / layout ───────────────────────────────────────────────────────
-
     def _setup_window(self) -> None:
         self.setWindowTitle(self._WINDOW_TITLE)
         self.resize(OVERLAY_WIDTH, OVERLAY_HEIGHT)
@@ -260,9 +319,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        # Top control bar
         top_bar = QHBoxLayout()
-
         self._clear_btn = QPushButton("🗑")
         self._clear_btn.setToolTip("Clear all entries")
         self._clear_btn.clicked.connect(self._clear_all)
@@ -278,7 +335,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         top_bar.addStretch()
         layout.addLayout(top_bar)
 
-        # Scrollable rich-text area
         self._text_area = QTextBrowser()
         self._text_area.setReadOnly(True)
         self._text_area.setAcceptRichText(True)
@@ -299,19 +355,42 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._poll_timer.timeout.connect(self._refresh_display)
         self._poll_timer.start(self._POLL_MS)
 
-    # ── Qt slot ───────────────────────────────────────────────────────────────
-
     def on_subtitle_received(self, notification: SubtitleNotification) -> None:
         """
         Qt slot — always runs on the Qt main thread (via queued signal).
 
         Maps the SubtitleNotification dict to an internal entry dict and
         appends it to the log.  Display is refreshed by the poll timer.
+
+        VADScorer is run directly on ``segment_probs`` from the notification
+        so this window is self-contained — no pre-computation by the sender
+        is required.  Scoring is skipped gracefully when the probs list is
+        absent or empty.
         """
         ja = notification.get("transcription_ja", "").strip()
         en = notification.get("translation_en", "").strip()
         if not ja and not en:
             return
+
+        # ── score segment_probs with VADScorer ───────────────────────────────
+        vad_composite_score: Optional[float] = None
+        vad_quality_label: Optional[str] = None
+
+        segment_probs: list[float] = (
+            notification.get("segment").get("segment_probs") or []
+        )
+        if segment_probs:
+            try:
+                scorer = VADScorer(
+                    segment_probs,
+                    frame_shift_s=FRAME_SHIFT_S,
+                )
+                vad_composite_score = scorer.score()
+                vad_quality_label = scorer.label()
+            except Exception as exc:
+                console.print(
+                    f"[yellow][SubtitleOverlay] VADScorer failed: {exc}[/yellow]"
+                )
 
         self._entries.append(
             {
@@ -328,12 +407,11 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                 ),
                 "coverage_label": notification.get("coverage_label", ""),
                 "segment_dir": notification.get("segment_dir"),
+                "vad_composite_score": vad_composite_score,
+                "vad_quality_label": vad_quality_label,
             }
         )
-        # Invalidate the render cache so the next timer tick re-renders immediately.
         self._last_html = None
-
-    # ── display refresh ───────────────────────────────────────────────────────
 
     def _refresh_display(self) -> None:
         """Called by poll timer. Rebuilds HTML only when entries have changed."""
@@ -357,7 +435,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         )
 
         if html == self._last_html:
-            return  # nothing changed — skip expensive setHtml
+            return
         self._last_html = html
 
         scrollbar = self._text_area.verticalScrollBar()
@@ -373,13 +451,9 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         else:
             scrollbar.setValue(old_value)
 
-    # ── scroll tracking ───────────────────────────────────────────────────────
-
     def _on_scroll(self) -> None:
         scrollbar = self._text_area.verticalScrollBar()
         self._auto_scroll_enabled = scrollbar.value() >= scrollbar.maximum() - 20
-
-    # ── control bar ───────────────────────────────────────────────────────────
 
     def _clear_all(self) -> None:
         self._entries.clear()
@@ -413,8 +487,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._hide_japanese = self._hide_ja_btn.isChecked()
         self._last_html = None
         self._refresh_display()
-
-    # ── anchor click dispatcher ───────────────────────────────────────────────
 
     def _handle_anchor_click(self, url) -> None:
         url_str = url.toString()
@@ -457,22 +529,16 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._sound_effect.setVolume(1.0)
         self._sound_effect.play()
 
-    # ── SpeechSegmentHandler interface ────────────────────────────────────────
-
     def on_segment_start(self, event: SpeechSegmentStartEvent) -> None:
         """No-op. Overlay is driven by WS responses, not raw segment boundaries."""
 
     def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
         """No-op. Subtitle text arrives via on_subtitle_received (Qt signal)."""
 
-    # ── lifecycle ─────────────────────────────────────────────────────────────
-
-    def closeEvent(self, event) -> None:  # type: ignore[override]
+    def closeEvent(self, event) -> None:
         self._poll_timer.stop()
         self._sound_effect.stop()
         event.accept()
-
-    # ── convenience factory ───────────────────────────────────────────────────
 
     @classmethod
     def create_and_connect(

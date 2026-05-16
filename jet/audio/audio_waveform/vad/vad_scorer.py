@@ -56,6 +56,8 @@ import statistics
 from dataclasses import asdict, dataclass
 from typing import List, Optional, Tuple
 
+from jet.audio.helpers.config import FRAME_SHIFT_MS, FRAME_SHIFT_S
+
 # ---------------------------------------------------------------------------
 # Smoothness normalisation anchor
 # ---------------------------------------------------------------------------
@@ -123,7 +125,7 @@ class VADMetrics:
     quality_label: str
     quality_description: str
     threshold: float = 0.5
-    frame_shift_s: float = 0.010
+    frame_shift_s: float = FRAME_SHIFT_S
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -154,7 +156,7 @@ class VADScorer:
         probs: List[float],
         threshold: float = 0.5,
         subthresh_low: float = 0.2,
-        frame_shift_s: float = 0.010,
+        frame_shift_s: float = FRAME_SHIFT_S,
     ):
         if not probs:
             raise ValueError("probs list must not be empty.")
@@ -451,7 +453,7 @@ class VADScorer:
 def score(
     probs: List[float],
     threshold: float = 0.5,
-    frame_shift_s: float = 0.010,
+    frame_shift_s: float = FRAME_SHIFT_S,
 ) -> VADMetrics:
     """One-liner: score a prob list and return VADMetrics."""
     return VADScorer(probs, threshold=threshold, frame_shift_s=frame_shift_s).metrics()
@@ -475,7 +477,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--frame-shift-ms",
         type=float,
-        default=10.0,
+        default=FRAME_SHIFT_MS,
         help="Frame shift in milliseconds (default: 10 ms)",
     )
     args = parser.parse_args()
