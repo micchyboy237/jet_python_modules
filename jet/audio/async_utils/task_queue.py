@@ -79,9 +79,10 @@ class AsyncTaskQueue:
         """
         Submit *coro* for serial execution.
         Thread-safe — may be called from any thread.
-        Returns immediately; the coroutine runs in the background.
+        Blocks briefly until the coroutine is physically inside the queue,
+        so a subsequent clear() call is guaranteed to see and drop it.
         """
-        self._loop.call_soon_threadsafe(lambda: self._loop.create_task(self._put(coro)))
+        asyncio.run_coroutine_threadsafe(self._put(coro), self._loop).result(timeout=5)
 
     def clear(self) -> None:
         """
@@ -95,11 +96,8 @@ class AsyncTaskQueue:
         )
 
     def cancel(self) -> None:
-        """
-        Signal the worker to stop after finishing the current task.
-        Thread-safe.  Outstanding queued items are discarded.
-        """
-        self._loop.call_soon_threadsafe(lambda: self._loop.create_task(self._put(None)))
+        """Signal the worker to stop. Thread-safe."""
+        asyncio.run_coroutine_threadsafe(self._put(None), self._loop).result(timeout=5)
 
     def drain_sync(self, timeout: float = 30.0) -> None:
         """
