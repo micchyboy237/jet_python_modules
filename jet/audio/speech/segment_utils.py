@@ -7,7 +7,10 @@ import matplotlib.ticker as ticker
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.speech.wav_utils import save_wav_file
-from jet.logger import logger
+from rich.console import Console
+from rich.text import Text
+
+console = Console()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -310,8 +313,11 @@ def save_segment_data(
     plot_path = seg_dir / "plot.png"
     save_segment_plot(speech_seg, seg_audio_np, seg_number, plot_path, sample_rate)
 
-    logger.success(f"Segment {seg_number} saved to: {seg_dir}")
+    console.print(
+        f"\n[green]Segment {seg_number} saved to:[/green] ",
+        Text(Path(seg_dir).name, style=f"bold bright_green link file://{seg_dir}"),
+    )
     for p in (seg_sound_file, metadata_path, summary_path, plot_path):
-        logger.success(str(p), bright=True)
+        console.print(Text(Path(p).name, style=f"bold bright_green link file://{p}"))
 
     return seg_dir, seg_number

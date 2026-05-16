@@ -32,7 +32,10 @@ import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.speech.segment_utils import build_summary, save_segment_plot
 from jet.audio.speech.wav_utils import save_wav_file
-from jet.logger import logger
+from rich.console import Console
+from rich.text import Text
+
+console = Console()
 
 
 class SegmentStore:
@@ -95,9 +98,14 @@ class SegmentStore:
         plot_path = seg_dir / "plot.png"
         save_segment_plot(speech_seg, seg_audio_np, seg_number, plot_path, sample_rate)
 
-        logger.success(f"Segment {seg_number} saved to: {seg_dir}")
+        console.print(
+            f"\n[green]Segment {seg_number} saved to:[/green] ",
+            Text(Path(seg_dir).name, style=f"bold bright_green link file://{seg_dir}"),
+        )
         for p in (seg_sound_file, metadata_path, summary_path, plot_path):
-            logger.success(str(p), bright=True)
+            console.print(
+                Text(Path(p).name, style=f"bold bright_green link file://{p}")
+            )
 
         return seg_dir, seg_number
 
@@ -112,9 +120,9 @@ class SegmentStore:
             shutil.rmtree(self._root, ignore_errors=True)
             self._root.mkdir(parents=True, exist_ok=True)
         except Exception as exc:
-            logger.error(f"[SegmentStore] Failed to reset: {exc}")
+            console.print(f"[red][SegmentStore] Failed to reset: {exc}[/red]")
         self._next_num = 1
-        logger.info("[SegmentStore] Reset — next segment will be 001")
+        console.print("[green][SegmentStore] Reset — next segment will be 001[/green]")
 
     # ------------------------------------------------------------------
     # Internal helpers

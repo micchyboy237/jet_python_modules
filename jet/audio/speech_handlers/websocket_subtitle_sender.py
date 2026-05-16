@@ -143,7 +143,7 @@ def _log_response(response: ServerResponse, seg_num: int) -> None:
 def _file_link(path: Path) -> str:
     """Return a Rich markup string that is a clickable hyperlink to *path*."""
     uri = path.as_uri()  # file:///absolute/path
-    return f"[link={uri}][cyan]{path}[/cyan][/link]"
+    return f"[link={uri}][cyan]{path.name}[/cyan][/link]"
 
 
 def _log_saved(

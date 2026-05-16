@@ -108,7 +108,9 @@ def main_live_speech_translation():
             seg_dir, seg_number = segment_store.save(
                 speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
             )
+
             speech_seg["num"] = seg_number
+
             dispatch_handlers(
                 handlers,
                 speech_seg,
@@ -118,9 +120,15 @@ def main_live_speech_translation():
                 SAMPLE_RATE,
                 recording_started_at,
             )
-            completed_segments.append(speech_seg)
-            display_segments(completed_segments, done=False)
-            save_file(completed_segments, all_segments_path, verbose=False)
+
+            _speech_seg_no_probs = speech_seg.copy()
+            _speech_seg_probs = _speech_seg_no_probs.pop("segment_probs")
+
+            completed_segments.append(_speech_seg_no_probs)
+
+            save_file(_speech_seg_probs, seg_dir / "probs.json")
+            save_file(completed_segments, all_segments_path)
+
         display_segments(completed_segments, done=True)
 
     rec_thread = threading.Thread(target=_recording_loop, daemon=True, name="recorder")

@@ -1,15 +1,18 @@
 import fnmatch
-import os
 import json
+import os
 import pickle
-import pandas as pd
 from pathlib import Path
 from typing import Any, Dict, List, Union
+
+import pandas as pd
 from pydantic import BaseModel
 from rich.table import Table
+
 from jet.logger import logger
 from jet.transformers.formatters import format_html
 from jet.transformers.object import make_serializable
+
 
 def get_file_last_modified(file_path: str) -> float:
     """Get the last modified time of a file."""
@@ -32,7 +35,11 @@ def merge_json(existing_json, new_results):
     """
     if isinstance(new_results, dict):
         for key, value in new_results.items():
-            if key in existing_json and isinstance(existing_json[key], dict) and isinstance(value, dict):
+            if (
+                key in existing_json
+                and isinstance(existing_json[key], dict)
+                and isinstance(value, dict)
+            ):
                 existing_json[key] = merge_json(existing_json[key], value)
             else:
                 existing_json[key] = value
@@ -42,7 +49,7 @@ def merge_json(existing_json, new_results):
         for i in range(min(len(existing_json), len(new_results))):
             existing_json[i] = merge_json(existing_json[i], new_results[i])
         if len(existing_json) < len(new_results):
-            existing_json.extend(new_results[len(existing_json):])
+            existing_json.extend(new_results[len(existing_json) :])
     else:
         existing_json = new_results
     return existing_json
@@ -69,8 +76,7 @@ def save_json(results, file_path="generated/results.json"):
             json.dump(merged_results, f, indent=2, sort_keys=True)
 
         # Log success message
-        logger.log("Results saved to", file_path,
-                   colors=["SUCCESS", "BRIGHT_SUCCESS"])
+        logger.log("Results saved to", file_path, colors=["SUCCESS", "BRIGHT_SUCCESS"])
 
     except Exception as e:
         logger.log("Error saving results:", str(e), colors=["GRAY", "RED"])
@@ -106,7 +112,9 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                                 data.append(json.loads(line))
                             except json.JSONDecodeError as e:
                                 if verbose:
-                                    logger.error(f"Invalid JSONL line in {input_file}: {e}")
+                                    logger.error(
+                                        f"Invalid JSONL line in {input_file}: {e}"
+                                    )
                                 return None
 
             if verbose:
@@ -123,11 +131,17 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                 content = format_html(content)
                 if verbose:
                     logger.newline()
-                    logger.log("Loaded and formatted HTML from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
+                    logger.log(
+                        "Loaded and formatted HTML from: ",
+                        input_file,
+                        colors=["INFO", "BRIGHT_INFO"],
+                    )
             else:
                 if verbose:
                     logger.newline()
-                    logger.log("Loaded text from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
+                    logger.log(
+                        "Loaded text from: ", input_file, colors=["INFO", "BRIGHT_INFO"]
+                    )
             return content
 
         # Binary files (e.g., PNG, JPEG)
@@ -136,7 +150,11 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                 content = f.read()
             if verbose:
                 logger.newline()
-                logger.log("Loaded binary data from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
+                logger.log(
+                    "Loaded binary data from: ",
+                    input_file,
+                    colors=["INFO", "BRIGHT_INFO"],
+                )
             return content
 
         # Other files
@@ -145,7 +163,9 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
                 content = f.read()
             if verbose:
                 logger.newline()
-                logger.log("Loaded data from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
+                logger.log(
+                    "Loaded data from: ", input_file, colors=["INFO", "BRIGHT_INFO"]
+                )
             return content
 
     except UnicodeDecodeError:
@@ -154,7 +174,9 @@ def load_file(input_file: str, verbose: bool = True) -> Any:
             content = f.read()
         if verbose:
             logger.newline()
-            logger.log("Loaded binary data from: ", input_file, colors=["INFO", "BRIGHT_INFO"])
+            logger.log(
+                "Loaded binary data from: ", input_file, colors=["INFO", "BRIGHT_INFO"]
+            )
         return content
     except Exception as e:
         if verbose:
@@ -167,33 +189,27 @@ def save_file(
     data: Union[str, bytes, List, Dict, BaseModel, Table],
     output_file: Union[str, Path],
     verbose: bool = True,
-    append: bool = False
+    append: bool = False,
 ) -> str:
-    """
-    Save data to a file in various formats based on extension.
+    from pathlib import Path
 
-    Args:
-        data: The data to save (str, bytes, List, Dict, BaseModel, or Table).
-        output_file: The path where the file will be saved.
-        verbose: Whether to log save operations.
-        append: Whether to append to JSONL files (ignored for other formats).
-
-    Returns:
-        The output file path as a string.
-
-    Raises:
-        ValueError: If data type is unsupported or invalid for the file format.
-        Exception: If file operations fail.
-    """
     from rich.console import Console
     from rich.padding import Padding
     from rich.text import Text
-    from pathlib import Path
+
+    console = Console(record=True)
 
     output_path = Path(output_file).expanduser()
-    # Create parent directories if needed
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_file = str(output_path)
+
+    def file_link(path: str) -> Text:
+        short = Path(path).name
+        t = Text(short, style=f"bold bright_green link file://{path}")
+        t.overflow = "fold"
+        t.no_wrap = True
+        return t
+
     try:
         ext = Path(output_file).suffix.lower()
         if ext in {".json", ".jsonl"}:
@@ -202,15 +218,17 @@ def save_file(
                     raise ValueError("Table is empty or has no columns/rows")
                 columns = [col.header for col in data.columns]
                 table_data = []
-                console = Console(record=True)
                 for row_idx in range(len(data.rows)):
                     row_data = {}
                     for col_idx, col in enumerate(data.columns):
                         cells = list(data._get_cells(console, col_idx, col))
-                        cell_content = cells[row_idx].renderable if row_idx < len(cells) else ""
-                        # Extract inner renderable from Padding if present
+                        cell_content = (
+                            cells[row_idx].renderable if row_idx < len(cells) else ""
+                        )
                         if isinstance(cell_content, Padding):
-                            cell_content = getattr(cell_content, 'renderable', cell_content)
+                            cell_content = getattr(
+                                cell_content, "renderable", cell_content
+                            )
                         row_data[columns[col_idx]] = str(cell_content)
                     table_data.append(row_data)
                 data = make_serializable(table_data)
@@ -219,7 +237,7 @@ def save_file(
                     data = json.loads(data)
                 except json.JSONDecodeError as e:
                     if verbose:
-                        logger.error(f"Invalid JSON string: {e}")
+                        console.print(f"[red]Invalid JSON string: {e}[/red]")
                     raise
             else:
                 data = make_serializable(data)
@@ -235,49 +253,59 @@ def save_file(
                     else:
                         f.write(json.dumps(data, ensure_ascii=False) + "\n")
             if verbose:
-                logger.newline()
-                upper_ext = ext.upper().lstrip('.')
+                upper_ext = ext.upper().lstrip(".")
                 count = f" {len(data)}" if isinstance(data, list) else ""
-                action = 'Appended' if append else 'Saved'
-                path_text = Text(output_file, style="bold bright_green")
-                path_text.overflow = "fold"
-                path_text.no_wrap = True
-                logger.log(f"{action} {upper_ext} data{count} to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                action = "Appended" if append else "Saved"
+                console.print(
+                    f"\n[green]{action} {upper_ext} data{count} to:[/green] ",
+                    file_link(output_file),
+                )
         elif ext == ".md":
             if isinstance(data, Table):
                 if not data.columns or not data.rows:
                     raise ValueError("Table is empty or has no columns/rows")
-                columns = [str(col.header).replace("|", "\\|").replace("\n", " ") for col in data.columns]
+                columns = [
+                    str(col.header).replace("|", "\\|").replace("\n", " ")
+                    for col in data.columns
+                ]
                 console = Console(record=True)
                 table_data = []
                 for row_idx in range(len(data.rows)):
                     row_data = {}
                     for col_idx, col in enumerate(data.columns):
                         cells = list(data._get_cells(console, col_idx, col))
-                        cell_content = cells[row_idx].renderable if row_idx < len(cells) else ""
-                        # Extract inner renderable from Padding if present
+                        cell_content = (
+                            cells[row_idx].renderable if row_idx < len(cells) else ""
+                        )
                         if isinstance(cell_content, Padding):
-                            cell_content = getattr(cell_content, 'renderable', cell_content)
-                        cell_content = str(cell_content).replace("|", "\\|").replace("\n", " ")
+                            cell_content = getattr(
+                                cell_content, "renderable", cell_content
+                            )
+                        cell_content = (
+                            str(cell_content).replace("|", "\\|").replace("\n", " ")
+                        )
                         row_data[columns[col_idx]] = cell_content
                     table_data.append(row_data)
-                header_row = '| ' + ' | '.join(columns) + ' |'
-                separator_row = '| ' + ' | '.join(['---' for _ in columns]) + ' |'
+                header_row = "| " + " | ".join(columns) + " |"
+                separator_row = "| " + " | ".join(["---" for _ in columns]) + " |"
                 data_rows = [
-                    '| ' + ' | '.join(str(row.get(col, '')).replace("|", "\\|").replace("\n", " ") for col in columns) + ' |'
+                    "| "
+                    + " | ".join(
+                        str(row.get(col, "")).replace("|", "\\|").replace("\n", " ")
+                        for col in columns
+                    )
+                    + " |"
                     for row in table_data
                 ]
-                data = '\n'.join([header_row, separator_row] + data_rows)
+                data = "\n".join([header_row, separator_row] + data_rows)
             elif not isinstance(data, str):
                 data = str(data).replace("|", "\\|").replace("\n", " ")
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(data)
             if verbose:
-                logger.newline()
-                path_text = Text(output_file, style="bold bright_green")
-                path_text.overflow = "fold"
-                path_text.no_wrap = True
-                logger.log("Saved Markdown to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                console.print(
+                    "\n[green]Saved Markdown to:[/green] ", file_link(output_file)
+                )
         elif ext in {".html", ".txt"}:
             if not isinstance(data, str):
                 data = str(data)
@@ -286,23 +314,19 @@ def save_file(
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(data)
             if verbose:
-                logger.newline()
-                kind = 'HTML' if ext == '.html' else 'text'
-                path_text = Text(output_file, style="bold bright_green")
-                path_text.overflow = "fold"
-                path_text.no_wrap = True
-                logger.log(f"Saved {kind} to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                kind = "HTML" if ext == ".html" else "text"
+                console.print(
+                    f"\n[green]Saved {kind} to:[/green] ", file_link(output_file)
+                )
         elif ext in {".png", ".jpg", ".jpeg"}:
             if not isinstance(data, bytes):
                 raise ValueError(f"Expected bytes for {ext} file, got {type(data)}")
             with open(output_file, "wb") as f:
                 f.write(data)
             if verbose:
-                logger.newline()
-                path_text = Text(output_file, style="bold bright_green")
-                path_text.overflow = "fold"
-                path_text.no_wrap = True
-                logger.log("Saved binary data to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                console.print(
+                    "\n[green]Saved binary data to:[/green] ", file_link(output_file)
+                )
         else:
             if isinstance(data, bytes):
                 with open(output_file, "wb") as f:
@@ -313,16 +337,13 @@ def save_file(
                 with open(output_file, "w", encoding="utf-8") as f:
                     f.write(data)
             if verbose:
-                logger.newline()
-                path_text = Text(output_file, style="bold bright_green")
-                path_text.overflow = "fold"
-                path_text.no_wrap = True
-                logger.log("Saved data to: ", path_text, colors=["SUCCESS", "BRIGHT_SUCCESS"])
+                console.print(
+                    "\n[green]Saved data to:[/green] ", file_link(output_file)
+                )
         return output_file
     except Exception as e:
         if verbose:
-            logger.newline()
-            logger.error(f"Failed to save file: {e}")
+            console.print(f"\n[red]Failed to save file: {e}[/red]")
         raise
 
 
@@ -341,7 +362,7 @@ def main():
                     "task1": {"status": "completed", "details": {"time": "2 hours"}},
                     "task2": {"status": "pending", "priority": "high"},
                 },
-            }
+            },
         ]
     }
     sample_results_2 = [
@@ -349,10 +370,7 @@ def main():
             "user_data": {
                 "id": 1,
                 "name": "John Doe",
-                "preferences": {
-                    "theme": True,
-                    "notifications": "dark"
-                }
+                "preferences": {"theme": True, "notifications": "dark"},
             },
         }
     ]
@@ -366,15 +384,15 @@ def load_data(file_path: str, is_binary=False):
         is_binary = True
 
     if is_binary:
-        with open(file_path, 'rb') as file:
+        with open(file_path, "rb") as file:
             data = pickle.load(file)
     elif file_path.endswith(".csv"):
-        data = pd.read_csv(file_path).to_dict(orient='records')
+        data = pd.read_csv(file_path).to_dict(orient="records")
     elif file_path.endswith(".txt") or file_path.endswith(".md"):
-        with open(file_path, 'r', encoding='utf-8') as file:
+        with open(file_path, "r", encoding="utf-8") as file:
             data = file.read()
     elif not os.path.isdir(file_path):
-        with open(file_path, 'r', encoding='utf-8') as file:
+        with open(file_path, "r", encoding="utf-8") as file:
             data = json.load(file)
     else:
         data = load_data_from_directories([file_path])
@@ -389,20 +407,25 @@ def load_data_from_directories(source_directories, includes=None, excludes=None)
         # Check if directory is a json file
         if os.path.isfile(directory) and directory.endswith(".json"):
             source_file = directory
-            with open(source_file, 'r') as file:
+            with open(source_file, "r") as file:
                 data.extend(json.load(file))
             continue
         for filename in os.listdir(directory):
             # Apply include and exclude filters
-            if (not includes or any(fnmatch.fnmatch(filename, pattern) for pattern in includes)) and \
-               (not excludes or not any(fnmatch.fnmatch(filename, pattern) for pattern in excludes)):
+            if (
+                not includes
+                or any(fnmatch.fnmatch(filename, pattern) for pattern in includes)
+            ) and (
+                not excludes
+                or not any(fnmatch.fnmatch(filename, pattern) for pattern in excludes)
+            ):
                 source_file = os.path.join(directory, filename)
                 data.extend(load_data(source_file))
 
     return data
 
 
-def save_data(output_file, data, overwrite=False, key='id', is_binary=False):
+def save_data(output_file, data, overwrite=False, key="id", is_binary=False):
     if not data:
         print(f"No data to save for {output_file}")
         return
@@ -418,25 +441,26 @@ def save_data(output_file, data, overwrite=False, key='id', is_binary=False):
         logger.success(f"Writing {len(data)} items to {output_file}")
 
         if is_binary:
-            with open(output_file, 'wb') as f:
+            with open(output_file, "wb") as f:
                 pickle.dump(data, f)
         else:
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
     else:
-        with open(output_file, 'r', encoding='utf-8') as f:
+        with open(output_file, "r", encoding="utf-8") as f:
             existing_data = json.load(f)
 
         # Update existing data array with matching data array based on item['key]
-        updated_data_dict = {
-            item[key]: item for item in existing_data if key in item}
+        updated_data_dict = {item[key]: item for item in existing_data if key in item}
         for idx, item in enumerate(data):
             if item.get(key, None) in updated_data_dict:
                 existing_data_index = next(
-                    (i for i, x in enumerate(existing_data) if x[key] == item[key]), None)
+                    (i for i, x in enumerate(existing_data) if x[key] == item[key]),
+                    None,
+                )
                 existing_data[existing_data_index] = {
                     **existing_data[existing_data_index],
-                    **item
+                    **item,
                 }
             else:
                 existing_data.append(item)
@@ -446,10 +470,10 @@ def save_data(output_file, data, overwrite=False, key='id', is_binary=False):
         logger.success(f"Writing {len(existing_data)} items to {output_file}")
 
         if is_binary:
-            with open(output_file, 'wb') as f:
+            with open(output_file, "wb") as f:
                 pickle.dump(existing_data, f)
         else:
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(existing_data, f, indent=2, ensure_ascii=False)
 
 
