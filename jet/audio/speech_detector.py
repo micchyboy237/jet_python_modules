@@ -45,6 +45,7 @@ def record_from_mic(
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
     max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
     buffer_max_sec: float = DEFAULT_BUFFER_MAX_SEC,
+    verbose: bool = False,
 ) -> Generator[Tuple[SpeechSegment, np.ndarray], None, None]:
     """Record audio from microphone with silence detection and progress tracking.
 
@@ -57,6 +58,7 @@ def record_from_mic(
             yielding a new one (prevents information loss at boundaries).
         buffer_max_sec: Maximum seconds of audio kept in the sliding window.
             Older audio is evicted automatically. Defaults to 120 s.
+        verbose: If True, display speech segments using display_segments() after each update.
     """
     silence_threshold = (
         silence_threshold
@@ -143,7 +145,8 @@ def record_from_mic(
                             audio_data.trim_to_sec(float(prev_segment["end"]))
                             prev_segment = None
                         if curr_speech_segs:
-                            display_segments(curr_speech_segs, done=True)
+                            if verbose:
+                                display_segments(curr_speech_segs, done=True)
                         continue
                 else:
                     silent_count = 0
@@ -156,6 +159,10 @@ def record_from_mic(
                     min_speech_duration_sec=min_speech_duration_sec,
                     max_speech_duration_sec=max_speech_duration_sec,
                 )
+
+                if verbose:
+                    display_segments(curr_speech_segs)
+
                 curr_segment = (
                     curr_speech_segs[-1] if curr_speech_segs else prev_segment
                 )
@@ -204,7 +211,9 @@ def record_from_mic(
         return None
 
     if prev_segment:
-        display_segments(curr_speech_segs)
+        if verbose:
+            display_segments(curr_speech_segs)
+
         last_yielded_window_sec = max(
             0.0, last_yielded_end_sec - audio_data.trimmed_sec
         )
@@ -267,5 +276,4 @@ def extract_current_speech_segment(
         min_speech_duration_sec=min_speech_duration_sec,
         max_speech_duration_sec=max_speech_duration_sec,
     )
-    display_segments(curr_speech_segs)
     return curr_speech_segs

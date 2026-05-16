@@ -30,7 +30,6 @@ Observer wiring (done in main)
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from abc import ABCMeta
 from pathlib import Path
@@ -55,6 +54,9 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from rich.console import Console
+
+console = Console()
 
 OVERLAY_WIDTH = 450
 OVERLAY_HEIGHT = 600
@@ -226,8 +228,8 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
     def __init__(
         self,
         show_ja_text: bool = False,
-        segment_root: Optional[Path] = None,
         extra_clear_paths: Sequence[Path] = (),
+        on_clear: Optional[callable] = None,
         parent: QWidget | None = None,
     ) -> None:
         QMainWindow.__init__(self, parent)
@@ -235,9 +237,8 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._hide_japanese: bool = not show_ja_text
         self._last_html: Optional[str] = None
         self._auto_scroll_enabled: bool = True
-        self._segment_root: Optional[Path] = segment_root
         self._extra_clear_paths: tuple[Path, ...] = tuple(extra_clear_paths)
-
+        self._on_clear: Optional[callable] = on_clear
         self._setup_window()
         self._setup_ui()
         self._setup_sound()
@@ -388,27 +389,25 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
 
     def _reset_storage(self) -> None:
         """
-        Wipe all on-disk state so the next recording starts clean:
-          - segment_root  → rmtree + recreate (resets segment numbering)
-          - extra_clear_paths → delete each file if it exists
+        Invoke the on_clear callback (e.g. SegmentStore.reset) then delete
+        any extra file paths (all_segments.json, subtitles.srt, …).
         """
-        try:
-            if self._segment_root is not None:
-                shutil.rmtree(self._segment_root, ignore_errors=True)
-                self._segment_root.mkdir(parents=True, exist_ok=True)
-
-            for path in self._extra_clear_paths:
-                try:
-                    path.unlink(missing_ok=True)
-                except Exception as exc:
-                    from jet.logger import logger
-
-                    logger.error(f"[SubtitleOverlay] Failed to delete {path}: {exc}")
-
-        except Exception as exc:
-            from jet.logger import logger
-
-            logger.error(f"[SubtitleOverlay] Failed to reset storage: {exc}")
+        if self._on_clear is not None:
+            try:
+                self._on_clear()
+            except Exception as exc:
+                console.print(
+                    f"[red][ERROR][/] [SubtitleOverlay] on_clear callback failed: {exc}",
+                    style="bold",
+                )
+        for path in self._extra_clear_paths:
+            try:
+                path.unlink(missing_ok=True)
+            except Exception as exc:
+                console.print(
+                    f"[red][ERROR][/] [SubtitleOverlay] Failed to delete {path}: {exc}",
+                    style="bold",
+                )
 
     def _toggle_japanese(self) -> None:
         self._hide_japanese = self._hide_ja_btn.isChecked()
@@ -478,10 +477,10 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
     @classmethod
     def create_and_connect(
         cls,
-        sender,  # WebsocketSubtitleSender
+        sender,
         show_ja_text: bool = False,
-        segment_root: Optional[Path] = None,
         extra_clear_paths: Sequence[Path] = (),
+        on_clear: Optional[callable] = None,
     ) -> "SubtitleOverlay":
         """
         Create an overlay, wire it to sender via SubtitleResponseNotifier, return it.
@@ -490,14 +489,19 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         -------
             app = QApplication(sys.argv)
             sender = WebsocketSubtitleSender(...)
-            overlay = SubtitleOverlay.create_and_connect(sender)
+            store = SegmentStore(OUTPUT_DIR / "segments")
+            overlay = SubtitleOverlay.create_and_connect(
+                sender,
+                extra_clear_paths=[OUTPUT_DIR / "all_segments.json"],
+                on_clear=store.reset,
+            )
             overlay.show()
             sys.exit(app.exec())
         """
         overlay = cls(
             show_ja_text=show_ja_text,
-            segment_root=segment_root,
             extra_clear_paths=extra_clear_paths,
+            on_clear=on_clear,
         )
         notifier = SubtitleResponseNotifier(parent=overlay)
         notifier.subtitle_received.connect(overlay.on_subtitle_received)
