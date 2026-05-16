@@ -344,6 +344,7 @@ def score(probs: List[float], threshold: float = 0.5) -> VADMetrics:
 
 if __name__ == "__main__":
     import argparse
+    import json
     from pathlib import Path
 
     import numpy as np
@@ -361,7 +362,10 @@ if __name__ == "__main__":
     probs_path = args.probs_path
     print(f"Loading probabilities from: {probs_path}")
 
-    if probs_path.suffix == ".npy":
+    if probs_path.suffix == ".json":
+        with open(probs_path) as f:
+            probs = json.load(f)
+    elif probs_path.suffix == ".npy":
         probs = np.load(probs_path)
     elif probs_path.suffix == ".pkl":
         import pickle
