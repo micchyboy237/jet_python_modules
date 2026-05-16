@@ -485,19 +485,19 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
 
+    def clear_queue(self) -> None:
+        """
+        Drop all pending (not yet started) subtitle tasks.
+        Safe to call from any thread — e.g. from the UI clear action.
+        The currently running send/receive is allowed to complete normally.
+        """
+        self._task_queue.clear()
+
     def close(self) -> None:
         self._stop_event.set()
-
-        # Drain the task queue before tearing down the connection.
         self._task_queue.cancel()
-
-        # drain any in-flight _handle_segment tasks before tearing down the loop
-        drain = asyncio.run_coroutine_threadsafe(
-            asyncio.sleep(0),
-            self._loop,  # yields control so queued tasks can finish
-        )
         try:
-            drain.result(timeout=self.send_timeout + 5)
+            self._task_queue.drain_sync(timeout=self.send_timeout + 5)
         except Exception:
             pass
         if self._ws is not None:

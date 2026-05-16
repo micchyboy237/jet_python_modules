@@ -83,6 +83,7 @@ def main_live_speech_translation():
     def _on_clear() -> None:
         completed_segments.clear()
         segment_store.reset()
+        ws_sender.clear_queue()
 
     overlay = SubtitleOverlay.create_and_connect(
         ws_sender,
