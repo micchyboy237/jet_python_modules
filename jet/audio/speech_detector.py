@@ -8,6 +8,12 @@ from fireredvad.core.constants import (
     SAMPLE_RATE,
 )
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.audio_waveform.vad.vad_config import (
+    DEFAULT_MAX_SPEECH_SEC,
+    DEFAULT_MIN_SILENCE_SEC,
+    DEFAULT_MIN_SPEECH_SEC,
+    DEFAULT_THRESHOLD,
+)
 from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
@@ -22,10 +28,6 @@ from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
 
-DEFAULT_THRESHOLD = 0.3
-DEFAULT_MIN_SILENCE_SEC = 0.8
-DEFAULT_MIN_SPEECH_SEC = 0.250
-DEFAULT_MAX_SPEECH_SEC = 12.0
 DEFAULT_BUFFER_MAX_SEC = 120.0
 
 # Each stream.read() delivers this many firered hops (10 ms each).
