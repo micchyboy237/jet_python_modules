@@ -389,9 +389,13 @@ def main_live_speech_translation():
     ]
     ws_sender: WebsocketSubtitleSender = handlers[0]  # type: ignore[assignment]
     segment_root = OUTPUT_DIR / "segments"
+    all_segments_path = OUTPUT_DIR / "all_segments.json"
+    subtitles_path = OUTPUT_DIR / "subtitles.srt"
+
     overlay = SubtitleOverlay.create_and_connect(
         ws_sender,
         segment_root=segment_root,
+        extra_clear_paths=[all_segments_path, subtitles_path],
     )
 
     _stop_recording = threading.Event()

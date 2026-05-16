@@ -34,7 +34,7 @@ import shutil
 import subprocess
 from abc import ABCMeta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from jet.audio.speech_handlers.api_types import SubtitleNotification
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
@@ -227,6 +227,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self,
         show_ja_text: bool = False,
         segment_root: Optional[Path] = None,
+        extra_clear_paths: Sequence[Path] = (),
         parent: QWidget | None = None,
     ) -> None:
         QMainWindow.__init__(self, parent)
@@ -235,6 +236,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._last_html: Optional[str] = None
         self._auto_scroll_enabled: bool = True
         self._segment_root: Optional[Path] = segment_root
+        self._extra_clear_paths: tuple[Path, ...] = tuple(extra_clear_paths)
 
         self._setup_window()
         self._setup_ui()
@@ -382,19 +384,31 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._entries.clear()
         self._last_html = None
         self._text_area.clear()
-        self._reset_segment_root()
+        self._reset_storage()
 
-    def _reset_segment_root(self) -> None:
-        """Delete and recreate segment_root so numbering restarts from 001."""
-        if self._segment_root is None:
-            return
+    def _reset_storage(self) -> None:
+        """
+        Wipe all on-disk state so the next recording starts clean:
+          - segment_root  → rmtree + recreate (resets segment numbering)
+          - extra_clear_paths → delete each file if it exists
+        """
         try:
-            shutil.rmtree(self._segment_root, ignore_errors=True)
-            self._segment_root.mkdir(parents=True, exist_ok=True)
+            if self._segment_root is not None:
+                shutil.rmtree(self._segment_root, ignore_errors=True)
+                self._segment_root.mkdir(parents=True, exist_ok=True)
+
+            for path in self._extra_clear_paths:
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception as exc:
+                    from jet.logger import logger
+
+                    logger.error(f"[SubtitleOverlay] Failed to delete {path}: {exc}")
+
         except Exception as exc:
             from jet.logger import logger
 
-            logger.error(f"[SubtitleOverlay] Failed to reset segment root: {exc}")
+            logger.error(f"[SubtitleOverlay] Failed to reset storage: {exc}")
 
     def _toggle_japanese(self) -> None:
         self._hide_japanese = self._hide_ja_btn.isChecked()
@@ -467,6 +481,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         sender,  # WebsocketSubtitleSender
         show_ja_text: bool = False,
         segment_root: Optional[Path] = None,
+        extra_clear_paths: Sequence[Path] = (),
     ) -> "SubtitleOverlay":
         """
         Create an overlay, wire it to sender via SubtitleResponseNotifier, return it.
@@ -479,7 +494,11 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
             overlay.show()
             sys.exit(app.exec())
         """
-        overlay = cls(show_ja_text=show_ja_text, segment_root=segment_root)
+        overlay = cls(
+            show_ja_text=show_ja_text,
+            segment_root=segment_root,
+            extra_clear_paths=extra_clear_paths,
+        )
         notifier = SubtitleResponseNotifier(parent=overlay)
         notifier.subtitle_received.connect(overlay.on_subtitle_received)
         sender.add_observer(notifier)
