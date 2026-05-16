@@ -62,7 +62,7 @@ _END_REASON_TO_VAD: dict[str | None, str] = {
     "silence": "silence",
     "hard_limit": "hard_limit",
     "valley": "valley",
-    None: "true_silence",
+    None: "silence",
 }
 
 
