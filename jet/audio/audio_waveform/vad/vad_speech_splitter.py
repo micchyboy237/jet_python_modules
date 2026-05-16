@@ -1,5 +1,7 @@
+# vad_speech_splitter.py
+
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List
 
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechEndReason, SpeechSegment
@@ -9,9 +11,6 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_HARD_LIMIT_SEC,
     DEFAULT_HARD_LIMIT_SMOOTHING_WINDOW,
     DEFAULT_HARD_LIMIT_TROUGH_PROMINENCE,
-    DEFAULT_PROB_WEIGHT,
-    DEFAULT_RETURN_SECONDS,
-    DEFAULT_RMS_WEIGHT,
     DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     DEFAULT_SOFT_LIMIT_SEC,
@@ -22,14 +21,14 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_SOFT_LIMIT_SEC_HIGH_TROUGH_PROMINENCE,
     DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
     DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
-    DEFAULT_WITH_SCORES,
 )
 from jet.audio.audio_waveform.vad.vad_utils import compute_hybrid_probs
 from jet.audio.helpers.config import (
     HOP_SIZE,
     HOP_STEP_S,
-    SAMPLE_RATE,
 )
+from jet.audio.speech.vad_extractors import extract_valley_troughs
+from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
 
 console = Console()
@@ -236,214 +235,155 @@ def _get_limit_configs() -> List[LimitConfig]:
 def apply_limit_splits(
     segments: List[SpeechSegment],
     probs: List[float],
-    audio_np: np.ndarray,
-    sample_rate: int = SAMPLE_RATE,
-    hop_sec: float = HOP_STEP_S,
-    # Keep these for backward compatibility, but they'll be overridden by the multi-level config
-    max_limit_sec: Optional[float] = None,
-    min_valley_duration_s: Optional[float] = None,
-    smoothing_window: Optional[int] = None,
-    trough_prominence: Optional[float] = None,
-    min_trough_offset_s: Optional[float] = None,
-    return_seconds: bool = DEFAULT_RETURN_SECONDS,
-    with_scores: bool = DEFAULT_WITH_SCORES,
-    end_reason_on_split: Optional[SpeechEndReason] = None,
-    hybrid_prob_weight: float = DEFAULT_PROB_WEIGHT,
-    hybrid_rms_weight: float = DEFAULT_RMS_WEIGHT,
+    sample_rate: int,
+    hop_sec: float,
+    soft_limit_sec: float,
+    return_seconds: bool,
+    with_scores: bool,
+    make_segment: Callable,
+    smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+    min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+    min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
 ) -> List[SpeechSegment]:
-    """
-    Apply multi-level limit splitting to speech segments.
-
-    Applies three levels of splitting with increasingly aggressive parameters:
-    1. Soft limit (DEFAULT_SOFT_LIMIT_SEC) - Conservative valley detection
-    2. Soft limit high (DEFAULT_SOFT_LIMIT_SEC_HIGH) - More aggressive detection
-    3. Hard limit (DEFAULT_HARD_LIMIT_SEC) - Most aggressive detection
-
-    Backward compatibility: If any legacy parameters are provided, falls back
-    to single-level splitting with those parameters.
-    """
-
-    # Check if legacy parameters were provided
-    using_legacy_params = any(
-        [
-            max_limit_sec is not None,
-            min_valley_duration_s is not None,
-            smoothing_window is not None,
-            trough_prominence is not None,
-            min_trough_offset_s is not None,
-            end_reason_on_split is not None,
-        ]
-    )
-
-    if using_legacy_params:
-        # Fallback to single-level splitting for backward compatibility
-        console.print("[yellow]Using legacy single-level limit splitting[/yellow]")
-        return _apply_single_limit_split(
-            segments=segments,
-            probs=probs,
-            audio_np=audio_np,
-            sample_rate=sample_rate,
-            hop_sec=hop_sec,
-            max_limit_sec=max_limit_sec or DEFAULT_SOFT_LIMIT_SEC,
-            min_valley_duration_s=min_valley_duration_s
-            or DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
-            smoothing_window=smoothing_window or DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
-            trough_prominence=trough_prominence or DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
-            min_trough_offset_s=min_trough_offset_s
-            or DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
-            return_seconds=return_seconds,
-            with_scores=with_scores,
-            end_reason_on_split=end_reason_on_split or "valley",
-            hybrid_prob_weight=hybrid_prob_weight,
-            hybrid_rms_weight=hybrid_rms_weight,
-        )
-
-    # Multi-level splitting
     limit_configs = _get_limit_configs()
+    result: List[SpeechSegment] = []
+    seg_num = 1
 
-    result = segments
-    for level, config in enumerate(limit_configs, 1):
-        result = _apply_single_limit_split(
-            segments=result,
-            probs=probs,
-            audio_np=audio_np,
-            sample_rate=sample_rate,
-            hop_sec=hop_sec,
-            max_limit_sec=config.max_limit_sec,
-            min_valley_duration_s=config.min_valley_duration_s,
-            smoothing_window=config.smoothing_window,
-            trough_prominence=config.trough_prominence,
-            min_trough_offset_s=config.min_trough_offset_s,
-            return_seconds=return_seconds,
-            with_scores=with_scores,
-            end_reason_on_split=config.end_reason,
-            hybrid_prob_weight=hybrid_prob_weight,
-            hybrid_rms_weight=hybrid_rms_weight,
-            level_label=config.label,
-        )
+    for seg in segments:
+        if seg["type"] != "speech":
+            seg["num"] = seg_num
+            result.append(seg)
+            seg_num += 1
+            continue
+
+        start_s: float = seg["start"] if return_seconds else seg["start"] / sample_rate
+        end_s: float = seg["end"] if return_seconds else seg["end"] / sample_rate
+
+        chosen_pieces: list[tuple[float, float]] = [(start_s, end_s)]
+        chosen_config: LimitConfig | None = None
+        chosen_trough: ValleyTrough | None = None
+
+        for config in limit_configs:
+            pieces, trough = _apply_single_limit_split(
+                p_start=start_s,
+                p_end=end_s,
+                probs=probs,
+                hop_sec=hop_sec,
+                config=config,
+            )
+            if trough is not None:
+                chosen_pieces = pieces
+                chosen_config = config
+                chosen_trough = trough
+                break
+
+        last_idx = len(chosen_pieces) - 1
+        for i, (piece_start, piece_end) in enumerate(chosen_pieces):
+            if chosen_config is None or len(chosen_pieces) == 1:
+                piece_end_reason = seg.get("end_reason")
+                piece_trough = None
+            elif i < last_idx:
+                piece_end_reason = "valley"
+                piece_trough = chosen_trough
+            else:
+                piece_end_reason = chosen_config.end_reason
+                piece_trough = chosen_trough
+
+            result.append(
+                make_segment(
+                    seg_num,
+                    piece_start,
+                    piece_end,
+                    "speech",
+                    end_reason=piece_end_reason,
+                    is_ongoing=False,
+                    last_non_speech_sec=None,
+                    best_valley_trough=piece_trough,
+                )
+            )
+            seg_num += 1
 
     return result
 
 
 def _apply_single_limit_split(
-    segments: List[SpeechSegment],
+    p_start: float,
+    p_end: float,
     probs: List[float],
-    audio_np: np.ndarray,
-    sample_rate: int,
     hop_sec: float,
-    max_limit_sec: float,
-    min_valley_duration_s: float,
-    smoothing_window: int,
-    trough_prominence: float,
-    min_trough_offset_s: float,
-    return_seconds: bool,
-    with_scores: bool,
-    end_reason_on_split: SpeechEndReason,
-    hybrid_prob_weight: float,
-    hybrid_rms_weight: float,
-    level_label: str = "Limit",
-) -> List[SpeechSegment]:
+    config: LimitConfig,
+) -> tuple[list[tuple[float, float]], "ValleyTrough | None"]:
     """
-    Apply a single level of limit-based splitting to speech segments.
+    Attempt to split the time range (p_start, p_end) at the best silence
+    valley using a single LimitConfig's parameters.
 
-    This is the extracted core logic that was previously in apply_limit_splits.
-    It can be called multiple times with different configurations for multi-level
-    splitting, or once for backward compatibility.
+    The range is split iteratively: each resulting piece that still exceeds
+    config.max_limit_sec is queued for another split attempt under the same
+    config.  Pieces that are already short enough, or for which no trough is
+    found, are collected as-is.
+
+    Args:
+        p_start: Range start in seconds.
+        p_end: Range end in seconds.
+        probs: Full-audio framewise VAD probabilities.
+        hop_sec: Duration of one probability frame in seconds.
+        config: Limit parameters (threshold, valley settings, end_reason).
+
+    Returns:
+        A tuple of:
+          - split_pieces: list of (start_s, end_s) sub-ranges, always
+            non-empty (at minimum [(p_start, p_end)] if nothing split).
+          - best_trough: the ValleyTrough with the highest final_score that
+            caused any split in this pass, or None if no split occurred.
     """
-    from jet.audio.speech.vad_extractors import get_best_valley_trough
 
-    result: List[SpeechSegment] = []
-    seg_num = 1
+    pending: list[tuple[float, float]] = [(p_start, p_end)]
+    split_pieces: list[tuple[float, float]] = []
+    best_trough: "ValleyTrough | None" = None
 
-    def _split_recursive(seg: SpeechSegment) -> List[SpeechSegment]:
-        """Return one or more segments produced from *seg*, splitting if needed."""
-        duration = seg["duration"]
-        if duration <= max_limit_sec:
-            return [seg]
+    while pending:
+        cur_start, cur_end = pending.pop(0)
+        duration = cur_end - cur_start
 
-        frame_start: int = seg["frame_start"]
-        frame_end: int = seg["frame_end"]
-        seg_audio = audio_np[int(frame_start * 160) : int((frame_end + 1) * 160)]
-        segment_probs = np.array(probs[frame_start : frame_end + 1], dtype=np.float32)
+        if duration <= config.max_limit_sec:
+            split_pieces.append((cur_start, cur_end))
+            continue
 
-        seg_probs = compute_hybrid_probs(
-            probs=segment_probs,
-            audio_np=seg_audio,
-            prob_weight=hybrid_prob_weight,
-            rms_weight=hybrid_rms_weight,
-        ).tolist()
+        frame_start = int(cur_start / hop_sec)
+        frame_end = int(cur_end / hop_sec)
+        seg_probs = probs[frame_start : frame_end + 1]
 
-        if not seg_probs:
-            return [seg]
-
-        best_trough = get_best_valley_trough(
+        troughs = extract_valley_troughs(
             probs_or_audio=seg_probs,
-            smoothing_window=smoothing_window,
-            trough_prominence=trough_prominence,
-            min_valley_duration_s=min_valley_duration_s,
-            min_trough_offset_s=min_trough_offset_s,
+            smoothing_window=config.smoothing_window,
+            trough_prominence=config.trough_prominence,
+            min_valley_duration_s=config.min_valley_duration_s,
+            min_trough_offset_s=config.min_trough_offset_s,
+            frame_offset=frame_start,
         )
 
-        if best_trough is None:
-            console.print(
-                f"[yellow]{level_label}: segment {seg['num']} is {duration:.1f}s "
-                f"(>{max_limit_sec}s) but no valley trough found — keeping intact.[/yellow]"
-            )
-            return [seg]
+        if not troughs:
+            # Signal to caller: this config cannot split this range.
+            split_pieces.append((cur_start, cur_end))
+            continue
 
-        local_trough_frame: int = best_trough["frame"]
-        global_trough_frame: int = frame_start + local_trough_frame
-        split_time_s: float = global_trough_frame * hop_sec
+        candidate = max(troughs, key=lambda t: t["valley"]["final_score"])
+        split_time_s: float = candidate["global_time_s"]
 
-        def _make_child(
-            child_frame_start: int,
-            child_frame_end: int,
-        ) -> SpeechSegment:
-            child_start_s = child_frame_start * hop_sec
-            child_end_s = child_frame_end * hop_sec
-            child_probs_slice = probs[child_frame_start : child_frame_end + 1]
-            avg_prob = float(np.mean(child_probs_slice)) if child_probs_slice else 0.0
-            duration_s = child_end_s - child_start_s
-            start_val = (
-                child_start_s if return_seconds else int(child_start_s * sample_rate)
-            )
-            end_val = child_end_s if return_seconds else int(child_end_s * sample_rate)
-            return SpeechSegment(
-                num=0,
-                start=start_val,
-                end=end_val,
-                duration=duration_s,
-                end_reason=None,
-                prob=avg_prob,
-                frames_length=len(child_probs_slice),
-                frame_start=child_frame_start,
-                frame_end=child_frame_end,
-                type=seg["type"],
-                segment_probs=child_probs_slice if with_scores else [],
-            )
+        # Guard: trough must be meaningfully inside the range.
+        if split_time_s <= cur_start + 0.05 or split_time_s >= cur_end - 0.05:
+            split_pieces.append((cur_start, cur_end))
+            continue
 
-        left = _make_child(frame_start, global_trough_frame)
-        right = _make_child(global_trough_frame, frame_end)
+        # Track the overall best trough across all splits in this pass.
+        if best_trough is None or (
+            candidate["valley"]["final_score"] > best_trough["valley"]["final_score"]
+        ):
+            best_trough = candidate
 
-        console.print(
-            f"[cyan]{level_label}: split segment {seg['num']} "
-            f"({duration:.1f}s) at {split_time_s:.2f}s "
-            f"→ {left['duration']:.1f}s + {right['duration']:.1f}s[/cyan]"
-        )
+        # Queue both halves — each will be re-checked against the same limit.
+        pending.insert(0, (split_time_s, cur_end))
+        pending.insert(0, (cur_start, split_time_s))
 
-        left_children = _split_recursive(left)
-        right_children = _split_recursive(right)
-
-        if left_children:
-            left_children[-1]["end_reason"] = end_reason_on_split
-
-        return left_children + right_children
-
-    for seg in segments:
-        children = _split_recursive(seg)
-        for child in children:
-            child["num"] = seg_num
-            seg_num += 1
-            result.append(child)
-
-    return result
+    return split_pieces, best_trough

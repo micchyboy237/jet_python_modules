@@ -5,17 +5,13 @@ import matplotlib
 from jet.audio.audio_waveform.vad._main_vad_speech_segments_extractor import main
 from jet.audio.audio_waveform.vad._types import SpeechEndReason, SpeechSegment
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
-from jet.audio.audio_waveform.vad.vad_speech_splitter import (
-    apply_limit_splits,
-    compute_postroll,
-    compute_preroll,
-)
 from jet.audio.helpers.config import (
     HOP_STEP_S,
     SAMPLE_RATE,
     SILENCE_MAX_THRESHOLD,
 )
 from jet.audio.speech.firered.config import SAVE_DIR
+from jet.audio.speech.vad_types import ValleyTrough
 from jet.audio.utils.loader import load_audio
 
 matplotlib.use("Agg")
@@ -117,6 +113,12 @@ def extract_speech_timestamps(
     """
     Extract speech timestamps using FireRedVAD with hybrid pre/post-roll.
     """
+    from jet.audio.audio_waveform.vad.vad_speech_splitter import (
+        apply_limit_splits,
+        compute_postroll,
+        compute_preroll,
+    )
+
     audio_np, sr = load_audio(audio, sr=SAMPLE_RATE, mono=True)
     if sr != SAMPLE_RATE:
         raise ValueError(f"FireRedVAD requires SAMPLE_RATE Hz, got {sr}")
@@ -189,19 +191,17 @@ def extract_speech_timestamps(
         end_reason: "SpeechEndReason | None" = None,
         is_ongoing: bool = False,
         last_non_speech_sec: Optional[float] = None,
+        best_valley_trough: Optional["ValleyTrough"] = None,
     ) -> SpeechSegment:
         start_sample = int(start_sec * sr)
         end_sample = int(end_sec * sr)
         frame_start = int(start_sec / HOP_STEP_S)
         frame_end = int(end_sec / HOP_STEP_S)
-
         segment_probs_slice = probs[frame_start : frame_end + 1]
         avg_prob = float(np.mean(segment_probs_slice)) if segment_probs_slice else 0.0
         duration_sec = end_sec - start_sec
-
         start_val = start_sec if return_seconds else start_sample
         end_val = end_sec if return_seconds else end_sample
-
         return SpeechSegment(
             num=num,
             start=start_val,
@@ -210,6 +210,7 @@ def extract_speech_timestamps(
             end_reason=end_reason,
             is_ongoing=is_ongoing,
             last_non_speech_sec=last_non_speech_sec,
+            best_valley_trough=best_valley_trough,
             prob=avg_prob,
             frames_length=len(segment_probs_slice),
             frame_start=frame_start,
@@ -265,16 +266,16 @@ def extract_speech_timestamps(
         enhanced = apply_limit_splits(
             segments=enhanced,
             probs=probs,
-            audio_np=audio_np,
             sample_rate=sr,
             hop_sec=HOP_STEP_S,
+            soft_limit_sec=soft_limit_sec,
             return_seconds=return_seconds,
             with_scores=with_scores,
-            # max_limit_sec=soft_limit_sec,
-            # min_valley_duration_s=soft_limit_min_valley_duration_s,
-            # smoothing_window=soft_limit_smoothing_window,
-            # trough_prominence=soft_limit_trough_prominence,
-            # min_trough_offset_s=soft_limit_min_trough_offset_s,
+            make_segment=make_segment,
+            smoothing_window=DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+            trough_prominence=DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+            min_valley_duration_s=DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+            min_trough_offset_s=DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
         )
 
     # === FINAL REFINEMENT - FIXED LOGIC ===

@@ -31,6 +31,7 @@ from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_scorer import VADScorer
 from jet.audio.helpers.config import FRAME_SHIFT_S, SAMPLE_RATE
 from jet.audio.speech.segment_utils import build_summary, save_segment_plot
+from jet.audio.speech.vad_types import ValleyTrough
 from jet.audio.speech.wav_utils import save_wav_file
 from rich.console import Console
 from rich.text import Text
@@ -73,6 +74,40 @@ def _save_vad_score(
     return vad_score_path
 
 
+def _save_best_valley_trough(
+    seg_dir: Path,
+    best_valley_trough: Optional[ValleyTrough],
+) -> Optional[Path]:
+    """
+    Write ``seg_dir/best_valley_trough.json`` when a valley trough is present.
+
+    Returns the written path, or None if the value is absent or serialisation
+    fails.
+
+    Parameters
+    ----------
+    seg_dir:
+        Directory for the current segment (must already exist).
+    best_valley_trough:
+        The ``best_valley_trough`` field taken directly from a
+        :class:`SpeechSegment`.  May be ``None``.
+    """
+    if best_valley_trough is None:
+        return None
+
+    try:
+        payload = dict(best_valley_trough)  # ValleyTrough is a TypedDict → safe
+    except Exception as exc:
+        console.print(
+            f"[yellow][SegmentStore] best_valley_trough serialisation failed: {exc}[/yellow]"
+        )
+        return None
+
+    trough_path = seg_dir / "best_valley_trough.json"
+    trough_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return trough_path
+
+
 class SegmentStore:
     """
     Manages the segments/ directory for one recording session.
@@ -106,12 +141,14 @@ class SegmentStore:
 
         Written files
         -------------
-        sound.wav        — raw PCM audio
-        metadata.json    — raw SpeechSegment dict
-        summary.json     — human-readable audio / VAD insights
-        plot.png         — 3-panel diagnostic plot
-        vad_score.json   — VADScorer metrics (composite_score, quality_label, …)
-                           written only when segment_probs is non-empty
+        sound.wav                — raw PCM audio
+        metadata.json            — raw SpeechSegment dict
+        summary.json             — human-readable audio / VAD insights
+        plot.png                 — 3-panel diagnostic plot
+        vad_score.json           — VADScorer metrics (composite_score, quality_label, …)
+                                written only when segment_probs is non-empty
+        best_valley_trough.json  — ValleyTrough dict
+                                written only when the field is present and non-None
         """
         self._root.mkdir(parents=True, exist_ok=True)
 
@@ -121,31 +158,27 @@ class SegmentStore:
         seg_dir = self._root / f"segment_{seg_number:03d}"
         seg_dir.mkdir(parents=True, exist_ok=True)
 
-        # ── audio ────────────────────────────────────────────────────────────
         wav_path = seg_dir / "sound.wav"
         seg_sound_file = save_wav_file(wav_path, seg_audio_np)
 
-        # ── metadata (raw SpeechSegment) ─────────────────────────────────────
         metadata_path = seg_dir / "metadata.json"
         metadata_path.write_text(json.dumps(speech_seg, indent=2), encoding="utf-8")
 
-        # ── summary (human-readable insights) ────────────────────────────────
         summary = build_summary(speech_seg, seg_audio_np, seg_number)
         summary_path = seg_dir / "summary.json"
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-        # ── diagnostic plot ───────────────────────────────────────────────────
         plot_path = seg_dir / "plot.png"
         save_segment_plot(speech_seg, seg_audio_np, seg_number, plot_path, sample_rate)
 
-        # ── VAD score ─────────────────────────────────────────────────────────
         segment_probs: list[float] = speech_seg.get("segment_probs") or []
-        vad_score_path = _save_vad_score(
+        vad_score_path = _save_vad_score(seg_dir, segment_probs)
+
+        best_valley_trough_path = _save_best_valley_trough(
             seg_dir,
-            segment_probs,
+            speech_seg.get("best_valley_trough"),
         )
 
-        # ── console log ───────────────────────────────────────────────────────
         console.print(
             f"\n[green]Segment {seg_number} saved to:[/green] ",
             Text(
@@ -153,9 +186,12 @@ class SegmentStore:
                 style=f"bold bright_green link file://{seg_dir}",
             ),
         )
+
         logged_paths = [seg_sound_file, metadata_path, summary_path, plot_path]
         if vad_score_path is not None:
             logged_paths.append(vad_score_path)
+        if best_valley_trough_path is not None:
+            logged_paths.append(best_valley_trough_path)
 
         for p in logged_paths:
             console.print(

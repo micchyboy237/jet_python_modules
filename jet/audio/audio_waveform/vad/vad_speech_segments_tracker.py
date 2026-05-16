@@ -51,11 +51,6 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_WITH_SCORES,
 )
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
-from jet.audio.audio_waveform.vad.vad_speech_splitter import (
-    apply_limit_splits,
-    compute_postroll,
-    compute_preroll,
-)
 from jet.audio.helpers.config import HOP_SIZE, HOP_STEP_S, SAMPLE_RATE
 from jet.audio.speech.vad_extractors import (
     extract_valley_troughs_from_np_audio,
@@ -708,6 +703,12 @@ class VadSpeechSegmentsTracker:
         3. Build the initial SpeechSegment.
         4. Run apply_limit_splits for any sub-splits.
         """
+        from jet.audio.audio_waveform.vad.vad_speech_splitter import (
+            apply_limit_splits,
+            compute_postroll,
+            compute_preroll,
+        )
+
         start_s = frame_start * HOP_STEP_S
         end_s = (frame_end + 1) * HOP_STEP_S
 

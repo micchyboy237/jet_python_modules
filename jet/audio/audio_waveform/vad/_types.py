@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import List, Literal, Optional, TypedDict, Union
 
 import numpy as np
+from jet.audio.speech.vad_types import ValleyTrough
 
 AudioInput = Union[np.ndarray, bytes, bytearray, str, Path]
 
@@ -52,6 +53,9 @@ class _SpeechSegmentRequired(TypedDict):
 class SpeechSegment(_SpeechSegmentRequired):
     last_non_speech_sec: Optional[float]  # duration of trailing silence with energy
     end_reason: Optional[SpeechEndReason]  # only this key is optional
+    best_valley_trough: Optional[
+        ValleyTrough
+    ]  # trough that caused this segment's split, if any
 
 
 class WordSegment(TypedDict):
