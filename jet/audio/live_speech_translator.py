@@ -95,7 +95,6 @@ def main_live_speech_translation():
 
     def _recording_loop() -> None:
         recording_started_at = datetime.now(timezone.utc)
-        # completed_segments lives in main scope so _on_clear() can reset it
         data_stream = record_from_mic(
             duration=None,
             trim_silent=False,
@@ -105,6 +104,17 @@ def main_live_speech_translation():
         for speech_seg, seg_audio_np in data_stream:
             if _stop_recording.is_set():
                 break
+
+            # ── Guard: skip empty or near-silent segments ──────────────────────
+            if seg_audio_np is None or seg_audio_np.size == 0:
+                logger.warning(
+                    f"[recorder] Skipping segment with empty audio "
+                    f"(start={speech_seg.get('start'):.2f}s, "
+                    f"reason={speech_seg.get('end_reason')})"
+                )
+                continue
+            # ───────────────────────────────────────────────────────────────────
+
             seg_dir, seg_number = segment_store.save(
                 speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
             )

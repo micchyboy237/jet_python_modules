@@ -37,8 +37,12 @@ def _validate_audio_data(audio_data: np.ndarray | bytes) -> bytes:
 
         if not np.issubdtype(audio_data.dtype, np.integer):
             raise ValueError(f"Array must have integer dtype, got {audio_data.dtype}")
+
         if audio_data.size == 0:
-            raise ValueError("Empty audio array")
+            raise ValueError(
+                f"Empty audio array (shape={audio_data.shape}, dtype={audio_data.dtype}). "
+                "This usually means the VAD flushed a zero-length segment at stop time."
+            )
         # Handle mono input when expecting stereo/multi-channel
         if audio_data.ndim == 1:
             if CHANNELS == 1:

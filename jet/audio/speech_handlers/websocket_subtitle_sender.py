@@ -423,8 +423,19 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     async def _handle_segment(self, event: SpeechSegmentEndEvent) -> None:
         seg: SpeechSegment = event.segment
         seg_num: int = event.segment_number
-        seg_dir: Path = event.segment_dir
 
+        # ── Skip silence-only segments (server returns empty transcription) ──
+        if event.audio_np is None or event.audio_np.size == 0:
+            console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — empty audio")
+            return
+
+        audio_bytes = _to_pcm_int16_bytes(event.audio_np)
+        if len(audio_bytes) == 0:
+            console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — zero PCM bytes")
+            return
+        # ─────────────────────────────────────────────────────────────────────
+
+        seg_dir: Path = event.segment_dir
         start_sec = float(seg["start"])
         end_sec = float(seg["end"])
         duration = float(seg["duration"])
@@ -440,7 +451,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "started_at": event.started_at.isoformat(),
         }
 
-        audio_bytes = _to_pcm_int16_bytes(event.audio_np)
         _log_request(seg_num, header, audio_bytes)
 
         try:
