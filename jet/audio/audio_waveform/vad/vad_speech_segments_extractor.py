@@ -268,13 +268,13 @@ def extract_speech_timestamps(
             audio_np=audio_np,
             sample_rate=sr,
             hop_sec=HOP_STEP_S,
-            max_limit_sec=soft_limit_sec,
-            min_valley_duration_s=soft_limit_min_valley_duration_s,
-            smoothing_window=soft_limit_smoothing_window,
-            trough_prominence=soft_limit_trough_prominence,
-            min_trough_offset_s=soft_limit_min_trough_offset_s,
             return_seconds=return_seconds,
             with_scores=with_scores,
+            # max_limit_sec=soft_limit_sec,
+            # min_valley_duration_s=soft_limit_min_valley_duration_s,
+            # smoothing_window=soft_limit_smoothing_window,
+            # trough_prominence=soft_limit_trough_prominence,
+            # min_trough_offset_s=soft_limit_min_trough_offset_s,
         )
 
     # === FINAL REFINEMENT - FIXED LOGIC ===
