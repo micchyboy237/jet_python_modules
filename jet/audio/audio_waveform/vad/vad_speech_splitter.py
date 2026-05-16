@@ -284,11 +284,11 @@ def apply_limit_splits(
                 piece_end_reason = seg.get("end_reason")
                 piece_trough = None
             elif i < last_idx:
-                piece_end_reason = "valley"
-                piece_trough = chosen_trough
-            else:
                 piece_end_reason = chosen_config.end_reason
                 piece_trough = chosen_trough
+            else:
+                piece_end_reason = "silent"
+                piece_trough = None  # ← last piece has no valley trough; it ends for a different reason
 
             result.append(
                 make_segment(
