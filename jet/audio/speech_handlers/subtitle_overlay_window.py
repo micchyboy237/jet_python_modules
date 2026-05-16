@@ -56,7 +56,7 @@ from PyQt6.QtWidgets import (
 )
 
 OVERLAY_WIDTH = 450
-OVERLAY_HEIGHT = 800
+OVERLAY_HEIGHT = 600
 
 
 # ── metaclass fix ─────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ def _format_entry(
     end: float = entry.get("end", 0.0)
     gap = (start - prev_end) if prev_end is not None else 0.0
     duration = end - start
-    trigger_reason = entry.get("trigger_reason") or "unknown"
+    end_reason = entry.get("end_reason") or "true_silence"
     segment_dir: Optional[Path] = (
         Path(entry["segment_dir"]) if entry.get("segment_dir") else None
     )
@@ -177,7 +177,7 @@ def _format_entry(
         f'<b style="font-size:10px;">{index}</b> {_VAD_BADGE_HTML} '
         f'<span style="font-size:9px; color:#8b949e; line-height:1.1;">'
         f"[gap: {gap:.2f}s] ({duration:.2f}s)"
-        f' • <span style="color:#d2a8ff;">{trigger_reason}</span>'
+        f' • <span style="color:#d2a8ff;">{end_reason}</span>'
         f' • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>'
         f' • spch: <span style="color:{speech_pctg_color}; font-weight:bold;">{speech_pctg_str}</span>'
         f' • dur: <span style="color:{speech_dur_color}; font-weight:bold;">{speech_dur_str}</span>'
@@ -313,7 +313,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                 "en": en,
                 "start": notification.get("start_sec", 0.0),
                 "end": notification.get("end_sec", 0.0),
-                "trigger_reason": notification.get("trigger_reason", "unknown"),
+                "end_reason": notification.get("end_reason", "true_silence"),
                 "avg_vad_prob": notification.get("avg_vad_prob"),
                 "speech_frames_pctg": notification.get("speech_frames_pctg"),
                 "speech_dur_sec": notification.get("speech_dur_sec"),

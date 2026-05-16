@@ -1,5 +1,6 @@
 import json
 import shutil
+import signal
 import sys
 import threading
 from datetime import datetime, timezone
@@ -15,13 +16,13 @@ from jet.audio.speech.wav_utils import save_wav_file
 from jet.audio.speech_detector import record_from_mic
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import SpeechSegmentEndEvent
-from jet.audio.speech_handlers.subtitle_observer import SubtitleResponseNotifier
 from jet.audio.speech_handlers.subtitle_overlay_window import SubtitleOverlay
 from jet.audio.speech_handlers.websocket_subtitle_sender import (
     WebsocketSubtitleSender,
 )
 from jet.file.utils import save_file
 from jet.logger import logger
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
@@ -370,24 +371,23 @@ def save_segment_data(
 
 
 def main_live_speech_translation():
-    """Main entry point with accumulated display."""
-    # Qt must own the main thread, so the recording loop runs in a daemon thread.
-    app = QApplication(sys.argv)
-
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Build the overlay and notifier; connect them before starting.
-    overlay = SubtitleOverlay()
-    notifier = SubtitleResponseNotifier()
-    notifier.subtitle_received.connect(overlay.on_subtitle_received)
+    app = QApplication(sys.argv)
+
+    # Allow Ctrl+C to reach Python even while Qt's event loop is running.
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    _sigint_timer = QTimer()
+    _sigint_timer.start(200)
+    _sigint_timer.timeout.connect(lambda: None)
 
     handlers: list[SpeechSegmentHandler] = [
         WebsocketSubtitleSender(global_srt_path=OUTPUT_DIR / "subtitles.srt"),
     ]
+    ws_sender: WebsocketSubtitleSender = handlers[0]  # type: ignore[assignment]
+    overlay = SubtitleOverlay.create_and_connect(ws_sender)
 
-    # Wire the sender's observer to the notifier.
-    ws_sender = handlers[0]  # type: ignore[assignment]
-    ws_sender.add_observer(notifier)
+    _stop_recording = threading.Event()
 
     def _recording_loop() -> None:
         recording_started_at = datetime.now(timezone.utc)
@@ -398,6 +398,8 @@ def main_live_speech_translation():
             quit_on_silence=False,
         )
         for speech_seg, seg_audio_np in data_stream:
+            if _stop_recording.is_set():
+                break
             seg_dir, seg_number = save_segment_data(
                 speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
             )
@@ -417,15 +419,25 @@ def main_live_speech_translation():
                 completed_segments, OUTPUT_DIR / "all_segments.json", verbose=False
             )
         display_segments(completed_segments, done=True)
-        for h in handlers:
-            if hasattr(h, "close"):
-                h.close()
 
     rec_thread = threading.Thread(target=_recording_loop, daemon=True, name="recorder")
     rec_thread.start()
 
+    def _shutdown() -> None:
+        logger.info("[shutdown] Stopping recorder…")
+        _stop_recording.set()
+        logger.info("[shutdown] Closing WebSocket sender…")
+        for h in handlers:
+            if hasattr(h, "close"):
+                h.close()
+        logger.info("[shutdown] Joining recorder thread…")
+        rec_thread.join(timeout=5.0)
+        logger.info("[shutdown] Done.")
+
+    app.aboutToQuit.connect(_shutdown)
+
     overlay.show()
-    sys.exit(app.exec())  # Qt event loop — blocks until window is closed
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

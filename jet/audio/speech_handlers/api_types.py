@@ -102,6 +102,7 @@ class SubtitleNotification(TypedDict, total=False):
     """
 
     # --- fields from the server response ---
+    num: int
     uuid: str
     transcription_ja: str
     translation_en: str
@@ -123,7 +124,7 @@ class SubtitleNotification(TypedDict, total=False):
     # --- local segment metadata ---
     start_sec: float
     end_sec: float
-    trigger_reason: str
+    end_reason: str
     segment_dir: str  # path as string; UI converts to Path
     avg_vad_prob: Optional[float]
     speech_frames_pctg: Optional[float]

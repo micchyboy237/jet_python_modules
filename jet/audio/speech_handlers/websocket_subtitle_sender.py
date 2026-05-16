@@ -27,11 +27,13 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from jet.audio.async_utils.task_queue import AsyncTaskQueue
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.speech_handlers.api_types import (
     ClientHeader,
     ServerResponse,
     ServerSuccessResponse,
+    SubtitleNotification,
 )
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import (
@@ -58,9 +60,9 @@ console = Console()
 # ── VAD reason mapping ──────────────────────────────────────────────────────
 _END_REASON_TO_VAD: dict[str | None, str] = {
     "silence": "silence",
-    "hard_limit": "forced",
-    "valley": "silence",
-    None: "silence",
+    "hard_limit": "hard_limit",
+    "valley": "valley",
+    None: "true_silence",
 }
 
 
@@ -96,10 +98,14 @@ def _build_message(header: ClientHeader, audio_bytes: bytes) -> bytes:
 # ── Logging helpers ─────────────────────────────────────────────────────────
 
 
-def _log_request(header: dict, audio_bytes: bytes) -> None:
-    table = Table(title="[bold cyan]WS Request[/bold cyan]", show_header=False)
+def _log_request(seg_num: int, header: dict, audio_bytes: bytes) -> None:
+    table = Table(
+        title=f"[bold cyan]WS Request — Segment {seg_num}[/bold cyan]",
+        show_header=False,
+    )
     table.add_column("Key", style="dim cyan", no_wrap=True)
     table.add_column("Value", style="white")
+    table.add_row("seg_num", str(seg_num))
     for k, v in header.items():
         table.add_row(k, str(v))
     table.add_row("audio_bytes", f"{len(audio_bytes):,} bytes")
@@ -160,6 +166,39 @@ def _log_saved(
     )
 
 
+# ---------------------------------------------------------------------------
+# Helpers for segment‑local metrics that the overlay displays
+# ---------------------------------------------------------------------------
+
+
+def _compute_avg_vad_prob(segment: SpeechSegment) -> Optional[float]:
+    """Average of per‑frame VAD probabilities (if available)."""
+    probs = segment.get("segment_probs")
+    if not probs:
+        return None
+    return float(np.mean(probs))
+
+
+def _compute_speech_frames_pctg(segment: SpeechSegment) -> Optional[float]:
+    """Percentage of frames with VAD probability > 0.5."""
+    probs = segment.get("segment_probs")
+    if not probs:
+        return None
+    speech_count = sum(1 for p in probs if p > 0.5)
+    return (speech_count / len(probs)) * 100.0
+
+
+def _compute_speech_dur_sec(
+    segment: SpeechSegment, frame_dur: float = 0.01
+) -> Optional[float]:
+    """Total duration (seconds) of frames with VAD probability > 0.5 (default 10 ms frames)."""
+    probs = segment.get("segment_probs")
+    if not probs:
+        return None
+    speech_count = sum(1 for p in probs if p > 0.5)
+    return speech_count * frame_dur
+
+
 # ── Main class ──────────────────────────────────────────────────────────────
 
 
@@ -173,7 +212,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self,
         ws_url: str | None = None,
         reconnect_delay: float = 2.0,
-        send_timeout: float = 30.0,
+        send_timeout: float = 120.0,
         global_srt_path: Path | None = None,
     ) -> None:
         self.ws_url = ws_url or os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL")
@@ -201,6 +240,11 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self._loop.call_soon_threadsafe(
             lambda: self._loop.create_task(self._connection_manager())
         )
+
+        # Serialise all WS operations through a FIFO queue.
+        # This is the single fix that prevents ConcurrencyError.
+        self._task_queue = AsyncTaskQueue(self._loop, name="ws-subtitle-sender")
+
         console.print(
             f"[bold blue][WS][/bold blue] Connecting → [cyan]{self.ws_url}[/cyan]"
         )
@@ -344,13 +388,12 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
         """
         Called from the recorder thread.
-        Submits async work to the WS loop and returns immediately —
-        the recorder is free to keep accumulating audio while the
-        WS round-trip runs concurrently in the background loop thread.
-        Errors are caught and logged inside _handle_segment.
+        Enqueues _handle_segment for serial execution via AsyncTaskQueue.
+        Returns immediately — recorder thread is never blocked.
+        Concurrent segments are queued and processed one at a time,
+        preventing ConcurrencyError on the shared WebSocket connection.
         """
-        asyncio.run_coroutine_threadsafe(self._handle_segment(event), self._loop)
-        # intentionally no .result() — non-blocking fire-and-forget
+        self._task_queue.enqueue(self._handle_segment(event))
 
     # ── observer management ───────────────────────────────────────────────────
 
@@ -393,12 +436,12 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "start_sec": round(start_sec, 4),
             "end_sec": round(end_sec, 4),
             "vad_reason": _vad_reason(seg),
-            "forced": seg.get("end_reason") == "hard_limit",
+            "forced": _vad_reason(seg) != "silence",
             "started_at": event.started_at.isoformat(),
         }
 
         audio_bytes = _to_pcm_int16_bytes(event.audio_np)
-        _log_request(header, audio_bytes)
+        _log_request(seg_num, header, audio_bytes)
 
         try:
             response = await self._send_and_receive(header, audio_bytes)
@@ -412,7 +455,20 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         _log_response(response, seg_num)
 
         # Fan out to all observers
-        self._notify_observers(response)
+        # Build the combined notification that includes both the server response
+        # and the local segment metadata the overlay needs.
+        notification: SubtitleNotification = {
+            "num": seg_num,
+            **response,
+            "start_sec": round(start_sec, 4),
+            "end_sec": round(end_sec, 4),
+            "end_reason": _vad_reason(seg),
+            "segment_dir": str(seg_dir),
+            "avg_vad_prob": _compute_avg_vad_prob(seg),
+            "speech_frames_pctg": _compute_speech_frames_pctg(seg),
+            "speech_dur_sec": _compute_speech_dur_sec(seg),
+        }
+        self._notify_observers(notification)
 
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
@@ -431,6 +487,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
     def close(self) -> None:
         self._stop_event.set()
+
+        # Drain the task queue before tearing down the connection.
+        self._task_queue.cancel()
+
         # drain any in-flight _handle_segment tasks before tearing down the loop
         drain = asyncio.run_coroutine_threadsafe(
             asyncio.sleep(0),
