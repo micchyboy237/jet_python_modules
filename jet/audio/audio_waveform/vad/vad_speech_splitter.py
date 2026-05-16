@@ -27,7 +27,7 @@ from jet.audio.helpers.config import (
     HOP_SIZE,
     HOP_STEP_S,
 )
-from jet.audio.speech.vad_extractors import extract_valley_troughs
+from jet.audio.speech.vad_extractors import get_best_valley_trough
 from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
 
@@ -354,7 +354,7 @@ def _apply_single_limit_split(
         frame_end = int(cur_end / hop_sec)
         seg_probs = probs[frame_start : frame_end + 1]
 
-        troughs = extract_valley_troughs(
+        best_trough = get_best_valley_trough(
             probs_or_audio=seg_probs,
             smoothing_window=config.smoothing_window,
             trough_prominence=config.trough_prominence,
@@ -363,12 +363,12 @@ def _apply_single_limit_split(
             frame_offset=frame_start,
         )
 
-        if not troughs:
+        if not best_trough:
             # Signal to caller: this config cannot split this range.
             split_pieces.append((cur_start, cur_end))
             continue
 
-        candidate = max(troughs, key=lambda t: t["valley"]["final_score"])
+        candidate = best_trough
         split_time_s: float = candidate["global_time_s"]
 
         # Guard: trough must be meaningfully inside the range.
