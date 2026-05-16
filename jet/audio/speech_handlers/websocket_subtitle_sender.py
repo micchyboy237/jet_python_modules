@@ -212,7 +212,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self,
         ws_url: str | None = None,
         reconnect_delay: float = 2.0,
-        send_timeout: float = 120.0,
+        send_timeout: float = 15.0,
         global_srt_path: Path | None = None,
     ) -> None:
         self.ws_url = ws_url or os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL")

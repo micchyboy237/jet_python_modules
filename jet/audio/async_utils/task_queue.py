@@ -52,14 +52,24 @@ class AsyncTaskQueue:
         self._loop = loop
         self._name = name
         self._maxsize = maxsize
-        # Create the queue on the event loop so it binds to the correct loop.
-        # Block until creation is confirmed before any enqueue() can be called.
+        self._current_coro: Coroutine[Any, Any, Any] | None = None
+        self._current_coro_name: str | None = None
         self._queue: asyncio.Queue[Coroutine[Any, Any, Any] | None] = (
             asyncio.run_coroutine_threadsafe(self._create_queue(), loop).result(
                 timeout=5
             )
         )
         self._worker_future = asyncio.run_coroutine_threadsafe(self._worker(), loop)
+
+    @property
+    def current_task(self) -> Coroutine[Any, Any, Any] | None:
+        """
+        The coroutine currently being awaited by the worker, or None.
+        Read-only. May be inspected from any thread — the reference is
+        set/cleared only by the worker on the event loop thread, so reads
+        from other threads are safe for inspection but should not be awaited.
+        """
+        return self._current_coro
 
     # ------------------------------------------------------------------
     # Public API (all thread-safe)
@@ -125,19 +135,26 @@ class AsyncTaskQueue:
         await self._queue.put(item)
 
     async def _drain_queue(self) -> None:
-        """
-        Remove and discard every pending item without stopping the worker.
-        Runs on the event loop.  Closes un-awaited coroutines so Python
-        does not emit 'coroutine was never awaited' warnings.
-        """
+        if self._current_coro_name:
+            logger.debug(
+                "[%s] clear() called while running: %s (will finish normally)",
+                self._name,
+                self._current_coro_name,
+            )
+        dropped = 0
         while not self._queue.empty():
             try:
                 item = self._queue.get_nowait()
                 if item is not None:
                     item.close()
                 self._queue.task_done()
+                dropped += 1
             except asyncio.QueueEmpty:
                 break
+        if dropped:
+            logger.debug(
+                "[%s] clear() dropped %d pending item(s).", self._name, dropped
+            )
 
     async def _worker(self) -> None:
         logger.debug("[%s] Worker started.", self._name)
@@ -147,6 +164,9 @@ class AsyncTaskQueue:
                 self._queue.task_done()
                 logger.debug("[%s] Worker received stop sentinel.", self._name)
                 break
+            self._current_coro = coro
+            self._current_coro_name = getattr(coro, "__qualname__", repr(coro))
+            logger.debug("[%s] Starting task: %s", self._name, self._current_coro_name)
             try:
                 await coro
             except Exception as exc:
@@ -157,5 +177,7 @@ class AsyncTaskQueue:
                     exc,
                 )
             finally:
+                self._current_coro = None
+                self._current_coro_name = None
                 self._queue.task_done()
         logger.debug("[%s] Worker stopped.", self._name)
