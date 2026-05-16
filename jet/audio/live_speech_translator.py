@@ -5,6 +5,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -324,8 +325,10 @@ def save_segment_data(
     speech_seg: SpeechSegment,
     seg_audio_np: np.ndarray,
     sample_rate: int = 16000,
+    segment_root: Optional[Path] = None,
 ) -> tuple[Path, int]:
-    segment_root = OUTPUT_DIR / "segments"
+    if segment_root is None:
+        segment_root = OUTPUT_DIR / "segments"
     segment_root.mkdir(parents=True, exist_ok=True)
 
     existing = sorted(segment_root.glob("segment_*"))
@@ -385,7 +388,11 @@ def main_live_speech_translation():
         WebsocketSubtitleSender(global_srt_path=OUTPUT_DIR / "subtitles.srt"),
     ]
     ws_sender: WebsocketSubtitleSender = handlers[0]  # type: ignore[assignment]
-    overlay = SubtitleOverlay.create_and_connect(ws_sender)
+    segment_root = OUTPUT_DIR / "segments"
+    overlay = SubtitleOverlay.create_and_connect(
+        ws_sender,
+        segment_root=segment_root,
+    )
 
     _stop_recording = threading.Event()
 
@@ -401,7 +408,10 @@ def main_live_speech_translation():
             if _stop_recording.is_set():
                 break
             seg_dir, seg_number = save_segment_data(
-                speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
+                speech_seg,
+                seg_audio_np,
+                sample_rate=SAMPLE_RATE,
+                segment_root=segment_root,
             )
             speech_seg["num"] = seg_number
             dispatch_handlers(

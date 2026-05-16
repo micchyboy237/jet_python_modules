@@ -30,6 +30,7 @@ Observer wiring (done in main)
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from abc import ABCMeta
 from pathlib import Path
@@ -225,6 +226,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
     def __init__(
         self,
         show_ja_text: bool = False,
+        segment_root: Optional[Path] = None,
         parent: QWidget | None = None,
     ) -> None:
         QMainWindow.__init__(self, parent)
@@ -232,6 +234,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._hide_japanese: bool = not show_ja_text
         self._last_html: Optional[str] = None
         self._auto_scroll_enabled: bool = True
+        self._segment_root: Optional[Path] = segment_root
 
         self._setup_window()
         self._setup_ui()
@@ -379,6 +382,19 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._entries.clear()
         self._last_html = None
         self._text_area.clear()
+        self._reset_segment_root()
+
+    def _reset_segment_root(self) -> None:
+        """Delete and recreate segment_root so numbering restarts from 001."""
+        if self._segment_root is None:
+            return
+        try:
+            shutil.rmtree(self._segment_root, ignore_errors=True)
+            self._segment_root.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            from jet.logger import logger
+
+            logger.error(f"[SubtitleOverlay] Failed to reset segment root: {exc}")
 
     def _toggle_japanese(self) -> None:
         self._hide_japanese = self._hide_ja_btn.isChecked()
@@ -450,6 +466,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         cls,
         sender,  # WebsocketSubtitleSender
         show_ja_text: bool = False,
+        segment_root: Optional[Path] = None,
     ) -> "SubtitleOverlay":
         """
         Create an overlay, wire it to sender via SubtitleResponseNotifier, return it.
@@ -462,7 +479,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
             overlay.show()
             sys.exit(app.exec())
         """
-        overlay = cls(show_ja_text=show_ja_text)
+        overlay = cls(show_ja_text=show_ja_text, segment_root=segment_root)
         notifier = SubtitleResponseNotifier(parent=overlay)
         notifier.subtitle_received.connect(overlay.on_subtitle_received)
         sender.add_observer(notifier)
