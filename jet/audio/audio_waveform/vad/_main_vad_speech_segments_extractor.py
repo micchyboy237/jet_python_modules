@@ -303,11 +303,11 @@ def main():
             end_reason_display = str(end_reason)
         end_reason_color = END_REASON_COLORS.get(end_reason, "dim")
 
-        # last_non_speech_sec = seg.get("last_non_speech_sec")
-        # if last_non_speech_sec is None:
-        #     last_non_speech_display = "-"
-        # else:
-        #     last_non_speech_display = f"{last_non_speech_sec:.2f}s"
+        last_non_speech_sec = seg.get("last_non_speech_sec")
+        if last_non_speech_sec is None:
+            last_non_speech_display = "-"
+        else:
+            last_non_speech_display = f"{last_non_speech_sec:.2f}s"
 
         is_ongoing = seg.get("is_ongoing", False)
         is_ongoing_icon = "[green]✅[/green]" if is_ongoing else "[red]❌[/red]"
@@ -319,15 +319,14 @@ def main():
         wav_path = seg_dir / "sound.wav"
 
         console.print(
-            f"[yellow][[/yellow] [bold white]{seg['start']:.2f}[/bold white]"
-            f" - [bold white]{seg['end']:.2f}[/bold white] [yellow]][/yellow] "
-            f"dur=[bold magenta]{seg['duration']:.2f}s[/bold magenta] "
-            f"prob=[bold cyan]{seg['prob']:.3f}[/bold cyan] "
-            f"end=[{end_reason_color}]{end_reason_display}[/{end_reason_color}] "
-            # f"last_non_speech=[bold blue]{last_non_speech_display}[/bold blue] "
-            f"is_ongoing={is_ongoing_icon}  "
-            f"[bold][link=file://{meta_path.resolve()}]📄[/link][/bold]  "
-            f"[bold][link=file://{png_path.resolve()}]📊[/link][/bold]  "
+            f"[yellow][[/yellow][bold white]{seg['start']:.2f}-{seg['end']:.2f}[/bold white][yellow]][/yellow] "
+            f"d=[bold magenta]{seg['duration']:.2f}[/bold magenta] "
+            f"p=[bold cyan]{seg['prob']:.3f}[/bold cyan] "
+            f"e=[{end_reason_color}]{end_reason_display}[/{end_reason_color}] "
+            f"lns=[bold blue]{last_non_speech_display}[/bold blue] "
+            f"ong={is_ongoing_icon} "
+            f"[bold][link=file://{meta_path.resolve()}]📄[/link][/bold]"
+            f"[bold][link=file://{png_path.resolve()}]📊[/link][/bold]"
             f"[bold][link=file://{wav_path.resolve()}]🔊[/link][/bold]"
         )
 
