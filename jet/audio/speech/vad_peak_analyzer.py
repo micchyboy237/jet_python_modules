@@ -947,12 +947,13 @@ def save_trough_to_trough_segments(
     """
     For each ValleyTrough, create a segment spanning from the previous trough
     (or t=0 for the first) up to and including the current trough.
+    A final segment is also created from the last trough to the end of the audio.
 
-    Produces N segments for N valley_troughs:
+    Produces N+1 segments for N valley_troughs:
         segment_000: t=0          → trough[0]
         segment_001: trough[0]    → trough[1]
-        segment_002: trough[1]    → trough[2]
         ...
+        segment_N:   trough[N-1]  → end of audio
 
     Also writes a summary ``trough_to_trough.json`` containing all segment
     metadata in a single list.
@@ -974,15 +975,29 @@ def save_trough_to_trough_segments(
     x = np.array(probs, dtype=float)
     n_frames = len(x)
 
-    # Sentinel: treat t=0 as the implicit start boundary
-    sentinel = {**valley_troughs[0], "global_time_s": 0.0, "global_frame": 0}
-    anchors = [sentinel] + list(valley_troughs)
+    # Compute end time/frame from probs length and frame duration
+    frame_duration_s = frame_shift_ms / 1000.0
+    end_time_s = n_frames * frame_duration_s
+    end_frame = n_frames - 1
+
+    # Sentinels: origin at t=0, tail at end of audio
+    sentinel_start = {**valley_troughs[0], "global_time_s": 0.0, "global_frame": 0}
+    sentinel_end = {
+        **valley_troughs[-1],
+        "global_time_s": end_time_s,
+        "global_frame": end_frame,
+    }
+    anchors = [sentinel_start] + list(valley_troughs) + [sentinel_end]
 
     all_segments = []
 
-    for idx in range(len(valley_troughs)):
+    # N+1 segments: one per gap between consecutive anchors
+    for idx in range(len(anchors) - 1):
         vt_start = anchors[idx]
         vt_end = anchors[idx + 1]
+
+        is_first = idx == 0
+        is_last = idx == len(anchors) - 2
 
         seg_dir = cat_dir / f"segment_{idx:03d}"
         seg_dir.mkdir(parents=True, exist_ok=True)
@@ -992,16 +1007,16 @@ def save_trough_to_trough_segments(
         duration_s: float = round(end_s - start_s, 4)
 
         start_frame: int = int(vt_start["global_frame"])
-        end_frame: int = int(vt_end["global_frame"])
+        end_frame_seg: int = int(vt_end["global_frame"])
 
         meta = {
             "start_s": start_s,
             "end_s": end_s,
             "duration_s": duration_s,
             "start_frame": start_frame,
-            "end_frame": end_frame,
-            "trough_start": dict(vt_start) if idx > 0 else None,
-            "trough_end": dict(vt_end),
+            "end_frame": end_frame_seg,
+            "trough_start": None if is_first else dict(vt_start),
+            "trough_end": None if is_last else dict(vt_end),
         }
 
         # ── meta.json ────────────────────────────────────────────────────────
@@ -1021,7 +1036,7 @@ def save_trough_to_trough_segments(
 
         # ── plot.png ─────────────────────────────────────────────────────────
         f_start = max(0, start_frame)
-        f_end = min(n_frames, end_frame + 1)
+        f_end = min(n_frames, end_frame_seg + 1)
         frames = np.arange(f_start, f_end)
         zoomed = x[f_start:f_end]
 
@@ -1029,25 +1044,27 @@ def save_trough_to_trough_segments(
         ax.plot(frames, zoomed, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
         ax.axvspan(f_start, f_end, alpha=0.12, color="purple", label="trough span")
 
+        # Start boundary: gray for origin sentinel, red for real trough
         ax.axvline(
             x=start_frame,
-            color="gray" if idx == 0 else "red",
+            color="gray" if is_first else "red",
             linestyle="--",
             linewidth=1.5,
-            label=f"{'origin' if idx == 0 else 'start trough'} (frame {start_frame})",
+            label=f"{'origin' if is_first else 'start trough'} (frame {start_frame})",
         )
-        if idx > 0 and start_frame < n_frames:
+        if not is_first and start_frame < n_frames:
             ax.plot(start_frame, x[start_frame], "ro", markersize=9)
 
+        # End boundary: gray for tail sentinel, red for real trough
         ax.axvline(
-            x=end_frame,
-            color="red",
+            x=end_frame_seg,
+            color="gray" if is_last else "red",
             linestyle="--",
             linewidth=1.5,
-            label=f"end trough (frame {end_frame})",
+            label=f"{'end of audio' if is_last else 'end trough'} (frame {end_frame_seg})",
         )
-        if end_frame < n_frames:
-            ax.plot(end_frame, x[end_frame], "ro", markersize=9)
+        if not is_last and end_frame_seg < n_frames:
+            ax.plot(end_frame_seg, x[end_frame_seg], "ro", markersize=9)
 
         ax.set_title(
             f"trough_to_trough · segment {idx:03d}  [{start_s:.3f} s – {end_s:.3f} s]",
