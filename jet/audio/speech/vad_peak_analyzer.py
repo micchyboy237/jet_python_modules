@@ -1063,7 +1063,7 @@ def save_trough_to_trough_segments(
         plt.close()
 
     # ── trough_to_trough.json ─────────────────────────────────────────────────
-    summary_path = cat_dir / "trough_to_trough.json"
+    summary_path = output_dir / "trough_to_trough.json"
     with open(summary_path, "w", encoding="utf-8") as fh:
         json.dump(all_segments, fh, ensure_ascii=False, indent=2)
     console.print(
@@ -1073,7 +1073,7 @@ def save_trough_to_trough_segments(
     )
 
     console.print(
-        f"🟣 [bold]{len(valley_troughs)} Trough-to-Trough[/bold] segments saved to: "
+        f"🟣 [bold]{len(all_segments)} Trough-to-Trough[/bold] segments saved to: "
         f"[link=file:///{cat_dir.resolve()}]{cat_dir.resolve()}[/link]",
         style="green",
     )
