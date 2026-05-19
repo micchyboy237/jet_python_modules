@@ -5,7 +5,6 @@ from jet.audio.helpers.config import (
     FRAME_PER_SECONDS,
     SAMPLE_RATE,
 )
-from jet.audio.speech.firered.config import SAVE_DIR
 from jet.audio.speech.vad_types import StreamVadFrame
 
 matplotlib.use("Agg")
@@ -23,6 +22,7 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_SMOOTH_WINDOW_SIZE,
     DEFAULT_THRESHOLD,
     MIN_BUFFER_SAMPLES_BEFORE_FIRST_VAD,
+    SAVE_DIR,
     VAD_CONTEXT_WINDOW_SAMPLES,
 )
 from jet.audio.audio_waveform.vad.vad_hybrid_stream_vad_postprocessor import (
