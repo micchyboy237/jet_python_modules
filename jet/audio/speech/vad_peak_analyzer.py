@@ -7,10 +7,10 @@ from typing import List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf
-from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
-from jet.audio.speech.firered.speech_timestamps_extractor import (
+from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
+from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
 from jet.audio.speech.vad_types import VADSegment, ValleyTrough
 from jet.audio.speech.vad_valley_utils import ThresholdStrategy, auto_threshold
 from rich.console import Console
