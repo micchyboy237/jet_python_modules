@@ -1,12 +1,23 @@
 import json
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import soundfile as sf
 from jet.audio.audio_types import AudioInput
-from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
+from jet.audio.audio_waveform.vad.vad_config import (
+    DEFAULT_MAX_BUFFER_SEC,
+    DEFAULT_MAX_SPEECH_SEC,
+    DEFAULT_MIN_SILENCE_SEC,
+    DEFAULT_MIN_SPEECH_SEC,
+    DEFAULT_SMOOTH_WINDOW_SIZE,
+    DEFAULT_THRESHOLD,
+)
+from jet.audio.audio_waveform.vad.vad_firered import FireRedVAD
+from jet.audio.audio_waveform.vad.vad_firered_hybrid import (
+    FireRedVAD as FireRedVADHybrid,
+)
 from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
@@ -30,21 +41,58 @@ AUDIO_EXTENSIONS = {
 }
 
 
-def is_probs_list(obj):
-    """Returns True if obj is a list of floats."""
-    return (
-        isinstance(obj, list)
-        and len(obj) > 0
-        and all(isinstance(x, float) for x in obj)
-    )
+# Global cache: one instance per compute_hybrid mode
+_VAD_CACHE: Dict[bool, Optional[object]] = {
+    True: None,  # FireRedVADHybrid (hybrid)
+    False: None,  # FireRedVAD
+}
 
 
-def _linkify(path: Path):
-    return f"[link=file://{path}]{path.name}[/link]"
+def load_vad_probs(
+    audio: AudioInput,
+    threshold: float = DEFAULT_THRESHOLD,
+    min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
+    min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
+    max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
+    smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
+    max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
+    sample_rate: float = SAMPLE_RATE,
+    compute_hybrid: bool = True,
+    **kwargs,
+) -> List[float]:
+    audio_np, _ = load_audio(audio, sample_rate)
+
+    global _VAD_CACHE
+
+    # Get from cache or create new instance
+    vad = _VAD_CACHE[compute_hybrid]
+
+    if vad is None:
+        FireRedVADCls = FireRedVADHybrid if compute_hybrid else FireRedVAD
+
+        vad = FireRedVADCls(
+            threshold=threshold,
+            min_silence_duration_sec=min_silence_duration_sec,
+            min_speech_duration_sec=min_speech_duration_sec,
+            max_speech_duration_sec=max_speech_duration_sec,
+            smooth_window_size=smooth_window_size,
+            max_buffer_sec=max_buffer_sec,
+        )
+        _VAD_CACHE[compute_hybrid] = vad
+    # Note: We do NOT call update_parameters since it doesn't exist.
+    # The first set of parameters used will be "frozen" for the cache.
+
+    frame_results, result = vad.detect_full(audio_np)
+
+    probs = [r.smoothed_prob for r in frame_results]
+
+    return probs
 
 
 def load_probs(
-    probs_or_audio: list[float] | AudioInput, default_audio: str | Path | None = None
+    probs_or_audio: list[float] | AudioInput,
+    default_audio: str | Path | None = None,
+    compute_hybrid: bool = True,
 ) -> tuple[list[float], Optional[np.ndarray]]:
     """
     Attempts to load probability scores for VAD either from a list of floats,
@@ -96,12 +144,9 @@ def load_probs(
                 audio_np = (
                     audio[0] if isinstance(audio, tuple) and len(audio) == 2 else audio
                 )
-                _, probs = extract_speech_timestamps(
+                probs = load_vad_probs(
                     audio=audio_np,
-                    threshold=0.5,
-                    min_speech_duration_sec=0.250,
-                    min_silence_duration_sec=0.250,
-                    with_scores=True,
+                    compute_hybrid=compute_hybrid,
                 )
                 if not is_probs_list(probs):
                     raise ValueError(
@@ -122,12 +167,9 @@ def load_probs(
     # Handle numpy.ndarray: treat as waveform
     if isinstance(input_value, np.ndarray):
         audio_np = input_value
-        _, probs = extract_speech_timestamps(
+        probs = load_vad_probs(
             audio=audio_np,
-            threshold=0.5,
-            min_speech_duration_sec=0.250,
-            min_silence_duration_sec=0.250,
-            with_scores=True,
+            compute_hybrid=compute_hybrid,
         )
         if not is_probs_list(probs):
             raise ValueError(
@@ -144,12 +186,9 @@ def load_probs(
             audio_np = (
                 audio[0] if isinstance(audio, tuple) and len(audio) == 2 else audio
             )
-            _, probs = extract_speech_timestamps(
+            probs = load_vad_probs(
                 audio=audio_np,
-                threshold=0.5,
-                min_speech_duration_sec=0.250,
-                min_silence_duration_sec=0.250,
-                with_scores=True,
+                compute_hybrid=compute_hybrid,
             )
             if not is_probs_list(probs):
                 raise ValueError(
@@ -163,12 +202,9 @@ def load_probs(
 
         if isinstance(input_value, torch.Tensor):
             audio_np = input_value.detach().cpu().numpy()
-            _, probs = extract_speech_timestamps(
+            probs = load_vad_probs(
                 audio=audio_np,
-                threshold=0.5,
-                min_speech_duration_sec=0.250,
-                min_silence_duration_sec=0.250,
-                with_scores=True,
+                compute_hybrid=compute_hybrid,
             )
             if not is_probs_list(probs):
                 raise ValueError(
@@ -186,12 +222,9 @@ def load_probs(
         )
         audio = load_audio(default_audio)
         audio_np = audio[0] if isinstance(audio, tuple) and len(audio) == 2 else audio
-        _, probs = extract_speech_timestamps(
+        probs = load_vad_probs(
             audio=audio_np,
-            threshold=0.5,
-            min_speech_duration_sec=0.250,
-            min_silence_duration_sec=0.250,
-            with_scores=True,
+            compute_hybrid=compute_hybrid,
         )
         if not is_probs_list(probs):
             raise ValueError(
@@ -200,6 +233,19 @@ def load_probs(
         return probs, audio_np
 
     raise ValueError("Input could not be parsed and no default_audio was provided.")
+
+
+def is_probs_list(obj):
+    """Returns True if obj is a list of floats."""
+    return (
+        isinstance(obj, list)
+        and len(obj) > 0
+        and all(isinstance(x, float) for x in obj)
+    )
+
+
+def _linkify(path: Path):
+    return f"[link=file://{path}]{path.name}[/link]"
 
 
 def base_extract_valley_troughs(
@@ -269,6 +315,7 @@ def get_best_valley_trough(
     min_valley_frames: Optional[int] = None,
     frame_offset: int = 0,
     min_trough_offset_s: float = 0.4,
+    max_limit_s: Optional[float] = None,
 ) -> Optional[ValleyTrough]:
     """
     Returns the single best ValleyTrough based on the highest final_score.
@@ -294,6 +341,7 @@ def get_best_valley_trough(
         min_valley_frames=min_valley_frames,
         frame_offset=frame_offset,
         min_trough_offset_s=min_trough_offset_s,
+        max_limit_s=max_limit_s,
     )
     if not all_troughs:
         return None
@@ -356,11 +404,10 @@ def get_last_valley_trough(
 # or (probs, trough, audio_np) when the input was an AudioInput (str, bytes,
 # os.PathLike, ndarray, or Tensor) that had to be decoded into probabilities —
 # so callers can access the raw waveform without re-loading.
-_SplitHalf = Union[
-    Tuple[List[float], ValleyTrough],
-    Tuple[List[float], ValleyTrough, np.ndarray],
+SplitResult = Union[
+    Tuple[List[float], List[float], ValleyTrough],
+    Tuple[List[float], List[float], ValleyTrough, np.ndarray, np.ndarray],
 ]
-SplitResult = Tuple[_SplitHalf, _SplitHalf]
 
 
 def split_best_valley_trough(
@@ -376,37 +423,13 @@ def split_best_valley_trough(
     min_valley_frames: Optional[int] = None,
     frame_offset: int = 0,
     min_trough_offset_s: float = 0.4,
+    max_limit_s: Optional[float] = None,
 ) -> Optional[SplitResult]:
     """
-    Split a VAD probability list into two halves at the best valley trough.
+    Split a VAD probability list or audio into two halves at the best valley trough.
 
     Calls get_best_valley_trough to find the single most prominent silence
     point, then slices ``probs`` at that frame index.
-
-    Args:
-        probs_or_audio: VAD probabilities as a list[float], or an AudioInput
-            (str, bytes, os.PathLike, ndarray, or Tensor) that load_probs
-            can resolve into probabilities.
-        All other kwargs are forwarded directly to get_best_valley_trough.
-
-    Returns:
-        When probs_or_audio was already a list[float]::
-
-            (
-                (probs[:split_frame], best_trough),
-                (probs[split_frame:], best_trough),
-            )
-
-        When probs_or_audio was an AudioInput (str, bytes, os.PathLike,
-        ndarray, or Tensor) that required decoding, each half also carries
-        the waveform::
-
-            (
-                (probs[:split_frame], best_trough, audio_np),
-                (probs[split_frame:], best_trough, audio_np),
-            )
-
-        ``None`` if no suitable valley trough was found.
     """
     probs, audio_np = load_probs(probs_or_audio)
     best_trough = get_best_valley_trough(
@@ -422,6 +445,7 @@ def split_best_valley_trough(
         min_valley_frames=min_valley_frames,
         frame_offset=frame_offset,
         min_trough_offset_s=min_trough_offset_s,
+        max_limit_s=max_limit_s,
     )
     if best_trough is None:
         return None
@@ -431,8 +455,14 @@ def split_best_valley_trough(
     right_probs: List[float] = probs[split_frame:]
 
     if audio_np is not None:
-        return (left_probs, best_trough, audio_np), (right_probs, best_trough, audio_np)
-    return (left_probs, best_trough), (right_probs, best_trough)
+        seconds_per_frame = frame_shift_ms / 1000.0
+        split_sample = int(split_frame * seconds_per_frame * sample_rate)
+        split_sample = max(0, min(split_sample, len(audio_np)))
+
+        left_audio = audio_np[:split_sample]
+        right_audio = audio_np[split_sample:]
+        return left_probs, right_probs, best_trough, left_audio, right_audio
+    return left_probs, right_probs, best_trough
 
 
 def extract_valley_troughs(
@@ -448,30 +478,8 @@ def extract_valley_troughs(
     min_valley_frames: Optional[int] = None,
     frame_offset: int = 0,
     min_trough_offset_s: float = 0.4,
+    max_limit_s: Optional[float] = None,
 ) -> List[ValleyTrough]:
-    """
-    Extract salient valley troughs (composite valley + trough detection) with scoring.
-
-    Args:
-        probs_or_audio: VAD speech probabilities as a list[float] in [0.0, 1.0],
-            or an AudioInput (str, bytes, os.PathLike, ndarray, or Tensor)
-            that load_probs can resolve into probabilities.
-        sample_rate: Audio sample rate in Hz.
-        frame_shift_ms: Frame shift in milliseconds.
-        smoothing_window: Smoothing window size (0 = disabled).
-        trough_height: Min trough height (None = auto).
-        trough_prominence: Trough prominence. Default 0.15.
-        trough_distance: Min frames between troughs. Default 5.
-        valley_threshold: Valley threshold (None = auto).
-        min_valley_duration_s: Minimum valley duration. Default 0.25.
-        min_valley_frames: Min valley frames (overrides duration if set).
-        frame_offset: Global frame offset for chunked processing.
-        min_trough_offset_s: Min seconds from start for valid trough. Default 0.4.
-
-    Returns:
-        List[ValleyTrough]: Detected troughs with enclosing valley info,
-        local/global coordinates, and composite scores (valley_score × trough_score).
-    """
     probs, _ = load_probs(probs_or_audio)
     analyzer = VADPeakAnalyzer(
         sample_rate=sample_rate,
@@ -502,7 +510,10 @@ def extract_valley_troughs(
         details["valley_score"] = valley_score
         trough_list = details.get("troughs", [])
         if trough_list:
-            trough = trough_list[0]
+            trough = min(
+                trough_list,
+                key=lambda t: t.get("details", {}).get("trough_probability", 1.0),
+            )
             t_details = trough.get("details", {})
             trough_score = compute_trough_score(
                 min_prob=t_details.get("trough_probability", 1.0),
@@ -516,12 +527,7 @@ def extract_valley_troughs(
             details["trough_score"] = 0.0
             details["final_score"] = 0.0
 
-    filtered_valleys = [
-        v
-        for v in valleys
-        if len(v.get("details", {}).get("troughs", [])) == 1
-        and v["duration_s"] >= min_valley_duration_s
-    ]
+    filtered_valleys = [v for v in valleys if v["duration_s"] >= min_valley_duration_s]
 
     result: List[ValleyTrough] = []
     seconds_per_frame = frame_shift_ms / 1000.0
@@ -531,6 +537,8 @@ def extract_valley_troughs(
         details = valley["details"]
         local_trough_time_s = details["min_prob_s"]
         if local_trough_time_s < min_trough_offset_s:
+            continue
+        if max_limit_s is not None and local_trough_time_s > max_limit_s:
             continue
         global_trough_time_s = local_trough_time_s + (frame_offset * seconds_per_frame)
         valley_info: ValleyInfo = {
@@ -581,7 +589,7 @@ def extract_valley_troughs_from_np_audio(
     trough_height: Optional[float] = 0.3,
     trough_prominence: float = 0.0,
     trough_distance: int = 5,
-    vad: FireRedVAD | None = None,
+    vad: FireRedVADHybrid | None = None,
 ) -> list[ValleyTrough]:
     """
     Extract valley troughs (strong silence positions) from a raw numpy audio clip.

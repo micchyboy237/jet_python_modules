@@ -1,19 +1,21 @@
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional, Union
 
 import matplotlib
 import numpy as np
-from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.audio_waveform.vad._types import SpeechEndReason, SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_PROB_WEIGHT,
     DEFAULT_RMS_WEIGHT,
 )
 from jet.audio.helpers.config import (
     HOP_SIZE,
+    HOP_STEP_S,
     SAMPLE_RATE,
 )
-from jet.audio.helpers.energy_base import compute_frame_rms
+from jet.audio.helpers.energy_base import compute_rms_per_frame
+from jet.audio.speech.vad_types import ValleyTrough
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -41,7 +43,7 @@ console = Console()
 
 
 def compute_hybrid_probs(
-    probs: np.ndarray,
+    probs: Union[List[float], np.ndarray],
     audio_np: np.ndarray,
     prob_weight: float = DEFAULT_PROB_WEIGHT,
     rms_weight: float = DEFAULT_RMS_WEIGHT,
@@ -56,7 +58,8 @@ def compute_hybrid_probs(
     RMS is normalised using the 99th-percentile of the segment's RMS values.
 
     Args:
-        probs:         Speech probability array (one value per 10ms frame).
+        probs:         Speech probability values (one per 10ms frame).
+                       Accepts either a Python list of floats or a numpy array.
         audio_np:      Corresponding audio signal as numpy array.
         prob_weight:   Weight for the speech probability component.
         rms_weight:    Weight for the RMS energy component.
@@ -65,6 +68,12 @@ def compute_hybrid_probs(
     Returns:
         Numpy array of hybrid scores, same length as probs.
     """
+    # Convert probs to numpy array if it's a list
+    if isinstance(probs, list):
+        probs = np.asarray(probs, dtype=np.float32)
+    elif not isinstance(probs, np.ndarray):
+        raise TypeError("probs must be a list[float] or np.ndarray")
+
     n_frames = len(probs)
     if n_frames == 0:
         return np.array([], dtype=np.float32)
@@ -105,7 +114,6 @@ def generate_plot(
     segment_idx: int,
     duration_sec: float,
     output_path: Path,
-    is_dummy: bool = False,
     rms: Optional[np.ndarray] = None,
     hybrid: Optional[np.ndarray] = None,
     hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
@@ -122,11 +130,10 @@ def generate_plot(
     if rows == 1:
         axes = [axes]
 
-    label = "Speech probability (dummy)" if is_dummy else "Speech probability"
-    color = "#ff7f0e" if is_dummy else "#2ca02c"
+    # ── Row 0: raw speech probabilities ──────────────────────────────────
     ax = axes[0]
-    ax.plot(probs, color=color, linewidth=1.8, label=label)
-    ax.fill_between(range(num_frames), probs, color=color, alpha=0.14)
+    ax.plot(probs, color="#2ca02c", linewidth=1.8, label="Speech probability")
+    ax.fill_between(range(num_frames), probs, color="#2ca02c", alpha=0.14)
     ax.axhline(
         y=0.4,
         linestyle="--",
@@ -143,7 +150,7 @@ def generate_plot(
         fontsize=10.5,
     )
     ax.set_title(
-        f"Segment {segment_idx:03d} — {'Dummy ' if is_dummy else ''}Model Probabilities",
+        f"Segment {segment_idx:03d} — Model Probabilities",
         fontsize=12,
         pad=12,
     )
@@ -151,6 +158,8 @@ def generate_plot(
     ax.legend(loc="upper right", fontsize=9.5, framealpha=0.92)
 
     ax_idx = 1
+
+    # ── Row 1: RMS energy ─────────────────────────────────────────────────
     if has_rms:
         ax_rms = axes[ax_idx]
         ax_rms.plot(range(len(rms)), rms, linewidth=1.6, label="RMS energy")
@@ -162,6 +171,7 @@ def generate_plot(
         ax_rms.legend(loc="upper right", fontsize=9.5, framealpha=0.92)
         ax_idx += 1
 
+    # ── Row 2: hybrid score ───────────────────────────────────────────────
     if has_hybrid:
         ax_hyb = axes[ax_idx]
         n_hyb = len(hybrid)
@@ -202,6 +212,7 @@ def save_segments(
     audio_chunks: List[np.ndarray],
     output_base_dir: Path,
     show_progress: bool = True,
+    is_already_hybrid: bool = True,
 ) -> List[SpeechSegment]:
     """
     Persist every speech segment to *output_base_dir/segments/segment_NNN/*.
@@ -212,6 +223,12 @@ def save_segments(
       speech_probs.json  – per-frame probabilities + summary stats
       energies.json      – per-frame RMS energy
       speech_and_rms.png – probability + RMS energy plot
+
+    Args:
+        is_already_hybrid: If True, segment_probs contains hybrid scores
+                           (0.5·prob + 0.5·rms_norm) rather than raw model
+                           probabilities. Raw probs will be recovered via
+                           inversion before saving to speech_probs.json.
     """
     output_base_dir.mkdir(parents=True, exist_ok=True)
     segments_dir = output_base_dir / "segments"
@@ -269,23 +286,17 @@ def save_segments(
                 continue
 
             # ── 2. Probability array ──────────────────────────────────────
-            seg_probs_list: List[float] = meta.get("segment_probs", [])
-            seg_probs_arr = np.asarray(seg_probs_list, dtype=np.float32)
-            is_dummy = len(seg_probs_arr) == 0
+            seg_probs_arr = np.asarray(meta["segment_probs"], dtype=np.float32)
 
-            if is_dummy:
-                num_frames = max(1, _frames_from_seconds(meta["duration"]))
-                t = np.linspace(0, 1, num_frames)
-                base = 0.12 + 0.76 / (1 + np.exp(-14 * (t - 0.48)))
-                noise = np.random.default_rng().normal(0, 0.035, num_frames)
-                seg_probs_arr = np.clip(base + noise, 0.03, 0.99).astype(np.float32)
-                seg_probs_arr *= 0.88 + 0.12 * np.sin(np.pi * t) ** 0.35
-                console.print(
-                    f"[yellow]Segment {idx:03d}: no probabilities stored — "
-                    "using synthetic fallback.[/yellow]"
-                )
+            # ── 3. RMS energies from segment (fallback: recompute from audio) ──
+            rms_list: List[float] = compute_rms_per_frame(audio_np)
+            rms = np.asarray(rms_list, dtype=np.float32)
 
-            # ── 3. probs_info summary stats ───────────────────────────────
+            # ── 4. Recover raw probs if segment_probs are hybrid scores ───
+            if is_already_hybrid:
+                seg_probs_arr = _recover_raw_probs(hybrid=seg_probs_arr, rms=rms)
+
+            # ── 5. probs_info summary stats ───────────────────────────────
             probs_info = {
                 "num_frames": int(len(seg_probs_arr)),
                 "mean": float(np.mean(seg_probs_arr)),
@@ -296,15 +307,16 @@ def save_segments(
                 "frame_rate_hz": 100,
             }
 
-            # ── 4. meta.json ──────────────────────────────────────────────
+            # ── 6. meta.json ──────────────────────────────────────────────
             meta_to_save = dict(meta)
             meta_to_save["output_path"] = str(wav_path.relative_to(output_base_dir))
             meta_to_save["probs_info"] = probs_info
             meta_to_save.pop("segment_probs", None)
+            meta_to_save.pop("energies", None)
             with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
                 json.dump(meta_to_save, fh, indent=2, ensure_ascii=False)
 
-            # ── 5. speech_probs.json ──────────────────────────────────────
+            # ── 7. speech_probs.json ──────────────────────────────────────
             with open(seg_dir / "speech_probs.json", "w", encoding="utf-8") as fh:
                 json.dump(
                     {
@@ -312,14 +324,13 @@ def save_segments(
                         "frame_shift_sec": 0.010,
                         "frame_start": meta.get("frame_start", 0),
                         "summary": probs_info,
-                        "is_dummy": is_dummy,
+                        "recovered_from_hybrid": is_already_hybrid,
                     },
                     fh,
                     indent=2,
                 )
 
-            # ── 6. energies.json ──────────────────────────────────────────
-            rms = compute_frame_rms(audio_np)
+            # ── 8. energies.json ──────────────────────────────────────────
             with open(seg_dir / "energies.json", "w", encoding="utf-8") as fh:
                 json.dump(
                     {
@@ -331,27 +342,38 @@ def save_segments(
                     indent=2,
                 )
 
-            # ── 7. speech_and_rms.png ─────────────────────────────────────
-            # Align rms to the same frame count as probs for the hybrid score.
-            # Both are 10 ms frames; length may differ slightly at boundaries.
-            n_prob = len(seg_probs_arr)
-            n_rms = len(rms)
-            n_min = min(n_prob, n_rms)
+            # ── 9. hybrid_probs.json ──────────────────────────────────────
+            n_min = min(len(seg_probs_arr), len(rms))
             if n_min > 0:
                 rms_ceil = np.percentile(rms[:n_min], 99) + 1e-10
                 rms_norm = np.clip(rms[:n_min] / rms_ceil, 0.0, 1.0)
-                hybrid_arr = (0.5 * seg_probs_arr[:n_min] + 0.5 * rms_norm).astype(
-                    np.float32
-                )
+                hybrid_arr = (
+                    DEFAULT_PROB_WEIGHT * seg_probs_arr[:n_min]
+                    + DEFAULT_RMS_WEIGHT * rms_norm
+                ).astype(np.float32)
             else:
                 hybrid_arr = np.array([], dtype=np.float32)
 
+            if len(hybrid_arr) > 0:
+                with open(seg_dir / "hybrid_probs.json", "w", encoding="utf-8") as fh:
+                    json.dump(
+                        {
+                            "hybrid": hybrid_arr.tolist(),
+                            "frame_shift_sec": 0.010,
+                            "frame_start": meta.get("frame_start", 0),
+                            "num_frames": int(len(hybrid_arr)),
+                            "threshold": DEFAULT_PREROLL_HYBRID_THRESHOLD,
+                        },
+                        fh,
+                        indent=2,
+                    )
+
+            # ── 10. speech_and_rms.png ─────────────────────────────────────
             generate_plot(
                 probs=seg_probs_arr,
                 segment_idx=idx,
                 duration_sec=float(meta["duration"]),
                 output_path=seg_dir / "speech_and_rms.png",
-                is_dummy=is_dummy,
                 rms=rms,
                 hybrid=hybrid_arr,
                 hybrid_threshold=DEFAULT_PREROLL_HYBRID_THRESHOLD,
@@ -373,3 +395,73 @@ def save_segments(
         f"Output: [link=file://{segments_dir.resolve()}]{segments_dir}[/link]"
     )
     return saved
+
+
+def _recover_raw_probs(
+    hybrid: np.ndarray,
+    rms: np.ndarray,
+) -> np.ndarray:
+    """
+    Invert the hybrid score back to raw model probabilities.
+
+    The hybrid formula is:
+        hybrid = DEFAULT_PROB_WEIGHT * raw_prob + DEFAULT_RMS_WEIGHT * rms_norm
+    Solving for raw_prob:
+        raw_prob = (hybrid - DEFAULT_RMS_WEIGHT * rms_norm) / DEFAULT_PROB_WEIGHT
+
+    Args:
+        hybrid: Per-frame hybrid scores stored in segment_probs.
+        rms:    Raw (unnormalised) RMS energies from segment["energies"].
+
+    Returns:
+        Recovered raw probabilities clipped to [0, 1].
+    """
+    n = min(len(hybrid), len(rms))
+    rms_ceil = np.percentile(rms[:n], 99) + 1e-10
+    rms_norm = np.clip(rms[:n] / rms_ceil, 0.0, 1.0)
+    raw = np.clip(
+        (hybrid[:n] - DEFAULT_RMS_WEIGHT * rms_norm) / DEFAULT_PROB_WEIGHT,
+        0.0,
+        1.0,
+    )
+    return raw.astype(np.float32)
+
+
+def make_segment(
+    num: int,
+    start_sec: float,
+    end_sec: float,
+    probs: List[float],
+    seg_type: Literal["speech", "non-speech"] = "speech",
+    end_reason: "SpeechEndReason | None" = None,
+    is_ongoing: bool = False,
+    last_non_speech_sec: Optional[float] = None,
+    best_valley_trough: Optional["ValleyTrough"] = None,
+    sample_rate: int = SAMPLE_RATE,
+    return_seconds: bool = False,
+    with_scores: bool = False,
+) -> SpeechSegment:
+    start_sample = int(start_sec * sample_rate)
+    end_sample = int(end_sec * sample_rate)
+    frame_start = int(start_sec / HOP_STEP_S)
+    frame_end = int(end_sec / HOP_STEP_S)
+    avg_prob = float(np.mean(probs))
+    duration_sec = end_sec - start_sec
+    start_val = start_sec if return_seconds else start_sample
+    end_val = end_sec if return_seconds else end_sample
+    return SpeechSegment(
+        num=num,
+        start=start_val,
+        end=end_val,
+        duration=duration_sec,
+        end_reason=end_reason,
+        is_ongoing=is_ongoing,
+        last_non_speech_sec=last_non_speech_sec,
+        best_valley_trough=best_valley_trough,
+        prob=avg_prob,
+        frames_length=len(probs),
+        frame_start=frame_start,
+        frame_end=frame_end,
+        type=seg_type,
+        segment_probs=probs,
+    )

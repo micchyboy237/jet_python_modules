@@ -109,7 +109,7 @@ def compute_frame_rms(
 
 def compute_rms_per_frame(
     audio: np.ndarray,
-    hop_size: int,
+    hop_size: int = FRAME_SHIFT_SAMPLE,
     start_frame: Optional[int] = None,
     end_frame: Optional[int] = None,
 ) -> list[float]:

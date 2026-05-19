@@ -6,6 +6,7 @@ from jet.audio.audio_waveform.vad._main_vad_speech_segments_extractor import mai
 from jet.audio.audio_waveform.vad._types import SpeechEndReason, SpeechSegment
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
 from jet.audio.helpers.config import (
+    FRAME_SHIFT_S,
     HOP_STEP_S,
     SAMPLE_RATE,
     SILENCE_MAX_THRESHOLD,
@@ -89,11 +90,11 @@ def extract_speech_timestamps(
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
     max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
+    smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
+    max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
     return_seconds: bool = DEFAULT_RETURN_SECONDS,
     with_scores: bool = DEFAULT_WITH_SCORES,
     include_non_speech: bool = DEFAULT_INCLUDE_NON_SPEECH,
-    smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
-    max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
     preroll_max_sec: float = DEFAULT_PREROLL_MAX_SEC,
     preroll_hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
     preroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
@@ -231,7 +232,7 @@ def extract_speech_timestamps(
         current_time = timestamps[0][0]
 
     for start_sec, end_sec in timestamps:
-        if include_non_speech and start_sec > current_time + 0.01:
+        if include_non_speech and start_sec > current_time + FRAME_SHIFT_S:
             enhanced.append(
                 make_segment(seg_num, current_time, start_sec, "non-speech")
             )
@@ -256,7 +257,7 @@ def extract_speech_timestamps(
         seg_num += 1
         current_time = end_sec
 
-    if include_non_speech and current_time < result["dur"] - 0.01:
+    if include_non_speech and current_time < result["dur"] - FRAME_SHIFT_S:
         enhanced.append(
             make_segment(seg_num, current_time, result["dur"], "non-speech")
         )
@@ -268,14 +269,9 @@ def extract_speech_timestamps(
             probs=probs,
             sample_rate=sr,
             hop_sec=HOP_STEP_S,
-            soft_limit_sec=soft_limit_sec,
             return_seconds=return_seconds,
             with_scores=with_scores,
             make_segment=make_segment,
-            smoothing_window=DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
-            trough_prominence=DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
-            min_valley_duration_s=DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
-            min_trough_offset_s=DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
         )
 
     # === FINAL REFINEMENT - FIXED LOGIC ===

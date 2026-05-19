@@ -46,7 +46,6 @@ class _SpeechSegmentRequired(TypedDict):
     frame_start: int
     frame_end: int
     type: Literal["speech", "non-speech"]
-    is_ongoing: bool  # true for final open/ongoing segment in streaming/full audio
     segment_probs: List[float]
 
 
@@ -56,6 +55,9 @@ class SpeechSegment(_SpeechSegmentRequired):
     best_valley_trough: Optional[
         ValleyTrough
     ]  # trough that caused this segment's split, if any
+    is_ongoing: Optional[
+        bool
+    ]  # true for final open/ongoing segment in streaming/full audio
 
 
 class WordSegment(TypedDict):
