@@ -218,14 +218,24 @@ def main():
         include_non_speech=False,
         smooth_window_size=args.smooth_window,
         max_buffer_sec=args.max_buffer_sec,
+        # Pre-roll
         preroll_max_sec=args.preroll_max_sec,
         preroll_hybrid_threshold=args.preroll_threshold,
         preroll_prob_weight=args.preroll_prob_weight,
         preroll_rms_weight=args.preroll_rms_weight,
+        # Post-roll
         postroll_max_sec=args.postroll_max_sec,
         postroll_hybrid_threshold=args.postroll_threshold,
         postroll_prob_weight=args.postroll_prob_weight,
         postroll_rms_weight=args.postroll_rms_weight,
+        # Soft limit (valley-based splitting)
+        soft_limit_sec=args.soft_limit,
+        soft_limit_min_valley_duration_s=args.soft_limit_min_valley,
+        soft_limit_smoothing_window=args.soft_limit_smoothing,
+        soft_limit_trough_prominence=args.soft_limit_prominence,
+        soft_limit_min_trough_offset_s=args.soft_limit_offset,
+        # Optional VAD (uses global cache if None)
+        vad=None,
     )
 
     if not any(s["type"] == "speech" for s in segments):
@@ -235,21 +245,35 @@ def main():
     # ── Step 2: extract raw audio for each speech segment ─────────────────
     audio_chunks = extract_speech_audio(
         audio_path,
-        sampling_rate=DEFAULT_SAMPLING_RATE,
         threshold=args.threshold,
         min_silence_duration_sec=args.min_silence,
         min_speech_duration_sec=args.min_speech,
         max_speech_duration_sec=args.max_speech,
+        return_seconds=True,
+        with_scores=True,
+        include_non_speech=False,
         smooth_window_size=args.smooth_window,
         max_buffer_sec=args.max_buffer_sec,
+        # Pre-roll
         preroll_max_sec=args.preroll_max_sec,
         preroll_hybrid_threshold=args.preroll_threshold,
         preroll_prob_weight=args.preroll_prob_weight,
         preroll_rms_weight=args.preroll_rms_weight,
+        # Post-roll
         postroll_max_sec=args.postroll_max_sec,
         postroll_hybrid_threshold=args.postroll_threshold,
         postroll_prob_weight=args.postroll_prob_weight,
         postroll_rms_weight=args.postroll_rms_weight,
+        # Soft limit (valley-based splitting)
+        soft_limit_sec=args.soft_limit,
+        soft_limit_min_valley_duration_s=args.soft_limit_min_valley,
+        soft_limit_smoothing_window=args.soft_limit_smoothing,
+        soft_limit_trough_prominence=args.soft_limit_prominence,
+        soft_limit_min_trough_offset_s=args.soft_limit_offset,
+        # Optional VAD (uses global cache if None)
+        vad=None,
+        # Other config
+        sampling_rate=DEFAULT_SAMPLING_RATE,
     )
 
     # ── Step 3: save everything to disk ───────────────────────────────────

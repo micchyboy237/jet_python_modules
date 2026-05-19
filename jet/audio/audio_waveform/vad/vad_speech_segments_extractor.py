@@ -321,11 +321,13 @@ def extract_speech_timestamps(
 
 def extract_speech_audio(
     audio: Union[str, Path, np.ndarray, torch.Tensor, list[np.ndarray]],
-    sampling_rate: int = DEFAULT_SAMPLING_RATE,
     threshold: float = DEFAULT_THRESHOLD,
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
-    max_speech_duration_sec: float | None = None,
+    max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
+    return_seconds: bool = DEFAULT_RETURN_SECONDS,
+    with_scores: bool = DEFAULT_WITH_SCORES,
+    include_non_speech: bool = DEFAULT_INCLUDE_NON_SPEECH,
     smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
     preroll_max_sec: float = DEFAULT_PREROLL_MAX_SEC,
@@ -336,6 +338,14 @@ def extract_speech_audio(
     postroll_hybrid_threshold: float = DEFAULT_POSTROLL_HYBRID_THRESHOLD,
     postroll_prob_weight: float = DEFAULT_PROB_WEIGHT,
     postroll_rms_weight: float = DEFAULT_RMS_WEIGHT,
+    soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
+    soft_limit_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+    soft_limit_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    soft_limit_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+    soft_limit_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+    vad: FireRedVAD | None = None,  # if None, uses global cache
+    sampling_rate: int = DEFAULT_SAMPLING_RATE,
+    **kwargs,
 ) -> List[np.ndarray]:
     """
     Extract contiguous speech segments from the input audio using FireRedVAD.
@@ -355,8 +365,9 @@ def extract_speech_audio(
         min_silence_duration_sec=min_silence_duration_sec,
         min_speech_duration_sec=min_speech_duration_sec,
         max_speech_duration_sec=max_speech_duration_sec,
-        return_seconds=True,
-        include_non_speech=False,
+        return_seconds=return_seconds,
+        with_scores=False,
+        include_non_speech=include_non_speech,
         smooth_window_size=smooth_window_size,
         max_buffer_sec=max_buffer_sec,
         preroll_max_sec=preroll_max_sec,
@@ -367,6 +378,12 @@ def extract_speech_audio(
         postroll_hybrid_threshold=postroll_hybrid_threshold,
         postroll_prob_weight=postroll_prob_weight,
         postroll_rms_weight=postroll_rms_weight,
+        soft_limit_sec=soft_limit_sec,
+        soft_limit_min_valley_duration_s=soft_limit_min_valley_duration_s,
+        soft_limit_smoothing_window=soft_limit_smoothing_window,
+        soft_limit_trough_prominence=soft_limit_trough_prominence,
+        soft_limit_min_trough_offset_s=soft_limit_min_trough_offset_s,
+        vad=vad,
     )
 
     audio_np, sr = load_audio(audio=audio, sr=sampling_rate, mono=True)

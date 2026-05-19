@@ -43,10 +43,10 @@ BUFFER_OVERLAP_SAMPLES = 640  # 40 frames (~40 ms) — good trade-off
 
 # Pre/Post-roll defaults (extension settings)
 DEFAULT_PREROLL_MAX_SEC = 0.300  # maximum look-back window
-DEFAULT_PREROLL_HYBRID_THRESHOLD = 0.1  # hybrid score below which we stop extending
+DEFAULT_PREROLL_HYBRID_THRESHOLD = 0.05  # hybrid score below which we stop extending
 
 DEFAULT_POSTROLL_MAX_SEC = 0.300  # maximum look-forward window
-DEFAULT_POSTROLL_HYBRID_THRESHOLD = 0.1  # hybrid score below which we stop extending
+DEFAULT_POSTROLL_HYBRID_THRESHOLD = 0.05  # hybrid score below which we stop extending
 
 # Unified weights for speech probability and RMS energy in hybrid scoring (used for both preroll and postroll)
 DEFAULT_PROB_WEIGHT = 0.5  # weight for speech probability

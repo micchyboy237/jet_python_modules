@@ -199,15 +199,21 @@ class LimitConfig:
 
 
 # Define the multi-level configuration
-def _get_limit_configs() -> List[LimitConfig]:
+def _get_limit_configs(
+    init_soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
+    init_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    init_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+    init_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+    init_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+) -> List[LimitConfig]:
     """Return the three-level limit configuration in order of application."""
     return [
         LimitConfig(
-            max_limit_sec=DEFAULT_SOFT_LIMIT_SEC,
-            min_valley_duration_s=DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
-            smoothing_window=DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
-            trough_prominence=DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
-            min_trough_offset_s=DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+            max_limit_sec=init_soft_limit_sec,
+            min_valley_duration_s=init_min_valley_duration_s,
+            smoothing_window=init_smoothing_window,
+            trough_prominence=init_trough_prominence,
+            min_trough_offset_s=init_min_trough_offset_s,
             end_reason="valley",
             label="Soft limit",
         ),
@@ -237,16 +243,22 @@ def apply_limit_splits(
     probs: List[float],
     sample_rate: int,
     hop_sec: float,
-    soft_limit_sec: float,
     return_seconds: bool,
     with_scores: bool,
     make_segment: Callable,
+    soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
     smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
     trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
     min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
 ) -> List[SpeechSegment]:
-    limit_configs = _get_limit_configs()
+    limit_configs = _get_limit_configs(
+        init_soft_limit_sec=soft_limit_sec,
+        init_smoothing_window=smoothing_window,
+        init_trough_prominence=trough_prominence,
+        init_min_valley_duration_s=min_valley_duration_s,
+        init_min_trough_offset_s=min_trough_offset_s,
+    )
     result: List[SpeechSegment] = []
     seg_num = 1
 

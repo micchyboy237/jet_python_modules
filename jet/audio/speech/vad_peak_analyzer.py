@@ -170,9 +170,9 @@ class VADPeakAnalyzer:
     def extract_troughs(
         self,
         probs: List[float],
-        height: Optional[float] = None,  # None → auto-compute via auto_threshold()
+        height: Optional[float] = 0.3,  # None → auto-compute via auto_threshold()
         distance: Optional[int] = None,
-        prominence: Optional[float] = None,
+        prominence: Optional[float] = 0.0,
         width: Optional[int] = None,
         **kwargs,
     ) -> List[VADSegment]:
@@ -382,7 +382,11 @@ class VADPeakAnalyzer:
         threshold: Optional[float] = None,  # None → auto-compute via auto_threshold()
         min_duration_s: float = 0.0,
         min_duration_frames: Optional[int] = None,
-        troughs: Optional[List[VADSegment]] = None,
+        trough_height: Optional[
+            float
+        ] = 0.3,  # None → auto-compute via auto_threshold()
+        trough_distance: Optional[int] = None,
+        trough_prominence: Optional[float] = 0.0,
     ) -> List[VADSegment]:
         """
         Extract contiguous valley (silence) regions where probability < threshold.
@@ -405,17 +409,19 @@ class VADPeakAnalyzer:
                        (use > instead of >= to match "below threshold" intent).
             min_duration_s: Minimum duration in seconds for a valley to be kept.
             min_duration_frames: Alternative minimum frame count (overrides min_duration_s if provided).
-            troughs: Optional pre-extracted trough VADSegments (from
-                     extract_troughs()).  Each trough whose frame index falls
-                     within a valley's [frame_start, frame_end] boundary is
-                     attached to that valley's details["troughs"] list.  Valley
-                     boundaries are never modified.
 
         Returns:
             List of VADSegment dicts, one per contiguous valley region.
         """
         if not probs:
             return []
+
+        troughs = self.extract_troughs(
+            probs,
+            height=trough_height,
+            prominence=trough_prominence,
+            distance=trough_distance,
+        )
 
         # ── Auto-compute valley threshold when not supplied ───────────────
         resolved_threshold = threshold
@@ -1161,15 +1167,15 @@ def get_args():
         "--trough-height",
         "-th",
         type=float,
-        default=None,
+        default=0.3,
         help="Maximum speech probability for a trough (default: None; auto-computed if not set)",
     )
     parser.add_argument(
         "--trough-prominence",
         "-tp",
         type=float,
-        default=0.15,
-        help="Minimum prominence for a trough (default: 0.15).",
+        default=0.0,
+        help="Minimum prominence for a trough (default: 0.0).",
     )
     parser.add_argument(
         "--trough-distance",
@@ -1217,7 +1223,7 @@ def get_args():
         "--min-valley-duration",
         "-mvd",
         type=float,
-        default=0.25,
+        default=0.1,
         help="Minimum valley/silence duration in seconds (default: 0.25s)",
     )
     parser.add_argument(
@@ -1234,6 +1240,20 @@ def get_args():
         default=0,
         help="Smoothing window size for VAD probabilities (default: 0)",
     )
+    parser.add_argument(
+        "--frame-offset",
+        "-fo",
+        type=float,
+        default=0,
+        help="Frame offset to start (default: 0).",
+    )
+    parser.add_argument(
+        "--trough-offset",
+        "-to",
+        type=float,
+        default=0.4,
+        help="Min seconds from start for valid trough (default: 0.4).",
+    )
 
     return parser.parse_args()
 
@@ -1242,7 +1262,7 @@ if __name__ == "__main__":
     import json
     import shutil
 
-    from vad_extractors import (
+    from jet.audio.speech.vad_extractors import (
         base_extract_valley_troughs,
         extract_valley_troughs,
         smooth_vad_probs,
@@ -1357,7 +1377,9 @@ if __name__ == "__main__":
         threshold=args.valley_threshold,
         # min_duration_s=args.min_valley_duration,
         # min_duration_frames=args.min_valley_frames,
-        troughs=troughs,
+        trough_height=args.trough_height,
+        trough_distance=args.trough_distance,
+        trough_prominence=args.trough_prominence,
     )
 
     # Filter by minimum duration
@@ -1372,8 +1394,14 @@ if __name__ == "__main__":
         min_valley_duration_s=args.min_valley_duration,
         sample_rate=args.sample_rate,  # ← add this
         frame_shift_ms=args.frame_shift_ms,  # ← add this (was defaulting to 25ms!)
-        frame_offset=args.frame_offset if hasattr(args, "frame_offset") else 0,
         smoothing_window=args.smoothing_window,
+        trough_height=args.trough_height,
+        trough_prominence=args.trough_prominence,
+        trough_distance=args.trough_distance,
+        valley_threshold=args.valley_threshold,
+        min_valley_frames=args.min_valley_frames,
+        frame_offset=args.frame_offset,
+        min_trough_offset_s=args.trough_offset,
     )
 
     # === Results Summary ===
