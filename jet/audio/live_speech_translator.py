@@ -61,7 +61,7 @@ def dispatch_handlers(
 # ---------------------------------------------------------------------------
 
 
-def main_live_speech_translation():
+def main_live_speech_translation(verbose: bool = False):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     app = QApplication(sys.argv)
     signal.signal(signal.SIGINT, lambda *_: app.quit())
@@ -99,7 +99,7 @@ def main_live_speech_translation():
             duration=None,
             trim_silent=False,
             quit_on_silence=False,
-            verbose=False,
+            verbose=verbose,
         )
         for speech_seg, seg_audio_np in data_stream:
             if _stop_recording.is_set():
@@ -136,7 +136,6 @@ def main_live_speech_translation():
 
             completed_segments.append(_speech_seg_no_probs)
 
-            save_file(_speech_seg_probs, seg_dir / "probs.json")
             save_file(completed_segments, all_segments_path)
 
         display_segments(completed_segments, done=True)
@@ -161,4 +160,14 @@ def main_live_speech_translation():
 
 
 if __name__ == "__main__":
-    main_live_speech_translation()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Live Speech Translation")
+
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose output"
+    )
+
+    args = parser.parse_args()
+
+    main_live_speech_translation(verbose=args.verbose)
