@@ -211,11 +211,9 @@ def save_segment(
     seg_dir.mkdir(parents=True, exist_ok=True)
     idx = meta["num"]
     wav_path = seg_dir / "sound.wav"
-
-    # Ensure audio is 1D (N,) — sounddevice may return (N, channels)
     audio_flat = np.asarray(audio_np, dtype=np.float32)
     if audio_flat.ndim == 2:
-        audio_flat = audio_flat.mean(axis=1)  # mix down to mono
+        audio_flat = audio_flat.mean(axis=1)
     elif audio_flat.ndim != 1:
         console.print(
             f"[red]Unexpected audio shape {audio_flat.shape}, skipping WAV save.[/red]"
@@ -234,21 +232,53 @@ def save_segment(
     rms = np.asarray(rms_list, dtype=np.float32)
 
     if is_already_hybrid:
-        seg_probs_arr = _recover_raw_probs(hybrid=seg_probs_arr, rms=rms)
+        # segment_probs ARE the hybrid scores — use them directly for hybrid_probs.json.
+        # Recover raw model probs for speech_probs.json (best-effort inversion).
+        hybrid_arr = seg_probs_arr
+        speech_probs_arr = _recover_raw_probs(hybrid=seg_probs_arr, rms=rms)
+    else:
+        # segment_probs are raw model probs — derive hybrid from them.
+        speech_probs_arr = seg_probs_arr
+        n_min = min(len(seg_probs_arr), len(rms))
+        if n_min > 0:
+            rms_ceil = np.percentile(rms[:n_min], 99) + 1e-10
+            rms_norm = np.clip(rms[:n_min] / rms_ceil, 0.0, 1.0)
+            hybrid_arr = (
+                DEFAULT_PROB_WEIGHT * seg_probs_arr[:n_min]
+                + DEFAULT_RMS_WEIGHT * rms_norm
+            ).astype(np.float32)
+        else:
+            hybrid_arr = np.array([], dtype=np.float32)
 
     probs_info = {
-        "num_frames": int(len(seg_probs_arr)),
-        "mean": float(np.mean(seg_probs_arr)),
-        "max": float(np.max(seg_probs_arr)),
-        "min": float(np.min(seg_probs_arr)),
-        "std": float(np.std(seg_probs_arr)),
-        "median": float(np.median(seg_probs_arr)),
+        "num_frames": int(len(speech_probs_arr)),
+        "mean": float(np.mean(speech_probs_arr)),
+        "max": float(np.max(speech_probs_arr)),
+        "min": float(np.min(speech_probs_arr)),
+        "std": float(np.std(speech_probs_arr)),
+        "median": float(np.median(speech_probs_arr)),
         "frame_rate_hz": 100,
     }
 
     meta_to_save = dict(meta)
     meta_to_save["output_path"] = str(wav_path.relative_to(seg_dir.parent.parent))
-    meta_to_save["probs_info"] = probs_info
+    meta_to_save["probs_info"] = {
+        **probs_info,
+        "frame_shift_sec": 0.010,
+        "frame_start": meta.get("frame_start", 0),
+        "recovered_from_hybrid": is_already_hybrid,
+    }
+    meta_to_save["energies_info"] = {
+        "frame_shift_sec": 0.010,
+        "num_frames": int(len(rms)),
+    }
+    if len(hybrid_arr) > 0:
+        meta_to_save["hybrid_info"] = {
+            "frame_shift_sec": 0.010,
+            "frame_start": meta.get("frame_start", 0),
+            "num_frames": int(len(hybrid_arr)),
+            "threshold": DEFAULT_PREROLL_HYBRID_THRESHOLD,
+        }
     meta_to_save.pop("segment_probs", None)
     meta_to_save.pop("energies", None)
 
@@ -256,55 +286,17 @@ def save_segment(
         json.dump(meta_to_save, fh, indent=2, ensure_ascii=False)
 
     with open(seg_dir / "speech_probs.json", "w", encoding="utf-8") as fh:
-        json.dump(
-            {
-                "probs": seg_probs_arr.tolist(),
-                "frame_shift_sec": 0.010,
-                "frame_start": meta.get("frame_start", 0),
-                "summary": probs_info,
-                "recovered_from_hybrid": is_already_hybrid,
-            },
-            fh,
-            indent=2,
-        )
+        json.dump(speech_probs_arr.tolist(), fh, indent=2)
 
     with open(seg_dir / "energies.json", "w", encoding="utf-8") as fh:
-        json.dump(
-            {
-                "rms": rms.tolist(),
-                "frame_shift_sec": 0.010,
-                "num_frames": int(len(rms)),
-            },
-            fh,
-            indent=2,
-        )
-
-    n_min = min(len(seg_probs_arr), len(rms))
-    if n_min > 0:
-        rms_ceil = np.percentile(rms[:n_min], 99) + 1e-10
-        rms_norm = np.clip(rms[:n_min] / rms_ceil, 0.0, 1.0)
-        hybrid_arr = (
-            DEFAULT_PROB_WEIGHT * seg_probs_arr[:n_min] + DEFAULT_RMS_WEIGHT * rms_norm
-        ).astype(np.float32)
-    else:
-        hybrid_arr = np.array([], dtype=np.float32)
+        json.dump(rms.tolist(), fh, indent=2)
 
     if len(hybrid_arr) > 0:
         with open(seg_dir / "hybrid_probs.json", "w", encoding="utf-8") as fh:
-            json.dump(
-                {
-                    "hybrid": hybrid_arr.tolist(),
-                    "frame_shift_sec": 0.010,
-                    "frame_start": meta.get("frame_start", 0),
-                    "num_frames": int(len(hybrid_arr)),
-                    "threshold": DEFAULT_PREROLL_HYBRID_THRESHOLD,
-                },
-                fh,
-                indent=2,
-            )
+            json.dump(hybrid_arr.tolist(), fh, indent=2)
 
     generate_plot(
-        probs=seg_probs_arr,
+        probs=speech_probs_arr,
         segment_idx=idx,
         duration_sec=float(meta["duration"]),
         output_path=seg_dir / "speech_and_rms.png",

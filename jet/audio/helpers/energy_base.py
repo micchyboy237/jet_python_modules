@@ -264,6 +264,42 @@ def trim_silent(
     return samples[start:end].copy()
 
 
+def trim_silent_frames(
+    probs: list[float],
+    audio: Optional[np.ndarray],
+    *,
+    trim_left: bool = True,
+    trim_right: bool = True,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    sample_rate: int = SAMPLE_RATE,
+    silence_threshold: float = SILENCE_MAX_THRESHOLD,
+) -> Tuple[list[float], Optional[np.ndarray]]:
+    """Strip leading/trailing silent frames from probs (and matching audio)."""
+    start = 0
+    end = len(probs)
+
+    if trim_left:
+        while start < end and probs[start] < silence_threshold:
+            start += 1
+
+    if trim_right:
+        while end > start and probs[end - 1] < silence_threshold:
+            end -= 1
+
+    trimmed_probs = probs[start:end]
+
+    if audio is not None:
+        spf = frame_shift_ms / 1000.0 * sample_rate  # samples per frame
+        sample_start = int(start * spf)
+        sample_end = int(end * spf)
+        sample_end = min(sample_end, len(audio))
+        trimmed_audio = audio[sample_start:sample_end]
+    else:
+        trimmed_audio = None
+
+    return trimmed_probs, trimmed_audio
+
+
 def normalize_energy(
     rms_values: np.ndarray | list[float],
     max_rms: Optional[float] = None,

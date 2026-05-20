@@ -10,8 +10,10 @@ from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
 from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
-from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
+from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE, SILENCE_MAX_THRESHOLD
+from jet.audio.helpers.energy_base import trim_silent_frames
 from jet.audio.speech._main_vad_extractors import main
+from jet.audio.speech.vad_loaders import load_vad_hybrid_probs
 from jet.audio.speech.vad_peak_analyzer import VADPeakAnalyzer
 from jet.audio.speech.vad_types import VADSegment, ValleyInfo, ValleyTrough
 from jet.audio.utils.loader import load_audio
@@ -375,16 +377,26 @@ def split_best_valley_trough(
     min_valley_frames: Optional[int] = None,
     frame_offset: int = 0,
     min_trough_offset_s: float = 0.4,
+    trim_silence: bool = True,
+    trim_threshold: Optional[float] = SILENCE_MAX_THRESHOLD,
 ) -> Optional[SplitResult]:
     """
-    Split a VAD probability list or audio into two halves at the best valley trough.
+    Split a VAD probability list or audio into two halves at the best valley trough,
+    then trim trailing silence from the left half and leading silence from the right half.
 
-    Calls get_best_valley_trough to find the single most prominent silence
-    point, then slices ``probs`` at that frame index.
+    Parameters
+    ----------
+    trim_silence : bool
+        If True, strip silent frames from the inner edges of each half after splitting.
+    trim_threshold : float, optional
+        VAD probability below which a frame is considered silent for trimming purposes.
+        Defaults to ``valley_threshold`` if set, otherwise ``trough_height``, otherwise 0.3.
     """
-    probs, audio_np = load_probs(probs_or_audio)
+    probs, data = load_vad_hybrid_probs(probs_or_audio)
+    audio_np = data["audio_np"]
+
     best_trough = get_best_valley_trough(
-        probs_or_audio=probs,  # already resolved — passes list[float] directly
+        probs_or_audio=probs,
         sample_rate=sample_rate,
         frame_shift_ms=frame_shift_ms,
         smoothing_window=smoothing_window,
@@ -408,9 +420,31 @@ def split_best_valley_trough(
         seconds_per_frame = frame_shift_ms / 1000.0
         split_sample = int(split_frame * seconds_per_frame * sample_rate)
         split_sample = max(0, min(split_sample, len(audio_np)))
+        left_audio: Optional[np.ndarray] = audio_np[:split_sample]
+        right_audio: Optional[np.ndarray] = audio_np[split_sample:]
+    else:
+        left_audio = None
+        right_audio = None
 
-        left_audio = audio_np[:split_sample]
-        right_audio = audio_np[split_sample:]
+    if trim_silence:
+        left_probs, left_audio = trim_silent_frames(
+            left_probs,
+            left_audio,
+            trim_left=False,
+            trim_right=True,
+            frame_shift_ms=frame_shift_ms,
+            sample_rate=sample_rate,
+        )
+        right_probs, right_audio = trim_silent_frames(
+            right_probs,
+            right_audio,
+            trim_left=True,
+            trim_right=False,
+            frame_shift_ms=frame_shift_ms,
+            sample_rate=sample_rate,
+        )
+
+    if audio_np is not None:
         return left_probs, right_probs, best_trough, left_audio, right_audio
     return left_probs, right_probs, best_trough
 
@@ -486,7 +520,10 @@ def extract_valley_troughs(
         details["valley_score"] = valley_score
         trough_list = details.get("troughs", [])
         if trough_list:
-            trough = trough_list[0]
+            trough = min(
+                trough_list,
+                key=lambda t: t.get("details", {}).get("trough_probability", 1.0),
+            )
             t_details = trough.get("details", {})
             trough_score = compute_trough_score(
                 min_prob=t_details.get("trough_probability", 1.0),

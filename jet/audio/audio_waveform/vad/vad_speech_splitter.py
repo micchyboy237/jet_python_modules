@@ -10,6 +10,7 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_HARD_LIMIT_MIN_VALLEY_DURATION_S,
     DEFAULT_HARD_LIMIT_SEC,
     DEFAULT_HARD_LIMIT_SMOOTHING_WINDOW,
+    DEFAULT_HARD_LIMIT_TROUGH_HEIGHT,
     DEFAULT_HARD_LIMIT_TROUGH_PROMINENCE,
     DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
     DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
@@ -18,8 +19,10 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_SOFT_LIMIT_SEC_HIGH_MIN_TROUGH_OFFSET_S,
     DEFAULT_SOFT_LIMIT_SEC_HIGH_MIN_VALLEY_DURATION_S,
     DEFAULT_SOFT_LIMIT_SEC_HIGH_SMOOTHING_WINDOW,
+    DEFAULT_SOFT_LIMIT_SEC_HIGH_TROUGH_HEIGHT,
     DEFAULT_SOFT_LIMIT_SEC_HIGH_TROUGH_PROMINENCE,
     DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    DEFAULT_SOFT_LIMIT_TROUGH_HEIGHT,
     DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
 )
 from jet.audio.audio_waveform.vad.vad_utils import compute_hybrid_probs, make_segment
@@ -32,6 +35,7 @@ from jet.audio.speech.vad_extractors import (
     get_best_valley_trough,
     split_best_valley_trough,
 )
+from jet.audio.speech.vad_loaders import load_vad_hybrid_probs
 from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
 
@@ -196,22 +200,30 @@ class LimitConfig:
     max_limit_sec: float
     min_valley_duration_s: float
     smoothing_window: int
+    trough_height: float
     trough_prominence: float
     min_trough_offset_s: float
     end_reason: SpeechEndReason
     label: str  # For logging purposes
 
 
-# Define the multi-level configuration
-def _get_limit_configs() -> List[LimitConfig]:
+def _get_limit_configs(
+    init_soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
+    init_smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    init_trough_height: float = DEFAULT_SOFT_LIMIT_TROUGH_HEIGHT,
+    init_trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+    init_min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+    init_min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+) -> List[LimitConfig]:
     """Return the three-level limit configuration in order of application."""
     return [
         LimitConfig(
-            max_limit_sec=DEFAULT_SOFT_LIMIT_SEC,
-            min_valley_duration_s=DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
-            smoothing_window=DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
-            trough_prominence=DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
-            min_trough_offset_s=DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+            max_limit_sec=init_soft_limit_sec,
+            min_valley_duration_s=init_min_valley_duration_s,
+            smoothing_window=init_smoothing_window,
+            trough_height=init_trough_height,
+            trough_prominence=init_trough_prominence,
+            min_trough_offset_s=init_min_trough_offset_s,
             end_reason="valley",
             label="Soft limit",
         ),
@@ -219,6 +231,7 @@ def _get_limit_configs() -> List[LimitConfig]:
             max_limit_sec=DEFAULT_SOFT_LIMIT_SEC_HIGH,
             min_valley_duration_s=DEFAULT_SOFT_LIMIT_SEC_HIGH_MIN_VALLEY_DURATION_S,
             smoothing_window=DEFAULT_SOFT_LIMIT_SEC_HIGH_SMOOTHING_WINDOW,
+            trough_height=DEFAULT_SOFT_LIMIT_SEC_HIGH_TROUGH_HEIGHT,
             trough_prominence=DEFAULT_SOFT_LIMIT_SEC_HIGH_TROUGH_PROMINENCE,
             min_trough_offset_s=DEFAULT_SOFT_LIMIT_SEC_HIGH_MIN_TROUGH_OFFSET_S,
             end_reason="valley",
@@ -228,6 +241,7 @@ def _get_limit_configs() -> List[LimitConfig]:
             max_limit_sec=DEFAULT_HARD_LIMIT_SEC,
             min_valley_duration_s=DEFAULT_HARD_LIMIT_MIN_VALLEY_DURATION_S,
             smoothing_window=DEFAULT_HARD_LIMIT_SMOOTHING_WINDOW,
+            trough_height=DEFAULT_HARD_LIMIT_TROUGH_HEIGHT,
             trough_prominence=DEFAULT_HARD_LIMIT_TROUGH_PROMINENCE,
             min_trough_offset_s=DEFAULT_HARD_LIMIT_MIN_TROUGH_OFFSET_S,
             end_reason="hard_limit",
@@ -250,7 +264,16 @@ def apply_limit_splits(
     min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
 ) -> List[SpeechSegment]:
-    limit_configs = _get_limit_configs()
+    """Apply multi-level limit-based splitting using valley/trough detection."""
+    limit_configs = _get_limit_configs(
+        init_soft_limit_sec=soft_limit_sec,
+        init_smoothing_window=smoothing_window,
+        init_trough_height=DEFAULT_SOFT_LIMIT_TROUGH_HEIGHT,  # uses default for now
+        init_trough_prominence=trough_prominence,
+        init_min_valley_duration_s=min_valley_duration_s,
+        init_min_trough_offset_s=min_trough_offset_s,
+    )
+
     result: List[SpeechSegment] = []
     seg_num = 1
 
@@ -260,6 +283,8 @@ def apply_limit_splits(
             result.append(seg)
             seg_num += 1
             continue
+
+        seg_probs = seg["segment_probs"]
 
         start_s: float = seg["start"] if return_seconds else seg["start"] / sample_rate
         end_s: float = seg["end"] if return_seconds else seg["end"] / sample_rate
@@ -276,6 +301,7 @@ def apply_limit_splits(
                 hop_sec=hop_sec,
                 config=config,
             )
+
             if trough is not None:
                 chosen_pieces = pieces
                 chosen_config = config
@@ -292,7 +318,7 @@ def apply_limit_splits(
                 piece_trough = chosen_trough
             else:
                 piece_end_reason = "silent"
-                piece_trough = None  # ← last piece has no valley trough; it ends for a different reason
+                piece_trough = None
 
             result.append(
                 make_segment(
@@ -322,28 +348,8 @@ def _apply_single_limit_split(
     Attempt to split the time range (p_start, p_end) at the best silence
     valley using a single LimitConfig's parameters.
 
-    The range is split iteratively: each resulting piece that still exceeds
-    config.max_limit_sec is queued for another split attempt under the same
-    config.  Pieces that are already short enough, or for which no trough is
-    found, are collected as-is.
-
-    Uses get_best_valley_trough scoped to each sub-range's prob slice.
-    The min_trough_offset_s from config is relied upon to ensure the trough
-    sits meaningfully inside the range — no additional positional guard needed.
-
-    Args:
-        p_start: Range start in seconds.
-        p_end: Range end in seconds.
-        probs: Full-audio framewise VAD probabilities.
-        hop_sec: Duration of one probability frame in seconds.
-        config: Limit parameters (threshold, valley settings, end_reason).
-
-    Returns:
-        A tuple of:
-          - split_pieces: list of (start_s, end_s) sub-ranges, always
-            non-empty (at minimum [(p_start, p_end)] if nothing split).
-          - best_trough: the ValleyTrough with the highest final_score that
-            caused any split in this pass, or None if no split occurred.
+    The range is split iteratively until pieces are under the max_limit_sec
+    or no more valid troughs are found.
     """
     pending: list[tuple[float, float]] = [(p_start, p_end)]
     split_pieces: list[tuple[float, float]] = []
@@ -357,7 +363,7 @@ def _apply_single_limit_split(
             split_pieces.append((cur_start, cur_end))
             continue
 
-        # Slice probs to the current sub-range so detection is scoped correctly.
+        # Slice probs to current sub-range
         frame_start = int(cur_start / hop_sec)
         frame_end = int(cur_end / hop_sec)
         seg_probs = probs[frame_start : frame_end + 1]
@@ -366,32 +372,30 @@ def _apply_single_limit_split(
             split_pieces.append((cur_start, cur_end))
             continue
 
-        # Use get_best_valley_trough scoped to seg_probs.
-        # Switch to split_best_valley_trough if audio is ever threaded through.
+        # Find best valley/trough in this sub-range
         candidate: "ValleyTrough | None" = get_best_valley_trough(
             probs_or_audio=seg_probs,
-            smoothing_window=0,
-            trough_height=0.3,
-            trough_prominence=0.0,
-            min_valley_duration_s=0.1,
-            min_trough_offset_s=2.0,
+            smoothing_window=config.smoothing_window,
+            trough_height=config.trough_height,
+            trough_prominence=config.trough_prominence,
+            min_valley_duration_s=config.min_valley_duration_s,
+            min_trough_offset_s=config.min_trough_offset_s,
         )
 
         if candidate is None:
-            # This config cannot split this sub-range.
             split_pieces.append((cur_start, cur_end))
             continue
 
-        # candidate.time_s is LOCAL to seg_probs; shift back to global timeline.
+        # Convert local time to global timeline
         split_time_s: float = cur_start + candidate["time_s"]
 
-        # Track the overall best trough across all splits in this pass.
+        # Keep track of best trough (highest score)
         if best_trough is None or (
             candidate["valley"]["final_score"] > best_trough["valley"]["final_score"]
         ):
             best_trough = candidate
 
-        # Queue both halves — each will be re-checked against the same limit.
+        # Queue both sides for further processing
         pending.insert(0, (split_time_s, cur_end))
         pending.insert(0, (cur_start, split_time_s))
 
@@ -408,8 +412,6 @@ def split_segments(
     min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
 ) -> tuple[List[SpeechSegment], List[np.ndarray]]:
-    from jet.audio.speech.vad_extractors2 import load_vad_probs
-
     accumulated_segments: List[SpeechSegment] = []
     accumulated_chunks: List[np.ndarray] = []
     seg_num = 0
@@ -437,7 +439,8 @@ def split_segments(
                 return
 
             # Build local probs from the audio chunk directly via load_vad_probs
-            local_probs = load_vad_probs(audio_chunk)
+            local_probs, data = load_vad_hybrid_probs(audio_chunk)
+
             duration_s = len(audio_chunk) / sample_rate
             end_s = time_offset_s + duration_s
 

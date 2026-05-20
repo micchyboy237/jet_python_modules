@@ -1,6 +1,7 @@
 from typing import Union
 
 import matplotlib
+from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.helpers.config import (
     FRAME_PER_SECONDS,
     SAMPLE_RATE,
@@ -32,6 +33,8 @@ from rich.console import Console
 
 console = Console()
 
+DEFAULT_PREROLL_FRAMES: int = 10  # 100 ms of look-back before detected start
+DEFAULT_ONSET_FLOOR: float = 0.20  # walk back until prob drops below this
 
 # ---------------------------------------------------------------------------
 # FireRedVAD wrapper
@@ -210,3 +213,119 @@ class FireRedVAD:
             [p["smoothed_prob"] for p in self._accumulated_probs], dtype=float
         )
         return frames, smoothed
+
+    def get_speech_segments(
+        self,
+        return_seconds: bool = False,
+        audio_np: np.ndarray | None = None,
+        preroll_frames: int = DEFAULT_PREROLL_FRAMES,
+        onset_floor: float = DEFAULT_ONSET_FLOOR,
+    ) -> tuple[list[SpeechSegment], list[np.ndarray]]:
+        """
+        Parse _accumulated_probs into a list of SpeechSegment using make_segment(),
+        and optionally slice the corresponding audio chunks from audio_np.
+
+        Args:
+            return_seconds:  If True, segment start/end are in seconds (float).
+                            If False (default), they are in samples (int).
+            audio_np:        Optional full audio array. When provided, each segment's
+                            audio slice is returned as the second element of the tuple.
+            preroll_frames:  Number of frames to look back before the detected
+                            speech_start_frame to capture the onset ramp-up.
+            onset_floor:     Walk the pre-roll back further until smoothed_prob
+                            drops below this value, preventing mid-word starts.
+                            Set to 0.0 to use a fixed preroll_frames only.
+        Returns:
+            A tuple of:
+            - list[SpeechSegment]: detected speech segments
+            - list[np.ndarray]:    corresponding audio chunks (empty list if audio_np is None)
+        """
+        from jet.audio.audio_waveform.vad.vad_utils import make_segment
+        from jet.audio.helpers.config import FRAME_PER_SECONDS
+
+        # Build frame_idx → list position index for O(1) look-back
+        frame_idx_to_pos: dict[int, int] = {
+            f["frame_idx"]: i for i, f in enumerate(self._accumulated_probs)
+        }
+
+        segments: list[SpeechSegment] = []
+        seg_num: int = 0
+        start_frame: int = -1
+        segment_probs: list[float] = []
+        prev_end_frame: int = 0  # track where the last segment ended to prevent overlap
+
+        for frame in self._accumulated_probs:
+            if frame["is_speech_start"]:
+                raw_start_frame = frame["speech_start_frame"]
+                earliest_pos = frame_idx_to_pos.get(raw_start_frame, 0)
+
+                # Pre-roll: walk back up to preroll_frames before the detected start
+                preroll_pos = max(0, earliest_pos - preroll_frames)
+
+                # Further walk back while prob is still above onset_floor
+                if onset_floor > 0.0:
+                    while preroll_pos > 0:
+                        if (
+                            self._accumulated_probs[preroll_pos]["smoothed_prob"]
+                            < onset_floor
+                        ):
+                            break
+                        preroll_pos -= 1
+
+                # Overlap guard: never start before the previous segment ended
+                if prev_end_frame > 0:
+                    prev_end_pos = frame_idx_to_pos.get(prev_end_frame, 0)
+                    preroll_pos = max(preroll_pos, prev_end_pos + 1)
+
+                start_frame = self._accumulated_probs[preroll_pos]["frame_idx"]
+                segment_probs = [
+                    float(f["smoothed_prob"])
+                    for f in self._accumulated_probs[preroll_pos:earliest_pos]
+                ]
+
+            if start_frame != -1 and not frame["is_speech_start"]:
+                segment_probs.append(float(frame["smoothed_prob"]))
+
+            if frame["is_speech_end"] and start_frame != -1:
+                end_frame = frame["speech_end_frame"]
+                prev_end_frame = end_frame  # record for overlap guard on next segment
+
+                start_sec = max(0.0, (start_frame - 1) / FRAME_PER_SECONDS)
+                end_sec = max(0.0, (end_frame - 1) / FRAME_PER_SECONDS)
+                seg = make_segment(
+                    num=seg_num,
+                    start_sec=start_sec,
+                    end_sec=end_sec,
+                    probs=segment_probs or [0.0],
+                    seg_type="speech",
+                    is_ongoing=False,
+                    return_seconds=return_seconds,
+                )
+                segments.append(seg)
+                seg_num += 1
+                start_frame = -1
+                segment_probs = []
+
+        # Handle ongoing segment at end of audio
+        if start_frame != -1 and self._accumulated_probs:
+            last_frame_idx = self._accumulated_probs[-1]["frame_idx"]
+            start_sec = max(0.0, (start_frame - 1) / FRAME_PER_SECONDS)
+            end_sec = max(0.0, (last_frame_idx - 1) / FRAME_PER_SECONDS)
+            seg = make_segment(
+                num=seg_num,
+                start_sec=start_sec,
+                end_sec=end_sec,
+                probs=segment_probs or [0.0],
+                seg_type="speech",
+                is_ongoing=True,
+                return_seconds=return_seconds,
+            )
+            segments.append(seg)
+
+        audio_chunks: list[np.ndarray] = []
+        if audio_np is not None:
+            audio_chunks = [
+                audio_np[int(seg["start"]) : int(seg["end"])] for seg in segments
+            ]
+
+        return segments, audio_chunks

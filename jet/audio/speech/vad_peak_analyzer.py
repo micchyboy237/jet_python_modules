@@ -1183,7 +1183,7 @@ def get_args():
         "-at",
         type=float,
         default=0.3,
-        help="Probability threshold for active/speech regions (default: 0.3)",
+        help="Probability threshold for active/speech regions (default: 0   .3)",
     )
     parser.add_argument(
         "--valley-threshold",
