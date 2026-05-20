@@ -1,14 +1,30 @@
 # vad_peak_analyzer.py
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from pathlib import Path
+from typing import List, Optional, Tuple
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
-from jet.audio.helpers.config import FRAME_LENGTH_MS, SAMPLE_RATE
+import soundfile as sf
+from jet.audio.audio_waveform.vad.vad_config import (
+    DEFAULT_MIN_VALLEY_DURATION_S,
+    DEFAULT_SMOOTHING_WINDOW,
+    DEFAULT_TROUGH_DISTANCE,
+    DEFAULT_TROUGH_HEIGHT,
+    DEFAULT_TROUGH_OFFSET,
+    DEFAULT_TROUGH_PROMINENCE,
+)
+from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
+    extract_speech_timestamps,
+)
+from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
+from jet.audio.speech.vad_types import VADSegment, ValleyTrough
 from jet.audio.speech.vad_valley_utils import ThresholdStrategy, auto_threshold
+from rich.console import Console
 from scipy.signal import find_peaks
+
+console = Console()
 
 AUDIO_EXTENSIONS = {
     ".wav",
@@ -21,231 +37,6 @@ AUDIO_EXTENSIONS = {
 }
 
 
-class VADSegment(TypedDict):
-    frame_start: int  # Starting frame index (inclusive)
-    frame_end: int  # Ending frame index (inclusive)
-    frame_length: int  # Number of frames
-    start_s: float  # Start time in seconds
-    end_s: float  # End time in seconds
-    duration_s: float  # Duration in seconds
-    details: Dict[str, Any]  # Additional insights (peak/trough properties)
-
-
-class ValleyInfo(TypedDict):
-    frame_start: int
-    frame_end: int
-    frame_length: int
-    start_s: float
-    end_s: float
-    duration_s: float
-    valley_score: float
-    trough_score: float
-    final_score: float
-
-
-class ValleyTrough(TypedDict):
-    frame: int
-    time_s: float
-    prob: float
-    valley: ValleyInfo
-
-
-def extract_valley_troughs(
-    probs: list[float] | np.ndarray,
-    sample_rate: int = SAMPLE_RATE,
-    frame_duration_ms: float = FRAME_LENGTH_MS,
-    trough_height: float | None = None,
-    trough_prominence: float = 0.15,
-    trough_distance: int = 5,
-    valley_threshold: float | None = None,
-    min_valley_duration_s: float = 0.25,
-) -> List[ValleyTrough]:
-    """
-    Identifies and extracts the lowest-probability frames ("troughs")
-    from automatically detected valleys (regions of low VAD probability)
-    in the given VAD probability sequence. Only valleys that contain exactly
-    one identified trough and have duration at least `min_valley_duration_s`
-    are included in the output. Returns a typed list of ValleyTrough dicts,
-    each containing detailed information about the trough and its valley.
-
-    Parameters
-    ----------
-    probs : list[float] or np.ndarray
-        Sequence of VAD probabilities, one per frame.
-    sample_rate : int, optional
-        Audio sample rate in Hz (default: 16000).
-    frame_duration_ms : float, optional
-        Duration of one VAD frame in milliseconds (default: FRAME_LENGTH_MS).
-    trough_height : float or None, optional
-        Maximum speech probability for a trough (default: None; auto-computed if not set).
-    trough_prominence : float, optional
-        Minimum prominence for a trough (default: 0.15).
-    trough_distance : int, optional
-        Minimum distance between troughs in frames (default: 5).
-    valley_threshold : float or None, optional
-        Optional override for the threshold used to define valleys.
-        If None, a threshold is automatically determined.
-    min_valley_duration_s : float, optional
-        Minimum duration (in seconds) for a valley to be included
-        (default: 0.25).
-
-    Returns
-    -------
-    List[ValleyTrough]
-        List of ValleyTrough dicts describing the troughs and their valleys.
-    """
-    if isinstance(probs, np.ndarray):
-        probs = probs.tolist()
-
-    analyzer = VADPeakAnalyzer(
-        sample_rate=sample_rate, frame_duration_ms=frame_duration_ms
-    )
-
-    # Extract troughs (deep local minima)
-    troughs = analyzer.extract_troughs(
-        probs,
-        height=trough_height,
-        prominence=trough_prominence,
-        distance=trough_distance,
-    )
-
-    # Extract valleys (regions of low probability)
-    valleys = analyzer.extract_valleys(
-        probs,
-        threshold=valley_threshold,
-        troughs=troughs,
-    )
-
-    # Filter by minimum duration
-    valleys = analyzer.filter_short_segments(
-        valleys,
-        min_duration_s=min_valley_duration_s,
-    )
-
-    # ── Enrich valleys with scores ─────────────────────────────────────
-    for valley in valleys:
-        details = valley["details"]
-
-        # Compute valley_score using the dedicated function
-        valley_score = compute_valley_score(
-            min_prob=details.get("min_probability", 1.0),
-            mean_prob=details.get("mean_probability", 1.0),
-            duration_s=valley["duration_s"],
-        )
-        details["valley_score"] = valley_score
-
-        # Trough scoring (only if we have troughs)
-        if details.get("troughs") and len(details["troughs"]) > 0:
-            trough = details["troughs"][0]  # We will filter to exactly 1 later
-            trough_details = trough.get("details", {})
-
-            trough_score = compute_trough_score(
-                min_prob=trough_details.get("trough_probability", 1.0),
-                prominence=trough_details.get("prominence", 0.0),
-                width=trough_details.get("width", 0.0),
-            )
-
-            final_score = valley_score * trough_score
-
-            details["trough_score"] = trough_score
-            details["final_score"] = final_score
-        else:
-            details["trough_score"] = 0.0
-            details["final_score"] = 0.0
-
-    # ── Filter to valleys with exactly one trough ─────────────────────
-    filtered_valleys = [
-        valley for valley in valleys if len(valley["details"].get("troughs", [])) == 1
-    ]
-
-    # Convert to ValleyTrough format
-    valley_troughs: List[ValleyTrough] = [
-        ValleyTrough(
-            frame=valley["details"]["min_prob_frame"],
-            time_s=valley["details"]["min_prob_s"],
-            prob=valley["details"]["min_probability"],
-            valley=ValleyInfo(
-                frame_start=valley["frame_start"],
-                frame_end=valley["frame_end"],
-                frame_length=valley["frame_length"],
-                start_s=valley["start_s"],
-                end_s=valley["end_s"],
-                duration_s=valley["duration_s"],
-                valley_score=valley["details"]["valley_score"],
-                trough_score=valley["details"]["trough_score"],
-                final_score=valley["details"]["final_score"],
-            ),
-        )
-        for valley in filtered_valleys
-    ]
-
-    return valley_troughs
-
-
-def compute_valley_score(
-    min_prob: float,
-    mean_prob: float,
-    duration_s: float,
-    max_duration_ref: float = 1.0,
-    w_depth: float = 0.4,
-    w_mean: float = 0.4,
-    w_duration: float = 0.2,
-) -> float:
-    """
-    Composite score for valley quality.
-
-    Higher score = stronger silence (safe to cut).
-
-    Args:
-        min_prob: Minimum probability in valley
-        mean_prob: Mean probability in valley
-        duration_s: Duration in seconds
-        max_duration_ref: Duration normalization cap
-        w_depth, w_mean, w_duration: Weights
-
-    Returns:
-        float score in [0, 1]
-    """
-    duration_norm = min(duration_s / max_duration_ref, 1.0)
-
-    score = (
-        w_depth * (1.0 - min_prob)
-        + w_mean * (1.0 - mean_prob)
-        + w_duration * duration_norm
-    )
-
-    return float(score)
-
-
-def compute_trough_score(
-    min_prob: float,
-    prominence: float,
-    width: float,
-    max_width_ref: float = 20.0,
-    w_depth: float = 0.4,
-    w_prominence: float = 0.4,
-    w_width: float = 0.2,
-) -> float:
-    """
-    Score how safe a trough is for cutting.
-
-    Higher score = safer cut point.
-    """
-    depth_score = 1.0 - min_prob
-
-    # Normalize prominence (clip to avoid extreme scaling)
-    prominence_norm = min(prominence / 0.5, 1.0) if prominence is not None else 0.0
-
-    # Normalize width (frames)
-    width_norm = min(width / max_width_ref, 1.0) if width is not None else 0.0
-
-    score = (
-        w_depth * depth_score + w_prominence * prominence_norm + w_width * width_norm
-    )
-
-    return float(score)
-
-
 class VADPeakAnalyzer:
     """
     Analyzes peaks (local maxima) and troughs (local minima) in VAD speech probabilities.
@@ -255,18 +46,18 @@ class VADPeakAnalyzer:
     def __init__(
         self,
         sample_rate: int = SAMPLE_RATE,
-        frame_duration_ms: float = FRAME_LENGTH_MS,
+        frame_shift_ms: float = FRAME_SHIFT_MS,
         debug: bool = False,
     ):
         """
         Args:
             sample_rate: Audio sample rate in Hz.
-            frame_duration_ms: Duration of each VAD frame in milliseconds.
+            frame_shift_ms: Frame shift (hop length) in milliseconds between consecutive VAD frames.
             debug: If True, enable debug logging.
         """
         self.sample_rate = sample_rate
-        self.frame_duration_ms = frame_duration_ms
-        self.frame_duration_s = frame_duration_ms / 1000.0
+        self.frame_shift_ms = frame_shift_ms
+        self.frame_duration_s = frame_shift_ms / 1000.0
         self.auto_threshold_strategy: ThresholdStrategy = ThresholdStrategy.OTSU
         """Strategy used when valley_threshold or trough_height is None."""
         self.hop_length = int(sample_rate * self.frame_duration_s)  # samples per frame
@@ -387,9 +178,11 @@ class VADPeakAnalyzer:
     def extract_troughs(
         self,
         probs: List[float],
-        height: Optional[float] = None,  # None → auto-compute via auto_threshold()
-        distance: Optional[int] = None,
-        prominence: Optional[float] = None,
+        height: Optional[
+            float
+        ] = DEFAULT_TROUGH_HEIGHT,  # None → auto-compute via auto_threshold()
+        distance: Optional[int] = DEFAULT_TROUGH_DISTANCE,
+        prominence: Optional[float] = DEFAULT_TROUGH_PROMINENCE,
         width: Optional[int] = None,
         **kwargs,
     ) -> List[VADSegment]:
@@ -531,13 +324,13 @@ class VADPeakAnalyzer:
     ) -> None:
         """Helper: build and append one active-region VADSegment."""
         start_s, _ = self._compute_times(start)
-        _, end_s = self._compute_times(end - 1)  # last frame's end time
+        _, end_s = self._compute_times(end + 1)  # last frame's end time
         duration_s = end_s - start_s
         region_probs = x[start:end].tolist()
         segments.append(
             {
                 "frame_start": start,
-                "frame_end": end - 1,
+                "frame_end": end + 1,
                 "frame_length": end - start,
                 "start_s": round(start_s, 4),
                 "end_s": round(end_s, 4),
@@ -599,7 +392,11 @@ class VADPeakAnalyzer:
         threshold: Optional[float] = None,  # None → auto-compute via auto_threshold()
         min_duration_s: float = 0.0,
         min_duration_frames: Optional[int] = None,
-        troughs: Optional[List[VADSegment]] = None,
+        trough_height: Optional[
+            float
+        ] = DEFAULT_TROUGH_HEIGHT,  # None → auto-compute via auto_threshold()
+        trough_distance: Optional[int] = DEFAULT_TROUGH_DISTANCE,
+        trough_prominence: Optional[float] = DEFAULT_TROUGH_PROMINENCE,
     ) -> List[VADSegment]:
         """
         Extract contiguous valley (silence) regions where probability < threshold.
@@ -622,17 +419,19 @@ class VADPeakAnalyzer:
                        (use > instead of >= to match "below threshold" intent).
             min_duration_s: Minimum duration in seconds for a valley to be kept.
             min_duration_frames: Alternative minimum frame count (overrides min_duration_s if provided).
-            troughs: Optional pre-extracted trough VADSegments (from
-                     extract_troughs()).  Each trough whose frame index falls
-                     within a valley's [frame_start, frame_end] boundary is
-                     attached to that valley's details["troughs"] list.  Valley
-                     boundaries are never modified.
 
         Returns:
             List of VADSegment dicts, one per contiguous valley region.
         """
         if not probs:
             return []
+
+        troughs = self.extract_troughs(
+            probs,
+            height=trough_height,
+            prominence=trough_prominence,
+            distance=trough_distance,
+        )
 
         # ── Auto-compute valley threshold when not supplied ───────────────
         resolved_threshold = threshold
@@ -699,7 +498,7 @@ class VADPeakAnalyzer:
     ) -> None:
         """Helper: build and append one valley VADSegment."""
         start_s, _ = self._compute_times(start)
-        _, end_s = self._compute_times(end - 1)  # last frame's end time
+        _, end_s = self._compute_times(end + 1)  # last frame's end time
         duration_s = end_s - start_s
         region_probs = x[start:end].tolist()
         min_prob_frame = int(start + np.argmin(x[start:end]))
@@ -710,7 +509,7 @@ class VADPeakAnalyzer:
         segments.append(
             {
                 "frame_start": start,
-                "frame_end": end - 1,
+                "frame_end": end + 1,
                 "frame_length": frame_length,
                 "start_s": round(start_s, 4),
                 "end_s": round(end_s, 4),
@@ -858,20 +657,6 @@ class VADPeakAnalyzer:
     ) -> None:
         """
         Save a visualization plot highlighting peaks and troughs.
-
-        Background gradient highlights:
-          - Green shading  → active/speech regions (prob >= active threshold)
-          - Red shading    → valley/silence regions (prob < valley_threshold)
-          - No shading     → transition zones
-
-        Args:
-            probs: Original list of VAD probabilities.
-            peaks: List of peak segments returned by extract_peaks().
-            troughs: List of trough segments returned by extract_troughs().
-            active_regions: Optional list from extract_active_regions().
-            valleys: Optional list from extract_valleys().
-            output_path: Path where the plot image will be saved.
-            title: Title of the plot.
         """
         if not probs:
             self._log_debug("Cannot plot: empty probability list")
@@ -879,10 +664,9 @@ class VADPeakAnalyzer:
 
         x = np.array(probs, dtype=float)
         frames = np.arange(len(x))
-
         fig, ax = plt.subplots(figsize=(14, 7))
 
-        # ── Gradient background: active (green) regions ──────────────────────
+        # Background shading
         if active_regions:
             for region in active_regions:
                 ax.axvspan(
@@ -890,10 +674,7 @@ class VADPeakAnalyzer:
                     region["frame_end"] + 1,
                     alpha=0.15,
                     color="green",
-                    label="_nolegend_",
                 )
-
-        # ── Gradient background: valley (red) regions ─────────────────────────
         if valleys:
             for v in valleys:
                 ax.axvspan(
@@ -901,41 +682,35 @@ class VADPeakAnalyzer:
                     v["frame_end"] + 1,
                     alpha=0.12,
                     color="red",
-                    label="_nolegend_",
                 )
 
         ax.plot(frames, x, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
 
-        # Threshold reference lines
+        # Threshold lines
         if valleys:
             valley_threshold = valleys[0]["details"]["threshold"]
             ax.axhline(
                 y=valley_threshold,
                 color="red",
                 linestyle="--",
-                alpha=0.4,
-                linewidth=1,
-                label=f"Valley threshold ({valley_threshold})",
+                alpha=0.5,
+                label=f"Valley threshold ({valley_threshold:.3f})",
             )
         if active_regions:
-            active_thresh = (
-                active_regions[0]["details"]["threshold"] if active_regions else 0.3
-            )
+            active_thresh = active_regions[0]["details"].get("threshold", 0.3)
             ax.axhline(
                 y=active_thresh,
                 color="green",
                 linestyle="--",
-                alpha=0.4,
-                linewidth=1,
-                label=f"Active threshold ({active_thresh})",
+                alpha=0.5,
+                label=f"Active threshold ({active_thresh:.3f})",
             )
 
+        # Peaks
         if peaks:
             peak_indices = [p["frame_start"] for p in peaks]
             peak_probs = [p["details"]["peak_probability"] for p in peaks]
-            ax.plot(
-                peak_indices, peak_probs, "go", markersize=10, label="Peaks (Speech)"
-            )
+            ax.plot(peak_indices, peak_probs, "go", markersize=10, label="Peaks")
             for idx, prob in zip(peak_indices, peak_probs):
                 ax.annotate(
                     f"{prob:.2f}",
@@ -943,71 +718,43 @@ class VADPeakAnalyzer:
                     xytext=(0, 12),
                     textcoords="offset points",
                     ha="center",
-                    fontsize=9,
                     color="green",
+                    fontsize=9,
                 )
 
+        # Troughs
         if troughs:
             trough_indices = [t["frame_start"] for t in troughs]
             trough_probs = [t["details"]["trough_probability"] for t in troughs]
-            ax.plot(
-                trough_indices,
-                trough_probs,
-                "ro",
-                markersize=10,
-                label="Troughs (Silence)",
-            )
+            ax.plot(trough_indices, trough_probs, "ro", markersize=10, label="Troughs")
             for idx, prob in zip(trough_indices, trough_probs):
-                # Convert frame index → time in seconds
-                time_s = idx * self.frame_duration_s
-
                 ax.annotate(
-                    f"{time_s:.1f}s",
+                    f"{prob:.2f}",
                     xy=(idx, prob),
                     xytext=(0, -18),
                     textcoords="offset points",
                     ha="center",
-                    fontsize=9,
                     color="red",
+                    fontsize=9,
                 )
-
-        # Custom legend patches for shaded regions
-        legend_handles = [
-            mpatches.Patch(color="green", alpha=0.4, label="Active / Speech region"),
-            mpatches.Patch(color="red", alpha=0.4, label="Valley / Silence region"),
-        ]
 
         ax.set_title(title, fontsize=16)
         ax.set_xlabel("Frame Index")
         ax.set_ylabel("Speech Probability")
         ax.set_ylim(-0.05, 1.05)
         ax.grid(True, alpha=0.3)
-        ax.legend(
-            handles=ax.get_legend_handles_labels()[0] + legend_handles,
-            labels=ax.get_legend_handles_labels()[1]
-            + ["Active / Speech region", "Valley / Silence region"],
-            fontsize=11,
-            loc="upper right",
-        )
+        ax.legend(fontsize=11, loc="upper right")
+
         plt.tight_layout()
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
         plt.close()
 
-        self._log_debug(f"Plot saved successfully to: {output_path}")
-        print(f"Plot saved to: {output_path}")
-
-
-def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
-    """Light moving average smoothing to reduce jitter in VAD probabilities."""
-    if window <= 1 or len(probs) <= window:
-        return probs[:]
-    x = np.array(probs, dtype=float)
-    smoothed = np.convolve(x, np.ones(window) / window, mode="same")
-    # Better edge handling
-    smoothed[0] = (x[0] + x[1]) / 2 if len(x) > 1 else x[0]
-    if len(x) > 2:
-        smoothed[-1] = (x[-1] + x[-2]) / 2
-    return smoothed.tolist()
+        # Rich output with clickable file link
+        console.print(
+            f"📊 [bold green]Plot saved to:[/bold green] "
+            f"[link=file:///{Path(output_path).resolve()}]{Path(output_path).resolve()}[/link]",
+            style="green",
+        )
 
 
 def save_segments_to_subdirs(
@@ -1017,7 +764,7 @@ def save_segments_to_subdirs(
     output_dir: "Path",
     audio_path: Optional[str],
     sample_rate: int,
-    frame_duration_ms: float,
+    frame_shift_ms: float,
     pad_frames: int = 5,
 ) -> None:
     """
@@ -1027,30 +774,10 @@ def save_segments_to_subdirs(
         sound.wav  – the audio slice corresponding to the segment's time range
         meta.json  – the VADSegment dict serialised as JSON
         plot.png   – a focused VAD-probability plot for just this segment
-
-    Parameters
-    ----------
-    segments      : list of VADSegment dicts (from extract_active_regions /
-                    extract_valleys or similar).
-    category      : subdirectory name, e.g. ``"active_regions"`` or
-                    ``"valleys"``.
-    probs         : full VAD probability list (used for the zoomed plot).
-    output_dir    : root Path under which ``category/segment_NNN/`` dirs are
-                    created.
-    audio_path    : path to the original audio file, or ``None``.  When
-                    ``None`` the function still writes ``meta.json`` and
-                    ``plot.png`` but skips ``sound.wav``.
-    sample_rate   : audio sample rate in Hz (needed to slice the waveform).
-    frame_duration_ms : duration of one VAD frame in milliseconds (needed to
-                    convert frame indices back to sample positions).
-    pad_frames    : number of extra frames to include around the segment in
-                    the plot (purely cosmetic, default 5).
     """
     import json
 
-    import soundfile as sf
-
-    frame_duration_s = frame_duration_ms / 1000.0
+    frame_duration_s = frame_shift_ms / 1000.0
     cat_dir = output_dir / category
     cat_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1076,7 +803,6 @@ def save_segments_to_subdirs(
         if audio_data is not None:
             start_sample = int(seg["start_s"] * file_sr)
             end_sample = int(seg["end_s"] * file_sr)
-            # Clamp to valid range
             start_sample = max(0, start_sample)
             end_sample = min(len(audio_data), end_sample)
             slice_audio = audio_data[start_sample:end_sample]
@@ -1101,7 +827,6 @@ def save_segments_to_subdirs(
             label=category.replace("_", " ").title(),
         )
 
-        # Annotate start / end times
         ax.set_title(
             f"{category} · segment {idx:03d}  "
             f"[{seg['start_s']:.3f}s – {seg['end_s']:.3f}s]",
@@ -1113,17 +838,284 @@ def save_segments_to_subdirs(
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=10, loc="upper right")
         plt.tight_layout()
+
         plot_path = seg_dir / "plot.png"
         plt.savefig(str(plot_path), dpi=150, bbox_inches="tight")
         plt.close()
 
-    print(
-        f"[save_segments_to_subdirs] Wrote {len(segments)} '{category}' segments → {cat_dir}"
+    # ── Rich summary with clickable link ─────────────────────────────────────
+    icon = "🟢" if category == "active_regions" else "🔴"
+    console.print(
+        f"{icon} [bold]{len(segments)} {category.replace('_', ' ').title()}[/bold] "
+        f"segments saved to: "
+        f"[link=file:///{cat_dir.resolve()}]{cat_dir.resolve()}[/link]",
+        style="green",
+    )
+
+
+def save_valley_trough_segments(
+    valley_troughs: List["ValleyTrough"],
+    probs: List[float],
+    output_dir: "Path",
+    audio_path: Optional[str],
+    sample_rate: int,
+    frame_shift_ms: float,
+) -> None:
+    """
+    For each ValleyTrough, create a segment that spans from the start of the
+    audio (t=0) to the trough's position (global_time_s).  Each segment is
+    saved as a numbered subdirectory under ``output_dir / "valley_troughs" /``
+    containing three files:
+
+        sound.wav  – audio from sample 0 to the trough sample
+        meta.json  – the ValleyTrough dict plus derived start_s/end_s/duration_s
+        plot.png   – VAD probability from frame 0 to the trough frame
+    """
+    import json
+
+    cat_dir = output_dir / "valley_troughs"
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
+    audio_data: Optional[np.ndarray] = None
+    file_sr: int = sample_rate
+    if audio_path is not None:
+        audio_data, file_sr = sf.read(audio_path, always_2d=False)
+
+    x = np.array(probs, dtype=float)
+    n_frames = len(x)
+
+    for idx, vt in enumerate(valley_troughs):
+        seg_dir = cat_dir / f"segment_{idx:03d}"
+        seg_dir.mkdir(parents=True, exist_ok=True)
+
+        # Derived times: segment always starts at 0, ends at the trough
+        start_s: float = 0.0
+        end_s: float = float(vt["global_time_s"])
+        duration_s: float = round(end_s - start_s, 4)
+
+        # ── meta.json ────────────────────────────────────────────────────────
+        meta = dict(vt)  # shallow copy of the ValleyTrough TypedDict
+        meta["start_s"] = start_s
+        meta["end_s"] = end_s
+        meta["duration_s"] = duration_s
+        with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
+            json.dump(meta, fh, ensure_ascii=False, indent=2)
+
+        # ── sound.wav ────────────────────────────────────────────────────────
+        if audio_data is not None:
+            end_sample = int(end_s * file_sr)
+            end_sample = min(len(audio_data), end_sample)
+            slice_audio = audio_data[0:end_sample]
+            sf.write(str(seg_dir / "sound.wav"), slice_audio, file_sr)
+
+        # ── plot.png ─────────────────────────────────────────────────────────
+        trough_frame: int = int(vt["global_frame"])
+        f_end = min(n_frames, trough_frame + 1)
+        frames = np.arange(0, f_end)
+        zoomed = x[0:f_end]
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(frames, zoomed, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
+        # Shade the entire excerpt in a neutral blue
+        ax.axvspan(0, trough_frame, alpha=0.12, color="blue", label="excerpt")
+        # Mark the trough itself
+        ax.axvline(
+            x=trough_frame,
+            color="red",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"trough (frame {trough_frame})",
+        )
+        ax.plot(
+            trough_frame,
+            x[trough_frame] if trough_frame < n_frames else 0.0,
+            "ro",
+            markersize=9,
+        )
+        ax.set_title(
+            f"valley_troughs · segment {idx:03d}  [0.000 s – {end_s:.3f} s]",
+            fontsize=12,
+        )
+        ax.set_xlabel("Frame Index")
+        ax.set_ylabel("Speech Probability")
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=10, loc="upper right")
+        plt.tight_layout()
+        plt.savefig(str(seg_dir / "plot.png"), dpi=150, bbox_inches="tight")
+        plt.close()
+
+    console.print(
+        f"🔻 [bold]{len(valley_troughs)} Valley Troughs[/bold] segments saved to: "
+        f"[link=file:///{cat_dir.resolve()}]{cat_dir.resolve()}[/link]",
+        style="green",
+    )
+
+
+def save_trough_to_trough_segments(
+    valley_troughs: List["ValleyTrough"],
+    probs: List[float],
+    output_dir: "Path",
+    audio_path: Optional[str],
+    sample_rate: int,
+    frame_shift_ms: float,
+) -> None:
+    """
+    For each ValleyTrough, create a segment spanning from the previous trough
+    (or t=0 for the first) up to and including the current trough.
+    A final segment is also created from the last trough to the end of the audio.
+
+    Produces N+1 segments for N valley_troughs:
+        segment_000: t=0          → trough[0]
+        segment_001: trough[0]    → trough[1]
+        ...
+        segment_N:   trough[N-1]  → end of audio
+
+    Also writes a summary ``trough_to_trough.json`` containing all segment
+    metadata in a single list.
+    """
+    import json
+
+    if not valley_troughs:
+        console.print("⚠️  [yellow]trough_to_trough: no troughs provided.[/yellow]")
+        return
+
+    cat_dir = output_dir / "trough_to_trough"
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
+    audio_data: Optional[np.ndarray] = None
+    file_sr: int = sample_rate
+    if audio_path is not None:
+        audio_data, file_sr = sf.read(audio_path, always_2d=False)
+
+    x = np.array(probs, dtype=float)
+    n_frames = len(x)
+
+    # Compute end time/frame from probs length and frame duration
+    frame_duration_s = frame_shift_ms / 1000.0
+    end_time_s = n_frames * frame_duration_s
+    end_frame = n_frames - 1
+
+    # Sentinels: origin at t=0, tail at end of audio
+    sentinel_start = {**valley_troughs[0], "global_time_s": 0.0, "global_frame": 0}
+    sentinel_end = {
+        **valley_troughs[-1],
+        "global_time_s": end_time_s,
+        "global_frame": end_frame,
+    }
+    anchors = [sentinel_start] + list(valley_troughs) + [sentinel_end]
+
+    all_segments = []
+
+    # N+1 segments: one per gap between consecutive anchors
+    for idx in range(len(anchors) - 1):
+        vt_start = anchors[idx]
+        vt_end = anchors[idx + 1]
+
+        is_first = idx == 0
+        is_last = idx == len(anchors) - 2
+
+        seg_dir = cat_dir / f"segment_{idx:03d}"
+        seg_dir.mkdir(parents=True, exist_ok=True)
+
+        start_s: float = float(vt_start["global_time_s"])
+        end_s: float = float(vt_end["global_time_s"])
+        duration_s: float = round(end_s - start_s, 4)
+
+        start_frame: int = int(vt_start["global_frame"])
+        end_frame_seg: int = int(vt_end["global_frame"])
+
+        meta = {
+            "start_s": start_s,
+            "end_s": end_s,
+            "duration_s": duration_s,
+            "start_frame": start_frame,
+            "end_frame": end_frame_seg,
+            "trough_start": None if is_first else dict(vt_start),
+            "trough_end": None if is_last else dict(vt_end),
+        }
+
+        # ── meta.json ────────────────────────────────────────────────────────
+        with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
+            json.dump(meta, fh, ensure_ascii=False, indent=2)
+
+        all_segments.append(meta)
+
+        # ── sound.wav ────────────────────────────────────────────────────────
+        if audio_data is not None:
+            start_sample = int(start_s * file_sr)
+            end_sample = int(end_s * file_sr)
+            start_sample = max(0, start_sample)
+            end_sample = min(len(audio_data), end_sample)
+            slice_audio = audio_data[start_sample:end_sample]
+            sf.write(str(seg_dir / "sound.wav"), slice_audio, file_sr)
+
+        # ── plot.png ─────────────────────────────────────────────────────────
+        f_start = max(0, start_frame)
+        f_end = min(n_frames, end_frame_seg + 1)
+        frames = np.arange(f_start, f_end)
+        zoomed = x[f_start:f_end]
+
+        fig, ax = plt.subplots(figsize=(10, 4))
+        ax.plot(frames, zoomed, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
+        ax.axvspan(f_start, f_end, alpha=0.12, color="purple", label="trough span")
+
+        # Start boundary: gray for origin sentinel, red for real trough
+        ax.axvline(
+            x=start_frame,
+            color="gray" if is_first else "red",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"{'origin' if is_first else 'start trough'} (frame {start_frame})",
+        )
+        if not is_first and start_frame < n_frames:
+            ax.plot(start_frame, x[start_frame], "ro", markersize=9)
+
+        # End boundary: gray for tail sentinel, red for real trough
+        ax.axvline(
+            x=end_frame_seg,
+            color="gray" if is_last else "red",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"{'end of audio' if is_last else 'end trough'} (frame {end_frame_seg})",
+        )
+        if not is_last and end_frame_seg < n_frames:
+            ax.plot(end_frame_seg, x[end_frame_seg], "ro", markersize=9)
+
+        ax.set_title(
+            f"trough_to_trough · segment {idx:03d}  [{start_s:.3f} s – {end_s:.3f} s]",
+            fontsize=12,
+        )
+        ax.set_xlabel("Frame Index")
+        ax.set_ylabel("Speech Probability")
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=10, loc="upper right")
+        plt.tight_layout()
+        plt.savefig(str(seg_dir / "plot.png"), dpi=150, bbox_inches="tight")
+        plt.close()
+
+    # ── trough_to_trough.json ─────────────────────────────────────────────────
+    summary_path = output_dir / "trough_to_trough.json"
+    with open(summary_path, "w", encoding="utf-8") as fh:
+        json.dump(all_segments, fh, ensure_ascii=False, indent=2)
+    console.print(
+        f"   • trough_to_trough.json → "
+        f"[link=file:///{summary_path.resolve()}]{summary_path.resolve()}[/link]",
+        style="dim",
+    )
+
+    console.print(
+        f"🟣 [bold]{len(all_segments)} Trough-to-Trough[/bold] segments saved to: "
+        f"[link=file:///{cat_dir.resolve()}]{cat_dir.resolve()}[/link]",
+        style="green",
     )
 
 
 def get_args():
     import argparse
+
+    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
 
     parser = argparse.ArgumentParser(
         description="Analyze VAD speech/voice probabilities and find peaks/troughs"
@@ -1131,7 +1123,7 @@ def get_args():
     parser.add_argument(
         "input_file",
         nargs="?",
-        default=None,
+        default=DEFAULT_AUDIO,
         help=(
             "Path to either:\n"
             "- JSON file with speech probabilities\n"
@@ -1140,18 +1132,25 @@ def get_args():
         ),
     )
     parser.add_argument(
+        "--output-dir",
+        "-o",
+        type=str,
+        default=str((Path(__file__).parent / "generated" / Path(__file__).stem)),
+        help="Output directory for generated files (default: ./generated/<script name>)",
+    )
+    parser.add_argument(
         "--sample-rate",
         "-sr",
         type=int,
-        default=16000,
-        help="Audio sample rate (default: 16000)",
+        default=SAMPLE_RATE,
+        help="Audio sample rate (default: SAMPLE_RATE)",
     )
     parser.add_argument(
-        "--frame-duration-ms",
-        "-fd",
+        "--frame-shift-ms",
+        "-fsm",
         type=float,
-        default=FRAME_LENGTH_MS,
-        help="Analysis frame duration in ms (default: FRAME_LENGTH_MS for FireRedVAD)",
+        default=FRAME_SHIFT_MS,
+        help="Frame shift (hop length) in ms between analysis frames (default: FRAME_SHIFT_MS for FireRedVAD)",
     )
     parser.add_argument(
         "--peak-height",
@@ -1178,15 +1177,15 @@ def get_args():
         "--trough-height",
         "-th",
         type=float,
-        default=None,
+        default=0.3,
         help="Maximum speech probability for a trough (default: None; auto-computed if not set)",
     )
     parser.add_argument(
         "--trough-prominence",
         "-tp",
         type=float,
-        default=0.15,
-        help="Minimum prominence for a trough (default: 0.15).",
+        default=0.0,
+        help="Minimum prominence for a trough (default: 0.0).",
     )
     parser.add_argument(
         "--trough-distance",
@@ -1234,8 +1233,8 @@ def get_args():
         "--min-valley-duration",
         "-mvd",
         type=float,
-        default=0.25,
-        help="Minimum valley/silence duration in seconds (default: 0.25s)",
+        default=DEFAULT_MIN_VALLEY_DURATION_S,
+        help="Minimum valley/silence duration in seconds (default: DEFAULT_MIN_VALLEY_DURATION_S)",
     )
     parser.add_argument(
         "--min-valley-frames",
@@ -1248,8 +1247,22 @@ def get_args():
         "--smoothing-window",
         "-sw",
         type=int,
+        default=DEFAULT_SMOOTHING_WINDOW,
+        help="Smoothing window size for VAD probabilities (default: DEFAULT_SMOOTHING_WINDOW)",
+    )
+    parser.add_argument(
+        "--frame-offset",
+        "-fo",
+        type=float,
         default=0,
-        help="Smoothing window size for VAD probabilities (default: 0)",
+        help="Frame offset to start (default: 0).",
+    )
+    parser.add_argument(
+        "--trough-offset",
+        "-to",
+        type=float,
+        default=DEFAULT_TROUGH_OFFSET,
+        help="Min seconds from start for valid trough (default: DEFAULT_TROUGH_OFFSET).",
     )
 
     return parser.parse_args()
@@ -1258,18 +1271,21 @@ def get_args():
 if __name__ == "__main__":
     import json
     import shutil
-    from pathlib import Path
 
-    from jet.audio.speech.firered.speech_timestamps_extractor import (
-        extract_speech_timestamps,
+    from jet.audio.speech.vad_extractors import (
+        base_extract_valley_troughs,
+        extract_valley_troughs,
+        smooth_vad_probs,
     )
 
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     args = get_args()
+    output_dir = Path(args.output_dir)
+    shutil.rmtree(output_dir, ignore_errors=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
+    console.rule("[bold cyan]VAD Peak & Valley Analyzer[/bold cyan]")
+
+    # Load probabilities
     if args.input_file is not None:
         input_path = Path(args.input_file)
 
@@ -1305,24 +1321,23 @@ if __name__ == "__main__":
                 f"Unsupported file type: {suffix}. Expected audio file or JSON."
             )
     else:
-        # Default sample sequence
+        console.print("Using default sample probability sequence.", style="dim")
         probs = [0.1, 0.15, 0.8, 0.92, 0.85, 0.3, 0.12, 0.05, 0.88, 0.95, 0.7, 0.2]
 
-    # === NEW: Smooth probabilities before analysis ===
+    # Smoothing
     if args.smoothing_window:
-        print(f"Original probs length: {len(probs)}")
-        probs_smoothed = smooth_vad_probs(
-            probs,
-            window=args.smoothing_window,
+        probs_smoothed = smooth_vad_probs(probs, window=args.smoothing_window)
+        console.print(
+            f"Applied smoothing (window={args.smoothing_window})", style="blue"
         )
-        print("Applied Gaussian smoothing (sigma=1.0)")
     else:
         probs_smoothed = probs
 
     analyzer = VADPeakAnalyzer(
-        sample_rate=args.sample_rate, frame_duration_ms=args.frame_duration_ms
+        sample_rate=args.sample_rate, frame_shift_ms=args.frame_shift_ms, debug=False
     )
 
+    # === Analysis ===
     peaks = analyzer.extract_peaks(
         probs_smoothed,
         height=args.peak_height,
@@ -1372,7 +1387,9 @@ if __name__ == "__main__":
         threshold=args.valley_threshold,
         # min_duration_s=args.min_valley_duration,
         # min_duration_frames=args.min_valley_frames,
-        troughs=troughs,
+        trough_height=args.trough_height,
+        trough_distance=args.trough_distance,
+        trough_prominence=args.trough_prominence,
     )
 
     # Filter by minimum duration
@@ -1382,34 +1399,75 @@ if __name__ == "__main__":
         min_duration_frames=args.min_valley_frames,
     )
 
-    print("Peaks:", peaks)
-    print("Troughs:", troughs)
-    print("Active regions:", active_regions)
-    print("Valleys:", valleys)
+    valley_troughs = extract_valley_troughs(
+        probs_or_audio=probs,
+        min_valley_duration_s=args.min_valley_duration,
+        sample_rate=args.sample_rate,  # ← add this
+        frame_shift_ms=args.frame_shift_ms,  # ← add this (was defaulting to 25ms!)
+        smoothing_window=args.smoothing_window,
+        trough_height=args.trough_height,
+        trough_prominence=args.trough_prominence,
+        trough_distance=args.trough_distance,
+        valley_threshold=args.valley_threshold,
+        min_valley_frames=args.min_valley_frames,
+        frame_offset=args.frame_offset,
+        min_trough_offset_s=args.trough_offset,
+    )
 
-    # ── NEW: per-segment subdirectories (only when audio was provided) ──────
-    if (
-        args.input_file is not None
-        and Path(args.input_file).suffix.lower() in AUDIO_EXTENSIONS
-    ):
+    # === Results Summary ===
+    console.print("\n[bold cyan]📊 Analysis Summary[/bold cyan]")
+    console.print(f"   • Peaks          : {len(peaks)}", style="green")
+    console.print(f"   • Troughs        : {len(troughs)}", style="red")
+    console.print(f"   • Active regions : {len(active_regions)}", style="green")
+    console.print(f"   • Valleys        : {len(valleys)}", style="red")
+
+    # === Save per-segment subdirectories (if audio input) ===
+    if args.input_file and Path(args.input_file).suffix.lower() in AUDIO_EXTENSIONS:
         save_segments_to_subdirs(
             segments=active_regions,
             category="active_regions",
             probs=probs_smoothed,
-            output_dir=OUTPUT_DIR,
+            output_dir=output_dir,
             audio_path=args.input_file,
             sample_rate=args.sample_rate,
-            frame_duration_ms=args.frame_duration_ms,
+            frame_shift_ms=args.frame_shift_ms,
         )
         save_segments_to_subdirs(
             segments=valleys,
             category="valleys",
             probs=probs_smoothed,
-            output_dir=OUTPUT_DIR,
+            output_dir=output_dir,
             audio_path=args.input_file,
             sample_rate=args.sample_rate,
-            frame_duration_ms=args.frame_duration_ms,
+            frame_shift_ms=args.frame_shift_ms,
         )
+        save_valley_trough_segments(
+            valley_troughs=valley_troughs,
+            probs=probs_smoothed,
+            output_dir=output_dir,
+            audio_path=args.input_file,
+            sample_rate=args.sample_rate,
+            frame_shift_ms=args.frame_shift_ms,
+        )
+        save_trough_to_trough_segments(
+            valley_troughs=valley_troughs,
+            probs=probs_smoothed,
+            output_dir=output_dir,
+            audio_path=args.input_file,
+            sample_rate=args.sample_rate,
+            frame_shift_ms=args.frame_shift_ms,
+        )
+
+    # === Final Plots & JSONs ===
+    analyzer.save_plot(
+        probs_smoothed,
+        peaks,
+        troughs,
+        active_regions=active_regions,
+        valleys=valleys,
+        output_path=str(output_dir / "vad_analysis_plot.png"),
+        title="VAD Peak & Trough Analysis",
+    )
 
     if args.smoothing_window:
         analyzer.save_plot(
@@ -1418,42 +1476,32 @@ if __name__ == "__main__":
             troughs,
             active_regions=active_regions,
             valleys=valleys,
-            output_path=str(OUTPUT_DIR / "vad_analysis_plot_smoothed.png"),
-        )
-    else:
-        analyzer.save_plot(
-            probs,
-            peaks,
-            troughs,
-            active_regions=active_regions,
-            valleys=valleys,
-            output_path=str(OUTPUT_DIR / "vad_analysis_plot.png"),
+            output_path=str(output_dir / "vad_analysis_plot_smoothed.png"),
+            title="VAD Peak & Trough Analysis (Smoothed)",
         )
 
-    peaks_path = OUTPUT_DIR / "peaks.json"
-    with open(peaks_path, "w", encoding="utf-8") as f:
-        json.dump(peaks, f, ensure_ascii=False, indent=2)
-    print(f"Peaks saved to: {peaks_path.resolve()}")
+    # Save JSON files with rich clickable links
+    console.print("\n[bold green]💾 Saved Files[/bold green]")
 
-    troughs_path = OUTPUT_DIR / "troughs.json"
-    with open(troughs_path, "w", encoding="utf-8") as f:
-        json.dump(troughs, f, ensure_ascii=False, indent=2)
-    print(f"Troughs saved to: {troughs_path.resolve()}")
+    def save_json(data, filename: str, description: str):
+        path = output_dir / filename
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        console.print(
+            f"   • {description:18} → "
+            f"[link=file:///{path.resolve()}]{path.resolve()}[/link]",
+            style="dim",
+        )
 
-    active_path = OUTPUT_DIR / "active_regions.json"
-    with open(active_path, "w", encoding="utf-8") as f:
-        json.dump(active_regions, f, ensure_ascii=False, indent=2)
-    print(f"Active regions saved to: {active_path.resolve()}")
+    save_json(peaks, "peaks.json", "Peaks")
+    save_json(troughs, "troughs.json", "Troughs")
+    save_json(active_regions, "active_regions.json", "Active Regions")
+    save_json(valleys, "valleys.json", "Valleys")
 
-    valleys_path = OUTPUT_DIR / "valleys.json"
-    with open(valleys_path, "w", encoding="utf-8") as f:
-        json.dump(valleys, f, ensure_ascii=False, indent=2)
-    print(f"Valleys saved to: {valleys_path.resolve()}")
+    # Extra valley troughs
+    base_valley_troughs = base_extract_valley_troughs(valleys)
+    save_json(base_valley_troughs, "base_valley_troughs.json", "Base Valley Troughs")
 
-    valley_troughs = extract_valley_troughs(
-        probs_smoothed, min_valley_duration_s=args.min_valley_duration
-    )
-    valley_troughs_path = OUTPUT_DIR / "valley_troughs.json"
-    with open(valley_troughs_path, "w", encoding="utf-8") as f:
-        json.dump(valley_troughs, f, ensure_ascii=False, indent=2)
-    print(f"Valley troughs saved to: {valley_troughs_path.resolve()}")
+    save_json(valley_troughs, "valley_troughs.json", "Valley Troughs")
+
+    console.rule("[bold green]Analysis Complete ✓[/bold green]")

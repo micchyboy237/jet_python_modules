@@ -356,10 +356,11 @@ def _apply_single_limit_split(
 
         troughs = extract_valley_troughs(
             probs_or_audio=probs,
-            smoothing_window=config.smoothing_window,
-            trough_prominence=config.trough_prominence,
-            min_valley_duration_s=config.min_valley_duration_s,
-            min_trough_offset_s=config.min_trough_offset_s,
+            smoothing_window=0,
+            trough_height=0.3,
+            trough_prominence=0.0,
+            min_valley_duration_s=0.1,
+            min_trough_offset_s=2.0,
             # frame_offset=frame_start,
         )
 
