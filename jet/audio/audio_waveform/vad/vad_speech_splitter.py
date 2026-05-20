@@ -29,7 +29,7 @@ from jet.audio.helpers.config import (
     SAMPLE_RATE,
 )
 from jet.audio.speech.vad_extractors import (
-    extract_valley_troughs,
+    get_best_valley_trough,
     split_best_valley_trough,
 )
 from jet.audio.speech.vad_types import ValleyTrough
@@ -327,6 +327,10 @@ def _apply_single_limit_split(
     config.  Pieces that are already short enough, or for which no trough is
     found, are collected as-is.
 
+    Uses get_best_valley_trough scoped to each sub-range's prob slice.
+    The min_trough_offset_s from config is relied upon to ensure the trough
+    sits meaningfully inside the range — no additional positional guard needed.
+
     Args:
         p_start: Range start in seconds.
         p_end: Range end in seconds.
@@ -341,7 +345,6 @@ def _apply_single_limit_split(
           - best_trough: the ValleyTrough with the highest final_score that
             caused any split in this pass, or None if no split occurred.
     """
-
     pending: list[tuple[float, float]] = [(p_start, p_end)]
     split_pieces: list[tuple[float, float]] = []
     best_trough: "ValleyTrough | None" = None
@@ -354,32 +357,33 @@ def _apply_single_limit_split(
             split_pieces.append((cur_start, cur_end))
             continue
 
-        # frame_start = int(cur_start / hop_sec)
-        # frame_end = int(cur_end / hop_sec)
-        # seg_probs = probs[frame_start : frame_end + 1]
+        # Slice probs to the current sub-range so detection is scoped correctly.
+        frame_start = int(cur_start / hop_sec)
+        frame_end = int(cur_end / hop_sec)
+        seg_probs = probs[frame_start : frame_end + 1]
 
-        troughs = extract_valley_troughs(
-            probs_or_audio=probs,
+        if not seg_probs:
+            split_pieces.append((cur_start, cur_end))
+            continue
+
+        # Use get_best_valley_trough scoped to seg_probs.
+        # Switch to split_best_valley_trough if audio is ever threaded through.
+        candidate: "ValleyTrough | None" = get_best_valley_trough(
+            probs_or_audio=seg_probs,
             smoothing_window=0,
             trough_height=0.3,
             trough_prominence=0.0,
             min_valley_duration_s=0.1,
             min_trough_offset_s=2.0,
-            # frame_offset=frame_start,
         )
 
-        if not troughs:
-            # Signal to caller: this config cannot split this range.
+        if candidate is None:
+            # This config cannot split this sub-range.
             split_pieces.append((cur_start, cur_end))
             continue
 
-        candidate = max(troughs, key=lambda t: t["valley"]["final_score"])
-        split_time_s: float = candidate["time_s"]
-
-        # Guard: trough must be meaningfully inside the range.
-        if split_time_s <= cur_start + 0.05 or split_time_s >= cur_end - 0.05:
-            split_pieces.append((cur_start, cur_end))
-            continue
+        # candidate.time_s is LOCAL to seg_probs; shift back to global timeline.
+        split_time_s: float = cur_start + candidate["time_s"]
 
         # Track the overall best trough across all splits in this pass.
         if best_trough is None or (
