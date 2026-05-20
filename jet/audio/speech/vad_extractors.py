@@ -356,11 +356,10 @@ def get_last_valley_trough(
 # or (probs, trough, audio_np) when the input was an AudioInput (str, bytes,
 # os.PathLike, ndarray, or Tensor) that had to be decoded into probabilities —
 # so callers can access the raw waveform without re-loading.
-_SplitHalf = Union[
-    Tuple[List[float], ValleyTrough],
-    Tuple[List[float], ValleyTrough, np.ndarray],
+SplitResult = Union[
+    Tuple[List[float], List[float], ValleyTrough],
+    Tuple[List[float], List[float], ValleyTrough, np.ndarray, np.ndarray],
 ]
-SplitResult = Tuple[_SplitHalf, _SplitHalf]
 
 
 def split_best_valley_trough(
@@ -368,45 +367,20 @@ def split_best_valley_trough(
     sample_rate: int = SAMPLE_RATE,
     frame_shift_ms: float = FRAME_SHIFT_MS,
     smoothing_window: int = 20,
-    trough_height: Optional[float] = None,
-    trough_prominence: float = 0.15,
+    trough_height: Optional[float] = 0.3,
+    trough_prominence: float = 0.0,
     trough_distance: int = 5,
     valley_threshold: Optional[float] = None,
-    min_valley_duration_s: float = 0.8,
+    min_valley_duration_s: float = 0.1,
     min_valley_frames: Optional[int] = None,
     frame_offset: int = 0,
     min_trough_offset_s: float = 0.4,
 ) -> Optional[SplitResult]:
     """
-    Split a VAD probability list into two halves at the best valley trough.
+    Split a VAD probability list or audio into two halves at the best valley trough.
 
     Calls get_best_valley_trough to find the single most prominent silence
     point, then slices ``probs`` at that frame index.
-
-    Args:
-        probs_or_audio: VAD probabilities as a list[float], or an AudioInput
-            (str, bytes, os.PathLike, ndarray, or Tensor) that load_probs
-            can resolve into probabilities.
-        All other kwargs are forwarded directly to get_best_valley_trough.
-
-    Returns:
-        When probs_or_audio was already a list[float]::
-
-            (
-                (probs[:split_frame], best_trough),
-                (probs[split_frame:], best_trough),
-            )
-
-        When probs_or_audio was an AudioInput (str, bytes, os.PathLike,
-        ndarray, or Tensor) that required decoding, each half also carries
-        the waveform::
-
-            (
-                (probs[:split_frame], best_trough, audio_np),
-                (probs[split_frame:], best_trough, audio_np),
-            )
-
-        ``None`` if no suitable valley trough was found.
     """
     probs, audio_np = load_probs(probs_or_audio)
     best_trough = get_best_valley_trough(
@@ -431,8 +405,14 @@ def split_best_valley_trough(
     right_probs: List[float] = probs[split_frame:]
 
     if audio_np is not None:
-        return (left_probs, best_trough, audio_np), (right_probs, best_trough, audio_np)
-    return (left_probs, best_trough), (right_probs, best_trough)
+        seconds_per_frame = frame_shift_ms / 1000.0
+        split_sample = int(split_frame * seconds_per_frame * sample_rate)
+        split_sample = max(0, min(split_sample, len(audio_np)))
+
+        left_audio = audio_np[:split_sample]
+        right_audio = audio_np[split_sample:]
+        return left_probs, right_probs, best_trough, left_audio, right_audio
+    return left_probs, right_probs, best_trough
 
 
 def extract_valley_troughs(
