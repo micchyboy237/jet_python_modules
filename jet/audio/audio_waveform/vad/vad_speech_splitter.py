@@ -22,12 +22,16 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
     DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
 )
-from jet.audio.audio_waveform.vad.vad_utils import compute_hybrid_probs
+from jet.audio.audio_waveform.vad.vad_utils import compute_hybrid_probs, make_segment
 from jet.audio.helpers.config import (
     HOP_SIZE,
     HOP_STEP_S,
+    SAMPLE_RATE,
 )
-from jet.audio.speech.vad_extractors import extract_valley_troughs
+from jet.audio.speech.vad_extractors import (
+    extract_valley_troughs,
+    split_best_valley_trough,
+)
 from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
 
@@ -388,3 +392,121 @@ def _apply_single_limit_split(
         pending.insert(0, (cur_start, split_time_s))
 
     return split_pieces, best_trough
+
+
+def split_segments(
+    audio: np.ndarray,
+    sample_rate: int = SAMPLE_RATE,
+    hop_sec: float = HOP_STEP_S,
+    soft_limit_sec: float = DEFAULT_SOFT_LIMIT_SEC,
+    smoothing_window: int = DEFAULT_SOFT_LIMIT_SMOOTHING_WINDOW,
+    trough_prominence: float = DEFAULT_SOFT_LIMIT_TROUGH_PROMINENCE,
+    min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
+    min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
+) -> tuple[List[SpeechSegment], List[np.ndarray]]:
+    from jet.audio.speech.vad_extractors2 import load_vad_probs
+
+    accumulated_segments: List[SpeechSegment] = []
+    accumulated_chunks: List[np.ndarray] = []
+    seg_num = 0
+
+    def _inner_split_fn(
+        audio_chunk: np.ndarray,
+        frame_offset: int = 0,
+        time_offset_s: float = 0.0,
+    ) -> None:
+        nonlocal seg_num
+
+        split_result = split_best_valley_trough(
+            probs_or_audio=audio_chunk,
+            sample_rate=sample_rate,
+            min_valley_duration_s=min_valley_duration_s,
+            smoothing_window=smoothing_window,
+            trough_prominence=trough_prominence,
+            valley_threshold=None,
+            min_trough_offset_s=2.0,
+        )
+
+        if split_result is None:
+            # No further split possible — emit the whole chunk as one segment
+            if len(audio_chunk) == 0:
+                return
+
+            # Build local probs from the audio chunk directly via load_vad_probs
+            local_probs = load_vad_probs(audio_chunk)
+            duration_s = len(audio_chunk) / sample_rate
+            end_s = time_offset_s + duration_s
+
+            seg_num += 1
+            segment = make_segment(
+                num=seg_num,
+                start_sec=time_offset_s,
+                end_sec=end_s,
+                probs=local_probs,
+                seg_type="speech",
+                end_reason="hard_limit",
+                is_ongoing=False,
+                last_non_speech_sec=None,
+                best_valley_trough=None,
+                sample_rate=sample_rate,
+                return_seconds=True,
+                with_scores=True,
+            )
+
+            frame_start = frame_offset + segment["frame_start"]
+            frame_end = frame_offset + segment["frame_end"]
+
+            # Patch frame_start / frame_end to reflect global position
+            segment["frame_start"] = frame_start
+            segment["frame_end"] = frame_end
+            accumulated_segments.append(segment)
+            accumulated_chunks.append(audio_chunk)
+            return
+
+        left_probs, right_probs, best_trough, left_audio_np, right_audio_np = (
+            split_result
+        )
+
+        # --- Left segment ---
+        left_duration_s = len(left_audio_np) / sample_rate
+        left_end_s = time_offset_s + left_duration_s
+        left_split_frame = best_trough["frame"]  # local frame within this chunk
+
+        seg_num += 1
+        left_segment = make_segment(
+            num=seg_num,
+            start_sec=time_offset_s,
+            end_sec=left_end_s,
+            probs=left_probs,
+            seg_type="speech",
+            end_reason="valley",
+            is_ongoing=False,
+            last_non_speech_sec=None,
+            best_valley_trough=best_trough,
+            sample_rate=sample_rate,
+            return_seconds=True,
+            with_scores=True,
+        )
+
+        left_frame_start = frame_offset + left_segment["frame_start"]
+        left_frame_end = frame_offset + left_segment["frame_end"]
+
+        # Shift local frame indices to global
+        left_segment["frame_start"] = left_frame_start
+        left_segment["frame_end"] = left_frame_end
+        accumulated_segments.append(left_segment)
+        accumulated_chunks.append(left_audio_np)
+
+        # --- Recurse on right chunk ---
+        right_frame_offset = frame_offset + left_split_frame
+        right_time_offset_s = time_offset_s + left_duration_s
+
+        _inner_split_fn(
+            audio_chunk=right_audio_np,
+            frame_offset=right_frame_offset,
+            time_offset_s=right_time_offset_s + hop_sec,
+        )
+
+    # Kick off recursion from the full audio
+    _inner_split_fn(audio_chunk=audio, frame_offset=0, time_offset_s=0.0)
+    return accumulated_segments, accumulated_chunks
