@@ -264,19 +264,16 @@ def apply_limit_splits(
     min_valley_duration_s: float = DEFAULT_SOFT_LIMIT_MIN_VALLEY_DURATION_S,
     min_trough_offset_s: float = DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
 ) -> List[SpeechSegment]:
-    """Apply multi-level limit-based splitting using valley/trough detection."""
     limit_configs = _get_limit_configs(
         init_soft_limit_sec=soft_limit_sec,
         init_smoothing_window=smoothing_window,
-        init_trough_height=DEFAULT_SOFT_LIMIT_TROUGH_HEIGHT,  # uses default for now
+        init_trough_height=DEFAULT_SOFT_LIMIT_TROUGH_HEIGHT,
         init_trough_prominence=trough_prominence,
         init_min_valley_duration_s=min_valley_duration_s,
         init_min_trough_offset_s=min_trough_offset_s,
     )
-
     result: List[SpeechSegment] = []
     seg_num = 1
-
     for seg in segments:
         if seg["type"] != "speech":
             seg["num"] = seg_num
@@ -285,9 +282,9 @@ def apply_limit_splits(
             continue
 
         seg_probs = seg["segment_probs"]
-
         start_s: float = seg["start"] if return_seconds else seg["start"] / sample_rate
         end_s: float = seg["end"] if return_seconds else seg["end"] / sample_rate
+        duration_s = end_s - start_s
 
         chosen_pieces: list[tuple[float, float]] = [(start_s, end_s)]
         chosen_config: LimitConfig | None = None
@@ -295,13 +292,12 @@ def apply_limit_splits(
 
         for config in limit_configs:
             pieces, trough = _apply_single_limit_split(
-                p_start=start_s,
-                p_end=end_s,
-                probs=probs,
+                seg_start_s=start_s,
+                seg_duration_s=duration_s,
+                seg_probs=seg_probs,  # ← pre-sliced, no global lookup needed
                 hop_sec=hop_sec,
                 config=config,
             )
-
             if trough is not None:
                 chosen_pieces = pieces
                 chosen_config = config
@@ -338,43 +334,45 @@ def apply_limit_splits(
 
 
 def _apply_single_limit_split(
-    p_start: float,
-    p_end: float,
-    probs: List[float],
+    seg_start_s: float,
+    seg_duration_s: float,
+    seg_probs: List[float],  # pre-sliced for this segment
     hop_sec: float,
     config: LimitConfig,
+    min_split_piece_s: float = 0.10,
 ) -> tuple[list[tuple[float, float]], "ValleyTrough | None"]:
     """
-    Attempt to split the time range (p_start, p_end) at the best silence
-    valley using a single LimitConfig's parameters.
+    Attempt to split the segment at the best silence valley.
 
-    The range is split iteratively until pieces are under the max_limit_sec
-    or no more valid troughs are found.
+    Uses the already-sliced seg_probs directly — no global probs list needed.
+    Pending entries are (local_start_s, local_end_s) relative to seg_start_s=0,
+    converted to absolute times only in the output.
     """
-    pending: list[tuple[float, float]] = [(p_start, p_end)]
+    seg_end_s = seg_start_s + seg_duration_s
+
+    # Work in local time (0 … seg_duration_s) to index into seg_probs cleanly
+    pending: list[tuple[float, float]] = [(0.0, seg_duration_s)]
     split_pieces: list[tuple[float, float]] = []
     best_trough: "ValleyTrough | None" = None
 
     while pending:
-        cur_start, cur_end = pending.pop(0)
-        duration = cur_end - cur_start
+        local_start, local_end = pending.pop(0)
+        duration = local_end - local_start
 
         if duration <= config.max_limit_sec:
-            split_pieces.append((cur_start, cur_end))
+            split_pieces.append((seg_start_s + local_start, seg_start_s + local_end))
             continue
 
-        # Slice probs to current sub-range
-        frame_start = int(cur_start / hop_sec)
-        frame_end = int(cur_end / hop_sec)
-        seg_probs = probs[frame_start : frame_end + 1]
+        frame_start = int(local_start / hop_sec)
+        frame_end = int(local_end / hop_sec)
+        slice_probs = seg_probs[frame_start : frame_end + 1]
 
-        if not seg_probs:
-            split_pieces.append((cur_start, cur_end))
+        if not slice_probs:
+            split_pieces.append((seg_start_s + local_start, seg_start_s + local_end))
             continue
 
-        # Find best valley/trough in this sub-range
         candidate: "ValleyTrough | None" = get_best_valley_trough(
-            probs_or_audio=seg_probs,
+            probs_or_audio=slice_probs,
             smoothing_window=config.smoothing_window,
             trough_height=config.trough_height,
             trough_prominence=config.trough_prominence,
@@ -383,21 +381,24 @@ def _apply_single_limit_split(
         )
 
         if candidate is None:
-            split_pieces.append((cur_start, cur_end))
+            split_pieces.append((seg_start_s + local_start, seg_start_s + local_end))
             continue
 
-        # Convert local time to global timeline
-        split_time_s: float = cur_start + candidate["time_s"]
+        split_local_s = local_start + candidate["time_s"]
+        left_dur = split_local_s - local_start
+        right_dur = local_end - split_local_s
 
-        # Keep track of best trough (highest score)
+        if left_dur < min_split_piece_s or right_dur < min_split_piece_s:
+            split_pieces.append((seg_start_s + local_start, seg_start_s + local_end))
+            continue
+
         if best_trough is None or (
             candidate["valley"]["final_score"] > best_trough["valley"]["final_score"]
         ):
             best_trough = candidate
 
-        # Queue both sides for further processing
-        pending.insert(0, (split_time_s, cur_end))
-        pending.insert(0, (cur_start, split_time_s))
+        pending.insert(0, (split_local_s, local_end))
+        pending.insert(0, (local_start, split_local_s))
 
     return split_pieces, best_trough
 
