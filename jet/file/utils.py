@@ -204,8 +204,9 @@ def save_file(
     output_file = str(output_path)
 
     def file_link(path: str) -> Text:
-        short = Path(path).name
-        t = Text(short, style=f"bold bright_green link file://{path}")
+        abs_path = str(Path(path).expanduser().resolve())
+        short = Path(abs_path).name
+        t = Text(short, style=f"bold bright_green link file://{abs_path}")
         t.overflow = "fold"
         t.no_wrap = True
         return t
@@ -257,7 +258,7 @@ def save_file(
                 count = f" {len(data)}" if isinstance(data, list) else ""
                 action = "Appended" if append else "Saved"
                 console.print(
-                    f"\n[green]{action} {upper_ext} data{count} to:[/green] ",
+                    f"\n[green]{action} {upper_ext} data{count} to:[/green]",
                     file_link(output_file),
                 )
         elif ext == ".md":
@@ -304,7 +305,7 @@ def save_file(
                 f.write(data)
             if verbose:
                 console.print(
-                    "\n[green]Saved Markdown to:[/green] ", file_link(output_file)
+                    "\n[green]Saved Markdown to:[/green]", file_link(output_file)
                 )
         elif ext in {".html", ".txt"}:
             if not isinstance(data, str):
@@ -316,7 +317,7 @@ def save_file(
             if verbose:
                 kind = "HTML" if ext == ".html" else "text"
                 console.print(
-                    f"\n[green]Saved {kind} to:[/green] ", file_link(output_file)
+                    f"\n[green]Saved {kind} to:[/green]", file_link(output_file)
                 )
         elif ext in {".png", ".jpg", ".jpeg"}:
             if not isinstance(data, bytes):
@@ -325,7 +326,7 @@ def save_file(
                 f.write(data)
             if verbose:
                 console.print(
-                    "\n[green]Saved binary data to:[/green] ", file_link(output_file)
+                    "\n[green]Saved binary data to:[/green]", file_link(output_file)
                 )
         else:
             if isinstance(data, bytes):
@@ -337,9 +338,7 @@ def save_file(
                 with open(output_file, "w", encoding="utf-8") as f:
                     f.write(data)
             if verbose:
-                console.print(
-                    "\n[green]Saved data to:[/green] ", file_link(output_file)
-                )
+                console.print("\n[green]Saved data to:[/green]", file_link(output_file))
         return output_file
     except Exception as e:
         if verbose:
