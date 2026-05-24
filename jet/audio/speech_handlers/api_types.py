@@ -5,12 +5,46 @@ from typing import Literal, Optional, TypedDict
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 
 
-class PhraseSegment(TypedDict):
-    """Represents a phrase segment with timing information."""
+class WordSegment(TypedDict):
+    """Individual word with timing information."""
 
+    index: int
+    start_sec: float
+    end_sec: float
+    duration_sec: float
+    word: str
+
+
+class PhraseSegment(TypedDict):
+    """Represents a phrase segment with timing information and word-level detail."""
+
+    index: int
+    start_sec: float
+    end_sec: float
+    duration_sec: float
     phrase: str
-    start: float
-    end: float
+    word_segments: list[WordSegment]
+
+
+class SpeakerInfo(TypedDict):
+    """Information about a known speaker."""
+
+    label: str
+    segment_count: int
+    first_seen: float
+    last_seen: float
+    active_duration: float
+    has_valid_centroid: bool
+
+
+class Diarization(TypedDict):
+    """Speaker diarization information."""
+
+    current_speaker: str
+    known_speakers: list[str]
+    speaker_count: int
+    speakers_info: dict[str, SpeakerInfo]
+    total_segments_processed: int
 
 
 class ClientHeader(TypedDict):
@@ -29,16 +63,21 @@ class ClientHeader(TypedDict):
     started_at: Optional[str]  # ISO 8601 format
 
 
-class ServerSuccessResponse(TypedDict):
+class _BaseResponseFields(TypedDict, total=False):
+    """Shared fields between success and error responses."""
+
+    uuid: str
+    transcription_ja: str
+    translation_en: str
+
+
+class ServerSuccessResponse(_BaseResponseFields):
     """
     Successful response from the live subtitles server.
     Contains transcription, translation, and context information.
     """
 
-    uuid: str
     success: Literal[True]
-    transcription_ja: str
-    translation_en: str
     context_uuid: str
     context_duration: float
     new_duration: float
@@ -47,6 +86,10 @@ class ServerSuccessResponse(TypedDict):
     transcribed_duration_sec: float
     transcribed_duration_pctg: float
     coverage_label: str
+    speaker_label: str
+    speaker_confidence: float
+    speaker_match_type: str
+    diarization: Diarization
     old_ja_sents: list[str]
     new_ja_sents: list[str]
     old_en_sents: list[str]
@@ -54,28 +97,20 @@ class ServerSuccessResponse(TypedDict):
     phrase_segments: list[PhraseSegment]
 
 
-class ServerErrorResponse(TypedDict):
+class ServerErrorResponse(_BaseResponseFields):
     """
     Error response from the live subtitles server.
     May still contain partial transcription/translation results.
     """
 
-    uuid: str
     error: str
-    transcription_ja: str
-    translation_en: str
 
 
-class ServerResponse(TypedDict, total=False):
+class ServerResponse(_BaseResponseFields, total=False):
     """
     Union type for all possible server responses.
     Fields marked total=False to allow both success and error shapes.
     """
-
-    # Common fields
-    uuid: str
-    transcription_ja: str
-    translation_en: str
 
     # Success-specific fields
     success: bool
@@ -87,6 +122,10 @@ class ServerResponse(TypedDict, total=False):
     transcribed_duration_sec: float
     transcribed_duration_pctg: float
     coverage_label: str
+    speaker_label: str
+    speaker_confidence: float
+    speaker_match_type: str
+    diarization: Diarization
     old_ja_sents: list[str]
     new_ja_sents: list[str]
     old_en_sents: list[str]
@@ -97,18 +136,10 @@ class ServerResponse(TypedDict, total=False):
     error: str
 
 
-class SubtitleNotification(TypedDict, total=False):
-    """
-    Payload passed to subtitle observers. Combines the server response
-    with locally‑available segment metadata so the UI can display everything.
-    """
+class _SubtitleResponseFields(_BaseResponseFields):
+    """All possible response fields for subtitle notifications."""
 
-    # --- fields from the server response ---
-    segment: SpeechSegment
-    num: int
-    uuid: str
-    transcription_ja: str
-    translation_en: str
+    # Success-specific fields
     success: bool
     context_uuid: str
     context_duration: float
@@ -118,13 +149,29 @@ class SubtitleNotification(TypedDict, total=False):
     transcribed_duration_sec: float
     transcribed_duration_pctg: float
     coverage_label: str
+    speaker_label: str
+    speaker_confidence: float
+    speaker_match_type: str
+    diarization: Diarization
     old_ja_sents: list[str]
     new_ja_sents: list[str]
     old_en_sents: list[str]
     new_en_sents: list[str]
     phrase_segments: list[PhraseSegment]
+
+    # Error-specific fields
     error: str
+
+
+class SubtitleNotification(_SubtitleResponseFields, total=False):
+    """
+    Payload passed to subtitle observers. Combines the server response
+    with locally‑available segment metadata so the UI can display everything.
+    """
+
     # --- local segment metadata ---
+    segment: SpeechSegment
+    num: int
     start_sec: float
     end_sec: float
     end_reason: str

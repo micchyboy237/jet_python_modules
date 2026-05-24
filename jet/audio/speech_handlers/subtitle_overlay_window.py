@@ -137,6 +137,19 @@ def _quality_label_color(label: Optional[str]) -> str:
     return _MAP.get(label or "", "#8b949e")
 
 
+def _speaker_confidence_color(confidence: Optional[float]) -> str:
+    """Map speaker confidence [0.0–1.0] → display colour."""
+    if confidence is None:
+        return "#8b949e"
+    if confidence > 0.70:
+        return "#3fb950"
+    if confidence > 0.50:
+        return "#e3b341"
+    if confidence > 0.30:
+        return "#fb923c"
+    return "#f85149"
+
+
 # ── VAD badge ─────────────────────────────────────────────────────────────────
 
 _VAD_BADGE_HTML = (
@@ -155,23 +168,23 @@ def _format_entry(
     entry: dict,
     prev_end: Optional[float],
     hide_japanese: bool,
+    expanded: bool = False,
+    is_playing: bool = False,  # Added parameter
 ) -> str:
-    """Return an HTML block for one subtitle entry."""
     ja = entry.get("ja", "").strip()
     en = entry.get("en", "").strip()
-    text = en if hide_japanese else f"{ja}\n{en}".strip()
+    text_display = en if hide_japanese else f"{ja}\n{en}".strip()
 
     start: float = entry.get("start", 0.0)
     end: float = entry.get("end", 0.0)
     gap = (start - prev_end) if prev_end is not None else 0.0
     duration = end - start
     end_reason = entry.get("end_reason") or "true_silence"
-
     segment_dir: Optional[Path] = (
         Path(entry["segment_dir"]) if entry.get("segment_dir") else None
     )
 
-    # ── existing metadata fields ──────────────────────────────────────────────
+    # VAD metrics
     avg_prob: Optional[float] = entry.get("avg_vad_prob")
     avg_prob_str = f"{avg_prob:.3f}" if isinstance(avg_prob, float) else "N/A"
     avg_prob_color = _prob_color(avg_prob)
@@ -182,12 +195,6 @@ def _format_entry(
     )
     speech_pctg_color = _speech_pctg_color(speech_pctg)
 
-    speech_dur_sec: Optional[float] = entry.get("speech_dur_sec")
-    speech_dur_str = (
-        f"{speech_dur_sec:.2f}s" if isinstance(speech_dur_sec, (int, float)) else "N/A"
-    )
-    speech_dur_color = _speech_pctg_color(speech_pctg)
-
     transcribed_pctg = entry.get("transcribed_duration_pctg")
     trans_pctg_str = (
         f"{float(transcribed_pctg):.1f}%"
@@ -197,9 +204,7 @@ def _format_entry(
     trans_pctg_color = _speech_pctg_color(
         float(transcribed_pctg) if isinstance(transcribed_pctg, (int, float)) else None
     )
-    coverage_label = entry.get("coverage_label") or "N/A"
 
-    # ── NEW: VADScorer fields ─────────────────────────────────────────────────
     composite_score: Optional[float] = entry.get("vad_composite_score")
     composite_str = (
         f"{composite_score:.3f}" if isinstance(composite_score, (int, float)) else "N/A"
@@ -207,50 +212,77 @@ def _format_entry(
     composite_color = _composite_score_color(
         float(composite_score) if isinstance(composite_score, (int, float)) else None
     )
-
     quality_label: Optional[str] = entry.get("vad_quality_label")
     quality_str = quality_label or "N/A"
     quality_color = _quality_label_color(quality_label)
 
-    # ── action links ─────────────────────────────────────────────────────────
+    speaker_label = entry.get("speaker_label", "")
+    speaker_confidence: Optional[float] = entry.get("speaker_confidence")
+    speaker_conf_str = (
+        f" ({speaker_confidence:.2f})" if isinstance(speaker_confidence, float) else ""
+    )
+    speaker_conf_color = _speaker_confidence_color(speaker_confidence)
+    speaker_match_type = entry.get("speaker_match_type", "")
+
+    # ── action links ────────────────────────────────────────────
+    copy_link = (
+        f'<a href="copy:{index}" style="color:#58a6ff; text-decoration:none;">📋</a>'
+    )
     open_link = (
         f'<a href="open:{index}" style="color:#58a6ff; text-decoration:none;">📂</a>'
         if segment_dir
         else ""
     )
+    # Updated play/pause icon based on playing state
+    play_icon = "⏸" if is_playing else "▶"
     play_link = (
         f'<a href="play:{index}" style="color:#ff7b72; text-decoration:none;'
-        f' font-size:13px;">▶</a>'
+        f' font-size:13px;">{play_icon}</a>'
         if segment_dir and (segment_dir / "sound.wav").exists()
         else ""
     )
 
-    return (
-        f'<div style="margin-bottom:6px;">'
-        # Header row: index, badge, timing
-        f'<b style="font-size:10px;">{index}</b> {_VAD_BADGE_HTML} '
-        f'<span style="font-size:9px; color:#8b949e; line-height:1.1;">'
-        f"[gap: {gap:.2f}s] ({duration:.2f}s)"
+    # ── speaker badge ────────────────────────────────────────────
+    speaker_badge = ""
+    if speaker_label:
+        speaker_badge = (
+            f' <span style="'
+            f"background:#1f3b5c; color:#79c0ff; font-family:monospace; "
+            f"font-size:9px; font-weight:bold; padding:1px 5px; "
+            f'border-radius:3px;">{speaker_label}'
+            f'<span style="color:{speaker_conf_color};">{speaker_conf_str}</span>'
+            f"</span>"
+        )
+
+    # ── header row: index, badge, speaker, duration, end_reason, avg_prob ──
+    header_html = (
+        f'<b style="font-size:10px;">{index}</b> {_VAD_BADGE_HTML}'
+        f"{speaker_badge} "
+        f'<span style="font-size:9px; color:#8b949e;">'
+        f"({duration:.2f}s)"
         f' • <span style="color:#d2a8ff;">{end_reason}</span>'
-        # avg prob
         f' • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>'
-        # speech stats
-        f' • spch: <span style="color:{speech_pctg_color}; font-weight:bold;">{speech_pctg_str}</span>'
-        f' • dur: <span style="color:{speech_dur_color}; font-weight:bold;">{speech_dur_str}</span>'
-        # transcription stats
-        f' • trans: <span style="color:{trans_pctg_color}; font-weight:bold;">{trans_pctg_str}</span>'
-        f' • cov: <span style="color:#79c0ff;">{coverage_label}</span>'
         f"</span>"
-        # action links
-        f' <a href="copy:{index}" style="color:#58a6ff; text-decoration:none;">📋</a>'
-        f" {open_link} {play_link}"
-        # VADScorer row (new)
-        f'<br/><span style="font-size:9px; color:#8b949e;">'
-        f'score: <span style="color:{composite_color}; font-weight:bold;">{composite_str}</span>'
-        f' • quality: <span style="color:{quality_color}; font-weight:bold;">{quality_str}</span>'
-        f"</span>"
-        # transcript text
-        f'<br/><pre style="white-space:pre-wrap; margin:0; font-size:12px;">{text}</pre>'
+        f" {copy_link} {open_link} {play_link}"
+    )
+
+    # ── main text: always visible, improved typography ───────────
+    text_html = (
+        f'<div style="margin-top:5px; margin-bottom:2px;">'
+        f'<span style="'
+        f"font-size:13px; "
+        f"color:#e6edf3; "
+        f"font-family:'Segoe UI', 'SF Pro Text', Arial, sans-serif; "
+        f"line-height:1.5; "
+        f"letter-spacing:0.5px;"
+        f'">{text_display.replace(chr(10), "<br/>")}</span>'
+        f"</div>"
+    )
+
+    return (
+        f'<div style="margin-bottom:4px;">'
+        f"{header_html}"
+        f"{text_html}"
         f"</div>"
         f'<hr style="border:none; border-top:1px solid #30363d; margin:4px 0;">'
     )
@@ -525,7 +557,8 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         wav_path = Path(segment_dir) / "sound.wav"
         if not wav_path.exists():
             return
-        self._sound_effect.setSource(QUrl.fromLocalFile(str(wav_path)))
+        url = QUrl.fromLocalFile(str(wav_path))
+        self._sound_effect.setSource(url)
         self._sound_effect.setVolume(1.0)
         self._sound_effect.play()
 

@@ -116,7 +116,7 @@ Use visuals, diagrams, or tables when helpful.
 Show full code for new files, then show full function code for updated functions.
 Keep explanations simple and clear.
 
-Write flexible, reusable, and maintainable code.
+Write flexible, reusable, maintainable, and robust code.
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """
