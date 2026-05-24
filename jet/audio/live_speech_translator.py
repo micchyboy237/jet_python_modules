@@ -13,6 +13,7 @@ from jet.audio.speech.segment_store import SegmentStore
 from jet.audio.speech.utils import display_segments
 from jet.audio.speech_detector import record_from_mic
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
+from jet.audio.speech_handlers.speaker_reset_handler import SpeakerResetHandler
 from jet.audio.speech_handlers.speech_events import SpeechSegmentEndEvent
 from jet.audio.speech_handlers.subtitle_overlay_window import SubtitleOverlay
 from jet.audio.speech_handlers.websocket_subtitle_sender import (
@@ -67,6 +68,7 @@ def dispatch_handlers(
 
 def main_live_speech_translation(verbose: bool = False):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     app = QApplication(sys.argv)
     signal.signal(signal.SIGINT, lambda *_: app.quit())
     _sigint_timer = QTimer()
@@ -78,16 +80,18 @@ def main_live_speech_translation(verbose: bool = False):
     ]
     ws_sender: WebsocketSubtitleSender = handlers[0]
 
+    speaker_reset = SpeakerResetHandler()
+
     all_segments_path = OUTPUT_DIR / "all_segments.json"
     subtitles_path = OUTPUT_DIR / "subtitles.srt"
     segment_store = SegmentStore(OUTPUT_DIR / "segments")
-
     completed_segments: list[SpeechSegment] = []
 
     def _on_clear() -> None:
         completed_segments.clear()
         segment_store.reset()
         ws_sender.clear_queue()
+        speaker_reset.reset()  # <-- NEW: reset speakers on server
 
     overlay = SubtitleOverlay.create_and_connect(
         ws_sender,
@@ -109,11 +113,8 @@ def main_live_speech_translation(verbose: bool = False):
             logger.success(
                 f"Speech {speech_seg['num']}: {speech_seg['start_time_utc']} → {speech_seg['end_time_utc']}"
             )
-
             if _stop_recording.is_set():
                 break
-
-            # ── Guard: skip empty or near-silent segments ──────────────────────
             if seg_audio_np is None or seg_audio_np.size == 0:
                 logger.warning(
                     f"[recorder] Skipping segment with empty audio "
@@ -121,14 +122,10 @@ def main_live_speech_translation(verbose: bool = False):
                     f"reason={speech_seg.get('end_reason')})"
                 )
                 continue
-            # ───────────────────────────────────────────────────────────────────
-
             seg_dir, seg_number = segment_store.save(
                 speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
             )
-
             speech_seg["num"] = seg_number
-
             dispatch_handlers(
                 handlers,
                 speech_seg,
@@ -138,14 +135,10 @@ def main_live_speech_translation(verbose: bool = False):
                 SAMPLE_RATE,
                 recording_started_at,
             )
-
             _speech_seg_no_probs = speech_seg.copy()
             _speech_seg_probs = _speech_seg_no_probs.pop("segment_probs")
-
             completed_segments.append(_speech_seg_no_probs)
-
             save_file(completed_segments, all_segments_path)
-
         display_segments(completed_segments, done=True)
 
     rec_thread = threading.Thread(target=_recording_loop, daemon=True, name="recorder")
