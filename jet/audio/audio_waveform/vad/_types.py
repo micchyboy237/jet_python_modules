@@ -56,6 +56,10 @@ class SpeechSegment(_SpeechSegmentRequired):
     best_valley_trough: Optional[
         ValleyTrough
     ]  # trough that caused this segment's split, if any
+    # Absolute timestamps as ISO 8601 strings (UTC)
+    # Example: "2026-05-25T14:32:17.123456+00:00"
+    start_time_utc: Optional[str]
+    end_time_utc: Optional[str]
 
 
 class WordSegment(TypedDict):

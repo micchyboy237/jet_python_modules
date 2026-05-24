@@ -1,12 +1,12 @@
 from typing import Generator, List, Optional, Tuple
 
 import numpy as np
-import sounddevice as sd
 from fireredvad.core.constants import (
     FRAME_PER_SECONDS,
     FRAME_SHIFT_SAMPLE,
     SAMPLE_RATE,
 )
+from jet.audio.audio_stream.firered_stream import FireredStream
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MAX_SPEECH_SEC,
@@ -51,6 +51,10 @@ def record_from_mic(
 ) -> Generator[Tuple[SpeechSegment, np.ndarray], None, None]:
     """Record audio from microphone with silence detection and progress tracking.
 
+    Speech segments now include absolute UTC timestamps:
+        - ``segment["start_time_utc"]``: datetime when speech started
+        - ``segment["end_time_utc"]``: datetime when speech ended
+
     Args:
         duration: Maximum recording duration in seconds (None = indefinite).
         silence_threshold: Silence level in RMS (None = auto-calibrated).
@@ -67,7 +71,6 @@ def record_from_mic(
         if silence_threshold is not None
         else calibrate_silence_threshold()
     )
-
     duration_str = f"{duration}s" if duration is not None else "indefinite"
     logger.info(
         f"Starting recording: {CHANNELS} channel{'s' if CHANNELS > 1 else ''}\n"
@@ -78,15 +81,11 @@ def record_from_mic(
             f"Silence threshold {silence_threshold:.6f}\nSilence duration {silence_duration}s"
         )
 
-    # block_size aligns the hardware buffer to one firered hop (10 ms = 160 samples).
-    # chunk_size is how many samples we pull per loop iteration — always a clean
-    # multiple of block_size so the VAD's internal framing stays aligned.
-    block_size = FRAME_SHIFT_SAMPLE  # 160 samples = 10 ms
-    chunk_size = block_size * _HOPS_PER_READ  # 8000 samples = 0.5 s
-
+    block_size = FRAME_SHIFT_SAMPLE
+    chunk_size = block_size * _HOPS_PER_READ
     max_frames = int(duration * SAMPLE_RATE) if duration is not None else float("inf")
     silence_frames = int(silence_duration * FRAME_PER_SECONDS) * block_size
-    grace_frames = FRAME_PER_SECONDS * block_size  # 1 s of hops before silence kicks in
+    grace_frames = FRAME_PER_SECONDS * block_size
 
     audio_data = CircularAudioBuffer(
         max_sec=buffer_max_sec,
@@ -108,106 +107,98 @@ def record_from_mic(
         else {"desc": "Recording", "unit": "s", "leave": True}
     )
 
-    with tqdm(**pbar_kwargs) as pbar:
-        stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype=DTYPE,
-            blocksize=block_size,  # align hardware buffer to one firered hop
-        )
-        with stream:
-            while recorded_frames < max_frames:
-                chunk = stream.read(chunk_size)[0]
-                audio_data.append(chunk)
-                recorded_frames += chunk_size
-                pbar.update(chunk_size / SAMPLE_RATE)
+    with tqdm(**pbar_kwargs) as pbar, FireredStream() as stream:
+        for chunk, capture_time in stream:
+            if recorded_frames >= max_frames:
+                break
 
-                if recorded_frames > grace_frames and detect_silence(
-                    chunk, silence_threshold
-                ):
-                    silent_count += chunk_size
+            # Pass timestamp to buffer for absolute time conversion
+            audio_data.append(chunk, capture_time=capture_time)
+            recorded_frames += chunk_size
+            pbar.update(chunk_size / SAMPLE_RATE)
 
-                    if silent_count >= silence_frames:
-                        if not true_silence:  # ← Only log once
-                            logger.info(
-                                f"Silence detected for {silence_duration}s, stopping recording"
-                            )
-                            true_silence = True
+            if recorded_frames > grace_frames and detect_silence(
+                chunk, silence_threshold
+            ):
+                silent_count += chunk_size
+                if silent_count >= silence_frames:
+                    if not true_silence:
+                        logger.info(
+                            f"Silence detected for {silence_duration}s, stopping recording"
+                        )
+                        true_silence = True
+                    if quit_on_silence:
+                        break
+                    if prev_segment:
+                        seg_audio_np = extract_segment_data(
+                            prev_segment,
+                            audio_data,
+                            trim_silent=trim_silent,
+                            silence_threshold=silence_threshold,
+                        )
+                        # Enrich segment with absolute timestamps
+                        _enrich_segment_with_timestamps(prev_segment, audio_data)
+                        yield prev_segment, seg_audio_np
+                        audio_data.trim_to_sec(float(prev_segment["end"]))
+                        prev_segment = None
+                    if curr_speech_segs:
+                        if verbose:
+                            display_segments(curr_speech_segs, done=True)
+                    continue
+            else:
+                silent_count = 0
+                true_silence = False
 
-                        if quit_on_silence:
-                            break
-                        if prev_segment:
-                            seg_audio_np = extract_segment_data(
-                                prev_segment,
-                                audio_data,
-                                trim_silent=trim_silent,
-                                silence_threshold=silence_threshold,
-                            )
-                            yield prev_segment, seg_audio_np
-                            audio_data.trim_to_sec(float(prev_segment["end"]))
-                            prev_segment = None
-                        if curr_speech_segs:
-                            if verbose:
-                                display_segments(curr_speech_segs, done=True)
-                        continue
-                else:
-                    silent_count = 0
-                    true_silence = False  # ← Reset when speech returns
+            curr_speech_segs = extract_current_speech_segment(
+                audio_data,
+                threshold=threshold,
+                min_silence_duration_sec=min_silence_duration_sec,
+                min_speech_duration_sec=min_speech_duration_sec,
+                max_speech_duration_sec=max_speech_duration_sec,
+            )
+            if verbose:
+                display_segments(curr_speech_segs)
 
-                curr_speech_segs = extract_current_speech_segment(
+            curr_segment = curr_speech_segs[-1] if curr_speech_segs else prev_segment
+            prev_segment = curr_speech_segs[-2] if len(curr_speech_segs) > 1 else None
+
+            if (
+                curr_segment
+                and prev_segment
+                and curr_segment["start"] != prev_segment["start"]
+            ):
+                last_yielded_window_sec = max(
+                    0.0, last_yielded_end_sec - audio_data.trimmed_sec
+                )
+                effective_start_sec = max(
+                    last_yielded_window_sec,
+                    float(prev_segment["start"]) - overlap_seconds,
+                )
+                if effective_start_sec >= float(prev_segment["end"]):
+                    prev_segment = curr_segment
+                    continue
+
+                original_start = prev_segment["start"]
+                prev_segment["start"] = effective_start_sec
+                seg_audio_np = extract_segment_data(
+                    prev_segment,
                     audio_data,
-                    threshold=threshold,
-                    min_silence_duration_sec=min_silence_duration_sec,
-                    min_speech_duration_sec=min_speech_duration_sec,
-                    max_speech_duration_sec=max_speech_duration_sec,
+                    trim_silent=trim_silent,
+                    silence_threshold=silence_threshold,
                 )
-
-                if verbose:
-                    display_segments(curr_speech_segs)
-
-                curr_segment = (
-                    curr_speech_segs[-1] if curr_speech_segs else prev_segment
+                prev_segment["start"] = original_start
+                prev_segment["duration"] = prev_segment["end"] - prev_segment["start"]
+                last_yielded_end_sec = (
+                    float(prev_segment["end"]) + audio_data.trimmed_sec
                 )
-                prev_segment = (
-                    curr_speech_segs[-2] if len(curr_speech_segs) > 1 else None
-                )
+                # Enrich segment with absolute timestamps
+                _enrich_segment_with_timestamps(prev_segment, audio_data)
+                yield prev_segment, seg_audio_np
+                audio_data.trim_to_sec(float(prev_segment["end"]))
 
-                if (
-                    curr_segment
-                    and prev_segment
-                    and curr_segment["start"] != prev_segment["start"]
-                ):
-                    last_yielded_window_sec = max(
-                        0.0, last_yielded_end_sec - audio_data.trimmed_sec
-                    )
-                    effective_start_sec = max(
-                        last_yielded_window_sec,
-                        float(prev_segment["start"]) - overlap_seconds,
-                    )
-                    if effective_start_sec >= float(prev_segment["end"]):
-                        prev_segment = curr_segment
-                        continue
+            prev_segment = curr_segment
 
-                    original_start = prev_segment["start"]
-                    prev_segment["start"] = effective_start_sec
-                    seg_audio_np = extract_segment_data(
-                        prev_segment,
-                        audio_data,
-                        trim_silent=trim_silent,
-                        silence_threshold=silence_threshold,
-                    )
-                    prev_segment["start"] = original_start
-                    prev_segment["duration"] = (
-                        prev_segment["end"] - prev_segment["start"]
-                    )
-                    last_yielded_end_sec = (
-                        float(prev_segment["end"]) + audio_data.trimmed_sec
-                    )
-                    yield prev_segment, seg_audio_np
-                    audio_data.trim_to_sec(float(prev_segment["end"]))
-
-                prev_segment = curr_segment
-
+    # ── Post-loop handling ─────────────────────────────────────────────
     if not audio_data:
         logger.warning("No audio recorded")
         return None
@@ -215,7 +206,6 @@ def record_from_mic(
     if prev_segment:
         if verbose:
             display_segments(curr_speech_segs)
-
         last_yielded_window_sec = max(
             0.0, last_yielded_end_sec - audio_data.trimmed_sec
         )
@@ -228,7 +218,6 @@ def record_from_mic(
                 "Skipping final segment yield due to overlap causing empty audio"
             )
             return
-
         prev_segment["start"] = effective_start_sec
         seg_audio_np = extract_segment_data(
             prev_segment,
@@ -236,10 +225,30 @@ def record_from_mic(
             trim_silent=trim_silent,
             silence_threshold=silence_threshold,
         )
+        # Enrich segment with absolute timestamps
+        _enrich_segment_with_timestamps(prev_segment, audio_data)
         yield prev_segment, seg_audio_np
 
     actual_duration = len(audio_data) / SAMPLE_RATE
     logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
+
+
+def _enrich_segment_with_timestamps(
+    segment: SpeechSegment,
+    audio_buffer: CircularAudioBuffer,
+) -> None:
+    """Add absolute UTC timestamps to a speech segment in-place.
+
+    Adds ISO 8601 strings:
+        segment["start_time_utc"]: "2026-05-25T14:32:17.123456+00:00"
+        segment["end_time_utc"]:   "2026-05-25T14:32:19.876543+00:00"
+
+    Args:
+        segment: SpeechSegment dict to enrich.
+        audio_buffer: CircularAudioBuffer with timestamp anchor set.
+    """
+    segment["start_time_utc"] = audio_buffer.get_absolute_time(float(segment["start"]))
+    segment["end_time_utc"] = audio_buffer.get_absolute_time(float(segment["end"]))
 
 
 def extract_segment_data(

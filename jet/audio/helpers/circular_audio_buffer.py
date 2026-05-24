@@ -1,6 +1,7 @@
-# jet.audio.helpers.circular_audio_buffer
+"""CircularAudioBuffer — fixed-duration sliding window with timestamp support."""
 
 from collections import deque
+from datetime import datetime, timedelta
 from typing import Iterator, List, Optional
 
 import numpy as np
@@ -15,13 +16,13 @@ class CircularAudioBuffer:
     left so that the window always covers at most ``max_sec`` seconds of audio.
 
     The buffer exposes:
-    - ``append(chunk)``        — add a new mic chunk, evict if over budget.
-    - ``to_numpy()``           — return the full window as one contiguous array.
-    - ``slice_seconds(s, e)``  — extract a time range (in seconds, relative to
-                                  the start of the current window).
-    - ``total_samples``        — cumulative samples seen since construction
-                                  (never decreases); used to map VAD timestamps
-                                  back to absolute positions when needed.
+    - ``append(chunk, capture_time=None)`` — add a new mic chunk, evict if over budget.
+    - ``to_numpy()``                      — return the full window as one contiguous array.
+    - ``slice_seconds(s, e)``             — extract a time range (in seconds, relative to
+                                             the start of the current window).
+    - ``get_absolute_time(rel_sec)``      — convert window-relative seconds to UTC datetime.
+    - ``total_samples``                   — cumulative samples seen since construction
+                                             (never decreases).
 
     It also satisfies the ``list[np.ndarray]`` duck-type that ``speech_detector``
     and ``extract_segment_data`` rely on:
@@ -46,24 +47,55 @@ class CircularAudioBuffer:
         self._total_samples: int = 0  # cumulative samples ever appended
         self._trimmed_samples: int = 0  # samples removed via trim_to_sec
 
+        # ── Timestamp tracking ──────────────────────────────────────────
+        # Absolute UTC time of the FIRST sample currently in the window.
+        # Set when the first chunk with a capture_time is appended.
+        # Advanced by trim_to_sec to stay accurate.
+        self._window_start_time: Optional[datetime] = None
+        # Whether we've received at least one timestamped chunk.
+        self._has_timestamps: bool = False
+
     # ------------------------------------------------------------------
     # Core mutation
     # ------------------------------------------------------------------
 
-    def append(self, chunk: np.ndarray) -> None:
-        """Add *chunk* to the right of the window, evicting from the left as needed."""
+    def append(
+        self,
+        chunk: np.ndarray,
+        capture_time: Optional[datetime] = None,
+    ) -> None:
+        """Add *chunk* to the right of the window, evicting from the left as needed.
+
+        Args:
+            chunk: Audio samples as numpy array.
+            capture_time: UTC datetime when the **first sample** of this chunk
+                         was captured. Only used for the very first chunk to
+                         establish the window's time anchor.
+        """
         self._chunks.append(chunk)
         n = len(chunk)
         self._window_samples += n
         self._total_samples += n
 
+        # ── Timestamp anchor: set on first timestamped chunk ──────────
+        if not self._has_timestamps and capture_time is not None:
+            self._window_start_time = capture_time
+            self._has_timestamps = True
+
         # Evict oldest chunks until we're within budget.
+        # If we evict, advance the timestamp anchor accordingly.
         while self._window_samples > self.max_samples and self._chunks:
             evicted = self._chunks.popleft()
-            self._window_samples -= len(evicted)
+            evicted_len = len(evicted)
+            self._window_samples -= evicted_len
+
+            # Advance anchor by the duration of evicted audio.
+            if self._has_timestamps and self._window_start_time is not None:
+                evicted_sec = evicted_len / self.sample_rate
+                self._window_start_time += timedelta(seconds=evicted_sec)
 
     def clear(self) -> None:
-        """Reset the window (does not reset total_samples)."""
+        """Reset the window (does not reset total_samples or timestamp anchor)."""
         self._chunks.clear()
         self._window_samples = 0
 
@@ -77,6 +109,8 @@ class CircularAudioBuffer:
 
         Clamped to the current window length; asking to trim more than the
         buffer holds trims everything.
+
+        Also advances the timestamp anchor so ``get_absolute_time`` stays accurate.
         """
         samples_to_drop = min(
             int(sec * self.sample_rate),
@@ -87,19 +121,60 @@ class CircularAudioBuffer:
             chunk = self._chunks[0]
             remaining = samples_to_drop - dropped
             if len(chunk) <= remaining:
-                self._chunks.popleft()
-                dropped += len(chunk)
+                evicted = self._chunks.popleft()
+                dropped += len(evicted)
             else:
                 # Partial trim: slice off the consumed prefix.
+                partial_len = remaining
                 self._chunks[0] = chunk[remaining:]
                 dropped = samples_to_drop
+
         self._window_samples -= dropped
         self._trimmed_samples += dropped
+
+        # ── Advance timestamp anchor ───────────────────────────────────
+        if self._has_timestamps and self._window_start_time is not None and dropped > 0:
+            dropped_sec = dropped / self.sample_rate
+            self._window_start_time += timedelta(seconds=dropped_sec)
 
     @property
     def trimmed_sec(self) -> float:
         """Total seconds trimmed from the front of the buffer since construction."""
         return self._trimmed_samples / self.sample_rate
+
+    # ------------------------------------------------------------------
+    # Timestamp conversion
+    # ------------------------------------------------------------------
+
+    def get_absolute_time(self, relative_seconds: float) -> Optional[str]:
+        """Convert window-relative seconds to ISO 8601 UTC datetime string.
+
+        Args:
+            relative_seconds: Seconds from the start of the **current window**
+                             (the same values VAD returns in segment["start"]).
+
+        Returns:
+            ISO 8601 string like ``"2026-05-25T14:32:17.123456+00:00"``,
+            or None if no timestamp anchor has been set.
+
+        Example:
+            >>> buf.get_absolute_time(2.3)
+            "2026-05-25T14:32:17.123456+00:00"
+        """
+        if self._window_start_time is None:
+            return None
+        absolute_dt = self._window_start_time + timedelta(seconds=relative_seconds)
+        return absolute_dt.isoformat()
+
+    @property
+    def window_start_time(self) -> Optional[datetime]:
+        """Absolute UTC time of the first sample currently in the window."""
+        return self._window_start_time
+
+    @property
+    def has_timestamps(self) -> bool:
+        """Whether the buffer has a valid timestamp anchor."""
+        return self._has_timestamps
 
     # ------------------------------------------------------------------
     # Read access
@@ -199,10 +274,14 @@ class CircularAudioBuffer:
         return bool(self._chunks)
 
     def __repr__(self) -> str:
+        ts_info = ""
+        if self._has_timestamps and self._window_start_time is not None:
+            ts_info = f", window_start={self._window_start_time.isoformat()}"
         return (
             f"CircularAudioBuffer("
             f"max_sec={self.max_sec}, "
             f"window={self.window_sec:.2f}s / {self._window_samples} samples, "
             f"chunks={len(self._chunks)}, "
-            f"total_samples={self._total_samples})"
+            f"total_samples={self._total_samples}"
+            f"{ts_info})"
         )

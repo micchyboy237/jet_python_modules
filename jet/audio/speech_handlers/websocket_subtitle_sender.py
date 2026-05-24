@@ -223,34 +223,28 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             )
         self.reconnect_delay = reconnect_delay
         self.send_timeout = send_timeout
-        self.global_srt_path = global_srt_path  # written after every segment
-
+        self.global_srt_path = global_srt_path
         self._ws: Optional[ClientConnection] = None
-        self._ws_lock = asyncio.Lock()  # guarded inside the async loop
+        self._ws_lock = asyncio.Lock()
         self._stop_event = threading.Event()
-        self._connected_event = asyncio.Event()  # set when ws is live
-
+        self._connected_event = asyncio.Event()
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(
             target=self._run_loop, daemon=True, name="ws-subtitle-loop"
         )
         self._loop_thread.start()
-
-        # schedule connection manager on the new loop
         self._loop.call_soon_threadsafe(
             lambda: self._loop.create_task(self._connection_manager())
         )
-
-        # Serialise all WS operations through a FIFO queue.
-        # This is the single fix that prevents ConcurrencyError.
         self._task_queue = AsyncTaskQueue(self._loop, name="ws-subtitle-sender")
-
         console.print(
             f"[bold blue][WS][/bold blue] Connecting → [cyan]{self.ws_url}[/cyan]"
         )
-
         self._observers: list[SubtitleObserver] = []
         self._observers_lock = threading.Lock()
+
+        # ── NEW: Track previous segment end time for gap calculation ──
+        self._prev_end_time_utc: Optional[str] = None
 
     # ── Loop thread ─────────────────────────────────────────────────────────
 
@@ -423,22 +417,35 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     async def _handle_segment(self, event: SpeechSegmentEndEvent) -> None:
         seg: SpeechSegment = event.segment
         seg_num: int = event.segment_number
-
-        # ── Skip silence-only segments (server returns empty transcription) ──
         if event.audio_np is None or event.audio_np.size == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — empty audio")
             return
-
         audio_bytes = _to_pcm_int16_bytes(event.audio_np)
         if len(audio_bytes) == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — zero PCM bytes")
             return
-        # ─────────────────────────────────────────────────────────────────────
-
         seg_dir: Path = event.segment_dir
         start_sec = float(seg["start"])
         end_sec = float(seg["end"])
         duration = float(seg["duration"])
+
+        # ── Extract absolute timestamps if available ─────────────────
+        start_time_utc: Optional[str] = seg.get("start_time_utc")
+        end_time_utc: Optional[str] = seg.get("end_time_utc")
+
+        # ── Calculate gap from previous segment ──────────────────────
+        gap_sec: Optional[float] = None
+        if self._prev_end_time_utc is not None and start_time_utc is not None:
+            from datetime import datetime
+
+            try:
+                prev_end_dt = datetime.fromisoformat(self._prev_end_time_utc)
+                start_dt = datetime.fromisoformat(start_time_utc)
+                gap_sec = round((start_dt - prev_end_dt).total_seconds(), 4)
+            except (ValueError, TypeError):
+                pass
+        # Update for next segment
+        self._prev_end_time_utc = end_time_utc
 
         header: ClientHeader = {
             "uuid": str(uuid.uuid4()),
@@ -449,10 +456,12 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "vad_reason": _vad_reason(seg),
             "forced": _vad_reason(seg) != "silence",
             "started_at": event.started_at.isoformat(),
+            "start_time_utc": start_time_utc,
+            "end_time_utc": end_time_utc,
+            # NEW: Real-time gap from previous segment
+            "gap_sec": gap_sec,
         }
-
         _log_request(seg_num, header, audio_bytes)
-
         try:
             response = await self._send_and_receive(header, audio_bytes)
         except Exception as exc:
@@ -461,11 +470,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 f"{type(exc).__name__}: {exc}"
             )
             return
-
         _log_response(response, seg_num)
-
-        # Build the combined notification that includes both the server response
-        # and the local segment metadata the overlay needs.
         notification: SubtitleNotification = {
             "segment": seg,
             "num": seg_num,
@@ -477,10 +482,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "avg_vad_prob": _compute_avg_vad_prob(seg),
             "speech_frames_pctg": _compute_speech_frames_pctg(seg),
             "speech_dur_sec": _compute_speech_dur_sec(seg),
+            "start_time_utc": start_time_utc,
+            "end_time_utc": end_time_utc,
         }
-        # Fan out to all observers
         self._notify_observers(notification)
-
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
         if response.get("success") and "transcription_ja" in response:
@@ -501,8 +506,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         Drop all pending (not yet started) subtitle tasks.
         Safe to call from any thread — e.g. from the UI clear action.
         The currently running send/receive is allowed to complete normally.
+        Also resets gap tracking so the next segment starts fresh.
         """
         self._task_queue.clear()
+        self._prev_end_time_utc = None  # NEW: Reset gap tracking
 
     def close(self) -> None:
         self._stop_event.set()

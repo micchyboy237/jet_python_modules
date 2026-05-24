@@ -113,7 +113,7 @@ DEFAULT_INSTRUCTIONS_MESSAGE = """
 Provide step-by-step analysis and explain the flow first.
 Use visuals, diagrams, or tables when helpful.
 
-Show full code for new files, then show full function code for updated functions.
+Show full code for new files, then show full function code for new or updated functions.
 Keep explanations simple and clear.
 
 Write flexible, reusable, maintainable, and robust code.

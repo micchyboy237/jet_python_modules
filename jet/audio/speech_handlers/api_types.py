@@ -61,6 +61,11 @@ class ClientHeader(TypedDict):
     vad_reason: Literal["silence", "valley", "hard_limit"]
     forced: bool
     started_at: Optional[str]  # ISO 8601 format
+    # NEW: Absolute UTC timestamps (ISO 8601 strings)
+    start_time_utc: Optional[str]  # e.g. "2026-05-25T14:32:17.123456+00:00"
+    end_time_utc: Optional[str]  # e.g. "2026-05-25T14:32:19.876543+00:00"
+    # Real-time gap from previous segment end to this segment start
+    gap_sec: Optional[float]  # e.g. 2.35 (seconds), None for first segment
 
 
 class _BaseResponseFields(TypedDict, total=False):
@@ -179,6 +184,9 @@ class SubtitleNotification(_SubtitleResponseFields, total=False):
     avg_vad_prob: Optional[float]
     speech_frames_pctg: Optional[float]
     speech_dur_sec: Optional[float]
+    # NEW: Pass through absolute timestamps
+    start_time_utc: Optional[str]
+    end_time_utc: Optional[str]
 
 
 # Type aliases for convenience

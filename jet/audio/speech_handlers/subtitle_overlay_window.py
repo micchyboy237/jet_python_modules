@@ -166,25 +166,49 @@ _VAD_BADGE_HTML = (
 def _format_entry(
     index: int,
     entry: dict,
-    prev_end: Optional[float],
+    prev_entry: Optional[dict],
     hide_japanese: bool,
     expanded: bool = False,
-    is_playing: bool = False,  # Added parameter
+    is_playing: bool = False,
 ) -> str:
     ja = entry.get("ja", "").strip()
     en = entry.get("en", "").strip()
     text_display = en if hide_japanese else f"{ja}\n{en}".strip()
-
     start: float = entry.get("start", 0.0)
     end: float = entry.get("end", 0.0)
-    gap = (start - prev_end) if prev_end is not None else 0.0
-    duration = end - start
     end_reason = entry.get("end_reason") or "true_silence"
     segment_dir: Optional[Path] = (
         Path(entry["segment_dir"]) if entry.get("segment_dir") else None
     )
 
-    # VAD metrics
+    # ── Gap calculation ───────────────────────────────────────────────
+    gap: Optional[float] = None
+    if prev_entry is not None:
+        prev_end_time_utc = prev_entry.get("end_time_utc")
+        prev_end_sec = prev_entry.get("end")
+        current_start_time_utc = entry.get("start_time_utc")
+        current_start_sec = entry.get("start")
+
+        # Try absolute timestamp gap first
+        if current_start_time_utc and prev_end_time_utc:
+            from datetime import datetime
+
+            try:
+                start_dt = datetime.fromisoformat(current_start_time_utc)
+                end_dt = datetime.fromisoformat(prev_end_time_utc)
+                gap = (start_dt - end_dt).total_seconds()
+            except (ValueError, TypeError):
+                pass
+
+        # Fallback to relative seconds gap
+        if gap is None and current_start_sec is not None and prev_end_sec is not None:
+            gap = current_start_sec - prev_end_sec
+
+    gap_str = f"{gap:.2f}s" if gap is not None else "—"
+    # ──────────────────────────────────────────────────────────────────
+
+    duration = end - start
+
     avg_prob: Optional[float] = entry.get("avg_vad_prob")
     avg_prob_str = f"{avg_prob:.3f}" if isinstance(avg_prob, float) else "N/A"
     avg_prob_color = _prob_color(avg_prob)
@@ -212,6 +236,7 @@ def _format_entry(
     composite_color = _composite_score_color(
         float(composite_score) if isinstance(composite_score, (int, float)) else None
     )
+
     quality_label: Optional[str] = entry.get("vad_quality_label")
     quality_str = quality_label or "N/A"
     quality_color = _quality_label_color(quality_label)
@@ -224,7 +249,6 @@ def _format_entry(
     speaker_conf_color = _speaker_confidence_color(speaker_confidence)
     speaker_match_type = entry.get("speaker_match_type", "")
 
-    # ── action links ────────────────────────────────────────────
     copy_link = (
         f'<a href="copy:{index}" style="color:#58a6ff; text-decoration:none;">📋</a>'
     )
@@ -233,7 +257,6 @@ def _format_entry(
         if segment_dir
         else ""
     )
-    # Updated play/pause icon based on playing state
     play_icon = "⏸" if is_playing else "▶"
     play_link = (
         f'<a href="play:{index}" style="color:#ff7b72; text-decoration:none;'
@@ -242,7 +265,6 @@ def _format_entry(
         else ""
     )
 
-    # ── speaker badge ────────────────────────────────────────────
     speaker_badge = ""
     if speaker_label:
         speaker_badge = (
@@ -254,19 +276,18 @@ def _format_entry(
             f"</span>"
         )
 
-    # ── header row: index, badge, speaker, duration, end_reason, avg_prob ──
     header_html = (
         f'<b style="font-size:10px;">{index}</b>'
         f"{speaker_badge} "
         f'<span style="font-size:9px; color:#8b949e;">'
         f"({duration:.2f}s)"
+        f" • gap: {gap_str}"
         f' • <span style="color:#d2a8ff;">{end_reason}</span>'
         f' • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>'
         f"</span>"
         f" {copy_link} {open_link} {play_link}"
     )
 
-    # ── main text: always visible, improved typography ───────────
     text_html = (
         f'<div style="margin-top:5px; margin-bottom:2px;">'
         f'<span style="'
@@ -390,10 +411,8 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
     def on_subtitle_received(self, notification: SubtitleNotification) -> None:
         """
         Qt slot — always runs on the Qt main thread (via queued signal).
-
         Maps the SubtitleNotification dict to an internal entry dict and
         appends it to the log.  Display is refreshed by the poll timer.
-
         VADScorer is run directly on ``segment_probs`` from the notification
         so this window is self-contained — no pre-computation by the sender
         is required.  Scoring is skipped gracefully when the probs list is
@@ -420,19 +439,19 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                 console.print(
                     f"[yellow][SubtitleOverlay] VADScorer failed: {exc}[/yellow]"
                 )
-
-        # Extract speaker information from the notification's diarization data
         speaker_label = notification.get("speaker_label", "")
         speaker_confidence = notification.get("speaker_confidence")
         speaker_match_type = notification.get("speaker_match_type", "")
         diarization = notification.get("diarization", {})
-
         self._entries.append(
             {
                 "ja": ja,
                 "en": en,
                 "start": notification.get("start_sec", 0.0),
                 "end": notification.get("end_sec", 0.0),
+                # NEW: Store absolute timestamps for gap calculation
+                "start_time_utc": notification.get("start_time_utc"),
+                "end_time_utc": notification.get("end_time_utc"),
                 "end_reason": notification.get("end_reason", "true_silence"),
                 "avg_vad_prob": notification.get("avg_vad_prob"),
                 "speech_frames_pctg": notification.get("speech_frames_pctg"),
@@ -455,34 +474,29 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
     def _refresh_display(self) -> None:
         """Called by poll timer. Rebuilds HTML only when entries have changed."""
         html_parts: list[str] = []
-        prev_end: Optional[float] = None
-
+        prev_entry: Optional[dict] = None
         for i, entry in enumerate(self._entries, 1):
             ja = entry.get("ja", "").strip()
             en = entry.get("en", "").strip()
             text = en if self._hide_japanese else f"{ja}\n{en}".strip()
             if not text.strip():
-                prev_end = entry.get("end")
+                prev_entry = entry
                 continue
-            html_parts.append(_format_entry(i, entry, prev_end, self._hide_japanese))
-            prev_end = entry.get("end")
-
+            # ── FIX: pass prev_entry (dict), not prev_end (float) ──
+            html_parts.append(_format_entry(i, entry, prev_entry, self._hide_japanese))
+            prev_entry = entry
         html = (
             "".join(html_parts)
             if html_parts
             else "<span style='color:#8b949e;'>Waiting for transcribed segments…</span>"
         )
-
         if html == self._last_html:
             return
         self._last_html = html
-
         scrollbar = self._text_area.verticalScrollBar()
         old_value = scrollbar.value()
         at_bottom = old_value >= scrollbar.maximum() - 20
-
         self._text_area.setHtml(html)
-
         if at_bottom or self._auto_scroll_enabled:
             cursor = self._text_area.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)

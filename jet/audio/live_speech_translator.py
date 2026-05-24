@@ -102,6 +102,10 @@ def main_live_speech_translation(verbose: bool = False):
             verbose=verbose,
         )
         for speech_seg, seg_audio_np in data_stream:
+            logger.success(
+                f"Speech {speech_seg['num']}: {speech_seg['start_time_utc']} → {speech_seg['end_time_utc']}"
+            )
+
             if _stop_recording.is_set():
                 break
 
