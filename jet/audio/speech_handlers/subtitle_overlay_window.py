@@ -256,7 +256,7 @@ def _format_entry(
 
     # ── header row: index, badge, speaker, duration, end_reason, avg_prob ──
     header_html = (
-        f'<b style="font-size:10px;">{index}</b> {_VAD_BADGE_HTML}'
+        f'<b style="font-size:10px;">{index}</b>'
         f"{speaker_badge} "
         f'<span style="font-size:9px; color:#8b949e;">'
         f"({duration:.2f}s)"
@@ -403,11 +403,8 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         en = notification.get("translation_en", "").strip()
         if not ja and not en:
             return
-
-        # ── score segment_probs with VADScorer ───────────────────────────────
         vad_composite_score: Optional[float] = None
         vad_quality_label: Optional[str] = None
-
         segment_probs: list[float] = (
             notification.get("segment").get("segment_probs") or []
         )
@@ -423,6 +420,12 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                 console.print(
                     f"[yellow][SubtitleOverlay] VADScorer failed: {exc}[/yellow]"
                 )
+
+        # Extract speaker information from the notification's diarization data
+        speaker_label = notification.get("speaker_label", "")
+        speaker_confidence = notification.get("speaker_confidence")
+        speaker_match_type = notification.get("speaker_match_type", "")
+        diarization = notification.get("diarization", {})
 
         self._entries.append(
             {
@@ -441,6 +444,10 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                 "segment_dir": notification.get("segment_dir"),
                 "vad_composite_score": vad_composite_score,
                 "vad_quality_label": vad_quality_label,
+                "speaker_label": speaker_label,
+                "speaker_confidence": speaker_confidence,
+                "speaker_match_type": speaker_match_type,
+                "diarization": diarization,
             }
         )
         self._last_html = None
