@@ -15,6 +15,7 @@ from jet.audio.helpers.config import (
     SAMPLE_RATE,
 )
 from jet.audio.helpers.energy_base import compute_rms_per_frame
+from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
 from jet.audio.speech.vad_types import ValleyTrough
 from jet.audio.speech.wav_utils import save_wav_file
 
@@ -211,6 +212,11 @@ def save_segment(
     seg_dir.mkdir(parents=True, exist_ok=True)
     idx = meta["num"]
     wav_path = seg_dir / "sound.wav"
+
+    audio_np_norm, norm_vad_stats = normalize_audio_for_vad(audio_np, SAMPLE_RATE)
+    audio_np_orig = audio_np
+    audio_np = audio_np_norm
+
     audio_flat = np.asarray(audio_np, dtype=np.float32)
     if audio_flat.ndim == 2:
         audio_flat = audio_flat.mean(axis=1)
@@ -220,12 +226,11 @@ def save_segment(
         )
         return None
 
-    try:
-        wav_path = seg_dir / "sound.wav"
-        seg_sound_file = save_wav_file(wav_path, audio_np)
-    except Exception as exc:
-        console.print(f"[red]Failed to save WAV {wav_path}: {exc}[/red]")
-        return None
+    wav_path = seg_dir / "sound.wav"
+    seg_sound_file = save_wav_file(wav_path, audio_np)
+
+    wav_path = seg_dir / "sound_orig.wav"
+    save_wav_file(wav_path, audio_np_orig)
 
     seg_probs_arr = np.asarray(meta["segment_probs"], dtype=np.float32)
     rms_list: List[float] = compute_rms_per_frame(audio_flat)
@@ -284,6 +289,9 @@ def save_segment(
 
     with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
         json.dump(meta_to_save, fh, indent=2, ensure_ascii=False)
+
+    with open(seg_dir / "norm_vad_stats.json", "w", encoding="utf-8") as fh:
+        json.dump(norm_vad_stats, fh, indent=2, ensure_ascii=False)
 
     with open(seg_dir / "speech_probs.json", "w", encoding="utf-8") as fh:
         json.dump(speech_probs_arr.tolist(), fh, indent=2)

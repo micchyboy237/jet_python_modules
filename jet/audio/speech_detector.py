@@ -24,6 +24,7 @@ from jet.audio.helpers.silence import (
     calibrate_silence_threshold,
     detect_silence,
 )
+from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
 from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
@@ -278,6 +279,9 @@ def extract_current_speech_segment(
     max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
 ) -> List[SpeechSegment]:
     full_audio_np = np.concatenate(audio_data, axis=0)
+    # Normalize loudness by VAD
+    full_audio_np, _ = normalize_audio_for_vad(full_audio_np, SAMPLE_RATE)
+
     curr_speech_segs, speech_probs = extract_speech_timestamps(
         audio=full_audio_np,
         with_scores=True,
@@ -287,4 +291,5 @@ def extract_current_speech_segment(
         min_speech_duration_sec=min_speech_duration_sec,
         max_speech_duration_sec=max_speech_duration_sec,
     )
+
     return curr_speech_segs

@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.helpers.silence import SAMPLE_RATE
+from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
 from jet.audio.speech.segment_store import SegmentStore
 from jet.audio.speech.utils import display_segments
 from jet.audio.speech_detector import record_from_mic
@@ -41,6 +42,9 @@ def dispatch_handlers(
     started_at: datetime,
 ) -> None:
     """Fire on_segment_end on every registered handler. Errors are caught per-handler."""
+    # Normalize the audio before further processing
+    seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, sample_rate)
+
     event = SpeechSegmentEndEvent(
         segment=speech_seg,
         segment_number=seg_number,
