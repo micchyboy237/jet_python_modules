@@ -213,9 +213,10 @@ def save_segment(
     idx = meta["num"]
     wav_path = seg_dir / "sound.wav"
 
-    audio_np_norm, norm_vad_stats = normalize_audio_for_vad(audio_np, SAMPLE_RATE)
+    audio_np_norm = normalize_audio_for_vad(audio_np, SAMPLE_RATE)
+    norm_vad_stats = audio_np_norm.stats
     audio_np_orig = audio_np
-    audio_np = audio_np_norm
+    audio_np = audio_np_norm.audio
 
     audio_flat = np.asarray(audio_np, dtype=np.float32)
     if audio_flat.ndim == 2:

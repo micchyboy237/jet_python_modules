@@ -280,7 +280,8 @@ def extract_current_speech_segment(
 ) -> List[SpeechSegment]:
     full_audio_np = np.concatenate(audio_data, axis=0)
     # Normalize loudness by VAD
-    full_audio_np, _ = normalize_audio_for_vad(full_audio_np, SAMPLE_RATE)
+    full_audio_np_norm = normalize_audio_for_vad(full_audio_np, SAMPLE_RATE)
+    full_audio_np = full_audio_np_norm.audio
 
     curr_speech_segs, speech_probs = extract_speech_timestamps(
         audio=full_audio_np,

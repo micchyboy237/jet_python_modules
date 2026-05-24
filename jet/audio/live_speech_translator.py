@@ -44,7 +44,8 @@ def dispatch_handlers(
 ) -> None:
     """Fire on_segment_end on every registered handler. Errors are caught per-handler."""
     # Normalize the audio before further processing
-    seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, sample_rate)
+    seg_audio_norm = normalize_audio_for_vad(seg_audio_np, sample_rate)
+    seg_audio_np = seg_audio_norm.audio
 
     event = SpeechSegmentEndEvent(
         segment=speech_seg,
