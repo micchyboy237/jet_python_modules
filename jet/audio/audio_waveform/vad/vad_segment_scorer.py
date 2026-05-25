@@ -32,13 +32,68 @@ class ScoringMethod(Enum):
     SIMPLE = "simple"
 
 
-def score_vad_segments(segment_probs: List[float], method: str = "balanced") -> float:
+def trim_low_probability_edges(
+    segment_probs: List[float], trim_threshold: float = 0.01
+) -> List[float]:
+    """
+    Trim leading and trailing consecutive probabilities below the threshold.
+
+    This function removes frames from the beginning and end of the segment
+    that fall below the specified threshold. This helps clean up segments
+    that have low-probability edges, which often represent silence or noise.
+
+    Args:
+        segment_probs: List of voice activity probabilities per segment
+        trim_threshold: Probabilities below this value will be trimmed (default: 0.01)
+
+    Returns:
+        Trimmed list of probabilities. If all values are below threshold,
+        returns an empty list.
+
+    Examples:
+        >>> trim_low_probability_edges([0.001, 0.002, 0.8, 0.9, 0.003, 0.001])
+        [0.8, 0.9]
+        >>> trim_low_probability_edges([0.9, 0.8, 0.7])
+        [0.9, 0.8, 0.7]
+        >>> trim_low_probability_edges([0.001, 0.002, 0.003])
+        []
+    """
+    if not segment_probs:
+        return []
+
+    # Convert to numpy array for efficient operations
+    probs = np.array(segment_probs, dtype=float)
+
+    # Find first index where probability is >= threshold
+    above_threshold = probs >= trim_threshold
+    valid_indices = np.where(above_threshold)[0]
+
+    if len(valid_indices) == 0:
+        # All values are below threshold
+        return []
+
+    # Get the start and end indices of valid probabilities
+    start_idx = valid_indices[0]
+    end_idx = valid_indices[-1] + 1  # +1 for inclusive slicing
+
+    # Return the trimmed array
+    return probs[start_idx:end_idx].tolist()
+
+
+def score_vad_segments(
+    segment_probs: List[float],
+    method: str = "balanced",
+    trim_edges: bool = True,
+    trim_threshold: float = 0.01,
+) -> float:
     """
     Score VAD segments considering peak height, width, and global distribution.
 
     Args:
         segment_probs: List of voice activity probabilities per segment
         method: "balanced" (default), "width_heavy", "peak_heavy", or "simple"
+        trim_edges: Whether to trim low-probability edges before scoring (default: True)
+        trim_threshold: Threshold for edge trimming (default: 0.01)
 
     Returns:
         Score between 0 and 1, higher for sustained high-confidence speech
@@ -48,11 +103,21 @@ def score_vad_segments(segment_probs: List[float], method: str = "balanced") -> 
         0.868
         >>> score_vad_segments([0.1, 0.1, 0.95, 0.1, 0.1])  # Narrow peak
         0.559
+        >>> score_vad_segments([0.001, 0.9, 0.9, 0.001])  # Trimmed edges
+        0.9
     """
     if not segment_probs:
         return 0.0
 
-    probs = np.array(segment_probs)
+    # Trim leading/trailing low probabilities if enabled
+    if trim_edges:
+        probs = trim_low_probability_edges(segment_probs, trim_threshold)
+        if not probs:  # All values were trimmed
+            return 0.0
+    else:
+        probs = segment_probs
+
+    probs = np.array(probs)
     max_prob = float(np.max(probs))
     mean_prob = float(np.mean(probs))
 
@@ -86,19 +151,40 @@ def score_vad_segments(segment_probs: List[float], method: str = "balanced") -> 
     return float(np.clip(score, 0.0, 1.0))
 
 
-def score_sustained_speech(segment_probs: List[float]) -> float:
+def score_sustained_speech(
+    segment_probs: List[float], trim_edges: bool = True, trim_threshold: float = 0.01
+) -> float:
     """Optimized for detecting sustained speech (rewards width)."""
-    return score_vad_segments(segment_probs, method="width_heavy")
+    return score_vad_segments(
+        segment_probs,
+        method="width_heavy",
+        trim_edges=trim_edges,
+        trim_threshold=trim_threshold,
+    )
 
 
-def score_balanced_speech(segment_probs: List[float]) -> float:
+def score_balanced_speech(
+    segment_probs: List[float], trim_edges: bool = True, trim_threshold: float = 0.01
+) -> float:
     """Balanced scoring for general voice activity."""
-    return score_vad_segments(segment_probs, method="balanced")
+    return score_vad_segments(
+        segment_probs,
+        method="balanced",
+        trim_edges=trim_edges,
+        trim_threshold=trim_threshold,
+    )
 
 
-def score_peak_confidence(segment_probs: List[float]) -> float:
+def score_peak_confidence(
+    segment_probs: List[float], trim_edges: bool = True, trim_threshold: float = 0.01
+) -> float:
     """Emphasizes peak confidence (useful for keyword spotting)."""
-    return score_vad_segments(segment_probs, method="peak_heavy")
+    return score_vad_segments(
+        segment_probs,
+        method="peak_heavy",
+        trim_edges=trim_edges,
+        trim_threshold=trim_threshold,
+    )
 
 
 def load_probs_from_json(file_path: str) -> List[float]:
@@ -146,12 +232,38 @@ def load_probs_from_json(file_path: str) -> List[float]:
     return probs
 
 
-def get_score_components(segment_probs: List[float]) -> dict:
-    """Get detailed scoring components for analysis."""
+def get_score_components(
+    segment_probs: List[float], trim_edges: bool = True, trim_threshold: float = 0.01
+) -> dict:
+    """
+    Get detailed scoring components for analysis.
+
+    Args:
+        segment_probs: List of voice activity probabilities
+        trim_edges: Whether to trim low-probability edges
+        trim_threshold: Threshold for edge trimming
+    """
     if not segment_probs:
         return {}
 
-    probs = np.array(segment_probs)
+    # Get trimmed version for display
+    if trim_edges:
+        trimmed_probs = trim_low_probability_edges(segment_probs, trim_threshold)
+        if not trimmed_probs:
+            return {
+                "num_segments": len(segment_probs),
+                "trimmed_segments": len(segment_probs),
+                "all_trimmed": True,
+                "balanced_score": 0.0,
+                "sustained_score": 0.0,
+                "peak_score": 0.0,
+            }
+        trimmed_count = len(segment_probs) - len(trimmed_probs)
+    else:
+        trimmed_probs = segment_probs
+        trimmed_count = 0
+
+    probs = np.array(trimmed_probs)
     sorted_probs = np.sort(probs)[::-1]
     top_k = max(1, int(len(sorted_probs) * 0.8))
 
@@ -160,7 +272,9 @@ def get_score_components(segment_probs: List[float]) -> dict:
     above_08 = np.sum(probs >= 0.8)
 
     return {
-        "num_segments": len(probs),
+        "num_segments": len(segment_probs),
+        "trimmed_segments": trimmed_count,
+        "remaining_segments": len(trimmed_probs),
         "max_probability": float(np.max(probs)),
         "min_probability": float(np.min(probs)),
         "mean_probability": float(np.mean(probs)),
@@ -171,9 +285,15 @@ def get_score_components(segment_probs: List[float]) -> dict:
         "segments_above_0.8": above_08,
         "percentile_90": float(np.percentile(probs, 90)),
         "percentile_75": float(np.percentile(probs, 75)),
-        "balanced_score": score_balanced_speech(segment_probs),
-        "sustained_score": score_sustained_speech(segment_probs),
-        "peak_score": score_peak_confidence(segment_probs),
+        "balanced_score": score_balanced_speech(
+            segment_probs, trim_edges=trim_edges, trim_threshold=trim_threshold
+        ),
+        "sustained_score": score_sustained_speech(
+            segment_probs, trim_edges=trim_edges, trim_threshold=trim_threshold
+        ),
+        "peak_score": score_peak_confidence(
+            segment_probs, trim_edges=trim_edges, trim_threshold=trim_threshold
+        ),
     }
 
 
@@ -188,6 +308,13 @@ def display_results(probs: List[float], components: dict) -> None:
         )
     )
 
+    # Show trimming info if applicable
+    if "trimmed_segments" in components and components["trimmed_segments"] > 0:
+        console.print(
+            f"[yellow]✂️  Trimmed {components['trimmed_segments']} low-probability edge segments "
+            f"({components['remaining_segments']} remaining)[/yellow]"
+        )
+
     # Statistics table
     stats_table = Table(title="📊 Probability Statistics", title_style="bold blue")
     stats_table.add_column("Metric", style="cyan", no_wrap=True)
@@ -197,6 +324,12 @@ def display_results(probs: List[float], components: dict) -> None:
     stats_table.add_row(
         "Number of segments", str(components["num_segments"]), "Total analysis windows"
     )
+    if "trimmed_segments" in components:
+        stats_table.add_row(
+            "Trimmed segments",
+            str(components["trimmed_segments"]),
+            "Low-probability edges removed",
+        )
     stats_table.add_row(
         "Max probability",
         f"{components['max_probability']:.3f}",
@@ -233,9 +366,9 @@ def display_results(probs: List[float], components: dict) -> None:
     threshold_table.add_column("Segments Above", style="green")
     threshold_table.add_column("Percentage", style="yellow")
 
-    total = components["num_segments"]
-    above_06_pct = (components["segments_above_0.6"] / total) * 100
-    above_08_pct = (components["segments_above_0.8"] / total) * 100
+    total = components.get("remaining_segments", components["num_segments"])
+    above_06_pct = (components["segments_above_0.6"] / total) * 100 if total > 0 else 0
+    above_08_pct = (components["segments_above_0.8"] / total) * 100 if total > 0 else 0
 
     threshold_table.add_row(
         "≥ 0.6 (moderate confidence)",
@@ -355,6 +488,8 @@ def save_vad_score(
     segment_probs: list[float],
     seg_dir: Path,
     seg_number: int,
+    trim_edges: bool = True,
+    trim_threshold: float = 0.01,
 ) -> Path:
     """
     Save detailed VAD scoring components to a JSON file.
@@ -363,17 +498,25 @@ def save_vad_score(
         segment_probs: List of VAD probability scores per frame
         seg_dir: Directory to save the score file
         seg_number: Segment number for logging
+        trim_edges: Whether to trim low-probability edges
+        trim_threshold: Threshold for edge trimming
 
     Returns:
         Path to the saved vad_score.json file
     """
     # Get detailed scoring components
-    score_components = get_score_components(segment_probs)
+    score_components = get_score_components(
+        segment_probs, trim_edges=trim_edges, trim_threshold=trim_threshold
+    )
 
     # Add segment-specific metadata
     vad_score_data = {
         "segment_number": seg_number,
         "num_frames": len(segment_probs),
+        "trim_settings": {
+            "enabled": trim_edges,
+            "threshold": trim_threshold,
+        },
         "scoring_components": score_components,
         "interpretation": _interpret_vad_score(score_components),
     }
@@ -481,7 +624,12 @@ def _get_recommendations(components: dict, quality: str) -> list[str]:
     # Add specific recommendations based on components
     mean_prob = components.get("mean_probability", 0.0)
     std_dev = components.get("std_deviation", 0.0)
+    trimmed_segments = components.get("trimmed_segments", 0)
 
+    if trimmed_segments > 0:
+        recommendations.append(
+            f"Trimmed {trimmed_segments} low-probability edge segments"
+        )
     if mean_prob < 0.3:
         recommendations.append(
             "Very low mean probability suggests minimal speech content"
@@ -493,7 +641,7 @@ def _get_recommendations(components: dict, quality: str) -> list[str]:
 
     if (
         components.get("segments_above_0.8", 0)
-        > components.get("num_segments", 1) * 0.5
+        > components.get("remaining_segments", components.get("num_segments", 1)) * 0.5
     ):
         recommendations.append(
             "Strong high-confidence regions present - focus analysis here"
@@ -514,6 +662,8 @@ Examples:
   %(prog)s probs.json
   %(prog)s probs.json --method width_heavy
   %(prog)s probs.json --components
+  %(prog)s probs.json --no-trim
+  %(prog)s probs.json --trim-threshold 0.05
   %(prog)s --test
         """,
     )
@@ -551,10 +701,25 @@ Examples:
     )
 
     parser.add_argument(
+        "--no-trim",
+        action="store_true",
+        help="Disable trimming of low-probability edges",
+    )
+
+    parser.add_argument(
+        "--trim-threshold",
+        type=float,
+        default=0.01,
+        help="Threshold for trimming low-probability edges (default: 0.01)",
+    )
+
+    parser.add_argument(
         "--test", action="store_true", help="Run with built-in test cases"
     )
 
     args = parser.parse_args()
+
+    trim_edges = not args.no_trim
 
     # Run tests if requested
     if args.test:
@@ -564,15 +729,23 @@ Examples:
             "narrow_high": [0.1, 0.1, 0.95, 0.1, 0.1],
             "wide_high": [0.9, 0.9, 0.9, 0.9, 0.1],
             "wide_moderate": [0.6, 0.6, 0.6, 0.6, 0.2],
+            "with_low_edges": [0.001, 0.002, 0.8, 0.9, 0.85, 0.003, 0.001],
+            "all_low": [0.001, 0.002, 0.003, 0.004],
         }
 
         results = []
         for name, probs in test_cases.items():
-            components = get_score_components(probs)
+            components = get_score_components(
+                probs, trim_edges=trim_edges, trim_threshold=args.trim_threshold
+            )
             results.append({"name": name, "probs": probs, "components": components})
 
             if not args.quiet:
                 console.print(f"[bold]{name.upper()}[/bold]: {probs}")
+                if "trimmed_segments" in components:
+                    console.print(
+                        f"  Trimmed: {components['trimmed_segments']} segments"
+                    )
                 console.print(f"  Balanced: {components['balanced_score']:.3f}")
                 console.print(f"  Sustained: {components['sustained_score']:.3f}")
                 console.print(f"  Peak-heavy: {components['peak_score']:.3f}\n")
@@ -607,18 +780,37 @@ Examples:
             f"[green]✓ Loaded {len(probs)} probabilities from {args.probs_path}[/green]"
         )
 
+        if trim_edges:
+            trimmed = trim_low_probability_edges(probs, args.trim_threshold)
+            console.print(
+                f"[yellow]✂️  Trimming enabled (threshold: {args.trim_threshold})"
+                f"{' - would trim ' + str(len(probs) - len(trimmed)) + ' segments' if trimmed else ''}[/yellow]"
+            )
+
         # Calculate score or components
         if args.components:
-            components = get_score_components(probs)
+            components = get_score_components(
+                probs, trim_edges=trim_edges, trim_threshold=args.trim_threshold
+            )
             if args.quiet:
                 # Just print the score for the requested method
-                score = score_vad_segments(probs, method=args.method)
+                score = score_vad_segments(
+                    probs,
+                    method=args.method,
+                    trim_edges=trim_edges,
+                    trim_threshold=args.trim_threshold,
+                )
                 print(f"{score:.6f}")
             else:
                 display_results(probs, components)
         else:
             # Just calculate the requested method
-            score = score_vad_segments(probs, method=args.method)
+            score = score_vad_segments(
+                probs,
+                method=args.method,
+                trim_edges=trim_edges,
+                trim_threshold=args.trim_threshold,
+            )
 
             if args.quiet:
                 print(f"{score:.6f}")
@@ -650,7 +842,16 @@ Examples:
             result = {
                 "file": args.probs_path,
                 "method": args.method,
-                "score": score_vad_segments(probs, method=args.method),
+                "score": score_vad_segments(
+                    probs,
+                    method=args.method,
+                    trim_edges=trim_edges,
+                    trim_threshold=args.trim_threshold,
+                ),
+                "trim_settings": {
+                    "enabled": trim_edges,
+                    "threshold": args.trim_threshold,
+                },
                 "num_segments": len(probs),
                 "statistics": {
                     "max": float(np.max(probs)),
