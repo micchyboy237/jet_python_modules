@@ -32,43 +32,14 @@ from typing import Optional
 
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
-from jet.audio.audio_waveform.vad.vad_scorer import VADScorer
 from jet.audio.audio_waveform.vad.vad_utils import save_segment
-from jet.audio.helpers.config import FRAME_SHIFT_S, SAMPLE_RATE
+from jet.audio.helpers.config import SAMPLE_RATE
 from jet.audio.speech.segment_utils import build_summary
 from jet.audio.speech.vad_types import ValleyTrough
 from rich.console import Console
 from rich.text import Text
 
 console = Console()
-
-
-def _save_vad_score(
-    seg_dir: Path,
-    segment_probs: list[float],
-) -> Optional[Path]:
-    """
-    Run VADScorer on *segment_probs* and write the result to
-    ``seg_dir/vad_score.json``.
-
-    Returns the written path, or None if probs are empty / scoring fails.
-    """
-    if not segment_probs:
-        return None
-
-    try:
-        scorer = VADScorer(
-            probs=segment_probs,
-            frame_shift_s=FRAME_SHIFT_S,
-        )
-        metrics = scorer.summary()
-    except Exception as exc:
-        console.print(f"[yellow][SegmentStore] VADScorer failed: {exc}[/yellow]")
-        return None
-
-    vad_score_path = seg_dir / "vad_score.json"
-    vad_score_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-    return vad_score_path
 
 
 def _save_best_valley_trough(
@@ -156,8 +127,6 @@ class SegmentStore:
         summary_path = seg_dir / "summary.json"
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-        segment_probs: list[float] = speech_seg.get("segment_probs") or []
-        vad_score_path = _save_vad_score(seg_dir, segment_probs)
         best_valley_trough_path = _save_best_valley_trough(
             seg_dir,
             speech_seg.get("best_valley_trough"),
@@ -177,8 +146,7 @@ class SegmentStore:
             summary_path,
             seg_dir / "speech_and_rms.png",
         ]
-        if vad_score_path is not None:
-            logged_paths.append(vad_score_path)
+
         if best_valley_trough_path is not None:
             logged_paths.append(best_valley_trough_path)
 

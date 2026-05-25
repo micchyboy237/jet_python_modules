@@ -10,6 +10,7 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_RMS_WEIGHT,
     DEFAULT_THRESHOLD,
 )
+from jet.audio.audio_waveform.vad.vad_segment_scorer import save_vad_score
 from jet.audio.helpers.config import (
     HOP_SIZE,
     HOP_STEP_S,
@@ -244,6 +245,10 @@ def save_segment(
     seg_probs_arr = np.asarray(meta["segment_probs"], dtype=np.float32)
     rms_list: List[float] = compute_rms_per_frame(audio_flat)
     rms = np.asarray(rms_list, dtype=np.float32)
+
+    vad_score_path = save_vad_score(
+        meta["segment_probs"], seg_dir, meta["num"]
+    )
 
     if is_already_hybrid:
         # segment_probs ARE the hybrid scores — use them directly for hybrid_probs.json.

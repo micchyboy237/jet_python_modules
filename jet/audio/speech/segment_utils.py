@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.audio_waveform.vad.vad_segment_scorer import save_vad_score
 from jet.audio.speech.wav_utils import save_wav_file
 from rich.console import Console
 from rich.text import Text
@@ -279,10 +280,24 @@ def save_segment_data(
     output_dir: Path = Path("segments"),
     segment_root: Optional[Path] = None,
 ) -> tuple[Path, int]:
+    """
+    Save all segment data including audio, metadata, summary, plot, and VAD scoring.
+
+    Args:
+        speech_seg: Speech segment metadata
+        seg_audio_np: Audio numpy array
+        sample_rate: Audio sample rate
+        output_dir: Base output directory
+        segment_root: Root directory for segments (defaults to output_dir/segments)
+
+    Returns:
+        Tuple of (segment_directory_path, segment_number)
+    """
     if segment_root is None:
         segment_root = output_dir / "segments"
     segment_root.mkdir(parents=True, exist_ok=True)
 
+    # Find next available segment number
     existing = sorted(segment_root.glob("segment_*"))
     used_numbers = {
         int(seg.name.split("_")[1])
@@ -293,31 +308,45 @@ def save_segment_data(
     while seg_number in used_numbers:
         seg_number += 1
 
+    # Create segment directory
     seg_dir = segment_root / f"segment_{seg_number:03d}"
     seg_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. WAV ─────────────────────────────────────────────────────────────
+    # Save audio file
     wav_path = seg_dir / "sound.wav"
     seg_sound_file = save_wav_file(wav_path, seg_audio_np)
 
-    # ── 2. Metadata (raw VAD output) ───────────────────────────────────────
+    # Save raw metadata
     metadata_path = seg_dir / "metadata.json"
     metadata_path.write_text(json.dumps(speech_seg, indent=2), encoding="utf-8")
 
-    # ── 3. Summary (human-readable insights) ──────────────────────────────
+    # Build and save summary
     summary = build_summary(speech_seg, seg_audio_np, seg_number)
     summary_path = seg_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-    # ── 4. Plot ────────────────────────────────────────────────────────────
+    # Save VAD scoring if probabilities exist
+    vad_score_path = None
+    if speech_seg.get("segment_probs"):
+        vad_score_path = save_vad_score(
+            speech_seg["segment_probs"], seg_dir, seg_number
+        )
+
+    # Save diagnostic plot
     plot_path = seg_dir / "plot.png"
     save_segment_plot(speech_seg, seg_audio_np, seg_number, plot_path, sample_rate)
 
+    # Log saved files
     console.print(
         f"\n[green]Segment {seg_number} saved to:[/green] ",
         Text(Path(seg_dir).name, style=f"bold bright_green link file://{seg_dir}"),
     )
-    for p in (seg_sound_file, metadata_path, summary_path, plot_path):
+
+    saved_files = [seg_sound_file, metadata_path, summary_path, plot_path]
+    if vad_score_path:
+        saved_files.append(vad_score_path)
+
+    for p in saved_files:
         console.print(Text(Path(p).name, style=f"bold bright_green link file://{p}"))
 
     return seg_dir, seg_number

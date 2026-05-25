@@ -66,6 +66,7 @@ class ClientHeader(TypedDict):
     end_time_utc: Optional[str]  # e.g. "2026-05-25T14:32:19.876543+00:00"
     # Real-time gap from previous segment end to this segment start
     gap_sec: Optional[float]  # e.g. 2.35 (seconds), None for first segment
+    vad_score: Optional[float]
 
 
 class _BaseResponseFields(TypedDict, total=False):
@@ -182,13 +183,12 @@ class SubtitleNotification(_SubtitleResponseFields, total=False):
     end_reason: str
     segment_dir: str  # path as string; UI converts to Path
     avg_vad_prob: Optional[float]
+    vad_score: Optional[float]
     speech_frames_pctg: Optional[float]
     speech_dur_sec: Optional[float]
-    # NEW: Pass through absolute timestamps
     start_time_utc: Optional[str]
     end_time_utc: Optional[str]
 
 
-# Type aliases for convenience
 ClientMessageHeader = ClientHeader
 SubtitleServerResponse = ServerResponse

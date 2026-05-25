@@ -3,7 +3,6 @@ SubtitleOverlay  (FireRed VAD edition)
 ======================================
 A PyQt6 always-on-top preview window that displays live subtitle entries
 received from the WebSocket subtitle server.
-
 Features
 --------
 - Rich HTML log of all segments: Japanese + English text, per-segment metadata
@@ -13,12 +12,11 @@ Features
 - Auto-scroll that follows new entries unless the user has scrolled up
 - QSoundEffect for in-app WAV playback
 - VAD badge: FireRed only (hard-coded; no registry)
-- Metadata row: gap, duration, avg VAD prob, speech %, speech duration,
+- Metadata row: gap, duration, balanced VAD score, speech %, speech duration,
   transcription %, coverage label
 - VADScorer row: composite score and quality label with colour coding
 - Implements SpeechSegmentHandler (on_segment_end is a no-op;
   subtitle data arrives via SubtitleResponseNotifier Qt signal)
-
 Observer wiring (done in main)
 -------------------------------
     app = QApplication(sys.argv)
@@ -34,8 +32,9 @@ from abc import ABCMeta
 from pathlib import Path
 from typing import Optional, Sequence
 
-from jet.audio.audio_waveform.vad.vad_scorer import VADScorer
-from jet.audio.helpers.config import FRAME_SHIFT_S
+from jet.audio.audio_waveform.vad.vad_segment_scorer import (
+    score_balanced_speech,
+)
 from jet.audio.speech_handlers.api_types import SubtitleNotification
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import (
@@ -58,7 +57,6 @@ from PyQt6.QtWidgets import (
 from rich.console import Console
 
 console = Console()
-
 OVERLAY_WIDTH = 450
 OVERLAY_HEIGHT = 600
 
@@ -67,20 +65,44 @@ class _QtABCMeta(type(QMainWindow), ABCMeta):
     pass
 
 
-# ── colour helpers ────────────────────────────────────────────────────────────
-
-
-def _prob_color(prob: Optional[float]) -> str:
-    """Map a VAD probability [0.0–1.0] → display colour."""
-    if prob is None:
+def _balanced_vad_score_color(score: Optional[float]) -> str:
+    """
+    Map a balanced VAD score [0.0–1.0] → display colour.
+    Uses thresholds from score_vad_segments with balanced method:
+      ≥ 0.85 → Excellent (green)
+      ≥ 0.70 → Good (light green)
+      ≥ 0.55 → Marginal (amber)
+      ≥ 0.40 → Poor (orange)
+      < 0.40 → Invalid (red)
+    """
+    if score is None:
         return "#8b949e"
-    if prob < 0.30:
-        return "#f85149"
-    if prob < 0.55:
-        return "#fb923c"
-    if prob < 0.75:
+    if score >= 0.85:
+        return "#3fb950"
+    if score >= 0.70:
+        return "#56d364"
+    if score >= 0.55:
         return "#e3b341"
-    return "#3fb950"
+    if score >= 0.40:
+        return "#fb923c"
+    return "#f85149"
+
+
+def _balanced_vad_score_rating(score: Optional[float]) -> str:
+    """
+    Return a human-readable rating for a balanced VAD score.
+    """
+    if score is None:
+        return "N/A"
+    if score >= 0.85:
+        return "Excellent"
+    if score >= 0.70:
+        return "Good"
+    if score >= 0.55:
+        return "Marginal"
+    if score >= 0.40:
+        return "Poor"
+    return "Invalid"
 
 
 def _speech_pctg_color(pctg: Optional[float]) -> str:
@@ -99,7 +121,6 @@ def _speech_pctg_color(pctg: Optional[float]) -> str:
 def _composite_score_color(score: Optional[float]) -> str:
     """
     Map a VADScorer composite_score [0.0–1.0] → display colour.
-
     Mirrors the QUALITY_BANDS thresholds from vad_scorer.py:
       > 0.80 → Very good  (green)
       > 0.60 → Good       (light green)
@@ -110,20 +131,19 @@ def _composite_score_color(score: Optional[float]) -> str:
     if score is None:
         return "#8b949e"
     if score > 0.80:
-        return "#3fb950"  # green  — Very good
+        return "#3fb950"
     if score > 0.60:
-        return "#56d364"  # light green — Good
+        return "#56d364"
     if score > 0.40:
-        return "#e3b341"  # amber  — Fair
+        return "#e3b341"
     if score > 0.20:
-        return "#fb923c"  # orange — Bad
-    return "#f85149"  # red    — Very bad
+        return "#fb923c"
+    return "#f85149"
 
 
 def _quality_label_color(label: Optional[str]) -> str:
     """
     Map a VADScorer quality_label string → display colour.
-
     Provides a fallback for cases where composite_score is unavailable
     but quality_label is already known.
     """
@@ -150,8 +170,6 @@ def _speaker_confidence_color(confidence: Optional[float]) -> str:
     return "#f85149"
 
 
-# ── VAD badge ─────────────────────────────────────────────────────────────────
-
 _VAD_BADGE_HTML = (
     '<span style="'
     "background:#3b1f6b; color:#c084fc; font-family:monospace; "
@@ -160,7 +178,25 @@ _VAD_BADGE_HTML = (
 )
 
 
-# ── entry formatter ───────────────────────────────────────────────────────────
+def _compute_balanced_vad_score(segment_probs: list[float]) -> Optional[float]:
+    """
+    Compute balanced VAD score from segment probabilities.
+
+    Args:
+        segment_probs: List of voice activity probabilities per segment
+
+    Returns:
+        Balanced VAD score [0.0-1.0] or None if probs list is empty
+    """
+    if not segment_probs:
+        return None
+    try:
+        return score_balanced_speech(segment_probs)
+    except Exception as exc:
+        console.print(
+            f"[yellow][SubtitleOverlay] Balanced VAD scoring failed: {exc}[/yellow]"
+        )
+        return None
 
 
 def _format_entry(
@@ -180,16 +216,12 @@ def _format_entry(
     segment_dir: Optional[Path] = (
         Path(entry["segment_dir"]) if entry.get("segment_dir") else None
     )
-
-    # ── Gap calculation ───────────────────────────────────────────────
     gap: Optional[float] = None
     if prev_entry is not None:
         prev_end_time_utc = prev_entry.get("end_time_utc")
         prev_end_sec = prev_entry.get("end")
         current_start_time_utc = entry.get("start_time_utc")
         current_start_sec = entry.get("start")
-
-        # Try absolute timestamp gap first
         if current_start_time_utc and prev_end_time_utc:
             from datetime import datetime
 
@@ -199,26 +231,22 @@ def _format_entry(
                 gap = (start_dt - end_dt).total_seconds()
             except (ValueError, TypeError):
                 pass
-
-        # Fallback to relative seconds gap
         if gap is None and current_start_sec is not None and prev_end_sec is not None:
             gap = current_start_sec - prev_end_sec
-
     gap_str = f"{gap:.2f}s" if gap is not None else "—"
-    # ──────────────────────────────────────────────────────────────────
-
     duration = end - start
 
-    avg_prob: Optional[float] = entry.get("avg_vad_prob")
-    avg_prob_str = f"{avg_prob:.3f}" if isinstance(avg_prob, float) else "N/A"
-    avg_prob_color = _prob_color(avg_prob)
+    # Read vad_score directly from notification (computed upstream)
+    vad_score: Optional[float] = entry.get("vad_score")
+    vad_score_str = f"{vad_score:.3f}" if isinstance(vad_score, float) else "N/A"
+    vad_score_color = _balanced_vad_score_color(vad_score)
+    vad_rating = _balanced_vad_score_rating(vad_score)
 
     speech_pctg: Optional[float] = entry.get("speech_frames_pctg")
     speech_pctg_str = (
         f"{speech_pctg:.1f}%" if isinstance(speech_pctg, (int, float)) else "N/A"
     )
     speech_pctg_color = _speech_pctg_color(speech_pctg)
-
     transcribed_pctg = entry.get("transcribed_duration_pctg")
     trans_pctg_str = (
         f"{float(transcribed_pctg):.1f}%"
@@ -228,7 +256,6 @@ def _format_entry(
     trans_pctg_color = _speech_pctg_color(
         float(transcribed_pctg) if isinstance(transcribed_pctg, (int, float)) else None
     )
-
     composite_score: Optional[float] = entry.get("vad_composite_score")
     composite_str = (
         f"{composite_score:.3f}" if isinstance(composite_score, (int, float)) else "N/A"
@@ -236,11 +263,9 @@ def _format_entry(
     composite_color = _composite_score_color(
         float(composite_score) if isinstance(composite_score, (int, float)) else None
     )
-
     quality_label: Optional[str] = entry.get("vad_quality_label")
     quality_str = quality_label or "N/A"
     quality_color = _quality_label_color(quality_label)
-
     speaker_label = entry.get("speaker_label", "")
     speaker_confidence: Optional[float] = entry.get("speaker_confidence")
     speaker_conf_str = (
@@ -248,7 +273,6 @@ def _format_entry(
     )
     speaker_conf_color = _speaker_confidence_color(speaker_confidence)
     speaker_match_type = entry.get("speaker_match_type", "")
-
     copy_link = (
         f'<a href="copy:{index}" style="color:#58a6ff; text-decoration:none;">📋</a>'
     )
@@ -264,7 +288,6 @@ def _format_entry(
         if segment_dir and (segment_dir / "sound.wav").exists()
         else ""
     )
-
     speaker_badge = ""
     if speaker_label:
         speaker_badge = (
@@ -275,7 +298,6 @@ def _format_entry(
             f'<span style="color:{speaker_conf_color};">{speaker_conf_str}</span>'
             f"</span>"
         )
-
     header_html = (
         f'<b style="font-size:10px;">{index}</b>'
         f"{speaker_badge} "
@@ -283,11 +305,11 @@ def _format_entry(
         f"({duration:.2f}s)"
         f" • gap: {gap_str}"
         f' • <span style="color:#d2a8ff;">{end_reason}</span>'
-        f' • avg𝑝: <span style="color:{avg_prob_color}; font-weight:bold;">{avg_prob_str}</span>'
+        f' • VAD: <span style="color:{vad_score_color}; font-weight:bold;">{vad_score_str}</span>'
+        f' <span style="color:{vad_score_color}; font-size:8px;">({vad_rating})</span>'
         f"</span>"
         f" {copy_link} {open_link} {play_link}"
     )
-
     text_html = (
         f'<div style="margin-top:5px; margin-bottom:2px;">'
         f'<span style="'
@@ -299,7 +321,6 @@ def _format_entry(
         f'">{text_display.replace(chr(10), "<br/>")}</span>'
         f"</div>"
     )
-
     return (
         f'<div style="margin-bottom:4px;">'
         f"{header_html}"
@@ -309,16 +330,11 @@ def _format_entry(
     )
 
 
-# ── main window ───────────────────────────────────────────────────────────────
-
-
 class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
     """
     Always-on-top subtitle preview window.
-
     Subtitle data arrives via on_subtitle_received (Qt slot, main thread),
     connected to a SubtitleResponseNotifier.  on_segment_end is a no-op.
-
     Typical wiring via factory
     --------------------------
         overlay = SubtitleOverlay.create_and_connect(sender)
@@ -371,23 +387,19 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
-
         top_bar = QHBoxLayout()
         self._clear_btn = QPushButton("🗑")
         self._clear_btn.setToolTip("Clear all entries")
         self._clear_btn.clicked.connect(self._clear_all)
-
         self._hide_ja_btn = QPushButton("🇯🇵")
         self._hide_ja_btn.setToolTip("Toggle Japanese text")
         self._hide_ja_btn.setCheckable(True)
         self._hide_ja_btn.setChecked(self._hide_japanese)
         self._hide_ja_btn.clicked.connect(self._toggle_japanese)
-
         top_bar.addWidget(self._clear_btn)
         top_bar.addWidget(self._hide_ja_btn)
         top_bar.addStretch()
         layout.addLayout(top_bar)
-
         self._text_area = QTextBrowser()
         self._text_area.setReadOnly(True)
         self._text_area.setAcceptRichText(True)
@@ -397,7 +409,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._text_area.anchorClicked.connect(self._handle_anchor_click)
         self._text_area.verticalScrollBar().valueChanged.connect(self._on_scroll)
         layout.addWidget(self._text_area)
-
         self.setCentralWidget(central)
 
     def _setup_sound(self) -> None:
@@ -413,32 +424,19 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         Qt slot — always runs on the Qt main thread (via queued signal).
         Maps the SubtitleNotification dict to an internal entry dict and
         appends it to the log.  Display is refreshed by the poll timer.
-        VADScorer is run directly on ``segment_probs`` from the notification
-        so this window is self-contained — no pre-computation by the sender
-        is required.  Scoring is skipped gracefully when the probs list is
-        absent or empty.
+
+        VAD score is now computed upstream in WebsocketSubtitleSender and
+        passed via notification["vad_score"].  This method is a pure display
+        mapper with no scoring logic.
         """
         ja = notification.get("transcription_ja", "").strip()
         en = notification.get("translation_en", "").strip()
         if not ja and not en:
             return
-        vad_composite_score: Optional[float] = None
-        vad_quality_label: Optional[str] = None
-        segment_probs: list[float] = (
-            notification.get("segment").get("segment_probs") or []
-        )
-        if segment_probs:
-            try:
-                scorer = VADScorer(
-                    segment_probs,
-                    frame_shift_s=FRAME_SHIFT_S,
-                )
-                vad_composite_score = scorer.score()
-                vad_quality_label = scorer.label()
-            except Exception as exc:
-                console.print(
-                    f"[yellow][SubtitleOverlay] VADScorer failed: {exc}[/yellow]"
-                )
+
+        # Read pre-computed vad_score directly from notification
+        vad_score: Optional[float] = notification.get("vad_score")
+
         speaker_label = notification.get("speaker_label", "")
         speaker_confidence = notification.get("speaker_confidence")
         speaker_match_type = notification.get("speaker_match_type", "")
@@ -449,11 +447,10 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                 "en": en,
                 "start": notification.get("start_sec", 0.0),
                 "end": notification.get("end_sec", 0.0),
-                # NEW: Store absolute timestamps for gap calculation
                 "start_time_utc": notification.get("start_time_utc"),
                 "end_time_utc": notification.get("end_time_utc"),
                 "end_reason": notification.get("end_reason", "true_silence"),
-                "avg_vad_prob": notification.get("avg_vad_prob"),
+                "vad_score": vad_score,
                 "speech_frames_pctg": notification.get("speech_frames_pctg"),
                 "speech_dur_sec": notification.get("speech_dur_sec"),
                 "transcribed_duration_pctg": notification.get(
@@ -461,8 +458,8 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                 ),
                 "coverage_label": notification.get("coverage_label", ""),
                 "segment_dir": notification.get("segment_dir"),
-                "vad_composite_score": vad_composite_score,
-                "vad_quality_label": vad_quality_label,
+                "vad_composite_score": notification.get("vad_composite_score"),
+                "vad_quality_label": notification.get("vad_quality_label"),
                 "speaker_label": speaker_label,
                 "speaker_confidence": speaker_confidence,
                 "speaker_match_type": speaker_match_type,
@@ -482,21 +479,25 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
             if not text.strip():
                 prev_entry = entry
                 continue
-            # ── FIX: pass prev_entry (dict), not prev_end (float) ──
             html_parts.append(_format_entry(i, entry, prev_entry, self._hide_japanese))
             prev_entry = entry
+
         html = (
             "".join(html_parts)
             if html_parts
             else "<span style='color:#8b949e;'>Waiting for transcribed segments…</span>"
         )
+
         if html == self._last_html:
             return
+
         self._last_html = html
         scrollbar = self._text_area.verticalScrollBar()
         old_value = scrollbar.value()
         at_bottom = old_value >= scrollbar.maximum() - 20
+
         self._text_area.setHtml(html)
+
         if at_bottom or self._auto_scroll_enabled:
             cursor = self._text_area.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -604,7 +605,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
     ) -> "SubtitleOverlay":
         """
         Create an overlay, wire it to sender via SubtitleResponseNotifier, return it.
-
         Example
         -------
             app = QApplication(sys.argv)

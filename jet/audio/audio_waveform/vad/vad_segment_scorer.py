@@ -351,6 +351,157 @@ def display_results(probs: List[float], components: dict) -> None:
     )
 
 
+def save_vad_score(
+    segment_probs: list[float],
+    seg_dir: Path,
+    seg_number: int,
+) -> Path:
+    """
+    Save detailed VAD scoring components to a JSON file.
+
+    Args:
+        segment_probs: List of VAD probability scores per frame
+        seg_dir: Directory to save the score file
+        seg_number: Segment number for logging
+
+    Returns:
+        Path to the saved vad_score.json file
+    """
+    # Get detailed scoring components
+    score_components = get_score_components(segment_probs)
+
+    # Add segment-specific metadata
+    vad_score_data = {
+        "segment_number": seg_number,
+        "num_frames": len(segment_probs),
+        "scoring_components": score_components,
+        "interpretation": _interpret_vad_score(score_components),
+    }
+
+    # Save to JSON
+    vad_score_path = seg_dir / "vad_score.json"
+    vad_score_path.write_text(
+        json.dumps(vad_score_data, indent=2, default=float), encoding="utf-8"
+    )
+
+    return vad_score_path
+
+
+def _interpret_vad_score(components: dict) -> dict:
+    """
+    Provide human-readable interpretation of VAD scoring components.
+
+    Args:
+        components: Dictionary of scoring components from get_score_components
+
+    Returns:
+        Dictionary with quality assessment and recommendations
+    """
+    balanced_score = components.get("balanced_score", 0.0)
+    sustained_score = components.get("sustained_score", 0.0)
+    peak_score = components.get("peak_score", 0.0)
+
+    # Quality assessment
+    if balanced_score >= 0.85:
+        quality = "excellent"
+        confidence = "high"
+    elif balanced_score >= 0.70:
+        quality = "good"
+        confidence = "moderate"
+    elif balanced_score >= 0.55:
+        quality = "marginal"
+        confidence = "low"
+    elif balanced_score >= 0.40:
+        quality = "poor"
+        confidence = "very_low"
+    else:
+        quality = "invalid"
+        confidence = "none"
+
+    # Determine best use case based on scores
+    scores = {
+        "sustained_speech": sustained_score,
+        "keyword_spotting": peak_score,
+        "general_vad": balanced_score,
+    }
+    best_use_case = max(scores, key=scores.get)
+
+    # Speech characteristics
+    is_sustained = sustained_score > balanced_score
+    has_peaks = peak_score > balanced_score
+
+    interpretation = {
+        "quality": quality,
+        "confidence_level": confidence,
+        "best_use_case": best_use_case.replace("_", " "),
+        "speech_characteristics": {
+            "is_sustained_speech": is_sustained,
+            "has_clear_peaks": has_peaks,
+            "consistency": "high"
+            if components.get("std_deviation", 1.0) < 0.3
+            else "variable",
+        },
+        "recommendations": _get_recommendations(components, quality),
+    }
+
+    return interpretation
+
+
+def _get_recommendations(components: dict, quality: str) -> list[str]:
+    """
+    Generate actionable recommendations based on VAD scoring.
+
+    Args:
+        components: Scoring components dictionary
+        quality: Overall quality assessment
+
+    Returns:
+        List of recommendation strings
+    """
+    recommendations = []
+
+    if quality == "excellent":
+        recommendations.append("Segment contains clear, sustained speech")
+        recommendations.append("Suitable for transcription or speaker recognition")
+    elif quality == "good":
+        recommendations.append("Speech is clearly present but may have brief gaps")
+        recommendations.append("Review segment boundaries for potential trimming")
+    elif quality == "marginal":
+        recommendations.append("Speech presence is uncertain - may contain noise")
+        recommendations.append("Consider adjusting VAD thresholds")
+        recommendations.append("Manual review recommended for critical applications")
+    elif quality == "poor":
+        recommendations.append("Limited voice activity detected")
+        recommendations.append("May be noise, music, or very quiet speech")
+        recommendations.append("Consider discarding or lowering confidence thresholds")
+    else:
+        recommendations.append("No significant voice activity detected")
+        recommendations.append("Segment likely contains silence or non-speech audio")
+
+    # Add specific recommendations based on components
+    mean_prob = components.get("mean_probability", 0.0)
+    std_dev = components.get("std_deviation", 0.0)
+
+    if mean_prob < 0.3:
+        recommendations.append(
+            "Very low mean probability suggests minimal speech content"
+        )
+    if std_dev > 0.3:
+        recommendations.append(
+            "High variability indicates inconsistent speech presence"
+        )
+
+    if (
+        components.get("segments_above_0.8", 0)
+        > components.get("num_segments", 1) * 0.5
+    ):
+        recommendations.append(
+            "Strong high-confidence regions present - focus analysis here"
+        )
+
+    return recommendations
+
+
 def main():
     """Main entry point with argument parsing."""
     import argparse

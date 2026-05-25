@@ -199,6 +199,31 @@ def _compute_speech_dur_sec(
     return speech_count * frame_dur
 
 
+def _compute_vad_score(segment: SpeechSegment) -> Optional[float]:
+    """
+    Compute balanced VAD score from segment probabilities using
+    score_balanced_speech from vad_segment_scorer.
+
+    Args:
+        segment: SpeechSegment dict containing optional 'segment_probs' key
+
+    Returns:
+        Balanced VAD score [0.0-1.0] or None if probs list is empty/missing
+    """
+    from jet.audio.audio_waveform.vad.vad_segment_scorer import (
+        score_balanced_speech,
+    )
+
+    probs = segment.get("segment_probs")
+    if not probs:
+        return None
+    try:
+        return score_balanced_speech(probs)
+    except Exception as exc:
+        console.print(f"[yellow][WS] Balanced VAD scoring failed: {exc}[/yellow]")
+        return None
+
+
 # ── Main class ──────────────────────────────────────────────────────────────
 
 
@@ -433,12 +458,8 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         start_sec = float(seg["start"])
         end_sec = float(seg["end"])
         duration = float(seg["duration"])
-
-        # ── Extract absolute timestamps if available ─────────────────
         start_time_utc: Optional[str] = seg.get("start_time_utc")
         end_time_utc: Optional[str] = seg.get("end_time_utc")
-
-        # ── Calculate gap from previous segment ──────────────────────
         gap_sec: Optional[float] = None
         if self._prev_end_time_utc is not None and start_time_utc is not None:
             from datetime import datetime
@@ -449,8 +470,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 gap_sec = round((start_dt - prev_end_dt).total_seconds(), 4)
             except (ValueError, TypeError):
                 pass
-        # Update for next segment
         self._prev_end_time_utc = end_time_utc
+
+        # Compute VAD score once here — single source of truth
+        vad_score = _compute_vad_score(seg)
 
         header: ClientHeader = {
             "uuid": str(uuid.uuid4()),
@@ -463,8 +486,8 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "started_at": event.started_at.isoformat(),
             "start_time_utc": start_time_utc,
             "end_time_utc": end_time_utc,
-            # NEW: Real-time gap from previous segment
             "gap_sec": gap_sec,
+            "vad_score": vad_score,
         }
         _log_request(seg_num, header, audio_bytes)
         try:
@@ -485,6 +508,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "end_reason": _vad_reason(seg),
             "segment_dir": str(seg_dir),
             "avg_vad_prob": _compute_avg_vad_prob(seg),
+            "vad_score": vad_score,
             "speech_frames_pctg": _compute_speech_frames_pctg(seg),
             "speech_dur_sec": _compute_speech_dur_sec(seg),
             "start_time_utc": start_time_utc,
