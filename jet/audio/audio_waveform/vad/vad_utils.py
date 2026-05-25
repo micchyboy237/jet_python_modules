@@ -221,8 +221,6 @@ def save_segment(
     audio_loudness_stats = audio_loudness.get_stats()
 
     audio_np_norm, norm_vad_stats = normalize_audio_for_vad(audio_np, SAMPLE_RATE)
-    audio_np_orig = audio_np
-    audio_np = audio_np_norm
 
     audio_flat = np.asarray(audio_np, dtype=np.float32)
     if audio_flat.ndim == 2:
@@ -236,8 +234,8 @@ def save_segment(
     wav_path = seg_dir / "sound.wav"
     seg_sound_file = save_wav_file(wav_path, audio_np)
 
-    wav_path = seg_dir / "sound_orig.wav"
-    save_wav_file(wav_path, audio_np_orig)
+    wav_path = seg_dir / "sound_norm_vad.wav"
+    save_wav_file(wav_path, audio_np_norm)
 
     wav_path = seg_dir / "sound_louder.wav"
     save_wav_file(wav_path, audio_loudness_np)
@@ -246,9 +244,7 @@ def save_segment(
     rms_list: List[float] = compute_rms_per_frame(audio_flat)
     rms = np.asarray(rms_list, dtype=np.float32)
 
-    vad_score_path = save_vad_score(
-        meta["segment_probs"], seg_dir, meta["num"]
-    )
+    vad_score_path = save_vad_score(meta["segment_probs"], seg_dir, meta["num"])
 
     if is_already_hybrid:
         # segment_probs ARE the hybrid scores — use them directly for hybrid_probs.json.
