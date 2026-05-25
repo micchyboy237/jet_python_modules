@@ -8,6 +8,7 @@ from jet.audio.audio_waveform.vad._types import SpeechEndReason, SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_PROB_WEIGHT,
     DEFAULT_RMS_WEIGHT,
+    DEFAULT_THRESHOLD,
 )
 from jet.audio.helpers.config import (
     HOP_SIZE,
@@ -22,9 +23,6 @@ from jet.audio.speech.wav_utils import save_wav_file
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from jet.audio.audio_waveform.vad.vad_config import (
-    DEFAULT_PREROLL_HYBRID_THRESHOLD,
-)
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -98,7 +96,8 @@ def generate_plot(
     output_path: Path,
     rms: Optional[np.ndarray] = None,
     hybrid: Optional[np.ndarray] = None,
-    hybrid_threshold: float = DEFAULT_PREROLL_HYBRID_THRESHOLD,
+    speech_threshold: float = DEFAULT_THRESHOLD,
+    is_already_hybrid: bool = True,
 ) -> None:
     """Save a speech-probability, RMS energy, and hybrid score plot."""
     num_frames = len(probs)
@@ -116,14 +115,15 @@ def generate_plot(
     ax = axes[0]
     ax.plot(probs, color="#2ca02c", linewidth=1.8, label="Speech probability")
     ax.fill_between(range(num_frames), probs, color="#2ca02c", alpha=0.14)
-    ax.axhline(
-        y=0.4,
-        linestyle="--",
-        color="#d62728",
-        alpha=0.65,
-        linewidth=1.2,
-        label="threshold ≈ 0.4",
-    )
+    if not is_already_hybrid:
+        ax.axhline(
+            y=speech_threshold,
+            linestyle="--",
+            color="#d62728",
+            alpha=0.65,
+            linewidth=1.2,
+            label=f"threshold = {speech_threshold}",
+        )
     ax.set_ylim(-0.03, 1.03)
     ax.set_xlim(0, num_frames - 1)
     ax.set_ylabel("Speech Probability", fontsize=10.5)
@@ -156,17 +156,18 @@ def generate_plot(
             hybrid,
             color="#9467bd",
             linewidth=1.8,
-            label="Hybrid score (0.5·prob + 0.5·RMS)",
+            label=f"Hybrid score ({DEFAULT_PROB_WEIGHT}·prob + {DEFAULT_RMS_WEIGHT}·RMS)",
         )
         ax_hyb.fill_between(range(n_hyb), hybrid, color="#9467bd", alpha=0.14)
-        ax_hyb.axhline(
-            y=hybrid_threshold,
-            linestyle="--",
-            color="#d62728",
-            alpha=0.65,
-            linewidth=1.2,
-            label=f"threshold = {hybrid_threshold}",
-        )
+        if is_already_hybrid:
+            ax_hyb.axhline(
+                y=speech_threshold,
+                linestyle="--",
+                color="#d62728",
+                alpha=0.65,
+                linewidth=1.2,
+                label=f"threshold = {speech_threshold}",
+            )
         ax_hyb.set_ylim(-0.03, 1.03)
         ax_hyb.set_xlim(0, n_hyb - 1)
         ax_hyb.set_ylabel("Hybrid Score", fontsize=10.5)
@@ -290,7 +291,7 @@ def save_segment(
             "frame_shift_sec": 0.010,
             "frame_start": meta.get("frame_start", 0),
             "num_frames": int(len(hybrid_arr)),
-            "threshold": DEFAULT_PREROLL_HYBRID_THRESHOLD,
+            "threshold": DEFAULT_THRESHOLD,
         }
     meta_to_save.pop("segment_probs", None)
     meta_to_save.pop("energies", None)
@@ -321,7 +322,8 @@ def save_segment(
         output_path=seg_dir / "speech_and_rms.png",
         rms=rms,
         hybrid=hybrid_arr,
-        hybrid_threshold=DEFAULT_PREROLL_HYBRID_THRESHOLD,
+        speech_threshold=DEFAULT_THRESHOLD,
+        is_already_hybrid=is_already_hybrid,
     )
 
     updated_meta = dict(meta)
