@@ -32,9 +32,6 @@ from abc import ABCMeta
 from pathlib import Path
 from typing import Optional, Sequence
 
-from jet.audio.audio_waveform.vad.vad_segment_scorer import (
-    score_balanced_speech,
-)
 from jet.audio.speech_handlers.api_types import SubtitleNotification
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.speech_events import (
@@ -176,27 +173,6 @@ _VAD_BADGE_HTML = (
     "font-size:9px; font-weight:bold; padding:1px 5px; "
     'border-radius:3px; letter-spacing:0.5px;">FRD</span>'
 )
-
-
-def _compute_balanced_vad_score(segment_probs: list[float]) -> Optional[float]:
-    """
-    Compute balanced VAD score from segment probabilities.
-
-    Args:
-        segment_probs: List of voice activity probabilities per segment
-
-    Returns:
-        Balanced VAD score [0.0-1.0] or None if probs list is empty
-    """
-    if not segment_probs:
-        return None
-    try:
-        return score_balanced_speech(segment_probs)
-    except Exception as exc:
-        console.print(
-            f"[yellow][SubtitleOverlay] Balanced VAD scoring failed: {exc}[/yellow]"
-        )
-        return None
 
 
 def _format_entry(
