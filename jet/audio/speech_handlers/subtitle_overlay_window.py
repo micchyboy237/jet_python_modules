@@ -360,22 +360,40 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
             self.move(geom.right() - self.width() - 20, 20)
 
     def _setup_ui(self) -> None:
+        from jet.audio.speech_handlers.language_cache import (
+            LanguageStore,
+        )
+
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
+
         top_bar = QHBoxLayout()
+
         self._clear_btn = QPushButton("🗑")
         self._clear_btn.setToolTip("Clear all entries")
         self._clear_btn.clicked.connect(self._clear_all)
+
         self._hide_ja_btn = QPushButton("🇯🇵")
         self._hide_ja_btn.setToolTip("Toggle Japanese text")
         self._hide_ja_btn.setCheckable(True)
         self._hide_ja_btn.setChecked(self._hide_japanese)
         self._hide_ja_btn.clicked.connect(self._toggle_japanese)
+
+        # ── Language selector ──
+        self._language_store = LanguageStore()
+        self._lang_btn = QPushButton()
+        self._lang_btn.setToolTip("Select transcription language")
+        self._lang_btn.clicked.connect(self._cycle_language)
+        self._refresh_language_button()
+
         top_bar.addWidget(self._clear_btn)
         top_bar.addWidget(self._hide_ja_btn)
+        top_bar.addWidget(self._lang_btn)
         top_bar.addStretch()
+
         layout.addLayout(top_bar)
+
         self._text_area = QTextBrowser()
         self._text_area.setReadOnly(True)
         self._text_area.setAcceptRichText(True)
@@ -385,7 +403,35 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._text_area.anchorClicked.connect(self._handle_anchor_click)
         self._text_area.verticalScrollBar().valueChanged.connect(self._on_scroll)
         layout.addWidget(self._text_area)
+
         self.setCentralWidget(central)
+
+    def _refresh_language_button(self) -> None:
+        """Update the language button text to reflect current selection."""
+        lang = self._language_store.language
+        label_map = {"auto": "🌐 Auto", "en": "🇺🇸 EN", "ja": "🇯🇵 JA"}
+        self._lang_btn.setText(label_map.get(lang, f"🌐 {lang}"))
+
+    def _cycle_language(self) -> None:
+        """Cycle to the next language and update UI + sender."""
+        new_lang = self._language_store.cycle_language()
+        self._refresh_language_button()
+        # If we have a reference to the sender, update its language too
+        if hasattr(self, "_sender") and self._sender is not None:
+            self._sender.set_language(new_lang)
+
+    @property
+    def language(self) -> str:
+        """Expose current language so external code can read it."""
+        return self._language_store.language
+
+    def set_sender_reference(self, sender) -> None:
+        """
+        Store a reference to the WebsocketSubtitleSender so the overlay
+        can update the sender's language when the user changes it.
+        Called automatically by create_and_connect.
+        """
+        self._sender = sender
 
     def _setup_sound(self) -> None:
         self._sound_effect = QSoundEffect()
@@ -405,8 +451,8 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         passed via notification["vad_score"].  This method is a pure display
         mapper with no scoring logic.
         """
-        ja = notification.get("transcription_ja", "").strip()
-        en = notification.get("translation_en", "").strip()
+        ja = notification.get("ja_text", "").strip()
+        en = notification.get("en_text", "").strip()
         if not ja and not en:
             return
 
@@ -579,26 +625,12 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         extra_clear_paths: Sequence[Path] = (),
         on_clear: Optional[callable] = None,
     ) -> "SubtitleOverlay":
-        """
-        Create an overlay, wire it to sender via SubtitleResponseNotifier, return it.
-        Example
-        -------
-            app = QApplication(sys.argv)
-            sender = WebsocketSubtitleSender(...)
-            store = SegmentStore(OUTPUT_DIR / "segments")
-            overlay = SubtitleOverlay.create_and_connect(
-                sender,
-                extra_clear_paths=[OUTPUT_DIR / "all_segments.json"],
-                on_clear=store.reset,
-            )
-            overlay.show()
-            sys.exit(app.exec())
-        """
         overlay = cls(
             show_ja_text=show_ja_text,
             extra_clear_paths=extra_clear_paths,
             on_clear=on_clear,
         )
+        overlay.set_sender_reference(sender)
         notifier = SubtitleResponseNotifier(parent=overlay)
         notifier.subtitle_received.connect(overlay.on_subtitle_received)
         sender.add_observer(notifier)

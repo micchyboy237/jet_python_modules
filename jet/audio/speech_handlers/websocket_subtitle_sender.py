@@ -36,6 +36,7 @@ from jet.audio.speech_handlers.api_types import (
     SubtitleNotification,
 )
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
+from jet.audio.speech_handlers.language_cache import LanguageCode, LanguageStore
 from jet.audio.speech_handlers.speech_events import (
     SpeechSegmentEndEvent,
     SpeechSegmentStartEvent,
@@ -125,8 +126,8 @@ def _log_response(response: ServerResponse, seg_num: int) -> None:
     highlights = [
         "uuid",
         "success",
-        "transcription_ja",
-        "translation_en",
+        "ja_text",
+        "en_text",
         "context_duration",
         "new_duration",
         "coverage_label",
@@ -254,6 +255,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self.reconnect_delay = reconnect_delay
         self.send_timeout = send_timeout
         self.global_srt_path = global_srt_path
+
+        # ── Language support ──
+        self._language_store = LanguageStore()
+
         self._ws: Optional[ClientConnection] = None
         self._ws_lock = asyncio.Lock()
         self._stop_event = threading.Event()
@@ -389,8 +394,8 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             index=seg_number,
             start_sec=start_sec,
             end_sec=end_sec,
-            transcription_ja=response.get("transcription_ja", ""),
-            translation_en=response.get("translation_en", ""),
+            ja_text=response.get("ja_text", ""),
+            en_text=response.get("en_text", ""),
         )
         write_srt(path, srt_content)
         return path
@@ -488,6 +493,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "end_time_utc": end_time_utc,
             "gap_sec": gap_sec,
             "vad_score": vad_score,
+            "language": self._language_store.language,  # ← new field
         }
         _log_request(seg_num, header, audio_bytes)
         try:
@@ -517,7 +523,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self._notify_observers(notification)
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
-        if response.get("success") and "transcription_ja" in response:
+        if response.get("success") and "ja_text" in response:
             srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
         global_path = self._update_global_srt(seg_dir)
         _log_saved(
@@ -527,6 +533,15 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             else [req_path, resp_path],
             global_path,
         )
+
+    # ── Public methods ─────────────────────────────────────────────────────────
+
+    def set_language(self, language: "LanguageCode") -> None:
+        """
+        Update the transcription language.
+        Safe to call from any thread — the next segment will use the new value.
+        """
+        self._language_store.set_language(language)
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
 

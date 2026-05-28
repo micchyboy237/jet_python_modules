@@ -142,14 +142,14 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         )
                         continue
 
-                    ja_raw = header.get("transcription_ja")
-                    en_raw = header.get("translation_en")
+                    ja_raw = header.get("ja_text")
+                    en_raw = header.get("en_text")
                     ja = str(ja_raw).strip() if ja_raw is not None else ""
                     en = str(en_raw).strip() if en_raw is not None else ""
                     others = {
                         k: v
                         for k, v in header.items()
-                        if k not in ("transcription_ja", "translation_en")
+                        if k not in ("ja_text", "en_text")
                     }
                     response = {"ja": ja, "en": en, **others}
 

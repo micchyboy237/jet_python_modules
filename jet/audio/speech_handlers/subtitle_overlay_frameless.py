@@ -235,8 +235,8 @@ class SubtitleOverlay(QWidget, SpeechSegmentHandler, metaclass=_QtABCMeta):
         Extracts Japanese and English text from the response dict and
         updates the overlay. Resets the auto-hide timer on every call.
         """
-        ja = response.get("transcription_ja", "").strip()
-        en = response.get("translation_en", "").strip()
+        ja = response.get("ja_text", "").strip()
+        en = response.get("en_text", "").strip()
 
         if not ja and not en:
             return

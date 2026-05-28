@@ -1,8 +1,10 @@
-# jet.audio.speech_handlers.api_types
-
 from typing import Literal, Optional, TypedDict
 
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+
+# ---------------------------------------------------------------------------
+# Shared / atomic types
+# ---------------------------------------------------------------------------
 
 
 class WordSegment(TypedDict):
@@ -47,6 +49,24 @@ class Diarization(TypedDict):
     total_segments_processed: int
 
 
+class SpeakerResult(TypedDict):
+    """Individual speaker identification result (from API schema)."""
+
+    label: str
+    confidence: float
+    match_type: str
+    is_primary: bool
+    is_new_speaker: bool
+
+
+# ---------------------------------------------------------------------------
+# Client → Server  (WebSocket binary message header)
+# ---------------------------------------------------------------------------
+
+LanguageCode = Literal["auto", "en", "ja", "zh", "ko"]
+VadReason = Literal["silence", "valley", "hard_limit"]
+
+
 class ClientHeader(TypedDict):
     """
     Header sent as JSON before audio bytes in WebSocket binary message.
@@ -58,23 +78,28 @@ class ClientHeader(TypedDict):
     duration_sec: float
     start_sec: float
     end_sec: float
-    vad_reason: Literal["silence", "valley", "hard_limit"]
+    vad_reason: VadReason
     forced: bool
-    started_at: Optional[str]  # ISO 8601 format
-    # NEW: Absolute UTC timestamps (ISO 8601 strings)
-    start_time_utc: Optional[str]  # e.g. "2026-05-25T14:32:17.123456+00:00"
-    end_time_utc: Optional[str]  # e.g. "2026-05-25T14:32:19.876543+00:00"
-    # Real-time gap from previous segment end to this segment start
-    gap_sec: Optional[float]  # e.g. 2.35 (seconds), None for first segment
+    started_at: Optional[str]
+    start_time_utc: Optional[str]
+    end_time_utc: Optional[str]
+    gap_sec: Optional[float]
     vad_score: Optional[float]
+    # ── new field (from API schema WebSocketHeader) ──
+    language: LanguageCode
+
+
+# ---------------------------------------------------------------------------
+# Server → Client  (WebSocket text response)
+# ---------------------------------------------------------------------------
 
 
 class _BaseResponseFields(TypedDict, total=False):
     """Shared fields between success and error responses."""
 
     uuid: str
-    transcription_ja: str
-    translation_en: str
+    ja_text: str
+    en_text: str
 
 
 class ServerSuccessResponse(_BaseResponseFields):
@@ -101,6 +126,14 @@ class ServerSuccessResponse(_BaseResponseFields):
     old_en_sents: list[str]
     new_en_sents: list[str]
     phrase_segments: list[PhraseSegment]
+    # ── new fields from API schema ──
+    language: str
+    event: str
+    emo: str
+    speaker_labeling_performed: bool
+    speakers: list[SpeakerResult]
+    segment_number: int
+    segment_dir: str
 
 
 class ServerErrorResponse(_BaseResponseFields):
@@ -118,7 +151,6 @@ class ServerResponse(_BaseResponseFields, total=False):
     Fields marked total=False to allow both success and error shapes.
     """
 
-    # Success-specific fields
     success: bool
     context_uuid: str
     context_duration: float
@@ -137,15 +169,25 @@ class ServerResponse(_BaseResponseFields, total=False):
     old_en_sents: list[str]
     new_en_sents: list[str]
     phrase_segments: list[PhraseSegment]
-
-    # Error-specific fields
     error: str
+    # ── new fields ──
+    language: str
+    event: str
+    emo: str
+    speaker_labeling_performed: bool
+    speakers: list[SpeakerResult]
+    segment_number: int
+    segment_dir: str
+
+
+# ---------------------------------------------------------------------------
+# SubtitleNotification  (enriched response sent to observers)
+# ---------------------------------------------------------------------------
 
 
 class _SubtitleResponseFields(_BaseResponseFields):
     """All possible response fields for subtitle notifications."""
 
-    # Success-specific fields
     success: bool
     context_uuid: str
     context_duration: float
@@ -164,9 +206,15 @@ class _SubtitleResponseFields(_BaseResponseFields):
     old_en_sents: list[str]
     new_en_sents: list[str]
     phrase_segments: list[PhraseSegment]
-
-    # Error-specific fields
     error: str
+    # ── new fields ──
+    language: str
+    event: str
+    emo: str
+    speaker_labeling_performed: bool
+    speakers: list[SpeakerResult]
+    segment_number: int
+    segment_dir: str
 
 
 class SubtitleNotification(_SubtitleResponseFields, total=False):
@@ -175,13 +223,11 @@ class SubtitleNotification(_SubtitleResponseFields, total=False):
     with locally‑available segment metadata so the UI can display everything.
     """
 
-    # --- local segment metadata ---
     segment: SpeechSegment
     num: int
     start_sec: float
     end_sec: float
     end_reason: str
-    segment_dir: str  # path as string; UI converts to Path
     avg_vad_prob: Optional[float]
     vad_score: Optional[float]
     speech_frames_pctg: Optional[float]
@@ -190,5 +236,6 @@ class SubtitleNotification(_SubtitleResponseFields, total=False):
     end_time_utc: Optional[str]
 
 
+# Backward-compatible aliases
 ClientMessageHeader = ClientHeader
 SubtitleServerResponse = ServerResponse

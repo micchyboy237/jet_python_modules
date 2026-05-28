@@ -40,15 +40,15 @@ def build_segment_srt(
     index: int,
     start_sec: float,
     end_sec: float,
-    transcription_ja: str,
-    translation_en: str,
+    ja_text: str,
+    en_text: str,
 ) -> str:
     """
     One SRT block for a whole segment.
     Japanese on line 1, English on line 2.
     index is the SRT sequence number (1-based, globally unique).
     """
-    lines = [ln for ln in [transcription_ja.strip(), translation_en.strip()] if ln]
+    lines = [ln for ln in [ja_text.strip(), en_text.strip()] if ln]
     return build_srt_block(index, start_sec, end_sec, lines)
 
 
