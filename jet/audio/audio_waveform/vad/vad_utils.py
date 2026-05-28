@@ -244,7 +244,9 @@ def save_segment(
     rms_list: List[float] = compute_rms_per_frame(audio_flat)
     rms = np.asarray(rms_list, dtype=np.float32)
 
-    vad_score_path = save_vad_score(meta["segment_probs"], seg_dir, meta["num"])
+    vad_score_path = save_vad_score(
+        meta["segment_probs"], seg_dir, meta["num"], audio_samples=audio_np
+    )
 
     if is_already_hybrid:
         # segment_probs ARE the hybrid scores — use them directly for hybrid_probs.json.

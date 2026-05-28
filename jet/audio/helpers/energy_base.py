@@ -173,6 +173,13 @@ def has_sound(samples: np.ndarray) -> bool:
     )  # Note: >= so exactly SILENCE_MAX_THRESHOLD counts as sound
 
 
+def is_silent_frame(frame: np.ndarray) -> bool:
+    if len(frame) == 0:
+        return True
+    rms = compute_rms(frame)
+    return rms < SILENCE_MAX_THRESHOLD
+
+
 def rms_to_loudness_label(rms_value: float) -> str:
     """Return a human-readable loudness label based on RMS."""
     if rms_value < SILENCE_MAX_THRESHOLD:
@@ -233,13 +240,6 @@ def trim_silent(
         return (
             samples.copy() if has_sound(samples) else np.array([], dtype=samples.dtype)
         )
-
-    # Override has_sound temporarily with custom threshold if provided
-    def is_silent_frame(frame: np.ndarray) -> bool:
-        if len(frame) == 0:
-            return True
-        rms = compute_rms(frame)
-        return rms < SILENCE_MAX_THRESHOLD
 
     # Find start index (first non-silent frame)
     start = 0

@@ -29,6 +29,7 @@ from typing import Optional
 import numpy as np
 from jet.audio.async_utils.task_queue import AsyncTaskQueue
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.helpers.config import FRAME_LENGTH_MS, FRAME_SHIFT_MS, SAMPLE_RATE
 from jet.audio.speech_handlers.api_types import (
     ClientHeader,
     ServerResponse,
@@ -200,13 +201,14 @@ def _compute_speech_dur_sec(
     return speech_count * frame_dur
 
 
-def _compute_vad_score(segment: SpeechSegment) -> Optional[float]:
+def _compute_vad_score(segment: SpeechSegment, audio_np: np.ndarray) -> Optional[float]:
     """
     Compute balanced VAD score from segment probabilities using
     score_balanced_speech from vad_segment_scorer.
 
     Args:
         segment: SpeechSegment dict containing optional 'segment_probs' key
+        audio_np: Audio numpy array for RMS-based silence detection
 
     Returns:
         Balanced VAD score [0.0-1.0] or None if probs list is empty/missing
@@ -218,11 +220,32 @@ def _compute_vad_score(segment: SpeechSegment) -> Optional[float]:
     probs = segment.get("segment_probs")
     if not probs:
         return None
+
     try:
-        return score_balanced_speech(probs)
+        # Use default VAD parameters that match the actual VAD processing
+        # These should match your VAD model's parameters
+        return score_balanced_speech(
+            probs,
+            audio_samples=audio_np,
+        )
     except Exception as exc:
-        console.print(f"[yellow][WS] Balanced VAD scoring failed: {exc}[/yellow]")
-        return None
+        console.print(
+            f"[yellow][WS] Balanced VAD scoring with audio trimming failed: {exc}[/yellow]"
+        )
+        # Fallback: try without audio trimming
+        try:
+            return score_balanced_speech(
+                probs,
+                audio_samples=None,
+                sample_rate=SAMPLE_RATE,
+                frame_length_ms=FRAME_LENGTH_MS,
+                hop_length_ms=FRAME_SHIFT_MS,
+            )
+        except Exception as exc2:
+            console.print(
+                f"[yellow][WS] Balanced VAD scoring failed completely: {exc2}[/yellow]"
+            )
+            return None
 
 
 # ── Main class ──────────────────────────────────────────────────────────────
@@ -478,7 +501,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self._prev_end_time_utc = end_time_utc
 
         # Compute VAD score once here — single source of truth
-        vad_score = _compute_vad_score(seg)
+        vad_score = _compute_vad_score(seg, event.audio_np)
 
         header: ClientHeader = {
             "uuid": str(uuid.uuid4()),

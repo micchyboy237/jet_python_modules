@@ -329,7 +329,10 @@ def save_segment_data(
     vad_score_path = None
     if speech_seg.get("segment_probs"):
         vad_score_path = save_vad_score(
-            speech_seg["segment_probs"], seg_dir, seg_number
+            speech_seg["segment_probs"],
+            seg_dir,
+            seg_number,
+            audio_samples=seg_audio_np,
         )
 
     # Save diagnostic plot
