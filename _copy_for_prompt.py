@@ -116,7 +116,8 @@ Use visuals, diagrams, or tables when helpful.
 Show full code for new files, then show full function code for new or updated functions.
 Keep explanations simple and clear.
 
-Write smart, flexible, reusable, maintainable, and robust code.
+Write smart, flexible, reusable, maintainable, optimal and robust code.
+If issues are encountered, immediately include debug logs to trace all relevant steps.
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """

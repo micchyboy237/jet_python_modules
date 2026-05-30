@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# audio_tagger_ced.py
 
 """
 This script shows how to use audio tagging Python APIs to tag a file.
@@ -6,10 +6,11 @@ This script shows how to use audio tagging Python APIs to tag a file.
 Please read the code to download the required model files and test wave file.
 """
 
-import logging
 import json
+import logging
 import time
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import sherpa_onnx
@@ -18,15 +19,24 @@ import soundfile as sf
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-AUDIO_TAGGING_MODEL = "/Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/sherpa-onnx-zipformer-audio-tagging-2024-04-09/model.onnx"
-CLASS_LABELS_INDICES_CSV = "/Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/sherpa-onnx-zipformer-audio-tagging-2024-04-09/class_labels_indices.csv"
-TEST_WAVE = "/Users/jethroestrada/.cache/pretrained_models/sherpa-onnx/sherpa-onnx-zipformer-audio-tagging-2024-04-09/test_wavs/1.wav"
+BASE_DIR = Path("~/.cache/pretrained_models/sherpa-onnx").expanduser().resolve()
+MODEL_SIZE: Literal["mini", "small", "base"] = "base"
+AUDIO_TAGGING_MODEL = (
+    BASE_DIR / f"sherpa-onnx-ced-{MODEL_SIZE}-audio-tagging-2024-04-19/model.int8.onnx"
+)
+CLASS_LABELS_INDICES_CSV = (
+    BASE_DIR
+    / f"sherpa-onnx-ced-{MODEL_SIZE}-audio-tagging-2024-04-19/class_labels_indices.csv"
+)
+TEST_WAVE = (
+    BASE_DIR / f"sherpa-onnx-ced-{MODEL_SIZE}-audio-tagging-2024-04-19/test_wavs/6.wav"
+)
 
 
 def read_test_wave(test_wave):
     # Please download the model files and test wave files from
     # https://github.com/k2-fsa/sherpa-onnx/releases/tag/audio-tagging-models
-    
+
     if not Path(test_wave).is_file():
         raise ValueError(
             f"Please download {test_wave} from "
@@ -65,18 +75,19 @@ def create_audio_tagger():
             "https://github.com/k2-fsa/sherpa-onnx/releases/tag/audio-tagging-models"
         )
 
+    # NOTE: str() is required — sherpa_onnx is a C++ pybind11 extension that
+    # does strict type checking and will not accept pathlib.Path objects.
     config = sherpa_onnx.AudioTaggingConfig(
         model=sherpa_onnx.AudioTaggingModelConfig(
-            zipformer=sherpa_onnx.OfflineZipformerAudioTaggingModelConfig(
-                model=model_file,
-            ),
+            ced=str(model_file),
             num_threads=1,
             debug=True,
             provider="cpu",
         ),
-        labels=label_file,
+        labels=str(label_file),
         top_k=5,
     )
+
     if not config.validate():
         raise ValueError(f"Please check the config: {config}")
 
@@ -90,14 +101,14 @@ def main():
 
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description="Run audio tagging on a provided audio file."
+        description="Run CED mini audio tagging on a provided audio file.",
     )
     parser.add_argument(
         "audio_path",
         type=str,
         nargs="?",
-        default=TEST_WAVE,
-        help=f"Path to input wave file. Defaults to {TEST_WAVE!r}"
+        default=str(TEST_WAVE),
+        help=f"Path to input wave file. Defaults to {str(TEST_WAVE)!r}",
     )
     args = parser.parse_args()
 
@@ -114,12 +125,12 @@ def main():
     stream = audio_tagger.create_stream()
     stream.accept_waveform(sample_rate=sample_rate, waveform=samples)
     result = audio_tagger.compute(stream)
-    end_time = time.time()
 
+    end_time = time.time()
     elapsed_seconds = end_time - start_time
     audio_duration = len(samples) / sample_rate
-
     real_time_factor = elapsed_seconds / audio_duration
+
     logging.info(f"Elapsed seconds: {elapsed_seconds:.3f}")
     logging.info(f"Audio duration in seconds: {audio_duration:.3f}")
     logging.info(
@@ -129,14 +140,12 @@ def main():
     s = "\n"
     for i, e in enumerate(result):
         s += f"{i}: {e}\n"
-
     logging.info(s)
 
     # Save results to OUTPUT_DIR/results.json
     output_path = OUTPUT_DIR / "results.json"
 
     def to_dict(event):
-        # Extract known attributes from sherpa_onnx AudioEvent
         return {
             "index": None,  # filled below
             "name": getattr(event, "name", None),
@@ -153,13 +162,10 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(structured_result, f, indent=2, ensure_ascii=False)
 
-
     logging.info(f"Saved results to: {output_path}")
 
 
 if __name__ == "__main__":
     formatter = "%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] %(message)s"
-
     logging.basicConfig(format=formatter, level=logging.INFO)
-
     main()
