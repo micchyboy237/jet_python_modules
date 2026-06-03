@@ -25,6 +25,7 @@ from jet.audio.helpers.silence import (
     detect_silence,
 )
 from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
+from jet.audio.normalization.quant import quantize_audio
 from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
@@ -156,6 +157,7 @@ def record_from_mic(
                 min_silence_duration_sec=min_silence_duration_sec,
                 min_speech_duration_sec=min_speech_duration_sec,
                 max_speech_duration_sec=max_speech_duration_sec,
+                verbose=verbose,
             )
             if verbose:
                 display_segments(curr_speech_segs)
@@ -277,13 +279,20 @@ def extract_current_speech_segment(
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
     max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
+    verbose: bool = False,
 ) -> List[SpeechSegment]:
     full_audio_np = np.concatenate(audio_data, axis=0)
+
     # Normalize loudness by VAD
     full_audio_np, _ = normalize_audio_for_vad(full_audio_np, SAMPLE_RATE)
 
+    # Quantize audio to produce more valleys and troughs
+    quantized_audio_np, _ = quantize_audio(
+        full_audio_np, sr=SAMPLE_RATE, verbose=verbose
+    )
+
     curr_speech_segs, speech_probs = extract_speech_timestamps(
-        audio=full_audio_np,
+        audio=quantized_audio_np,
         with_scores=True,
         return_seconds=True,
         threshold=threshold,
