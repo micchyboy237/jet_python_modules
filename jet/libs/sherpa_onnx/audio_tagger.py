@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import logging
 import shutil
 import time
 from pathlib import Path
@@ -31,7 +30,6 @@ from rich.traceback import install as install_rich_traceback
 
 install_rich_traceback(show_locals=True)
 
-logger = logging.getLogger(__name__)
 console = Console()
 
 BASE_DIR = Path("~/.cache/pretrained_models/sherpa-onnx").expanduser().resolve()
@@ -168,28 +166,13 @@ class AudioTagger:
     def _validate_chunking_config(self) -> None:
         """Validate chunking parameters from config."""
         if self.chunk_duration < self.min_chunk_duration:
-            logger.warning(
-                f"chunk_duration ({self.chunk_duration}s) is below "
-                f"min_chunk_duration ({self.min_chunk_duration}s). "
-                f"Using min_chunk_duration instead."
-            )
             self.chunk_duration = self.min_chunk_duration
 
         if self.chunk_overlap >= self.chunk_duration:
-            logger.warning(
-                f"chunk_overlap ({self.chunk_overlap}s) >= chunk_duration "
-                f"({self.chunk_duration}s). Setting overlap to half of chunk_duration."
-            )
             self.chunk_overlap = self.chunk_duration / 2.0
 
         window_samples = int(self.chunk_duration * SAMPLE_RATE)
         hop_samples = int(self.chunk_overlap * SAMPLE_RATE)
-
-        logger.debug(
-            f"Chunking config validated: chunk_duration={self.chunk_duration}s "
-            f"({window_samples} samples), overlap={self.chunk_overlap}s "
-            f"({hop_samples} samples), min={self.min_chunk_duration}s"
-        )
 
     def _validate_model_files(self) -> None:
         """Validate that required model files exist."""
@@ -203,7 +186,6 @@ class AudioTagger:
                 f"Labels file not found: {self.labels_path}\n"
                 "Download from: https://github.com/k2-fsa/sherpa-onnx/releases/tag/audio-tagging-models"
             )
-        logger.debug(f"Model files validated: {self.model_path}, {self.labels_path}")
 
     def _load_labels(self) -> Dict[int, str]:
         """Load class labels from CSV file."""
@@ -216,9 +198,8 @@ class AudioTagger:
                     try:
                         index = int(row[0])
                         labels[index] = row[1].strip('"').strip()
-                    except (ValueError, IndexError) as e:
-                        logger.warning(f"Skipping invalid label row: {row}, error: {e}")
-        logger.debug(f"Loaded {len(labels)} class labels")
+                    except (ValueError, IndexError):
+                        pass  # Silently ignore invalid rows
         return labels
 
     @property
@@ -240,7 +221,6 @@ class AudioTagger:
             )
             if not config.validate():
                 raise ValueError(f"Invalid AudioTaggingConfig: {config}")
-            logger.info(f"Creating AudioTagger with config:\n{config}")
             self._tagger = sherpa_onnx.AudioTagging(config)
             self._labels_map = self._load_labels()
         return self._tagger
@@ -274,26 +254,17 @@ class AudioTagger:
             ...     print(f"{r['name']}: {r['prob']:.3f}")
         """
         start_time = time.time()
-        logger.info(f"Tagging audio input of type: {type(audio).__name__}")
 
         try:
             waveform, actual_sr = load_audio(audio, sr=sample_rate or 16000, mono=True)
-        except Exception as e:
-            logger.error(f"Failed to load audio: {e}")
+        except Exception:
             raise
-
-        logger.debug(
-            f"Audio loaded: shape={waveform.shape}, sr={actual_sr}, "
-            f"dtype={waveform.dtype}, "
-            f"min={waveform.min():.4f}, max={waveform.max():.4f}"
-        )
 
         try:
             stream = self.tagger.create_stream()
             stream.accept_waveform(sample_rate=actual_sr, waveform=waveform)
             raw_results = self.tagger.compute(stream)
-        except Exception as e:
-            logger.error(f"Audio tagging failed: {e}")
+        except Exception:
             raise
 
         results: List[TaggingResult] = []
@@ -305,20 +276,6 @@ class AudioTagger:
                 "prob": getattr(event, "prob", 0.0),
             }
             results.append(result)
-            logger.debug(
-                f"Result {i}: {result['name']} (idx={result['class_index']}) "
-                f"- prob={result['prob']:.4f}"
-            )
-
-        elapsed = time.time() - start_time
-        audio_duration = len(waveform) / actual_sr if actual_sr > 0 else 0
-        rtf = elapsed / audio_duration if audio_duration > 0 else float("inf")
-
-        logger.info(
-            f"Tagging complete: {len(results)} results, "
-            f"duration={audio_duration:.2f}s, "
-            f"elapsed={elapsed:.3f}s, RTF={rtf:.3f}"
-        )
 
         return results
 
@@ -377,23 +334,10 @@ class AudioTagger:
 
         # Validate parameters
         if _chunk_dur < _min_chunk:
-            logger.warning(
-                f"chunk_duration ({_chunk_dur}s) < min_chunk_duration ({_min_chunk}s). "
-                f"Using min_chunk_duration."
-            )
             _chunk_dur = _min_chunk
 
         if _overlap >= _chunk_dur:
-            logger.warning(
-                f"overlap_duration ({_overlap}s) >= chunk_duration ({_chunk_dur}s). "
-                f"Setting overlap to half of chunk_duration."
-            )
             _overlap = _chunk_dur / 2.0
-
-        logger.info(
-            f"tag_audio_chunks called: chunk_duration={_chunk_dur}s, "
-            f"overlap={_overlap}s, min_chunk={_min_chunk}s"
-        )
 
         # ── Load audio ─────────────────────────────────────────────────
         overall_start = time.time()
@@ -402,8 +346,7 @@ class AudioTagger:
             waveform, actual_sr = load_audio(
                 audio, sr=sample_rate or SAMPLE_RATE, mono=True
             )
-        except Exception as e:
-            logger.error(f"Failed to load audio for chunking: {e}")
+        except Exception:
             raise
 
         total_samples = len(waveform)
@@ -417,11 +360,6 @@ class AudioTagger:
         else:
             audio_path_str = f"array_input_{waveform.shape}"
 
-        logger.info(
-            f"Audio loaded: {total_samples} samples, "
-            f"{total_duration:.2f}s, sr={actual_sr}"
-        )
-
         # ── Calculate chunk boundaries ──────────────────────────────────
         chunk_samples = int(_chunk_dur * actual_sr)
         hop_samples = int((_chunk_dur - _overlap) * actual_sr)
@@ -429,15 +367,6 @@ class AudioTagger:
         # Ensure hop is at least 1 sample
         if hop_samples < 1:
             hop_samples = 1
-            logger.warning(
-                "Hop samples < 1 after calculation; "
-                "setting to 1. Check chunk_duration and overlap_duration."
-            )
-
-        logger.debug(
-            f"Chunk samples: {chunk_samples}, hop samples: {hop_samples}, "
-            f"total_samples: {total_samples}"
-        )
 
         # ── Generate chunk positions ────────────────────────────────────
         chunk_positions = self._calculate_chunk_positions(
@@ -449,10 +378,6 @@ class AudioTagger:
         )
 
         if not chunk_positions:
-            logger.warning(
-                "No valid chunk positions calculated. "
-                "Audio may be shorter than minimum chunk duration."
-            )
             # Return empty summary
             elapsed = time.time() - overall_start
             return AudioChunksTaggingSummary(
@@ -470,8 +395,6 @@ class AudioTagger:
                 else 0.0,
             )
 
-        logger.info(f"Processing {len(chunk_positions)} chunks")
-
         # ── Process each chunk ──────────────────────────────────────────
         chunks: List[ChunkTaggingResult] = []
         all_predictions: Dict[str, List[float]] = {}  # name -> list of probs
@@ -483,18 +406,10 @@ class AudioTagger:
             end_sec = end_sample / actual_sr
             chunk_waveform = waveform[start_sample:end_sample].copy()
 
-            logger.debug(
-                f"Chunk {idx}: samples [{start_sample}:{end_sample}], "
-                f"time [{start_sec:.3f}s - {end_sec:.3f}s], "
-                f"duration={end_sec - start_sec:.3f}s, "
-                f"shape={chunk_waveform.shape}"
-            )
-
             # Tag this chunk
             try:
                 chunk_predictions = self._tag_waveform(chunk_waveform, actual_sr)
-            except Exception as e:
-                logger.error(f"Failed to tag chunk {idx}: {e}")
+            except Exception:
                 # Create error entry
                 chunk_predictions = []
 
@@ -517,11 +432,6 @@ class AudioTagger:
             )
             chunks.append(chunk_result)
 
-            logger.debug(
-                f"Chunk {idx} complete: {len(chunk_predictions)} predictions, "
-                f"time={chunk_elapsed:.4f}s"
-            )
-
         # ── Aggregate overall top predictions ───────────────────────────
         overall_top = self._aggregate_chunk_predictions(all_predictions, self.top_k)
 
@@ -540,11 +450,6 @@ class AudioTagger:
             overall_top_predictions=overall_top,
             total_processing_time=round(total_elapsed, 4),
             real_time_factor=round(rtf, 4),
-        )
-
-        logger.info(
-            f"tag_audio_chunks complete: {len(chunks)} chunks in "
-            f"{total_elapsed:.2f}s, RTF={rtf:.3f}"
         )
 
         return summary
@@ -579,11 +484,6 @@ class AudioTagger:
             - Start/end indices for each chunk
             - Whether last chunk meets minimum duration
         """
-        logger.debug(
-            f"_calculate_chunk_positions: total_samples={total_samples}, "
-            f"chunk_samples={chunk_samples}, hop_samples={hop_samples}, "
-            f"min_chunk_duration={min_chunk_duration}s"
-        )
 
         positions: List[tuple[int, int]] = []
 
@@ -592,16 +492,6 @@ class AudioTagger:
             min_samples = int(min_chunk_duration * sample_rate)
             if total_samples >= min_samples:
                 positions.append((0, total_samples))
-                logger.debug(
-                    f"Single chunk: (0, {total_samples}), "
-                    f"duration={total_samples / sample_rate:.3f}s"
-                )
-            else:
-                logger.warning(
-                    f"Audio too short: {total_samples} samples "
-                    f"({total_samples / sample_rate:.3f}s) < minimum "
-                    f"{min_samples} samples ({min_chunk_duration}s)"
-                )
             return positions
 
         # Calculate chunk starts
@@ -609,10 +499,6 @@ class AudioTagger:
         while start + chunk_samples <= total_samples:
             end = start + chunk_samples
             positions.append((start, end))
-            logger.debug(
-                f"Chunk {len(positions) - 1}: ({start}, {end}), "
-                f"[{start / sample_rate:.3f}s - {end / sample_rate:.3f}s]"
-            )
             start += hop_samples
 
         # Handle remaining tail
@@ -623,20 +509,7 @@ class AudioTagger:
             if remaining_samples >= min_samples:
                 # Include the tail as a final chunk
                 positions.append((start, total_samples))
-                logger.debug(
-                    f"Tail chunk {len(positions) - 1}: ({start}, {total_samples}), "
-                    f"duration={remaining_samples / sample_rate:.3f}s "
-                    f"(>= min {min_chunk_duration}s)"
-                )
-            else:
-                logger.debug(
-                    f"Tail too short: {remaining_samples} samples "
-                    f"({remaining_samples / sample_rate:.3f}s) < minimum "
-                    f"{min_samples} samples ({min_chunk_duration}s). "
-                    f"Discarding tail."
-                )
 
-        logger.debug(f"_calculate_chunk_positions returning {len(positions)} chunks")
         return positions
 
     def _tag_waveform(
@@ -660,23 +533,14 @@ class AudioTagger:
             - Inference completion
             - Result count
         """
-        logger.debug(
-            f"_tag_waveform: shape={waveform.shape}, dtype={waveform.dtype}, "
-            f"sr={sample_rate}, "
-            f"min={waveform.min():.4f}, max={waveform.max():.4f}"
-        )
 
         try:
             stream = self.tagger.create_stream()
-            logger.debug("Stream created")
 
             stream.accept_waveform(sample_rate=sample_rate, waveform=waveform)
-            logger.debug("Waveform accepted by stream")
 
             raw_results = self.tagger.compute(stream)
-            logger.debug(f"Inference complete: {len(raw_results)} raw results")
-        except Exception as e:
-            logger.error(f"_tag_waveform inference failed: {e}")
+        except Exception:
             raise
 
         results: List[TaggingResult] = []
@@ -714,10 +578,6 @@ class AudioTagger:
             - Mean probability for each label
             - Final top-K selection
         """
-        logger.debug(
-            f"_aggregate_chunk_predictions: {len(all_predictions)} unique labels, "
-            f"top_k={top_k}"
-        )
 
         if not all_predictions:
             return []
@@ -726,10 +586,6 @@ class AudioTagger:
         for name, probs in all_predictions.items():
             mean_prob = float(np.mean(probs))
             max_prob = float(np.max(probs))
-            logger.debug(
-                f"  '{name}': mean={mean_prob:.4f}, max={max_prob:.4f}, "
-                f"appeared in {len(probs)} chunks"
-            )
             aggregated.append(
                 {
                     "name": name,
@@ -754,7 +610,6 @@ class AudioTagger:
                 )
             )
 
-        logger.debug(f"Aggregation complete: {len(results)} top results returned")
         return results
 
     # ── Existing methods (unchanged below this line) ───────────────────
@@ -788,38 +643,26 @@ class AudioTagger:
         )
         n_to_check = top_n if top_n is not None else self.speech_top_n
 
-        logger.info(f"Checking for speech (threshold={threshold}, top_n={n_to_check})")
-
         try:
             results = self.tag_audio(audio, sample_rate=sample_rate)
-        except Exception as e:
-            logger.error(f"Speech detection failed during tagging: {e}")
+        except Exception:
             return False
 
         if not results:
-            logger.warning("No tagging results returned")
             return False
 
         for result in results[:n_to_check]:
             name = result.get("name", "")
             prob = result.get("prob", 0.0)
-            logger.debug(f"Checking: '{name}' (prob={prob:.4f}) against speech classes")
             if name in self.SPEECH_CLASS_NAMES and prob >= threshold:
-                logger.info(f"Speech detected: '{name}' with probability {prob:.4f}")
                 return True
 
         top_result = results[0]
         top_name = top_result.get("name", "")
         top_prob = top_result.get("prob", 0.0)
         if top_name == "Speech" and top_prob >= threshold:
-            logger.info(
-                f"Speech detected as top result: '{top_name}' with probability {top_prob:.4f}"
-            )
             return True
 
-        logger.info(
-            f"No speech detected. Top result: '{top_name}' (prob={top_prob:.4f})"
-        )
         return False
 
     def get_speech_probability(
@@ -839,8 +682,7 @@ class AudioTagger:
         """
         try:
             results = self.tag_audio(audio, sample_rate=sample_rate)
-        except Exception as e:
-            logger.error(f"Failed to get speech probability: {e}")
+        except Exception:
             return 0.0
 
         max_speech_prob = 0.0
@@ -849,9 +691,6 @@ class AudioTagger:
                 prob = result.get("prob", 0.0)
                 if prob > max_speech_prob:
                     max_speech_prob = prob
-                    logger.debug(
-                        f"New max speech prob: {prob:.4f} for '{result['name']}'"
-                    )
         return max_speech_prob
 
     def get_tagging_summary(
@@ -876,8 +715,7 @@ class AudioTagger:
         try:
             waveform, actual_sr = load_audio(audio, sr=sample_rate or 16000, mono=True)
             audio_duration = len(waveform) / actual_sr if actual_sr > 0 else 0
-        except Exception as e:
-            logger.error(f"Failed to load audio for summary: {e}")
+        except Exception:
             raise
 
         results = self.tag_audio(audio, sample_rate=sample_rate)
@@ -1136,7 +974,6 @@ if __name__ == "__main__":
                     save_chunk_plots,
                 )
 
-                logger.debug("Generating chunk visualization plots...")
                 plot_paths = save_chunk_plots(
                     summary=summary,
                     output_dir=Path(args.output_dir),
@@ -1153,15 +990,10 @@ if __name__ == "__main__":
                     )
                 )
             except ImportError:
-                logger.warning(
-                    "audio_tagger_chunk_plots module not found — "
-                    "skipping plot generation"
-                )
                 console.print(
                     "[yellow]⚠ Plot module not available — skipping visualizations[/yellow]"
                 )
             except Exception as e:
-                logger.error(f"Failed to generate chunk plots: {e}", exc_info=True)
                 console.print(f"[red]⚠ Plot generation failed: {e}[/red]")
 
             # ── Save JSON summary ──────────────────────────────────
