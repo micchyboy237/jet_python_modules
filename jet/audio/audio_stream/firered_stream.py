@@ -9,7 +9,7 @@ from typing import Generator, Optional, Tuple, Type
 
 import numpy as np
 import sounddevice as sd
-from fireredvad.core.constants import FRAME_SHIFT_SAMPLE, SAMPLE_RATE
+from jet.audio.helpers.config import FRAME_SHIFT_SAMPLE, SAMPLE_RATE
 from jet.audio.helpers.silence import CHANNELS, DTYPE
 
 DEFAULT_HOPS_PER_READ: int = 50
