@@ -1,18 +1,38 @@
-# jet_python_modules/jet/libs/sherpa_onnx/audio_tagger.py
-
 from __future__ import annotations
 
+import csv
 import json
 import logging
+import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union
 
+import numpy as np
 import sherpa_onnx
 from jet.audio.audio_types import AudioInput
+from jet.audio.audio_waveform.vad.vad_logging import linkify
+from jet.audio.helpers.config import (
+    FRAME_PER_SECONDS,
+    FRAME_SHIFT_S,
+    SAMPLE_RATE,
+)
 from jet.audio.utils.loader import load_audio
+from jet.libs.sherpa_onnx.audio_tagger_types import (
+    AudioChunksTaggingSummary,
+    AudioTaggingSummary,
+    ChunkTaggingResult,
+    TaggingResult,
+)
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.traceback import install as install_rich_traceback
+
+install_rich_traceback(show_locals=True)
 
 logger = logging.getLogger(__name__)
+console = Console()
 
 BASE_DIR = Path("~/.cache/pretrained_models/sherpa-onnx").expanduser().resolve()
 AUDIO_TAGGING_MODEL = (
@@ -30,27 +50,28 @@ class AudioTagger:
     Features:
     - Tags audio with type AudioInput (reuses load_audio)
     - Checks if audio contains high-probability speech
+    - Process long audio in overlapping chunks with tag_audio_chunks()
+    - Configurable chunking parameters from jet.audio.helpers.config
 
     Example:
-        tagger = AudioTagger()
-        results = tagger.tag_audio("path/to/audio.wav")
-        is_speech = tagger.contains_speech("path/to/audio.wav")
+        >>> tagger = AudioTagger()
+        >>> results = tagger.tag_audio("path/to/audio.wav")
+        >>> is_speech = tagger.contains_speech("path/to/audio.wav")
+        >>> chunked = tagger.tag_audio_chunks("long_audio.wav", chunk_duration=5.0)
     """
 
-    # Default model paths
-    DEFAULT_BASE_DIR = (
+    DEFAULT_BASE_DIR: Path = (
         Path("~/.cache/pretrained_models/sherpa-onnx").expanduser().resolve()
     )
-    DEFAULT_MODEL_PATH = (
+    DEFAULT_MODEL_PATH: Path = (
         DEFAULT_BASE_DIR / "sherpa-onnx-zipformer-audio-tagging-2024-04-09/model.onnx"
     )
-    DEFAULT_LABELS_PATH = (
+    DEFAULT_LABELS_PATH: Path = (
         DEFAULT_BASE_DIR
         / "sherpa-onnx-zipformer-audio-tagging-2024-04-09/class_labels_indices.csv"
     )
 
-    # Speech-related class names to check
-    SPEECH_CLASS_NAMES = [
+    SPEECH_CLASS_NAMES: List[str] = [
         "Speech",
         "Male speech, man speaking",
         "Female speech, woman speaking",
@@ -58,6 +79,12 @@ class AudioTagger:
         "Conversation",
         "Narration, monologue",
     ]
+
+    # Default chunking constants from jet.audio.helpers.config
+    # Chunk duration: 100 frames * 0.010s = 1.0s (same as process_audio_chunks window)
+    DEFAULT_CHUNK_DURATION: float = FRAME_PER_SECONDS * FRAME_SHIFT_S  # 1.0s
+    DEFAULT_CHUNK_OVERLAP: float = DEFAULT_CHUNK_DURATION / 2.0  # 0.5s (50%)
+    MIN_CHUNK_DURATION: float = 0.5  # Minimum chunk size in seconds
 
     def __init__(
         self,
@@ -69,7 +96,11 @@ class AudioTagger:
         debug: bool = False,
         speech_prob_threshold: float = 0.5,
         speech_top_n: int = 3,
-    ):
+        # Chunking defaults
+        chunk_duration: Optional[float] = None,
+        chunk_overlap: Optional[float] = None,
+        min_chunk_duration: Optional[float] = None,
+    ) -> None:
         """
         Initialize the AudioTagger with model configuration.
 
@@ -82,25 +113,83 @@ class AudioTagger:
             debug: Enable debug logging for Sherpa-ONNX
             speech_prob_threshold: Minimum probability to consider as speech
             speech_top_n: Check top N predictions for speech classes
+            chunk_duration: Default chunk duration in seconds (default: 1.0s)
+            chunk_overlap: Default overlap between chunks in seconds (default: 0.5s)
+            min_chunk_duration: Minimum valid chunk duration (default: 0.5s)
         """
-        self.model_path = Path(model_path) if model_path else self.DEFAULT_MODEL_PATH
-        self.labels_path = (
+        self.model_path: Path = (
+            Path(model_path) if model_path else self.DEFAULT_MODEL_PATH
+        )
+        self.labels_path: Path = (
             Path(labels_path) if labels_path else self.DEFAULT_LABELS_PATH
         )
-        self.top_k = top_k
-        self.num_threads = num_threads
-        self.provider = provider
-        self.debug = debug
-        self.speech_prob_threshold = speech_prob_threshold
-        self.speech_top_n = speech_top_n
+        self.top_k: int = top_k
+        self.num_threads: int = num_threads
+        self.provider: str = provider
+        self.debug: bool = debug
+        self.speech_prob_threshold: float = speech_prob_threshold
+        self.speech_top_n: int = speech_top_n
 
-        # Lazy-loaded tagger instance
+        # Chunking configuration (from jet.audio.helpers.config)
+        self.chunk_duration: float = (
+            chunk_duration
+            if chunk_duration is not None
+            else self.DEFAULT_CHUNK_DURATION
+        )
+        self.chunk_overlap: float = (
+            chunk_overlap if chunk_overlap is not None else self.DEFAULT_CHUNK_OVERLAP
+        )
+        self.min_chunk_duration: float = (
+            min_chunk_duration
+            if min_chunk_duration is not None
+            else self.MIN_CHUNK_DURATION
+        )
+
+        # Validate chunking parameters
+        self._validate_chunking_config()
+
         self._tagger: Optional[sherpa_onnx.AudioTagging] = None
         self._labels_map: Optional[Dict[int, str]] = None
 
-        logger.info(f"AudioTagger initialized with model: {self.model_path}")
-        logger.info(f"Labels file: {self.labels_path}")
-        logger.info(f"Speech threshold: {self.speech_prob_threshold}")
+        console.print(
+            Panel.fit(
+                f"[bold green]AudioTagger Initialized[/bold green]\n"
+                f"Model: {linkify(str(self.model_path))}\n"
+                f"Labels: {linkify(str(self.labels_path))}\n"
+                f"Speech Threshold: {self.speech_prob_threshold}\n"
+                f"Chunk Duration: {self.chunk_duration}s\n"
+                f"Chunk Overlap: {self.chunk_overlap}s\n"
+                f"Min Chunk Duration: {self.min_chunk_duration}s",
+                title="AudioTagger Configuration",
+                border_style="blue",
+            )
+        )
+
+    def _validate_chunking_config(self) -> None:
+        """Validate chunking parameters from config."""
+        if self.chunk_duration < self.min_chunk_duration:
+            logger.warning(
+                f"chunk_duration ({self.chunk_duration}s) is below "
+                f"min_chunk_duration ({self.min_chunk_duration}s). "
+                f"Using min_chunk_duration instead."
+            )
+            self.chunk_duration = self.min_chunk_duration
+
+        if self.chunk_overlap >= self.chunk_duration:
+            logger.warning(
+                f"chunk_overlap ({self.chunk_overlap}s) >= chunk_duration "
+                f"({self.chunk_duration}s). Setting overlap to half of chunk_duration."
+            )
+            self.chunk_overlap = self.chunk_duration / 2.0
+
+        window_samples = int(self.chunk_duration * SAMPLE_RATE)
+        hop_samples = int(self.chunk_overlap * SAMPLE_RATE)
+
+        logger.debug(
+            f"Chunking config validated: chunk_duration={self.chunk_duration}s "
+            f"({window_samples} samples), overlap={self.chunk_overlap}s "
+            f"({hop_samples} samples), min={self.min_chunk_duration}s"
+        )
 
     def _validate_model_files(self) -> None:
         """Validate that required model files exist."""
@@ -118,12 +207,10 @@ class AudioTagger:
 
     def _load_labels(self) -> Dict[int, str]:
         """Load class labels from CSV file."""
-        import csv
-
-        labels = {}
+        labels: Dict[int, str] = {}
         with open(self.labels_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
-            next(reader, None)  # Skip header
+            next(reader, None)
             for row in reader:
                 if len(row) >= 2:
                     try:
@@ -131,7 +218,6 @@ class AudioTagger:
                         labels[index] = row[1].strip('"').strip()
                     except (ValueError, IndexError) as e:
                         logger.warning(f"Skipping invalid label row: {row}, error: {e}")
-
         logger.debug(f"Loaded {len(labels)} class labels")
         return labels
 
@@ -140,7 +226,6 @@ class AudioTagger:
         """Lazy-load the Sherpa-ONNX AudioTagging instance."""
         if self._tagger is None:
             self._validate_model_files()
-
             config = sherpa_onnx.AudioTaggingConfig(
                 model=sherpa_onnx.AudioTaggingModelConfig(
                     zipformer=sherpa_onnx.OfflineZipformerAudioTaggingModelConfig(
@@ -153,14 +238,11 @@ class AudioTagger:
                 labels=str(self.labels_path),
                 top_k=self.top_k,
             )
-
             if not config.validate():
                 raise ValueError(f"Invalid AudioTaggingConfig: {config}")
-
             logger.info(f"Creating AudioTagger with config:\n{config}")
             self._tagger = sherpa_onnx.AudioTagging(config)
             self._labels_map = self._load_labels()
-
         return self._tagger
 
     @property
@@ -174,7 +256,7 @@ class AudioTagger:
         self,
         audio: AudioInput,
         sample_rate: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[TaggingResult]:
         """
         Tag audio with predicted labels and probabilities.
 
@@ -183,7 +265,7 @@ class AudioTagger:
             sample_rate: Sample rate for raw audio data (ignored for file paths)
 
         Returns:
-            List of dicts with keys: index, name, class_index, prob
+            List of TaggingResult dicts with keys: index, name, class_index, prob
 
         Example:
             >>> tagger = AudioTagger()
@@ -194,7 +276,6 @@ class AudioTagger:
         start_time = time.time()
         logger.info(f"Tagging audio input of type: {type(audio).__name__}")
 
-        # Load and normalize audio using the existing utility
         try:
             waveform, actual_sr = load_audio(audio, sr=sample_rate or 16000, mono=True)
         except Exception as e:
@@ -207,7 +288,6 @@ class AudioTagger:
             f"min={waveform.min():.4f}, max={waveform.max():.4f}"
         )
 
-        # Create stream and process
         try:
             stream = self.tagger.create_stream()
             stream.accept_waveform(sample_rate=actual_sr, waveform=waveform)
@@ -216,10 +296,9 @@ class AudioTagger:
             logger.error(f"Audio tagging failed: {e}")
             raise
 
-        # Convert results to dictionaries
-        results = []
+        results: List[TaggingResult] = []
         for i, event in enumerate(raw_results):
-            result = {
+            result: TaggingResult = {
                 "index": i,
                 "name": getattr(event, "name", "Unknown"),
                 "class_index": getattr(event, "index", -1),
@@ -231,7 +310,6 @@ class AudioTagger:
                 f"- prob={result['prob']:.4f}"
             )
 
-        # Log performance metrics
         elapsed = time.time() - start_time
         audio_duration = len(waveform) / actual_sr if actual_sr > 0 else 0
         rtf = elapsed / audio_duration if audio_duration > 0 else float("inf")
@@ -243,6 +321,443 @@ class AudioTagger:
         )
 
         return results
+
+    # ── NEW METHOD: tag_audio_chunks ─────────────────────────────────────
+
+    def tag_audio_chunks(
+        self,
+        audio: AudioInput,
+        sample_rate: Optional[int] = None,
+        chunk_duration: Optional[float] = None,
+        overlap_duration: Optional[float] = None,
+        min_chunk_duration: Optional[float] = None,
+    ) -> AudioChunksTaggingSummary:
+        """
+        Process long audio by splitting into overlapping chunks and tagging each.
+
+        This method splits audio into fixed-duration overlapping chunks,
+        tags each independently, and aggregates results. Useful for:
+        - Very long recordings that exceed model context windows
+        - Tracking how audio content changes over time
+        - Speech/music segmentation at coarse granularity
+
+        Args:
+            audio: Audio input (file path, bytes, numpy array, or torch tensor)
+            sample_rate: Sample rate for raw audio data (default: 16000)
+            chunk_duration: Duration of each chunk in seconds.
+                           Default: self.chunk_duration (from config, typically 1.0s)
+            overlap_duration: Overlap between chunks in seconds.
+                             Default: self.chunk_overlap (typically 0.5s)
+            min_chunk_duration: Minimum duration for the last chunk.
+                               Default: self.min_chunk_duration (0.5s)
+
+        Returns:
+            AudioChunksTaggingSummary with per-chunk results and overall aggregation
+
+        Example:
+            >>> tagger = AudioTagger()
+            >>> summary = tagger.tag_audio_chunks("long_speech.wav", chunk_duration=5.0)
+            >>> print(f"Processed {summary['total_chunks']} chunks")
+            >>> for chunk in summary['chunks']:
+            ...     print(f"  Chunk {chunk['chunk_index']}: "
+            ...           f"{chunk['predictions'][0]['name']}")
+        """
+        # ── Parameter resolution with config defaults ──────────────────
+        _chunk_dur = (
+            chunk_duration if chunk_duration is not None else self.chunk_duration
+        )
+        _overlap = (
+            overlap_duration if overlap_duration is not None else self.chunk_overlap
+        )
+        _min_chunk = (
+            min_chunk_duration
+            if min_chunk_duration is not None
+            else self.min_chunk_duration
+        )
+
+        # Validate parameters
+        if _chunk_dur < _min_chunk:
+            logger.warning(
+                f"chunk_duration ({_chunk_dur}s) < min_chunk_duration ({_min_chunk}s). "
+                f"Using min_chunk_duration."
+            )
+            _chunk_dur = _min_chunk
+
+        if _overlap >= _chunk_dur:
+            logger.warning(
+                f"overlap_duration ({_overlap}s) >= chunk_duration ({_chunk_dur}s). "
+                f"Setting overlap to half of chunk_duration."
+            )
+            _overlap = _chunk_dur / 2.0
+
+        logger.info(
+            f"tag_audio_chunks called: chunk_duration={_chunk_dur}s, "
+            f"overlap={_overlap}s, min_chunk={_min_chunk}s"
+        )
+
+        # ── Load audio ─────────────────────────────────────────────────
+        overall_start = time.time()
+
+        try:
+            waveform, actual_sr = load_audio(
+                audio, sr=sample_rate or SAMPLE_RATE, mono=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to load audio for chunking: {e}")
+            raise
+
+        total_samples = len(waveform)
+        total_duration = total_samples / actual_sr
+
+        # Determine audio path identifier
+        if isinstance(audio, (str, Path)):
+            audio_path_str = str(audio)
+        elif isinstance(audio, bytes):
+            audio_path_str = f"bytes_input_{len(audio)}bytes"
+        else:
+            audio_path_str = f"array_input_{waveform.shape}"
+
+        logger.info(
+            f"Audio loaded: {total_samples} samples, "
+            f"{total_duration:.2f}s, sr={actual_sr}"
+        )
+
+        # ── Calculate chunk boundaries ──────────────────────────────────
+        chunk_samples = int(_chunk_dur * actual_sr)
+        hop_samples = int((_chunk_dur - _overlap) * actual_sr)
+
+        # Ensure hop is at least 1 sample
+        if hop_samples < 1:
+            hop_samples = 1
+            logger.warning(
+                "Hop samples < 1 after calculation; "
+                "setting to 1. Check chunk_duration and overlap_duration."
+            )
+
+        logger.debug(
+            f"Chunk samples: {chunk_samples}, hop samples: {hop_samples}, "
+            f"total_samples: {total_samples}"
+        )
+
+        # ── Generate chunk positions ────────────────────────────────────
+        chunk_positions = self._calculate_chunk_positions(
+            total_samples=total_samples,
+            chunk_samples=chunk_samples,
+            hop_samples=hop_samples,
+            min_chunk_duration=_min_chunk,
+            sample_rate=actual_sr,
+        )
+
+        if not chunk_positions:
+            logger.warning(
+                "No valid chunk positions calculated. "
+                "Audio may be shorter than minimum chunk duration."
+            )
+            # Return empty summary
+            elapsed = time.time() - overall_start
+            return AudioChunksTaggingSummary(
+                audio_path=audio_path_str,
+                total_duration=total_duration,
+                sample_rate=actual_sr,
+                chunk_duration=_chunk_dur,
+                overlap_duration=_overlap,
+                total_chunks=0,
+                chunks=[],
+                overall_top_predictions=[],
+                total_processing_time=elapsed,
+                real_time_factor=elapsed / total_duration
+                if total_duration > 0
+                else 0.0,
+            )
+
+        logger.info(f"Processing {len(chunk_positions)} chunks")
+
+        # ── Process each chunk ──────────────────────────────────────────
+        chunks: List[ChunkTaggingResult] = []
+        all_predictions: Dict[str, List[float]] = {}  # name -> list of probs
+
+        for idx, (start_sample, end_sample) in enumerate(chunk_positions):
+            chunk_start_time = time.time()
+
+            start_sec = start_sample / actual_sr
+            end_sec = end_sample / actual_sr
+            chunk_waveform = waveform[start_sample:end_sample].copy()
+
+            logger.debug(
+                f"Chunk {idx}: samples [{start_sample}:{end_sample}], "
+                f"time [{start_sec:.3f}s - {end_sec:.3f}s], "
+                f"duration={end_sec - start_sec:.3f}s, "
+                f"shape={chunk_waveform.shape}"
+            )
+
+            # Tag this chunk
+            try:
+                chunk_predictions = self._tag_waveform(chunk_waveform, actual_sr)
+            except Exception as e:
+                logger.error(f"Failed to tag chunk {idx}: {e}")
+                # Create error entry
+                chunk_predictions = []
+
+            chunk_elapsed = time.time() - chunk_start_time
+
+            # Collect predictions for aggregation
+            for pred in chunk_predictions:
+                name = pred["name"]
+                if name not in all_predictions:
+                    all_predictions[name] = []
+                all_predictions[name].append(pred["prob"])
+
+            chunk_result = ChunkTaggingResult(
+                chunk_index=idx,
+                start_time=round(start_sec, 3),
+                end_time=round(end_sec, 3),
+                duration=round(end_sec - start_sec, 3),
+                predictions=chunk_predictions,
+                processing_time=round(chunk_elapsed, 4),
+            )
+            chunks.append(chunk_result)
+
+            logger.debug(
+                f"Chunk {idx} complete: {len(chunk_predictions)} predictions, "
+                f"time={chunk_elapsed:.4f}s"
+            )
+
+        # ── Aggregate overall top predictions ───────────────────────────
+        overall_top = self._aggregate_chunk_predictions(all_predictions, self.top_k)
+
+        # ── Build summary ───────────────────────────────────────────────
+        total_elapsed = time.time() - overall_start
+        rtf = total_elapsed / total_duration if total_duration > 0 else 0.0
+
+        summary = AudioChunksTaggingSummary(
+            audio_path=audio_path_str,
+            total_duration=round(total_duration, 3),
+            sample_rate=actual_sr,
+            chunk_duration=_chunk_dur,
+            overlap_duration=_overlap,
+            total_chunks=len(chunks),
+            chunks=chunks,
+            overall_top_predictions=overall_top,
+            total_processing_time=round(total_elapsed, 4),
+            real_time_factor=round(rtf, 4),
+        )
+
+        logger.info(
+            f"tag_audio_chunks complete: {len(chunks)} chunks in "
+            f"{total_elapsed:.2f}s, RTF={rtf:.3f}"
+        )
+
+        return summary
+
+    def _calculate_chunk_positions(
+        self,
+        total_samples: int,
+        chunk_samples: int,
+        hop_samples: int,
+        min_chunk_duration: float,
+        sample_rate: int,
+    ) -> List[tuple[int, int]]:
+        """
+        Calculate (start, end) sample indices for overlapping chunks.
+
+        Chunks are evenly spaced with the given hop. The last chunk may be
+        shorter than chunk_samples but must be at least min_chunk_duration.
+
+        Args:
+            total_samples: Total number of audio samples
+            chunk_samples: Number of samples per full chunk
+            hop_samples: Number of samples between chunk starts
+            min_chunk_duration: Minimum duration for the last chunk in seconds
+            sample_rate: Sample rate in Hz
+
+        Returns:
+            List of (start_sample, end_sample) tuples
+
+        Debug logs trace:
+            - Input parameters
+            - Number of chunks calculated
+            - Start/end indices for each chunk
+            - Whether last chunk meets minimum duration
+        """
+        logger.debug(
+            f"_calculate_chunk_positions: total_samples={total_samples}, "
+            f"chunk_samples={chunk_samples}, hop_samples={hop_samples}, "
+            f"min_chunk_duration={min_chunk_duration}s"
+        )
+
+        positions: List[tuple[int, int]] = []
+
+        if total_samples <= chunk_samples:
+            # Audio fits in one chunk
+            min_samples = int(min_chunk_duration * sample_rate)
+            if total_samples >= min_samples:
+                positions.append((0, total_samples))
+                logger.debug(
+                    f"Single chunk: (0, {total_samples}), "
+                    f"duration={total_samples / sample_rate:.3f}s"
+                )
+            else:
+                logger.warning(
+                    f"Audio too short: {total_samples} samples "
+                    f"({total_samples / sample_rate:.3f}s) < minimum "
+                    f"{min_samples} samples ({min_chunk_duration}s)"
+                )
+            return positions
+
+        # Calculate chunk starts
+        start = 0
+        while start + chunk_samples <= total_samples:
+            end = start + chunk_samples
+            positions.append((start, end))
+            logger.debug(
+                f"Chunk {len(positions) - 1}: ({start}, {end}), "
+                f"[{start / sample_rate:.3f}s - {end / sample_rate:.3f}s]"
+            )
+            start += hop_samples
+
+        # Handle remaining tail
+        remaining_samples = total_samples - start
+        min_samples = int(min_chunk_duration * sample_rate)
+
+        if remaining_samples > 0:
+            if remaining_samples >= min_samples:
+                # Include the tail as a final chunk
+                positions.append((start, total_samples))
+                logger.debug(
+                    f"Tail chunk {len(positions) - 1}: ({start}, {total_samples}), "
+                    f"duration={remaining_samples / sample_rate:.3f}s "
+                    f"(>= min {min_chunk_duration}s)"
+                )
+            else:
+                logger.debug(
+                    f"Tail too short: {remaining_samples} samples "
+                    f"({remaining_samples / sample_rate:.3f}s) < minimum "
+                    f"{min_samples} samples ({min_chunk_duration}s). "
+                    f"Discarding tail."
+                )
+
+        logger.debug(f"_calculate_chunk_positions returning {len(positions)} chunks")
+        return positions
+
+    def _tag_waveform(
+        self,
+        waveform: np.ndarray,
+        sample_rate: int,
+    ) -> List[TaggingResult]:
+        """
+        Tag a waveform array and return top-K results.
+
+        Args:
+            waveform: Audio samples (mono, float32)
+            sample_rate: Sample rate in Hz
+
+        Returns:
+            List of TaggingResult dicts
+
+        Debug logs trace:
+            - Waveform shape, dtype, value range
+            - Stream creation
+            - Inference completion
+            - Result count
+        """
+        logger.debug(
+            f"_tag_waveform: shape={waveform.shape}, dtype={waveform.dtype}, "
+            f"sr={sample_rate}, "
+            f"min={waveform.min():.4f}, max={waveform.max():.4f}"
+        )
+
+        try:
+            stream = self.tagger.create_stream()
+            logger.debug("Stream created")
+
+            stream.accept_waveform(sample_rate=sample_rate, waveform=waveform)
+            logger.debug("Waveform accepted by stream")
+
+            raw_results = self.tagger.compute(stream)
+            logger.debug(f"Inference complete: {len(raw_results)} raw results")
+        except Exception as e:
+            logger.error(f"_tag_waveform inference failed: {e}")
+            raise
+
+        results: List[TaggingResult] = []
+        for i, event in enumerate(raw_results):
+            result: TaggingResult = {
+                "index": i,
+                "name": getattr(event, "name", "Unknown"),
+                "class_index": getattr(event, "index", -1),
+                "prob": getattr(event, "prob", 0.0),
+            }
+            results.append(result)
+
+        return results
+
+    def _aggregate_chunk_predictions(
+        self,
+        all_predictions: Dict[str, List[float]],
+        top_k: int,
+    ) -> List[TaggingResult]:
+        """
+        Aggregate per-chunk predictions into overall top-K results.
+
+        For each unique label name, compute the mean probability across
+        all chunks where it appeared. Sort by mean probability descending.
+
+        Args:
+            all_predictions: Dict mapping label name to list of probabilities
+            top_k: Number of top results to return
+
+        Returns:
+            List of TaggingResult sorted by mean probability
+
+        Debug logs trace:
+            - Number of unique labels
+            - Mean probability for each label
+            - Final top-K selection
+        """
+        logger.debug(
+            f"_aggregate_chunk_predictions: {len(all_predictions)} unique labels, "
+            f"top_k={top_k}"
+        )
+
+        if not all_predictions:
+            return []
+
+        aggregated = []
+        for name, probs in all_predictions.items():
+            mean_prob = float(np.mean(probs))
+            max_prob = float(np.max(probs))
+            logger.debug(
+                f"  '{name}': mean={mean_prob:.4f}, max={max_prob:.4f}, "
+                f"appeared in {len(probs)} chunks"
+            )
+            aggregated.append(
+                {
+                    "name": name,
+                    "mean_prob": mean_prob,
+                    "max_prob": max_prob,
+                    "count": len(probs),
+                }
+            )
+
+        # Sort by mean probability descending
+        aggregated.sort(key=lambda x: x["mean_prob"], reverse=True)
+
+        # Convert to TaggingResult format
+        results = []
+        for i, item in enumerate(aggregated[:top_k]):
+            results.append(
+                TaggingResult(
+                    index=i,
+                    name=item["name"],
+                    class_index=-1,  # Not tracked in aggregation
+                    prob=round(item["mean_prob"], 4),
+                )
+            )
+
+        logger.debug(f"Aggregation complete: {len(results)} top results returned")
+        return results
+
+    # ── Existing methods (unchanged below this line) ───────────────────
 
     def contains_speech(
         self,
@@ -276,7 +791,6 @@ class AudioTagger:
         logger.info(f"Checking for speech (threshold={threshold}, top_n={n_to_check})")
 
         try:
-            # Reuse tag_audio to get predictions
             results = self.tag_audio(audio, sample_rate=sample_rate)
         except Exception as e:
             logger.error(f"Speech detection failed during tagging: {e}")
@@ -286,23 +800,17 @@ class AudioTagger:
             logger.warning("No tagging results returned")
             return False
 
-        # Check top N results for speech-related classes
         for result in results[:n_to_check]:
             name = result.get("name", "")
             prob = result.get("prob", 0.0)
-
             logger.debug(f"Checking: '{name}' (prob={prob:.4f}) against speech classes")
-
-            # Check if this class is speech-related and meets threshold
             if name in self.SPEECH_CLASS_NAMES and prob >= threshold:
                 logger.info(f"Speech detected: '{name}' with probability {prob:.4f}")
                 return True
 
-        # Additional check: if "Speech" is the primary class with highest probability
         top_result = results[0]
         top_name = top_result.get("name", "")
         top_prob = top_result.get("prob", 0.0)
-
         if top_name == "Speech" and top_prob >= threshold:
             logger.info(
                 f"Speech detected as top result: '{top_name}' with probability {top_prob:.4f}"
@@ -335,7 +843,6 @@ class AudioTagger:
             logger.error(f"Failed to get speech probability: {e}")
             return 0.0
 
-        # Find maximum probability among speech-related classes
         max_speech_prob = 0.0
         for result in results:
             if result.get("name", "") in self.SPEECH_CLASS_NAMES:
@@ -345,57 +852,423 @@ class AudioTagger:
                     logger.debug(
                         f"New max speech prob: {prob:.4f} for '{result['name']}'"
                     )
-
         return max_speech_prob
+
+    def get_tagging_summary(
+        self,
+        audio: AudioInput,
+        sample_rate: Optional[int] = None,
+        audio_path: str = "unknown",
+    ) -> AudioTaggingSummary:
+        """
+        Get a comprehensive summary of audio tagging results.
+
+        Args:
+            audio: Audio input
+            sample_rate: Sample rate for raw audio data
+            audio_path: Identifier for the audio source
+
+        Returns:
+            AudioTaggingSummary with complete analysis
+        """
+        start_time = time.time()
+
+        try:
+            waveform, actual_sr = load_audio(audio, sr=sample_rate or 16000, mono=True)
+            audio_duration = len(waveform) / actual_sr if actual_sr > 0 else 0
+        except Exception as e:
+            logger.error(f"Failed to load audio for summary: {e}")
+            raise
+
+        results = self.tag_audio(audio, sample_rate=sample_rate)
+        max_speech_prob = self.get_speech_probability(audio, sample_rate=sample_rate)
+        speech_detected = max_speech_prob >= self.speech_prob_threshold
+
+        elapsed = time.time() - start_time
+        rtf = elapsed / audio_duration if audio_duration > 0 else float("inf")
+
+        summary: AudioTaggingSummary = {
+            "audio_path": audio_path,
+            "duration_seconds": audio_duration,
+            "sample_rate": actual_sr,
+            "num_results": len(results),
+            "top_predictions": results[: self.top_k],
+            "speech_detected": speech_detected,
+            "max_speech_probability": max_speech_prob,
+            "processing_time_seconds": elapsed,
+            "real_time_factor": rtf,
+        }
+
+        return summary
 
     def reset(self) -> None:
         """Reset the tagger instance (useful for testing or model updates)."""
         self._tagger = None
         self._labels_map = None
-        logger.info("AudioTagger reset")
+        console.print("[yellow]AudioTagger reset[/yellow]")
 
     def save_results(
         self,
-        results: List[Dict[str, Any]],
+        results: List[TaggingResult],
         output_path: Union[str, Path],
-    ) -> None:
+        format: str = "json",
+    ) -> Path:
         """
-        Save tagging results to a JSON file.
+        Save tagging results to a file.
 
         Args:
             results: List of result dictionaries from tag_audio
-            output_path: Path to save JSON file
+            output_path: Path to save output file
+            format: Output format ("json" or "txt")
+
+        Returns:
+            Path to saved file
         """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
+        if format == "json":
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
+        elif format == "txt":
+            with open(output_path, "w", encoding="utf-8") as f:
+                for result in results:
+                    f.write(
+                        f"{result['index']}: {result['name']} "
+                        f"(class_index={result['class_index']}) "
+                        f"- prob={result['prob']:.4f}\n"
+                    )
+        else:
+            raise ValueError(f"Unsupported format: {format}")
 
-        logger.info(f"Results saved to: {output_path}")
+        console.print(f"[green]Results saved to: {linkify(str(output_path))}[/green]")
+        return output_path
+
+    def display_results(self, results: List[TaggingResult]) -> None:
+        """
+        Display tagging results in a rich table.
+
+        Args:
+            results: List of tagging results to display
+        """
+        table = Table(title="Audio Tagging Results", border_style="blue")
+        table.add_column("Index", style="cyan", justify="right")
+        table.add_column("Name", style="green")
+        table.add_column("Class Index", style="yellow", justify="right")
+        table.add_column("Probability", style="magenta", justify="right")
+
+        for result in results:
+            prob_color = "green" if result["prob"] >= 0.5 else "yellow"
+            table.add_row(
+                str(result["index"]),
+                result["name"],
+                str(result["class_index"]),
+                f"[{prob_color}]{result['prob']:.4f}[/{prob_color}]",
+            )
+
+        console.print(table)
 
 
 if __name__ == "__main__":
-    audio_patb = "/Users/jethroestrada/.cache/files/audio/sub_audio/start_5s_recording_3_speakers.wav"
+    import argparse
+    from pathlib import Path
 
-    # Basic usage
-    tagger = AudioTagger()
+    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+    shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Tag an audio file
-    results = tagger.tag_audio(audio_patb)
+    parser = argparse.ArgumentParser(
+        description="Audio tagging with Sherpa-ONNX models",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("audio_path", type=str, help="Path to input audio file")
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default=str(AUDIO_TAGGING_MODEL),
+        help="Path to ONNX model file",
+    )
+    parser.add_argument(
+        "--labels-path",
+        type=str,
+        default=str(CLASS_LABELS_INDICES_CSV),
+        help="Path to class labels CSV file",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=5,
+        help="Number of top predictions to return",
+    )
+    parser.add_argument(
+        "--num-threads",
+        type=int,
+        default=1,
+        help="Number of CPU threads",
+    )
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default="cpu",
+        choices=["cpu", "cuda", "coreml"],
+        help="Computation provider",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode for Sherpa-ONNX",
+    )
+    parser.add_argument(
+        "--speech-threshold",
+        type=float,
+        default=0.5,
+        help="Minimum probability for speech detection",
+    )
+    parser.add_argument(
+        "--speech-top-n",
+        type=int,
+        default=3,
+        help="Check top N predictions for speech",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=str(OUTPUT_DIR),
+        help="Output directory for results",
+    )
+    parser.add_argument(
+        "--check-speech",
+        action="store_true",
+        help="Check if audio contains speech",
+    )
+    parser.add_argument(
+        "--save-summary",
+        action="store_true",
+        help="Save comprehensive summary",
+    )
+    # New chunking arguments
+    parser.add_argument(
+        "--chunk",
+        action="store_true",
+        help="Use tag_audio_chunks instead of tag_audio",
+    )
+    parser.add_argument(
+        "--chunk-duration",
+        type=float,
+        default=AudioTagger.DEFAULT_CHUNK_DURATION,
+        help="Duration of each chunk in seconds",
+    )
+    parser.add_argument(
+        "--chunk-overlap",
+        type=float,
+        default=AudioTagger.DEFAULT_CHUNK_OVERLAP,
+        help="Overlap between chunks in seconds",
+    )
 
-    # Check for speech
-    if tagger.contains_speech(audio_patb, prob_threshold=0.6):
-        print("This recording contains speech!")
+    args = parser.parse_args()
+    audio_path = args.audio_path
 
-    # Get exact speech probability
-    speech_prob = tagger.get_speech_probability(audio_patb)
-    print(f"Speech probability: {speech_prob:.2%}")
+    tagger = AudioTagger(
+        model_path=args.model_path,
+        labels_path=args.labels_path,
+        top_k=args.top_k,
+        num_threads=args.num_threads,
+        provider=args.provider,
+        debug=args.debug,
+        speech_prob_threshold=args.speech_threshold,
+        speech_top_n=args.speech_top_n,
+        chunk_duration=args.chunk_duration,
+        chunk_overlap=args.chunk_overlap,
+    )
 
-    # # Custom model paths
-    # custom_tagger = AudioTagger(
-    #     model_path="/path/to/model.onnx",
-    #     labels_path="/path/to/labels.csv",
-    #     top_k=10,
-    #     speech_prob_threshold=0.6,
-    # )
+    console.print(
+        Panel.fit(
+            "[bold cyan]Audio Tagging Analysis[/bold cyan]",
+            border_style="cyan",
+        )
+    )
+
+    try:
+        console.print(f"\n[bold]Analyzing audio: {linkify(audio_path)}[/bold]\n")
+        audio_name = Path(audio_path).stem
+
+        if args.chunk:
+            # ── Chunked mode ───────────────────────────────────────
+            summary = tagger.tag_audio_chunks(
+                audio_path,
+                chunk_duration=args.chunk_duration,
+                overlap_duration=args.chunk_overlap,
+            )
+
+            # Display overall results
+            console.print("\n[bold]Overall Top Predictions:[/bold]")
+            tagger.display_results(summary["overall_top_predictions"])
+
+            # Display chunk summary table
+            chunk_table = Table(title="Chunk Processing Summary", border_style="blue")
+            chunk_table.add_column("Chunk", justify="right", style="cyan")
+            chunk_table.add_column("Time Range", style="yellow")
+            chunk_table.add_column("Duration", justify="right")
+            chunk_table.add_column("Top Prediction", style="green")
+            chunk_table.add_column("Prob", justify="right", style="magenta")
+            chunk_table.add_column("Proc Time", justify="right")
+
+            for chunk in summary["chunks"]:
+                top_pred = (
+                    chunk["predictions"][0]
+                    if chunk["predictions"]
+                    else {"name": "N/A", "prob": 0.0}
+                )
+                chunk_table.add_row(
+                    str(chunk["chunk_index"]),
+                    f"{chunk['start_time']:.2f}s - {chunk['end_time']:.2f}s",
+                    f"{chunk['duration']:.2f}s",
+                    top_pred["name"],
+                    f"{top_pred['prob']:.3f}",
+                    f"{chunk['processing_time'] * 1000:.1f}ms",
+                )
+
+            console.print(chunk_table)
+
+            # ── NEW: Generate visualization plots ──────────────────
+            try:
+                from jet.libs.sherpa_onnx.audio_tagger_chunk_plots import (
+                    save_chunk_plots,
+                )
+
+                logger.debug("Generating chunk visualization plots...")
+                plot_paths = save_chunk_plots(
+                    summary=summary,
+                    output_dir=Path(args.output_dir),
+                    top_n_display=min(args.top_k, 10),
+                )
+                console.print(
+                    Panel(
+                        "\n".join(
+                            f"[cyan]{i + 1}. {linkify(str(p))}[/cyan]"
+                            for i, p in enumerate(plot_paths)
+                        ),
+                        title="📊 Chunk Visualization Plots",
+                        border_style="blue",
+                    )
+                )
+            except ImportError:
+                logger.warning(
+                    "audio_tagger_chunk_plots module not found — "
+                    "skipping plot generation"
+                )
+                console.print(
+                    "[yellow]⚠ Plot module not available — skipping visualizations[/yellow]"
+                )
+            except Exception as e:
+                logger.error(f"Failed to generate chunk plots: {e}", exc_info=True)
+                console.print(f"[red]⚠ Plot generation failed: {e}[/red]")
+
+            # ── Save JSON summary ──────────────────────────────────
+            summary_output = Path(args.output_dir) / f"{audio_name}_chunks_summary.json"
+            serializable = {
+                **summary,
+                "chunks": [{**chunk} for chunk in summary["chunks"]],
+                "overall_top_predictions": summary["overall_top_predictions"],
+            }
+            with open(summary_output, "w", encoding="utf-8") as f:
+                json.dump(serializable, f, indent=2, ensure_ascii=False)
+            console.print(
+                f"[green]Chunked results saved to: {linkify(str(summary_output))}[/green]"
+            )
+
+        else:
+            # ── Standard mode (existing behavior) ─────────────────
+            results = tagger.tag_audio(audio_path)
+            tagger.display_results(results)
+
+            json_output = Path(args.output_dir) / f"{audio_name}_tags.json"
+            tagger.save_results(results, json_output, format="json")
+
+            txt_output = Path(args.output_dir) / f"{audio_name}_tags.txt"
+            tagger.save_results(results, txt_output, format="txt")
+
+            if args.check_speech:
+                console.print("\n[bold]Speech Detection Analysis[/bold]")
+                is_speech = tagger.contains_speech(audio_path)
+                speech_prob = tagger.get_speech_probability(audio_path)
+
+                speech_table = Table(
+                    title="Speech Detection Results", border_style="green"
+                )
+                speech_table.add_column("Metric", style="cyan")
+                speech_table.add_column("Value", style="yellow")
+                speech_table.add_row(
+                    "Speech Detected", "✅ Yes" if is_speech else "❌ No"
+                )
+                speech_table.add_row("Max Speech Probability", f"{speech_prob:.4f}")
+                speech_table.add_row("Threshold", str(args.speech_threshold))
+                console.print(speech_table)
+
+                speech_result = {
+                    "audio_path": audio_path,
+                    "speech_detected": is_speech,
+                    "max_speech_probability": speech_prob,
+                    "threshold": args.speech_threshold,
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                speech_output = (
+                    Path(args.output_dir) / f"{audio_name}_speech_detection.json"
+                )
+                with open(speech_output, "w", encoding="utf-8") as f:
+                    json.dump(speech_result, f, indent=2, ensure_ascii=False)
+                console.print(
+                    f"[green]Speech detection saved to: {linkify(str(speech_output))}[/green]"
+                )
+
+            if args.save_summary:
+                console.print("\n[bold]Generating Comprehensive Summary[/bold]")
+                summary = tagger.get_tagging_summary(audio_path, audio_path=audio_path)
+
+                summary_table = Table(
+                    title="Audio Tagging Summary", border_style="magenta"
+                )
+                summary_table.add_column("Metric", style="cyan")
+                summary_table.add_column("Value", style="yellow")
+                summary_table.add_row("Audio File", summary["audio_path"])
+                summary_table.add_row("Duration", f"{summary['duration_seconds']:.2f}s")
+                summary_table.add_row("Sample Rate", f"{summary['sample_rate']} Hz")
+                summary_table.add_row("Results Count", str(summary["num_results"]))
+                summary_table.add_row(
+                    "Speech Detected",
+                    "✅ Yes" if summary["speech_detected"] else "❌ No",
+                )
+                summary_table.add_row(
+                    "Max Speech Prob", f"{summary['max_speech_probability']:.4f}"
+                )
+                summary_table.add_row(
+                    "Processing Time", f"{summary['processing_time_seconds']:.3f}s"
+                )
+                summary_table.add_row(
+                    "Real-Time Factor", f"{summary['real_time_factor']:.3f}"
+                )
+                console.print(summary_table)
+
+                summary_output = Path(args.output_dir) / f"{audio_name}_summary.json"
+                with open(summary_output, "w", encoding="utf-8") as f:
+                    json.dump(summary, f, indent=2, ensure_ascii=False)
+                console.print(
+                    f"[green]Summary saved to: {linkify(str(summary_output))}[/green]"
+                )
+
+        console.print(
+            Panel.fit(
+                f"[bold green]✅ Analysis Complete[/bold green]\n"
+                f"Results saved in: {linkify(str(args.output_dir))}",
+                border_style="green",
+            )
+        )
+
+    except Exception as e:
+        console.print(
+            Panel.fit(
+                f"[bold red]❌ Error Processing Audio[/bold red]\n{str(e)}",
+                border_style="red",
+            )
+        )
+        raise
