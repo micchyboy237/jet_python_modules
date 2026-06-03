@@ -13,7 +13,7 @@ from jet.audio.speech.segment_store import SegmentStore
 from jet.audio.speech.utils import display_segments
 from jet.audio.speech_detector import record_from_mic
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
-from jet.audio.speech_handlers.speaker_reset_handler import SpeakerResetHandler
+from jet.audio.speech_handlers.global_reset_handler import GlobalResetHandler
 from jet.audio.speech_handlers.speech_events import SpeechSegmentEndEvent
 from jet.audio.speech_handlers.subtitle_overlay_window import SubtitleOverlay
 from jet.audio.speech_handlers.websocket_subtitle_sender import (
@@ -80,7 +80,7 @@ def main_live_speech_translation(verbose: bool = False):
     ]
     ws_sender: WebsocketSubtitleSender = handlers[0]
 
-    speaker_reset = SpeakerResetHandler()
+    global_reset_handler = GlobalResetHandler()
 
     all_segments_path = OUTPUT_DIR / "all_segments.json"
     subtitles_path = OUTPUT_DIR / "subtitles.srt"
@@ -91,12 +91,12 @@ def main_live_speech_translation(verbose: bool = False):
         completed_segments.clear()
         segment_store.reset()
         ws_sender.clear_queue()
-        speaker_reset.reset()  # <-- NEW: reset speakers on server
 
     overlay = SubtitleOverlay.create_and_connect(
         ws_sender,
         extra_clear_paths=[all_segments_path, subtitles_path],
         on_clear=_on_clear,
+        global_reset_handler=global_reset_handler,
     )
 
     _stop_recording = threading.Event()

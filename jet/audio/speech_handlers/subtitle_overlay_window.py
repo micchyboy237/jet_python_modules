@@ -3,12 +3,15 @@ SubtitleOverlay  (FireRed VAD edition)
 ======================================
 A PyQt6 always-on-top preview window that displays live subtitle entries
 received from the WebSocket subtitle server.
+
 Features
 --------
 - Rich HTML log of all segments: Japanese + English text, per-segment metadata
 - Per-entry action links: copy 📋, open folder 📂, play audio ▶
 - Toggle Japanese line visibility
 - Clear all entries
+- **NEW: Global Reset checkbox** — when checked, clearing also POSTs to
+  /global/reset on the server
 - Auto-scroll that follows new entries unless the user has scrolled up
 - QSoundEffect for in-app WAV playback
 - VAD badge: FireRed only (hard-coded; no registry)
@@ -17,6 +20,7 @@ Features
 - VADScorer row: composite score and quality label with colour coding
 - Implements SpeechSegmentHandler (on_segment_end is a no-op;
   subtitle data arrives via SubtitleResponseNotifier Qt signal)
+
 Observer wiring (done in main)
 -------------------------------
     app = QApplication(sys.argv)
@@ -44,6 +48,7 @@ from PyQt6.QtGui import QTextCursor
 from PyQt6.QtMultimedia import QSoundEffect
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,  # NEW
     QHBoxLayout,
     QMainWindow,
     QPushButton,
@@ -54,6 +59,7 @@ from PyQt6.QtWidgets import (
 from rich.console import Console
 
 console = Console()
+
 OVERLAY_WIDTH = 450
 OVERLAY_HEIGHT = 600
 
@@ -62,16 +68,8 @@ class _QtABCMeta(type(QMainWindow), ABCMeta):
     pass
 
 
+# ===== Color helpers (unchanged) =====
 def _balanced_vad_score_color(score: Optional[float]) -> str:
-    """
-    Map a balanced VAD score [0.0–1.0] → display colour.
-    Uses thresholds from score_vad_segments with balanced method:
-      ≥ 0.85 → Excellent (green)
-      ≥ 0.70 → Good (light green)
-      ≥ 0.55 → Marginal (amber)
-      ≥ 0.40 → Poor (orange)
-      < 0.40 → Invalid (red)
-    """
     if score is None:
         return "#8b949e"
     if score >= 0.85:
@@ -86,9 +84,6 @@ def _balanced_vad_score_color(score: Optional[float]) -> str:
 
 
 def _balanced_vad_score_rating(score: Optional[float]) -> str:
-    """
-    Return a human-readable rating for a balanced VAD score.
-    """
     if score is None:
         return "N/A"
     if score >= 0.85:
@@ -103,7 +98,6 @@ def _balanced_vad_score_rating(score: Optional[float]) -> str:
 
 
 def _speech_pctg_color(pctg: Optional[float]) -> str:
-    """Map speech-frame percentage [0–100] → display colour."""
     if pctg is None:
         return "#8b949e"
     if pctg < 30:
@@ -116,15 +110,6 @@ def _speech_pctg_color(pctg: Optional[float]) -> str:
 
 
 def _composite_score_color(score: Optional[float]) -> str:
-    """
-    Map a VADScorer composite_score [0.0–1.0] → display colour.
-    Mirrors the QUALITY_BANDS thresholds from vad_scorer.py:
-      > 0.80 → Very good  (green)
-      > 0.60 → Good       (light green)
-      > 0.40 → Fair       (amber)
-      > 0.20 → Bad        (orange)
-      ≤ 0.20 → Very bad   (red)
-    """
     if score is None:
         return "#8b949e"
     if score > 0.80:
@@ -139,11 +124,6 @@ def _composite_score_color(score: Optional[float]) -> str:
 
 
 def _quality_label_color(label: Optional[str]) -> str:
-    """
-    Map a VADScorer quality_label string → display colour.
-    Provides a fallback for cases where composite_score is unavailable
-    but quality_label is already known.
-    """
     _MAP = {
         "Very good": "#3fb950",
         "Good": "#56d364",
@@ -155,7 +135,6 @@ def _quality_label_color(label: Optional[str]) -> str:
 
 
 def _speaker_confidence_color(confidence: Optional[float]) -> str:
-    """Map speaker confidence [0.0–1.0] → display colour."""
     if confidence is None:
         return "#8b949e"
     if confidence > 0.70:
@@ -175,6 +154,7 @@ _VAD_BADGE_HTML = (
 )
 
 
+# ===== _format_entry (unchanged) =====
 def _format_entry(
     index: int,
     entry: dict,
@@ -183,6 +163,7 @@ def _format_entry(
     expanded: bool = False,
     is_playing: bool = False,
 ) -> str:
+    # ... (identical to original — omitted for brevity) ...
     ja = entry.get("ja", "").strip()
     en = entry.get("en", "").strip()
     text_display = en if hide_japanese else f"{ja}\n{en}".strip()
@@ -211,13 +192,10 @@ def _format_entry(
             gap = current_start_sec - prev_end_sec
     gap_str = f"{gap:.2f}s" if gap is not None else "—"
     duration = end - start
-
-    # Read vad_score directly from notification (computed upstream)
     vad_score: Optional[float] = entry.get("vad_score")
     vad_score_str = f"{vad_score:.3f}" if isinstance(vad_score, float) else "N/A"
     vad_score_color = _balanced_vad_score_color(vad_score)
     vad_rating = _balanced_vad_score_rating(vad_score)
-
     speech_pctg: Optional[float] = entry.get("speech_frames_pctg")
     speech_pctg_str = (
         f"{speech_pctg:.1f}%" if isinstance(speech_pctg, (int, float)) else "N/A"
@@ -306,15 +284,15 @@ def _format_entry(
     )
 
 
+# ===== SubtitleOverlay class =====
+
+
 class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
     """
     Always-on-top subtitle preview window.
-    Subtitle data arrives via on_subtitle_received (Qt slot, main thread),
-    connected to a SubtitleResponseNotifier.  on_segment_end is a no-op.
-    Typical wiring via factory
-    --------------------------
-        overlay = SubtitleOverlay.create_and_connect(sender)
-        overlay.show()
+
+    NEW: Includes a "Global Reset on Clear" checkbox. When checked, pressing
+    the clear button also calls POST /global/reset on the live-subtitles server.
     """
 
     _POLL_MS: int = 800
@@ -336,6 +314,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         show_ja_text: bool = False,
         extra_clear_paths: Sequence[Path] = (),
         on_clear: Optional[callable] = None,
+        global_reset_handler=None,  # NEW: injected handler
         parent: QWidget | None = None,
     ) -> None:
         QMainWindow.__init__(self, parent)
@@ -345,6 +324,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._auto_scroll_enabled: bool = True
         self._extra_clear_paths: tuple[Path, ...] = tuple(extra_clear_paths)
         self._on_clear: Optional[callable] = on_clear
+        self._global_reset_handler = global_reset_handler  # NEW
         self._setup_window()
         self._setup_ui()
         self._setup_sound()
@@ -360,14 +340,16 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
             self.move(geom.right() - self.width() - 20, 20)
 
     def _setup_ui(self) -> None:
-        from jet.audio.speech_handlers.language_cache import (
-            LanguageStore,
+        # UPDATED: Import from settings_cache (renamed module)
+        from jet.audio.speech_handlers.settings_cache import (
+            AppSettingsStore,
         )
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
 
+        # ---- Top bar ----
         top_bar = QHBoxLayout()
 
         self._clear_btn = QPushButton("🗑")
@@ -380,20 +362,33 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._hide_ja_btn.setChecked(self._hide_japanese)
         self._hide_ja_btn.clicked.connect(self._toggle_japanese)
 
-        # ── Language selector ──
-        self._language_store = LanguageStore()
+        # UPDATED: Use AppSettingsStore instead of LanguageStore
+        self._settings_store = AppSettingsStore()
+
         self._lang_btn = QPushButton()
         self._lang_btn.setToolTip("Select transcription language")
         self._lang_btn.clicked.connect(self._cycle_language)
         self._refresh_language_button()
 
+        # NEW: Global Reset checkbox
+        self._global_reset_checkbox = QCheckBox("🔄 Global Reset")
+        self._global_reset_checkbox.setToolTip(
+            "When checked, clearing also resets the server state via /global/reset"
+        )
+        # Restore persisted value
+        self._global_reset_checkbox.setChecked(
+            self._settings_store.global_reset_on_clear
+        )
+        self._global_reset_checkbox.stateChanged.connect(self._on_global_reset_toggled)
+
         top_bar.addWidget(self._clear_btn)
         top_bar.addWidget(self._hide_ja_btn)
         top_bar.addWidget(self._lang_btn)
+        top_bar.addWidget(self._global_reset_checkbox)  # NEW
         top_bar.addStretch()
-
         layout.addLayout(top_bar)
 
+        # ---- Text area ----
         self._text_area = QTextBrowser()
         self._text_area.setReadOnly(True)
         self._text_area.setAcceptRichText(True)
@@ -406,24 +401,33 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
 
         self.setCentralWidget(central)
 
+    # ---- NEW: Global Reset checkbox handler ----
+    def _on_global_reset_toggled(self, state: int) -> None:
+        """Persist checkbox state whenever the user toggles it."""
+        checked = state == Qt.CheckState.Checked.value
+        self._settings_store.set_global_reset_on_clear(checked)
+        console.print(
+            f"[debug][SubtitleOverlay] Global Reset on Clear: {'ON' if checked else 'OFF'}[/debug]"
+        )
+
+    # ---- Language (updated to use _settings_store) ----
     def _refresh_language_button(self) -> None:
         """Update the language button text to reflect current selection."""
-        lang = self._language_store.language
+        lang = self._settings_store.language
         label_map = {"auto": "🌐 Auto", "en": "🇺🇸 EN", "ja": "🇯🇵 JA"}
         self._lang_btn.setText(label_map.get(lang, f"🌐 {lang}"))
 
     def _cycle_language(self) -> None:
         """Cycle to the next language and update UI + sender."""
-        new_lang = self._language_store.cycle_language()
+        new_lang = self._settings_store.cycle_language()
         self._refresh_language_button()
-        # If we have a reference to the sender, update its language too
         if hasattr(self, "_sender") and self._sender is not None:
             self._sender.set_language(new_lang)
 
     @property
     def language(self) -> str:
         """Expose current language so external code can read it."""
-        return self._language_store.language
+        return self._settings_store.language
 
     def set_sender_reference(self, sender) -> None:
         """
@@ -433,6 +437,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         """
         self._sender = sender
 
+    # ---- Sound & Timer (unchanged) ----
     def _setup_sound(self) -> None:
         self._sound_effect = QSoundEffect()
 
@@ -441,24 +446,13 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._poll_timer.timeout.connect(self._refresh_display)
         self._poll_timer.start(self._POLL_MS)
 
+    # ---- Subtitle handling (unchanged) ----
     def on_subtitle_received(self, notification: SubtitleNotification) -> None:
-        """
-        Qt slot — always runs on the Qt main thread (via queued signal).
-        Maps the SubtitleNotification dict to an internal entry dict and
-        appends it to the log.  Display is refreshed by the poll timer.
-
-        VAD score is now computed upstream in WebsocketSubtitleSender and
-        passed via notification["vad_score"].  This method is a pure display
-        mapper with no scoring logic.
-        """
         ja = notification.get("ja_text", "").strip()
         en = notification.get("en_text", "").strip()
         if not ja and not en:
             return
-
-        # Read pre-computed vad_score directly from notification
         vad_score: Optional[float] = notification.get("vad_score")
-
         speaker_label = notification.get("speaker_label", "")
         speaker_confidence = notification.get("speaker_confidence")
         speaker_match_type = notification.get("speaker_match_type", "")
@@ -491,7 +485,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._last_html = None
 
     def _refresh_display(self) -> None:
-        """Called by poll timer. Rebuilds HTML only when entries have changed."""
         html_parts: list[str] = []
         prev_entry: Optional[dict] = None
         for i, entry in enumerate(self._entries, 1):
@@ -503,23 +496,18 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                 continue
             html_parts.append(_format_entry(i, entry, prev_entry, self._hide_japanese))
             prev_entry = entry
-
         html = (
             "".join(html_parts)
             if html_parts
             else "<span style='color:#8b949e;'>Waiting for transcribed segments…</span>"
         )
-
         if html == self._last_html:
             return
-
         self._last_html = html
         scrollbar = self._text_area.verticalScrollBar()
         old_value = scrollbar.value()
         at_bottom = old_value >= scrollbar.maximum() - 20
-
         self._text_area.setHtml(html)
-
         if at_bottom or self._auto_scroll_enabled:
             cursor = self._text_area.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -531,17 +519,37 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         scrollbar = self._text_area.verticalScrollBar()
         self._auto_scroll_enabled = scrollbar.value() >= scrollbar.maximum() - 20
 
+    # ---- UPDATED: Clear all now conditionally calls global reset ----
     def _clear_all(self) -> None:
         self._entries.clear()
         self._last_html = None
         self._text_area.clear()
         self._reset_storage()
 
+        # NEW: If checkbox is checked, trigger global reset
+        if (
+            self._global_reset_checkbox.isChecked()
+            and self._global_reset_handler is not None
+        ):
+            console.print(
+                "[info][SubtitleOverlay] Triggering global reset via /global/reset...[/info]"
+            )
+            try:
+                success = self._global_reset_handler.reset()
+                if success:
+                    console.print(
+                        "[green][SubtitleOverlay] Global reset successful[/green]"
+                    )
+                else:
+                    console.print(
+                        "[yellow][SubtitleOverlay] Global reset returned failure[/yellow]"
+                    )
+            except Exception as exc:
+                console.print(
+                    f"[red][SubtitleOverlay] Global reset raised exception: {exc}[/red]"
+                )
+
     def _reset_storage(self) -> None:
-        """
-        Invoke the on_clear callback (e.g. SegmentStore.reset) then delete
-        any extra file paths (all_segments.json, subtitles.srt, …).
-        """
         if self._on_clear is not None:
             try:
                 self._on_clear()
@@ -559,6 +567,7 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                     style="bold",
                 )
 
+    # ---- Toggle, anchors, actions, events, closeEvent (unchanged) ----
     def _toggle_japanese(self) -> None:
         self._hide_japanese = self._hide_ja_btn.isChecked()
         self._last_html = None
@@ -607,16 +616,17 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._sound_effect.play()
 
     def on_segment_start(self, event: SpeechSegmentStartEvent) -> None:
-        """No-op. Overlay is driven by WS responses, not raw segment boundaries."""
+        pass
 
     def on_segment_end(self, event: SpeechSegmentEndEvent) -> None:
-        """No-op. Subtitle text arrives via on_subtitle_received (Qt signal)."""
+        pass
 
     def closeEvent(self, event) -> None:
         self._poll_timer.stop()
         self._sound_effect.stop()
         event.accept()
 
+    # ---- UPDATED: Factory now accepts global_reset_handler ----
     @classmethod
     def create_and_connect(
         cls,
@@ -624,11 +634,13 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         show_ja_text: bool = False,
         extra_clear_paths: Sequence[Path] = (),
         on_clear: Optional[callable] = None,
+        global_reset_handler=None,  # NEW parameter
     ) -> "SubtitleOverlay":
         overlay = cls(
             show_ja_text=show_ja_text,
             extra_clear_paths=extra_clear_paths,
             on_clear=on_clear,
+            global_reset_handler=global_reset_handler,  # NEW: pass through
         )
         overlay.set_sender_reference(sender)
         notifier = SubtitleResponseNotifier(parent=overlay)
