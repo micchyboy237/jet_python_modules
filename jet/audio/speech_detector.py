@@ -288,7 +288,7 @@ def extract_current_speech_segment(
 
     # Quantize audio to produce more valleys and troughs
     quantized_audio_np, _ = quantize_audio(
-        full_audio_np, sr=SAMPLE_RATE, verbose=verbose
+        full_audio_np, target_dtype="float16", sr=SAMPLE_RATE, verbose=verbose
     )
 
     curr_speech_segs, speech_probs = extract_speech_timestamps(
