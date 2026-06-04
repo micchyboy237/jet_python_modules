@@ -25,7 +25,6 @@ from jet.audio.helpers.silence import (
     detect_silence,
 )
 from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
-from jet.audio.normalization.quant import quantize_audio
 from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
@@ -287,12 +286,12 @@ def extract_current_speech_segment(
     full_audio_np, _ = normalize_audio_for_vad(full_audio_np, SAMPLE_RATE)
 
     # Quantize audio to produce more valleys and troughs
-    quantized_audio_np, _ = quantize_audio(
-        full_audio_np, target_dtype="float16", sr=SAMPLE_RATE, verbose=verbose
-    )
+    # full_audio_np, _ = quantize_audio(
+    #     full_audio_np, target_dtype="float16", sr=SAMPLE_RATE, verbose=verbose
+    # )
 
     curr_speech_segs, speech_probs = extract_speech_timestamps(
-        audio=quantized_audio_np,
+        audio=full_audio_np,
         with_scores=True,
         return_seconds=True,
         threshold=threshold,
