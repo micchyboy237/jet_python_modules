@@ -163,16 +163,20 @@ def _format_entry(
     expanded: bool = False,
     is_playing: bool = False,
 ) -> str:
-    # ... (identical to original — omitted for brevity) ...
+    # Get the actual segment number from the entry, fallback to index
+    segment_number = entry["segment_number"]
+
     ja = entry.get("ja", "").strip()
     en = entry.get("en", "").strip()
     text_display = en if hide_japanese else f"{ja}\n{en}".strip()
+
     start: float = entry.get("start", 0.0)
     end: float = entry.get("end", 0.0)
     end_reason = entry.get("end_reason") or "true_silence"
     segment_dir: Optional[Path] = (
         Path(entry["segment_dir"]) if entry.get("segment_dir") else None
     )
+
     gap: Optional[float] = None
     if prev_entry is not None:
         prev_end_time_utc = prev_entry.get("end_time_utc")
@@ -252,8 +256,9 @@ def _format_entry(
             f'<span style="color:{speaker_conf_color};">{speaker_conf_str}</span>'
             f"</span>"
         )
+
     header_html = (
-        f'<b style="font-size:10px;">{index}</b>'
+        f'<b style="font-size:10px;">{segment_number}</b>'  # Display actual segment number
         f"{speaker_badge} "
         f'<span style="font-size:9px; color:#8b949e;">'
         f"({duration:.2f}s)"
@@ -264,6 +269,7 @@ def _format_entry(
         f"</span>"
         f" {copy_link} {open_link} {play_link}"
     )
+
     text_html = (
         f'<div style="margin-top:5px; margin-bottom:2px;">'
         f'<span style="'
@@ -275,6 +281,7 @@ def _format_entry(
         f'">{text_display.replace(chr(10), "<br/>")}</span>'
         f"</div>"
     )
+
     return (
         f'<div style="margin-bottom:4px;">'
         f"{header_html}"
@@ -457,10 +464,12 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         speaker_confidence = notification.get("speaker_confidence")
         speaker_match_type = notification.get("speaker_match_type", "")
         diarization = notification.get("diarization", {})
+        segment_number = notification.get("num", 0)
         self._entries.append(
             {
                 "ja": ja,
                 "en": en,
+                "segment_number": segment_number,
                 "start": notification.get("start_sec", 0.0),
                 "end": notification.get("end_sec", 0.0),
                 "start_time_utc": notification.get("start_time_utc"),
