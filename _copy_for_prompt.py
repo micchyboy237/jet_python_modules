@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 
+import tiktoken
 from jet.logger import logger
 from tqdm import tqdm
 
@@ -395,6 +396,12 @@ def main():
     # Print the copied content character count
     logger.log("Prompt Char Count:", len(clipboard_content), colors=["GRAY", "SUCCESS"])
 
+    logger.log(
+        "Tokens Count (gpt-4o):",
+        count_tokens(clipboard_content),
+        colors=["GRAY", "SUCCESS"],
+    )
+
     # Newline
     print("\n")
 
@@ -439,6 +446,33 @@ def get_language_from_extension(filename: str) -> str:
     }
 
     return mapping.get(ext, "text")
+
+
+def count_tokens(
+    text: str,
+    model: str = "gpt-4o",  # Best default
+    encoding_name: str | None = None,
+) -> int:
+    """
+    Count the number of tokens in a string using tiktoken.
+
+    Args:
+        text: The input string to tokenize.
+        model: OpenAI model name to determine the encoding
+               (default: "gpt-4o" — recommended).
+        encoding_name: Optional direct encoding name
+                       (e.g., "o200k_base", "cl100k_base").
+                       Takes precedence over model.
+
+    Returns:
+        Number of tokens.
+    """
+    if encoding_name:
+        encoding = tiktoken.get_encoding(encoding_name)
+    else:
+        encoding = tiktoken.encoding_for_model(model)
+
+    return len(encoding.encode(text))
 
 
 if __name__ == "__main__":
