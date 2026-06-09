@@ -31,6 +31,7 @@ exclude_files = [
     "**/dream/",
     "**/jupyter/",
     "**/*.png",
+    "**/*.svg",
     "**/*.pyc",
     "**/_git_stats.json",
     "**/stats_results/",
