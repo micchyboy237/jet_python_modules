@@ -1,6 +1,5 @@
-from typing import TypedDict
 import os
-from types import SimpleNamespace
+from typing import TypedDict
 
 
 class PostgresConfig(TypedDict):
@@ -28,20 +27,27 @@ ENV_GROUPS = {
         DEFAULT_DB="postgres",
         DEFAULT_USER="jethroestrada",
         DEFAULT_PASSWORD="",
-        DEFAULT_HOST="jethros-macbook-air.local",
-        DEFAULT_PORT=5432
+        DEFAULT_HOST=os.getenv("HOST_MAC"),
+        DEFAULT_PORT=5432,
+    ),
+    "windows": PostgresConfig(
+        DEFAULT_DB="postgres",
+        DEFAULT_USER="jethroestrada",
+        DEFAULT_PASSWORD="1",
+        DEFAULT_HOST=os.getenv("HOST_PC"),
+        DEFAULT_PORT=5432,
     ),
     "local": PostgresConfig(
         DEFAULT_DB="postgres",
         DEFAULT_USER="jethroestrada",
         DEFAULT_PASSWORD="",
         DEFAULT_HOST="localhost",
-        DEFAULT_PORT=5432
-    )
+        DEFAULT_PORT=5432,
+    ),
 }
 
 # Default configuration if no environment is specified
-DEFAULT_CONFIG = ENV_GROUPS["local"]
+DEFAULT_CONFIG = ENV_GROUPS["windows"]
 
 
 def load_config() -> PostgresConfigObject:
@@ -49,7 +55,8 @@ def load_config() -> PostgresConfigObject:
     env = os.getenv("JET_POSTGRES_ENV", "local")
     if env not in ENV_GROUPS:
         raise ValueError(
-            f"Invalid JET_POSTGRES_ENV: {env}. Valid options are {list(ENV_GROUPS.keys())}")
+            f"Invalid JET_POSTGRES_ENV: {env}. Valid options are {list(ENV_GROUPS.keys())}"
+        )
     return PostgresConfigObject(ENV_GROUPS[env])
 
 
