@@ -1,3 +1,4 @@
+import argparse
 import signal
 import sys
 
@@ -20,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-OVERLAY_WIDTH = 480
+OVERLAY_WIDTH = 520
 OVERLAY_HEIGHT = 300
 DEFAULT_MARGIN_RIGHT = 20
 DEFAULT_MARGIN_BOTTOM = 50
@@ -32,7 +33,8 @@ DEFAULT_AMPLITUDE_SCALE = 2.0
 MIN_AMPLITUDE_SCALE = 0.1
 MAX_AMPLITUDE_SCALE = 10.0
 AMPLITUDE_SCALE_STEP = 0.1
-MAX_GAIN_DB = 30.0  # Maximum gain in dB to prevent clipping too much
+MAX_GAIN_DB = 30.0
+SOFT_CLIP_THRESHOLD = 0.95
 
 TARGET_LUFS_PRESETS = {
     "Streaming (-14 LUFS)": -14.0,
@@ -44,6 +46,18 @@ TARGET_LUFS_PRESETS = {
 
 
 class LiveAudioWaveform(QWidget):
+    """Live audio waveform visualization with LUFS-based loudness normalization.
+
+    Features:
+    - Real-time audio waveform display
+    - ITU-R BS.1770 loudness measurement (LUFS)
+    - Manual and automatic loudness normalization (default: on)
+    - Soft clipping to prevent visual distortion
+    - Peak level warnings
+    - Loudness range display
+    - Multiple target LUFS presets
+    """
+
     audio_data_ready = pyqtSignal(np.ndarray)
 
     def __init__(
@@ -54,6 +68,7 @@ class LiveAudioWaveform(QWidget):
         blocksize: int = DEFAULT_BLOCKSIZE,
         window_size_seconds: float = DEFAULT_WINDOW_SIZE_SECONDS,
         amplitude_scale: float = DEFAULT_AMPLITUDE_SCALE,
+        enable_normalization: bool = True,
         verbose: bool = False,
         parent=None,
     ):
@@ -70,10 +85,15 @@ class LiveAudioWaveform(QWidget):
         self.current_rms = 0.0
         self.current_lufs = float("-inf")
         self.target_lufs = -14.0
-        self.loudness_normalization_enabled = False
-        self.gain_linear = 1.0  # Actual audio gain (linear multiplier)
-        self.gain_db = 0.0  # Gain in dB for display
+        self.loudness_normalization_enabled = enable_normalization
+        self.soft_clip_enabled = True
+        self.gain_linear = 1.0
+        self.gain_db = 0.0
         self.update_counter = 0
+        self.peak_warning_active = False
+        self.last_peak_warning = 0
+        self.clip_count = 0
+        self.loudness_range = 0.0
 
         # Initialize pyloudnorm meter
         self.loudness_meter = pyln.Meter(samplerate)
@@ -91,9 +111,16 @@ class LiveAudioWaveform(QWidget):
         self._setup_ui()
         self.audio_data_ready.connect(self.update_plot)
         self.drag_position = None
+
+        # Set initial state of auto-normalize checkbox
+        if enable_normalization:
+            self.auto_normalize_cb.setChecked(True)
+
         self._log(
-            f"[INIT] LiveAudioWaveform initialized with amplitude_scale={amplitude_scale:.1f}x, "
-            f"target LUFS={self.target_lufs:.0f}"
+            f"[INIT] LiveAudioWaveform initialized with "
+            f"amplitude_scale={amplitude_scale:.1f}x, "
+            f"target LUFS={self.target_lufs:.0f}, "
+            f"normalization={'ON' if enable_normalization else 'OFF'}"
         )
 
     def _log(self, message):
@@ -109,11 +136,12 @@ class LiveAudioWaveform(QWidget):
         self._create_top_bar()
         self._create_controls_bar()
         self._create_loudness_bar()
+        self._create_clipping_bar()
         self._create_plot_widget()
         self._log("[UI] Setup complete")
 
     def _create_top_bar(self):
-        """Create the title bar with close button."""
+        """Create the title bar with close button and peak warning indicator."""
         self.top_bar = QWidget()
         self.top_bar.setFixedHeight(28)
         self.top_bar.setStyleSheet(
@@ -126,6 +154,14 @@ class LiveAudioWaveform(QWidget):
             "color: #e0e0e0; font-size: 13px; font-weight: bold;"
         )
         top_layout.addWidget(self.title_label)
+
+        # Peak warning indicator
+        self.peak_warning_label = QLabel("")
+        self.peak_warning_label.setStyleSheet(
+            "color: #ff3333; font-size: 11px; font-weight: bold;"
+        )
+        top_layout.addWidget(self.peak_warning_label)
+
         top_layout.addStretch()
         self.scale_label = QLabel(f"Scale: {self.amplitude_scale:.1f}x")
         self.scale_label.setStyleSheet(
@@ -295,6 +331,65 @@ class LiveAudioWaveform(QWidget):
         self.main_layout.addWidget(self.loudness_bar)
         self._log("[UI] Loudness bar created")
 
+    def _create_clipping_bar(self):
+        """Create bar for soft clipping and peak warning controls."""
+        self.clipping_bar = QWidget()
+        self.clipping_bar.setFixedHeight(30)
+        self.clipping_bar.setStyleSheet(
+            "background-color: #282828; border-bottom: 1px solid #444;"
+        )
+        clipping_layout = QHBoxLayout(self.clipping_bar)
+        clipping_layout.setContentsMargins(8, 2, 8, 2)
+        clipping_layout.setSpacing(6)
+
+        # Soft clipping checkbox
+        self.soft_clip_cb = QCheckBox("Soft Clip")
+        self.soft_clip_cb.setChecked(self.soft_clip_enabled)
+        self.soft_clip_cb.setStyleSheet(
+            "QCheckBox { color: #cccccc; font-size: 10px; font-weight: bold; spacing: 3px; } "
+            "QCheckBox::indicator { width: 14px; height: 14px; } "
+            "QCheckBox::indicator:unchecked { background: #555; border: 2px solid #666; "
+            "border-radius: 3px; } "
+            "QCheckBox::indicator:checked { background: #ff9900; border: 2px solid #cc7700; "
+            "border-radius: 3px; }"
+        )
+        self.soft_clip_cb.toggled.connect(self._on_soft_clip_toggled)
+        self.soft_clip_cb.setToolTip("Apply soft clipping to prevent visual distortion")
+        clipping_layout.addWidget(self.soft_clip_cb)
+
+        # Clip count display
+        self.clip_count_label = QLabel("")
+        self.clip_count_label.setStyleSheet("color: #777777; font-size: 9px;")
+        clipping_layout.addWidget(self.clip_count_label)
+
+        # Threshold adjustment
+        threshold_label = QLabel("Thresh:")
+        threshold_label.setStyleSheet("color: #888888; font-size: 9px;")
+        clipping_layout.addWidget(threshold_label)
+
+        self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
+        self.threshold_slider.setRange(50, 99)  # 0.50 to 0.99
+        self.threshold_slider.setValue(int(SOFT_CLIP_THRESHOLD * 100))
+        self.threshold_slider.setFixedWidth(80)
+        self.threshold_slider.setStyleSheet(
+            "QSlider::groove:horizontal { height: 4px; background: #555; border-radius: 2px; } "
+            "QSlider::handle:horizontal { background: #ff9900; width: 12px; margin: -4px 0; "
+            "border-radius: 6px; } "
+            "QSlider::sub-page:horizontal { background: #cc7700; border-radius: 2px; }"
+        )
+        self.threshold_slider.valueChanged.connect(self._on_threshold_changed)
+        clipping_layout.addWidget(self.threshold_slider)
+
+        self.threshold_label = QLabel(f"{SOFT_CLIP_THRESHOLD:.2f}")
+        self.threshold_label.setStyleSheet(
+            "color: #ff9900; font-size: 9px; font-weight: bold;"
+        )
+        clipping_layout.addWidget(self.threshold_label)
+
+        clipping_layout.addStretch()
+        self.main_layout.addWidget(self.clipping_bar)
+        self._log("[UI] Clipping bar created")
+
     def _create_plot_widget(self):
         """Create the waveform plot widget with fixed Y-axis range."""
         self.plot_widget = pg.PlotWidget(title="")
@@ -306,6 +401,21 @@ class LiveAudioWaveform(QWidget):
         self.plot_widget.hideAxis("left")
         self.plot_widget.hideAxis("bottom")
         self.curve = self.plot_widget.plot(pen=pg.mkPen("#00ffff", width=2.5))
+
+        # Clipping indicator line
+        self.clip_line_top = pg.InfiniteLine(
+            pos=1.0,
+            angle=0,
+            pen=pg.mkPen("#ff3333", width=1.5, style=Qt.PenStyle.DashLine),
+        )
+        self.clip_line_bottom = pg.InfiniteLine(
+            pos=-1.0,
+            angle=0,
+            pen=pg.mkPen("#ff3333", width=1.5, style=Qt.PenStyle.DashLine),
+        )
+        self.plot_widget.addItem(self.clip_line_top)
+        self.plot_widget.addItem(self.clip_line_bottom)
+
         self._add_reference_lines()
         self.main_layout.addWidget(self.plot_widget, 1)
         self._log("[UI] Plot widget created with fixed Y-axis range")
@@ -348,6 +458,10 @@ class LiveAudioWaveform(QWidget):
             self.top_line.setPos(self.amplitude_scale)
         if hasattr(self, "bottom_line"):
             self.bottom_line.setPos(-self.amplitude_scale)
+        if hasattr(self, "clip_line_top"):
+            self.clip_line_top.setPos(SOFT_CLIP_THRESHOLD * self.amplitude_scale)
+        if hasattr(self, "clip_line_bottom"):
+            self.clip_line_bottom.setPos(-SOFT_CLIP_THRESHOLD * self.amplitude_scale)
 
     def _update_y_range(self):
         """Update the Y-axis range based on current amplitude scale."""
@@ -401,6 +515,89 @@ class LiveAudioWaveform(QWidget):
             self._update_y_range()
             self._log("[AUTO] Auto-scale disabled")
 
+    def _on_target_changed(self, text):
+        """Handle target LUFS preset change."""
+        self.target_lufs = TARGET_LUFS_PRESETS[text]
+        self._log(f"[LOUDNESS] Target changed to {text} = {self.target_lufs:.0f} LUFS")
+        # Re-trigger normalization if auto is on
+        if self.loudness_normalization_enabled:
+            self._on_normalize_clicked()
+
+    def _on_auto_normalize_toggled(self, checked):
+        """Handle auto-normalize toggle."""
+        self.loudness_normalization_enabled = checked
+        if checked:
+            self._log("[LOUDNESS] Auto-normalization enabled")
+            self._update_gain_display()
+        else:
+            self._log("[LOUDNESS] Auto-normalization disabled")
+
+    def _on_soft_clip_toggled(self, checked):
+        """Handle soft clip toggle."""
+        self.soft_clip_enabled = checked
+        self._log(f"[CLIP] Soft clipping {'enabled' if checked else 'disabled'}")
+
+    def _on_threshold_changed(self, value):
+        """Handle soft clip threshold change."""
+        global SOFT_CLIP_THRESHOLD
+        SOFT_CLIP_THRESHOLD = value / 100.0
+        self.threshold_label.setText(f"{SOFT_CLIP_THRESHOLD:.2f}")
+        self._update_reference_lines()
+        self._log(f"[CLIP] Threshold changed to {SOFT_CLIP_THRESHOLD:.2f}")
+
+    def _soft_clip(self, data, threshold=SOFT_CLIP_THRESHOLD):
+        """Apply soft clipping to prevent harsh visual distortion.
+
+        Uses tanh-based soft clipping which smoothly saturates near the threshold.
+
+        Args:
+            data: numpy array of audio samples
+            threshold: clipping threshold (0.0 to 1.0)
+
+        Returns:
+            numpy array with soft clipping applied
+        """
+        if not self.soft_clip_enabled:
+            return data
+
+        # Scale by threshold so tanh starts saturating near threshold
+        scaled = data / threshold
+        return np.tanh(scaled) * threshold
+
+    def _check_peaks(self, data):
+        """Check for peaks that would clip and update warning display.
+
+        Args:
+            data: numpy array of audio samples (after gain, before display scaling)
+        """
+        max_peak = np.max(np.abs(data))
+
+        if max_peak > 0.95:
+            self.clip_count += 1
+            if not self.peak_warning_active:
+                self.peak_warning_active = True
+                self.peak_warning_label.setText(f"⚠ PEAK: {max_peak:.2f}")
+                self.peak_warning_label.setStyleSheet(
+                    "color: #ff3333; font-size: 11px; font-weight: bold;"
+                )
+                self._log(f"[WARNING] Digital clipping detected! Peak: {max_peak:.3f}")
+            else:
+                self.peak_warning_label.setText(f"⚠ PEAK: {max_peak:.2f}")
+
+            self.last_peak_warning = self.update_counter
+            self.clip_count_label.setText(f"Clips: {self.clip_count}")
+            self.clip_count_label.setStyleSheet(
+                "color: #ff3333; font-size: 9px; font-weight: bold;"
+            )
+        elif (
+            self.peak_warning_active
+            and (self.update_counter - self.last_peak_warning) > 10
+        ):
+            # Clear warning after 10 updates without clipping
+            self.peak_warning_active = False
+            self.peak_warning_label.setText("")
+            self.clip_count_label.setStyleSheet("color: #777777; font-size: 9px;")
+
     def _calculate_rms(self, data):
         """Calculate RMS value of audio data."""
         if len(data) == 0:
@@ -413,23 +610,8 @@ class LiveAudioWaveform(QWidget):
             return float("-inf")
         return 20 * np.log10(rms)
 
-    def _on_target_changed(self, text):
-        """Handle target LUFS preset change."""
-        self.target_lufs = TARGET_LUFS_PRESETS[text]
-        self._log(f"[LOUDNESS] Target changed to {text} = {self.target_lufs:.0f} LUFS")
-
-    def _on_auto_normalize_toggled(self, checked):
-        """Handle auto-normalize toggle."""
-        self.loudness_normalization_enabled = checked
-        if checked:
-            self._log("[LOUDNESS] Auto-normalization enabled")
-            self._update_gain_display()
-        else:
-            self._log("[LOUDNESS] Auto-normalization disabled")
-
     def _measure_loudness(self, audio_data):
-        """
-        Measure loudness of audio data using pyloudnorm.
+        """Measure loudness of audio data using pyloudnorm.
         Measures on the RAW audio (before gain is applied).
 
         Args:
@@ -452,8 +634,7 @@ class LiveAudioWaveform(QWidget):
             return float("-inf")
 
     def _calculate_normalization_gain(self, current_lufs, target_lufs):
-        """
-        Calculate gain needed to normalize audio.
+        """Calculate gain needed to normalize audio.
 
         Args:
             current_lufs: Current loudness in LUFS
@@ -540,14 +721,18 @@ class LiveAudioWaveform(QWidget):
         )
 
         # Update range indicator
-        loudness_range = self._calculate_loudness_range(display_data)
-        self.range_label.setText(f"Range: {loudness_range:.1f} LU")
+        self.loudness_range = self._calculate_loudness_range(display_data)
+        self.range_label.setText(f"Range: {self.loudness_range:.1f} LU")
 
     def _on_reset_gain_clicked(self):
         """Reset audio gain to 0 dB (unity gain)."""
         self._log("[LOUDNESS] Gain reset to 0 dB")
         self.gain_db = 0.0
         self.gain_linear = 1.0
+        self.clip_count = 0
+        self.peak_warning_active = False
+        self.peak_warning_label.setText("")
+        self.clip_count_label.setText("")
         self._update_gain_display()
         self.range_label.setText("")
 
@@ -657,6 +842,10 @@ class LiveAudioWaveform(QWidget):
                 event.pos()
             ):
                 return
+            if hasattr(self, "clipping_bar") and self.clipping_bar.geometry().contains(
+                event.pos()
+            ):
+                return
             self.drag_position = (
                 event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             )
@@ -704,6 +893,12 @@ class LiveAudioWaveform(QWidget):
 
         # Apply audio gain (this is the actual "loudening")
         gained_data = raw_display_data * self.gain_linear
+
+        # Check for peaks before soft clipping
+        self._check_peaks(gained_data)
+
+        # Apply soft clipping for visualization
+        gained_data = self._soft_clip(gained_data)
 
         # Calculate RMS on raw and gained data
         raw_rms = self._calculate_rms(raw_display_data[-new_frames:])
@@ -765,7 +960,8 @@ class LiveAudioWaveform(QWidget):
                 f"eff RMS={raw_rms * self.gain_linear:.4f}, "
                 f"raw LUFS={self.current_lufs:.1f}, "
                 f"eff LUFS={self.current_lufs + self.gain_db:.1f}, "
-                f"peak={np.max(np.abs(scaled_data)):.3f}"
+                f"peak={np.max(np.abs(scaled_data)):.3f}, "
+                f"clips={self.clip_count}"
             )
 
     def start(self):
@@ -803,6 +999,69 @@ class LiveAudioWaveform(QWidget):
         event.accept()
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Live Audio Waveform with LUFS Loudness Normalization",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s                        # Run with default settings (normalization ON)
+  %(prog)s -v                     # Run with verbose logging
+  %(prog)s --no-norm              # Run without auto-normalization
+  %(prog)s -v --no-norm           # Verbose mode, no normalization
+        """,
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging output",
+    )
+    parser.add_argument(
+        "--no-norm",
+        action="store_true",
+        help="Disable loudness normalization (default: normalization ON)",
+    )
+    parser.add_argument(
+        "--device",
+        type=int,
+        default=None,
+        help="Audio input device ID (default: system default)",
+    )
+    parser.add_argument(
+        "--channels",
+        type=int,
+        default=1,
+        help="Number of audio channels (default: 1)",
+    )
+    parser.add_argument(
+        "--samplerate",
+        type=int,
+        default=DEFAULT_SAMPLERATE,
+        help=f"Sample rate in Hz (default: {DEFAULT_SAMPLERATE})",
+    )
+    parser.add_argument(
+        "--blocksize",
+        type=int,
+        default=DEFAULT_BLOCKSIZE,
+        help=f"Audio block size (default: {DEFAULT_BLOCKSIZE})",
+    )
+    parser.add_argument(
+        "--window",
+        type=float,
+        default=DEFAULT_WINDOW_SIZE_SECONDS,
+        help=f"Window size in seconds (default: {DEFAULT_WINDOW_SIZE_SECONDS})",
+    )
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=DEFAULT_AMPLITUDE_SCALE,
+        help=f"Initial amplitude scale (default: {DEFAULT_AMPLITUDE_SCALE})",
+    )
+    return parser.parse_args()
+
+
 def setup_signal_handlers(app, window):
     """Setup graceful shutdown on Ctrl+C (SIGINT)."""
 
@@ -819,28 +1078,40 @@ def setup_signal_handlers(app, window):
 
 
 if __name__ == "__main__":
+    args = parse_args()
+
     QApplication.setStyle("Fusion")
     app = QApplication(sys.argv)
     window = LiveAudioWaveform(
-        channels=1,
-        samplerate=DEFAULT_SAMPLERATE,
-        blocksize=DEFAULT_BLOCKSIZE,
-        window_size_seconds=DEFAULT_WINDOW_SIZE_SECONDS,
-        amplitude_scale=DEFAULT_AMPLITUDE_SCALE,
-        verbose=True,
+        device=args.device,
+        channels=args.channels,
+        samplerate=args.samplerate,
+        blocksize=args.blocksize,
+        window_size_seconds=args.window,
+        amplitude_scale=args.scale,
+        enable_normalization=not args.no_norm,
+        verbose=args.verbose,
     )
     setup_signal_handlers(app, window)
     window.start()
     window.show()
     print("=" * 60)
     print("Live Audio Waveform with LUFS Loudness Normalization")
-    print("Default amplitude scale: 2.0x (200%)")
-    print("✓ Loudness normalization applies gain to audio buffer")
-    print("✓ LUFS measurement on raw (unscaled) audio")
-    print("✓ Effective LUFS displayed (raw + applied gain)")
-    print("✓ Auto-normalization with smooth transitions")
-    print("✓ Gain reset button")
-    print("✓ Loudness range display")
-    print("✓ Waveform shows gained audio")
+    print(f"Verbose: {'ON' if args.verbose else 'OFF'}")
+    print(f"Normalization: {'OFF' if args.no_norm else 'ON (auto)'}")
+    print(f"Soft Clipping: ON (threshold: {SOFT_CLIP_THRESHOLD:.2f})")
+    print(f"Sample Rate: {args.samplerate} Hz")
+    print(f"Window Size: {args.window}s")
+    print(f"Amplitude Scale: {args.scale}x")
+    print("=" * 60)
+    print("Features:")
+    print("  ✓ LUFS-based loudness normalization (ITU-R BS.1770)")
+    print("  ✓ Auto-normalization with smooth transitions")
+    print("  ✓ Soft clipping to prevent visual distortion")
+    print("  ✓ Peak level warnings")
+    print("  ✓ Adjustable clipping threshold")
+    print("  ✓ Multiple target LUFS presets")
+    print("  ✓ Loudness range display")
+    print("  ✓ Gain reset button")
     print("=" * 60)
     sys.exit(app.exec())
