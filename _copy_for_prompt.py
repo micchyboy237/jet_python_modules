@@ -380,6 +380,11 @@ def main():
         model=COMPRESSION_MODEL,  # headroom uses this for strategy selection only
         token_budget=TOKEN_BUDGET,  # enforce fit within llama-server context
         ccr_enabled=True,  # reversible compression (default)
+        compress_user_messages=True,
+        target_ratio=0.5,  # keep 50% — safe for mixed prose + code
+        protect_recent=0,  # only 1 message, nothing to protect
+        protect_analysis_context=False,  # do not protect code from compression
+        # kompress_model="disabled",
     )
 
     # Log compression stats using logger.log for each result.*
