@@ -225,7 +225,7 @@ if __name__ == "__main__":
         channels=1,
         samplerate=44100,
         blocksize=512,  # Lower = lower latency, higher CPU. 512 is a good balance.
-        window_size_seconds=1.5,  # How many seconds of audio to show on screen
+        window_size_seconds=5.0,  # How many seconds of audio to show on screen
     )
 
     # Setup graceful shutdown on Ctrl+C
