@@ -2,6 +2,7 @@ import signal
 import sys
 
 import numpy as np
+import pyloudnorm as pyln
 import pyqtgraph as pg
 import sounddevice as sd
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -9,6 +10,7 @@ from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -18,22 +20,27 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-# Configuration constants
-OVERLAY_WIDTH = 450
-OVERLAY_HEIGHT = 300  # Increased height for better visibility
+OVERLAY_WIDTH = 480
+OVERLAY_HEIGHT = 300
 DEFAULT_MARGIN_RIGHT = 20
 DEFAULT_MARGIN_BOTTOM = 50
 DEFAULT_MARGIN_TOP = 20
-
-# Waveform constants
-DEFAULT_SAMPLERATE = 44100  # Default audio sample rate (Hz)
-DEFAULT_BLOCKSIZE = 512  # Default block size for audio chunks
+DEFAULT_SAMPLERATE = 44100
+DEFAULT_BLOCKSIZE = 512
 DEFAULT_WINDOW_SIZE_SECONDS = 5.0
-DEFAULT_AMPLITUDE_SCALE = 2.0  # Default amplitude multiplier
-
+DEFAULT_AMPLITUDE_SCALE = 2.0
 MIN_AMPLITUDE_SCALE = 0.1
 MAX_AMPLITUDE_SCALE = 10.0
 AMPLITUDE_SCALE_STEP = 0.1
+MAX_GAIN_DB = 30.0  # Maximum gain in dB to prevent clipping too much
+
+TARGET_LUFS_PRESETS = {
+    "Streaming (-14 LUFS)": -14.0,
+    "Broadcast (-23 LUFS)": -23.0,
+    "YouTube (-13 LUFS)": -13.0,
+    "Spotify (-14 LUFS)": -14.0,
+    "Cinema (-27 LUFS)": -27.0,
+}
 
 
 class LiveAudioWaveform(QWidget):
@@ -47,32 +54,33 @@ class LiveAudioWaveform(QWidget):
         blocksize: int = DEFAULT_BLOCKSIZE,
         window_size_seconds: float = DEFAULT_WINDOW_SIZE_SECONDS,
         amplitude_scale: float = DEFAULT_AMPLITUDE_SCALE,
+        verbose: bool = False,
         parent=None,
     ):
         super().__init__(parent)
-
-        # Audio configuration
+        self.verbose = verbose
         self.channels = channels
         self.samplerate = samplerate
         self.blocksize = blocksize
         self.buffer_size = int(window_size_seconds * samplerate)
-
-        # Audio buffer
         self.audio_buffer = np.zeros((self.buffer_size, self.channels))
         self.write_index = 0
-
-        # Amplitude scaling
         self.amplitude_scale = amplitude_scale
         self.auto_scale = False
         self.current_rms = 0.0
+        self.current_lufs = float("-inf")
+        self.target_lufs = -14.0
+        self.loudness_normalization_enabled = False
+        self.gain_linear = 1.0  # Actual audio gain (linear multiplier)
+        self.gain_db = 0.0  # Gain in dB for display
         self.update_counter = 0
 
-        # Window configuration
+        # Initialize pyloudnorm meter
+        self.loudness_meter = pyln.Meter(samplerate)
+
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.resize(OVERLAY_WIDTH, OVERLAY_HEIGHT)
-
-        # Position window
         screen = QApplication.primaryScreen()
         if screen:
             geom = screen.availableGeometry()
@@ -80,36 +88,29 @@ class LiveAudioWaveform(QWidget):
                 geom.right() - self.width() - DEFAULT_MARGIN_RIGHT,
                 geom.bottom() - self.height() - DEFAULT_MARGIN_BOTTOM,
             )
-
-        # Build UI
         self._setup_ui()
-
-        # Connect signals
         self.audio_data_ready.connect(self.update_plot)
-
-        # Drag handling
         self.drag_position = None
-
-        print(
-            f"[INIT] LiveAudioWaveform initialized with amplitude_scale={amplitude_scale:.1f}x"
+        self._log(
+            f"[INIT] LiveAudioWaveform initialized with amplitude_scale={amplitude_scale:.1f}x, "
+            f"target LUFS={self.target_lufs:.0f}"
         )
+
+    def _log(self, message):
+        """Print log message if verbose is enabled."""
+        if self.verbose:
+            print(message)
 
     def _setup_ui(self):
         """Set up the user interface components."""
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
-
-        # Top bar with title and controls
         self._create_top_bar()
-
-        # Controls bar for waveform height adjustment
         self._create_controls_bar()
-
-        # Plot widget
+        self._create_loudness_bar()
         self._create_plot_widget()
-
-        print("[UI] Setup complete")
+        self._log("[UI] Setup complete")
 
     def _create_top_bar(self):
         """Create the title bar with close button."""
@@ -118,26 +119,20 @@ class LiveAudioWaveform(QWidget):
         self.top_bar.setStyleSheet(
             "background-color: #2b2b2b; border-bottom: 1px solid #444;"
         )
-
         top_layout = QHBoxLayout(self.top_bar)
         top_layout.setContentsMargins(8, 0, 8, 0)
-
-        self.title_label = QLabel("🎙️ Live Audio Waveform")
+        self.title_label = QLabel("🎙️ Live Audio Waveform + LUFS Norm")
         self.title_label.setStyleSheet(
             "color: #e0e0e0; font-size: 13px; font-weight: bold;"
         )
         top_layout.addWidget(self.title_label)
         top_layout.addStretch()
-
-        # Add scale indicator
         self.scale_label = QLabel(f"Scale: {self.amplitude_scale:.1f}x")
         self.scale_label.setStyleSheet(
             "color: #00ffff; font-size: 11px; font-weight: bold;"
         )
         top_layout.addWidget(self.scale_label)
-
         top_layout.addSpacing(10)
-
         self.close_btn = QPushButton("×")
         self.close_btn.setFixedSize(24, 24)
         self.close_btn.setStyleSheet(
@@ -147,7 +142,6 @@ class LiveAudioWaveform(QWidget):
         )
         self.close_btn.clicked.connect(self.close)
         top_layout.addWidget(self.close_btn)
-
         self.main_layout.addWidget(self.top_bar)
 
     def _create_controls_bar(self):
@@ -157,17 +151,12 @@ class LiveAudioWaveform(QWidget):
         self.controls_bar.setStyleSheet(
             "background-color: #333333; border-bottom: 1px solid #444;"
         )
-
         controls_layout = QHBoxLayout(self.controls_bar)
         controls_layout.setContentsMargins(8, 4, 8, 4)
         controls_layout.setSpacing(8)
-
-        # Amplitude label
         amp_label = QLabel("Height:")
         amp_label.setStyleSheet("color: #cccccc; font-size: 11px; font-weight: bold;")
         controls_layout.addWidget(amp_label)
-
-        # Amplitude slider (linear scale for better control)
         self.amp_slider = QSlider(Qt.Orientation.Horizontal)
         self.amp_slider.setRange(
             int(MIN_AMPLITUDE_SCALE * 100), int(MAX_AMPLITUDE_SCALE * 100)
@@ -180,15 +169,13 @@ class LiveAudioWaveform(QWidget):
             "QSlider::sub-page:horizontal { background: #00cccc; border-radius: 3px; }"
         )
         self.amp_slider.valueChanged.connect(self._on_amplitude_slider_changed)
-        controls_layout.addWidget(self.amp_slider, 1)  # Stretch factor 1
-
-        # Amplitude spinbox (shows percentage)
+        controls_layout.addWidget(self.amp_slider, 1)
         self.amp_spinbox = QSpinBox()
         self.amp_spinbox.setRange(
             int(MIN_AMPLITUDE_SCALE * 100), int(MAX_AMPLITUDE_SCALE * 100)
         )
         self.amp_spinbox.setValue(int(self.amplitude_scale * 100))
-        self.amp_spinbox.setSingleStep(10)  # 10% steps
+        self.amp_spinbox.setSingleStep(10)
         self.amp_spinbox.setSuffix("%")
         self.amp_spinbox.setFixedWidth(70)
         self.amp_spinbox.setStyleSheet(
@@ -197,8 +184,6 @@ class LiveAudioWaveform(QWidget):
         )
         self.amp_spinbox.valueChanged.connect(self._on_amplitude_spinbox_changed)
         controls_layout.addWidget(self.amp_spinbox)
-
-        # Auto-scale checkbox
         self.auto_scale_cb = QCheckBox("Auto")
         self.auto_scale_cb.setStyleSheet(
             "QCheckBox { color: #cccccc; font-size: 11px; font-weight: bold; spacing: 4px; } "
@@ -210,54 +195,127 @@ class LiveAudioWaveform(QWidget):
         )
         self.auto_scale_cb.toggled.connect(self._on_auto_scale_toggled)
         controls_layout.addWidget(self.auto_scale_cb)
-
-        # RMS level indicator
         self.rms_label = QLabel("Level: -∞ dB")
         self.rms_label.setStyleSheet("color: #999999; font-size: 10px;")
         controls_layout.addWidget(self.rms_label)
-
         controls_layout.addStretch()
-
         self.main_layout.addWidget(self.controls_bar)
-        print("[UI] Controls bar created")
+        self._log("[UI] Controls bar created")
+
+    def _create_loudness_bar(self):
+        """Create bar for loudness normalization controls."""
+        self.loudness_bar = QWidget()
+        self.loudness_bar.setFixedHeight(36)
+        self.loudness_bar.setStyleSheet(
+            "background-color: #2d2d2d; border-bottom: 1px solid #444;"
+        )
+        loudness_layout = QHBoxLayout(self.loudness_bar)
+        loudness_layout.setContentsMargins(8, 4, 8, 4)
+        loudness_layout.setSpacing(6)
+
+        # Normalize button
+        self.normalize_btn = QPushButton("🔊 Normalize")
+        self.normalize_btn.setFixedHeight(26)
+        self.normalize_btn.setStyleSheet(
+            "QPushButton { background-color: #00aa44; color: white; border: none; "
+            "border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: bold; } "
+            "QPushButton:hover { background-color: #00cc55; } "
+            "QPushButton:pressed { background-color: #008833; } "
+            "QPushButton:disabled { background-color: #555555; color: #999999; }"
+        )
+        self.normalize_btn.clicked.connect(self._on_normalize_clicked)
+        self.normalize_btn.setToolTip("Apply LUFS normalization gain to audio")
+        loudness_layout.addWidget(self.normalize_btn)
+
+        # Reset button
+        self.reset_gain_btn = QPushButton("↺ Reset")
+        self.reset_gain_btn.setFixedHeight(26)
+        self.reset_gain_btn.setStyleSheet(
+            "QPushButton { background-color: #666666; color: white; border: none; "
+            "border-radius: 4px; padding: 4px 10px; font-size: 11px; font-weight: bold; } "
+            "QPushButton:hover { background-color: #888888; } "
+            "QPushButton:pressed { background-color: #444444; }"
+        )
+        self.reset_gain_btn.clicked.connect(self._on_reset_gain_clicked)
+        self.reset_gain_btn.setToolTip("Reset gain to 0 dB")
+        loudness_layout.addWidget(self.reset_gain_btn)
+
+        # Target LUFS combo box
+        target_label = QLabel("Target:")
+        target_label.setStyleSheet("color: #cccccc; font-size: 10px;")
+        loudness_layout.addWidget(target_label)
+
+        self.target_combo = QComboBox()
+        self.target_combo.addItems(list(TARGET_LUFS_PRESETS.keys()))
+        self.target_combo.setCurrentText("Streaming (-14 LUFS)")
+        self.target_combo.setStyleSheet(
+            "QComboBox { background: #444; color: #00ffff; border: 1px solid #555; "
+            "border-radius: 3px; padding: 2px 5px; font-size: 10px; font-weight: bold; } "
+            "QComboBox::drop-down { border: none; } "
+            "QComboBox::down-arrow { image: none; border-left: 4px solid transparent; "
+            "border-right: 4px solid transparent; border-top: 6px solid #00ffff; "
+            "margin-right: 5px; } "
+            "QComboBox QAbstractItemView { background: #444; color: #00ffff; "
+            "selection-background-color: #00aaaa; }"
+        )
+        self.target_combo.currentTextChanged.connect(self._on_target_changed)
+        loudness_layout.addWidget(self.target_combo)
+
+        # Auto-normalize checkbox
+        self.auto_normalize_cb = QCheckBox("Auto")
+        self.auto_normalize_cb.setStyleSheet(
+            "QCheckBox { color: #cccccc; font-size: 10px; font-weight: bold; spacing: 3px; } "
+            "QCheckBox::indicator { width: 14px; height: 14px; } "
+            "QCheckBox::indicator:unchecked { background: #555; border: 2px solid #666; "
+            "border-radius: 3px; } "
+            "QCheckBox::indicator:checked { background: #00aa44; border: 2px solid #008833; "
+            "border-radius: 3px; }"
+        )
+        self.auto_normalize_cb.toggled.connect(self._on_auto_normalize_toggled)
+        self.auto_normalize_cb.setToolTip(
+            "Automatically adjust gain when audio is soft"
+        )
+        loudness_layout.addWidget(self.auto_normalize_cb)
+
+        # Loudness display
+        self.lufs_label = QLabel("LUFS: -∞")
+        self.lufs_label.setStyleSheet("color: #999999; font-size: 10px;")
+        loudness_layout.addWidget(self.lufs_label)
+
+        self.gain_label = QLabel("Gain: +0.0 dB")
+        self.gain_label.setStyleSheet("color: #999999; font-size: 10px;")
+        loudness_layout.addWidget(self.gain_label)
+
+        # Loudness range indicator
+        self.range_label = QLabel("")
+        self.range_label.setStyleSheet("color: #777777; font-size: 9px;")
+        loudness_layout.addWidget(self.range_label)
+
+        loudness_layout.addStretch()
+        self.main_layout.addWidget(self.loudness_bar)
+        self._log("[UI] Loudness bar created")
 
     def _create_plot_widget(self):
         """Create the waveform plot widget with fixed Y-axis range."""
         self.plot_widget = pg.PlotWidget(title="")
         self.plot_widget.setBackground("#1e1e1e")
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
-
-        # CRITICAL FIX: Disable auto-ranging on Y-axis
         self.plot_widget.getPlotItem().vb.setMouseEnabled(x=True, y=False)
-
-        # Disable auto-range for Y-axis
         self.plot_widget.getPlotItem().enableAutoRange(axis="y", enable=False)
-
-        # Set initial Y range
         self._update_y_range()
-
-        # Hide axes for cleaner look
         self.plot_widget.hideAxis("left")
         self.plot_widget.hideAxis("bottom")
-
-        # Create curve with thicker line for better visibility
         self.curve = self.plot_widget.plot(pen=pg.mkPen("#00ffff", width=2.5))
-
-        # Add horizontal reference lines at -1, 0, 1 for visual reference
         self._add_reference_lines()
-
-        self.main_layout.addWidget(self.plot_widget, 1)  # Stretch factor 1
-        print("[UI] Plot widget created with fixed Y-axis range")
+        self.main_layout.addWidget(self.plot_widget, 1)
+        self._log("[UI] Plot widget created with fixed Y-axis range")
 
     def _add_reference_lines(self):
         """Add horizontal reference lines for visual guidance."""
-        # Center line (0)
         center_line = pg.InfiniteLine(
             pos=0, angle=0, pen=pg.mkPen("#ffffff", width=1, style=Qt.PenStyle.DashLine)
         )
         self.plot_widget.addItem(center_line)
-
-        # Top and bottom lines at ±amplitude_scale
         self.top_line = pg.InfiniteLine(
             pos=self.amplitude_scale,
             angle=0,
@@ -270,8 +328,6 @@ class LiveAudioWaveform(QWidget):
         )
         self.plot_widget.addItem(self.top_line)
         self.plot_widget.addItem(self.bottom_line)
-
-        # Unity gain lines (±1.0)
         unity_top = pg.InfiniteLine(
             pos=1.0,
             angle=0,
@@ -284,8 +340,7 @@ class LiveAudioWaveform(QWidget):
         )
         self.plot_widget.addItem(unity_top)
         self.plot_widget.addItem(unity_bottom)
-
-        print("[UI] Reference lines added")
+        self._log("[UI] Reference lines added")
 
     def _update_reference_lines(self):
         """Update reference line positions based on current scale."""
@@ -296,34 +351,26 @@ class LiveAudioWaveform(QWidget):
 
     def _update_y_range(self):
         """Update the Y-axis range based on current amplitude scale."""
-        # Add 10% headroom for visual comfort
         y_max = self.amplitude_scale * 1.1
         self.plot_widget.setYRange(-y_max, y_max)
-
-        # CRITICAL: Disable auto-range again after setting range
         self.plot_widget.getPlotItem().enableAutoRange(axis="y", enable=False)
-
-        # Update reference lines
         self._update_reference_lines()
-
-        # Update scale label
         if hasattr(self, "scale_label"):
             self.scale_label.setText(f"Scale: {self.amplitude_scale:.1f}x")
-
-        print(
+        self._log(
             f"[RANGE] Y-axis range set to [-{y_max:.1f}, {y_max:.1f}] with scale {self.amplitude_scale:.1f}x"
         )
 
     def _on_amplitude_slider_changed(self, value):
         """Handle amplitude slider value change."""
         scale = value / 100.0
-        if abs(scale - self.amplitude_scale) > 0.001:  # Avoid floating point issues
+        if abs(scale - self.amplitude_scale) > 0.001:
             self.amplitude_scale = scale
             self.amp_spinbox.blockSignals(True)
             self.amp_spinbox.setValue(int(scale * 100))
             self.amp_spinbox.blockSignals(False)
             self._update_y_range()
-            print(
+            self._log(
                 f"[CONTROL] Amplitude scale changed to {scale:.2f}x ({value}%) via slider"
             )
 
@@ -336,7 +383,7 @@ class LiveAudioWaveform(QWidget):
             self.amp_slider.setValue(int(scale * 100))
             self.amp_slider.blockSignals(False)
             self._update_y_range()
-            print(
+            self._log(
                 f"[CONTROL] Amplitude scale changed to {scale:.2f}x ({value}%) via spinbox"
             )
 
@@ -346,14 +393,13 @@ class LiveAudioWaveform(QWidget):
         if checked:
             self.amp_slider.setEnabled(False)
             self.amp_spinbox.setEnabled(False)
-            print("[AUTO] Auto-scale enabled")
+            self._log("[AUTO] Auto-scale enabled")
         else:
             self.amp_slider.setEnabled(True)
             self.amp_spinbox.setEnabled(True)
-            # Reset to current slider value
             self.amplitude_scale = self.amp_slider.value() / 100.0
             self._update_y_range()
-            print("[AUTO] Auto-scale disabled")
+            self._log("[AUTO] Auto-scale disabled")
 
     def _calculate_rms(self, data):
         """Calculate RMS value of audio data."""
@@ -363,9 +409,182 @@ class LiveAudioWaveform(QWidget):
 
     def _calculate_db(self, rms):
         """Convert RMS to decibels."""
-        if rms <= 0.000001:  # -120 dB threshold
+        if rms <= 0.000001:
             return float("-inf")
         return 20 * np.log10(rms)
+
+    def _on_target_changed(self, text):
+        """Handle target LUFS preset change."""
+        self.target_lufs = TARGET_LUFS_PRESETS[text]
+        self._log(f"[LOUDNESS] Target changed to {text} = {self.target_lufs:.0f} LUFS")
+
+    def _on_auto_normalize_toggled(self, checked):
+        """Handle auto-normalize toggle."""
+        self.loudness_normalization_enabled = checked
+        if checked:
+            self._log("[LOUDNESS] Auto-normalization enabled")
+            self._update_gain_display()
+        else:
+            self._log("[LOUDNESS] Auto-normalization disabled")
+
+    def _measure_loudness(self, audio_data):
+        """
+        Measure loudness of audio data using pyloudnorm.
+        Measures on the RAW audio (before gain is applied).
+
+        Args:
+            audio_data: numpy array of audio samples
+
+        Returns:
+            float: loudness in LUFS
+        """
+        if len(audio_data) < 512:
+            return float("-inf")
+
+        try:
+            if audio_data.ndim == 1:
+                audio_data = audio_data.reshape(-1, 1)
+
+            loudness = self.loudness_meter.integrated_loudness(audio_data)
+            return float(loudness)
+        except Exception as e:
+            self._log(f"[LOUDNESS] Error measuring loudness: {e}")
+            return float("-inf")
+
+    def _calculate_normalization_gain(self, current_lufs, target_lufs):
+        """
+        Calculate gain needed to normalize audio.
+
+        Args:
+            current_lufs: Current loudness in LUFS
+            target_lufs: Target loudness in LUFS
+
+        Returns:
+            tuple: (gain_db, gain_linear)
+        """
+        if current_lufs == float("-inf"):
+            return 0.0, 1.0
+
+        gain_db = target_lufs - current_lufs
+
+        # Clamp gain to reasonable limits
+        gain_db = np.clip(gain_db, -20.0, MAX_GAIN_DB)
+
+        gain_linear = 10 ** (gain_db / 20.0)
+
+        self._log(
+            f"[LOUDNESS] Normalization: {current_lufs:.1f} LUFS → {target_lufs:.0f} LUFS, "
+            f"gain={gain_db:.1f} dB ({gain_linear:.2f}x)"
+        )
+
+        return gain_db, gain_linear
+
+    def _update_gain_display(self):
+        """Update the gain display label."""
+        if abs(self.gain_db) < 0.01:
+            self.gain_label.setText("Gain: +0.0 dB")
+            self.gain_label.setStyleSheet("color: #999999; font-size: 10px;")
+        elif self.gain_db > 0:
+            self.gain_label.setText(f"Gain: +{self.gain_db:.1f} dB")
+            if self.gain_db > 20:
+                color = "#ff9900"  # Warning: high gain
+            elif self.gain_db > 12:
+                color = "#ffdd00"
+            else:
+                color = "#00ff00"
+            self.gain_label.setStyleSheet(
+                f"color: {color}; font-size: 10px; font-weight: bold;"
+            )
+        else:
+            self.gain_label.setText(f"Gain: {self.gain_db:.1f} dB")
+            self.gain_label.setStyleSheet(
+                "color: #ff6666; font-size: 10px; font-weight: bold;"
+            )
+
+    def _on_normalize_clicked(self):
+        """Handle manual normalize button click.
+        Applies LUFS-based gain to the actual audio buffer."""
+        self._log("[LOUDNESS] Manual normalization triggered")
+
+        # Get current buffer data (raw, ungained)
+        display_data = np.roll(self.audio_buffer[:, 0], -self.write_index)
+
+        # Measure current loudness on raw audio
+        current_lufs = self._measure_loudness(display_data)
+
+        if current_lufs == float("-inf"):
+            self._log("[LOUDNESS] Cannot normalize - audio too quiet or silent")
+            return
+
+        # Calculate required gain
+        gain_db, gain_linear = self._calculate_normalization_gain(
+            current_lufs, self.target_lufs
+        )
+
+        if abs(gain_db) < 0.5:
+            self._log(
+                "[LOUDNESS] Audio already near target level. No adjustment needed."
+            )
+            self.gain_db = 0.0
+            self.gain_linear = 1.0
+            self._update_gain_display()
+            return
+
+        # Apply gain to the audio buffer
+        self.gain_db = gain_db
+        self.gain_linear = gain_linear
+        self._update_gain_display()
+
+        self._log(
+            f"[LOUDNESS] Applied {gain_db:+.1f} dB gain to audio (linear: {gain_linear:.2f}x)"
+        )
+
+        # Update range indicator
+        loudness_range = self._calculate_loudness_range(display_data)
+        self.range_label.setText(f"Range: {loudness_range:.1f} LU")
+
+    def _on_reset_gain_clicked(self):
+        """Reset audio gain to 0 dB (unity gain)."""
+        self._log("[LOUDNESS] Gain reset to 0 dB")
+        self.gain_db = 0.0
+        self.gain_linear = 1.0
+        self._update_gain_display()
+        self.range_label.setText("")
+
+    def _calculate_loudness_range(self, audio_data):
+        """Calculate short-term loudness range."""
+        if len(audio_data) < self.samplerate * 0.4:  # Need at least 400ms
+            return 0.0
+
+        try:
+            if audio_data.ndim == 1:
+                audio_data = audio_data.reshape(-1, 1)
+
+            # Calculate short-term loudness in 400ms chunks
+            chunk_size = int(self.samplerate * 0.4)
+            num_chunks = len(audio_data) // chunk_size
+
+            if num_chunks < 2:
+                return 0.0
+
+            loudness_values = []
+            for i in range(num_chunks):
+                chunk = audio_data[i * chunk_size : (i + 1) * chunk_size]
+                try:
+                    lufs = self.loudness_meter.integrated_loudness(chunk)
+                    if lufs > -70:  # Ignore silence
+                        loudness_values.append(lufs)
+                except:
+                    pass
+
+            if len(loudness_values) < 2:
+                return 0.0
+
+            # Return the range (max - min)
+            return max(loudness_values) - min(loudness_values)
+        except Exception as e:
+            self._log(f"[LOUDNESS] Error calculating range: {e}")
+            return 0.0
 
     def _update_rms_display(self, rms):
         """Update the RMS level display with color coding."""
@@ -374,31 +593,69 @@ class LiveAudioWaveform(QWidget):
             self.rms_label.setText("Level: -∞ dB")
             self.rms_label.setStyleSheet("color: #666666; font-size: 10px;")
         else:
-            self.rms_label.setText(f"Level: {db_level:.1f} dB")
-            # Color code based on level
-            if db_level > -3:
-                color = "#ff3333"  # Red - clipping danger
-            elif db_level > -6:
-                color = "#ff9900"  # Orange - hot
-            elif db_level > -12:
-                color = "#ffdd00"  # Yellow - good
-            elif db_level > -20:
-                color = "#00ff00"  # Green - normal
-            elif db_level > -40:
-                color = "#00ccff"  # Cyan - low
+            # Show both the raw and gained RMS
+            gained_rms = rms * self.gain_linear
+            gained_db = self._calculate_db(gained_rms)
+
+            if gained_db > -3:
+                color = "#ff3333"
+            elif gained_db > -6:
+                color = "#ff9900"
+            elif gained_db > -12:
+                color = "#ffdd00"
+            elif gained_db > -20:
+                color = "#00ff00"
+            elif gained_db > -40:
+                color = "#00ccff"
             else:
-                color = "#6666ff"  # Blue - very low
+                color = "#6666ff"
+
+            if abs(self.gain_db) > 0.1:
+                self.rms_label.setText(
+                    f"Level: {gained_db:.1f} dB (raw: {db_level:.1f})"
+                )
+            else:
+                self.rms_label.setText(f"Level: {db_level:.1f} dB")
             self.rms_label.setStyleSheet(
+                f"color: {color}; font-size: 10px; font-weight: bold;"
+            )
+
+    def _update_lufs_display(self, lufs):
+        """Update the LUFS display with color coding."""
+        if lufs == float("-inf"):
+            self.lufs_label.setText("LUFS: -∞")
+            self.lufs_label.setStyleSheet("color: #666666; font-size: 10px;")
+        else:
+            # Show effective LUFS after gain
+            effective_lufs = lufs + self.gain_db
+
+            self.lufs_label.setText(f"LUFS: {effective_lufs:.1f}")
+
+            # Color code based on distance from target
+            distance = effective_lufs - self.target_lufs
+            if distance >= -1:
+                color = "#00ff00"  # Green: at or above target
+            elif distance >= -3:
+                color = "#ffdd00"  # Yellow: slightly below
+            elif distance >= -6:
+                color = "#ff9900"  # Orange: moderately below
+            else:
+                color = "#ff3333"  # Red: significantly below target
+
+            self.lufs_label.setStyleSheet(
                 f"color: {color}; font-size: 10px; font-weight: bold;"
             )
 
     def mousePressEvent(self, event: QMouseEvent):
         """Handle mouse press for window dragging."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Don't drag if clicking on controls
             if self.close_btn.geometry().contains(event.pos()):
                 return
             if self.controls_bar.geometry().contains(event.pos()):
+                return
+            if hasattr(self, "loudness_bar") and self.loudness_bar.geometry().contains(
+                event.pos()
+            ):
                 return
             self.drag_position = (
                 event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -422,7 +679,7 @@ class LiveAudioWaveform(QWidget):
     def audio_callback(self, indata, frames, time, status):
         """Runs in a background thread. Must be fast and non-blocking."""
         if status:
-            print(f"[AUDIO] Status: {status}", file=sys.stderr)
+            self._log(f"[AUDIO] Status: {status}")
         self.audio_data_ready.emit(indata.copy())
 
     def update_plot(self, new_data):
@@ -430,7 +687,7 @@ class LiveAudioWaveform(QWidget):
         self.update_counter += 1
         new_frames = new_data.shape[0]
 
-        # Update circular buffer
+        # Circular buffer update
         if self.write_index + new_frames <= self.buffer_size:
             self.audio_buffer[self.write_index : self.write_index + new_frames] = (
                 new_data
@@ -442,39 +699,73 @@ class LiveAudioWaveform(QWidget):
             self.audio_buffer[: new_frames - remaining] = new_data[remaining:]
             self.write_index = (self.write_index + new_frames) % self.buffer_size
 
-        # Get display data (first channel)
-        display_data = np.roll(self.audio_buffer[:, 0], -self.write_index)
+        # Get display data from RAW buffer
+        raw_display_data = np.roll(self.audio_buffer[:, 0], -self.write_index)
 
-        # Calculate RMS for level display and auto-scaling
-        self.current_rms = self._calculate_rms(display_data[-new_frames:])
-        self._update_rms_display(self.current_rms)
+        # Apply audio gain (this is the actual "loudening")
+        gained_data = raw_display_data * self.gain_linear
 
-        # Apply auto-scaling if enabled
-        if self.auto_scale and self.current_rms > 0.0001:
-            # Target RMS at 70% of current scale for good visibility
-            target_scale = (self.amplitude_scale * 0.7) / max(self.current_rms, 0.0001)
-            # Smooth the scale changes
+        # Calculate RMS on raw and gained data
+        raw_rms = self._calculate_rms(raw_display_data[-new_frames:])
+        self._update_rms_display(raw_rms)
+
+        # Measure loudness on RAW data periodically
+        if self.update_counter % 20 == 0:
+            self.current_lufs = self._measure_loudness(raw_display_data)
+            self._update_lufs_display(self.current_lufs)
+
+            # Auto-normalization
+            if self.loudness_normalization_enabled and self.current_lufs != float(
+                "-inf"
+            ):
+                effective_lufs = self.current_lufs + self.gain_db
+
+                if effective_lufs < self.target_lufs - 0.5:
+                    # Need more gain
+                    gain_db_needed = self.target_lufs - self.current_lufs
+                    gain_db_needed = np.clip(gain_db_needed, -20.0, MAX_GAIN_DB)
+
+                    # Smooth transition
+                    self.gain_db = self.gain_db * 0.8 + gain_db_needed * 0.2
+                    self.gain_linear = 10 ** (self.gain_db / 20.0)
+                    self._update_gain_display()
+
+                    self._log(
+                        f"[AUTO-NORM] Auto-adjusting: raw LUFS={self.current_lufs:.1f}, "
+                        f"effective={effective_lufs:.1f}, target={self.target_lufs:.0f}, "
+                        f"gain={self.gain_db:.1f} dB"
+                    )
+                elif effective_lufs > self.target_lufs + 2.0:
+                    # Too loud, reduce gain
+                    self.gain_db = self.gain_db * 0.9
+                    self.gain_linear = 10 ** (self.gain_db / 20.0)
+                    self._update_gain_display()
+
+        # Auto-scale (existing functionality)
+        if self.auto_scale and raw_rms > 0.0001:
+            target_scale = (self.amplitude_scale * 0.7) / max(
+                raw_rms * self.gain_linear, 0.0001
+            )
             self.amplitude_scale = self.amplitude_scale * 0.95 + target_scale * 0.05
-            # Clamp to reasonable range
             self.amplitude_scale = float(
                 np.clip(self.amplitude_scale, MIN_AMPLITUDE_SCALE, MAX_AMPLITUDE_SCALE)
             )
             self._update_y_range()
 
-        # Apply amplitude scaling
-        scaled_data = display_data * self.amplitude_scale
-
-        # Update the plot
+        # Update plot with gained data and display scale
+        scaled_data = gained_data * self.amplitude_scale
         self.curve.setData(scaled_data)
 
-        # Log periodically
         if self.update_counter % 50 == 0:
-            print(
+            self._log(
                 f"[PLOT] Update #{self.update_counter}: "
                 f"scale={self.amplitude_scale:.2f}x, "
-                f"RMS={self.current_rms:.4f}, "
-                f"peak={np.max(np.abs(scaled_data)):.3f}, "
-                f"buffer={self.write_index}/{self.buffer_size}"
+                f"gain={self.gain_db:.1f}dB, "
+                f"raw RMS={raw_rms:.4f}, "
+                f"eff RMS={raw_rms * self.gain_linear:.4f}, "
+                f"raw LUFS={self.current_lufs:.1f}, "
+                f"eff LUFS={self.current_lufs + self.gain_db:.1f}, "
+                f"peak={np.max(np.abs(scaled_data)):.3f}"
             )
 
     def start(self):
@@ -488,7 +779,7 @@ class LiveAudioWaveform(QWidget):
                 callback=self.audio_callback,
             )
             self.stream.start()
-            print(
+            self._log(
                 f"[STREAM] Audio stream started: {self.channels}ch, "
                 f"{self.samplerate}Hz, blocksize={self.blocksize}"
             )
@@ -503,11 +794,11 @@ class LiveAudioWaveform(QWidget):
         if hasattr(self, "stream") and self.stream.active:
             self.stream.stop()
             self.stream.close()
-            print("[STREAM] Audio stream stopped")
+            self._log("[STREAM] Audio stream stopped")
 
     def closeEvent(self, event):
         """Handle window close event."""
-        print("[CLOSE] Closing LiveAudioWaveform...")
+        self._log("[CLOSE] Closing LiveAudioWaveform...")
         self.stop()
         event.accept()
 
@@ -521,39 +812,35 @@ def setup_signal_handlers(app, window):
         QTimer.singleShot(0, app.quit)
 
     signal.signal(signal.SIGINT, signal_handler)
-
-    # Timer to keep Python processing signals
     timer = QTimer()
     timer.timeout.connect(lambda: None)
     timer.start(200)
-
     return signal_handler
 
 
 if __name__ == "__main__":
     QApplication.setStyle("Fusion")
     app = QApplication(sys.argv)
-
-    # Create window with enhanced amplitude
     window = LiveAudioWaveform(
         channels=1,
         samplerate=DEFAULT_SAMPLERATE,
         blocksize=DEFAULT_BLOCKSIZE,
         window_size_seconds=DEFAULT_WINDOW_SIZE_SECONDS,
         amplitude_scale=DEFAULT_AMPLITUDE_SCALE,
+        verbose=True,
     )
-
     setup_signal_handlers(app, window)
     window.start()
     window.show()
-
     print("=" * 60)
-    print("Live Audio Waveform started with FIXED height control")
+    print("Live Audio Waveform with LUFS Loudness Normalization")
     print("Default amplitude scale: 2.0x (200%)")
-    print("✓ Y-axis auto-ranging DISABLED")
-    print("✓ Manual height control via slider (10% - 1000%)")
-    print("✓ Waveform fills entire height of the plot")
-    print("✓ Reference lines show scale boundaries")
+    print("✓ Loudness normalization applies gain to audio buffer")
+    print("✓ LUFS measurement on raw (unscaled) audio")
+    print("✓ Effective LUFS displayed (raw + applied gain)")
+    print("✓ Auto-normalization with smooth transitions")
+    print("✓ Gain reset button")
+    print("✓ Loudness range display")
+    print("✓ Waveform shows gained audio")
     print("=" * 60)
-
     sys.exit(app.exec())
