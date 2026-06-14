@@ -842,7 +842,8 @@ class LiveAudioWaveform(QWidget):
         max_peak = np.max(np.abs(data))
 
         if max_peak > 0.95:
-            self.clip_count += 1
+            # Count clips ONLY in current chunk, not cumulative
+            current_clips = np.sum(np.abs(data) > 0.95)
 
             if not self.peak_warning_active:
                 self.peak_warning_active = True
@@ -854,17 +855,22 @@ class LiveAudioWaveform(QWidget):
             )
             self.last_peak_warning = self.update_counter
 
-            self.clip_count_label.setText(f"Clips: {self.clip_count}")
+            # Show clips in CURRENT CHUNK only
+            self.clip_count_label.setText(f"Clips: {current_clips}")
             self.clip_count_label.setStyleSheet(
                 "color: #ff3333; font-size: 9px; font-weight: bold;"
             )
-        elif (
-            self.peak_warning_active
-            and (self.update_counter - self.last_peak_warning) > PEAK_WARNING_TIMEOUT
-        ):
-            self.peak_warning_active = False
-            self.peak_warning_label.setText("")
-            self.clip_count_label.setStyleSheet("color: #777777; font-size: 9px;")
+
+            self.clip_count = current_clips
+        else:
+            # Reset when no clipping in current chunk
+            if self.peak_warning_active:
+                self.peak_warning_active = False
+                self.peak_warning_label.setText("")
+                self.clip_count_label.setText("Clips: 0")
+                self.clip_count_label.setStyleSheet("color: #777777; font-size: 9px;")
+
+                self.clip_count = 0
 
     def _measure_loudness(self, audio_data: np.ndarray) -> float:
         """Measure integrated loudness using pyloudnorm.
