@@ -5,6 +5,7 @@ import os
 import subprocess
 
 import tiktoken
+from headroom import compress
 from jet.logger import logger
 from tqdm import tqdm
 
@@ -38,7 +39,7 @@ exclude_files = [
     # "**/_*",
     # "**/.cache/",
     # "**/.venv/",
-    "**/generated/",
+    # "**/generated/",
     # "**/.*",
     # Custom
     # "**/*.sh"
@@ -46,6 +47,7 @@ exclude_files = [
     # "**/*.md",
     # "**/tests/",
     # "**/pretrained_models/",
+    "**/hls.min.js",
 ]
 include_files = [
     # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",
@@ -65,38 +67,14 @@ include_files = [
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/jobstreet.py",
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/online_jobs_ph.py",
     "",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules/shared/job_helpers.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/db/postgres/pgvector.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/run_save_jobs.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/job_search_hybrid.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/AI/js/hls.js/docs",
     "",
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/FireRedVAD/fireredvad/stream_vad.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/FireRedVAD/fireredvad/core",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/speech_timestamps_extractor.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/vad.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/audio_waveform/vad/firered.py",
-    "",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules/shared/job_helpers.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/db/postgres/pgvector.py",
-    "",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/speech_accumulator.py",
-    # # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/vad.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/live_subtitles/live_subtitles_client_per_speech.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/live_subtitles/ws_client_subtitles_handlers.py",
-    # # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/overlays/live_subtitles_overlay.py",
-    # # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/firered/speech_types.py",
-    "",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/audio_search.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/run_audio_search_partial.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/tests/audio_search/test_audio_search.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/utils/filter_links.py",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/scrapers/utils/tests/test_filter_links.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/overlays/audio_waveform_overlay.py",
     "",
 ]
 
 structure_include = [
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/libs/context_engineering/self_refinement_lab/practical_examples/",
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/mcp/mcp-server-browserbase/src",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/smart-web-extensions/mp4box-network-extractor",
 ]
 structure_exclude = []
 
@@ -107,9 +85,13 @@ exclude_content = []
 SHORTEN_FUNCTS = False
 INCLUDE_FILE_STRUCTURE = False
 
+COMPRESSION_MODEL = "gpt-4o"
+TOKEN_BUDGET = 8000
+
 DEFAULT_QUERY_MESSAGE = r"""
-Update patterns to be optional
+Check why even if I change the default OVERLAY_WIDTH, its not reflecting
 """.strip()
+
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
 General:
@@ -360,6 +342,7 @@ def main():
     structure_exclude_files = structure_exclude
     if exclude:
         structure_exclude_files += exclude
+    print("Formatting file structure...")
     files_structure = format_file_structure(
         base_dir,
         include_files=structure_include_files,
@@ -377,7 +360,7 @@ def main():
     if system_message:
         clipboard_content_parts.append(f"System\n{system_message}\n")
     # Query should come before instructions
-    clipboard_content_parts.append(f"Query\n{query_message}\n")
+    clipboard_content_parts.append(f"{query_message}\n\n")
     if instructions_message:
         clipboard_content_parts.append(f"Instructions\n{instructions_message}\n")
     if INCLUDE_FILE_STRUCTURE:
@@ -389,6 +372,31 @@ def main():
         )
 
     clipboard_content = "\n\n".join(clipboard_content_parts)
+
+    # Compress to reduce tokens
+    messages = [{"role": "user", "content": clipboard_content}]
+    result = compress(
+        messages,
+        model=COMPRESSION_MODEL,  # headroom uses this for strategy selection only
+        token_budget=TOKEN_BUDGET,  # enforce fit within llama-server context
+        ccr_enabled=True,  # reversible compression (default)
+    )
+
+    # Log compression stats using logger.log for each result.*
+    logger.log("Tokens before:", f"{result.tokens_before:,}", colors=["GRAY", "CYAN"])
+    logger.log("Tokens after:", f"{result.tokens_after:,}", colors=["GRAY", "CYAN"])
+    logger.log(
+        "Tokens saved:",
+        f"{result.tokens_saved:,} ({result.compression_ratio:.1%})",
+        colors=["GRAY", "CYAN"],
+    )
+    logger.log(
+        "Transforms applied:",
+        str(result.transforms_applied),
+        colors=["GRAY", "CYAN"],
+    )
+
+    clipboard_content = result.messages[-1]["content"]
 
     # Copy the content to the clipboard
     process = subprocess.Popen(
