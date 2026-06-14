@@ -107,5 +107,19 @@
   "cursor.general.disableHttp1SSE": true,
   "cursorpyright.nodeMaxOldSpaceSize": 0,
   "window.autoDetectColorScheme": false,
-  "workbench.editor.enablePreview": false
+  "workbench.editor.enablePreview": false,
+  "files.associations": {
+    "*.mdx": "mdx"
+  },
+  "cursorpyright.analysis.exclude": [
+    "**/venv",
+    "**/.venv",
+    "**/env",
+    "**/__pycache__",
+    "**/build",
+    "**/dist",
+    "**/node_modules",
+    "**/tests", // or specific subfolders
+    "large_folder/**"
+  ]
 }

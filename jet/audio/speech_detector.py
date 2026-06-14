@@ -12,11 +12,13 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MAX_SPEECH_SEC,
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_MIN_SPEECH_SEC,
+    DEFAULT_SOFT_LIMIT_SEC,
     DEFAULT_THRESHOLD,
 )
 from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
+from jet.audio.helpers.base import get_audio_duration
 from jet.audio.helpers.circular_audio_buffer import CircularAudioBuffer
 from jet.audio.helpers.silence import (
     CHANNELS,
@@ -25,6 +27,7 @@ from jet.audio.helpers.silence import (
     detect_silence,
 )
 from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
+from jet.audio.normalization.quant import quantize_audio
 from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
@@ -285,10 +288,13 @@ def extract_current_speech_segment(
     # Normalize loudness by VAD
     full_audio_np, _ = normalize_audio_for_vad(full_audio_np, SAMPLE_RATE)
 
-    # Quantize audio to produce more valleys and troughs
-    # full_audio_np, _ = quantize_audio(
-    #     full_audio_np, target_dtype="float16", sr=SAMPLE_RATE, verbose=verbose
-    # )
+    duration = get_audio_duration(full_audio_np, SAMPLE_RATE)
+
+    if duration >= DEFAULT_SOFT_LIMIT_SEC:
+        # Quantize audio to produce more valleys and troughs
+        full_audio_np, _ = quantize_audio(
+            full_audio_np, target_dtype="float16", sr=SAMPLE_RATE, verbose=verbose
+        )
 
     curr_speech_segs, speech_probs = extract_speech_timestamps(
         audio=full_audio_np,
@@ -298,6 +304,7 @@ def extract_current_speech_segment(
         min_silence_duration_sec=min_silence_duration_sec,
         min_speech_duration_sec=min_speech_duration_sec,
         max_speech_duration_sec=max_speech_duration_sec,
+        soft_limit_sec=DEFAULT_SOFT_LIMIT_SEC,
     )
 
     return curr_speech_segs

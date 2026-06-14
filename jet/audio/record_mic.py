@@ -2,8 +2,9 @@ from typing import Optional
 
 import numpy as np
 import sounddevice as sd
+from jet.audio.helpers.base import get_audio_duration
 from jet.audio.helpers.config import SAMPLE_RATE
-from jet.audio.helpers.energy import get_audio_duration, has_sound, trim_silent
+from jet.audio.helpers.energy import has_sound, trim_silent
 from jet.audio.utils.loader import load_audio
 from jet.logger import logger
 from tqdm import tqdm

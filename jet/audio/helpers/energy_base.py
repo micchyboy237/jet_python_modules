@@ -17,25 +17,6 @@ from jet.audio.helpers.config import (
 )
 
 
-def get_audio_duration(samples: np.ndarray, sample_rate: int = SAMPLE_RATE) -> float:
-    """Return duration of audio in seconds.
-
-    Parameters
-    ----------
-    samples : np.ndarray
-        Input audio samples (1D array).
-
-    Returns
-    -------
-    float
-        Duration in seconds.
-    """
-    if len(samples) == 0:
-        return 0.0
-
-    return float(len(samples) / sample_rate)
-
-
 def compute_amplitude(samples: np.ndarray) -> float:
     """Compute peak amplitude (max |x|).
 
