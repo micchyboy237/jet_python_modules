@@ -503,6 +503,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         # Compute VAD score once here — single source of truth
         vad_score = _compute_vad_score(seg, event.audio_np)
 
+        # Build segment_id
+        segment_id = f"segment_{seg_num:03d}"
+
         header: ClientHeader = {
             "uuid": str(uuid.uuid4()),
             "sample_rate": event.sample_rate,
@@ -516,7 +519,10 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "end_time_utc": end_time_utc,
             "gap_sec": gap_sec,
             "vad_score": vad_score,
-            "language": self._language_store.language,  # ← new field
+            "language": self._language_store.language,
+            # ── new fields ──
+            "segment_number": seg_num,
+            "segment_id": segment_id,
         }
         _log_request(seg_num, header, audio_bytes)
         try:

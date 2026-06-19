@@ -1,5 +1,6 @@
 """CircularAudioBuffer — fixed-duration sliding window with timestamp support."""
 
+import logging
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Iterator, List, Optional
@@ -7,28 +8,18 @@ from typing import Iterator, List, Optional
 import numpy as np
 from jet.audio.helpers.config import SAMPLE_RATE
 
+logger = logging.getLogger(__name__)
+
 
 class CircularAudioBuffer:
     """Fixed-duration sliding window over a live microphone stream.
 
-    Internally keeps a deque of raw numpy chunks.  Once the total number of
-    samples exceeds ``max_samples``, the oldest chunks are evicted from the
-    left so that the window always covers at most ``max_sec`` seconds of audio.
+    Internally keeps a deque of (chunk, capture_time) tuples. Once the total
+    number of samples exceeds ``max_samples``, the oldest chunks are evicted
+    so the window always covers at most ``max_sec`` seconds of audio.
 
-    The buffer exposes:
-    - ``append(chunk, capture_time=None)`` — add a new mic chunk, evict if over budget.
-    - ``to_numpy()``                      — return the full window as one contiguous array.
-    - ``slice_seconds(s, e)``             — extract a time range (in seconds, relative to
-                                             the start of the current window).
-    - ``get_absolute_time(rel_sec)``      — convert window-relative seconds to UTC datetime.
-    - ``total_samples``                   — cumulative samples seen since construction
-                                             (never decreases).
-
-    It also satisfies the ``list[np.ndarray]`` duck-type that ``speech_detector``
-    and ``extract_segment_data`` rely on:
-    - ``len(buf)``             — number of chunks currently in the window.
-    - ``buf[i]``               — individual chunk by index.
-    - iteration                — yields chunks in order.
+    Tracks per-chunk capture timestamps to detect gaps and maintain accurate
+    time mapping even with stream jitter.
     """
 
     def __init__(
@@ -42,22 +33,22 @@ class CircularAudioBuffer:
         self.dtype = dtype
         self.max_samples: int = int(max_sec * sample_rate)
 
-        self._chunks: deque[np.ndarray] = deque()
-        self._window_samples: int = 0  # samples currently in the deque
-        self._total_samples: int = 0  # cumulative samples ever appended
-        self._trimmed_samples: int = 0  # samples removed via trim_to_sec
+        # Store (chunk, capture_time) tuples
+        self._chunks: deque[tuple[np.ndarray, Optional[datetime]]] = deque()
+        self._window_samples: int = 0
+        self._total_samples: int = 0
+        self._trimmed_samples: int = 0
 
-        # ── Timestamp tracking ──────────────────────────────────────────
-        # Absolute UTC time of the FIRST sample currently in the window.
-        # Set when the first chunk with a capture_time is appended.
-        # Advanced by trim_to_sec to stay accurate.
+        # Track gaps
+        self._total_gap_samples: int = 0
+        self._gap_events: List[dict] = []
+
+        # Timestamp anchor
         self._window_start_time: Optional[datetime] = None
-        # Whether we've received at least one timestamped chunk.
         self._has_timestamps: bool = False
 
-    # ------------------------------------------------------------------
-    # Core mutation
-    # ------------------------------------------------------------------
+        # Track last chunk time for gap detection
+        self._last_chunk_end_time: Optional[datetime] = None
 
     def append(
         self,
@@ -69,27 +60,56 @@ class CircularAudioBuffer:
         Args:
             chunk: Audio samples as numpy array.
             capture_time: UTC datetime when the **first sample** of this chunk
-                         was captured. Only used for the very first chunk to
-                         establish the window's time anchor.
+                         was captured. Used for gap detection and timestamp accuracy.
         """
-        self._chunks.append(chunk)
         n = len(chunk)
-        self._window_samples += n
-        self._total_samples += n
+        chunk_duration = n / self.sample_rate
 
-        # ── Timestamp anchor: set on first timestamped chunk ──────────
+        # ── Gap detection ──────────────────────────────────────────
+        if capture_time is not None and self._last_chunk_end_time is not None:
+            expected_time = self._last_chunk_end_time
+            actual_time = capture_time
+            gap_sec = (actual_time - expected_time).total_seconds()
+
+            if gap_sec > 0.001:  # More than 1ms gap
+                gap_samples = int(gap_sec * self.sample_rate)
+                logger.warning(
+                    f"Audio gap detected: {gap_sec:.3f}s ({gap_samples} samples). "
+                    f"Expected chunk at {expected_time.isoformat()}, "
+                    f"got chunk at {actual_time.isoformat()}"
+                )
+                self._total_gap_samples += gap_samples
+                self._gap_events.append(
+                    {
+                        "gap_sec": gap_sec,
+                        "gap_samples": gap_samples,
+                        "expected_time": expected_time.isoformat(),
+                        "actual_time": actual_time.isoformat(),
+                    }
+                )
+
+        # ── Timestamp anchor ───────────────────────────────────────
         if not self._has_timestamps and capture_time is not None:
             self._window_start_time = capture_time
             self._has_timestamps = True
+            logger.debug(f"Timestamp anchor set: {capture_time.isoformat()}")
 
-        # Evict oldest chunks until we're within budget.
-        # If we evict, advance the timestamp anchor accordingly.
+        # Track chunk end time for gap detection
+        if capture_time is not None:
+            self._last_chunk_end_time = capture_time + timedelta(seconds=chunk_duration)
+
+        # ── Store chunk ────────────────────────────────────────────
+        self._chunks.append((chunk, capture_time))
+        self._window_samples += n
+        self._total_samples += n
+
+        # ── Evict overflow ─────────────────────────────────────────
         while self._window_samples > self.max_samples and self._chunks:
-            evicted = self._chunks.popleft()
-            evicted_len = len(evicted)
+            evicted_chunk, evicted_time = self._chunks.popleft()
+            evicted_len = len(evicted_chunk)
             self._window_samples -= evicted_len
 
-            # Advance anchor by the duration of evicted audio.
+            # Advance anchor by the duration of evicted audio
             if self._has_timestamps and self._window_start_time is not None:
                 evicted_sec = evicted_len / self.sample_rate
                 self._window_start_time += timedelta(seconds=evicted_sec)
@@ -104,29 +124,28 @@ class CircularAudioBuffer:
 
         After this call all timestamps returned by VAD (which are relative
         to the window start) remain correct — the window simply starts later.
-        Use ``trimmed_sec`` to convert between absolute recording time and
-        window-relative time when needed.
-
-        Clamped to the current window length; asking to trim more than the
-        buffer holds trims everything.
-
-        Also advances the timestamp anchor so ``get_absolute_time`` stays accurate.
         """
         samples_to_drop = min(
             int(sec * self.sample_rate),
             self._window_samples,
         )
+
+        logger.debug(
+            f"trim_to_sec({sec:.3f}): dropping {samples_to_drop} samples, "
+            f"window has {self._window_samples} samples ({self.window_sec:.3f}s)"
+        )
+
         dropped = 0
         while self._chunks and dropped < samples_to_drop:
-            chunk = self._chunks[0]
+            chunk, _ = self._chunks[0]
             remaining = samples_to_drop - dropped
             if len(chunk) <= remaining:
-                evicted = self._chunks.popleft()
-                dropped += len(evicted)
+                self._chunks.popleft()
+                dropped += len(chunk)
             else:
-                # Partial trim: slice off the consumed prefix.
+                # Partial trim: slice off the consumed prefix
                 partial_len = remaining
-                self._chunks[0] = chunk[remaining:]
+                self._chunks[0] = (chunk[remaining:], self._chunks[0][1])
                 dropped = samples_to_drop
 
         self._window_samples -= dropped
@@ -136,11 +155,25 @@ class CircularAudioBuffer:
         if self._has_timestamps and self._window_start_time is not None and dropped > 0:
             dropped_sec = dropped / self.sample_rate
             self._window_start_time += timedelta(seconds=dropped_sec)
+            logger.debug(
+                f"Timestamp anchor advanced by {dropped_sec:.3f}s to "
+                f"{self._window_start_time.isoformat()}"
+            )
 
     @property
     def trimmed_sec(self) -> float:
         """Total seconds trimmed from the front of the buffer since construction."""
         return self._trimmed_samples / self.sample_rate
+
+    @property
+    def total_gap_sec(self) -> float:
+        """Total gap seconds detected."""
+        return self._total_gap_samples / self.sample_rate
+
+    @property
+    def gap_events(self) -> List[dict]:
+        """List of detected gap events."""
+        return self._gap_events.copy()
 
     # ------------------------------------------------------------------
     # Timestamp conversion
@@ -156,10 +189,6 @@ class CircularAudioBuffer:
         Returns:
             ISO 8601 string like ``"2026-05-25T14:32:17.123456+00:00"``,
             or None if no timestamp anchor has been set.
-
-        Example:
-            >>> buf.get_absolute_time(2.3)
-            "2026-05-25T14:32:17.123456+00:00"
         """
         if self._window_start_time is None:
             return None
@@ -195,14 +224,11 @@ class CircularAudioBuffer:
         return self._window_samples / self.sample_rate
 
     def to_numpy(self) -> np.ndarray:
-        """Return the current window as one contiguous numpy array.
-
-        If the buffer is empty, returns a zero-length array with the
-        correct dtype.
-        """
+        """Return the current window as one contiguous numpy array."""
         if not self._chunks:
             return np.array([], dtype=self.dtype)
-        return np.concatenate(list(self._chunks), axis=0)
+        chunks_only = [chunk for chunk, _ in self._chunks]
+        return np.concatenate(chunks_only, axis=0)
 
     def slice_seconds(
         self,
@@ -211,29 +237,23 @@ class CircularAudioBuffer:
         trim_silent: bool = False,
         silence_threshold: Optional[float] = None,
     ) -> np.ndarray:
-        """Extract ``[start_sec, end_sec)`` relative to the window start.
-
-        This replaces the ``extract_segment_data`` slice logic so callers
-        can work in seconds (exactly as VAD reports them) rather than
-        computing chunk indices.
-
-        Args:
-            start_sec: Seconds from the beginning of the current window.
-            end_sec:   Seconds from the beginning of the current window.
-            trim_silent: When True, strip leading/trailing silent 100 ms
-                         sub-chunks (mirrors the old ``trim_silent`` flag).
-            silence_threshold: RMS threshold for silence detection.
-                               Auto-calibrated when None.
-        """
+        """Extract ``[start_sec, end_sec)`` relative to the window start."""
         full = self.to_numpy()
         start_sample = int(round(start_sec * self.sample_rate))
         end_sample = int(round(end_sec * self.sample_rate))
 
-        # Clamp to valid range.
+        # Clamp to valid range
         start_sample = max(0, min(start_sample, len(full)))
         end_sample = max(start_sample, min(end_sample, len(full)))
 
         seg = full[start_sample:end_sample]
+
+        logger.debug(
+            f"slice_seconds({start_sec:.3f}, {end_sec:.3f}): "
+            f"full={len(full)} samples, "
+            f"slice=[{start_sample}:{end_sample}], "
+            f"result={len(seg)} samples ({len(seg) / self.sample_rate:.3f}s)"
+        )
 
         if trim_silent and len(seg) > 0:
             from jet.audio.helpers.silence import (
@@ -264,11 +284,13 @@ class CircularAudioBuffer:
         return len(self._chunks)
 
     def __getitem__(self, index: int) -> np.ndarray:
-        # deque doesn't support slicing but does support integer index.
-        return self._chunks[index]
+        # Return just the chunk (without timestamp) for backward compatibility
+        return self._chunks[index][0]
 
     def __iter__(self) -> Iterator[np.ndarray]:
-        return iter(self._chunks)
+        # Return just the chunks (without timestamps) for backward compatibility
+        for chunk, _ in self._chunks:
+            yield chunk
 
     def __bool__(self) -> bool:
         return bool(self._chunks)
@@ -277,11 +299,17 @@ class CircularAudioBuffer:
         ts_info = ""
         if self._has_timestamps and self._window_start_time is not None:
             ts_info = f", window_start={self._window_start_time.isoformat()}"
+        gap_info = ""
+        if self._total_gap_samples > 0:
+            gap_info = (
+                f", gaps={self.total_gap_sec:.3f}s ({len(self._gap_events)} events)"
+            )
         return (
             f"CircularAudioBuffer("
             f"max_sec={self.max_sec}, "
             f"window={self.window_sec:.2f}s / {self._window_samples} samples, "
             f"chunks={len(self._chunks)}, "
             f"total_samples={self._total_samples}"
-            f"{ts_info})"
+            f"{ts_info}"
+            f"{gap_info})"
         )

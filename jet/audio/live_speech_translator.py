@@ -28,10 +28,6 @@ OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---------------------------------------------------------------------------
-# Speech handlers
-# ---------------------------------------------------------------------------
-
 
 def dispatch_handlers(
     handlers: list[SpeechSegmentHandler],
@@ -61,11 +57,6 @@ def dispatch_handlers(
             logger.error(f"Handler {type(handler).__name__} failed: {exc}")
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-
 def main_live_speech_translation(verbose: bool = False):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -87,10 +78,25 @@ def main_live_speech_translation(verbose: bool = False):
     segment_store = SegmentStore(OUTPUT_DIR / "segments")
     completed_segments: list[SpeechSegment] = []
 
+    # Track audio quality metrics
+    audio_stats = {
+        "total_segments": 0,
+        "segments_with_overflow": 0,
+        "empty_segments": 0,
+    }
+
     def _on_clear() -> None:
         completed_segments.clear()
         segment_store.reset()
         ws_sender.clear_queue()
+        # Reset stats
+        audio_stats.update(
+            {
+                "total_segments": 0,
+                "segments_with_overflow": 0,
+                "empty_segments": 0,
+            }
+        )
 
     overlay = SubtitleOverlay.create_and_connect(
         ws_sender,
@@ -103,29 +109,52 @@ def main_live_speech_translation(verbose: bool = False):
 
     def _recording_loop() -> None:
         recording_started_at = datetime.now(timezone.utc)
+        logger.info(
+            f"[recorder] Audio recording started at {recording_started_at.isoformat()}"
+        )
+
         data_stream = record_from_mic(
             duration=None,
             trim_silent=False,
             quit_on_silence=False,
             verbose=verbose,
         )
+
         for speech_seg, seg_audio_np in data_stream:
+            audio_stats["total_segments"] += 1
+
+            # Check for overflow flags in segment metadata
+            had_overflow = speech_seg.get("had_overflow", False)
+            if had_overflow:
+                audio_stats["segments_with_overflow"] += 1
+                logger.warning(
+                    f"[recorder] Segment {speech_seg['num']} affected by audio overflow! "
+                    f"({audio_stats['segments_with_overflow']}/{audio_stats['total_segments']} segments affected)"
+                )
+
             logger.success(
-                f"Speech {speech_seg['num']}: {speech_seg['start_time_utc']} → {speech_seg['end_time_utc']}"
+                f"Speech {speech_seg['num']}: "
+                f"{speech_seg['start_time_utc']} → {speech_seg['end_time_utc']} "
+                f"[{'⚠ OVERFLOW' if had_overflow else '✓ clean'}]"
             )
+
             if _stop_recording.is_set():
                 break
+
             if seg_audio_np is None or seg_audio_np.size == 0:
+                audio_stats["empty_segments"] += 1
                 logger.warning(
-                    f"[recorder] Skipping segment with empty audio "
-                    f"(start={speech_seg.get('start'):.2f}s, "
-                    f"reason={speech_seg.get('end_reason')})"
+                    f"[recorder] Skipping empty segment "
+                    f"(start={speech_seg.get('start', 'unknown'):.2f}s, "
+                    f"reason={speech_seg.get('end_reason', 'unknown')})"
                 )
                 continue
+
             seg_dir, seg_number = segment_store.save(
                 speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
             )
             speech_seg["num"] = seg_number
+
             dispatch_handlers(
                 handlers,
                 speech_seg,
@@ -135,24 +164,53 @@ def main_live_speech_translation(verbose: bool = False):
                 SAMPLE_RATE,
                 recording_started_at,
             )
+
             _speech_seg_no_probs = speech_seg.copy()
-            _speech_seg_probs = _speech_seg_no_probs.pop("segment_probs")
+            _speech_seg_probs = _speech_seg_no_probs.pop("segment_probs", None)
             completed_segments.append(_speech_seg_no_probs)
             save_file(completed_segments, all_segments_path)
+
+        # Final statistics
+        quality_ok = audio_stats["segments_with_overflow"] == 0
+        logger.info(
+            f"[recorder] Recording complete. Stats:\n"
+            f"  Total segments: {audio_stats['total_segments']}\n"
+            f"  With overflow: {audio_stats['segments_with_overflow']}\n"
+            f"  Empty segments: {audio_stats['empty_segments']}\n"
+            f"  Audio quality: {'⚠ DEGRADED' if not quality_ok else '✓ GOOD'}"
+        )
+
         display_segments(completed_segments, done=True)
 
-    rec_thread = threading.Thread(target=_recording_loop, daemon=True, name="recorder")
+    rec_thread = threading.Thread(
+        target=_recording_loop, daemon=True, name="audio-recorder"
+    )
     rec_thread.start()
+    logger.info(f"[main] Audio recorder thread started (tid={rec_thread.ident})")
 
     def _shutdown() -> None:
         logger.info("[shutdown] Stopping recorder…")
         _stop_recording.set()
+
         logger.info("[shutdown] Closing WebSocket sender…")
         for h in handlers:
             if hasattr(h, "close"):
                 h.close()
+
         logger.info("[shutdown] Joining recorder thread…")
         rec_thread.join(timeout=5.0)
+        if rec_thread.is_alive():
+            logger.warning("[shutdown] Recorder thread did not exit cleanly!")
+
+        # Print final quality report
+        if audio_stats["segments_with_overflow"] > 0:
+            logger.warning(
+                f"[shutdown] ⚠ Audio quality issues detected: "
+                f"{audio_stats['segments_with_overflow']} segments affected by overflow."
+            )
+        else:
+            logger.info("[shutdown] ✓ Audio quality was good throughout recording")
+
         logger.info("[shutdown] Done.")
 
     app.aboutToQuit.connect(_shutdown)
@@ -164,7 +222,6 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Live Speech Translation")
-
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose output"
     )

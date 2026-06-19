@@ -1,3 +1,5 @@
+# jet_python_modules/jet/audio/speech_detector.py
+
 from typing import Generator, List, Optional, Tuple
 
 import numpy as np
@@ -34,10 +36,10 @@ from jet.logger import logger
 from tqdm import tqdm
 
 DEFAULT_BUFFER_MAX_SEC = 120.0
-
-# Each stream.read() delivers this many firered hops (10 ms each).
-# 50 hops × 10 ms = 0.5 s per read — tune freely, must stay a whole number.
 _HOPS_PER_READ = 50
+DEFAULT_TRIM_OVERLAP_SEC = (
+    0.3  # Keep 300ms overlap between segments to prevent cutting off speech
+)
 
 
 def record_from_mic(
@@ -54,7 +56,8 @@ def record_from_mic(
     buffer_max_sec: float = DEFAULT_BUFFER_MAX_SEC,
     verbose: bool = False,
 ) -> Generator[Tuple[SpeechSegment, np.ndarray], None, None]:
-    """Record audio from microphone with silence detection and progress tracking.
+    """
+    Record audio from microphone with silence detection and progress tracking.
 
     Speech segments now include absolute UTC timestamps:
         - ``segment["start_time_utc"]``: datetime when speech started
@@ -67,10 +70,18 @@ def record_from_mic(
         trim_silent: If True, removes silent edges from the segments and final audio.
         overlap_seconds: Seconds of overlap to add from the previous segment when
             yielding a new one (prevents information loss at boundaries).
-        buffer_max_sec: Maximum seconds of audio kept in the sliding window.
-            Older audio is evicted automatically. Defaults to 120 s.
+        quit_on_silence: If True, terminate the stream immediately upon silence detection.
+        threshold: Speech/silence energy threshold.
+        min_silence_duration_sec: Minimum duration of silence to consider as a break.
+        min_speech_duration_sec: Minimum duration of speech to consider as a segment.
+        max_speech_duration_sec: Maximum duration of a speech segment.
+        buffer_max_sec: Maximum seconds of audio kept in the sliding window. Older audio is evicted automatically.
         verbose: If True, display speech segments using display_segments() after each update.
     """
+    # Track gap statistics for diagnostics
+    last_gap_check = 0
+    consecutive_empty_yields = 0
+
     silence_threshold = (
         silence_threshold
         if silence_threshold is not None
@@ -112,16 +123,41 @@ def record_from_mic(
         else {"desc": "Recording", "unit": "s", "leave": True}
     )
 
-    with tqdm(**pbar_kwargs) as pbar, FireredStream() as stream:
-        for chunk, capture_time in stream:
+    with tqdm(**pbar_kwargs) as pbar, FireredStream(latency="high") as stream:
+        for chunk, capture_time, overflow in stream:  # Added overflow
             if recorded_frames >= max_frames:
                 break
 
-            # Pass timestamp to buffer for absolute time conversion
+            # Log overflow events
+            if overflow:
+                logger.warning(
+                    f"Audio overflow detected! Lost ~{stream.total_samples_lost} samples. "
+                    f"Quality may be degraded for subsequent segments."
+                )
+                # You might want to mark the current segment as potentially corrupted
+                if prev_segment:
+                    prev_segment["had_overflow"] = True
+
             audio_data.append(chunk, capture_time=capture_time)
             recorded_frames += chunk_size
             pbar.update(chunk_size / SAMPLE_RATE)
 
+            # ── Gap monitoring ──────────────────────────────────────
+            if audio_data.gap_events and len(audio_data.gap_events) > last_gap_check:
+                new_gaps = audio_data.gap_events[last_gap_check:]
+                last_gap_check = len(audio_data.gap_events)
+                for gap in new_gaps:
+                    logger.warning(
+                        f"Audio gap: {gap['gap_sec']:.3f}s at "
+                        f"expected={gap['expected_time']}, actual={gap['actual_time']}"
+                    )
+                if audio_data.total_gap_sec > 1.0:
+                    logger.error(
+                        f"Total gap time exceeded 1 second: {audio_data.total_gap_sec:.3f}s. "
+                        f"Audio quality may be degraded."
+                    )
+
+            # Silence detection
             if recorded_frames > grace_frames and detect_silence(
                 chunk, silence_threshold
             ):
@@ -141,10 +177,29 @@ def record_from_mic(
                             trim_silent=trim_silent,
                             silence_threshold=silence_threshold,
                         )
-                        # Enrich segment with absolute timestamps
+                        if seg_audio_np is None or seg_audio_np.size == 0:
+                            consecutive_empty_yields += 1
+                            logger.warning(
+                                f"Empty audio for segment at [{prev_segment['start']:.3f}, "
+                                f"{prev_segment['end']:.3f}]. Buffer: {audio_data.window_sec:.3f}s, "
+                                f"Gaps: {audio_data.total_gap_sec:.3f}s. "
+                                f"Consecutive empty: {consecutive_empty_yields}"
+                            )
+                            if consecutive_empty_yields > 3:
+                                logger.error(
+                                    "Too many empty segments - possible stream issue!"
+                                )
+                        else:
+                            consecutive_empty_yields = 0
                         _enrich_segment_with_timestamps(prev_segment, audio_data)
                         yield prev_segment, seg_audio_np
+                        # Trim to segment end (not before) to avoid re-detecting old speech
                         audio_data.trim_to_sec(float(prev_segment["end"]))
+                        logger.debug(
+                            f"Trimmed to {prev_segment['end']:.3f}s. "
+                            f"Buffer now: {audio_data.window_sec:.3f}s, "
+                            f"gaps: {audio_data.total_gap_sec:.3f}s"
+                        )
                         prev_segment = None
                     if curr_speech_segs:
                         if verbose:
@@ -194,13 +249,38 @@ def record_from_mic(
                 )
                 prev_segment["start"] = original_start
                 prev_segment["duration"] = prev_segment["end"] - prev_segment["start"]
+
+                if seg_audio_np is None or seg_audio_np.size == 0:
+                    consecutive_empty_yields += 1
+                    logger.warning(
+                        f"Empty audio for segment at [{prev_segment['start']:.3f}, "
+                        f"{prev_segment['end']:.3f}]. Buffer: {audio_data.window_sec:.3f}s, "
+                        f"Gaps: {audio_data.total_gap_sec:.3f}s. "
+                        f"Consecutive empty: {consecutive_empty_yields}"
+                    )
+                    if consecutive_empty_yields > 3:
+                        logger.error("Too many empty segments - possible stream issue!")
+                    prev_segment = curr_segment  # Don't retry this segment
+                    continue
+
+                consecutive_empty_yields = 0
+
                 last_yielded_end_sec = (
                     float(prev_segment["end"]) + audio_data.trimmed_sec
                 )
-                # Enrich segment with absolute timestamps
                 _enrich_segment_with_timestamps(prev_segment, audio_data)
                 yield prev_segment, seg_audio_np
-                audio_data.trim_to_sec(float(prev_segment["end"]))
+                # Trim to segment end, but keep some overlap for next segment detection
+                trim_point = max(
+                    0.0, float(prev_segment["end"]) - DEFAULT_TRIM_OVERLAP_SEC
+                )
+                audio_data.trim_to_sec(trim_point)
+                logger.debug(
+                    f"Trimmed to {trim_point:.3f}s (segment end={prev_segment['end']:.3f}s, "
+                    f"overlap={DEFAULT_TRIM_OVERLAP_SEC}s). "
+                    f"Buffer now: {audio_data.window_sec:.3f}s, "
+                    f"gaps: {audio_data.total_gap_sec:.3f}s"
+                )
 
             prev_segment = curr_segment
 
@@ -231,7 +311,20 @@ def record_from_mic(
             trim_silent=trim_silent,
             silence_threshold=silence_threshold,
         )
-        # Enrich segment with absolute timestamps
+        # Final segment empty audio monitoring
+        if seg_audio_np is None or seg_audio_np.size == 0:
+            consecutive_empty_yields += 1
+            logger.warning(
+                f"Empty audio for segment at [{prev_segment['start']:.3f}, "
+                f"{prev_segment['end']:.3f}]. Buffer: {audio_data.window_sec:.3f}s, "
+                f"Gaps: {audio_data.total_gap_sec:.3f}s. "
+                f"Consecutive empty: {consecutive_empty_yields}"
+            )
+            if consecutive_empty_yields > 3:
+                logger.error("Too many empty segments - possible stream issue!")
+        else:
+            consecutive_empty_yields = 0
+
         _enrich_segment_with_timestamps(prev_segment, audio_data)
         yield prev_segment, seg_audio_np
 
@@ -285,23 +378,16 @@ def extract_current_speech_segment(
     verbose: bool = False,
 ) -> List[SpeechSegment]:
     full_audio_np = np.concatenate(audio_data, axis=0)
-
-    # Normalize loudness by VAD
     full_audio_np, _ = normalize_audio_for_vad(full_audio_np, SAMPLE_RATE)
-
     duration = get_audio_duration(full_audio_np, SAMPLE_RATE)
-
     if duration >= DEFAULT_SOFT_LIMIT_SEC_HIGH:
-        # Quantize audio to produce more valleys and troughs
         full_audio_np, _ = quantize_audio(
             full_audio_np, target_dtype="int16", sr=SAMPLE_RATE, verbose=verbose
         )
     elif duration >= DEFAULT_SOFT_LIMIT_SEC:
-        # Quantize audio to produce more valleys and troughs
         full_audio_np, _ = quantize_audio(
             full_audio_np, target_dtype="float16", sr=SAMPLE_RATE, verbose=verbose
         )
-
     curr_speech_segs, speech_probs = extract_speech_timestamps(
         audio=full_audio_np,
         with_scores=True,
@@ -312,5 +398,4 @@ def extract_current_speech_segment(
         max_speech_duration_sec=max_speech_duration_sec,
         soft_limit_sec=DEFAULT_SOFT_LIMIT_SEC,
     )
-
     return curr_speech_segs

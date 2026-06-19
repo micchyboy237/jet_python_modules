@@ -85,8 +85,10 @@ class ClientHeader(TypedDict):
     end_time_utc: Optional[str]
     gap_sec: Optional[float]
     vad_score: Optional[float]
-    # ── new field (from API schema WebSocketHeader) ──
     language: LanguageCode
+    # ── new fields ──
+    segment_number: int
+    segment_id: str
 
 
 # ---------------------------------------------------------------------------
