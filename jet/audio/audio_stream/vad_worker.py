@@ -91,8 +91,15 @@ def extract_current_speech_segment(
     safe to call concurrently with the drain thread's ``append()``.
     """
     full_audio_np = audio_data.to_numpy()
+
+    # Early silence check - skip quantization if silent
+    if full_audio_np.size == 0 or np.max(np.abs(full_audio_np)) == 0:
+        return []
+
     full_audio_np, _ = normalize_audio_for_vad(full_audio_np, audio_data.sample_rate)
     duration = get_audio_duration(full_audio_np, audio_data.sample_rate)
+
+    # Only quantize if audio is NOT silent and we need to
     if duration >= DEFAULT_SOFT_LIMIT_SEC_HIGH:
         full_audio_np, _ = quantize_audio(
             full_audio_np,
@@ -107,6 +114,7 @@ def extract_current_speech_segment(
             sr=audio_data.sample_rate,
             verbose=verbose,
         )
+
     curr_speech_segs, _speech_probs = extract_speech_timestamps(
         audio=full_audio_np,
         with_scores=True,
