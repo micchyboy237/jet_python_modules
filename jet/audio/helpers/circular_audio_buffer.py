@@ -50,6 +50,10 @@ class CircularAudioBuffer:
         self._last_chunk_end_time: Optional[datetime] = None
         self._dropped_blocks: int = 0
         self._dropped_lock = threading.Lock()
+        # NEW: guards self._chunks and window/timestamp bookkeeping, since
+        # append() runs on the drain thread while to_numpy()/slice_seconds()/
+        # trim_to_sec() run on the VadSegmentWorker thread.
+        self._buffer_lock = threading.RLock()
 
     def record_dropped_block(self) -> None:
         """Called from the real-time audio callback when a queue-full drop occurs.
@@ -73,120 +77,111 @@ class CircularAudioBuffer:
         capture_time: Optional[datetime] = None,
     ) -> None:
         """Add *chunk* to the right of the window, evicting from the left as needed.
-
-        Args:
-            chunk: Audio samples as numpy array.
-            capture_time: UTC datetime when the **first sample** of this chunk
-                         was captured. Used for gap detection and timestamp accuracy.
+        Thread-safe — may be called concurrently with to_numpy()/slice_seconds()/
+        trim_to_sec() from the VAD worker thread.
         """
         n = len(chunk)
         chunk_duration = n / self.sample_rate
-
-        if capture_time is not None and self._last_chunk_end_time is not None:
-            expected_time = self._last_chunk_end_time
-            actual_time = capture_time
-            gap_sec = (actual_time - expected_time).total_seconds()
-
-            if gap_sec > _MIN_REAL_GAP_SEC:
-                gap_samples = int(gap_sec * self.sample_rate)
-
-                # Use appropriate log level based on gap severity
-                if gap_sec >= _GAP_WARNING_THRESHOLD_SEC:
-                    logger.warning(
-                        "Audio gap detected: %.3fs (%d samples). "
-                        "Expected chunk at %s, got chunk at %s",
-                        gap_sec,
-                        gap_samples,
-                        expected_time.isoformat(),
-                        actual_time.isoformat(),
+        with self._buffer_lock:
+            if capture_time is not None and self._last_chunk_end_time is not None:
+                expected_time = self._last_chunk_end_time
+                actual_time = capture_time
+                gap_sec = (actual_time - expected_time).total_seconds()
+                if gap_sec > _MIN_REAL_GAP_SEC:
+                    gap_samples = int(gap_sec * self.sample_rate)
+                    if gap_sec >= _GAP_WARNING_THRESHOLD_SEC:
+                        logger.warning(
+                            "Audio gap detected: %.3fs (%d samples). "
+                            "Expected chunk at %s, got chunk at %s",
+                            gap_sec,
+                            gap_samples,
+                            expected_time.isoformat(),
+                            actual_time.isoformat(),
+                        )
+                    else:
+                        logger.debug(
+                            "Minor audio gap: %.3fs (%d samples). "
+                            "Expected chunk at %s, got chunk at %s",
+                            gap_sec,
+                            gap_samples,
+                            expected_time.isoformat(),
+                            actual_time.isoformat(),
+                        )
+                    self._total_gap_samples += gap_samples
+                    self._gap_events.append(
+                        {
+                            "gap_sec": gap_sec,
+                            "gap_samples": gap_samples,
+                            "expected_time": expected_time.isoformat(),
+                            "actual_time": actual_time.isoformat(),
+                        }
                     )
-                else:
+                elif gap_sec < -0.010:
                     logger.debug(
-                        "Minor audio gap: %.3fs (%d samples). "
-                        "Expected chunk at %s, got chunk at %s",
-                        gap_sec,
-                        gap_samples,
-                        expected_time.isoformat(),
-                        actual_time.isoformat(),
+                        "Timestamp went backwards by %.3fs — clock jitter, ignoring",
+                        -gap_sec,
                     )
-
-                self._total_gap_samples += gap_samples
-                self._gap_events.append(
-                    {
-                        "gap_sec": gap_sec,
-                        "gap_samples": gap_samples,
-                        "expected_time": expected_time.isoformat(),
-                        "actual_time": actual_time.isoformat(),
-                    }
+            if not self._has_timestamps and capture_time is not None:
+                self._window_start_time = capture_time
+                self._has_timestamps = True
+                logger.debug("Timestamp anchor set: %s", capture_time.isoformat())
+            if capture_time is not None:
+                self._last_chunk_end_time = capture_time + timedelta(
+                    seconds=chunk_duration
                 )
-            elif gap_sec < -0.010:
-                logger.debug(
-                    "Timestamp went backwards by %.3fs — clock jitter, ignoring",
-                    -gap_sec,
-                )
-
-        if not self._has_timestamps and capture_time is not None:
-            self._window_start_time = capture_time
-            self._has_timestamps = True
-            logger.debug("Timestamp anchor set: %s", capture_time.isoformat())
-
-        if capture_time is not None:
-            self._last_chunk_end_time = capture_time + timedelta(seconds=chunk_duration)
-
-        self._chunks.append((chunk, capture_time))
-        self._window_samples += n
-        self._total_samples += n
-
-        while self._window_samples > self.max_samples and self._chunks:
-            evicted_chunk, evicted_time = self._chunks.popleft()
-            evicted_len = len(evicted_chunk)
-            self._window_samples -= evicted_len
-            if self._has_timestamps and self._window_start_time is not None:
-                evicted_sec = evicted_len / self.sample_rate
-                self._window_start_time += timedelta(seconds=evicted_sec)
+            self._chunks.append((chunk, capture_time))
+            self._window_samples += n
+            self._total_samples += n
+            while self._window_samples > self.max_samples and self._chunks:
+                evicted_chunk, evicted_time = self._chunks.popleft()
+                evicted_len = len(evicted_chunk)
+                self._window_samples -= evicted_len
+                if self._has_timestamps and self._window_start_time is not None:
+                    evicted_sec = evicted_len / self.sample_rate
+                    self._window_start_time += timedelta(seconds=evicted_sec)
 
     def clear(self) -> None:
         """Reset the window (does not reset total_samples or timestamp anchor)."""
-        self._chunks.clear()
-        self._window_samples = 0
+        with self._buffer_lock:
+            self._chunks.clear()
+            self._window_samples = 0
 
     def trim_to_sec(self, sec: float) -> None:
         """Drop the first *sec* seconds from the front of the window.
-
-        After this call all timestamps returned by VAD (which are relative
-        to the window start) remain correct — the window simply starts later.
-        """
-        samples_to_drop = min(
-            int(sec * self.sample_rate),
-            self._window_samples,
-        )
-        logger.debug(
-            "trim_to_sec(%.3f): dropping %d samples, window has %d samples (%.3fs)",
-            sec,
-            samples_to_drop,
-            self._window_samples,
-            self.window_sec,
-        )
-        dropped = 0
-        while self._chunks and dropped < samples_to_drop:
-            chunk, _ = self._chunks[0]
-            remaining = samples_to_drop - dropped
-            if len(chunk) <= remaining:
-                self._chunks.popleft()
-                dropped += len(chunk)
-            else:
-                self._chunks[0] = (chunk[remaining:], self._chunks[0][1])
-                dropped = samples_to_drop
-        self._window_samples -= dropped
-        self._trimmed_samples += dropped
-        if self._has_timestamps and self._window_start_time is not None and dropped > 0:
-            dropped_sec = dropped / self.sample_rate
-            self._window_start_time += timedelta(seconds=dropped_sec)
+        Thread-safe — called from the VAD worker thread."""
+        with self._buffer_lock:
+            samples_to_drop = min(int(sec * self.sample_rate), self._window_samples)
             logger.debug(
-                "Timestamp anchor advanced by %.3fs to %s",
-                dropped_sec,
-                self._window_start_time.isoformat(),
+                "trim_to_sec(%.3f): dropping %d samples, window has %d samples (%.3fs)",
+                sec,
+                samples_to_drop,
+                self._window_samples,
+                self.window_sec,
             )
+            dropped = 0
+            while self._chunks and dropped < samples_to_drop:
+                chunk, _ = self._chunks[0]
+                remaining = samples_to_drop - dropped
+                if len(chunk) <= remaining:
+                    self._chunks.popleft()
+                    dropped += len(chunk)
+                else:
+                    self._chunks[0] = (chunk[remaining:], self._chunks[0][1])
+                    dropped = samples_to_drop
+            self._window_samples -= dropped
+            self._trimmed_samples += dropped
+            if (
+                self._has_timestamps
+                and self._window_start_time is not None
+                and dropped > 0
+            ):
+                dropped_sec = dropped / self.sample_rate
+                self._window_start_time += timedelta(seconds=dropped_sec)
+                logger.debug(
+                    "Timestamp anchor advanced by %.3fs to %s",
+                    dropped_sec,
+                    self._window_start_time.isoformat(),
+                )
 
     @property
     def trimmed_sec(self) -> float:
@@ -234,11 +229,19 @@ class CircularAudioBuffer:
     def window_sec(self) -> float:
         return self._window_samples / self.sample_rate
 
+    @property
+    def gap_events(self) -> List[dict]:
+        """List of detected gap events."""
+        with self._buffer_lock:
+            return self._gap_events.copy()
+
     def to_numpy(self) -> np.ndarray:
-        """Return the current window as one contiguous numpy array."""
-        if not self._chunks:
-            return np.array([], dtype=self.dtype)
-        chunks_only = [chunk for chunk, _ in self._chunks]
+        """Return the current window as one contiguous numpy array.
+        Thread-safe snapshot — takes the lock only long enough to copy."""
+        with self._buffer_lock:
+            if not self._chunks:
+                return np.array([], dtype=self.dtype)
+            chunks_only = [chunk for chunk, _ in self._chunks]
         return np.concatenate(chunks_only, axis=0)
 
     def slice_seconds(
@@ -287,14 +290,17 @@ class CircularAudioBuffer:
         return seg
 
     def __len__(self) -> int:
-        return len(self._chunks)
+        with self._buffer_lock:
+            return len(self._chunks)
 
     def __getitem__(self, index: int) -> np.ndarray:
-        return self._chunks[index][0]
+        with self._buffer_lock:
+            return self._chunks[index][0]
 
     def __iter__(self) -> Iterator[np.ndarray]:
-        for chunk, _ in self._chunks:
-            yield chunk
+        with self._buffer_lock:
+            chunks_snapshot = [chunk for chunk, _ in self._chunks]
+        yield from chunks_snapshot
 
     def __bool__(self) -> bool:
         return bool(self._chunks)
