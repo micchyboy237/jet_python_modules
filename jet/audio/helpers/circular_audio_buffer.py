@@ -1,6 +1,9 @@
+# jet_python_modules/jet/audio/helpers/circular_audio_buffer.py
+
 """CircularAudioBuffer — fixed-duration sliding window with timestamp support."""
 
 import logging
+import threading
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Iterator, List, Optional
@@ -9,6 +12,10 @@ import numpy as np
 from jet.audio.helpers.config import SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
+
+_MIN_REAL_GAP_SEC: float = 0.050
+# Gaps below this threshold are likely clock jitter, not real data loss
+_GAP_WARNING_THRESHOLD_SEC: float = 0.100
 
 
 class CircularAudioBuffer:
@@ -32,23 +39,33 @@ class CircularAudioBuffer:
         self.sample_rate = sample_rate
         self.dtype = dtype
         self.max_samples: int = int(max_sec * sample_rate)
-
-        # Store (chunk, capture_time) tuples
         self._chunks: deque[tuple[np.ndarray, Optional[datetime]]] = deque()
         self._window_samples: int = 0
         self._total_samples: int = 0
         self._trimmed_samples: int = 0
-
-        # Track gaps
         self._total_gap_samples: int = 0
         self._gap_events: List[dict] = []
-
-        # Timestamp anchor
         self._window_start_time: Optional[datetime] = None
         self._has_timestamps: bool = False
-
-        # Track last chunk time for gap detection
         self._last_chunk_end_time: Optional[datetime] = None
+        self._dropped_blocks: int = 0
+        self._dropped_lock = threading.Lock()
+
+    def record_dropped_block(self) -> None:
+        """Called from the real-time audio callback when a queue-full drop occurs.
+
+        Thread-safe; uses a simple lock. Called from the callback thread only
+        when the consumer is too slow to drain blocks, which means a lock
+        contention here is evidence of real overload — acceptable cost.
+        """
+        with self._dropped_lock:
+            self._dropped_blocks += 1
+
+    @property
+    def dropped_blocks(self) -> int:
+        """Total blocks dropped because the consumer was too slow."""
+        with self._dropped_lock:
+            return self._dropped_blocks
 
     def append(
         self,
@@ -65,19 +82,34 @@ class CircularAudioBuffer:
         n = len(chunk)
         chunk_duration = n / self.sample_rate
 
-        # ── Gap detection ──────────────────────────────────────────
         if capture_time is not None and self._last_chunk_end_time is not None:
             expected_time = self._last_chunk_end_time
             actual_time = capture_time
             gap_sec = (actual_time - expected_time).total_seconds()
 
-            if gap_sec > 0.001:  # More than 1ms gap
+            if gap_sec > _MIN_REAL_GAP_SEC:
                 gap_samples = int(gap_sec * self.sample_rate)
-                logger.warning(
-                    f"Audio gap detected: {gap_sec:.3f}s ({gap_samples} samples). "
-                    f"Expected chunk at {expected_time.isoformat()}, "
-                    f"got chunk at {actual_time.isoformat()}"
-                )
+
+                # Use appropriate log level based on gap severity
+                if gap_sec >= _GAP_WARNING_THRESHOLD_SEC:
+                    logger.warning(
+                        "Audio gap detected: %.3fs (%d samples). "
+                        "Expected chunk at %s, got chunk at %s",
+                        gap_sec,
+                        gap_samples,
+                        expected_time.isoformat(),
+                        actual_time.isoformat(),
+                    )
+                else:
+                    logger.debug(
+                        "Minor audio gap: %.3fs (%d samples). "
+                        "Expected chunk at %s, got chunk at %s",
+                        gap_sec,
+                        gap_samples,
+                        expected_time.isoformat(),
+                        actual_time.isoformat(),
+                    )
+
                 self._total_gap_samples += gap_samples
                 self._gap_events.append(
                     {
@@ -87,29 +119,28 @@ class CircularAudioBuffer:
                         "actual_time": actual_time.isoformat(),
                     }
                 )
+            elif gap_sec < -0.010:
+                logger.debug(
+                    "Timestamp went backwards by %.3fs — clock jitter, ignoring",
+                    -gap_sec,
+                )
 
-        # ── Timestamp anchor ───────────────────────────────────────
         if not self._has_timestamps and capture_time is not None:
             self._window_start_time = capture_time
             self._has_timestamps = True
-            logger.debug(f"Timestamp anchor set: {capture_time.isoformat()}")
+            logger.debug("Timestamp anchor set: %s", capture_time.isoformat())
 
-        # Track chunk end time for gap detection
         if capture_time is not None:
             self._last_chunk_end_time = capture_time + timedelta(seconds=chunk_duration)
 
-        # ── Store chunk ────────────────────────────────────────────
         self._chunks.append((chunk, capture_time))
         self._window_samples += n
         self._total_samples += n
 
-        # ── Evict overflow ─────────────────────────────────────────
         while self._window_samples > self.max_samples and self._chunks:
             evicted_chunk, evicted_time = self._chunks.popleft()
             evicted_len = len(evicted_chunk)
             self._window_samples -= evicted_len
-
-            # Advance anchor by the duration of evicted audio
             if self._has_timestamps and self._window_start_time is not None:
                 evicted_sec = evicted_len / self.sample_rate
                 self._window_start_time += timedelta(seconds=evicted_sec)
@@ -129,12 +160,13 @@ class CircularAudioBuffer:
             int(sec * self.sample_rate),
             self._window_samples,
         )
-
         logger.debug(
-            f"trim_to_sec({sec:.3f}): dropping {samples_to_drop} samples, "
-            f"window has {self._window_samples} samples ({self.window_sec:.3f}s)"
+            "trim_to_sec(%.3f): dropping %d samples, window has %d samples (%.3fs)",
+            sec,
+            samples_to_drop,
+            self._window_samples,
+            self.window_sec,
         )
-
         dropped = 0
         while self._chunks and dropped < samples_to_drop:
             chunk, _ = self._chunks[0]
@@ -143,21 +175,17 @@ class CircularAudioBuffer:
                 self._chunks.popleft()
                 dropped += len(chunk)
             else:
-                # Partial trim: slice off the consumed prefix
-                partial_len = remaining
                 self._chunks[0] = (chunk[remaining:], self._chunks[0][1])
                 dropped = samples_to_drop
-
         self._window_samples -= dropped
         self._trimmed_samples += dropped
-
-        # ── Advance timestamp anchor ───────────────────────────────────
         if self._has_timestamps and self._window_start_time is not None and dropped > 0:
             dropped_sec = dropped / self.sample_rate
             self._window_start_time += timedelta(seconds=dropped_sec)
             logger.debug(
-                f"Timestamp anchor advanced by {dropped_sec:.3f}s to "
-                f"{self._window_start_time.isoformat()}"
+                "Timestamp anchor advanced by %.3fs to %s",
+                dropped_sec,
+                self._window_start_time.isoformat(),
             )
 
     @property
@@ -167,7 +195,7 @@ class CircularAudioBuffer:
 
     @property
     def total_gap_sec(self) -> float:
-        """Total gap seconds detected."""
+        """Total gap seconds detected (real gaps only, above 50ms threshold)."""
         return self._total_gap_samples / self.sample_rate
 
     @property
@@ -175,21 +203,8 @@ class CircularAudioBuffer:
         """List of detected gap events."""
         return self._gap_events.copy()
 
-    # ------------------------------------------------------------------
-    # Timestamp conversion
-    # ------------------------------------------------------------------
-
     def get_absolute_time(self, relative_seconds: float) -> Optional[str]:
-        """Convert window-relative seconds to ISO 8601 UTC datetime string.
-
-        Args:
-            relative_seconds: Seconds from the start of the **current window**
-                             (the same values VAD returns in segment["start"]).
-
-        Returns:
-            ISO 8601 string like ``"2026-05-25T14:32:17.123456+00:00"``,
-            or None if no timestamp anchor has been set.
-        """
+        """Convert window-relative seconds to ISO 8601 UTC datetime string."""
         if self._window_start_time is None:
             return None
         absolute_dt = self._window_start_time + timedelta(seconds=relative_seconds)
@@ -204,10 +219,6 @@ class CircularAudioBuffer:
     def has_timestamps(self) -> bool:
         """Whether the buffer has a valid timestamp anchor."""
         return self._has_timestamps
-
-    # ------------------------------------------------------------------
-    # Read access
-    # ------------------------------------------------------------------
 
     @property
     def total_samples(self) -> int:
@@ -241,20 +252,20 @@ class CircularAudioBuffer:
         full = self.to_numpy()
         start_sample = int(round(start_sec * self.sample_rate))
         end_sample = int(round(end_sec * self.sample_rate))
-
-        # Clamp to valid range
         start_sample = max(0, min(start_sample, len(full)))
         end_sample = max(start_sample, min(end_sample, len(full)))
-
         seg = full[start_sample:end_sample]
-
         logger.debug(
-            f"slice_seconds({start_sec:.3f}, {end_sec:.3f}): "
-            f"full={len(full)} samples, "
-            f"slice=[{start_sample}:{end_sample}], "
-            f"result={len(seg)} samples ({len(seg) / self.sample_rate:.3f}s)"
+            "slice_seconds(%.3f, %.3f): full=%d samples, "
+            "slice=[%d:%d], result=%d samples (%.3fs)",
+            start_sec,
+            end_sec,
+            len(full),
+            start_sample,
+            end_sample,
+            len(seg),
+            len(seg) / self.sample_rate,
         )
-
         if trim_silent and len(seg) > 0:
             from jet.audio.helpers.silence import (
                 calibrate_silence_threshold,
@@ -273,22 +284,15 @@ class CircularAudioBuffer:
                 if trimmed
                 else np.array([], dtype=self.dtype)
             )
-
         return seg
-
-    # ------------------------------------------------------------------
-    # list[np.ndarray] duck-type interface
-    # ------------------------------------------------------------------
 
     def __len__(self) -> int:
         return len(self._chunks)
 
     def __getitem__(self, index: int) -> np.ndarray:
-        # Return just the chunk (without timestamp) for backward compatibility
         return self._chunks[index][0]
 
     def __iter__(self) -> Iterator[np.ndarray]:
-        # Return just the chunks (without timestamps) for backward compatibility
         for chunk, _ in self._chunks:
             yield chunk
 
@@ -304,6 +308,9 @@ class CircularAudioBuffer:
             gap_info = (
                 f", gaps={self.total_gap_sec:.3f}s ({len(self._gap_events)} events)"
             )
+        drop_info = ""
+        if self._dropped_blocks > 0:
+            drop_info = f", dropped_blocks={self._dropped_blocks}"
         return (
             f"CircularAudioBuffer("
             f"max_sec={self.max_sec}, "
@@ -311,5 +318,6 @@ class CircularAudioBuffer:
             f"chunks={len(self._chunks)}, "
             f"total_samples={self._total_samples}"
             f"{ts_info}"
-            f"{gap_info})"
+            f"{gap_info}"
+            f"{drop_info})"
         )

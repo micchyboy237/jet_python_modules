@@ -35,11 +35,14 @@ from jet.audio.speech.utils import display_segments
 from jet.logger import logger
 from tqdm import tqdm
 
-DEFAULT_BUFFER_MAX_SEC = 120.0
+DEFAULT_BUFFER_MAX_SEC = 60.0
 _HOPS_PER_READ = 50
-DEFAULT_TRIM_OVERLAP_SEC = (
-    0.3  # Keep 300ms overlap between segments to prevent cutting off speech
-)
+DEFAULT_TRIM_OVERLAP_SEC = 0.3
+
+# Consumer backpressure thresholds
+_QUEUE_HIGH_WATERMARK = 35  # When queue > 35 blocks, skip VAD to catch up
+_QUEUE_LOW_WATERMARK = 15  # Resume VAD when queue drops below 15 blocks
+_VAD_SKIP_EVERY = 3  # Run VAD every N chunks (reduced from every chunk)
 
 
 def record_from_mic(
@@ -78,9 +81,10 @@ def record_from_mic(
         buffer_max_sec: Maximum seconds of audio kept in the sliding window. Older audio is evicted automatically.
         verbose: If True, display speech segments using display_segments() after each update.
     """
-    # Track gap statistics for diagnostics
     last_gap_check = 0
     consecutive_empty_yields = 0
+    vad_skip_counter = 0
+    skipped_vad_count = 0  # Track how many times VAD was skipped for logging
 
     silence_threshold = (
         silence_threshold
@@ -90,7 +94,9 @@ def record_from_mic(
     duration_str = f"{duration}s" if duration is not None else "indefinite"
     logger.info(
         f"Starting recording: {CHANNELS} channel{'s' if CHANNELS > 1 else ''}\n"
-        f"Max duration {duration_str}"
+        f"Max duration {duration_str}\n"
+        f"Consumer backpressure: VAD skip every {_VAD_SKIP_EVERY} chunks, "
+        f"high watermark={_QUEUE_HIGH_WATERMARK}, low watermark={_QUEUE_LOW_WATERMARK}"
     )
     if not quit_on_silence:
         logger.info(
@@ -122,19 +128,16 @@ def record_from_mic(
         if duration is not None
         else {"desc": "Recording", "unit": "s", "leave": True}
     )
-
     with tqdm(**pbar_kwargs) as pbar, FireredStream(latency="high") as stream:
-        for chunk, capture_time, overflow in stream:  # Added overflow
+        for chunk, capture_time, overflow in stream:
             if recorded_frames >= max_frames:
                 break
 
-            # Log overflow events
             if overflow:
                 logger.warning(
                     f"Audio overflow detected! Lost ~{stream.total_samples_lost} samples. "
                     f"Quality may be degraded for subsequent segments."
                 )
-                # You might want to mark the current segment as potentially corrupted
                 if prev_segment:
                     prev_segment["had_overflow"] = True
 
@@ -142,7 +145,7 @@ def record_from_mic(
             recorded_frames += chunk_size
             pbar.update(chunk_size / SAMPLE_RATE)
 
-            # ── Gap monitoring ──────────────────────────────────────
+            # Log gap events as they occur
             if audio_data.gap_events and len(audio_data.gap_events) > last_gap_check:
                 new_gaps = audio_data.gap_events[last_gap_check:]
                 last_gap_check = len(audio_data.gap_events)
@@ -157,7 +160,30 @@ def record_from_mic(
                         f"Audio quality may be degraded."
                     )
 
-            # Silence detection
+            # ─── Consumer Backpressure: Check queue depth ───
+            current_qsize = stream.queue_size
+            if current_qsize > _QUEUE_HIGH_WATERMARK:
+                skipped_vad_count += 1
+                logger.warning(
+                    f"Queue depth high ({current_qsize}/{stream._queue_maxsize}), "
+                    f"skipping VAD processing to catch up. "
+                    f"Total VAD skips due to backpressure: {skipped_vad_count}"
+                )
+                # Drain queue without processing until below low watermark
+                continue
+
+            # Skip silence detection check when queue is building up
+            if current_qsize > _QUEUE_LOW_WATERMARK:
+                # Only do minimum processing — just the silence check
+                pass  # Fall through to silence detection below
+            else:
+                # Normal VAD skip logic when queue is healthy
+                vad_skip_counter += 1
+                if vad_skip_counter < _VAD_SKIP_EVERY:
+                    # Still do silence detection even when skipping VAD
+                    pass  # Fall through to silence detection
+
+            # ─── Silence Detection ───
             if recorded_frames > grace_frames and detect_silence(
                 chunk, silence_threshold
             ):
@@ -193,7 +219,6 @@ def record_from_mic(
                             consecutive_empty_yields = 0
                         _enrich_segment_with_timestamps(prev_segment, audio_data)
                         yield prev_segment, seg_audio_np
-                        # Trim to segment end (not before) to avoid re-detecting old speech
                         audio_data.trim_to_sec(float(prev_segment["end"]))
                         logger.debug(
                             f"Trimmed to {prev_segment['end']:.3f}s. "
@@ -209,6 +234,16 @@ def record_from_mic(
                 silent_count = 0
                 true_silence = False
 
+            # ─── VAD Processing (only when queue is healthy) ───
+            if current_qsize > _QUEUE_LOW_WATERMARK:
+                # Queue is still recovering, skip full VAD extraction
+                continue
+
+            vad_skip_counter += 1
+            if vad_skip_counter < _VAD_SKIP_EVERY:
+                continue
+            vad_skip_counter = 0
+
             curr_speech_segs = extract_current_speech_segment(
                 audio_data,
                 threshold=threshold,
@@ -217,6 +252,7 @@ def record_from_mic(
                 max_speech_duration_sec=max_speech_duration_sec,
                 verbose=verbose,
             )
+
             if verbose:
                 display_segments(curr_speech_segs)
 
@@ -238,7 +274,6 @@ def record_from_mic(
                 if effective_start_sec >= float(prev_segment["end"]):
                     prev_segment = curr_segment
                     continue
-
                 original_start = prev_segment["start"]
                 prev_segment["start"] = effective_start_sec
                 seg_audio_np = extract_segment_data(
@@ -249,7 +284,6 @@ def record_from_mic(
                 )
                 prev_segment["start"] = original_start
                 prev_segment["duration"] = prev_segment["end"] - prev_segment["start"]
-
                 if seg_audio_np is None or seg_audio_np.size == 0:
                     consecutive_empty_yields += 1
                     logger.warning(
@@ -260,17 +294,14 @@ def record_from_mic(
                     )
                     if consecutive_empty_yields > 3:
                         logger.error("Too many empty segments - possible stream issue!")
-                    prev_segment = curr_segment  # Don't retry this segment
+                    prev_segment = curr_segment
                     continue
-
                 consecutive_empty_yields = 0
-
                 last_yielded_end_sec = (
                     float(prev_segment["end"]) + audio_data.trimmed_sec
                 )
                 _enrich_segment_with_timestamps(prev_segment, audio_data)
                 yield prev_segment, seg_audio_np
-                # Trim to segment end, but keep some overlap for next segment detection
                 trim_point = max(
                     0.0, float(prev_segment["end"]) - DEFAULT_TRIM_OVERLAP_SEC
                 )
@@ -281,10 +312,8 @@ def record_from_mic(
                     f"Buffer now: {audio_data.window_sec:.3f}s, "
                     f"gaps: {audio_data.total_gap_sec:.3f}s"
                 )
-
             prev_segment = curr_segment
 
-    # ── Post-loop handling ─────────────────────────────────────────────
     if not audio_data:
         logger.warning("No audio recorded")
         return None
@@ -311,7 +340,6 @@ def record_from_mic(
             trim_silent=trim_silent,
             silence_threshold=silence_threshold,
         )
-        # Final segment empty audio monitoring
         if seg_audio_np is None or seg_audio_np.size == 0:
             consecutive_empty_yields += 1
             logger.warning(
@@ -324,12 +352,14 @@ def record_from_mic(
                 logger.error("Too many empty segments - possible stream issue!")
         else:
             consecutive_empty_yields = 0
-
         _enrich_segment_with_timestamps(prev_segment, audio_data)
         yield prev_segment, seg_audio_np
 
     actual_duration = len(audio_data) / SAMPLE_RATE
-    logger.info(f"Recording complete, actual duration: {actual_duration:.2f}s")
+    logger.info(
+        f"Recording complete, actual duration: {actual_duration:.2f}s. "
+        f"VAD skipped {skipped_vad_count} times due to backpressure."
+    )
 
 
 def _enrich_segment_with_timestamps(
