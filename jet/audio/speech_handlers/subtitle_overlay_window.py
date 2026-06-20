@@ -930,20 +930,42 @@ class SubtitleOverlay(
         QTimer.singleShot(0, lambda: self.set_retry_count(attempt))
 
     def _show_log_history(self) -> None:
-        """Show a dialog with recent status log history (deduplicated, newest first)."""
-        from PyQt6.QtWidgets import QDialog, QPushButton, QVBoxLayout
+        """Show a dialog with recent status log history that updates live."""
+        from PyQt6.QtWidgets import QDialog, QHBoxLayout, QPushButton, QVBoxLayout
 
         if self._log_viewer is not None:
             self._log_viewer.close()
             self._log_viewer = None
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("📜 Queue Status History")
+        dialog.setWindowTitle("📜 Queue Status History ● LIVE")
         dialog.resize(550, 500)
         dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
+        # Header with live indicator
+        header_layout = QHBoxLayout()
+
+        live_indicator = QLabel("● LIVE")
+        live_indicator.setStyleSheet(
+            "color: #3fb950; font-size: 9px; font-weight: bold; "
+            "font-family: 'Consolas', monospace;"
+        )
+
+        entry_count_label = QLabel()
+        entry_count_label.setStyleSheet(
+            "color: #6e7681; font-size: 9px; font-family: 'Consolas', monospace;"
+        )
+
+        header_layout.addWidget(live_indicator)
+        header_layout.addStretch()
+        header_layout.addWidget(entry_count_label)
+        layout.addLayout(header_layout)
+
+        # Text area for log display
         text_area = QTextEdit()
         text_area.setReadOnly(True)
         text_area.setStyleSheet("""
@@ -954,125 +976,58 @@ class SubtitleOverlay(
                 font-size: 11px;
                 border: 1px solid #30363d;
             }
+            QScrollBar:vertical {
+                background-color: #161b22;
+                width: 8px;
+                border: none;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #30363d;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #484f58;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
         """)
 
-        # Build HTML log with deduplication
-        html_parts = ['<div style="font-family: monospace;">']
-        html_parts.append(
-            '<div style="color: #8b949e; font-size: 10px; margin-bottom: 8px;">'
-            f"Status events (last {self._max_log_entries}, duplicates collapsed, newest first)"
-            "</div>"
-        )
-
-        # Deduplicate consecutive identical statuses
-        deduped_entries = []
-        last_status = None
-        repeat_count = 0
-
-        for entry in reversed(self._status_log):
-            current_status = entry["status"]
-
-            if current_status == last_status:
-                repeat_count += 1
-                # Update the last entry with repeat count
-                if deduped_entries:
-                    deduped_entries[-1]["repeat_count"] = repeat_count
-                    deduped_entries[-1]["last_timestamp"] = entry["timestamp"]
-            else:
-                repeat_count = 0
-                entry_copy = entry.copy()
-                entry_copy["repeat_count"] = 0
-                entry_copy["last_timestamp"] = entry["timestamp"]
-                deduped_entries.append(entry_copy)
-                last_status = current_status
-
-        for entry in deduped_entries:
-            color = entry.get("color", "#8b949e")
-            timestamp = entry["timestamp"]
-            last_timestamp = entry.get("last_timestamp", timestamp)
-            status = entry["status"]
-            pending = entry["pending"]
-            repeat_count = entry.get("repeat_count", 0)
-            info = entry.get("info", {})
-
-            # Build detail line
-            detail_parts = []
-            if info.get("segment_num"):
-                detail_parts.append(f"Seg #{info['segment_num']}")
-            if info.get("duration"):
-                detail_parts.append(f"{info['duration']:.1f}s")
-            if info.get("retry_attempt"):
-                detail_parts.append(f"Retry {info['retry_attempt']}")
-            if info.get("retry_delay"):
-                detail_parts.append(f"Wait {info['retry_delay']:.1f}s")
-            if info.get("last_error"):
-                error_msg = str(info["last_error"])[:60]
-                detail_parts.append(f"{error_msg}")
-            if info.get("start_sec") is not None:
-                detail_parts.append(f"@{info['start_sec']:.1f}s")
-
-            detail_str = " | ".join(detail_parts) if detail_parts else ""
-
-            # Build the detail HTML span separately
-            detail_html = ""
-            if detail_str:
-                detail_html = (
-                    '<span style="color: #8b949e; font-size: 9px;">'
-                    f"({detail_str})"
-                    "</span>"
-                )
-
-            # Timestamp range if repeated
-            time_str = timestamp
-            if repeat_count > 0:
-                time_str = f"{timestamp} → {last_timestamp}"
-
-            # Repeat indicator
-            repeat_html = ""
-            if repeat_count > 0:
-                repeat_html = (
-                    f' <span style="color: #6e7681; font-size: 9px;">'
-                    f"(×{repeat_count + 1})"
-                    f"</span>"
-                )
-
-            # Build each log entry line
-            line = (
-                f'<div style="margin-bottom: 3px; padding: 4px 6px; '
-                f'background-color: #161b22; border-left: 3px solid {color};">'
-                f'<span style="color: #6e7681; font-size: 9px;">{time_str}</span> '
-                f'<span style="color: {color}; font-weight: bold;">{status}</span>'
-                f"{repeat_html}"
-                f"{f' {detail_html}' if detail_html else ''}"
-                f'<span style="color: #58a6ff; float: right; margin-left: 8px;">📋 {pending}</span>'
-                f"</div>"
-            )
-            html_parts.append(line)
-
-        if not deduped_entries:
-            html_parts.append(
-                '<div style="color: #6e7681; padding: 20px; text-align: center;">'
-                "No status events yet — start recording to see activity"
-                "</div>"
-            )
-
-        html_parts.append("</div>")
-
-        text_area.setHtml("".join(html_parts))
-        layout.addWidget(text_area)
-
-        # Bottom bar with clear button
+        # Bottom bar
         bottom_bar = QHBoxLayout()
 
-        clear_btn = QPushButton("Clear History")
-        clear_btn.clicked.connect(lambda: self._clear_log_history(text_area))
+        # Auto-scroll checkbox
+        auto_scroll_cb = QCheckBox("Auto-scroll")
+        auto_scroll_cb.setChecked(True)
+        auto_scroll_cb.setStyleSheet("""
+            QCheckBox {
+                color: #8b949e;
+                font-size: 10px;
+                spacing: 4px;
+            }
+            QCheckBox::indicator {
+                width: 12px;
+                height: 12px;
+                border: 1px solid #30363d;
+                border-radius: 2px;
+                background-color: #21262d;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #238636;
+                border-color: #2ea043;
+            }
+        """)
+
+        clear_btn = QPushButton("Clear")
         clear_btn.setStyleSheet("""
             QPushButton {
                 background-color: #21262d;
                 border: 1px solid #30363d;
                 border-radius: 3px;
                 color: #f85149;
-                padding: 5px 12px;
+                padding: 4px 10px;
                 font-size: 10px;
             }
             QPushButton:hover {
@@ -1082,14 +1037,13 @@ class SubtitleOverlay(
         """)
 
         close_btn = QPushButton("Close")
-        close_btn.clicked.connect(dialog.close)
         close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #21262d;
                 border: 1px solid #30363d;
                 border-radius: 3px;
                 color: #c9d1d9;
-                padding: 5px 20px;
+                padding: 4px 16px;
                 font-size: 10px;
             }
             QPushButton:hover {
@@ -1097,15 +1051,158 @@ class SubtitleOverlay(
             }
         """)
 
+        bottom_bar.addWidget(auto_scroll_cb)
         bottom_bar.addWidget(clear_btn)
         bottom_bar.addStretch()
         bottom_bar.addWidget(close_btn)
         layout.addLayout(bottom_bar)
 
+        # ── Render function ──
+        def render_log():
+            """Build and set the HTML content from current _status_log."""
+            # Deduplicate consecutive identical statuses
+            deduped_entries = []
+            last_status = None
+            repeat_count = 0
+
+            for entry in reversed(self._status_log):
+                current_status = entry["status"]
+
+                if current_status == last_status:
+                    repeat_count += 1
+                    if deduped_entries:
+                        deduped_entries[-1]["repeat_count"] = repeat_count
+                        deduped_entries[-1]["last_timestamp"] = entry["timestamp"]
+                else:
+                    repeat_count = 0
+                    entry_copy = entry.copy()
+                    entry_copy["repeat_count"] = 0
+                    entry_copy["last_timestamp"] = entry["timestamp"]
+                    deduped_entries.append(entry_copy)
+                    last_status = current_status
+
+            # Update entry count
+            entry_count_label.setText(f"{len(deduped_entries)} events shown")
+
+            # Build HTML
+            html_parts = ['<div style="font-family: monospace;">']
+
+            if not deduped_entries:
+                html_parts.append(
+                    '<div style="color: #6e7681; padding: 30px; text-align: center;">'
+                    "No status events yet<br>"
+                    '<span style="font-size: 9px;">start recording to see live activity</span>'
+                    "</div>"
+                )
+            else:
+                for entry in deduped_entries:
+                    color = entry.get("color", "#8b949e")
+                    timestamp = entry["timestamp"]
+                    last_timestamp = entry.get("last_timestamp", timestamp)
+                    status = entry["status"]
+                    pending = entry["pending"]
+                    repeat_count = entry.get("repeat_count", 0)
+                    info = entry.get("info", {})
+
+                    # Build detail line
+                    detail_parts = []
+                    if info.get("segment_num"):
+                        detail_parts.append(f"Seg #{info['segment_num']}")
+                    if info.get("duration"):
+                        detail_parts.append(f"{info['duration']:.1f}s")
+                    if info.get("retry_attempt"):
+                        detail_parts.append(f"Retry {info['retry_attempt']}")
+                    if info.get("retry_delay"):
+                        detail_parts.append(f"Wait {info['retry_delay']:.1f}s")
+                    if info.get("last_error"):
+                        error_msg = str(info["last_error"])[:60]
+                        detail_parts.append(f"{error_msg}")
+                    if info.get("start_sec") is not None:
+                        detail_parts.append(f"@{info['start_sec']:.1f}s")
+
+                    detail_str = " | ".join(detail_parts) if detail_parts else ""
+
+                    # Detail HTML
+                    detail_html = ""
+                    if detail_str:
+                        detail_html = (
+                            '<span style="color: #8b949e; font-size: 9px;">'
+                            f"({detail_str})"
+                            "</span>"
+                        )
+
+                    # Timestamp range for repeated entries
+                    time_str = timestamp
+                    if repeat_count > 0:
+                        time_str = f"{timestamp} → {last_timestamp}"
+
+                    # Repeat count badge
+                    repeat_html = ""
+                    if repeat_count > 0:
+                        repeat_html = (
+                            f' <span style="color: #6e7681; font-size: 9px; '
+                            f'background-color: #21262d; padding: 1px 4px; border-radius: 2px;">'
+                            f"×{repeat_count + 1}"
+                            f"</span>"
+                        )
+
+                    # Build entry line
+                    line = (
+                        f'<div style="margin-bottom: 3px; padding: 4px 6px; '
+                        f'background-color: #161b22; border-left: 3px solid {color};">'
+                        f'<span style="color: #6e7681; font-size: 9px;">{time_str}</span> '
+                        f'<span style="color: {color}; font-weight: bold;">{status}</span>'
+                        f"{repeat_html}"
+                        f"{f' {detail_html}' if detail_html else ''}"
+                        f'<span style="color: #58a6ff; float: right; margin-left: 8px;">📋 {pending}</span>'
+                        f"</div>"
+                    )
+                    html_parts.append(line)
+
+            html_parts.append("</div>")
+
+            # Save scroll position
+            scrollbar = text_area.verticalScrollBar()
+            was_at_bottom = scrollbar.value() >= scrollbar.maximum() - 10
+
+            # Update content
+            text_area.setHtml("".join(html_parts))
+
+            # Restore scroll position or auto-scroll
+            if auto_scroll_cb.isChecked() and was_at_bottom:
+                scrollbar.setValue(scrollbar.maximum())
+
+        # ── Initial render ──
+        render_log()
+        layout.insertWidget(1, text_area)  # Insert after header
+
+        # ── Live update timer ──
+        live_timer = QTimer(dialog)
+        live_timer.timeout.connect(render_log)
+        live_timer.start(500)  # Update every 500ms
+
+        # ── Button connections ──
+        clear_btn.clicked.connect(lambda: self._clear_log_history())
+        close_btn.clicked.connect(dialog.close)
+
+        # ── Cleanup on close ──
+        def on_dialog_closed():
+            live_timer.stop()
+            if self._log_viewer is dialog:
+                self._log_viewer = None
+            console.print("[debug][LogHistory] Live log viewer closed[/debug]")
+
+        dialog.finished.connect(on_dialog_closed)
+
+        # ── Store reference and show ──
         self._log_viewer = dialog
         dialog.show()
 
-    def _clear_log_history(self, text_area=None) -> None:
+        console.print(
+            "[debug][LogHistory] Live log viewer opened — updating every 500ms[/debug]"
+        )
+
+    def _clear_log_history(self) -> None:
         """Clear the status log history."""
         self._status_log.clear()
         console.print("[debug][SubtitleOverlay] Status log history cleared[/debug]")
