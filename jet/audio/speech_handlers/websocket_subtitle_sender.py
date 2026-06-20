@@ -545,24 +545,28 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     async def _handle_segment_with_retry(self, event: SpeechSegmentEndEvent) -> None:
         """
         Process a segment with infinite auto-retry on failure.
-        Skips retry for no_speech responses (audio doesn't contain speech).
+        Skips retry for permanent failures (no_speech, empty text, specific error codes).
         Uses exponential backoff with a max delay cap.
         """
         seg: SpeechSegment = event.segment
         seg_num: int = event.segment_number
+
         if event.audio_np is None or event.audio_np.size == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — empty audio")
             return
+
         audio_bytes = _to_pcm_int16_bytes(event.audio_np)
         if len(audio_bytes) == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — zero PCM bytes")
             return
+
         seg_dir: Path = event.segment_dir
         start_sec = float(seg["start"])
         end_sec = float(seg["end"])
         duration = float(seg["duration"])
         start_time_utc: Optional[str] = seg.get("start_time_utc")
         end_time_utc: Optional[str] = seg.get("end_time_utc")
+
         gap_sec: Optional[float] = None
         if self._prev_end_time_utc is not None and start_time_utc is not None:
             from datetime import datetime
@@ -573,9 +577,12 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 gap_sec = round((start_dt - prev_end_dt).total_seconds(), 4)
             except (ValueError, TypeError):
                 pass
+
         self._prev_end_time_utc = end_time_utc
+
         vad_score = _compute_vad_score(seg, event.audio_np)
         segment_id = f"segment_{seg_num:03d}"
+
         header: ClientHeader = {
             "uuid": str(uuid.uuid4()),
             "sample_rate": event.sample_rate,
@@ -593,14 +600,18 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "segment_number": seg_num,
             "segment_id": segment_id,
         }
+
         attempt = 0
         last_error = None
         response = None
         final_success = False
+        permanent_failure_reason: Optional[str] = None
 
         while True:
             attempt += 1
+
             if attempt == 1:
+                # First attempt — emit "sending" status
                 await self._emit_queue_status(
                     processing_seg_num=seg_num,
                     status_color="#58a6ff",
@@ -610,9 +621,12 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     },
                 )
             else:
+                # Retry attempt — calculate backoff delay
                 delay = min(
                     self._retry_backoff_base ** (attempt - 1), self._max_retry_delay
                 )
+
+                # Notify queue observer about retry
                 if self._queue_observer:
                     try:
                         self._queue_observer.on_retry_status(
@@ -628,6 +642,8 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         )
                     except Exception:
                         pass
+
+                # Emit retry status
                 await self._emit_queue_status(
                     processing_seg_num=seg_num,
                     status_color="#f0883e",
@@ -637,23 +653,22 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         "duration": duration,
                     },
                 )
+
                 console.print(
                     f"[yellow][WS][/yellow] Retrying segment {seg_num} "
                     f"(attempt {attempt}) after {delay:.1f}s delay..."
                 )
                 await asyncio.sleep(delay)
+
             _log_request(seg_num, header, audio_bytes, attempt)
+
             try:
                 response = await self._send_and_receive(header, audio_bytes)
                 _log_response(response, seg_num, attempt)
-                coverage_label = response.get("coverage_label", "")
-                if not response.get("success") and coverage_label == "no_speech":
-                    console.print(
-                        f"[dim][WS][/dim] Segment {seg_num} — server returned no_speech "
-                        f"(attempt {attempt}). Saving response and skipping retry."
-                    )
-                    final_success = False
-                    break
+
+                # ═══════════════════════════════════════════════════════════
+                # SUCCESS CHECK
+                # ═══════════════════════════════════════════════════════════
                 if response.get("success") and "ja_text" in response:
                     console.print(
                         f"[bold green][WS][/bold green] Segment {seg_num} succeeded "
@@ -661,23 +676,41 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     )
                     final_success = True
                     break
-                else:
-                    error_msg = response.get("error", "Unknown server error")
+
+                # ═══════════════════════════════════════════════════════════
+                # PERMANENT FAILURE CHECK
+                # ═══════════════════════════════════════════════════════════
+                permanent_failure_reason = self._is_permanent_failure(response)
+                if permanent_failure_reason:
                     console.print(
-                        f"[bold red][WS][/bold red] Segment {seg_num} failed: {error_msg} "
-                        f"(attempt {attempt}, will retry)"
+                        f"[yellow][WS][/yellow] Segment {seg_num} — {permanent_failure_reason} "
+                        f"(attempt {attempt}). Saving response and skipping retry."
                     )
-                    last_error = RuntimeError(f"Server error: {error_msg}")
+                    final_success = False
+                    break
+
+                # ═══════════════════════════════════════════════════════════
+                # RETRYABLE ERROR — log and continue loop
+                # ═══════════════════════════════════════════════════════════
+                error_msg = response.get("error", "Unknown server error")
+                console.print(
+                    f"[bold red][WS][/bold red] Segment {seg_num} failed: {error_msg} "
+                    f"(attempt {attempt}, will retry)"
+                )
+                last_error = RuntimeError(f"Server error: {error_msg}")
+
             except (ConnectionClosedError, ConnectionClosedOK) as exc:
                 console.print(
                     f"[yellow][WS][/yellow] Connection lost during segment {seg_num}: {exc}"
                 )
                 last_error = exc
+
             except OSError as exc:
                 console.print(
                     f"[red][WS][/red] Network error for segment {seg_num}: {exc}"
                 )
                 last_error = exc
+
             except Exception as exc:
                 console.print(
                     f"[bold red][WS][/bold red] Segment {seg_num} send/receive failed: "
@@ -685,7 +718,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 )
                 last_error = exc
 
-        # EMIT FINAL STATUS WITH SEGMENT NUMBER
+        # ═══════════════════════════════════════════════════════════════
+        # EMIT FINAL QUEUE STATUS
+        # ═══════════════════════════════════════════════════════════════
         if final_success:
             await self._emit_queue_status(
                 processing_seg_num=seg_num,
@@ -698,7 +733,11 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 },
             )
         else:
-            error_msg = str(last_error) if last_error else "Unknown error"
+            error_msg = (
+                permanent_failure_reason or str(last_error)
+                if last_error
+                else "Unknown error"
+            )
             await self._emit_queue_status(
                 processing_seg_num=seg_num,
                 status_color="#f85149",
@@ -711,6 +750,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 },
             )
 
+        # ═══════════════════════════════════════════════════════════════
+        # BUILD NOTIFICATION & SAVE FILES
+        # ═══════════════════════════════════════════════════════════════
         notification: SubtitleNotification = {
             "segment": seg,
             "num": seg_num,
@@ -727,14 +769,57 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "end_time_utc": end_time_utc,
         }
         self._notify_observers(notification)
+
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
         saved_files = [req_path, resp_path]
+
         if response.get("success") and "ja_text" in response:
             srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
             saved_files.append(srt_path)
+
         global_path = self._update_global_srt(seg_dir)
         _log_saved(seg_dir, saved_files, global_path)
+
+    def _is_permanent_failure(self, response: dict) -> Optional[str]:
+        """
+        Determine if a server response indicates a permanent failure
+        that won't be resolved by retrying the same audio.
+
+        Returns:
+            A string describing why it's permanent, or None if retryable.
+        """
+        # Explicit no_speech label from server
+        if response.get("coverage_label") == "no_speech":
+            return "Server reported no_speech"
+
+        # Server processed audio but returned completely empty text
+        # (This is your specific bug — retrying won't produce text)
+        ja_text = response.get("ja_text", "").strip()
+        en_text = response.get("en_text", "").strip()
+        if not response.get("success") and not ja_text and not en_text:
+            return (
+                "Server returned empty text (audio may not contain translatable speech)"
+            )
+
+        # Specific server error codes that indicate permanent issues
+        error_code = response.get("error_code", "")
+        if error_code in (
+            "UNSUPPORTED_AUDIO",
+            "NO_SPEECH_DETECTED",
+            "LANGUAGE_NOT_SUPPORTED",
+            "MODEL_ERROR",
+            "INVALID_AUDIO_FORMAT",
+        ):
+            return f"Server error code: {error_code}"
+
+        # Very low transcription coverage indicates the audio likely
+        # doesn't contain usable speech
+        coverage = response.get("transcribed_duration_pctg")
+        if isinstance(coverage, (int, float)) and coverage < 5.0:
+            return f"Coverage too low ({coverage:.1f}%)"
+
+        return None
 
     async def _handle_segment(self, event: SpeechSegmentEndEvent) -> None:
         """

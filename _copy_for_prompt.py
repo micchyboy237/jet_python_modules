@@ -103,7 +103,7 @@ When coding:
 - Use visuals, diagrams, or tables when helpful.
 - Show full code for new files, then show full function code for new or updated functions.
 - Write smart, flexible, reusable, maintainable, optimal, robust, and minimal code.
-- Always add logs so we can trace and know if all features work correctly.
+- Always add logs so we can trace all flows.
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """
