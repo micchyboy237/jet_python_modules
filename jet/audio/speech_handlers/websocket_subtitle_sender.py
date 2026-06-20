@@ -550,23 +550,19 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         """
         seg: SpeechSegment = event.segment
         seg_num: int = event.segment_number
-
         if event.audio_np is None or event.audio_np.size == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — empty audio")
             return
-
         audio_bytes = _to_pcm_int16_bytes(event.audio_np)
         if len(audio_bytes) == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — zero PCM bytes")
             return
-
         seg_dir: Path = event.segment_dir
         start_sec = float(seg["start"])
         end_sec = float(seg["end"])
         duration = float(seg["duration"])
         start_time_utc: Optional[str] = seg.get("start_time_utc")
         end_time_utc: Optional[str] = seg.get("end_time_utc")
-
         gap_sec: Optional[float] = None
         if self._prev_end_time_utc is not None and start_time_utc is not None:
             from datetime import datetime
@@ -578,10 +574,8 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             except (ValueError, TypeError):
                 pass
         self._prev_end_time_utc = end_time_utc
-
         vad_score = _compute_vad_score(seg, event.audio_np)
         segment_id = f"segment_{seg_num:03d}"
-
         header: ClientHeader = {
             "uuid": str(uuid.uuid4()),
             "sample_rate": event.sample_rate,
@@ -599,18 +593,13 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "segment_number": seg_num,
             "segment_id": segment_id,
         }
-
-        # --- Auto-retry loop ---
         attempt = 0
         last_error = None
         response = None
+        final_success = False
 
-        while (
-            True
-        ):  # Infinite retry (breaks on success, no_speech, or unrecoverable errors)
+        while True:
             attempt += 1
-
-            # Update queue observer with detailed status
             if attempt == 1:
                 await self._emit_queue_status(
                     processing_seg_num=seg_num,
@@ -624,8 +613,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 delay = min(
                     self._retry_backoff_base ** (attempt - 1), self._max_retry_delay
                 )
-
-                # Notify observer about retry with details
                 if self._queue_observer:
                     try:
                         self._queue_observer.on_retry_status(
@@ -641,7 +628,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         )
                     except Exception:
                         pass
-
                 await self._emit_queue_status(
                     processing_seg_num=seg_num,
                     status_color="#f0883e",
@@ -651,55 +637,47 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         "duration": duration,
                     },
                 )
-
                 console.print(
                     f"[yellow][WS][/yellow] Retrying segment {seg_num} "
                     f"(attempt {attempt}) after {delay:.1f}s delay..."
                 )
                 await asyncio.sleep(delay)
-
             _log_request(seg_num, header, audio_bytes, attempt)
-
             try:
                 response = await self._send_and_receive(header, audio_bytes)
                 _log_response(response, seg_num, attempt)
-
-                # Check for no_speech - don't retry, just save and move on
                 coverage_label = response.get("coverage_label", "")
                 if not response.get("success") and coverage_label == "no_speech":
                     console.print(
                         f"[dim][WS][/dim] Segment {seg_num} — server returned no_speech "
                         f"(attempt {attempt}). Saving response and skipping retry."
                     )
-                    break  # Exit retry loop - no point retrying silent audio
-
+                    final_success = False
+                    break
                 if response.get("success") and "ja_text" in response:
                     console.print(
                         f"[bold green][WS][/bold green] Segment {seg_num} succeeded "
                         f"{'after ' + str(attempt) + ' attempts' if attempt > 1 else 'on first attempt'}"
                     )
-                    break  # Success - exit retry loop
+                    final_success = True
+                    break
                 else:
-                    # Server returned an error response (not no_speech) - retry
                     error_msg = response.get("error", "Unknown server error")
                     console.print(
                         f"[bold red][WS][/bold red] Segment {seg_num} failed: {error_msg} "
                         f"(attempt {attempt}, will retry)"
                     )
                     last_error = RuntimeError(f"Server error: {error_msg}")
-
             except (ConnectionClosedError, ConnectionClosedOK) as exc:
                 console.print(
                     f"[yellow][WS][/yellow] Connection lost during segment {seg_num}: {exc}"
                 )
                 last_error = exc
-
             except OSError as exc:
                 console.print(
                     f"[red][WS][/red] Network error for segment {seg_num}: {exc}"
                 )
                 last_error = exc
-
             except Exception as exc:
                 console.print(
                     f"[bold red][WS][/bold red] Segment {seg_num} send/receive failed: "
@@ -707,13 +685,36 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 )
                 last_error = exc
 
-        # --- Always save response and notify (even for no_speech) ---
+        # EMIT FINAL STATUS WITH SEGMENT NUMBER
+        if final_success:
+            await self._emit_queue_status(
+                processing_seg_num=seg_num,
+                status_color="#3fb950",
+                extra_info={
+                    "duration": duration,
+                    "start_sec": start_sec,
+                    "status": "success",
+                    "attempts": attempt,
+                },
+            )
+        else:
+            error_msg = str(last_error) if last_error else "Unknown error"
+            await self._emit_queue_status(
+                processing_seg_num=seg_num,
+                status_color="#f85149",
+                extra_info={
+                    "duration": duration,
+                    "start_sec": start_sec,
+                    "status": "error",
+                    "attempts": attempt,
+                    "error": error_msg,
+                },
+            )
 
-        # Build notification from whatever response we got
         notification: SubtitleNotification = {
             "segment": seg,
             "num": seg_num,
-            **response,  # Include full response (works for both success and no_speech)
+            **response,
             "start_sec": round(start_sec, 4),
             "end_sec": round(end_sec, 4),
             "end_reason": _vad_reason(seg),
@@ -725,27 +726,15 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "start_time_utc": start_time_utc,
             "end_time_utc": end_time_utc,
         }
-
         self._notify_observers(notification)
-
-        # Save request.json
         req_path = self._save_request(seg_dir, header, audio_bytes)
-
-        # Always save response.json
         resp_path = self._save_response(seg_dir, response)
-
-        # Only save SRT if there's actual transcription
         saved_files = [req_path, resp_path]
         if response.get("success") and "ja_text" in response:
             srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
             saved_files.append(srt_path)
-
         global_path = self._update_global_srt(seg_dir)
-
         _log_saved(seg_dir, saved_files, global_path)
-
-        # Emit idle status after processing
-        await self._emit_queue_status(status_color="#3fb950")
 
     async def _handle_segment(self, event: SpeechSegmentEndEvent) -> None:
         """
