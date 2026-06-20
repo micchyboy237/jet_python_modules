@@ -1,24 +1,67 @@
+import os
+
 # Playwright executable paths
 PLAYWRIGHT_CACHE_DIR = "/Users/jethroestrada/Library/Caches/ms-playwright"
 
-# Specific browser versions
-PLAYWRIGHT_CHROMIUM = f"{PLAYWRIGHT_CACHE_DIR}/chromium-1208"
-PLAYWRIGHT_FIREFOX = f"{PLAYWRIGHT_CACHE_DIR}/firefox-1490"
-PLAYWRIGHT_WEBKIT = f"{PLAYWRIGHT_CACHE_DIR}/webkit-2203"
 
-# Playwright executable paths (full path to executable)
-PLAYWRIGHT_CHROMIUM_EXECUTABLE = (
-    f"{PLAYWRIGHT_CHROMIUM}/chrome-mac/Chromium.app/Contents/MacOS/Chromium"
-)
+# Helper function to get latest browser directory dynamically
+def get_browser_dir(browser_name: str):
+    if not os.path.exists(PLAYWRIGHT_CACHE_DIR):
+        return None
+    for folder in sorted(os.listdir(PLAYWRIGHT_CACHE_DIR), reverse=True):
+        if folder.startswith(browser_name + "-"):
+            return os.path.join(PLAYWRIGHT_CACHE_DIR, folder)
+    return None
+
+
+# Specific browser versions (dynamic)
+PLAYWRIGHT_CHROMIUM = get_browser_dir("chromium")
+PLAYWRIGHT_FIREFOX = get_browser_dir("firefox")
+PLAYWRIGHT_WEBKIT = get_browser_dir("webkit")
+
+# === Chromium Executable - Fixed for your installation ===
+chromium_base = PLAYWRIGHT_CHROMIUM
+PLAYWRIGHT_CHROMIUM_EXECUTABLE = None
+
+if chromium_base:
+    possible_paths = [
+        # Standard Chromium
+        f"{chromium_base}/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+        # Apple Silicon Chromium
+        f"{chromium_base}/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
+        # Google Chrome for Testing (YOUR CURRENT CASE)
+        f"{chromium_base}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            PLAYWRIGHT_CHROMIUM_EXECUTABLE = path
+            break
+
+# Firefox & WebKit
 PLAYWRIGHT_FIREFOX_EXECUTABLE = (
-    f"{PLAYWRIGHT_FIREFOX}/firefox/Nightly.app/Contents/MacOS/firefox"
+    (f"{PLAYWRIGHT_FIREFOX}/firefox/Nightly.app/Contents/MacOS/firefox")
+    if PLAYWRIGHT_FIREFOX
+    else None
 )
-PLAYWRIGHT_WEBKIT_EXECUTABLE = f"{PLAYWRIGHT_WEBKIT}/pw_run.sh"
+
+PLAYWRIGHT_WEBKIT_EXECUTABLE = (
+    (f"{PLAYWRIGHT_WEBKIT}/pw_run.sh") if PLAYWRIGHT_WEBKIT else None
+)
 
 # Print the paths to verify
+print("Chromium directory:", PLAYWRIGHT_CHROMIUM)
 print("Chromium executable path:", PLAYWRIGHT_CHROMIUM_EXECUTABLE)
 print("Firefox executable path:", PLAYWRIGHT_FIREFOX_EXECUTABLE)
 print("WebKit executable path:", PLAYWRIGHT_WEBKIT_EXECUTABLE)
+
+print(
+    "\n✅ Chromium executable exists?",
+    os.path.exists(PLAYWRIGHT_CHROMIUM_EXECUTABLE)
+    if PLAYWRIGHT_CHROMIUM_EXECUTABLE
+    else False,
+)
+
 
 # List of realistic user agents for rotation
 USER_AGENTS = [

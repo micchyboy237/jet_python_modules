@@ -59,7 +59,6 @@ def dispatch_handlers(
 
 def main_live_speech_translation(verbose: bool = False):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     app = QApplication(sys.argv)
     signal.signal(signal.SIGINT, lambda *_: app.quit())
     _sigint_timer = QTimer()
@@ -69,16 +68,15 @@ def main_live_speech_translation(verbose: bool = False):
     handlers: list[SpeechSegmentHandler] = [
         WebsocketSubtitleSender(global_srt_path=OUTPUT_DIR / "subtitles.srt"),
     ]
-    ws_sender: WebsocketSubtitleSender = handlers[0]
 
+    ws_sender: WebsocketSubtitleSender = handlers[0]
     global_reset_handler = GlobalResetHandler()
 
     all_segments_path = OUTPUT_DIR / "all_segments.json"
     subtitles_path = OUTPUT_DIR / "subtitles.srt"
     segment_store = SegmentStore(OUTPUT_DIR / "segments")
-    completed_segments: list[SpeechSegment] = []
 
-    # Track audio quality metrics
+    completed_segments: list[SpeechSegment] = []
     audio_stats = {
         "total_segments": 0,
         "segments_with_overflow": 0,
@@ -89,7 +87,6 @@ def main_live_speech_translation(verbose: bool = False):
         completed_segments.clear()
         segment_store.reset()
         ws_sender.clear_queue()
-        # Reset stats
         audio_stats.update(
             {
                 "total_segments": 0,

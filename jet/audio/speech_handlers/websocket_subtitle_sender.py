@@ -8,21 +8,26 @@ On each completed segment it:
   3. Awaits the JSON response
   4. Persists request.json, response.json, and subtitle.srt
      inside the matching segment_NNN/ directory
-
 Architecture
 ------------
 A dedicated asyncio event loop runs in a background daemon thread.
 `on_segment_end` submits work to that loop via run_coroutine_threadsafe,
 so it is safe to call from the synchronous recorder thread.
+
+NEW: Queue status tracking & auto-retry
+- Emits queue status updates to a QueueObserver (SubtitleOverlay)
+- Auto-retries failed segments infinitely with exponential backoff
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +43,7 @@ from jet.audio.speech_handlers.api_types import (
 )
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.language_cache import LanguageCode, LanguageStore
+from jet.audio.speech_handlers.queue_observer import QueueObserver
 from jet.audio.speech_handlers.speech_events import (
     SpeechSegmentEndEvent,
     SpeechSegmentStartEvent,
@@ -58,8 +64,8 @@ from websockets.exceptions import (
 )
 
 console = Console()
+logger = logging.getLogger(__name__)
 
-# ── VAD reason mapping ──────────────────────────────────────────────────────
 _END_REASON_TO_VAD: dict[str | None, str] = {
     "silence": "silence",
     "hard_limit": "hard_limit",
@@ -70,9 +76,6 @@ _END_REASON_TO_VAD: dict[str | None, str] = {
 
 def _vad_reason(segment: SpeechSegment) -> str:
     return _END_REASON_TO_VAD.get(segment.get("end_reason"), "silence")
-
-
-# ── Audio helpers ───────────────────────────────────────────────────────────
 
 
 def _to_pcm_int16_bytes(audio_np: np.ndarray) -> bytes:
@@ -97,12 +100,14 @@ def _build_message(header: ClientHeader, audio_bytes: bytes) -> bytes:
     )
 
 
-# ── Logging helpers ─────────────────────────────────────────────────────────
+def _log_request(
+    seg_num: int, header: dict, audio_bytes: bytes, attempt: int = 1
+) -> None:
+    retry_suffix = f" (Retry #{attempt})" if attempt > 1 else ""
+    title = f"[bold cyan]WS Request — Segment {seg_num}{retry_suffix}[/bold cyan]"
 
-
-def _log_request(seg_num: int, header: dict, audio_bytes: bytes) -> None:
     table = Table(
-        title=f"[bold cyan]WS Request — Segment {seg_num}[/bold cyan]",
+        title=title,
         show_header=False,
     )
     table.add_column("Key", style="dim cyan", no_wrap=True)
@@ -111,15 +116,22 @@ def _log_request(seg_num: int, header: dict, audio_bytes: bytes) -> None:
     for k, v in header.items():
         table.add_row(k, str(v))
     table.add_row("audio_bytes", f"{len(audio_bytes):,} bytes")
+    if attempt > 1:
+        table.add_row("retry_attempt", str(attempt))
     console.print(table)
 
 
-def _log_response(response: ServerResponse, seg_num: int) -> None:
+def _log_response(response: ServerResponse, seg_num: int, attempt: int = 1) -> None:
     success = response.get("success", False)
     title_color = "bold green" if success else "bold red"
     status = "✅ success" if success else "❌ error"
+
+    # Fix: Use separate open/close to avoid nested tag issues
+    retry_suffix = f" (after {attempt} attempt(s))" if attempt > 1 else ""
+    title = f"[{title_color}]WS Response — Segment {seg_num}  {status}{retry_suffix}[/{title_color}]"
+
     table = Table(
-        title=f"[{title_color}]WS Response — Segment {seg_num}  {status}[/{title_color}]",
+        title=title,
         show_header=False,
     )
     table.add_column("Key", style="dim green", no_wrap=True)
@@ -144,7 +156,7 @@ def _log_response(response: ServerResponse, seg_num: int) -> None:
 
 def _file_link(path: Path) -> str:
     """Return a Rich markup string that is a clickable hyperlink to *path*."""
-    uri = path.as_uri()  # file:///absolute/path
+    uri = path.as_uri()
     return f"[link={uri}][cyan]{path.name}[/cyan][/link]"
 
 
@@ -166,11 +178,6 @@ def _log_saved(
             expand=False,
         )
     )
-
-
-# ---------------------------------------------------------------------------
-# Helpers for segment‑local metrics that the overlay displays
-# ---------------------------------------------------------------------------
 
 
 def _compute_avg_vad_prob(segment: SpeechSegment) -> Optional[float]:
@@ -205,11 +212,9 @@ def _compute_vad_score(segment: SpeechSegment, audio_np: np.ndarray) -> Optional
     """
     Compute balanced VAD score from segment probabilities using
     score_balanced_speech from vad_segment_scorer.
-
     Args:
         segment: SpeechSegment dict containing optional 'segment_probs' key
         audio_np: Audio numpy array for RMS-based silence detection
-
     Returns:
         Balanced VAD score [0.0-1.0] or None if probs list is empty/missing
     """
@@ -220,10 +225,7 @@ def _compute_vad_score(segment: SpeechSegment, audio_np: np.ndarray) -> Optional
     probs = segment.get("segment_probs")
     if not probs:
         return None
-
     try:
-        # Use default VAD parameters that match the actual VAD processing
-        # These should match your VAD model's parameters
         return score_balanced_speech(
             probs,
             audio_samples=audio_np,
@@ -232,7 +234,6 @@ def _compute_vad_score(segment: SpeechSegment, audio_np: np.ndarray) -> Optional
         console.print(
             f"[yellow][WS] Balanced VAD scoring with audio trimming failed: {exc}[/yellow]"
         )
-        # Fallback: try without audio trimming
         try:
             return score_balanced_speech(
                 probs,
@@ -248,13 +249,13 @@ def _compute_vad_score(segment: SpeechSegment, audio_np: np.ndarray) -> Optional
             return None
 
 
-# ── Main class ──────────────────────────────────────────────────────────────
-
-
 class WebsocketSubtitleSender(SpeechSegmentHandler):
     """
     Thread-safe WebSocket handler.
     Keeps a single persistent connection; auto-reconnects on drops.
+
+    NEW: Auto-retry on errors with infinite retry and exponential backoff.
+    Emits queue status to a QueueObserver for UI display.
     """
 
     def __init__(
@@ -278,10 +279,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self.reconnect_delay = reconnect_delay
         self.send_timeout = send_timeout
         self.global_srt_path = global_srt_path
-
-        # ── Language support ──
         self._language_store = LanguageStore()
-
         self._ws: Optional[ClientConnection] = None
         self._ws_lock = asyncio.Lock()
         self._stop_event = threading.Event()
@@ -300,17 +298,90 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         )
         self._observers: list[SubtitleObserver] = []
         self._observers_lock = threading.Lock()
-
-        # ── NEW: Track previous segment end time for gap calculation ──
+        self._queue_observer: Optional[QueueObserver] = None
         self._prev_end_time_utc: Optional[str] = None
 
-    # ── Loop thread ─────────────────────────────────────────────────────────
+        # Auto-retry configuration
+        self._max_retry_delay: float = 30.0  # Max delay between retries (seconds)
+        self._retry_backoff_base: float = 1.5  # Exponential backoff multiplier
+
+        # Schedule periodic queue status updates
+        self._queue_status_timer: Optional[asyncio.Task] = None
+        self._loop.call_soon_threadsafe(
+            lambda: setattr(
+                self,
+                "_queue_status_timer",
+                self._loop.create_task(self._periodic_queue_status()),
+            )
+        )
+
+        logger.info(
+            "[WebsocketSubtitleSender] Initialized with auto-retry and queue tracking"
+        )
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
 
-    # ── Connection manager ───────────────────────────────────────────────────
+    async def _periodic_queue_status(self) -> None:
+        """Periodically emit queue status to observer."""
+        while not self._stop_event.is_set():
+            try:
+                await self._emit_queue_status()
+            except Exception as exc:
+                logger.error(f"Queue status emission failed: {exc}")
+            await asyncio.sleep(0.5)  # Update every 500ms
+
+    async def _emit_queue_status(
+        self,
+        processing_seg_num: Optional[int] = None,
+        status_color: str = "#8b949e",
+        extra_info: Optional[dict] = None,
+    ) -> None:
+        """Emit current queue status to the observer with detailed info."""
+        if self._queue_observer is None:
+            return
+
+        qsize = self._task_queue.qsize
+        current_task = self._task_queue.current_task
+
+        # Build detailed status info
+        status_info = {
+            "qsize": qsize,
+            "is_processing": current_task is not None,
+            "segment_num": processing_seg_num,
+            "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+        }
+
+        if extra_info:
+            status_info.update(extra_info)
+
+        if current_task is not None and processing_seg_num is not None:
+            seg_dur = extra_info.get("duration", 0) if extra_info else 0
+            status = f"⏳ Seg #{processing_seg_num} ({seg_dur:.1f}s) — sending..."
+            color = "#58a6ff"  # Blue - processing
+        elif current_task is not None and extra_info and "retry_attempt" in extra_info:
+            attempt = extra_info["retry_attempt"]
+            delay = extra_info.get("retry_delay", 0)
+            status = (
+                f"🔄 Seg #{processing_seg_num} — retry {attempt} (wait {delay:.1f}s)"
+            )
+            color = "#f0883e"  # Orange - retrying
+        elif current_task is not None:
+            status = "⏳ Processing..."
+            color = "#58a6ff"
+        elif qsize > 0:
+            # Show next in queue
+            status = f"📋 {qsize} queued"
+            color = "#e3b341"  # Yellow - waiting
+        else:
+            status = "✓ Idle"
+            color = "#3fb950"  # Green - idle
+
+        try:
+            self._queue_observer.on_queue_status(status, qsize, color, status_info)
+        except Exception as exc:
+            logger.error(f"Failed to update queue observer: {exc}")
 
     async def _connection_manager(self) -> None:
         while not self._stop_event.is_set():
@@ -328,7 +399,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     console.print(
                         f"[bold green][WS][/bold green] Connected → [cyan]{self.ws_url}[/cyan]"
                     )
-                    # keep connection alive until it breaks
+                    await self._emit_queue_status(status_color="#3fb950")
                     await ws.wait_closed()
             except (ConnectionClosedOK, ConnectionClosedError) as exc:
                 console.print(f"[yellow][WS][/yellow] Connection closed: {exc}")
@@ -341,17 +412,16 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             finally:
                 self._ws = None
                 self._connected_event.clear()
-
+                await self._emit_queue_status(
+                    status_color="#f85149"
+                )  # Red - disconnected
             if self._stop_event.is_set():
                 break
             console.print(
                 f"[yellow][WS][/yellow] Reconnecting in {self.reconnect_delay:.1f}s …"
             )
             await asyncio.sleep(self.reconnect_delay)
-
         console.print("[dim][WS] Connection manager exited.[/dim]")
-
-    # ── Internal send + receive ──────────────────────────────────────────────
 
     async def _send_and_receive(
         self,
@@ -362,7 +432,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         Wait until connected, send the binary message, await the text response.
         Raises RuntimeError if no response arrives within send_timeout.
         """
-        # wait for connection (up to send_timeout)
         try:
             await asyncio.wait_for(
                 self._connected_event.wait(), timeout=self.send_timeout
@@ -371,20 +440,15 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             raise RuntimeError(
                 f"[WS] Timed out waiting for connection after {self.send_timeout}s"
             )
-
         ws = self._ws
         if ws is None:
             raise RuntimeError("[WS] Connection lost right before send")
-
         message = _build_message(header, audio_bytes)
         await ws.send(message)
-
         raw = await asyncio.wait_for(ws.recv(), timeout=self.send_timeout)
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
         return json.loads(raw)
-
-    # ── File persistence ─────────────────────────────────────────────────────
 
     @staticmethod
     def _save_request(seg_dir: Path, header: ClientHeader, audio_bytes: bytes) -> Path:
@@ -431,8 +495,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         merge_and_write_global_srt(segments_root, self.global_srt_path)
         return self.global_srt_path
 
-    # ── Handler interface ────────────────────────────────────────────────────
-
     def on_segment_start(self, event: SpeechSegmentStartEvent) -> None:
         """Nothing to do on start — reserved for future use."""
         pass
@@ -447,8 +509,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         """
         self._task_queue.enqueue(self._handle_segment(event))
 
-    # ── observer management ───────────────────────────────────────────────────
-
     def add_observer(self, observer: SubtitleObserver) -> None:
         """Register an observer to receive every ServerResponse."""
         with self._observers_lock:
@@ -459,6 +519,16 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         """Unregister a previously added observer."""
         with self._observers_lock:
             self._observers = [o for o in self._observers if o is not observer]
+
+    def set_queue_observer(self, observer: QueueObserver) -> None:
+        """
+        Set a QueueObserver to receive queue and retry status updates.
+        Usually the SubtitleOverlay.
+        """
+        self._queue_observer = observer
+        logger.info(
+            f"[WebsocketSubtitleSender] Queue observer set: {type(observer).__name__}"
+        )
 
     def _notify_observers(self, response: ServerResponse) -> None:
         """Call on_subtitle_response on all registered observers (errors caught per-observer)."""
@@ -472,22 +542,31 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     f"[yellow][WS][/yellow] Observer {type(observer).__name__} failed: {exc}"
                 )
 
-    async def _handle_segment(self, event: SpeechSegmentEndEvent) -> None:
+    async def _handle_segment_with_retry(self, event: SpeechSegmentEndEvent) -> None:
+        """
+        Process a segment with infinite auto-retry on failure.
+        Skips retry for no_speech responses (audio doesn't contain speech).
+        Uses exponential backoff with a max delay cap.
+        """
         seg: SpeechSegment = event.segment
         seg_num: int = event.segment_number
+
         if event.audio_np is None or event.audio_np.size == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — empty audio")
             return
+
         audio_bytes = _to_pcm_int16_bytes(event.audio_np)
         if len(audio_bytes) == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — zero PCM bytes")
             return
+
         seg_dir: Path = event.segment_dir
         start_sec = float(seg["start"])
         end_sec = float(seg["end"])
         duration = float(seg["duration"])
         start_time_utc: Optional[str] = seg.get("start_time_utc")
         end_time_utc: Optional[str] = seg.get("end_time_utc")
+
         gap_sec: Optional[float] = None
         if self._prev_end_time_utc is not None and start_time_utc is not None:
             from datetime import datetime
@@ -500,10 +579,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 pass
         self._prev_end_time_utc = end_time_utc
 
-        # Compute VAD score once here — single source of truth
         vad_score = _compute_vad_score(seg, event.audio_np)
-
-        # Build segment_id
         segment_id = f"segment_{seg_num:03d}"
 
         header: ClientHeader = {
@@ -520,24 +596,124 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "gap_sec": gap_sec,
             "vad_score": vad_score,
             "language": self._language_store.language,
-            # ── new fields ──
             "segment_number": seg_num,
             "segment_id": segment_id,
         }
-        _log_request(seg_num, header, audio_bytes)
-        try:
-            response = await self._send_and_receive(header, audio_bytes)
-        except Exception as exc:
-            console.print(
-                f"[bold red][WS][/bold red] Segment {seg_num} send/receive failed: "
-                f"{type(exc).__name__}: {exc}"
-            )
-            return
-        _log_response(response, seg_num)
+
+        # --- Auto-retry loop ---
+        attempt = 0
+        last_error = None
+        response = None
+
+        while (
+            True
+        ):  # Infinite retry (breaks on success, no_speech, or unrecoverable errors)
+            attempt += 1
+
+            # Update queue observer with detailed status
+            if attempt == 1:
+                await self._emit_queue_status(
+                    processing_seg_num=seg_num,
+                    status_color="#58a6ff",
+                    extra_info={
+                        "duration": duration,
+                        "start_sec": start_sec,
+                    },
+                )
+            else:
+                delay = min(
+                    self._retry_backoff_base ** (attempt - 1), self._max_retry_delay
+                )
+
+                # Notify observer about retry with details
+                if self._queue_observer:
+                    try:
+                        self._queue_observer.on_retry_status(
+                            seg_num,
+                            attempt,
+                            delay,
+                            extra_info={
+                                "last_error": str(last_error)
+                                if last_error
+                                else "Unknown",
+                                "duration": duration,
+                            },
+                        )
+                    except Exception:
+                        pass
+
+                await self._emit_queue_status(
+                    processing_seg_num=seg_num,
+                    status_color="#f0883e",
+                    extra_info={
+                        "retry_attempt": attempt,
+                        "retry_delay": delay,
+                        "duration": duration,
+                    },
+                )
+
+                console.print(
+                    f"[yellow][WS][/yellow] Retrying segment {seg_num} "
+                    f"(attempt {attempt}) after {delay:.1f}s delay..."
+                )
+                await asyncio.sleep(delay)
+
+            _log_request(seg_num, header, audio_bytes, attempt)
+
+            try:
+                response = await self._send_and_receive(header, audio_bytes)
+                _log_response(response, seg_num, attempt)
+
+                # Check for no_speech - don't retry, just save and move on
+                coverage_label = response.get("coverage_label", "")
+                if not response.get("success") and coverage_label == "no_speech":
+                    console.print(
+                        f"[dim][WS][/dim] Segment {seg_num} — server returned no_speech "
+                        f"(attempt {attempt}). Saving response and skipping retry."
+                    )
+                    break  # Exit retry loop - no point retrying silent audio
+
+                if response.get("success") and "ja_text" in response:
+                    console.print(
+                        f"[bold green][WS][/bold green] Segment {seg_num} succeeded "
+                        f"{'after ' + str(attempt) + ' attempts' if attempt > 1 else 'on first attempt'}"
+                    )
+                    break  # Success - exit retry loop
+                else:
+                    # Server returned an error response (not no_speech) - retry
+                    error_msg = response.get("error", "Unknown server error")
+                    console.print(
+                        f"[bold red][WS][/bold red] Segment {seg_num} failed: {error_msg} "
+                        f"(attempt {attempt}, will retry)"
+                    )
+                    last_error = RuntimeError(f"Server error: {error_msg}")
+
+            except (ConnectionClosedError, ConnectionClosedOK) as exc:
+                console.print(
+                    f"[yellow][WS][/yellow] Connection lost during segment {seg_num}: {exc}"
+                )
+                last_error = exc
+
+            except OSError as exc:
+                console.print(
+                    f"[red][WS][/red] Network error for segment {seg_num}: {exc}"
+                )
+                last_error = exc
+
+            except Exception as exc:
+                console.print(
+                    f"[bold red][WS][/bold red] Segment {seg_num} send/receive failed: "
+                    f"{type(exc).__name__}: {exc} (attempt {attempt}, will retry)"
+                )
+                last_error = exc
+
+        # --- Always save response and notify (even for no_speech) ---
+
+        # Build notification from whatever response we got
         notification: SubtitleNotification = {
             "segment": seg,
             "num": seg_num,
-            **response,
+            **response,  # Include full response (works for both success and no_speech)
             "start_sec": round(start_sec, 4),
             "end_sec": round(end_sec, 4),
             "end_reason": _vad_reason(seg),
@@ -549,21 +725,34 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "start_time_utc": start_time_utc,
             "end_time_utc": end_time_utc,
         }
+
         self._notify_observers(notification)
+
+        # Save request.json
         req_path = self._save_request(seg_dir, header, audio_bytes)
+
+        # Always save response.json
         resp_path = self._save_response(seg_dir, response)
+
+        # Only save SRT if there's actual transcription
+        saved_files = [req_path, resp_path]
         if response.get("success") and "ja_text" in response:
             srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
-        global_path = self._update_global_srt(seg_dir)
-        _log_saved(
-            seg_dir,
-            [req_path, resp_path, srt_path]
-            if "srt_path" in locals()
-            else [req_path, resp_path],
-            global_path,
-        )
+            saved_files.append(srt_path)
 
-    # ── Public methods ─────────────────────────────────────────────────────────
+        global_path = self._update_global_srt(seg_dir)
+
+        _log_saved(seg_dir, saved_files, global_path)
+
+        # Emit idle status after processing
+        await self._emit_queue_status(status_color="#3fb950")
+
+    async def _handle_segment(self, event: SpeechSegmentEndEvent) -> None:
+        """
+        Wrapper that delegates to _handle_segment_with_retry.
+        This is the entry point called by the task queue.
+        """
+        await self._handle_segment_with_retry(event)
 
     def set_language(self, language: "LanguageCode") -> None:
         """
@@ -571,8 +760,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         Safe to call from any thread — the next segment will use the new value.
         """
         self._language_store.set_language(language)
-
-    # ── Shutdown ─────────────────────────────────────────────────────────────
 
     def clear_queue(self) -> None:
         """
@@ -582,7 +769,11 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         Also resets gap tracking so the next segment starts fresh.
         """
         self._task_queue.clear()
-        self._prev_end_time_utc = None  # NEW: Reset gap tracking
+        self._prev_end_time_utc = None
+        # Emit idle status
+        asyncio.run_coroutine_threadsafe(
+            self._emit_queue_status(status_color="#3fb950"), self._loop
+        )
 
     def close(self) -> None:
         self._stop_event.set()
@@ -591,6 +782,8 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             self._task_queue.drain_sync(timeout=self.send_timeout + 5)
         except Exception:
             pass
+        if self._queue_status_timer is not None:
+            self._queue_status_timer.cancel()
         if self._ws is not None:
             try:
                 future = asyncio.run_coroutine_threadsafe(self._ws.close(), self._loop)

@@ -3,7 +3,6 @@ SubtitleOverlay  (FireRed VAD edition)
 ======================================
 A PyQt6 always-on-top preview window that displays live subtitle entries
 received from the WebSocket subtitle server.
-
 Features
 --------
 - Rich HTML log of all segments: Japanese + English text, per-segment metadata
@@ -20,6 +19,7 @@ Features
 - VADScorer row: composite score and quality label with colour coding
 - Implements SpeechSegmentHandler (on_segment_end is a no-op;
   subtitle data arrives via SubtitleResponseNotifier Qt signal)
+- **NEW: Queue status display** — shows currently processing segment and pending items
 
 Observer wiring (done in main)
 -------------------------------
@@ -33,26 +33,32 @@ from __future__ import annotations
 
 import subprocess
 from abc import ABCMeta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
 from jet.audio.speech_handlers.api_types import SubtitleNotification
 from jet.audio.speech_handlers.base import SpeechSegmentHandler
+from jet.audio.speech_handlers.queue_observer import QueueObserver
 from jet.audio.speech_handlers.speech_events import (
     SpeechSegmentEndEvent,
     SpeechSegmentStartEvent,
 )
 from jet.audio.speech_handlers.subtitle_observer import SubtitleResponseNotifier
-from PyQt6.QtCore import Qt, QTimer, QUrl
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QTextCursor
 from PyQt6.QtMultimedia import QSoundEffect
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,  # NEW
+    QCheckBox,
+    QDialog,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
+    QProgressBar,
     QPushButton,
     QTextBrowser,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -68,7 +74,6 @@ class _QtABCMeta(type(QMainWindow), ABCMeta):
     pass
 
 
-# ===== Color helpers (unchanged) =====
 def _balanced_vad_score_color(score: Optional[float]) -> str:
     if score is None:
         return "#8b949e"
@@ -154,7 +159,6 @@ _VAD_BADGE_HTML = (
 )
 
 
-# ===== _format_entry (unchanged) =====
 def _format_entry(
     index: int,
     entry: dict,
@@ -163,20 +167,16 @@ def _format_entry(
     expanded: bool = False,
     is_playing: bool = False,
 ) -> str:
-    # Get the actual segment number from the entry, fallback to index
     segment_number = entry["segment_number"]
-
     ja = entry.get("ja", "").strip()
     en = entry.get("en", "").strip()
     text_display = en if hide_japanese else f"{ja}\n{en}".strip()
-
     start: float = entry.get("start", 0.0)
     end: float = entry.get("end", 0.0)
     end_reason = entry.get("end_reason") or "true_silence"
     segment_dir: Optional[Path] = (
         Path(entry["segment_dir"]) if entry.get("segment_dir") else None
     )
-
     gap: Optional[float] = None
     if prev_entry is not None:
         prev_end_time_utc = prev_entry.get("end_time_utc")
@@ -256,9 +256,8 @@ def _format_entry(
             f'<span style="color:{speaker_conf_color};">{speaker_conf_str}</span>'
             f"</span>"
         )
-
     header_html = (
-        f'<b style="font-size:10px;">{segment_number}</b>'  # Display actual segment number
+        f'<b style="font-size:10px;">{segment_number}</b>'
         f"{speaker_badge} "
         f'<span style="font-size:9px; color:#8b949e;">'
         f"({duration:.2f}s)"
@@ -269,7 +268,6 @@ def _format_entry(
         f"</span>"
         f" {copy_link} {open_link} {play_link}"
     )
-
     text_html = (
         f'<div style="margin-top:5px; margin-bottom:2px;">'
         f'<span style="'
@@ -281,7 +279,6 @@ def _format_entry(
         f'">{text_display.replace(chr(10), "<br/>")}</span>'
         f"</div>"
     )
-
     return (
         f'<div style="margin-bottom:4px;">'
         f"{header_html}"
@@ -291,13 +288,11 @@ def _format_entry(
     )
 
 
-# ===== SubtitleOverlay class =====
-
-
-class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
+class SubtitleOverlay(
+    QMainWindow, SpeechSegmentHandler, QueueObserver, metaclass=_QtABCMeta
+):
     """
     Always-on-top subtitle preview window.
-
     NEW: Includes a "Global Reset on Clear" checkbox. When checked, pressing
     the clear button also calls POST /global/reset on the live-subtitles server.
     """
@@ -316,12 +311,43 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         }
     """
 
+    # Queue status signal (thread-safe)
+    queue_status_updated = pyqtSignal(
+        str, int, str
+    )  # (status_text, pending_count, status_color)
+
+    @classmethod
+    def create_and_connect(
+        cls,
+        sender,
+        show_ja_text: bool = False,
+        extra_clear_paths: Sequence[Path] = (),
+        on_clear: Optional[callable] = None,
+        global_reset_handler=None,
+    ) -> "SubtitleOverlay":
+        overlay = cls(
+            show_ja_text=show_ja_text,
+            extra_clear_paths=extra_clear_paths,
+            on_clear=on_clear,
+            global_reset_handler=global_reset_handler,
+        )
+        overlay.set_sender_reference(sender)
+
+        # Register overlay as queue observer
+        sender.set_queue_observer(overlay)
+        console.print("[debug][SubtitleOverlay] Registered as queue observer[/debug]")
+
+        notifier = SubtitleResponseNotifier(parent=overlay)
+        notifier.subtitle_received.connect(overlay.on_subtitle_received)
+        sender.add_observer(notifier)
+        return overlay
+
     def __init__(
         self,
         show_ja_text: bool = False,
         extra_clear_paths: Sequence[Path] = (),
         on_clear: Optional[callable] = None,
-        global_reset_handler=None,  # NEW: injected handler
+        global_reset_handler=None,
         parent: QWidget | None = None,
     ) -> None:
         QMainWindow.__init__(self, parent)
@@ -331,11 +357,25 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._auto_scroll_enabled: bool = True
         self._extra_clear_paths: tuple[Path, ...] = tuple(extra_clear_paths)
         self._on_clear: Optional[callable] = on_clear
-        self._global_reset_handler = global_reset_handler  # NEW
+        self._global_reset_handler = global_reset_handler
+        self._queue_status_text: str = "Idle"
+        self._queue_pending_count: int = 0
+        self._queue_status_color: str = "#8b949e"
         self._setup_window()
         self._setup_ui()
         self._setup_sound()
         self._setup_poll_timer()
+
+        # Connect the signal for thread-safe UI updates
+        self.queue_status_updated.connect(self._update_queue_display)
+        console.print(
+            "[debug][SubtitleOverlay] Queue status display initialized[/debug]"
+        )
+
+        # Log history for the status line
+        self._status_log: list[dict] = []  # Store recent status events
+        self._max_log_entries: int = 250
+        self._log_viewer: Optional[QDialog] = None
 
     def _setup_window(self) -> None:
         self.setWindowTitle(self._WINDOW_TITLE)
@@ -347,55 +387,214 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
             self.move(geom.right() - self.width() - 20, 20)
 
     def _setup_ui(self) -> None:
-        # UPDATED: Import from settings_cache (renamed module)
-        from jet.audio.speech_handlers.settings_cache import (
-            AppSettingsStore,
-        )
+        from jet.audio.speech_handlers.settings_cache import AppSettingsStore
 
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
 
-        # ---- Top bar ----
+        # ── Top bar with action buttons ──
         top_bar = QHBoxLayout()
 
         self._clear_btn = QPushButton("🗑")
         self._clear_btn.setToolTip("Clear all entries")
         self._clear_btn.clicked.connect(self._clear_all)
+        self._clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #21262d;
+                border: 1px solid #30363d;
+                border-radius: 3px;
+                color: #c9d1d9;
+                font-size: 12px;
+                padding: 3px 6px;
+            }
+            QPushButton:hover {
+                background-color: #30363d;
+            }
+        """)
 
         self._hide_ja_btn = QPushButton("🇯🇵")
         self._hide_ja_btn.setToolTip("Toggle Japanese text")
         self._hide_ja_btn.setCheckable(True)
         self._hide_ja_btn.setChecked(self._hide_japanese)
         self._hide_ja_btn.clicked.connect(self._toggle_japanese)
+        self._hide_ja_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #21262d;
+                border: 1px solid #30363d;
+                border-radius: 3px;
+                color: #c9d1d9;
+                font-size: 12px;
+                padding: 3px 6px;
+            }
+            QPushButton:hover {
+                background-color: #30363d;
+            }
+            QPushButton:checked {
+                background-color: #1f3b5c;
+                border-color: #58a6ff;
+            }
+        """)
 
-        # UPDATED: Use AppSettingsStore instead of LanguageStore
         self._settings_store = AppSettingsStore()
-
         self._lang_btn = QPushButton()
         self._lang_btn.setToolTip("Select transcription language")
         self._lang_btn.clicked.connect(self._cycle_language)
+        self._lang_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #21262d;
+                border: 1px solid #30363d;
+                border-radius: 3px;
+                color: #c9d1d9;
+                font-size: 11px;
+                padding: 3px 6px;
+            }
+            QPushButton:hover {
+                background-color: #30363d;
+            }
+        """)
         self._refresh_language_button()
 
-        # NEW: Global Reset checkbox
         self._global_reset_checkbox = QCheckBox("🔄 Global Reset")
         self._global_reset_checkbox.setToolTip(
             "When checked, clearing also resets the server state via /global/reset"
         )
-        # Restore persisted value
         self._global_reset_checkbox.setChecked(
             self._settings_store.global_reset_on_clear
         )
         self._global_reset_checkbox.stateChanged.connect(self._on_global_reset_toggled)
+        self._global_reset_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #8b949e;
+                font-size: 10px;
+                spacing: 4px;
+            }
+            QCheckBox::indicator {
+                width: 14px;
+                height: 14px;
+                border: 1px solid #30363d;
+                border-radius: 3px;
+                background-color: #21262d;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #238636;
+                border-color: #2ea043;
+            }
+        """)
 
         top_bar.addWidget(self._clear_btn)
         top_bar.addWidget(self._hide_ja_btn)
         top_bar.addWidget(self._lang_btn)
-        top_bar.addWidget(self._global_reset_checkbox)  # NEW
+        top_bar.addWidget(self._global_reset_checkbox)
         top_bar.addStretch()
         layout.addLayout(top_bar)
 
-        # ---- Text area ----
+        # ── Queue Status Bar with Log History Button ──
+        self._queue_status_bar = QHBoxLayout()
+        self._queue_status_bar.setContentsMargins(0, 2, 0, 2)
+        self._queue_status_bar.setSpacing(4)
+
+        self._queue_label = QLabel("📡")
+        self._queue_label.setStyleSheet(
+            "color: #8b949e; font-size: 10px; padding: 0px 2px;"
+        )
+        self._queue_label.setToolTip("WebSocket queue status")
+
+        self._queue_status_display = QLabel(self._queue_status_text)
+        self._queue_status_display.setStyleSheet(
+            f"color: {self._queue_status_color}; "
+            "font-size: 10px; "
+            "font-family: 'Consolas', 'Courier New', monospace; "
+            "padding: 2px 4px; "
+            "background-color: #161b22; "
+            "border: 1px solid #21262d; "
+            "border-radius: 3px;"
+        )
+        self._queue_status_display.setToolTip(
+            "Current queue status\n"
+            "📡 = WebSocket connection status\n"
+            "⏳ = Currently processing\n"
+            "📋 = Pending items in queue\n"
+            "✓ = Idle (no pending work)\n"
+            "Click 📜 for detailed history"
+        )
+
+        self._queue_pending_label = QLabel()
+        self._queue_pending_label.setStyleSheet(
+            "color: #58a6ff; "
+            "font-size: 10px; "
+            "font-family: 'Consolas', 'Courier New', monospace; "
+            "font-weight: bold; "
+            "padding: 2px 4px; "
+            "background-color: #161b22; "
+            "border: 1px solid #21262d; "
+            "border-radius: 3px;"
+        )
+        self._queue_pending_label.setToolTip("Number of segments waiting to be sent")
+
+        # Log history button
+        self._log_btn = QPushButton("📜")
+        self._log_btn.setFixedSize(26, 20)
+        self._log_btn.setToolTip(
+            "View status log history\n"
+            "Shows recent WebSocket events:\n"
+            "• Segment send/receive\n"
+            "• Retry attempts\n"
+            "• Connection changes\n"
+            "• Error details"
+        )
+        self._log_btn.clicked.connect(self._show_log_history)
+        self._log_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #21262d;
+                border: 1px solid #30363d;
+                border-radius: 3px;
+                color: #8b949e;
+                font-size: 10px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #30363d;
+                color: #c9d1d9;
+                border-color: #58a6ff;
+            }
+            QPushButton:pressed {
+                background-color: #1f3b5c;
+            }
+        """)
+
+        self._update_queue_display()
+
+        self._queue_status_bar.addWidget(self._queue_label)
+        self._queue_status_bar.addWidget(self._queue_status_display, 1)
+        self._queue_status_bar.addWidget(self._queue_pending_label)
+        self._queue_status_bar.addWidget(self._log_btn)
+        layout.addLayout(self._queue_status_bar)
+
+        # Progress bar for retry indication
+        self._retry_progress = QProgressBar()
+        self._retry_progress.setMaximumHeight(3)
+        self._retry_progress.setTextVisible(False)
+        self._retry_progress.setStyleSheet("""
+            QProgressBar {
+                background-color: #161b22;
+                border: none;
+                border-radius: 1px;
+            }
+            QProgressBar::chunk {
+                background-color: #f0883e;
+                border-radius: 1px;
+            }
+        """)
+        self._retry_progress.setToolTip(
+            "Retry progress — fills up with each retry attempt"
+        )
+        self._retry_progress.hide()
+        layout.addWidget(self._retry_progress)
+        # ── End Queue Status Bar ──
+
+        # ── Main text area ──
         self._text_area = QTextBrowser()
         self._text_area.setReadOnly(True)
         self._text_area.setAcceptRichText(True)
@@ -404,11 +603,15 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._text_area.setOpenLinks(False)
         self._text_area.anchorClicked.connect(self._handle_anchor_click)
         self._text_area.verticalScrollBar().valueChanged.connect(self._on_scroll)
+        self._text_area.setToolTip(
+            "Live subtitle entries\n"
+            "📋 Copy text | 📂 Open folder | ▶ Play audio\n"
+            "VAD badges show speech detection quality"
+        )
         layout.addWidget(self._text_area)
 
         self.setCentralWidget(central)
 
-    # ---- NEW: Global Reset checkbox handler ----
     def _on_global_reset_toggled(self, state: int) -> None:
         """Persist checkbox state whenever the user toggles it."""
         checked = state == Qt.CheckState.Checked.value
@@ -417,7 +620,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
             f"[debug][SubtitleOverlay] Global Reset on Clear: {'ON' if checked else 'OFF'}[/debug]"
         )
 
-    # ---- Language (updated to use _settings_store) ----
     def _refresh_language_button(self) -> None:
         """Update the language button text to reflect current selection."""
         lang = self._settings_store.language
@@ -444,7 +646,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         """
         self._sender = sender
 
-    # ---- Sound & Timer (unchanged) ----
     def _setup_sound(self) -> None:
         self._sound_effect = QSoundEffect()
 
@@ -453,7 +654,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._poll_timer.timeout.connect(self._refresh_display)
         self._poll_timer.start(self._POLL_MS)
 
-    # ---- Subtitle handling (unchanged) ----
     def on_subtitle_received(self, notification: SubtitleNotification) -> None:
         ja = notification.get("ja_text", "").strip()
         en = notification.get("en_text", "").strip()
@@ -528,14 +728,11 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         scrollbar = self._text_area.verticalScrollBar()
         self._auto_scroll_enabled = scrollbar.value() >= scrollbar.maximum() - 20
 
-    # ---- UPDATED: Clear all now conditionally calls global reset ----
     def _clear_all(self) -> None:
         self._entries.clear()
         self._last_html = None
         self._text_area.clear()
         self._reset_storage()
-
-        # NEW: If checkbox is checked, trigger global reset
         if (
             self._global_reset_checkbox.isChecked()
             and self._global_reset_handler is not None
@@ -576,7 +773,6 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
                     style="bold",
                 )
 
-    # ---- Toggle, anchors, actions, events, closeEvent (unchanged) ----
     def _toggle_japanese(self) -> None:
         self._hide_japanese = self._hide_ja_btn.isChecked()
         self._last_html = None
@@ -635,24 +831,281 @@ class SubtitleOverlay(QMainWindow, SpeechSegmentHandler, metaclass=_QtABCMeta):
         self._sound_effect.stop()
         event.accept()
 
-    # ---- UPDATED: Factory now accepts global_reset_handler ----
-    @classmethod
-    def create_and_connect(
-        cls,
-        sender,
-        show_ja_text: bool = False,
-        extra_clear_paths: Sequence[Path] = (),
-        on_clear: Optional[callable] = None,
-        global_reset_handler=None,  # NEW parameter
-    ) -> "SubtitleOverlay":
-        overlay = cls(
-            show_ja_text=show_ja_text,
-            extra_clear_paths=extra_clear_paths,
-            on_clear=on_clear,
-            global_reset_handler=global_reset_handler,  # NEW: pass through
+    # --- Queue Status Management ---
+
+    def update_queue_status(
+        self, status: str, pending: int, status_color: str = "#8b949e"
+    ) -> None:
+        """
+        Thread-safe update of the queue status display.
+        Can be called from any thread.
+        """
+        self.queue_status_updated.emit(status, pending, status_color)
+        console.print(
+            f"[debug][QueueStatus] {status} | Pending: {pending} | Color: {status_color}[/debug]"
         )
-        overlay.set_sender_reference(sender)
-        notifier = SubtitleResponseNotifier(parent=overlay)
-        notifier.subtitle_received.connect(overlay.on_subtitle_received)
-        sender.add_observer(notifier)
-        return overlay
+
+    def _update_queue_display(
+        self, status: str = None, pending: int = None, status_color: str = None
+    ) -> None:
+        """Update the queue status bar widgets (called on main thread via signal)."""
+        if status is not None:
+            self._queue_status_text = status
+        if pending is not None:
+            self._queue_pending_count = pending
+        if status_color is not None:
+            self._queue_status_color = status_color
+
+        self._queue_status_display.setText(self._queue_status_text)
+        self._queue_status_display.setStyleSheet(
+            f"color: {self._queue_status_color}; font-size: 10px; font-family: monospace;"
+        )
+
+        if self._queue_pending_count > 0:
+            self._queue_pending_label.setText(f"📋 {self._queue_pending_count} pending")
+            self._queue_pending_label.show()
+        else:
+            self._queue_pending_label.hide()
+
+    def set_retry_progress(self, visible: bool = True) -> None:
+        """Show or hide the retry progress indicator."""
+        if visible:
+            self._retry_progress.setRange(0, 0)  # Indeterminate
+            self._retry_progress.show()
+        else:
+            self._retry_progress.hide()
+            self._retry_progress.setRange(0, 100)
+
+    def set_retry_count(self, attempt: int) -> None:
+        """Show a determinate retry count on the progress bar."""
+        self._retry_progress.setRange(0, 100)
+        self._retry_progress.setValue(min(attempt * 10, 100))
+        self._retry_progress.show()
+
+    # --- QueueObserver Implementation ---
+
+    def on_queue_status(
+        self, status: str, pending: int, status_color: str, info: dict = None
+    ) -> None:
+        """QueueObserver implementation — thread-safe via Qt signal."""
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S.%f")[:-3],
+            "status": status,
+            "pending": pending,
+            "color": status_color,
+            "info": info or {},
+        }
+        self._status_log.append(log_entry)
+        # Trim to max entries, keeping newest
+        if len(self._status_log) > self._max_log_entries:
+            self._status_log = self._status_log[-self._max_log_entries :]
+
+        self.update_queue_status(status, pending, status_color)
+
+    def on_retry_status(
+        self, segment_num: int, attempt: int, delay: float, extra_info: dict = None
+    ) -> None:
+        """QueueObserver implementation for retry events."""
+        status = (
+            f"🔄 Retrying seg #{segment_num} (attempt {attempt}, wait {delay:.1f}s)"
+        )
+
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S.%f")[:-3],
+            "status": status,
+            "pending": self._queue_pending_count,
+            "color": "#f0883e",
+            "info": {
+                "segment_num": segment_num,
+                "retry_attempt": attempt,
+                "retry_delay": delay,
+                **(extra_info or {}),
+            },
+        }
+        self._status_log.append(log_entry)
+        if len(self._status_log) > self._max_log_entries:
+            self._status_log = self._status_log[-self._max_log_entries :]
+
+        self.queue_status_updated.emit(status, self._queue_pending_count, "#f0883e")
+        QTimer.singleShot(0, lambda: self.set_retry_count(attempt))
+
+    def _show_log_history(self) -> None:
+        """Show a dialog with recent status log history (deduplicated, newest first)."""
+        from PyQt6.QtWidgets import QDialog, QPushButton, QVBoxLayout
+
+        if self._log_viewer is not None:
+            self._log_viewer.close()
+            self._log_viewer = None
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("📜 Queue Status History")
+        dialog.resize(550, 500)
+        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+
+        layout = QVBoxLayout(dialog)
+
+        text_area = QTextEdit()
+        text_area.setReadOnly(True)
+        text_area.setStyleSheet("""
+            QTextEdit {
+                background-color: #0d1117;
+                color: #c9d1d9;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 11px;
+                border: 1px solid #30363d;
+            }
+        """)
+
+        # Build HTML log with deduplication
+        html_parts = ['<div style="font-family: monospace;">']
+        html_parts.append(
+            '<div style="color: #8b949e; font-size: 10px; margin-bottom: 8px;">'
+            f"Status events (last {self._max_log_entries}, duplicates collapsed, newest first)"
+            "</div>"
+        )
+
+        # Deduplicate consecutive identical statuses
+        deduped_entries = []
+        last_status = None
+        repeat_count = 0
+
+        for entry in reversed(self._status_log):
+            current_status = entry["status"]
+
+            if current_status == last_status:
+                repeat_count += 1
+                # Update the last entry with repeat count
+                if deduped_entries:
+                    deduped_entries[-1]["repeat_count"] = repeat_count
+                    deduped_entries[-1]["last_timestamp"] = entry["timestamp"]
+            else:
+                repeat_count = 0
+                entry_copy = entry.copy()
+                entry_copy["repeat_count"] = 0
+                entry_copy["last_timestamp"] = entry["timestamp"]
+                deduped_entries.append(entry_copy)
+                last_status = current_status
+
+        for entry in deduped_entries:
+            color = entry.get("color", "#8b949e")
+            timestamp = entry["timestamp"]
+            last_timestamp = entry.get("last_timestamp", timestamp)
+            status = entry["status"]
+            pending = entry["pending"]
+            repeat_count = entry.get("repeat_count", 0)
+            info = entry.get("info", {})
+
+            # Build detail line
+            detail_parts = []
+            if info.get("segment_num"):
+                detail_parts.append(f"Seg #{info['segment_num']}")
+            if info.get("duration"):
+                detail_parts.append(f"{info['duration']:.1f}s")
+            if info.get("retry_attempt"):
+                detail_parts.append(f"Retry {info['retry_attempt']}")
+            if info.get("retry_delay"):
+                detail_parts.append(f"Wait {info['retry_delay']:.1f}s")
+            if info.get("last_error"):
+                error_msg = str(info["last_error"])[:60]
+                detail_parts.append(f"{error_msg}")
+            if info.get("start_sec") is not None:
+                detail_parts.append(f"@{info['start_sec']:.1f}s")
+
+            detail_str = " | ".join(detail_parts) if detail_parts else ""
+
+            # Build the detail HTML span separately
+            detail_html = ""
+            if detail_str:
+                detail_html = (
+                    '<span style="color: #8b949e; font-size: 9px;">'
+                    f"({detail_str})"
+                    "</span>"
+                )
+
+            # Timestamp range if repeated
+            time_str = timestamp
+            if repeat_count > 0:
+                time_str = f"{timestamp} → {last_timestamp}"
+
+            # Repeat indicator
+            repeat_html = ""
+            if repeat_count > 0:
+                repeat_html = (
+                    f' <span style="color: #6e7681; font-size: 9px;">'
+                    f"(×{repeat_count + 1})"
+                    f"</span>"
+                )
+
+            # Build each log entry line
+            line = (
+                f'<div style="margin-bottom: 3px; padding: 4px 6px; '
+                f'background-color: #161b22; border-left: 3px solid {color};">'
+                f'<span style="color: #6e7681; font-size: 9px;">{time_str}</span> '
+                f'<span style="color: {color}; font-weight: bold;">{status}</span>'
+                f"{repeat_html}"
+                f"{f' {detail_html}' if detail_html else ''}"
+                f'<span style="color: #58a6ff; float: right; margin-left: 8px;">📋 {pending}</span>'
+                f"</div>"
+            )
+            html_parts.append(line)
+
+        if not deduped_entries:
+            html_parts.append(
+                '<div style="color: #6e7681; padding: 20px; text-align: center;">'
+                "No status events yet — start recording to see activity"
+                "</div>"
+            )
+
+        html_parts.append("</div>")
+
+        text_area.setHtml("".join(html_parts))
+        layout.addWidget(text_area)
+
+        # Bottom bar with clear button
+        bottom_bar = QHBoxLayout()
+
+        clear_btn = QPushButton("Clear History")
+        clear_btn.clicked.connect(lambda: self._clear_log_history(text_area))
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #21262d;
+                border: 1px solid #30363d;
+                border-radius: 3px;
+                color: #f85149;
+                padding: 5px 12px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #3d1f1f;
+                border-color: #f85149;
+            }
+        """)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.close)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #21262d;
+                border: 1px solid #30363d;
+                border-radius: 3px;
+                color: #c9d1d9;
+                padding: 5px 20px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #30363d;
+            }
+        """)
+
+        bottom_bar.addWidget(clear_btn)
+        bottom_bar.addStretch()
+        bottom_bar.addWidget(close_btn)
+        layout.addLayout(bottom_bar)
+
+        self._log_viewer = dialog
+        dialog.show()
+
+    def _clear_log_history(self, text_area=None) -> None:
+        """Clear the status log history."""
+        self._status_log.clear()
+        console.print("[debug][SubtitleOverlay] Status log history cleared[/debug]")

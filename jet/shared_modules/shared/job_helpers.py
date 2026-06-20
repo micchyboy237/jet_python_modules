@@ -9,7 +9,6 @@ from jet.data.utils import generate_hash, generate_key
 from jet.db.postgres.pgvector import PgVectorClient
 from jet.logger import logger
 from jet.models.tokenizer.base import count_tokens
-from jet.vectors.reranker.bm25 import rerank_bm25
 from jet.wordnet.text_chunker import chunk_texts_with_data
 from numpy.typing import NDArray
 from psycopg import sql
@@ -663,6 +662,8 @@ def hybrid_search_jobs(
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
 ) -> list[JobSearchResult]:
+    from jet.vectors.reranker.bm25 import rerank_bm25
+
     raw_results = search_jobs(
         query=query,
         top_k=top_k,
