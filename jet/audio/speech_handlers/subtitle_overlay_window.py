@@ -841,9 +841,9 @@ class SubtitleOverlay(
         Can be called from any thread.
         """
         self.queue_status_updated.emit(status, pending, status_color)
-        console.print(
-            f"[debug][QueueStatus] {status} | Pending: {pending} | Color: {status_color}[/debug]"
-        )
+        # console.print(
+        #     f"[debug][QueueStatus] {status} | Pending: {pending} | Color: {status_color}[/debug]"
+        # )
 
     def _update_queue_display(
         self, status: str = None, pending: int = None, status_color: str = None
