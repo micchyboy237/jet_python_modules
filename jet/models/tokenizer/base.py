@@ -228,7 +228,11 @@ def get_tokenizer(
     else:
         try:
             tokenizer = AutoTokenizer.from_pretrained(
-                model_path, cache_dir=local_cache_dir, truncation=truncation)
+                model_path,
+                cache_dir=local_cache_dir,
+                truncation=truncation,
+                trust_remote_code=True,
+            )
             logger.info(
                 f"Successfully loaded tokenizer from remote: {model_path}")
         except Exception as e:
