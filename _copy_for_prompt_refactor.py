@@ -4,21 +4,25 @@ import os
 
 import tiktoken
 from headroom import compress
-from jet.logger import logger
+from rich.console import Console
 from tqdm import tqdm
 
-from _copy_file_structure import (
+from _utils_copy_for_prompt import (
     clean_content,
     clean_newlines,
+    copy_to_clipboard,
     find_files,
     format_file_structure,
     remove_parent_paths,
 )
 
+logger = Console()
+
 exclude_files = [
     "**/.git/",
     "**/.gitignore",
     "**/.DS_Store",
+    "**/*.pyc",
     "**/_copy*.py",
     "**/__pycache__/",
     "**/.pytest_cache/",
@@ -27,54 +31,34 @@ exclude_files = [
     "**/*.lock",
     "**/public/",
     "**/mocks/",
+    "**/.venv/",
     "**/dream/",
     "**/jupyter/",
     "**/*.png",
     "**/*.svg",
-    "**/*.pyc",
-    "**/_git_stats.json",
-    "**/stats_results/",
     # "**/_*",
     # "**/.cache/",
-    # "**/.venv/",
+    "**/_git_stats.json",
+    "**/stats_results/",
     # "**/generated/",
     # "**/.*",
     # Custom
     # "**/*.sh"
     # "**/__init__.py",
-    # "**/*.md",
-    # "**/tests/",
-    # "**/pretrained_models/",
-    "**/hls.min.js",
+    # "*.md",
 ]
 include_files = [
-    # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/pyrightconfig.json",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension",
-    # "",
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/firered/firered/inference/VAD.py",
-    # "",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/record_mic_speech_detection.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/run_record_mic_speech_detection.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/wav_utils.py",
-    "",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/linked_in.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/job_scraper.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/base.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/models.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/jobstreet.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/online_jobs_ph.py",
-    "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/overlays/audio_waveform_overlay.py",
-    "",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/live_subtitles/live_subtitles_server2_with_en/services/segment_speaker_labeler.py",
 ]
 
 structure_include = [
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/smart-web-extensions/mp4box-network-extractor",
+    # ""
 ]
 structure_exclude = []
 
-include_content = []
+include_content = [
+    # r"C:\Users\druiv\Desktop\Jet_Files\Jet_Windows_Workspace\servers\live_subtitles\live_subtitles_server2_with_en\templates\tagger",
+]
 exclude_content = []
 
 # Args defaults
@@ -85,23 +69,45 @@ COMPRESSION_MODEL = "gpt-4o"
 TOKEN_BUDGET = 8000
 
 DEFAULT_QUERY_MESSAGE = r"""
-Check why even if I change the default OVERLAY_WIDTH, its not reflecting
+Refactor the code below. Be surgical — show only diffs, moved blocks, and new files.
+Do NOT reproduce existing files in full under any circumstances.
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
-General:
-- Browse when beneficial or requested.
-- Keep explanations simple and clear.
+- Split files by feature or responsibility only when the file is doing too many unrelated things.
+- Consolidate related logic; don't over-fragment into many tiny files.
+- Preserve all existing behavior exactly — no logic changes, no renames that break imports.
+- Use clear, descriptive module names and update imports accordingly.
 
-When coding:
-- Provide step-by-step analysis and explain the flow.
-- Use visuals, diagrams, or tables when helpful.
-- Show full code for new files, then show full function code for new or updated functions.
-- Write smart, flexible, reusable, maintainable, optimal, robust, and minimal code.
-- Always add logs so we can trace and know if all features work correctly.
+Output rules — violating these makes your response useless:
+- NEVER output a complete existing file. It wastes tokens and forces the user to diff everything.
+- Show only the changed lines/block + 3-5 lines of surrounding context so the user knows where to paste.
+- For moved code, write: [Move to new_file.py] above the block — do not copy it twice.
+- Use `# ... rest of class unchanged` / `# ... rest of file unchanged` to skip unmodified code.
+- Only output a complete file if it is 100% new (did not exist before).
+- If you catch yourself writing an entire class or file that already exists, stop and summarize what changed instead.
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """
+You are an expert software engineer performing a targeted refactor.
+Produce minimal, surgical output — only what changed.
+
+Example of correct output format:
+
+# segment_speaker_labeler.py  (modified)
+```python
+# Line ~45 — update imports
+from .speaker_reference import SpeakerReference, SpeakerSegmentInfo  # added
+
+# ... rest of file unchanged
+```
+
+# speaker_reference.py  (NEW file — show completely)
+```python
+# full content here because it's new
+```
+
+Never reproduce an existing file in full. If you do, your response is wrong.
 """.strip()
 
 # For existing projects
