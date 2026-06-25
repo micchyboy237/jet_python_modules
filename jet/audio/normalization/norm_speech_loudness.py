@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import librosa
 import numpy as np
@@ -27,15 +27,17 @@ def _load_silero_vad():
 
 
 def _speech_probability(
-    audio: np.ndarray,
+    audio: Union[np.ndarray, torch.Tensor],
     sample_rate: int,
-) -> np.ndarray:
+) -> Union[np.ndarray, torch.Tensor]:
     """
     Compute per-sample speech probability using Silero VAD.
 
     Silero requires fixed-size frames:
     - 512 samples @ 16kHz
     - 256 samples @ 8kHz
+
+    Returns same type as input (numpy or torch).
     """
     if sample_rate not in (8000, 16000):
         raise ValueError(
@@ -46,7 +48,13 @@ def _speech_probability(
     model, utils = _load_silero_vad()
     frame_size = 512 if sample_rate == 16000 else 256
 
-    audio_tensor = torch.from_numpy(audio).float()
+    is_torch = isinstance(audio, torch.Tensor)
+
+    # Convert to torch for inference if needed
+    if not is_torch:
+        audio_tensor = torch.from_numpy(audio).float()
+    else:
+        audio_tensor = audio.float().clone()
 
     num_samples = audio_tensor.shape[0]
     num_frames = int(np.ceil(num_samples / frame_size))
@@ -72,69 +80,100 @@ def _speech_probability(
     sample_probs = np.repeat(frame_probs, frame_size)
     sample_probs = sample_probs[:num_samples]
 
+    # Return as torch tensor if input was torch
+    if is_torch:
+        return torch.from_numpy(sample_probs)
     return sample_probs
 
 
 def normalize_speech_loudness(
-    audio: np.ndarray,
+    audio: Union[np.ndarray, torch.Tensor],
     sample_rate: int,
     target_lufs: float = -13.0,
     min_lufs_threshold: float = -70.0,
     max_loudness_threshold: float | None = -10.0,
     peak_target: float = 0.99,
     return_dtype=None,
-) -> np.ndarray:
+) -> Union[np.ndarray, torch.Tensor]:
     """
     Normalize speech audio using speech-probability-weighted LUFS.
     """
+    is_torch = isinstance(audio, torch.Tensor)
+
+    # Convert to numpy for processing
+    if is_torch:
+        audio_np = audio.detach().cpu().numpy()
+    else:
+        audio_np = audio.copy() if isinstance(audio, np.ndarray) else np.array(audio)
 
     # Accept and repair common multichannel input
-    if audio.ndim == 2:
-        if audio.shape[1] == 1:
-            audio = audio[:, 0]  # squeeze trivial stereo
+    if audio_np.ndim == 2:
+        if audio_np.shape[1] == 1:
+            audio_np = audio_np[:, 0]  # squeeze trivial stereo
         else:
             # Average channels → simple downmix
-            audio = np.mean(audio.astype(np.float64), axis=1).astype(audio.dtype)
-    elif audio.ndim > 2:
+            audio_np = np.mean(audio_np.astype(np.float64), axis=1).astype(
+                audio_np.dtype
+            )
+    elif audio_np.ndim > 2:
         raise ValueError(
-            f"Unsupported audio shape {audio.shape} — "
+            f"Unsupported audio shape {audio_np.shape} — "
             "expected 1D (mono) or 2D (frames, channels)"
         )
 
-    orig_dtype = audio.dtype
+    orig_dtype = audio_np.dtype
 
     meter = pyln.Meter(sample_rate)
 
     # 1. Speech probabilities
-    probs = _speech_probability(audio, sample_rate)
+    probs = _speech_probability(audio_np, sample_rate)
 
-    if np.max(probs) < 0.1:
-        return audio.astype(return_dtype or orig_dtype, copy=True)
+    # Convert probs to numpy if it's a torch tensor
+    if isinstance(probs, torch.Tensor):
+        probs_np = probs.detach().cpu().numpy()
+    else:
+        probs_np = probs
+
+    if np.max(probs_np) < 0.1:
+        result = audio_np
+        if is_torch:
+            return torch.from_numpy(
+                result.astype(return_dtype or orig_dtype, copy=True)
+            )
+        return result.astype(return_dtype or orig_dtype, copy=True)
 
     # 2. Weighted audio for LUFS measurement
-    weighted_audio = audio * probs
+    weighted_audio = audio_np * probs_np
 
     try:
         speech_lufs = meter.integrated_loudness(weighted_audio)
     except Exception:
-        peak = np.max(np.abs(audio))
+        peak = np.max(np.abs(audio_np))
         if peak == 0:
-            result = audio.copy()
+            result = audio_np.copy()
         else:
-            result = audio / peak * peak_target
+            result = audio_np / peak * peak_target
 
         target_dtype = return_dtype or orig_dtype
-        return _cast_audio_dtype(result, target_dtype)
+        result = _cast_audio_dtype(result, target_dtype)
+        if is_torch:
+            return torch.from_numpy(result)
+        return result
 
     if speech_lufs <= min_lufs_threshold:
-        return audio.astype(return_dtype or orig_dtype, copy=True)
+        result = audio_np
+        target_dtype = return_dtype or orig_dtype
+        result = _cast_audio_dtype(result, target_dtype)
+        if is_torch:
+            return torch.from_numpy(result)
+        return result
 
     if max_loudness_threshold is not None:
         target_lufs = min(target_lufs, speech_lufs, max_loudness_threshold)
 
     # 3. Normalize ORIGINAL audio using speech LUFS
     normalized = pyln.normalize.loudness(
-        audio,
+        audio_np,
         speech_lufs,
         target_lufs,
     )
@@ -149,7 +188,11 @@ def normalize_speech_loudness(
 
     # 5. Respect return dtype
     target_dtype = return_dtype or orig_dtype
-    return _cast_audio_dtype(normalized, target_dtype)
+    result = _cast_audio_dtype(normalized, target_dtype)
+
+    if is_torch:
+        return torch.from_numpy(result)
+    return result
 
 
 def _cast_audio_dtype(audio: np.ndarray, dtype: np.dtype) -> np.ndarray:
@@ -169,7 +212,7 @@ def _cast_audio_dtype(audio: np.ndarray, dtype: np.dtype) -> np.ndarray:
 
 
 def normalize_audio_for_vad(
-    y: np.ndarray,
+    y: Union[np.ndarray, torch.Tensor],
     sr: Optional[int] = None,
     method: str = "hybrid",
     target_rms_db: float = -20.0,
@@ -177,15 +220,46 @@ def normalize_audio_for_vad(
     eps: float = 1e-8,
     min_signal_db: float = -60.0,
     remove_dc: bool = True,
-) -> Tuple[np.ndarray, dict]:
+) -> Tuple[Union[np.ndarray, torch.Tensor], dict]:
     """
     Normalize audio specifically for Voice Activity Detection (VAD).
 
     Uses normalize_energy() for consistent RMS measurement, aligned with
     rms_to_loudness_label() and has_sound() thresholds.
+
+    Args:
+        y:               Input audio array (any dtype; converted to float32).
+                         Supports numpy.ndarray or torch.Tensor.
+        sr:              Sample rate in Hz. Currently used for documentation
+                         and future extensions (e.g., resampling, pre-emphasis
+                         cutoff). Pass it for forward-compatibility.
+        method:          Normalization strategy:
+                           'peak'   – scale so the loudest sample hits ±1.0.
+                           'rms'    – scale to target_rms_db; no peak limit.
+                           'hybrid' – RMS target + peak ceiling (recommended).
+        target_rms_db:   Desired RMS level in dBFS for 'rms' / 'hybrid'.
+        max_peak:        Peak ceiling for 'hybrid' (0 < max_peak ≤ 1.0).
+        eps:             Small constant to guard log/division of silent frames.
+        min_signal_db:   Signals whose RMS is below this threshold are treated
+                         as silent and returned unchanged (avoids boosting pure
+                         noise by 50+ dB).
+        remove_dc:       If True, subtract the mean before normalizing.
+                         Recommended for energy-based and WebRTC VADs.
+
+    Returns:
+        y_norm:  Normalized float32 audio array (same type as input).
+        info:    Diagnostic dict with original/final statistics.
     """
-    if len(y) == 0:
-        return y.astype(np.float32), {
+    is_torch = isinstance(y, torch.Tensor)
+
+    # Convert to numpy for processing
+    if is_torch:
+        y_numpy = y.detach().cpu().numpy()
+    else:
+        y_numpy = y
+
+    if len(y_numpy) == 0:
+        empty_info = {
             "method": method,
             "original_rms_db": -np.inf,
             "final_rms_db": -np.inf,
@@ -194,8 +268,11 @@ def normalize_audio_for_vad(
             "applied_gain_db": 0.0,
             "skipped_reason": "empty_input",
         }
+        if is_torch:
+            return torch.tensor([], dtype=torch.float32), empty_info
+        return y_numpy.astype(np.float32), empty_info
 
-    y_norm = y.astype(np.float32).copy()
+    y_norm = y_numpy.astype(np.float32).copy()
     if remove_dc:
         y_norm -= np.mean(y_norm)
 
@@ -217,7 +294,7 @@ def normalize_audio_for_vad(
     original_rms_db = float(20 * np.log10(raw_rms)) if raw_rms > eps else -np.inf
 
     if original_rms_db < min_signal_db:
-        return y_norm, {
+        info = {
             "method": method,
             "original_rms_db": round(original_rms_db, 2),
             "final_rms_db": round(original_rms_db, 2),
@@ -226,6 +303,9 @@ def normalize_audio_for_vad(
             "applied_gain_db": 0.0,
             "skipped_reason": "silent_input",
         }
+        if is_torch:
+            return torch.from_numpy(y_norm), info
+        return y_norm, info
 
     if method == "peak":
         y_norm = librosa.util.normalize(y_norm, norm=np.inf)
@@ -250,7 +330,7 @@ def normalize_audio_for_vad(
     final_rms = float(np.sqrt(np.mean(y_norm.astype(np.float64) ** 2) + eps))
     final_rms_db = float(20 * np.log10(final_rms))
 
-    return y_norm, {
+    info = {
         "method": method,
         "original_rms_db": round(original_rms_db, 2),
         "final_rms_db": round(final_rms_db, 2),
@@ -260,6 +340,10 @@ def normalize_audio_for_vad(
         "skipped_reason": None,
         "sr": sr,
     }
+
+    if is_torch:
+        return torch.from_numpy(y_norm), info
+    return y_norm, info
 
 
 if __name__ == "__main__":
