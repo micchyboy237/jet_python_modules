@@ -96,7 +96,8 @@ General:
 When coding:
 - Provide step-by-step analysis and explain the flow.
 - Use visuals, diagrams, or tables when helpful.
-- Show full code for new files, then show full function code for new or updated functions.
+- For additions, show full code for new files, classes, methods, or functions.
+- For changes, show full code for updated functions or methods; otherwise, show only the changed lines with surrounding context.
 - Write smart, flexible, reusable, maintainable, optimal, robust, and minimal code.
 - Always add logs so we can trace and know if all features work correctly.
 """.strip()
