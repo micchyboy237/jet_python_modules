@@ -1,45 +1,46 @@
+import ast
 import fnmatch
 import os
-from collections.abc import Iterable
+import re
 from pathlib import Path
+from textwrap import dedent
+from typing import Iterable, List, Optional, Set
 
+import pyperclip
 from rich.console import Console
 
 logger = Console()
 
-# base_dir should be actual file directory
-file_dir = os.path.dirname(os.path.abspath(__file__))
-# Change the current working directory to the script's directory
-os.chdir(file_dir)
-
 
 def find_files(
     base_dir: str,
-    include: list[str],
-    exclude: list[str],
-    include_content_patterns: list[str],
-    exclude_content_patterns: list[str],
+    include: List[str],
+    exclude: List[str],
+    include_content_patterns: List[str],
+    exclude_content_patterns: List[str],
     case_sensitive: bool = False,
-    extensions: list[str] = [],
-    modified_after: float | None = None,
-) -> list[str]:
+    extensions: List[str] = [],
+    modified_after: Optional[float] = None,
+) -> List[str]:
     """
     Optimized file finder with include/exclude filters, optional content matching,
     and support for double-wildcard absolute patterns.
     """
 
     normalized_extensions = {ext.lstrip(".").lstrip("*").lower() for ext in extensions}
-    matched_files: set[str] = set()
+    matched_files: Set[str] = set()
     base_path = Path(base_dir).resolve()
 
     if not base_path.exists():
-        logger.print(f"Directory does not exist: {base_dir}")
+        logger.warning(f"Directory does not exist: {base_dir}")
         return []
 
-    # Normalize includes/excludes
-    def normalize_patterns(patterns: list[str], is_exclude=False) -> list[str]:
+    def normalize_patterns(patterns: List[str], is_exclude: bool = False) -> List[str]:
         out = []
         for pat in patterns:
+            pat = pat.strip()
+            if not pat:  # skip empty patterns
+                continue
             if os.path.isabs(pat):
                 out.append(pat)
             else:
@@ -53,11 +54,13 @@ def find_files(
     adjusted_include = normalize_patterns(include)
     adjusted_exclude = normalize_patterns(exclude, is_exclude=True)
 
-    # Default: search everything
     if not adjusted_include:
         adjusted_include = ["**/*"]
 
-    # Pre-split excludes into absolute/relative
+    # Split includes and excludes into relative and absolute
+    rel_includes = [p for p in adjusted_include if not os.path.isabs(p)]
+    abs_includes = [p for p in adjusted_include if os.path.isabs(p)]
+
     abs_excludes = [p for p in adjusted_exclude if os.path.isabs(p)]
     rel_excludes = [p for p in adjusted_exclude if not os.path.isabs(p)]
 
@@ -79,66 +82,85 @@ def find_files(
                 return True
         return False
 
-    # Collect candidates
-    for pattern in adjusted_include:
+    # 1. Absolute includes (outside the project) - keep old logic
+    for pattern in abs_includes:
         try:
             candidates: Iterable[Path]
-            if os.path.isabs(pattern):
-                abs_path = Path(pattern)
-                if abs_path.is_file():
-                    candidates = [abs_path]
-                elif abs_path.is_dir():
-                    candidates = abs_path.rglob("*")
-                else:
-                    # Handle absolute wildcard patterns
-                    if any(x in pattern for x in ["*", "?", "**"]):
-                        root = Path("/")
-                        try:
-                            candidates = root.glob(pattern.lstrip("/"))
-                        except NotImplementedError:
-                            # fallback: manual walk + fnmatch
-                            candidates = [
-                                p
-                                for p in root.rglob("*")
-                                if fnmatch.fnmatch(str(p), pattern)
-                            ]
-                    else:
-                        continue
+            abs_path = Path(pattern)
+            if abs_path.is_file():
+                candidates = [abs_path]
+            elif abs_path.is_dir():
+                candidates = abs_path.rglob("*")
             else:
-                candidates = base_path.rglob(pattern)
-
+                if any(x in pattern for x in ["*", "?", "**"]):
+                    root = Path("/")
+                    try:
+                        candidates = root.glob(pattern.lstrip("/"))
+                    except NotImplementedError:
+                        candidates = [
+                            p
+                            for p in root.rglob("*")
+                            if fnmatch.fnmatch(str(p), pattern)
+                        ]
+                else:
+                    continue
             for file_path in candidates:
                 if not file_path.is_file():
                     continue
-
-                # Exclude check (early)
                 if is_excluded(file_path):
                     continue
-
-                # Extension filter
                 if normalized_extensions:
                     ext = file_path.suffix.lstrip(".").lower()
                     if ext not in normalized_extensions:
                         continue
-
-                # Modified time filter
                 if modified_after:
                     try:
                         if file_path.stat().st_mtime <= modified_after:
                             continue
                     except OSError as e:
-                        logger.print_exception(
+                        logger.error(
                             f"Failed to get modified time for {file_path}: {e}"
                         )
                         continue
-
                 norm_path = os.path.normpath(str(file_path)).replace(
                     "/private/var", "/var"
                 )
                 matched_files.add(norm_path)
-
         except OSError as e:
-            logger.print_exception(f"Error traversing {pattern}: {e}")
+            logger.error(f"Error traversing {pattern}: {e}")
+
+    # 2. Relative includes - single fast walk
+    if rel_includes:
+        try:
+            candidates = base_path.rglob("**/*")
+            for file_path in candidates:
+                if not file_path.is_file():
+                    continue
+                if is_excluded(file_path):
+                    continue
+                # Quick check: does this file match ANY of our include patterns?
+                rel = str(file_path.relative_to(base_path))
+                if not any(fnmatch.fnmatch(rel, pat) for pat in rel_includes):
+                    continue
+                if normalized_extensions:
+                    ext = file_path.suffix.lstrip(".").lower()
+                    if ext not in normalized_extensions:
+                        continue
+                if modified_after:
+                    try:
+                        if file_path.stat().st_mtime <= modified_after:
+                            continue
+                    except OSError as e:
+                        logger.error(
+                            f"Failed to get modified time for {file_path}: {e}"
+                        )
+                        continue
+                norm_path = os.path.normpath(str(file_path)).replace(
+                    "/private/var", "/var"
+                )
+                matched_files.add(norm_path)
+        except OSError as e:
+            logger.error(f"Error traversing base directory: {e}")
 
     # Final content filtering
     final_files = [
@@ -154,15 +176,15 @@ def find_files(
 
 def matches_content(
     file_path: str,
-    include_patterns: list[str],
-    exclude_patterns: list[str],
+    include_patterns: List[str],
+    exclude_patterns: List[str],
     case_sensitive: bool = False,
 ) -> bool:
     if not include_patterns and not exclude_patterns:
         return True
 
     try:
-        with open(file_path, encoding="utf-8", errors="ignore") as f:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
         if not case_sensitive:
@@ -183,18 +205,18 @@ def matches_content(
             return False
 
         return True
-    except OSError as e:
-        logger.print_exception(f"Error reading {file_path}: {e}")
+    except (OSError, IOError) as e:
+        logger.error(f"Error reading {file_path}: {e}")
         return False
 
 
 def get_file_length(file_path, shorten_funcs):
+    """Fast version: just returns raw file size on disk (bytes).
+    No reading or cleaning needed for the structure tree view.
+    'shorten_funcs' is kept for compatibility but ignored here."""
     try:
-        with open(file_path, encoding="utf-8") as file:
-            content = file.read()
-            content = clean_content(content, file_path, shorten_funcs)
-        return len(content)
-    except (OSError, UnicodeDecodeError):
+        return os.path.getsize(file_path)
+    except OSError:
         return 0
 
 
@@ -219,7 +241,6 @@ def format_file_structure(
     # Create a new set for absolute file paths
     absolute_file_paths = set()
 
-    # Iterate in reverse to avoid index shifting while popping
     for file in files:
         if not file.startswith("/"):
             file = os.path.join(file_dir, file)
@@ -231,9 +252,7 @@ def format_file_structure(
     total_char_length = 0
 
     for file in files:
-        # Convert to relative path
         file = os.path.relpath(file)
-
         dirs = file.split(os.sep)
         current_level = dir_structure
 
@@ -257,45 +276,184 @@ def format_file_structure(
             current_level[dirs[-1]] = None
 
     def print_structure(level, indent="", is_base_level=False):
-        result = ""
+        result_lines = []
         sorted_keys = sorted(
             level.items(), key=lambda x: (x[1] is not None, x[0].lower())
         )
-
         if is_base_level:
             for key, value in sorted_keys:
                 if value is None:
-                    result += key + "\n"
+                    result_lines.append(key + "\n")
                 else:
-                    result += key + "/\n"
-                    result += print_structure(value, indent + "    ", False)
+                    result_lines.append(key + "/\n")
+                    result_lines.append(print_structure(value, indent + " ", False))
         else:
             for key, value in sorted_keys:
                 if value is None:
-                    result += indent + "├── " + key + "\n"
+                    result_lines.append(indent + "├── " + key + "\n")
                 else:
-                    result += indent + "├── " + key + "/\n"
-                    result += print_structure(value, indent + "│   ", False)
-
-        return result
+                    result_lines.append(indent + "├── " + key + "/\n")
+                    result_lines.append(print_structure(value, indent + "│ ", False))
+        return "".join(result_lines)
 
     file_structure = print_structure(dir_structure, is_base_level=True)
     file_structure = file_structure.strip()
-    # file_structure = f"Base dir: {file_dir}\n" + \
-    #     f"\nFile structure:\n{file_structure}"
     print(
         f"\n----- FILES STRUCTURE -----\n{file_structure}\n----- END FILES STRUCTURE -----\n"
     )
     print("\n")
     num_files = len(files)
-    logger.log("Number of Files:", num_files)
-    logger.log("Files Char Count:", total_char_length)
+    logger.log("[gray]Number of Files:[/gray]", f"[cyan]{num_files:,}[/cyan]")
+
+    logger.log(
+        "[gray]Files Char Count:[/gray]",
+        f"[bold green]{total_char_length:,}[/bold green]",
+    )
     return file_structure
 
 
-import ast
-import re
-from textwrap import dedent
+def strip_comments(content: str, remove_triple_quoted_definitions: bool = False) -> str:
+    """
+    Remove comments outside of triple-quoted strings and string literals.
+    Preserves entire triple-quoted strings and inline '#' inside quotes.
+    If remove_triple_quoted_definitions=True, removes all triple double quoted block definitions.
+    """
+    triple_quote_pattern = re.compile(r"('''|\"\"\")")
+    lines = content.splitlines()
+    result_lines = []
+    in_triple_quote = False
+    current_quote = ""
+
+    for line in lines:
+        if not in_triple_quote:
+            match = triple_quote_pattern.search(line)
+            if match:
+                current_quote = match.group(1)
+                if line.count(current_quote) == 2:
+                    # Opening and closing on the same line
+                    if not (
+                        remove_triple_quoted_definitions and current_quote == '"""'
+                    ):
+                        result_lines.append(line)
+                    continue
+                in_triple_quote = True
+                if not (remove_triple_quoted_definitions and current_quote == '"""'):
+                    result_lines.append(line)
+            else:
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue  # remove full-line comment
+
+                # walk through chars and detect # only if not inside quotes
+                new_line = []
+                in_single = in_double = False
+                i = 0
+                while i < len(line):
+                    ch = line[i]
+                    if ch == "'" and not in_double:
+                        in_single = not in_single
+                        new_line.append(ch)
+                    elif ch == '"' and not in_single:
+                        in_double = not in_double
+                        new_line.append(ch)
+                    elif ch == "#" and not in_single and not in_double:
+                        break  # start of comment outside quotes
+                    else:
+                        new_line.append(ch)
+                    i += 1
+
+                cleaned = "".join(new_line).rstrip()
+                if cleaned:
+                    result_lines.append(cleaned)
+        else:
+            # inside triple quotes
+            if not (remove_triple_quoted_definitions and current_quote == '"""'):
+                result_lines.append(line)
+
+            if current_quote in line:
+                if line.count(current_quote) % 2 == 1:
+                    in_triple_quote = False
+
+    cleaned = re.sub(r"\n\s*\n", "\n", "\n".join(result_lines)).strip()
+    return cleaned
+
+
+def clean_newlines(content):
+    """Removes consecutive newlines from the given content."""
+    return re.sub(r"\n\s*\n+", "\n", content)
+
+
+# Much safer version — avoids nested quantifier explosion
+_LOGGING_CALL_RE = re.compile(
+    r"logging\.(?:info|debug|error|warning|critical|exception|log|basicConfig|getLogger|disable|shutdown)\s*\("
+)
+
+
+def clean_logging(content: str) -> str:
+    """
+    Removes logging statements from the given content, including multi-line ones,
+    without catastrophic regex backtracking.
+    """
+    result = []
+    i = 0
+    n = len(content)
+
+    while i < n:
+        match = _LOGGING_CALL_RE.search(content, i)
+        if not match:
+            result.append(content[i:])
+            break
+
+        # Keep text before logging call
+        result.append(content[i : match.start()])
+
+        # Scan forward to find the matching closing parenthesis
+        depth = 1
+        j = match.end()
+
+        while j < n and depth > 0:
+            if content[j] == "(":
+                depth += 1
+            elif content[j] == ")":
+                depth -= 1
+            j += 1
+
+        # Skip the logging call entirely
+        i = j
+
+    cleaned = "".join(result)
+
+    # Normalize excessive blank lines
+    cleaned = re.sub(r"\n\s*\n", "\n", cleaned)
+
+    return cleaned
+
+
+def clean_print(content):
+    """Removes print statements from the given content, including multi-line ones."""
+    return re.sub(r"print\(.+?\)(,?.*?\))?", "", content, flags=re.DOTALL)
+
+
+def clean_content(
+    content: str,
+    file_path: str,
+    shorten_funcs: bool = True,
+    remove_triple_quoted_definitions: bool = False,
+):
+    """Clean the content based on file type and apply various cleaning operations."""
+    if file_path.endswith(".py"):
+        content = strip_comments(content, remove_triple_quoted_definitions)
+        if shorten_funcs:
+            content = shorten_functions(content)
+    content = clean_logging(content)
+    # content = clean_print(content)
+    return content
+
+
+def remove_parent_paths(path: str) -> str:
+    return os.path.join(
+        *(part for part in os.path.normpath(path).split(os.sep) if part != "..")
+    )
 
 
 def get_signature(node, content, indent=0):
@@ -370,155 +528,6 @@ def shorten_functions(content: str, remove_class_vars: bool = False) -> str:
     return dedent("\n".join(definitions))
 
 
-def strip_comments(content: str, remove_triple_quoted_definitions: bool = False) -> str:
-    """
-    Remove comments outside of triple-quoted strings and string literals.
-    Preserves entire triple-quoted strings and inline '#' inside quotes.
-    If remove_triple_quoted_definitions=True, removes all triple double quoted block definitions.
-    """
-    triple_quote_pattern = re.compile(r"('''|\"\"\")")
-    lines = content.splitlines()
-    result_lines = []
-    in_triple_quote = False
-    current_quote = ""
-
-    for line in lines:
-        if not in_triple_quote:
-            match = triple_quote_pattern.search(line)
-            if match:
-                current_quote = match.group(1)
-                if line.count(current_quote) == 2:
-                    # Opening and closing on the same line
-                    if not (
-                        remove_triple_quoted_definitions and current_quote == '"""'
-                    ):
-                        result_lines.append(line)
-                    continue
-                in_triple_quote = True
-                if not (remove_triple_quoted_definitions and current_quote == '"""'):
-                    result_lines.append(line)
-            else:
-                stripped = line.strip()
-                if stripped.startswith("#"):
-                    continue  # remove full-line comment
-
-                # walk through chars and detect # only if not inside quotes
-                new_line = []
-                in_single = in_double = False
-                i = 0
-                while i < len(line):
-                    ch = line[i]
-                    if ch == "'" and not in_double:
-                        in_single = not in_single
-                        new_line.append(ch)
-                    elif ch == '"' and not in_single:
-                        in_double = not in_double
-                        new_line.append(ch)
-                    elif ch == "#" and not in_single and not in_double:
-                        break  # start of comment outside quotes
-                    else:
-                        new_line.append(ch)
-                    i += 1
-
-                cleaned = "".join(new_line).rstrip()
-                if cleaned:
-                    result_lines.append(cleaned)
-        else:
-            # inside triple quotes
-            if not (remove_triple_quoted_definitions and current_quote == '"""'):
-                result_lines.append(line)
-
-            if current_quote in line:
-                if line.count(current_quote) % 2 == 1:
-                    in_triple_quote = False
-
-    cleaned = re.sub(r"\n\s*\n", "\n", "\n".join(result_lines)).strip()
-    return cleaned
-
-
-def clean_newlines(content):
-    """Removes consecutive newlines from the given content."""
-    return re.sub(r"\n\s*\n+", "\n", content)
-
-
-def clean_comments(content):
-    """Removes comments from the given content."""
-    return re.sub(r"#.*", "", content)
-
-
-# Much safer version — avoids nested quantifier explosion
-_LOGGING_CALL_RE = re.compile(
-    r"logging\.(?:info|debug|error|warning|critical|exception|log|basicConfig|getLogger|disable|shutdown)\s*\("
-)
-
-
-def clean_logging(content: str) -> str:
-    """
-    Removes logging statements from the given content, including multi-line ones,
-    without catastrophic regex backtracking.
-    """
-    result = []
-    i = 0
-    n = len(content)
-
-    while i < n:
-        match = _LOGGING_CALL_RE.search(content, i)
-        if not match:
-            result.append(content[i:])
-            break
-
-        # Keep text before logging call
-        result.append(content[i : match.start()])
-
-        # Scan forward to find the matching closing parenthesis
-        depth = 1
-        j = match.end()
-
-        while j < n and depth > 0:
-            if content[j] == "(":
-                depth += 1
-            elif content[j] == ")":
-                depth -= 1
-            j += 1
-
-        # Skip the logging call entirely
-        i = j
-
-    cleaned = "".join(result)
-
-    # Normalize excessive blank lines
-    cleaned = re.sub(r"\n\s*\n", "\n", cleaned)
-
-    return cleaned
-
-
-def clean_content(
-    content: str,
-    file_path: str,
-    shorten_funcs: bool = True,
-    remove_triple_quoted_definitions: bool = False,
-):
-    """Clean the content based on file type and apply various cleaning operations."""
-    if file_path.endswith(".py"):
-        content = strip_comments(content, remove_triple_quoted_definitions)
-        if shorten_funcs:
-            content = shorten_functions(content)
-    if not file_path.endswith(".md"):
-        content = clean_comments(content)
-    content = clean_logging(content)
-    # content = clean_print(content)
-    return content
-
-
-def remove_parent_paths(path: str) -> str:
-    return os.path.join(
-        *(part for part in os.path.normpath(path).split(os.sep) if part != "..")
-    )
-
-
-import pyperclip  # lazy import – only needed on Windows when used
-
-
 def copy_to_clipboard(text: str) -> None:
     """
     Copy text to clipboard using pyperclip.
@@ -527,7 +536,9 @@ def copy_to_clipboard(text: str) -> None:
     try:
         pyperclip.copy(text)
         logger.log(
-            "[bold green]Copied to clipboard[/] (via pyperclip)", len(text), "chars"
+            "[bold green]Copied to clipboard[/bold green]",
+            len(text),
+            "chars",
         )
     except Exception as e:
         logger.print_exception()

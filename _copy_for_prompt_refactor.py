@@ -3,7 +3,6 @@ import json
 import os
 
 import tiktoken
-from headroom import compress
 from rich.console import Console
 from tqdm import tqdm
 
@@ -22,7 +21,6 @@ exclude_files = [
     "**/.git/",
     "**/.gitignore",
     "**/.DS_Store",
-    "**/*.pyc",
     "**/_copy*.py",
     "**/__pycache__/",
     "**/.pytest_cache/",
@@ -31,34 +29,45 @@ exclude_files = [
     "**/*.lock",
     "**/public/",
     "**/mocks/",
-    "**/.venv/",
     "**/dream/",
     "**/jupyter/",
     "**/*.png",
     "**/*.svg",
-    # "**/_*",
-    # "**/.cache/",
+    "**/*.pyc",
     "**/_git_stats.json",
     "**/stats_results/",
-    # "**/generated/",
+    # "**/_*",
+    # "**/.cache/",
+    # "**/.venv/",
+    "**/generated/",
     # "**/.*",
     # Custom
     # "**/*.sh"
     # "**/__init__.py",
-    # "*.md",
+    # "**/*.md",
+    # "**/tests/",
+    # "**/pretrained_models/",
 ]
 include_files = [
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/live_subtitles/live_subtitles_server2_with_en/services/segment_speaker_labeler.py",
+    # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",
+    "",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/linked_in.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/job_scraper.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/base.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/models.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/jobstreet.py",
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/online_jobs_ph.py",
+    "",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech_handlers/subtitle_overlay_window.py",
+    "",
 ]
 
 structure_include = [
-    # ""
+    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/audio_streaming/demo1/audio_files",
 ]
 structure_exclude = []
 
-include_content = [
-    # r"C:\Users\druiv\Desktop\Jet_Files\Jet_Windows_Workspace\servers\live_subtitles\live_subtitles_server2_with_en\templates\tagger",
-]
+include_content = []
 exclude_content = []
 
 # Args defaults
@@ -69,45 +78,98 @@ COMPRESSION_MODEL = "gpt-4o"
 TOKEN_BUDGET = 8000
 
 DEFAULT_QUERY_MESSAGE = r"""
-Refactor the code below. Be surgical — show only diffs, moved blocks, and new files.
-Do NOT reproduce existing files in full under any circumstances.
+Refactor the code below. Break it down where needed — large files into modules, large classes into smaller ones, and long methods/functions into focused helpers.
+Be surgical: show only diffs, moved blocks, and new files. Do NOT reproduce existing files in full under any circumstances.
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
-- Split files by feature or responsibility only when the file is doing too many unrelated things.
-- Consolidate related logic; don't over-fragment into many tiny files.
-- Preserve all existing behavior exactly — no logic changes, no renames that break imports.
-- Use clear, descriptive module names and update imports accordingly.
+Guiding principles (apply judgment, not dogma):
+- SRP: each file, class, and method should have one clear responsibility.
+- DRY: before extracting anything, check if similar logic already exists — consolidate rather than duplicate.
+- YAGNI: don't create new abstractions, base classes, or files speculatively. Only split what is concretely too large or mixed.
+- Cohesion over fragmentation: if two things always change together, they belong together. Prefer fewer, well-organized files over many small ones.
+- Preserve all existing behavior exactly — no logic changes, no renames that break imports, no signature changes.
+
+Refactoring targets (apply only where clearly needed):
+- Files: split when a file mixes unrelated responsibilities AND exceeds ~300 lines.
+- Classes: when a class exceeds ~150 lines, first produce an outline (see below) before writing any code.
+- Methods/functions: split when a method exceeds ~40 lines OR does more than one distinct thing.
+- Apply recursively: if a newly created file, class, or method still exceeds its threshold, split it again before finalizing.
+
+For large classes — mandatory outline step:
+Before writing any code for a class exceeding ~150 lines, output a plain-text outline in this format:
+
+  Class outline: <OriginalClassName>
+  - `<NewClassName>` (file: <filename>.py) — <one line: what it owns>
+  - `<NewClassName>` (file: <filename>.py) — <one line: what it owns>
+  - ...
+  Preserved public interface: <comma-separated list of method/attribute names that must stay accessible>
+  DRY conflicts: <any logic that appears in more than one proposed class — resolve before proceeding>
+
+Only proceed to code output after the outline is written. If the outline reveals that splitting would duplicate logic or break the public interface, consolidate instead and explain why in one line.
+
+Before outputting, verify:
+- Every public method, function, and class that existed before still exists with the same name and signature.
+- Every import that existed before still resolves — either in its original location or re-exported from there.
+- No behavior was moved without the original call site being updated.
+- DRY check: scan your output for any logic block that appears more than once — consolidate before finalizing.
+- Size check: confirm every file, class, and method in your output is within the thresholds above.
 
 Output rules — violating these makes your response useless:
-- NEVER output a complete existing file. It wastes tokens and forces the user to diff everything.
+- NEVER output a complete existing file, class, or method. It wastes tokens and forces the user to diff everything.
 - Show only the changed lines/block + 3-5 lines of surrounding context so the user knows where to paste.
-- For moved code, write: [Move to new_file.py] above the block — do not copy it twice.
-- Use `# ... rest of class unchanged` / `# ... rest of file unchanged` to skip unmodified code.
-- Only output a complete file if it is 100% new (did not exist before).
+- For moved code, write `# [Move to new_file.py]` above the block — do not copy it twice.
+- For extracted helpers, show only the new helper + the one-line call-site replacement in the original method.
+- Use `# ... rest of method unchanged` / `# ... rest of class unchanged` / `# ... rest of file unchanged` to skip unmodified code.
+- Only output a complete file or class if it is 100% new (did not exist before).
 - If you catch yourself writing an entire class or file that already exists, stop and summarize what changed instead.
 """.strip()
 
 DEFAULT_SYSTEM_MESSAGE = """
 You are an expert software engineer performing a targeted refactor.
+Your job covers three levels: files, classes, and methods/functions.
 Produce minimal, surgical output — only what changed.
 
 Example of correct output format:
 
-# segment_speaker_labeler.py  (modified)
+## Step 1 — Outline (mandatory for any class exceeding ~150 lines)
+
+  Class outline: SegmentSpeakerLabeler
+  - `SpeakerHealthReporter` (file: speaker_health.py) — health checks, similarity matrix, centroid stats
+  - `SpeakerMaintenance` (file: speaker_maintenance.py) — consolidation, merging, reevaluation
+  - `SegmentSpeakerLabeler` (file: segment_speaker_labeler.py) — core labeling logic, kept in place
+  Preserved public interface: label_segment, reset, get_speaker_info, speaker_count
+  DRY conflicts: none
+
+## Step 2 — Code changes (surgical diffs only)
+
+### segment_speaker_labeler.py (modified)
 ```python
 # Line ~45 — update imports
-from .speaker_reference import SpeakerReference, SpeakerSegmentInfo  # added
-
+from .speaker_health import SpeakerHealthReporter     # added
+from .speaker_maintenance import SpeakerMaintenance   # added
 # ... rest of file unchanged
 ```
 
-# speaker_reference.py  (NEW file — show completely)
 ```python
-# full content here because it's new
+# Line ~310 — replace long _compute_health() body with extracted helpers
+def _compute_health(self):
+    scores = self._collect_health_scores()   # extracted
+    return self._aggregate_health(scores)    # extracted
+# ... rest of class unchanged
 ```
 
-Never reproduce an existing file in full. If you do, your response is wrong.
+### speaker_health.py (NEW — show completely)
+```python
+# full content here because it is new
+```
+
+### speaker_maintenance.py (NEW — show completely)
+```python
+# full content here because it is new
+```
+
+Never reproduce an existing file or class in full. If you catch yourself doing so, stop and show only the diff.
 """.strip()
 
 # For existing projects
@@ -356,6 +418,8 @@ def main():
     clipboard_content = "\n\n".join(clipboard_content_parts)
     # Compress to reduce tokens (optional)
     if compress_enabled:
+        from headroom import compress
+
         messages = [{"role": "user", "content": clipboard_content}]
         result = compress(
             messages,
