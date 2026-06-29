@@ -52,8 +52,6 @@ def dispatch_handlers(
     """Fire on_segment_end on every registered handler. Errors are caught per-handler."""
     seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, sample_rate)
     duration = speech_seg["duration"]
-
-    # Only quantize if audio is NOT silent and we need to
     if duration >= DEFAULT_SOFT_LIMIT_SEC:
         seg_audio_np, _ = quantize_audio(
             seg_audio_np,
