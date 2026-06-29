@@ -17,8 +17,6 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_POSTROLL_MAX_SEC,
     DEFAULT_PREROLL_HYBRID_THRESHOLD,
     DEFAULT_PREROLL_MAX_SEC,
-    DEFAULT_PROB_WEIGHT,
-    DEFAULT_RMS_WEIGHT,
     DEFAULT_SAMPLING_RATE,
     DEFAULT_SMOOTH_WINDOW_SIZE,
     DEFAULT_SOFT_LIMIT_MIN_TROUGH_OFFSET_S,
@@ -34,6 +32,9 @@ console = Console()
 
 DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
+
+DEFAULT_PROB_WEIGHT = 0.5
+DEFAULT_RMS_WEIGHT = 0.5
 
 
 # ---------------------------------------------------------------------------
