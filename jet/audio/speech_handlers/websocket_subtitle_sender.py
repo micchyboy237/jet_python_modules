@@ -548,50 +548,34 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         Process a segment with infinite auto-retry on failure.
         Skips retry for permanent failures (no_speech, empty text, specific error codes).
         Uses exponential backoff with a max delay cap.
-
         NEW: Skips stale segments that waited too long in the queue.
         """
-        # --- Staleness check: skip segments that waited too long in queue ---
         queue_wait = time.monotonic() - event.enqueued_at
         if queue_wait > self.max_queue_age_sec:
-            logger.warning(
-                "[WebsocketSubtitleSender] Segment %d skipped — waited %.1fs in queue "
-                "(max_queue_age=%.1fs). Queue depth: %d",
-                event.segment_number,
-                queue_wait,
-                self.max_queue_age_sec,
-                self._task_queue.qsize,
-            )
-            console.print(
-                f"[yellow][WS][/yellow] Segment {event.segment_number} "
-                f"skipped — stale ({queue_wait:.1f}s in queue > {self.max_queue_age_sec:.1f}s max)"
-            )
-            if self._queue_observer:
-                try:
-                    self._queue_observer.on_queue_status(
-                        f"⏭️ Seg #{event.segment_number} skipped (stale {queue_wait:.1f}s)",
-                        self._task_queue.qsize,
-                        "#8b949e",
-                        {
-                            "segment_num": event.segment_number,
-                            "queue_wait_sec": round(queue_wait, 2),
-                            "max_queue_age_sec": self.max_queue_age_sec,
-                            "status": "skipped_stale",
-                        },
-                    )
-                except Exception:
-                    pass
+            await self._handle_skipped_segment(event, queue_wait)
             return
 
         seg: SpeechSegment = event.segment
         seg_num: int = event.segment_number
         if event.audio_np is None or event.audio_np.size == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — empty audio")
+            logger.warning(
+                "[WebsocketSubtitleSender] Segment %d skipped — empty audio. "
+                "Segment dir: %s",
+                seg_num,
+                event.segment_dir,
+            )
             return
 
         audio_bytes = _to_pcm_int16_bytes(event.audio_np)
         if len(audio_bytes) == 0:
             console.print(f"[dim][WS][/dim] Segment {seg_num} skipped — zero PCM bytes")
+            logger.warning(
+                "[WebsocketSubtitleSender] Segment %d skipped — zero PCM bytes. "
+                "Segment dir: %s",
+                seg_num,
+                event.segment_dir,
+            )
             return
 
         seg_dir: Path = event.segment_dir
@@ -600,6 +584,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         duration = float(seg["duration"])
         start_time_utc: Optional[str] = seg.get("start_time_utc")
         end_time_utc: Optional[str] = seg.get("end_time_utc")
+
         gap_sec: Optional[float] = None
         if self._prev_end_time_utc is not None and start_time_utc is not None:
             from datetime import datetime
@@ -614,6 +599,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
         vad_score = _compute_vad_score(seg, event.audio_np)
         segment_id = f"segment_{seg_num:03d}"
+
         header: ClientHeader = {
             "uuid": str(uuid.uuid4()),
             "sample_rate": event.sample_rate,
@@ -638,6 +624,15 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         final_success = False
         permanent_failure_reason: Optional[str] = None
 
+        logger.info(
+            "[WebsocketSubtitleSender] Processing segment %d (queue wait: %.2fs, "
+            "duration: %.2fs, dir: %s)",
+            seg_num,
+            queue_wait,
+            duration,
+            seg_dir,
+        )
+
         while True:
             attempt += 1
             if attempt == 1:
@@ -648,6 +643,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         "duration": duration,
                         "start_sec": start_sec,
                         "queue_wait_sec": round(queue_wait, 2),
+                        "segment_dir": str(seg_dir),
                     },
                 )
             else:
@@ -665,10 +661,15 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                                 if last_error
                                 else "Unknown",
                                 "duration": duration,
+                                "segment_dir": str(seg_dir),
                             },
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.error(
+                            "[WebsocketSubtitleSender] Failed to notify retry status: %s",
+                            exc,
+                        )
+
                 await self._emit_queue_status(
                     processing_seg_num=seg_num,
                     status_color="#f0883e",
@@ -676,11 +677,21 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         "retry_attempt": attempt,
                         "retry_delay": delay,
                         "duration": duration,
+                        "segment_dir": str(seg_dir),
                     },
                 )
+
                 console.print(
                     f"[yellow][WS][/yellow] Retrying segment {seg_num} "
                     f"(attempt {attempt}) after {delay:.1f}s delay..."
+                )
+                logger.info(
+                    "[WebsocketSubtitleSender] Retrying segment %d (attempt %d, "
+                    "delay: %.1fs, dir: %s)",
+                    seg_num,
+                    attempt,
+                    delay,
+                    seg_dir,
                 )
                 await asyncio.sleep(delay)
 
@@ -688,10 +699,18 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             try:
                 response = await self._send_and_receive(header, audio_bytes)
                 _log_response(response, seg_num, attempt)
+
                 if response.get("success") and "ja_text" in response:
                     console.print(
                         f"[bold green][WS][/bold green] Segment {seg_num} succeeded "
                         f"{'after ' + str(attempt) + ' attempts' if attempt > 1 else 'on first attempt'}"
+                    )
+                    logger.info(
+                        "[WebsocketSubtitleSender] Segment %d succeeded (attempts: %d, "
+                        "dir: %s)",
+                        seg_num,
+                        attempt,
+                        seg_dir,
                     )
                     final_success = True
                     break
@@ -702,6 +721,14 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         f"[yellow][WS][/yellow] Segment {seg_num} — {permanent_failure_reason} "
                         f"(attempt {attempt}). Saving response and skipping retry."
                     )
+                    logger.warning(
+                        "[WebsocketSubtitleSender] Segment %d permanent failure: %s "
+                        "(attempts: %d, dir: %s)",
+                        seg_num,
+                        permanent_failure_reason,
+                        attempt,
+                        seg_dir,
+                    )
                     final_success = False
                     break
 
@@ -710,21 +737,56 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     f"[bold red][WS][/bold red] Segment {seg_num} failed: {error_msg} "
                     f"(attempt {attempt}, will retry)"
                 )
+                logger.warning(
+                    "[WebsocketSubtitleSender] Segment %d failed: %s (attempt: %d, dir: %s)",
+                    seg_num,
+                    error_msg,
+                    attempt,
+                    seg_dir,
+                )
                 last_error = RuntimeError(f"Server error: {error_msg}")
+
             except (ConnectionClosedError, ConnectionClosedOK) as exc:
                 console.print(
                     f"[yellow][WS][/yellow] Connection lost during segment {seg_num}: {exc}"
                 )
+                logger.warning(
+                    "[WebsocketSubtitleSender] Connection lost for segment %d: %s "
+                    "(attempt: %d, dir: %s)",
+                    seg_num,
+                    exc,
+                    attempt,
+                    seg_dir,
+                )
                 last_error = exc
+
             except OSError as exc:
                 console.print(
                     f"[red][WS][/red] Network error for segment {seg_num}: {exc}"
                 )
+                logger.error(
+                    "[WebsocketSubtitleSender] Network error for segment %d: %s "
+                    "(attempt: %d, dir: %s)",
+                    seg_num,
+                    exc,
+                    attempt,
+                    seg_dir,
+                )
                 last_error = exc
+
             except Exception as exc:
                 console.print(
                     f"[bold red][WS][/bold red] Segment {seg_num} send/receive failed: "
                     f"{type(exc).__name__}: {exc} (attempt {attempt}, will retry)"
+                )
+                logger.error(
+                    "[WebsocketSubtitleSender] Segment %d unexpected error: %s: %s "
+                    "(attempt: %d, dir: %s)",
+                    seg_num,
+                    type(exc).__name__,
+                    exc,
+                    attempt,
+                    seg_dir,
                 )
                 last_error = exc
 
@@ -737,6 +799,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     "start_sec": start_sec,
                     "status": "success",
                     "attempts": attempt,
+                    "segment_dir": str(seg_dir),
                 },
             )
         else:
@@ -754,6 +817,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     "status": "error",
                     "attempts": attempt,
                     "error": error_msg,
+                    "segment_dir": str(seg_dir),
                 },
             )
 
@@ -772,16 +836,29 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             "start_time_utc": start_time_utc,
             "end_time_utc": end_time_utc,
         }
+
         self._notify_observers(notification)
 
         req_path = self._save_request(seg_dir, header, audio_bytes)
         resp_path = self._save_response(seg_dir, response)
         saved_files = [req_path, resp_path]
+
         if response.get("success") and "ja_text" in response:
             srt_path = self._save_srt(seg_dir, response, start_sec, end_sec, seg_num)
             saved_files.append(srt_path)
+
         global_path = self._update_global_srt(seg_dir)
         _log_saved(seg_dir, saved_files, global_path)
+
+        logger.info(
+            "[WebsocketSubtitleSender] Segment %d processing complete. "
+            "Success: %s, Attempts: %d, Files saved: %d, Dir: %s",
+            seg_num,
+            final_success,
+            attempt,
+            len(saved_files),
+            seg_dir,
+        )
 
     def _is_permanent_failure(self, response: dict) -> Optional[str]:
         """
@@ -825,6 +902,72 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         Safe to call from any thread — the next segment will use the new value.
         """
         self._language_store.set_language(language)
+
+    async def _handle_skipped_segment(
+        self, event: SpeechSegmentEndEvent, queue_wait: float
+    ) -> None:
+        """
+        Log skipped segments and save metadata so users can find orphaned files.
+        """
+        seg_num = event.segment_number
+        seg_dir = event.segment_dir
+
+        logger.warning(
+            "[WebsocketSubtitleSender] Segment %d skipped — waited %.1fs in queue "
+            "(max_queue_age=%.1fs). Queue depth: %d. Segment dir: %s",
+            seg_num,
+            queue_wait,
+            self.max_queue_age_sec,
+            self._task_queue.qsize,
+            seg_dir,
+        )
+
+        console.print(
+            f"[yellow][WS][/yellow] Segment {seg_num} "
+            f"skipped — stale ({queue_wait:.1f}s in queue > {self.max_queue_age_sec:.1f}s max)\n"
+            f"  Audio saved to: [cyan]{seg_dir}/sound.wav[/cyan]"
+        )
+
+        # Save skip metadata for manual review
+        if seg_dir:
+            skip_info_path = Path(seg_dir) / "skipped.json"
+            skip_info = {
+                "segment_number": seg_num,
+                "queue_wait_sec": round(queue_wait, 2),
+                "max_queue_age_sec": self.max_queue_age_sec,
+                "queue_depth_at_skip": self._task_queue.qsize,
+                "skipped_at": datetime.now(timezone.utc).isoformat(),
+                "reason": "Queue wait time exceeded max_queue_age_sec",
+            }
+            try:
+                skip_info_path.write_text(
+                    json.dumps(skip_info, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                logger.info(
+                    "[WebsocketSubtitleSender] Wrote skip metadata: %s", skip_info_path
+                )
+            except Exception as exc:
+                logger.error(
+                    "[WebsocketSubtitleSender] Failed to write skip metadata: %s", exc
+                )
+
+        if self._queue_observer:
+            try:
+                self._queue_observer.on_queue_status(
+                    f"⏭️ Seg #{seg_num} skipped (stale {queue_wait:.1f}s)",
+                    self._task_queue.qsize,
+                    "#8b949e",
+                    {
+                        "segment_num": seg_num,
+                        "queue_wait_sec": round(queue_wait, 2),
+                        "max_queue_age_sec": self.max_queue_age_sec,
+                        "status": "skipped_stale",
+                        "segment_dir": str(seg_dir) if seg_dir else None,
+                    },
+                )
+            except Exception as exc:
+                logger.error(f"Failed to notify queue observer of skip: {exc}")
 
     def clear_queue(self) -> None:
         """

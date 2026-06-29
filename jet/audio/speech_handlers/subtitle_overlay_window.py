@@ -457,9 +457,12 @@ class SubtitleOverlay(
         self._last_html = None
 
     def _refresh_display(self) -> None:
+        """Render entries sorted by segment number for consistent chronological order."""
+        # Sort by segment number so retried segments appear in correct position
+        sorted_entries = sorted(self._entries, key=lambda e: e.get("segment_number", 0))
         html_parts: list[str] = []
         prev_entry: Optional[dict] = None
-        for i, entry in enumerate(self._entries, 1):
+        for i, entry in enumerate(sorted_entries, 1):
             ja = entry.get("ja", "").strip()
             en = entry.get("en", "").strip()
             text = en if self._hide_japanese else f"{ja}\n{en}".strip()
