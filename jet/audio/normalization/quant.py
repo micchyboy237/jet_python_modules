@@ -171,8 +171,8 @@ def quantize_audio(
 
     # --- 5. Float-to-Float (just type conversion) ---
     if dtype_family == "float":
-        if verbose:
-            print(f"✓ Converting float→{target_dtype_str} (type cast only)")
+        # if verbose:
+        #     print(f"✓ Converting float→{target_dtype_str} (type cast only)")
         quantized = audio_np.astype(target_dtype_obj)
         metadata["quantized_range"] = (
             float(np.min(quantized)),
@@ -188,13 +188,13 @@ def quantize_audio(
     int_info = np.iinfo(target_dtype_obj)
     int_min, int_max = int_info.min, int_info.max
 
-    if verbose:
-        print(f"Target integer range: {int_min} to {int_max}")
+    # if verbose:
+    #     print(f"Target integer range: {int_min} to {int_max}")
 
     # Check if audio is already integer
     if np.issubdtype(audio_np.dtype, np.integer):
-        if verbose:
-            print("→ Audio is already integer, converting type...")
+        # if verbose:
+        #     print("→ Audio is already integer, converting type...")
         quantized = audio_np.astype(target_dtype_obj)
         metadata["quantized_range"] = (
             float(np.min(quantized)),
@@ -210,8 +210,8 @@ def quantize_audio(
     peak = np.max(np.abs(audio_np))
 
     if peak == 0:
-        if verbose:
-            print("⚠️  Audio is silence (all zeros). Returning zeros.")
+        # if verbose:
+        #     print("⚠️  Audio is silence (all zeros). Returning zeros.")
         quantized = np.zeros_like(audio_np, dtype=target_dtype_obj)
         if original_ndim == 1:
             quantized = quantized.flatten()
@@ -221,22 +221,22 @@ def quantize_audio(
 
     if normalize or peak > 1.0:
         if peak > 1.0:
-            if verbose:
-                print(
-                    f"⚠️  Peak amplitude {peak:.2f} exceeds 1.0. Normalizing to prevent clipping."
-                )
+            # if verbose:
+            #     print(
+            #         f"⚠️  Peak amplitude {peak:.2f} exceeds 1.0. Normalizing to prevent clipping."
+            #     )
             audio_np = audio_np / peak
             metadata["was_normalized"] = True
         elif normalize and peak < 0.01:
-            if verbose:
-                print(
-                    f"⚠️  Peak amplitude {peak:.6f} is very quiet. Normalizing to full scale."
-                )
+            # if verbose:
+            #     print(
+            #         f"⚠️  Peak amplitude {peak:.6f} is very quiet. Normalizing to full scale."
+            #     )
             audio_np = audio_np / peak
             metadata["was_normalized"] = True
         elif normalize:
-            if verbose:
-                print(f"→ Normalizing to full scale (peak: {peak:.4f})")
+            # if verbose:
+            #     print(f"→ Normalizing to full scale (peak: {peak:.4f})")
             audio_np = audio_np / peak
             metadata["was_normalized"] = True
 
@@ -265,8 +265,8 @@ def quantize_audio(
 
         scaled += dither_noise
         metadata["was_dithered"] = True
-        if verbose:
-            print(f"→ Applied triangular dither ({dither_amount} LSB)")
+        # if verbose:
+        # print(f"→ Applied triangular dither ({dither_amount} LSB)")
 
     # --- 10. Round and convert ---
     quantized = np.rint(scaled).astype(target_dtype_obj)
@@ -282,18 +282,18 @@ def quantize_audio(
     metadata["peak_db"] = float(20 * np.log10(peak)) if peak > 0 else -np.inf
     metadata["final_shape"] = quantized.shape
 
-    if verbose:
-        print(
-            f"✓ Quantized to {target_dtype_str} | "
-            f"Shape: {quantized.shape} | "
-            f"Range: [{metadata['quantized_range'][0]}, {metadata['quantized_range'][1]}]"
-        )
-        if metadata["was_normalized"]:
-            print("  (Audio was normalized during quantization)")
-        if metadata["was_dithered"]:
-            print("  (Dithering applied)")
-        if metadata["was_reshaped"]:
-            print(f"  (Reshaped from {original_shape} to {quantized.shape})")
+    # if verbose:
+    #     print(
+    #         f"✓ Quantized to {target_dtype_str} | "
+    #         f"Shape: {quantized.shape} | "
+    #         f"Range: [{metadata['quantized_range'][0]}, {metadata['quantized_range'][1]}]"
+    #     )
+    #     if metadata["was_normalized"]:
+    #         print("  (Audio was normalized during quantization)")
+    #     if metadata["was_dithered"]:
+    #         print("  (Dithering applied)")
+    #     if metadata["was_reshaped"]:
+    #         print(f"  (Reshaped from {original_shape} to {quantized.shape})")
 
     # Return as torch tensor if input was torch
     if is_torch:

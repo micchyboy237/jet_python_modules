@@ -30,9 +30,10 @@ SAVE_DIR = str(
 )
 
 DEFAULT_THRESHOLD = 0.5
+DEFAULT_NEG_THRESHOLD = 0.1
 DEFAULT_MIN_SILENCE_SEC = 0.250
 DEFAULT_MIN_SPEECH_SEC = 0.250
-DEFAULT_MAX_SPEECH_SEC = 15.0
+DEFAULT_MAX_SPEECH_SEC = None
 DEFAULT_SAMPLING_RATE = 16000
 DEFAULT_RETURN_SECONDS = False
 DEFAULT_WITH_SCORES = False
@@ -50,27 +51,24 @@ _global_vad_cache_config: Optional[dict] = None  # Track the config used
 
 def get_global_vad(
     threshold: float = DEFAULT_THRESHOLD,
+    neg_threshold: float = DEFAULT_NEG_THRESHOLD,
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
-    max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
+    max_speech_duration_sec: float | None = DEFAULT_MAX_SPEECH_SEC,  # Now accepts None
     smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
     pad_start_frame: int = DEFAULT_PAD_START_FRAME,
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
     **model_kwargs,
 ) -> "FireRedVAD":
-    """Get or create the global cached VAD instance.
-
-    If parameters change, the existing instance is reused as-is (with a warning)
-    since the underlying VAD model cannot be reconfigured without reinitialization.
-    For parameter changes to take effect, clear the cache first.
-    """
+    """Get or create the global cached VAD instance."""
     global _global_vad_cache, _global_vad_cache_config
 
     current_config = {
         "threshold": threshold,
+        "neg_threshold": neg_threshold,
         "min_silence_duration_sec": min_silence_duration_sec,
         "min_speech_duration_sec": min_speech_duration_sec,
-        "max_speech_duration_sec": max_speech_duration_sec,
+        "max_speech_duration_sec": max_speech_duration_sec,  # Can be None
         "smooth_window_size": smooth_window_size,
         "pad_start_frame": pad_start_frame,
         "max_buffer_sec": max_buffer_sec,
@@ -84,9 +82,10 @@ def get_global_vad(
             _global_vad_cache = FireRedVAD(
                 model_dir=SAVE_DIR,
                 threshold=threshold,
+                neg_threshold=neg_threshold,
                 min_silence_duration_sec=min_silence_duration_sec,
                 min_speech_duration_sec=min_speech_duration_sec,
-                max_speech_duration_sec=max_speech_duration_sec,
+                max_speech_duration_sec=max_speech_duration_sec,  # Can be None
                 smooth_window_size=smooth_window_size,
                 pad_start_frame=pad_start_frame,
                 max_buffer_sec=max_buffer_sec,
@@ -94,9 +93,7 @@ def get_global_vad(
             )
             _global_vad_cache_config = current_config
     else:
-        # Check if config differs from cached version
         if _global_vad_cache_config != current_config:
-            # Log warning about parameter mismatch
             changed_params = {
                 k: (v, current_config[k])
                 for k, v in _global_vad_cache_config.items()
@@ -132,9 +129,11 @@ class FireRedVAD:
         model_dir: str = SAVE_DIR,
         device: str | None = None,
         threshold: float = DEFAULT_THRESHOLD,
+        neg_threshold: float = DEFAULT_NEG_THRESHOLD,
         min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
         min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
-        max_speech_duration_sec: float = DEFAULT_MAX_SPEECH_SEC,
+        max_speech_duration_sec: float
+        | None = DEFAULT_MAX_SPEECH_SEC,  # Now accepts None
         smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
         pad_start_frame: int = DEFAULT_PAD_START_FRAME,
         max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
@@ -142,31 +141,51 @@ class FireRedVAD:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
+        self.neg_threshold = neg_threshold
+
         console.print(f"[cyan]Loading FireRedVAD (streaming) on {self.device}…[/cyan]")
+        console.print(
+            f"[cyan]Neg threshold: {self.neg_threshold}, Max speech duration: {max_speech_duration_sec}[/cyan]"
+        )
+
         frames_per_sec = 100
+
+        # Convert max_speech_duration_sec to frames, or use a very large value if None
+        if max_speech_duration_sec is None:
+            max_speech_frame = 30000  # Large enough to effectively be unlimited
+        else:
+            max_speech_frame = int(max_speech_duration_sec * frames_per_sec)
+
         config = FireRedStreamVadConfig(
             use_gpu=(device == "cuda"),
             speech_threshold=threshold,
             smooth_window_size=smooth_window_size,
             pad_start_frame=pad_start_frame,
             min_speech_frame=int(min_speech_duration_sec * frames_per_sec),
-            max_speech_frame=int(max_speech_duration_sec * frames_per_sec),
+            max_speech_frame=max_speech_frame,
             min_silence_frame=int(min_silence_duration_sec * frames_per_sec),
             chunk_max_frame=30000,
         )
         self.vad = FireRedStreamVad.from_pretrained(model_dir, config=config)
         self.vad.vad_model.to(self.device)
         console.print("[green]done.[/green]")
+
         self.sample_rate = SAMPLE_RATE
         self.audio_buffer: np.ndarray = np.array([], dtype=np.float32)
         self.last_prob: float = 0.0
         self.max_buffer_samples = int(max_buffer_sec * self.sample_rate)
+
+        # Track segments for neg threshold logic
+        self._current_segment_probs: List[float] = []
+        self._in_segment: bool = False
 
     def reset(self) -> None:
         """Reset internal VAD state and clear audio buffer."""
         self.vad.reset()
         self.audio_buffer = np.array([], dtype=np.float32)
         self.last_prob = 0.0
+        self._current_segment_probs = []  # NEW
+        self._in_segment = False  # NEW
 
     def _normalize_chunk(self, chunk: np.ndarray) -> np.ndarray:
         """Simple dynamic range compression / gain normalization."""
@@ -218,15 +237,206 @@ class FireRedVAD:
     ) -> tuple[list, dict]:
         self.reset()
         frame_results, result = self.vad.detect_full(audio)
+
+        # NEW: Apply neg threshold post-processing to timestamps
+        if self.neg_threshold > 0:
+            frame_results = self._apply_neg_threshold_to_results(frame_results)
+            # Recalculate timestamps with filtered results
+            result["timestamps"] = FireRedStreamVad.results_to_timestamps(frame_results)
+
         return frame_results, result
+
+    def _apply_neg_threshold_to_results(self, frame_results: List) -> List:
+        """
+        Post-process frame results to apply neg threshold logic.
+        Segments include trailing frames below neg_threshold at the end,
+        but stop when probability rises above neg_threshold again or
+        after min_silence_frames of below-threshold frames.
+        """
+        if not frame_results:
+            return frame_results
+
+        # Collect probabilities
+        all_probs = [r.smoothed_prob for r in frame_results]
+
+        # Get the min_speech_frame and min_silence_frame from the postprocessor
+        min_speech_frames = self.vad.postprocessor.min_speech_frame
+        min_silence_frames = self.vad.postprocessor.min_silence_frame
+
+        console.print(
+            f"[cyan]Neg threshold: {self.neg_threshold}, Min speech: {min_speech_frames} frames, Min silence: {min_silence_frames} frames[/cyan]"
+        )
+
+        # Find segments with trailing low-probability frames
+        segments = []
+        i = 0
+
+        while i < len(all_probs):
+            # Skip frames below threshold until we find speech
+            if all_probs[i] < self.neg_threshold:
+                i += 1
+                continue
+
+            # Found speech start
+            segment_start = i
+
+            # Find the main speech segment (frames above threshold)
+            while i < len(all_probs) and all_probs[i] >= self.neg_threshold:
+                i += 1
+
+            # Now include trailing frames below threshold
+            trailing_start = i
+            trailing_count = 0
+
+            while i < len(all_probs) and all_probs[i] < self.neg_threshold:
+                trailing_count += 1
+                i += 1
+
+                # Stop if we've collected enough trailing frames
+                if trailing_count >= min_silence_frames:
+                    # Don't include this frame if we've reached min_silence
+                    i -= 1  # Back up one frame
+                    break
+
+                # Stop if probability goes back above threshold
+                # (This shouldn't happen since we check < threshold, but just in case)
+
+            segment_end = i - 1
+
+            segments.append((segment_start, segment_end))
+
+            console.print(
+                f"[dim]Segment: frames {segment_start}-{segment_end} "
+                f"({segment_end - segment_start + 1} frames, "
+                f"{(segment_end - segment_start + 1) * 0.01:.2f}s) "
+                f"[trailing: {trailing_count} frames below threshold][/dim]"
+            )
+
+        console.print(
+            f"[cyan]Raw segments with trailing frames: {len(segments)}[/cyan]"
+        )
+
+        # Apply min_speech_frame filter
+        filtered_segments = []
+        for start_idx, end_idx in segments:
+            segment_duration = end_idx - start_idx + 1
+            if segment_duration >= min_speech_frames:
+                filtered_segments.append((start_idx, end_idx))
+            else:
+                console.print(
+                    f"[yellow]Filtered out short segment: frames {start_idx}-{end_idx} "
+                    f"({segment_duration} frames < {min_speech_frames})[/yellow]"
+                )
+
+        console.print(f"[cyan]After min_speech filter: {len(filtered_segments)}[/cyan]")
+
+        # Apply min_silence_frame filter (merge close segments)
+        if min_silence_frames > 0 and len(filtered_segments) > 1:
+            merged_segments = [filtered_segments[0]]
+            for current_start, current_end in filtered_segments[1:]:
+                prev_start, prev_end = merged_segments[-1]
+                silence_gap = current_start - prev_end
+
+                if silence_gap <= min_silence_frames:
+                    # Merge segments
+                    merged_segments[-1] = (prev_start, current_end)
+                    console.print(
+                        f"[cyan]Merged segments with {silence_gap} frame gap[/cyan]"
+                    )
+                else:
+                    merged_segments.append((current_start, current_end))
+
+            final_segments = merged_segments
+        else:
+            final_segments = filtered_segments
+
+        console.print(f"[green]Final segments: {len(final_segments)}[/green]")
+
+        # Reset all segment markers
+        for result in frame_results:
+            try:
+                result.is_speech_start = False
+                result.is_speech_end = False
+                if hasattr(result, "speech_start_frame"):
+                    result.speech_start_frame = -1
+                if hasattr(result, "speech_end_frame"):
+                    result.speech_end_frame = -1
+            except (AttributeError, TypeError):
+                pass
+
+        # Set new markers
+        for start_idx, end_idx in final_segments:
+            if 0 <= start_idx < len(frame_results):
+                result = frame_results[start_idx]
+                try:
+                    result.is_speech_start = True
+                    if hasattr(result, "speech_start_frame"):
+                        result.speech_start_frame = start_idx + 1
+                    console.print(
+                        f"[green]Speech start: frame {start_idx} "
+                        f"(prob={all_probs[start_idx]:.4f})[/green]"
+                    )
+                except (AttributeError, TypeError):
+                    console.print(
+                        f"[yellow]Warning: Could not set start marker on frame {start_idx}[/yellow]"
+                    )
+
+            if 0 <= end_idx < len(frame_results):
+                result = frame_results[end_idx]
+                try:
+                    result.is_speech_end = True
+                    if hasattr(result, "speech_end_frame"):
+                        result.speech_end_frame = end_idx + 1
+                    console.print(
+                        f"[green]Speech end: frame {end_idx} "
+                        f"(prob={all_probs[end_idx]:.4f})[/green]"
+                    )
+                except (AttributeError, TypeError):
+                    console.print(
+                        f"[yellow]Warning: Could not set end marker on frame {end_idx}[/yellow]"
+                    )
+
+        return frame_results
+
+    def _apply_neg_threshold(self, prob: float) -> bool:
+        """
+        Check if current probability falls below neg_threshold.
+        Returns True if segment should end, False otherwise.
+        """
+        if self._in_segment and prob < self.neg_threshold:
+            console.print(
+                f"[green]Segment ended due to neg_threshold: prob={prob:.4f} < {self.neg_threshold}[/green]"
+            )
+            self._in_segment = False
+            self._current_segment_probs = []
+            return True
+        return False
+
+    def _update_segment_state(self, prob: float) -> None:
+        """Update segment tracking state based on probability."""
+        if prob >= self.neg_threshold:
+            if not self._in_segment:
+                self._in_segment = True
+                console.print(
+                    f"[cyan]Segment started: prob={prob:.4f} >= {self.neg_threshold}[/cyan]"
+                )
+            self._current_segment_probs.append(prob)
+        elif self._in_segment:
+            console.print(
+                f"[green]Segment ended: prob={prob:.4f} < {self.neg_threshold}[/green]"
+            )
+            self._in_segment = False
+            self._current_segment_probs = []
 
 
 def extract_speech_timestamps(
     audio: Union[str, Path, np.ndarray, torch.Tensor, list[np.ndarray]],
     threshold: float = DEFAULT_THRESHOLD,
+    neg_threshold: float = DEFAULT_NEG_THRESHOLD,
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
-    max_speech_duration_sec: float | None = None,
+    max_speech_duration_sec: float
+    | None = DEFAULT_MAX_SPEECH_SEC,  # Now None by default
     return_seconds: bool = DEFAULT_RETURN_SECONDS,
     with_scores: bool = DEFAULT_WITH_SCORES,
     include_non_speech: bool = DEFAULT_INCLUDE_NON_SPEECH,
@@ -238,19 +448,25 @@ def extract_speech_timestamps(
     """
     Extract speech timestamps using FireRedVAD.
     When include_non_speech=True, returns both speech and non-speech (silence) segments.
+
+    Args:
+        neg_threshold: Probability below which segments are ended (default: 0.1)
+        max_speech_duration_sec: Maximum speech duration (None = unlimited)
     """
-    if max_speech_duration_sec is None:
-        max_speech_duration_sec = DEFAULT_MAX_SPEECH_SEC
+    # Remove the default assignment since it's now None by default
+    # if max_speech_duration_sec is None:
+    #     max_speech_duration_sec = DEFAULT_MAX_SPEECH_SEC
 
     audio_np, sr = load_audio(audio, sr=16000, mono=True)
     if sr != 16000:
         raise ValueError(f"FireRedVAD requires 16000 Hz, got {sr}")
 
-    vad = get_global_vad(  # Fixed: removed model_dir parameter
+    vad = get_global_vad(
         threshold=threshold,
+        neg_threshold=neg_threshold,
         min_silence_duration_sec=min_silence_duration_sec,
         min_speech_duration_sec=min_speech_duration_sec,
-        max_speech_duration_sec=max_speech_duration_sec,
+        max_speech_duration_sec=max_speech_duration_sec,  # Pass None directly
         smooth_window_size=smooth_window_size,
         pad_start_frame=pad_start_frame,
         max_buffer_sec=max_buffer_sec,
@@ -325,9 +541,11 @@ def extract_speech_audio(
     audio: Union[str, Path, np.ndarray, torch.Tensor, list[np.ndarray]],
     sampling_rate: int = DEFAULT_SAMPLING_RATE,
     threshold: float = DEFAULT_THRESHOLD,
+    neg_threshold: float = DEFAULT_NEG_THRESHOLD,
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
-    max_speech_duration_sec: float | None = None,
+    max_speech_duration_sec: float
+    | None = DEFAULT_MAX_SPEECH_SEC,  # Now None by default
     smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
     pad_start_frame: int = DEFAULT_PAD_START_FRAME,
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
@@ -343,9 +561,10 @@ def extract_speech_audio(
     speech_segments = extract_speech_timestamps(
         audio=audio,
         threshold=threshold,
+        neg_threshold=neg_threshold,
         min_silence_duration_sec=min_silence_duration_sec,
         min_speech_duration_sec=min_speech_duration_sec,
-        max_speech_duration_sec=max_speech_duration_sec,
+        max_speech_duration_sec=max_speech_duration_sec,  # Can be None
         return_seconds=True,
         include_non_speech=False,
         smooth_window_size=smooth_window_size,
@@ -665,6 +884,13 @@ if __name__ == "__main__":
         help=f"speech threshold (default: {DEFAULT_THRESHOLD})",
     )
     parser.add_argument(
+        "-nt",
+        "--neg-threshold",
+        type=float,
+        default=DEFAULT_NEG_THRESHOLD,
+        help=f"threshold below which segments end (default: {DEFAULT_NEG_THRESHOLD})",
+    )
+    parser.add_argument(
         "-ms",
         "--min-silence",
         type=float,
@@ -683,7 +909,7 @@ if __name__ == "__main__":
         "--max-speech",
         type=float,
         default=DEFAULT_MAX_SPEECH_SEC,
-        help="maximum speech duration in seconds",
+        help="maximum speech duration in seconds (None = unlimited)",
     )
     # === NEW ARGUMENTS ===
     parser.add_argument(
@@ -735,9 +961,10 @@ if __name__ == "__main__":
     segments, speech_probs = extract_speech_timestamps(
         audio_path,
         threshold=args.threshold,
+        neg_threshold=args.neg_threshold,
         min_silence_duration_sec=args.min_silence,
         min_speech_duration_sec=args.min_speech,
-        max_speech_duration_sec=args.max_speech,
+        max_speech_duration_sec=args.max_speech,  # Can be None
         return_seconds=True,
         with_scores=True,
         include_non_speech=False,
@@ -772,6 +999,7 @@ if __name__ == "__main__":
         audio_path,
         sampling_rate=DEFAULT_SAMPLING_RATE,
         threshold=args.threshold,
+        neg_threshold=args.neg_threshold,  # NEW
         min_silence_duration_sec=args.min_silence,
         min_speech_duration_sec=args.min_speech,
         max_speech_duration_sec=args.max_speech,

@@ -12,9 +12,12 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MAX_SEG_DURATION_SEC,
     DEFAULT_MAX_SEG_GAP_SEC,
     DEFAULT_MIN_SEG_DURATION_SEC,
+    DEFAULT_SOFT_LIMIT_SEC,
+    DEFAULT_SOFT_LIMIT_SEC_HIGH,
 )
 from jet.audio.helpers.silence import SAMPLE_RATE
 from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
+from jet.audio.normalization.quant import quantize_audio
 from jet.audio.speech.segment_store import SegmentStore
 from jet.audio.speech.utils import display_segments
 from jet.audio.speech_detector import record_from_mic
@@ -45,8 +48,28 @@ def dispatch_handlers(
     seg_number: int,
     sample_rate: int,
     started_at: datetime,
+    verbose: bool = False,
 ) -> None:
     """Fire on_segment_end on every registered handler. Errors are caught per-handler."""
+    seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, sample_rate)
+    duration = speech_seg["duration"]
+
+    # Only quantize if audio is NOT silent and we need to
+    if duration >= DEFAULT_SOFT_LIMIT_SEC_HIGH:
+        seg_audio_np, _ = quantize_audio(
+            seg_audio_np,
+            target_dtype="int16",
+            sr=sample_rate,
+            verbose=verbose,
+        )
+    elif duration >= DEFAULT_SOFT_LIMIT_SEC:
+        seg_audio_np, _ = quantize_audio(
+            seg_audio_np,
+            target_dtype="float16",
+            sr=sample_rate,
+            verbose=verbose,
+        )
+
     event = SpeechSegmentEndEvent(
         segment=speech_seg,
         segment_number=seg_number,
@@ -184,6 +207,7 @@ def main_live_speech_translation(
             seg_number,
             SAMPLE_RATE,
             recording_started_at,
+            verbose=verbose,
         )
         completed_segments.append(merged_seg.copy())
         save_file(completed_segments, all_segments_path)
@@ -241,8 +265,6 @@ def main_live_speech_translation(
                     f"reason={speech_seg.get('end_reason', 'unknown')})"
                 )
                 continue
-
-            seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, SAMPLE_RATE)
 
             # Split large segments into sub-segments using secondary VAD
             split_segments = split_segment_with_vad(

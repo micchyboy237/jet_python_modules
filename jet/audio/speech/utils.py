@@ -4,13 +4,103 @@ import numpy as np
 import torch
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.helpers.config import SAMPLE_RATE
-from jet.audio.helpers.silence import (
-    SAMPLE_RATE,
-)
+from rich.console import Console
 from rich.table import Table
+
+console = Console()
 
 
 def display_segments(
+    speech_segs: list[SpeechSegment],
+    done: bool = False,
+    include_speech_type: bool = False,
+    time_format: Literal["seconds", "ms", "samples"] = "seconds",
+):
+    """Print a single-line log per speech segment, wrapped in rule dividers.
+
+    Args:
+        speech_segs: List of speech segments.
+        done: Whether all segments are finalized.
+        include_speech_type: Whether to include segment type in the log line.
+        time_format: Unit of start/end values in the segments.
+                     "seconds"  — already in seconds (float)
+                     "ms"       — milliseconds; divided by 1000 for display
+                     "samples"  — raw sample indices; divided by SAMPLE_RATE
+    """
+    if not speech_segs:
+        return
+
+    segs_to_display = speech_segs[:-1] if done else speech_segs
+
+    if not segs_to_display:
+        return
+
+    def to_seconds(value: float | int) -> float:
+        if time_format == "ms":
+            return value / 1000.0
+        if time_format == "samples":
+            return value / SAMPLE_RATE
+        return float(value)
+
+    END_REASON_COLORS = {
+        "silence": "yellow",
+        "valley": "blue",
+        "hard_limit": "red",
+    }
+
+    total_s = to_seconds(max(seg["end"] for seg in segs_to_display))
+    console.rule(f"[dim]segments · {len(segs_to_display)} segs · ~{total_s:.1f}s[/]")
+
+    for seg in segs_to_display:
+        start_s = to_seconds(seg["start"])
+        end_s = to_seconds(seg["end"])
+        duration_s = end_s - start_s
+
+        prob = seg.get("prob", seg.get("score", "-"))
+        try:
+            prob_str = f"{prob:.2f}"
+        except Exception:
+            prob_str = str(prob)
+
+        last_ns = seg.get("last_non_speech_sec")
+        last_ns_str = f"{last_ns:.2f}s" if last_ns is not None else "-"
+
+        end_reason = seg.get("end_reason")
+        if end_reason is None:
+            end_reason_str = "-"
+        else:
+            color = END_REASON_COLORS.get(end_reason, "magenta")
+            end_reason_str = f"[{color}]{end_reason}[/]"
+
+        is_ongoing = seg.get("is_ongoing", False)
+        is_last = seg is segs_to_display[-1]
+        status = "[green]active[/]" if (not done and is_last) else "[dim]done[/]"
+        ongoing_icon = "✅" if (isinstance(is_ongoing, bool) and is_ongoing) else "❌"
+
+        parts = [
+            f"[cyan]#{seg['num']}[/]",
+            f"[bold]{start_s:.2f}s[/] → [bold]{end_s:.2f}s[/]",
+            f"([yellow]{duration_s:.2f}s[/])",
+            f"score={prob_str}",
+            f"lastNS={last_ns_str}",
+        ]
+
+        if include_speech_type:
+            speech_check = "✅" if seg.get("type") == "speech" else "❌"
+            parts.append(f"spch={speech_check}")
+
+        parts += [
+            f"end={end_reason_str}",
+            f"ongoing={ongoing_icon}",
+            status,
+        ]
+
+        console.print(" | ".join(parts))
+
+    console.rule()
+
+
+def display_segments_table(
     speech_segs: list[SpeechSegment],
     done: bool = False,
     include_speech_type: bool = False,
