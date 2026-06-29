@@ -13,7 +13,6 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MAX_SEG_GAP_SEC,
     DEFAULT_MIN_SEG_DURATION_SEC,
     DEFAULT_SOFT_LIMIT_SEC,
-    DEFAULT_SOFT_LIMIT_SEC_HIGH,
 )
 from jet.audio.helpers.silence import SAMPLE_RATE
 from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
@@ -55,14 +54,7 @@ def dispatch_handlers(
     duration = speech_seg["duration"]
 
     # Only quantize if audio is NOT silent and we need to
-    if duration >= DEFAULT_SOFT_LIMIT_SEC_HIGH:
-        seg_audio_np, _ = quantize_audio(
-            seg_audio_np,
-            target_dtype="int16",
-            sr=sample_rate,
-            verbose=verbose,
-        )
-    elif duration >= DEFAULT_SOFT_LIMIT_SEC:
+    if duration >= DEFAULT_SOFT_LIMIT_SEC:
         seg_audio_np, _ = quantize_audio(
             seg_audio_np,
             target_dtype="float16",
