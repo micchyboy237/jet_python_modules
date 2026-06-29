@@ -10,7 +10,6 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_RMS_WEIGHT,
     DEFAULT_THRESHOLD,
 )
-from jet.audio.audio_waveform.vad.vad_segment_scorer import save_vad_score
 from jet.audio.helpers.config import (
     HOP_SIZE,
     HOP_STEP_S,
@@ -42,6 +41,37 @@ console = Console()
 # ---------------------------------------------------------------------------
 
 
+def compute_rms_normalized(
+    audio_np: np.ndarray,
+    frame_samples: int = HOP_SIZE,
+    n_frames: int | None = None,
+) -> tuple[np.ndarray, float]:
+    """
+    Compute per-frame normalised RMS energy aligned to VAD frames.
+
+    Returns:
+        rms_norm:  Normalised RMS array in [0, 1], length = min(n_frames, audio_frames)
+        rms_ceil:  The 99th-percentile ceiling used for normalisation.
+                   Save this to invert the normalisation later.
+    """
+    if audio_np.size == 0:
+        return np.array([], dtype=np.float32), 1.0
+
+    if n_frames is None:
+        n_frames = len(audio_np) // frame_samples
+
+    n_common = min(n_frames, len(audio_np) // frame_samples)
+    if n_common == 0:
+        return np.array([], dtype=np.float32), 1.0
+
+    frames = audio_np[: n_common * frame_samples].reshape(n_common, frame_samples)
+    rms_arr = np.sqrt(np.mean(frames**2, axis=1))
+    rms_ceil = float(np.percentile(rms_arr, 99) + 1e-10)
+    rms_norm = np.clip(rms_arr / rms_ceil, 0.0, 1.0)
+
+    return rms_norm.astype(np.float32), rms_ceil
+
+
 def compute_hybrid_probs(
     probs: Union[List[float], np.ndarray],
     audio_np: np.ndarray,
@@ -61,18 +91,15 @@ def compute_hybrid_probs(
     if n_frames == 0:
         return np.array([], dtype=np.float32)
 
-    n_audio_frames = len(audio_np) // frame_samples
-    n_common = min(n_frames, n_audio_frames)
+    rms_norm, _ = compute_rms_normalized(
+        audio_np, frame_samples=frame_samples, n_frames=n_frames
+    )
+    n_common = len(rms_norm)
+
     if n_common == 0:
         return np.array([], dtype=np.float32)
 
-    frames = audio_np[: n_common * frame_samples].reshape(n_common, frame_samples)
-    rms_arr = np.sqrt(np.mean(frames**2, axis=1))
-    rms_ceil = np.percentile(rms_arr, 99) + 1e-10
-    rms_norm = np.clip(rms_arr / rms_ceil, 0.0, 1.0)
-
     hybrid = prob_weight * probs[:n_common] + rms_weight * rms_norm
-
     if n_frames > n_common:
         pad = prob_weight * probs[n_common:]
         hybrid = np.concatenate([hybrid, pad])
@@ -107,14 +134,22 @@ def generate_plot(
 
     has_rms = rms is not None and len(rms) > 0
     has_hybrid = hybrid is not None and len(hybrid) > 0
+
     rows = 1 + int(has_rms) + int(has_hybrid)
     fig, axes = plt.subplots(rows, 1, figsize=(9.5, 3.2 * rows), dpi=140)
     if rows == 1:
         axes = [axes]
 
-    # ── Row 0: raw speech probabilities ──────────────────────────────────
+    # --- Top panel: speech probabilities ---
     ax = axes[0]
-    ax.plot(probs, color="#2ca02c", linewidth=1.8, label="Speech probability")
+    if is_already_hybrid:
+        label = "Recovered model prob (inverted from hybrid)"
+        title_suffix = "Recovered Model Probabilities"
+    else:
+        label = "Speech probability (raw model output)"
+        title_suffix = "Model Probabilities"
+
+    ax.plot(probs, color="#2ca02c", linewidth=1.8, label=label)
     ax.fill_between(range(num_frames), probs, color="#2ca02c", alpha=0.14)
     if not is_already_hybrid:
         ax.axhline(
@@ -131,14 +166,12 @@ def generate_plot(
     ax.set_xlabel(
         f"Frame (10 ms)  —  {num_frames} frames ≈ {duration_sec:.1f} s", fontsize=10.5
     )
-    ax.set_title(
-        f"Segment {segment_idx:03d} — Model Probabilities", fontsize=12, pad=12
-    )
+    ax.set_title(f"Segment {segment_idx:03d} — {title_suffix}", fontsize=12, pad=12)
     ax.grid(True, alpha=0.28, linestyle="--", zorder=0)
     ax.legend(loc="upper right", fontsize=9.5, framealpha=0.92)
 
+    # --- Second panel: RMS energy (optional) ---
     ax_idx = 1
-
     if has_rms:
         ax_rms = axes[ax_idx]
         ax_rms.plot(range(len(rms)), rms, linewidth=1.6, label="RMS energy")
@@ -150,14 +183,19 @@ def generate_plot(
         ax_rms.legend(loc="upper right", fontsize=9.5, framealpha=0.92)
         ax_idx += 1
 
+    # --- Bottom panel: hybrid scores (optional) ---
     if has_hybrid:
         ax_hyb = axes[ax_idx]
         n_hyb = len(hybrid)
+        hybrid_label = (
+            f"Hybrid score ({DEFAULT_PROB_WEIGHT}·model + {DEFAULT_RMS_WEIGHT}·RMS) — "
+            f"{'used for VAD decisions' if is_already_hybrid else 'computed post-hoc'}"
+        )
         ax_hyb.plot(
             hybrid,
             color="#9467bd",
             linewidth=1.8,
-            label=f"Hybrid score ({DEFAULT_PROB_WEIGHT}·prob + {DEFAULT_RMS_WEIGHT}·RMS)",
+            label=hybrid_label,
         )
         ax_hyb.fill_between(range(n_hyb), hybrid, color="#9467bd", alpha=0.14)
         if is_already_hybrid:
@@ -183,17 +221,59 @@ def generate_plot(
 
 def _recover_raw_probs(
     hybrid: np.ndarray,
-    rms: np.ndarray,
+    audio_np: np.ndarray,
+    frame_samples: int = HOP_SIZE,
+    prob_weight: float = DEFAULT_PROB_WEIGHT,
+    rms_weight: float = DEFAULT_RMS_WEIGHT,
 ) -> np.ndarray:
-    """Invert hybrid scores back to raw model probabilities."""
-    n = min(len(hybrid), len(rms))
-    rms_ceil = np.percentile(rms[:n], 99) + 1e-10
-    rms_norm = np.clip(rms[:n] / rms_ceil, 0.0, 1.0)
-    raw = np.clip(
-        (hybrid[:n] - DEFAULT_RMS_WEIGHT * rms_norm) / DEFAULT_PROB_WEIGHT,
-        0.0,
-        1.0,
+    """
+    Invert hybrid scores back to raw model probabilities.
+
+    Uses the SAME RMS normalisation as compute_hybrid_probs to ensure
+    consistent recovery. Requires the original audio to recompute RMS
+    with identical frame alignment.
+
+    Args:
+        hybrid:     Hybrid probability array.
+        audio_np:   Original audio samples for this segment.
+        frame_samples: Samples per VAD frame (must match compute_hybrid_probs).
+        prob_weight: Same weight used during blending.
+        rms_weight:  Same weight used during blending.
+
+    Returns:
+        Recovered raw model probabilities in [0, 1].
+    """
+    n_frames = len(hybrid)
+    if n_frames == 0 or audio_np.size == 0:
+        return hybrid.copy()
+
+    rms_norm, _ = compute_rms_normalized(
+        audio_np, frame_samples=frame_samples, n_frames=n_frames
     )
+    n = min(len(hybrid), len(rms_norm))
+
+    if n == 0:
+        return hybrid.copy()
+
+    if abs(rms_weight) < 1e-9:
+        # Avoid division by zero — just return hybrid scaled by prob_weight
+        raw = np.clip(hybrid[:n] / max(prob_weight, 1e-9), 0.0, 1.0)
+    else:
+        raw = np.clip(
+            (hybrid[:n] - rms_weight * rms_norm[:n]) / prob_weight,
+            0.0,
+            1.0,
+        )
+
+    if len(hybrid) > n:
+        # Pad with remaining hybrid values (already prob_weight * model_prob)
+        pad = (
+            hybrid[n:] / max(prob_weight, 1e-9)
+            if abs(prob_weight) > 1e-9
+            else hybrid[n:]
+        )
+        raw = np.concatenate([raw, np.clip(pad, 0.0, 1.0)])
+
     return raw.astype(np.float32)
 
 
@@ -244,28 +324,37 @@ def save_segment(
     rms_list: List[float] = compute_rms_per_frame(audio_flat)
     rms = np.asarray(rms_list, dtype=np.float32)
 
-    vad_score_path = save_vad_score(
-        meta["segment_probs"], seg_dir, meta["num"], audio_samples=audio_np
-    )
-
+    # --- Determine what the segment_probs actually contain ---
     if is_already_hybrid:
-        # segment_probs ARE the hybrid scores — use them directly for hybrid_probs.json.
-        # Recover raw model probs for speech_probs.json (best-effort inversion).
+        # segment_probs ARE the hybrid scores (from detect_full_hybrid pipeline).
         hybrid_arr = seg_probs_arr
-        speech_probs_arr = _recover_raw_probs(hybrid=seg_probs_arr, rms=rms)
+        # Recover raw model probs using the SAME RMS normalisation that
+        # compute_hybrid_probs would have used (HOP_SIZE=160, matching VAD frames).
+        speech_probs_arr = _recover_raw_probs(
+            hybrid=seg_probs_arr,
+            audio_np=audio_flat,
+            frame_samples=HOP_SIZE,
+            prob_weight=DEFAULT_PROB_WEIGHT,
+            rms_weight=DEFAULT_RMS_WEIGHT,
+        )
+        console.print(
+            f"[green]save_segment:[/] is_already_hybrid=True — recovered {len(speech_probs_arr)} raw probs from {len(hybrid_arr)} hybrid values "
+            f"(prob_w={DEFAULT_PROB_WEIGHT:.2f}, rms_w={DEFAULT_RMS_WEIGHT:.2f})"
+        )
     else:
-        # segment_probs are raw model probs — derive hybrid from them.
+        # segment_probs are raw model probabilities.
         speech_probs_arr = seg_probs_arr
-        n_min = min(len(seg_probs_arr), len(rms))
-        if n_min > 0:
-            rms_ceil = np.percentile(rms[:n_min], 99) + 1e-10
-            rms_norm = np.clip(rms[:n_min] / rms_ceil, 0.0, 1.0)
-            hybrid_arr = (
-                DEFAULT_PROB_WEIGHT * seg_probs_arr[:n_min]
-                + DEFAULT_RMS_WEIGHT * rms_norm
-            ).astype(np.float32)
-        else:
-            hybrid_arr = np.array([], dtype=np.float32)
+        # Compute hybrid from raw probs + segment-level RMS for display.
+        hybrid_arr = compute_hybrid_probs(
+            probs=seg_probs_arr,
+            audio_np=audio_flat,
+            prob_weight=DEFAULT_PROB_WEIGHT,
+            rms_weight=DEFAULT_RMS_WEIGHT,
+            frame_samples=HOP_SIZE,
+        )
+        console.print(
+            f"[green]save_segment:[/] is_already_hybrid=False — computed {len(hybrid_arr)} hybrid values from {len(speech_probs_arr)} raw probs"
+        )
 
     probs_info = {
         "num_frames": int(len(speech_probs_arr)),

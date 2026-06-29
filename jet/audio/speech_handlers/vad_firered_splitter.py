@@ -29,6 +29,7 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MIN_SUB_SEG_DURATION_SEC,
     DEFAULT_SOFT_LIMIT_SEC,
     DEFAULT_THRESHOLD,
+    DEFAULT_USE_HYBRID,
 )
 from jet.audio.audio_waveform.vad.vad_firered import (
     DEFAULT_MAX_BUFFER_SEC,
@@ -439,6 +440,7 @@ def split_segment_with_vad(
     pad_start_frame: int = DEFAULT_PAD_START_FRAME,
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
     min_sub_segment_duration_sec: float = DEFAULT_MIN_SUB_SEG_DURATION_SEC,
+    use_hybrid: bool = DEFAULT_USE_HYBRID,
     verbose: bool = False,
 ) -> List[SpeechSegment]:
     """
@@ -590,6 +592,7 @@ def split_segment_with_vad(
             smooth_window_size=smooth_window_size,
             pad_start_frame=pad_start_frame,
             max_buffer_sec=max_buffer_sec,
+            use_hybrid=use_hybrid,
         )
     except Exception as exc:
         logger.error(

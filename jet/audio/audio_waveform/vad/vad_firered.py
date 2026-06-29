@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Tuple, Union
 
 import matplotlib
 
@@ -10,8 +10,14 @@ import numpy as np
 import soundfile as sf
 import torch
 from fireredvad.core.constants import SAMPLE_RATE
+from fireredvad.core.stream_vad_postprocessor import StreamVadFrameResult
 from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.audio_waveform.vad.vad_config import (
+    DEFAULT_PROB_WEIGHT,
+    DEFAULT_RMS_WEIGHT,
+    DEFAULT_USE_HYBRID,
+)
 from jet.audio.utils.loader import load_audio
 from rich.console import Console
 from rich.progress import (
@@ -58,6 +64,7 @@ def get_global_vad(
     smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
     pad_start_frame: int = DEFAULT_PAD_START_FRAME,
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
+    use_hybrid: bool = DEFAULT_USE_HYBRID,
     **model_kwargs,
 ) -> "FireRedVAD":
     """Get or create the global cached VAD instance."""
@@ -72,6 +79,7 @@ def get_global_vad(
         "smooth_window_size": smooth_window_size,
         "pad_start_frame": pad_start_frame,
         "max_buffer_sec": max_buffer_sec,
+        "use_hybrid": use_hybrid,
     }
     current_config.update(model_kwargs)
 
@@ -89,6 +97,7 @@ def get_global_vad(
                 smooth_window_size=smooth_window_size,
                 pad_start_frame=pad_start_frame,
                 max_buffer_sec=max_buffer_sec,
+                use_hybrid=use_hybrid,
                 **model_kwargs,
             )
             _global_vad_cache_config = current_config
@@ -137,6 +146,7 @@ class FireRedVAD:
         smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
         pad_start_frame: int = DEFAULT_PAD_START_FRAME,
         max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
+        use_hybrid: bool = DEFAULT_USE_HYBRID,
     ) -> None:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -178,6 +188,8 @@ class FireRedVAD:
         # Track segments for neg threshold logic
         self._current_segment_probs: List[float] = []
         self._in_segment: bool = False
+
+        self._use_hybrid = use_hybrid
 
     def reset(self) -> None:
         """Reset internal VAD state and clear audio buffer."""
@@ -231,20 +243,97 @@ class FireRedVAD:
         """
         return None
 
-    def detect_full(
-        self,
-        audio: Union[str, np.ndarray],
-    ) -> tuple[list, dict]:
+    def detect_full(self, audio):
         self.reset()
-        frame_results, result = self.vad.detect_full(audio)
-
-        # NEW: Apply neg threshold post-processing to timestamps
+        if self._use_hybrid:
+            frame_results, result = self.detect_full_hybrid(audio)
+        else:
+            frame_results, result = self.vad.detect_full(audio)
         if self.neg_threshold > 0:
             frame_results = self._apply_neg_threshold_to_results(frame_results)
-            # Recalculate timestamps with filtered results
             result["timestamps"] = FireRedStreamVad.results_to_timestamps(frame_results)
-
         return frame_results, result
+
+    def detect_full_hybrid(
+        self,
+        audio: Union[str, np.ndarray],
+        prob_weight: float = DEFAULT_PROB_WEIGHT,
+        rms_weight: float = DEFAULT_RMS_WEIGHT,
+    ) -> Tuple[List[StreamVadFrameResult], dict]:
+        """
+        detect_full variant that blends model probs with RMS energy.
+
+        Strategy:
+        1. Run FireRedStreamVad.detect_full normally to get raw model probs.
+        2. Load audio samples for RMS computation.
+        3. Compute hybrid probs via compute_hybrid_probs.
+        4. Reset postprocessor and re-feed hybrid probs frame-by-frame so the
+            state machine operates on blended values.
+        5. Re-derive timestamps from the hybrid results.
+
+        This avoids duplicating the model-forward / chunking logic from
+        FireRedStreamVad.detect_full.
+        """
+        import logging
+
+        import soundfile as sf
+        from jet.audio.audio_waveform.vad.vad_utils import compute_hybrid_probs
+
+        logger = logging.getLogger(__name__)
+
+        # --- Step 1: base inference (always non-hybrid at the FireRedStreamVad level) ---
+        frame_results, result = self.vad.detect_full(audio)
+
+        raw_probs = [r.raw_prob for r in frame_results]
+        logger.debug(
+            "detect_full_hybrid: got %d raw model probs from base VAD",
+            len(raw_probs),
+        )
+
+        # --- Step 2: load audio for RMS ---
+        if isinstance(audio, str):
+            audio_np, _ = sf.read(audio)
+            if audio_np.ndim > 1:
+                audio_np = audio_np.mean(axis=1)
+        else:
+            audio_np = audio
+
+        # --- Step 3: compute hybrid probs ---
+        hybrid_probs = compute_hybrid_probs(
+            probs=raw_probs,
+            audio_np=audio_np,
+            prob_weight=prob_weight,
+            rms_weight=rms_weight,
+        )
+        logger.debug(
+            "detect_full_hybrid: computed %d hybrid probs (prob_w=%.2f, rms_w=%.2f)",
+            len(hybrid_probs),
+            prob_weight,
+            rms_weight,
+        )
+
+        # --- Step 4: re-run postprocessor with hybrid values ---
+        self.vad.postprocessor.reset()
+        hybrid_frame_results: List[StreamVadFrameResult] = []
+        for hybrid_prob in hybrid_probs:
+            hfr = self.vad.postprocessor.process_one_frame(float(hybrid_prob))
+            hybrid_frame_results.append(hfr)
+
+        # --- Step 5: re-derive timestamps ---
+        timestamps = FireRedStreamVad.results_to_timestamps(hybrid_frame_results)
+        hybrid_result = {
+            "dur": result["dur"],
+            "timestamps": timestamps,
+        }
+        if isinstance(audio, str):
+            hybrid_result["wav_path"] = audio
+
+        logger.info(
+            "detect_full_hybrid: blended %d frames → %d speech segments",
+            len(hybrid_frame_results),
+            len(timestamps),
+        )
+        return hybrid_frame_results, hybrid_result
 
     def _apply_neg_threshold_to_results(self, frame_results: List) -> List:
         """
@@ -443,6 +532,7 @@ def extract_speech_timestamps(
     smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
     pad_start_frame: int = DEFAULT_PAD_START_FRAME,
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
+    use_hybrid: bool = DEFAULT_USE_HYBRID,
     **kwargs,
 ) -> Union[List[SpeechSegment], tuple[List[SpeechSegment], List[float]]]:
     """
@@ -470,6 +560,7 @@ def extract_speech_timestamps(
         smooth_window_size=smooth_window_size,
         pad_start_frame=pad_start_frame,
         max_buffer_sec=max_buffer_sec,
+        use_hybrid=use_hybrid,
     )
 
     with console.status("[bold blue]Running FireRedVAD inference...[/bold blue]"):
@@ -549,6 +640,7 @@ def extract_speech_audio(
     smooth_window_size: int = DEFAULT_SMOOTH_WINDOW_SIZE,
     pad_start_frame: int = DEFAULT_PAD_START_FRAME,
     max_buffer_sec: float = DEFAULT_MAX_BUFFER_SEC,
+    use_hybrid: bool = DEFAULT_USE_HYBRID,
 ) -> List[np.ndarray]:
     """
     Extract contiguous speech segments from the input audio using FireRedVAD.
@@ -570,6 +662,7 @@ def extract_speech_audio(
         smooth_window_size=smooth_window_size,
         pad_start_frame=pad_start_frame,
         max_buffer_sec=max_buffer_sec,
+        use_hybrid=use_hybrid,
     )
 
     audio_np, sr = load_audio(audio=audio, sr=sampling_rate, mono=True)

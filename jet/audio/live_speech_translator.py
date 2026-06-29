@@ -13,6 +13,7 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MAX_SEG_GAP_SEC,
     DEFAULT_MIN_SEG_DURATION_SEC,
     DEFAULT_SOFT_LIMIT_SEC,
+    DEFAULT_USE_HYBRID,
 )
 from jet.audio.helpers.silence import SAMPLE_RATE
 from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
@@ -81,6 +82,7 @@ def main_live_speech_translation(
     max_seg_duration_sec: float = DEFAULT_MAX_SEG_DURATION_SEC,
     max_seg_gap_sec: float = DEFAULT_MAX_SEG_GAP_SEC,
     acc_max_duration_sec: float = DEFAULT_ACC_MAX_DURATION_SEC,
+    use_hybrid: bool = DEFAULT_USE_HYBRID,
 ):
     """
     Live speech translation with segment accumulation.
@@ -118,7 +120,7 @@ def main_live_speech_translation(
     global_reset_handler = GlobalResetHandler()
     all_segments_path = OUTPUT_DIR / "all_segments.json"
     subtitles_path = OUTPUT_DIR / "subtitles.srt"
-    segment_store = SegmentStore(OUTPUT_DIR / "segments")
+    segment_store = SegmentStore(OUTPUT_DIR / "segments", use_hybrid=use_hybrid)
     completed_segments: list[SpeechSegment] = []
     audio_stats = {
         "total_segments": 0,
@@ -261,6 +263,7 @@ def main_live_speech_translation(
                 segment=speech_seg,
                 audio_np=seg_audio_np,
                 sample_rate=SAMPLE_RATE,
+                use_hybrid=use_hybrid,
                 verbose=verbose,
             )
 
@@ -388,6 +391,18 @@ if __name__ == "__main__":
         default=DEFAULT_ACC_MAX_DURATION_SEC,
         help=f"Hard ceiling on merged group duration in seconds (default: {DEFAULT_ACC_MAX_DURATION_SEC})",
     )
+    parser.add_argument(
+        "--use-hybrid",
+        action="store_true",
+        default=True,
+        help="Use hybrid (prob + RMS) VAD scoring (default: True)",
+    )
+    parser.add_argument(
+        "--no-hybrid",
+        action="store_false",
+        dest="use_hybrid",
+        help="Disable hybrid VAD scoring",
+    )
     args = parser.parse_args()
 
     main_live_speech_translation(
@@ -396,4 +411,5 @@ if __name__ == "__main__":
         max_seg_duration_sec=args.max_seg,
         max_seg_gap_sec=args.max_gap,
         acc_max_duration_sec=args.acc_max,
+        use_hybrid=args.use_hybrid,
     )

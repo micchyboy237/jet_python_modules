@@ -32,6 +32,7 @@ from typing import Optional
 
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
+from jet.audio.audio_waveform.vad.vad_config import DEFAULT_USE_HYBRID
 from jet.audio.audio_waveform.vad.vad_utils import save_segment
 from jet.audio.helpers.config import SAMPLE_RATE
 from jet.audio.speech.segment_utils import build_summary
@@ -79,9 +80,12 @@ class SegmentStore:
         Created automatically if it does not exist.
     """
 
-    def __init__(self, segment_root: Path) -> None:
+    def __init__(
+        self, segment_root: Path, use_hybrid: bool = DEFAULT_USE_HYBRID
+    ) -> None:
         self._root = segment_root
         self._next_num: int = self._scan_next_number()
+        self._use_hybrid = use_hybrid
 
     @property
     def root(self) -> Path:
@@ -110,7 +114,7 @@ class SegmentStore:
             speech_seg,
             audio_np=seg_audio_np,
             seg_dir=seg_dir,  # ← was incorrectly output_base_dir
-            is_already_hybrid=True,
+            is_already_hybrid=self._use_hybrid,
         )
 
         if not saved:
