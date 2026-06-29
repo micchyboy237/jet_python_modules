@@ -40,7 +40,6 @@ def dispatch_handlers(
     started_at: datetime,
 ) -> None:
     """Fire on_segment_end on every registered handler. Errors are caught per-handler."""
-    seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, sample_rate)
     event = SpeechSegmentEndEvent(
         segment=speech_seg,
         segment_number=seg_number,
@@ -147,6 +146,7 @@ def main_live_speech_translation(verbose: bool = False):
             # independent sub-segments. Each sub-segment will get its own
             # segment number, directory, and full pipeline treatment.
             # -------------------------------------------------------------------
+            seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, SAMPLE_RATE)
             split_segments = split_segment_with_vad(
                 segment=speech_seg,
                 audio_np=seg_audio_np,
