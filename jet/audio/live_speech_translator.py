@@ -394,8 +394,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-hybrid",
         action="store_true",
-        default=True,
-        help="Use hybrid (prob + RMS) VAD scoring (default: True)",
+        default=DEFAULT_USE_HYBRID,
+        help=f"Use hybrid (prob + RMS) VAD scoring (default: {DEFAULT_USE_HYBRID})",
     )
     parser.add_argument(
         "--no-hybrid",
