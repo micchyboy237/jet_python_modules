@@ -49,8 +49,8 @@ DEFAULT_POSTROLL_MAX_SEC = 0.300  # maximum look-forward window
 DEFAULT_POSTROLL_HYBRID_THRESHOLD = 0.05  # hybrid score below which we stop extending
 
 # Unified weights for speech probability and RMS energy in hybrid scoring (used for both preroll and postroll)
-DEFAULT_PROB_WEIGHT = 0.5  # weight for speech probability
-DEFAULT_RMS_WEIGHT = 0.5  # weight for normalised RMS energy
+DEFAULT_PROB_WEIGHT = 0.7  # weight for speech probability
+DEFAULT_RMS_WEIGHT = 0.3  # weight for normalised RMS energy
 
 # ────────────────────────────────────────────────
 # Valley/Trough Detection Settings
@@ -92,4 +92,4 @@ DEFAULT_MAX_SILENCE_BEFORE_FLUSH_SEC = 0.5
 DEFAULT_MIN_SUB_SEG_DURATION_SEC = 2.0
 
 # --- vad probs defaults ---
-DEFAULT_USE_HYBRID = True
+DEFAULT_USE_HYBRID = False
