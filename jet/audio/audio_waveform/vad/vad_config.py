@@ -91,5 +91,5 @@ DEFAULT_MAX_SILENCE_BEFORE_FLUSH_SEC = 0.5
 # --- vad_firered_splitter defaults ---
 DEFAULT_MIN_SUB_SEG_DURATION_SEC = 2.0
 
-# --- vad speech probs defaults ---
+# --- vad probs defaults ---
 DEFAULT_USE_HYBRID = True
