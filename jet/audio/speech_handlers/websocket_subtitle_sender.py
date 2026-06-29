@@ -457,9 +457,19 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
     def _save_request(seg_dir: Path, header: ClientHeader, audio_bytes: bytes) -> Path:
         payload = {**header, "audio_bytes_len": len(audio_bytes)}
         path = seg_dir / "request.json"
-        path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        try:
+            path.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            logger.debug("[WS] Saved request.json → %s", path)
+        except FileNotFoundError as exc:
+            logger.error(
+                "[WS] _save_request failed — dir missing: %s | error: %s", seg_dir, exc
+            )
+        except OSError as exc:
+            logger.error(
+                "[WS] _save_request failed — OS error: %s | error: %s", path, exc
+            )
         return path
 
     @staticmethod
