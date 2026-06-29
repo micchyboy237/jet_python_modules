@@ -16,6 +16,7 @@ from jet.audio.speech_handlers.base import SpeechSegmentHandler
 from jet.audio.speech_handlers.global_reset_handler import GlobalResetHandler
 from jet.audio.speech_handlers.speech_events import SpeechSegmentEndEvent
 from jet.audio.speech_handlers.subtitle_overlay_window import SubtitleOverlay
+from jet.audio.speech_handlers.vad_firered_splitter import split_segment_with_vad
 from jet.audio.speech_handlers.websocket_subtitle_sender import (
     WebsocketSubtitleSender,
 )
@@ -39,9 +40,7 @@ def dispatch_handlers(
     started_at: datetime,
 ) -> None:
     """Fire on_segment_end on every registered handler. Errors are caught per-handler."""
-    # Normalize the audio before further processing
     seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, sample_rate)
-
     event = SpeechSegmentEndEvent(
         segment=speech_seg,
         segment_number=seg_number,
@@ -65,13 +64,16 @@ def main_live_speech_translation(verbose: bool = False):
     _sigint_timer.start(200)
     _sigint_timer.timeout.connect(lambda: None)
 
-    handlers: list[SpeechSegmentHandler] = [
-        WebsocketSubtitleSender(global_srt_path=OUTPUT_DIR / "subtitles.srt"),
-    ]
+    # -------------------------------------------------------------------
+    # Handler chain
+    # -------------------------------------------------------------------
+    ws_sender: WebsocketSubtitleSender = WebsocketSubtitleSender(
+        global_srt_path=OUTPUT_DIR / "subtitles.srt"
+    )
 
-    ws_sender: WebsocketSubtitleSender = handlers[0]
+    handlers: list[SpeechSegmentHandler] = [ws_sender]
+
     global_reset_handler = GlobalResetHandler()
-
     all_segments_path = OUTPUT_DIR / "all_segments.json"
     subtitles_path = OUTPUT_DIR / "subtitles.srt"
     segment_store = SegmentStore(OUTPUT_DIR / "segments")
@@ -81,6 +83,7 @@ def main_live_speech_translation(verbose: bool = False):
         "total_segments": 0,
         "segments_with_overflow": 0,
         "empty_segments": 0,
+        "sub_segments_created": 0,  # NEW: track split segments
     }
 
     def _on_clear() -> None:
@@ -92,6 +95,7 @@ def main_live_speech_translation(verbose: bool = False):
                 "total_segments": 0,
                 "segments_with_overflow": 0,
                 "empty_segments": 0,
+                "sub_segments_created": 0,
             }
         )
 
@@ -109,7 +113,6 @@ def main_live_speech_translation(verbose: bool = False):
         logger.info(
             f"[recorder] Audio recording started at {recording_started_at.isoformat()}"
         )
-
         data_stream = record_from_mic(
             duration=None,
             trim_silent=False,
@@ -119,21 +122,13 @@ def main_live_speech_translation(verbose: bool = False):
 
         for speech_seg, seg_audio_np in data_stream:
             audio_stats["total_segments"] += 1
-
-            # Check for overflow flags in segment metadata
             had_overflow = speech_seg.get("had_overflow", False)
             if had_overflow:
                 audio_stats["segments_with_overflow"] += 1
                 logger.warning(
-                    f"[recorder] Segment {speech_seg['num']} affected by audio overflow! "
+                    f"[recorder] Segment {speech_seg.get('num', '?')} affected by audio overflow! "
                     f"({audio_stats['segments_with_overflow']}/{audio_stats['total_segments']} segments affected)"
                 )
-
-            logger.success(
-                f"Speech {speech_seg['num']}: "
-                f"{speech_seg['start_time_utc']} → {speech_seg['end_time_utc']} "
-                f"[{'⚠ OVERFLOW' if had_overflow else '✓ clean'}]"
-            )
 
             if _stop_recording.is_set():
                 break
@@ -147,36 +142,87 @@ def main_live_speech_translation(verbose: bool = False):
                 )
                 continue
 
-            seg_dir, seg_number = segment_store.save(
-                speech_seg, seg_audio_np, sample_rate=SAMPLE_RATE
-            )
-            speech_seg["num"] = seg_number
-
-            dispatch_handlers(
-                handlers,
-                speech_seg,
-                seg_audio_np,
-                seg_dir,
-                seg_number,
-                SAMPLE_RATE,
-                recording_started_at,
+            # -------------------------------------------------------------------
+            # NEW: Run secondary FireRedVAD on the segment to split it into
+            # independent sub-segments. Each sub-segment will get its own
+            # segment number, directory, and full pipeline treatment.
+            # -------------------------------------------------------------------
+            split_segments = split_segment_with_vad(
+                segment=speech_seg,
+                audio_np=seg_audio_np,
+                sample_rate=SAMPLE_RATE,
+                verbose=verbose,
             )
 
-            _speech_seg_no_probs = speech_seg.copy()
-            _speech_seg_probs = _speech_seg_no_probs.pop("segment_probs", None)
-            completed_segments.append(_speech_seg_no_probs)
-            save_file(completed_segments, all_segments_path)
+            if len(split_segments) > 1:
+                audio_stats["sub_segments_created"] += len(split_segments) - 1
+                logger.info(
+                    f"[recorder] Segment split into {len(split_segments)} "
+                    f"independent sub-segments"
+                )
 
-        # Final statistics
+            # -------------------------------------------------------------------
+            # Process each sub-segment through the normal pipeline.
+            # split_segment_with_vad already returns adjusted SpeechSegments
+            # with sliced per-frame segment_probs.
+            # -------------------------------------------------------------------
+            for sub_seg in split_segments:
+                # Extract audio for this sub-segment from the parent audio
+                sub_start = float(sub_seg["start"])
+                sub_end = float(sub_seg["end"])
+                original_start = float(speech_seg["start"])
+                rel_start = sub_start - original_start
+                rel_end = sub_end - original_start
+                start_sample = int(round(rel_start * SAMPLE_RATE))
+                end_sample = int(round(rel_end * SAMPLE_RATE))
+                sub_audio = seg_audio_np[start_sample:end_sample].copy()
+
+                if sub_audio.size == 0:
+                    logger.warning(
+                        f"[recorder] Sub-segment [{rel_start:.3f}s, {rel_end:.3f}s] "
+                        f"has empty audio — skipping"
+                    )
+                    continue
+
+                # Save segment (assigns proper segment number and creates directory)
+                seg_dir, seg_number = segment_store.save(
+                    sub_seg, sub_audio, sample_rate=SAMPLE_RATE
+                )
+                sub_seg["num"] = seg_number
+
+                logger.success(
+                    f"Speech {seg_number}: "
+                    f"{sub_seg.get('start_time_utc', 'N/A')} → "
+                    f"{sub_seg.get('end_time_utc', 'N/A')} "
+                    f"[{'⚠ OVERFLOW' if had_overflow else '✓ clean'}]"
+                    f"{' (split from parent)' if len(split_segments) > 1 else ''}"
+                )
+
+                # Dispatch to handlers (WebsocketSubtitleSender)
+                dispatch_handlers(
+                    handlers,
+                    sub_seg,
+                    sub_audio,
+                    seg_dir,
+                    seg_number,
+                    SAMPLE_RATE,
+                    recording_started_at,
+                )
+
+                # Track completed segments — keep segment_probs for save_file
+                completed_segments.append(sub_seg.copy())
+                save_file(completed_segments, all_segments_path)
+
         quality_ok = audio_stats["segments_with_overflow"] == 0
         logger.info(
             f"[recorder] Recording complete. Stats:\n"
-            f"  Total segments: {audio_stats['total_segments']}\n"
+            f"  Total parent segments: {audio_stats['total_segments']}\n"
+            f"  Sub-segments created: {audio_stats['sub_segments_created']}\n"
+            f"  Total segments processed: {len(completed_segments)}\n"
             f"  With overflow: {audio_stats['segments_with_overflow']}\n"
             f"  Empty segments: {audio_stats['empty_segments']}\n"
             f"  Audio quality: {'⚠ DEGRADED' if not quality_ok else '✓ GOOD'}"
         )
-
         display_segments(completed_segments, done=True)
 
     rec_thread = threading.Thread(
@@ -188,18 +234,14 @@ def main_live_speech_translation(verbose: bool = False):
     def _shutdown() -> None:
         logger.info("[shutdown] Stopping recorder…")
         _stop_recording.set()
-
         logger.info("[shutdown] Closing WebSocket sender…")
         for h in handlers:
             if hasattr(h, "close"):
                 h.close()
-
         logger.info("[shutdown] Joining recorder thread…")
         rec_thread.join(timeout=5.0)
         if rec_thread.is_alive():
             logger.warning("[shutdown] Recorder thread did not exit cleanly!")
-
-        # Print final quality report
         if audio_stats["segments_with_overflow"] > 0:
             logger.warning(
                 f"[shutdown] ⚠ Audio quality issues detected: "
@@ -207,7 +249,6 @@ def main_live_speech_translation(verbose: bool = False):
             )
         else:
             logger.info("[shutdown] ✓ Audio quality was good throughout recording")
-
         logger.info("[shutdown] Done.")
 
     app.aboutToQuit.connect(_shutdown)
@@ -222,7 +263,5 @@ if __name__ == "__main__":
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose output"
     )
-
     args = parser.parse_args()
-
     main_live_speech_translation(verbose=args.verbose)
