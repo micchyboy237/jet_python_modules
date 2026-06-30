@@ -3,7 +3,7 @@ import json
 import shutil
 from pathlib import Path
 
-DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
+DEFAULT_AUDIO = "/Users/jethroestrada/.cache/files/audio/recording_3_speakers.wav"
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 
 

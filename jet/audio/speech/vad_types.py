@@ -1,14 +1,16 @@
+# jet_python_modules/jet/audio/speech/vad_types.py
+
 from typing import Any, Dict, Optional, TypedDict
 
 
 class VADSegment(TypedDict):
-    frame_start: int  # Starting frame index (inclusive)
-    frame_end: int  # Ending frame index (inclusive)
-    frame_length: int  # Number of frames
-    start_s: float  # Start time in seconds
-    end_s: float  # End time in seconds
-    duration_s: float  # Duration in seconds
-    details: Dict[str, Any]  # Additional insights (peak/trough properties)
+    frame_start: int
+    frame_end: int
+    frame_length: int
+    start_s: float
+    end_s: float
+    duration_s: float
+    details: Dict[str, Any]
 
 
 class ValleyInfo(TypedDict):
@@ -18,20 +20,14 @@ class ValleyInfo(TypedDict):
     start_s: float
     end_s: float
     duration_s: float
-
-    # Local scores
     valley_score: float
     trough_score: float
     final_score: float
-
-    # Global fields (for consistency with time/frame offsets)
     global_frame_start: int
     global_frame_end: int
     global_start_s: float
     global_end_s: float
     global_duration_s: float
-
-    # Global score references (same values as local, duplicated for API consistency)
     global_valley_score: float
     global_trough_score: float
     global_final_score: float
@@ -47,6 +43,18 @@ class ValleyTrough(TypedDict):
     valley: ValleyInfo
 
 
+class TroughToTroughSegment(TypedDict):
+    """A segment between two consecutive valley troughs (or start/end sentinels)."""
+
+    start_s: float
+    end_s: float
+    duration_s: float
+    start_frame: int
+    end_frame: int
+    trough_start: Optional[ValleyTrough]  # None for first segment (t=0)
+    trough_end: Optional[ValleyTrough]  # None for last segment (end of audio)
+
+
 class StreamVadFrame(TypedDict):
     """Typed structure for accumulated VAD probability frame."""
 
@@ -56,6 +64,5 @@ class StreamVadFrame(TypedDict):
     is_speech: bool
     is_speech_start: bool
     is_speech_end: bool
-    # Optional extended fields (can be added later)
     speech_start_frame: Optional[int]
     speech_end_frame: Optional[int]

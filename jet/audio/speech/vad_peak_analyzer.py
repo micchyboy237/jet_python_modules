@@ -1,5 +1,6 @@
 # vad_peak_analyzer.py
 
+import json
 import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -11,6 +12,7 @@ from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
     extract_speech_timestamps,
 )
 from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
+from jet.audio.speech.vad_extractors import extract_trough_to_trough
 from jet.audio.speech.vad_types import VADSegment, ValleyTrough
 from jet.audio.speech.vad_valley_utils import ThresholdStrategy, auto_threshold
 from rich.console import Console
@@ -948,13 +950,11 @@ def save_trough_to_trough_segments(
     For each ValleyTrough, create a segment spanning from the previous trough
     (or t=0 for the first) up to and including the current trough.
     A final segment is also created from the last trough to the end of the audio.
-
     Produces N+1 segments for N valley_troughs:
         segment_000: t=0          → trough[0]
         segment_001: trough[0]    → trough[1]
         ...
         segment_N:   trough[N-1]  → end of audio
-
     Also writes a summary ``trough_to_trough.json`` containing all segment
     metadata in a single list.
     """
@@ -964,79 +964,57 @@ def save_trough_to_trough_segments(
         console.print("⚠️  [yellow]trough_to_trough: no troughs provided.[/yellow]")
         return
 
-    cat_dir = output_dir / "trough_to_trough"
-    cat_dir.mkdir(parents=True, exist_ok=True)
-
+    # Load audio if available
     audio_data: Optional[np.ndarray] = None
     file_sr: int = sample_rate
     if audio_path is not None:
         audio_data, file_sr = sf.read(audio_path, always_2d=False)
 
+    # Use the new extract_trough_to_trough function with audio support
+    if audio_data is not None:
+        results = extract_trough_to_trough(
+            valley_troughs=valley_troughs,
+            probs=probs,
+            frame_shift_ms=frame_shift_ms,
+            audio=audio_data,
+            sample_rate=file_sr,
+            with_audio=True,
+        )
+        # results is List[Tuple[TroughToTroughSegment, np.ndarray]]
+        segments_with_audio = results
+    else:
+        all_segments = extract_trough_to_trough(
+            valley_troughs=valley_troughs,
+            probs=probs,
+            frame_shift_ms=frame_shift_ms,
+            with_audio=False,
+        )
+        # Create dummy audio slices for compatibility
+        segments_with_audio = [(seg, np.array([])) for seg in all_segments]
+
+    cat_dir = output_dir / "trough_to_trough"
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
     x = np.array(probs, dtype=float)
     n_frames = len(x)
+    all_segments_meta = []
 
-    # Compute end time/frame from probs length and frame duration
-    frame_duration_s = frame_shift_ms / 1000.0
-    end_time_s = n_frames * frame_duration_s
-    end_frame = n_frames - 1
-
-    # Sentinels: origin at t=0, tail at end of audio
-    sentinel_start = {**valley_troughs[0], "global_time_s": 0.0, "global_frame": 0}
-    sentinel_end = {
-        **valley_troughs[-1],
-        "global_time_s": end_time_s,
-        "global_frame": end_frame,
-    }
-    anchors = [sentinel_start] + list(valley_troughs) + [sentinel_end]
-
-    all_segments = []
-
-    # N+1 segments: one per gap between consecutive anchors
-    for idx in range(len(anchors) - 1):
-        vt_start = anchors[idx]
-        vt_end = anchors[idx + 1]
-
-        is_first = idx == 0
-        is_last = idx == len(anchors) - 2
-
+    for idx, (seg_meta, audio_slice) in enumerate(segments_with_audio):
         seg_dir = cat_dir / f"segment_{idx:03d}"
         seg_dir.mkdir(parents=True, exist_ok=True)
 
-        start_s: float = float(vt_start["global_time_s"])
-        end_s: float = float(vt_end["global_time_s"])
-        duration_s: float = round(end_s - start_s, 4)
-
-        start_frame: int = int(vt_start["global_frame"])
-        end_frame_seg: int = int(vt_end["global_frame"])
-
-        meta = {
-            "start_s": start_s,
-            "end_s": end_s,
-            "duration_s": duration_s,
-            "start_frame": start_frame,
-            "end_frame": end_frame_seg,
-            "trough_start": None if is_first else dict(vt_start),
-            "trough_end": None if is_last else dict(vt_end),
-        }
-
-        # ── meta.json ────────────────────────────────────────────────────────
+        # Save metadata
         with open(seg_dir / "meta.json", "w", encoding="utf-8") as fh:
-            json.dump(meta, fh, ensure_ascii=False, indent=2)
+            json.dump(seg_meta, fh, ensure_ascii=False, indent=2)
+        all_segments_meta.append(seg_meta)
 
-        all_segments.append(meta)
+        # Save audio slice (now directly from the function return)
+        if len(audio_slice) > 0:
+            sf.write(str(seg_dir / "sound.wav"), audio_slice, file_sr)
 
-        # ── sound.wav ────────────────────────────────────────────────────────
-        if audio_data is not None:
-            start_sample = int(start_s * file_sr)
-            end_sample = int(end_s * file_sr)
-            start_sample = max(0, start_sample)
-            end_sample = min(len(audio_data), end_sample)
-            slice_audio = audio_data[start_sample:end_sample]
-            sf.write(str(seg_dir / "sound.wav"), slice_audio, file_sr)
-
-        # ── plot.png ─────────────────────────────────────────────────────────
-        f_start = max(0, start_frame)
-        f_end = min(n_frames, end_frame_seg + 1)
+        # Create plot
+        f_start = max(0, seg_meta["start_frame"])
+        f_end = min(n_frames, seg_meta["end_frame"] + 1)
         frames = np.arange(f_start, f_end)
         zoomed = x[f_start:f_end]
 
@@ -1044,30 +1022,34 @@ def save_trough_to_trough_segments(
         ax.plot(frames, zoomed, "b-", linewidth=2, label="VAD Probability", alpha=0.8)
         ax.axvspan(f_start, f_end, alpha=0.12, color="purple", label="trough span")
 
-        # Start boundary: gray for origin sentinel, red for real trough
+        # Plot start marker
+        is_first = idx == 0
         ax.axvline(
-            x=start_frame,
+            x=seg_meta["start_frame"],
             color="gray" if is_first else "red",
             linestyle="--",
             linewidth=1.5,
-            label=f"{'origin' if is_first else 'start trough'} (frame {start_frame})",
+            label=f"{'origin' if is_first else 'start trough'} (frame {seg_meta['start_frame']})",
         )
-        if not is_first and start_frame < n_frames:
-            ax.plot(start_frame, x[start_frame], "ro", markersize=9)
+        if not is_first and seg_meta["start_frame"] < n_frames:
+            ax.plot(
+                seg_meta["start_frame"], x[seg_meta["start_frame"]], "ro", markersize=9
+            )
 
-        # End boundary: gray for tail sentinel, red for real trough
+        # Plot end marker
+        is_last = idx == len(segments_with_audio) - 1
         ax.axvline(
-            x=end_frame_seg,
+            x=seg_meta["end_frame"],
             color="gray" if is_last else "red",
             linestyle="--",
             linewidth=1.5,
-            label=f"{'end of audio' if is_last else 'end trough'} (frame {end_frame_seg})",
+            label=f"{'end of audio' if is_last else 'end trough'} (frame {seg_meta['end_frame']})",
         )
-        if not is_last and end_frame_seg < n_frames:
-            ax.plot(end_frame_seg, x[end_frame_seg], "ro", markersize=9)
+        if not is_last and seg_meta["end_frame"] < n_frames:
+            ax.plot(seg_meta["end_frame"], x[seg_meta["end_frame"]], "ro", markersize=9)
 
         ax.set_title(
-            f"trough_to_trough · segment {idx:03d}  [{start_s:.3f} s – {end_s:.3f} s]",
+            f"trough_to_trough · segment {idx:03d}  [{seg_meta['start_s']:.3f} s – {seg_meta['end_s']:.3f} s]",
             fontsize=12,
         )
         ax.set_xlabel("Frame Index")
@@ -1079,18 +1061,18 @@ def save_trough_to_trough_segments(
         plt.savefig(str(seg_dir / "plot.png"), dpi=150, bbox_inches="tight")
         plt.close()
 
-    # ── trough_to_trough.json ─────────────────────────────────────────────────
+    # Save summary JSON
     summary_path = output_dir / "trough_to_trough.json"
     with open(summary_path, "w", encoding="utf-8") as fh:
-        json.dump(all_segments, fh, ensure_ascii=False, indent=2)
+        json.dump(all_segments_meta, fh, ensure_ascii=False, indent=2)
+
     console.print(
         f"   • trough_to_trough.json → "
         f"[link=file:///{summary_path.resolve()}]{summary_path.resolve()}[/link]",
         style="dim",
     )
-
     console.print(
-        f"🟣 [bold]{len(all_segments)} Trough-to-Trough[/bold] segments saved to: "
+        f"🟣 [bold]{len(all_segments_meta)} Trough-to-Trough[/bold] segments saved to: "
         f"[link=file:///{cat_dir.resolve()}]{cat_dir.resolve()}[/link]",
         style="green",
     )
@@ -1099,7 +1081,7 @@ def save_trough_to_trough_segments(
 def get_args():
     import argparse
 
-    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_1_speaker.wav"
+    DEFAULT_AUDIO = "/Users/jethroestrada/.cache/files/audio/recording_3_speakers.wav"
 
     parser = argparse.ArgumentParser(
         description="Analyze VAD speech/voice probabilities and find peaks/troughs"

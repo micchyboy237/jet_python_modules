@@ -14,8 +14,12 @@ from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE, SILENCE_MAX_TH
 from jet.audio.helpers.energy_base import trim_silent_frames
 from jet.audio.speech._main_vad_extractors import main
 from jet.audio.speech.vad_loaders import load_vad_hybrid_probs
-from jet.audio.speech.vad_peak_analyzer import VADPeakAnalyzer
-from jet.audio.speech.vad_types import VADSegment, ValleyInfo, ValleyTrough
+from jet.audio.speech.vad_types import (
+    TroughToTroughSegment,
+    VADSegment,
+    ValleyInfo,
+    ValleyTrough,
+)
 from jet.audio.utils.loader import load_audio
 from rich.console import Console
 
@@ -486,6 +490,8 @@ def extract_valley_troughs(
         List[ValleyTrough]: Detected troughs with enclosing valley info,
         local/global coordinates, and composite scores (valley_score × trough_score).
     """
+    from jet.audio.speech.vad_peak_analyzer import VADPeakAnalyzer
+
     probs, _ = load_probs(probs_or_audio)
     analyzer = VADPeakAnalyzer(
         sample_rate=sample_rate,
@@ -675,6 +681,141 @@ def extract_valley_troughs_from_np_audio(
                 temp_wav_path.unlink()
         except Exception:
             pass
+
+
+def extract_trough_to_trough(
+    valley_troughs: List[ValleyTrough],
+    probs: List[float],
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    audio: Optional[np.ndarray] = None,
+    sample_rate: int = SAMPLE_RATE,
+    with_audio: bool = False,
+) -> Union[List[TroughToTroughSegment], List[Tuple[TroughToTroughSegment, np.ndarray]]]:
+    """
+    Create segments spanning from one valley trough to the next.
+
+    For N valley_troughs, this produces N+1 segments:
+        segment_0: t=0          → trough[0]
+        segment_1: trough[0]    → trough[1]
+        ...
+        segment_N: trough[N-1]  → end of audio
+
+    Args:
+        valley_troughs: List of ValleyTrough dicts (from extract_valley_troughs).
+        probs: VAD probability list (used to calculate end time/frame).
+        frame_shift_ms: Frame shift in milliseconds.
+        audio: Optional numpy audio array. Required if with_audio=True.
+        sample_rate: Audio sample rate in Hz (used for sample-to-time conversion).
+        with_audio: If True, return list of (segment, audio_slice) tuples.
+                   Requires audio parameter to be provided.
+
+    Returns:
+        If with_audio=False: List[TroughToTroughSegment]
+        If with_audio=True: List[Tuple[TroughToTroughSegment, np.ndarray]]
+        Each audio slice is a numpy array of the waveform for that segment.
+
+    Raises:
+        ValueError: If with_audio=True but audio is None.
+
+    Logs:
+        Logs the number of troughs processed, segments created, and audio slicing info.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    if with_audio and audio is None:
+        raise ValueError(
+            "extract_trough_to_trough: with_audio=True requires audio parameter to be provided."
+        )
+
+    if not valley_troughs:
+        logger.warning(
+            "extract_trough_to_trough: no valley_troughs provided, returning empty list."
+        )
+        return []
+
+    n_frames = len(probs)
+    frame_duration_s = frame_shift_ms / 1000.0
+    end_time_s = n_frames * frame_duration_s
+    end_frame = n_frames - 1
+
+    # Create sentinel start (t=0) and sentinel end (end of audio)
+    sentinel_start: ValleyTrough = {
+        "frame": 0,
+        "global_frame": 0,
+        "prob": probs[0] if n_frames > 0 else 0.0,
+        "time_s": 0.0,
+        "global_time_s": 0.0,
+        "valley": valley_troughs[0]["valley"].copy(),
+    }
+    sentinel_end: ValleyTrough = {
+        "frame": end_frame,
+        "global_frame": end_frame,
+        "prob": probs[-1] if n_frames > 0 else 0.0,
+        "time_s": end_time_s,
+        "global_time_s": end_time_s,
+        "valley": valley_troughs[-1]["valley"].copy(),
+    }
+
+    # Build anchor list: [sentinel_start, trough_0, trough_1, ..., sentinel_end]
+    anchors: List[ValleyTrough] = (
+        [sentinel_start] + list(valley_troughs) + [sentinel_end]
+    )
+
+    segments: List[TroughToTroughSegment] = []
+    audio_slices: List[np.ndarray] = []
+
+    total_audio_samples = len(audio) if audio is not None else 0
+
+    for idx in range(len(anchors) - 1):
+        vt_start = anchors[idx]
+        vt_end = anchors[idx + 1]
+        is_first = idx == 0
+        is_last = idx == len(anchors) - 2
+
+        start_s: float = float(vt_start["global_time_s"])
+        end_s: float = float(vt_end["global_time_s"])
+        duration_s: float = round(end_s - start_s, 4)
+        start_frame: int = int(vt_start["global_frame"])
+        end_frame_seg: int = int(vt_end["global_frame"])
+
+        segment: TroughToTroughSegment = {
+            "start_s": start_s,
+            "end_s": end_s,
+            "duration_s": duration_s,
+            "start_frame": start_frame,
+            "end_frame": end_frame_seg,
+            "trough_start": None if is_first else dict(vt_start),
+            "trough_end": None if is_last else dict(vt_end),
+        }
+        segments.append(segment)
+
+        # Extract audio slice if requested
+        if with_audio and audio is not None:
+            start_sample = int(start_s * sample_rate)
+            end_sample = int(end_s * sample_rate)
+            start_sample = max(0, start_sample)
+            end_sample = min(total_audio_samples, end_sample)
+            audio_slice = audio[start_sample:end_sample]
+            audio_slices.append(audio_slice)
+
+            logger.debug(
+                f"Segment {idx}: [{start_s:.3f}s - {end_s:.3f}s] "
+                f"→ audio samples [{start_sample}:{end_sample}] "
+                f"({len(audio_slice)} samples, {len(audio_slice) / sample_rate:.3f}s)"
+            )
+
+    logger.info(
+        f"extract_trough_to_trough: Created {len(segments)} segments "
+        f"from {len(valley_troughs)} trough(s)"
+        + (" with audio slices" if with_audio else "")
+        + "."
+    )
+
+    if with_audio:
+        return list(zip(segments, audio_slices))
+    return segments
 
 
 def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
