@@ -1107,8 +1107,8 @@ def get_args():
         "--min-duration",
         "-d",
         type=float,
-        default=0.25,
-        help="Minimum segment duration in seconds (default: 0.25)",
+        default=1.0,
+        help="Minimum segment duration in seconds (default: 1.0)",
     )
     parser.add_argument(
         "--sample-rate",
