@@ -6,6 +6,9 @@ import shutil
 from pathlib import Path
 from typing import Any, Union
 
+from jet.audio.audio_waveform.vad.vad_config import (
+    DEFAULT_SOFT_LIMIT_SEC,
+)
 from jet.audio.audio_waveform.vad.vad_firered import extract_speech_timestamps
 from jet.audio.helpers.base import get_audio_duration
 from jet.audio.helpers.config import SAMPLE_RATE
@@ -23,7 +26,7 @@ from jet.audio.speech.firered.speech_waves import (
     WaveShapeConfig,
     build_summary_rows,
     find_parent_segment,
-    get_speech_waves,
+    get_valid_speech_waves,
     save_wave_data,
     top5_reports,
 )
@@ -223,14 +226,15 @@ def main():
     console.print(f"[dim]Loaded audio: shape={audio_np.shape}, sr={sr}[/dim]")
 
     if args.normalize:
-        audio_np, vad_stats = normalize_audio_for_vad(audio_np, sr)
+        # Normalize audio for better VAD detection
+        audio_np, _ = normalize_audio_for_vad(audio_np, SAMPLE_RATE)
         duration = get_audio_duration(audio_np, SAMPLE_RATE)
-        audio_np, _ = quantize_audio(
-            audio_np,
-            target_dtype="float16",
-            sr=SAMPLE_RATE,
-        )
-        console.print(f"[dim]Audio normalized. VAD stats: {vad_stats}[/dim]")
+        if duration >= DEFAULT_SOFT_LIMIT_SEC:
+            audio_np, _ = quantize_audio(
+                audio_np,
+                target_dtype="float16",
+                sr=SAMPLE_RATE,
+            )
 
     segments, scores = extract_speech_timestamps(
         audio=audio_np,
@@ -244,12 +248,26 @@ def main():
         f"[dim]VAD produced {len(segments)} segments, {len(scores)} scores[/dim]"
     )
 
-    speech_waves = get_speech_waves(
-        args.input,
-        scores,
-        threshold=args.threshold,
+    # speech_waves = get_speech_waves(
+    #     args.input,
+    #     scores,
+    #     threshold=args.threshold,
+    #     sampling_rate=sr,
+    #     shape_cfg=shape_cfg,
+    # )
+    speech_waves = get_valid_speech_waves(
+        audio=audio_np,
         sampling_rate=sr,
-        shape_cfg=shape_cfg,
+        vad_threshold=args.threshold,
+        min_prominence=args.min_prominence,
+        min_excursion=args.min_excursion,
+        min_peak_prob=args.min_peak_prob,
+        min_frames=args.min_frames,
+        min_duration_sec=args.min_speech_duration / 1000,
+        baseline_threshold=args.baseline_threshold,
+        min_speech_duration_ms=args.min_speech_duration,
+        min_silence_duration_ms=args.min_silence_duration,
+        with_audio=False,
     )
     console.print(f"[dim]Detected {len(speech_waves)} valid speech waves[/dim]")
 

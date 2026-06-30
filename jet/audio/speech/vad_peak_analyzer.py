@@ -7,7 +7,11 @@ from typing import List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf
-from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
+
+# from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
+#     extract_speech_timestamps,
+# )
+from jet.audio.audio_waveform.vad.vad_firered import (
     extract_speech_timestamps,
 )
 from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE
@@ -1275,6 +1279,7 @@ if __name__ == "__main__":
                 # min_speech_duration_sec=args.min_active_duration,
                 # min_silence_duration_sec=args.min_silence_duration,
                 with_scores=True,
+                use_hybrid=True,
             )
 
         # ── JSON input ────────────────────────────────────────────────

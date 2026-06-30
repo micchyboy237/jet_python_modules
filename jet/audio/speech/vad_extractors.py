@@ -6,10 +6,14 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import soundfile as sf
 from jet.audio.audio_types import AudioInput
-from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
-from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
+
+# from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
+#     extract_speech_timestamps,
+# )
+from jet.audio.audio_waveform.vad.vad_firered import (
     extract_speech_timestamps,
 )
+from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
 from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE, SILENCE_MAX_THRESHOLD
 from jet.audio.helpers.energy_base import trim_silent_frames
 from jet.audio.speech._main_vad_extractors import main
@@ -104,6 +108,7 @@ def load_probs(
                     min_speech_duration_sec=0.250,
                     min_silence_duration_sec=0.250,
                     with_scores=True,
+                    use_hybrid=True,
                 )
                 if not is_probs_list(probs):
                     raise ValueError(

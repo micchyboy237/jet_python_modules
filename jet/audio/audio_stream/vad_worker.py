@@ -49,7 +49,9 @@ from jet.audio.helpers.circular_audio_buffer import CircularAudioBuffer
 from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
 from jet.audio.normalization.quant import quantize_audio
 from jet.audio.speech.utils import display_segments
-from jet.logger import logger
+from rich.console import Console
+
+console = Console()
 
 SegmentResult = Tuple[SpeechSegment, np.ndarray]
 
@@ -95,6 +97,7 @@ def extract_current_speech_segment(
     if full_audio_np.size == 0 or np.max(np.abs(full_audio_np)) == 0:
         return []
 
+    # Normalize audio for better VAD detection
     full_audio_np, _ = normalize_audio_for_vad(full_audio_np, audio_data.sample_rate)
     duration = get_audio_duration(full_audio_np, audio_data.sample_rate)
     if duration >= DEFAULT_SOFT_LIMIT_SEC:
@@ -192,7 +195,11 @@ class VadSegmentWorker:
 
     def start(self) -> None:
         self._thread.start()
-        logger.info("VadSegmentWorker started (tid=%s)", self._thread.ident)
+
+        if self._verbose:
+            console.print(
+                f"[green]VadSegmentWorker started (tid={self._thread.ident})[/green]"
+            )
 
     def notify_new_audio(self) -> None:
         """Wake the worker to re-run VAD on the latest buffer state.
@@ -242,10 +249,10 @@ class VadSegmentWorker:
             float(prev_segment["start"]) - self._overlap_seconds,
         )
         if effective_start_sec >= float(prev_segment["end"]):
-            logger.info(
-                "VadSegmentWorker: skipping final segment yield due to "
-                "overlap causing empty audio"
-            )
+            if self._verbose:
+                console.print(
+                    "[yellow]VadSegmentWorker: skipping final segment yield due to overlap causing empty audio[/yellow]"
+                )
             self._prev_segment = None
             return
         prev_segment["start"] = effective_start_sec
@@ -264,18 +271,21 @@ class VadSegmentWorker:
         self._stop_event.set()
         self._wake_event.set()  # unblock a pending wait()
         self._thread.join(timeout=timeout)
+
         if self._thread.is_alive():
-            logger.warning(
-                "VadSegmentWorker did not exit within %.1fs — abandoning thread",
-                timeout,
-            )
+            if self._verbose:
+                console.print(
+                    f"[yellow]VadSegmentWorker did not exit within {timeout:.1f}s — abandoning thread[/yellow]"
+                )
         if self._error is not None:
-            logger.error("VadSegmentWorker exited with error: %s", self._error)
-        logger.info(
-            "VadSegmentWorker stopped: %d VAD pass(es), %d segment(s) emitted",
-            self._vad_passes,
-            self._segments_emitted,
-        )
+            if self._verbose:
+                console.print(
+                    f"[red]VadSegmentWorker exited with error: {self._error}[/red]"
+                )
+        if self._verbose:
+            console.print(
+                f"[green]VadSegmentWorker stopped: {self._vad_passes} VAD pass(es), {self._segments_emitted} segment(s) emitted[/green]"
+            )
         return self.poll_results()
 
     @property
@@ -299,7 +309,9 @@ class VadSegmentWorker:
                 self._handle_vad_pass()
         except Exception as exc:  # noqa: BLE001 - surface to caller thread
             self._error = exc
-            logger.error("VadSegmentWorker crashed: %s", exc, exc_info=True)
+
+            if self._verbose:
+                console.print(f"[red]VadSegmentWorker crashed: {exc}[/red]")
 
     def _handle_flush(self) -> None:
         """Force-yield ``prev_segment`` (extended silence detected)."""
@@ -313,13 +325,12 @@ class VadSegmentWorker:
             self._consecutive_empty_yields = 0
             self._enrich_and_emit(prev_segment, seg_audio_np)
             self._audio_data.trim_to_sec(float(prev_segment["end"]))
-            logger.debug(
-                "VadSegmentWorker: flushed on silence, trimmed to %.3fs. "
-                "Buffer now: %.3fs, gaps: %.3fs",
-                prev_segment["end"],
-                self._audio_data.window_sec,
-                self._audio_data.total_gap_sec,
-            )
+
+            if self._verbose:
+                console.print(
+                    f"[blue]VadSegmentWorker: flushed on silence, trimmed to {prev_segment['end']:.3f}s. "
+                    f"Buffer now: {self._audio_data.window_sec:.3f}s, gaps: {self._audio_data.total_gap_sec:.3f}s[/blue]"
+                )
         self._prev_segment = None
         if self._curr_speech_segs and self._verbose:
             display_segments(self._curr_speech_segs, done=True)
@@ -382,15 +393,12 @@ class VadSegmentWorker:
         self._enrich_and_emit(prev_segment, seg_audio_np)
         trim_point = max(0.0, float(prev_segment["end"]) - self._trim_overlap_sec)
         self._audio_data.trim_to_sec(trim_point)
-        logger.debug(
-            "VadSegmentWorker: trimmed to %.3fs (segment end=%.3fs, overlap=%.3fs). "
-            "Buffer now: %.3fs, gaps: %.3fs",
-            trim_point,
-            prev_segment["end"],
-            self._trim_overlap_sec,
-            self._audio_data.window_sec,
-            self._audio_data.total_gap_sec,
-        )
+
+        if self._verbose:
+            console.print(
+                f"[blue]VadSegmentWorker: trimmed to {trim_point:.3f}s (segment end={prev_segment['end']:.3f}s, overlap={self._trim_overlap_sec:.3f}s). "
+                f"Buffer now: {self._audio_data.window_sec:.3f}s, gaps: {self._audio_data.total_gap_sec:.3f}s[/blue]"
+            )
         self._prev_segment = self._curr_segment
 
     def _extract(self, segment: SpeechSegment) -> np.ndarray:
@@ -411,25 +419,22 @@ class VadSegmentWorker:
                 self._pending_overflow = False
         self._segments_emitted += 1
         self._results_q.put((segment, seg_audio_np))
-        logger.debug(
-            "VadSegmentWorker: emitted segment [%.3f, %.3f] had_overflow=%s",
-            float(segment["start"]),
-            float(segment["end"]),
-            segment.get("had_overflow", False),
-        )
+
+        if self._verbose:
+            console.print(
+                f"[blue]VadSegmentWorker: emitted segment [{float(segment['start']):.3f}, {float(segment['end']):.3f}] had_overflow={segment.get('had_overflow', False)}[/blue]"
+            )
 
     def _on_empty_segment(self, segment: SpeechSegment) -> None:
         self._consecutive_empty_yields += 1
-        logger.warning(
-            "VadSegmentWorker: empty audio for segment at [%.3f, %.3f]. "
-            "Buffer: %.3fs, Gaps: %.3fs. Consecutive empty: %d",
-            float(segment["start"]),
-            float(segment["end"]),
-            self._audio_data.window_sec,
-            self._audio_data.total_gap_sec,
-            self._consecutive_empty_yields,
-        )
-        if self._consecutive_empty_yields > 3:
-            logger.error(
-                "VadSegmentWorker: too many empty segments - possible stream issue!"
+
+        if self._verbose:
+            console.print(
+                f"[yellow]VadSegmentWorker: empty audio for segment at [{float(segment['start']):.3f}, {float(segment['end']):.3f}]. "
+                f"Buffer: {self._audio_data.window_sec:.3f}s, Gaps: {self._audio_data.total_gap_sec:.3f}s. Consecutive empty: {self._consecutive_empty_yields}[/yellow]"
             )
+        if self._consecutive_empty_yields > 3:
+            if self._verbose:
+                console.print(
+                    "[red]VadSegmentWorker: too many empty segments - possible stream issue![/red]"
+                )

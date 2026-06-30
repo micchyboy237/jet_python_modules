@@ -51,6 +51,7 @@ def dispatch_handlers(
     verbose: bool = False,
 ) -> None:
     """Fire on_segment_end on every registered handler. Errors are caught per-handler."""
+    # Normalize audio for better VAD detection
     seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, sample_rate)
     duration = speech_seg["duration"]
     if duration >= DEFAULT_SOFT_LIMIT_SEC:
