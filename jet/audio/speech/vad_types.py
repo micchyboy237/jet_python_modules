@@ -1,6 +1,4 @@
-# jet_python_modules/jet/audio/speech/vad_types.py
-
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 
 class VADSegment(TypedDict):
@@ -51,8 +49,11 @@ class TroughToTroughSegment(TypedDict):
     duration_s: float
     start_frame: int
     end_frame: int
-    trough_start: Optional[ValleyTrough]  # None for first segment (t=0)
-    trough_end: Optional[ValleyTrough]  # None for last segment (end of audio)
+    trough_start: Optional[ValleyTrough]
+    trough_end: Optional[ValleyTrough]
+    # Added for with_scores support
+    segment_probs: Optional[List[float]]
+    prob_stats: Optional[Dict[str, float]]
 
 
 class StreamVadFrame(TypedDict):
