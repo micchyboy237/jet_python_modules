@@ -1,27 +1,44 @@
+# speech_waves.py
+
 from __future__ import annotations
 
 import dataclasses
 import json
 import math
-import shutil
 import statistics
 from pathlib import Path
 from typing import List, Literal, Optional
 
-import matplotlib.colors as mcolors
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io.wavfile as wavfile
-from jet.audio.audio_types import AudioInput, MergedWaveInfo, SpeechWave
+from jet.audio.audio_types import AudioInput, SpeechWave
+from jet.audio.audio_waveform.vad.vad_firered import (
+    extract_speech_timestamps,
+)
 from jet.audio.helpers.config import HOP_SIZE, SAMPLE_RATE
 from jet.audio.helpers.energy_base import (
     compute_rms_per_frame,
-    normalize_energy,
 )
+from jet.audio.normalization.dtype_conversion import convert_audio_dtype
 from jet.audio.utils.loader import load_audio
+from rich.console import Console
+
+DEFAULT_THRESHOLD = 0.3
+
+DEFAULT_MIN_PROMINENCE = 0.05
+DEFAULT_MIN_EXCURSION = 0.04
+DEFAULT_MIN_PEAK_PROB = 0.55
+DEFAULT_MIN_FRAMES = 3
+DEFAULT_MIN_DURATION_SEC = 1.0
+DEFAULT_BASELINE_THRESHOLD = 0.1
+
+DEFAULT_MIN_SPEECH_DURATION_MS = 1000
+DEFAULT_MIN_SILENCE_DURATION_MS = 100
 
 WaveState = Literal["below", "above"]
+
+console = Console()
 
 
 @dataclasses.dataclass
@@ -38,177 +55,21 @@ class WaveShapeConfig:
         min_peak_prob: Absolute floor — the peak frame must reach at least
             this probability (guards against waves that never really fire).
         min_frames: Waves shorter than this many frames are discarded.
-        max_merge_gap_frames: If two consecutive raw waves are separated by a
-            gap of this many frames or fewer, they are fused into one wave
-            before shape validation. Set to 0 to disable merging entirely.
-            At 10 ms/frame the default of 15 means gaps up to 150 ms are bridged.
-        min_duration_sec: After merging, any wave whose duration is still
-            shorter than this value (in seconds) is marked invalid and dropped.
-            Default 0.08 s (80 ms) — roughly the shortest recognisable phoneme.
+        min_duration_sec: Minimum wall-clock duration in seconds. Waves
+            shorter than this are rejected even if they pass frame and shape
+            checks. Derived independently of min_frames so both constraints
+            must be satisfied.
+        baseline_threshold: Probability threshold used to determine when a
+            wave has truly fallen back to baseline/silence level. Used to
+            detect wave boundaries and preroll adjustments.
     """
 
-    min_prominence: float = 0.05
-    min_excursion: float = 0.04
-    min_peak_prob: float = 0.55
-    min_frames: int = 3
-    max_merge_gap_frames: int = 15  # bridge gaps ≤ 150 ms (at 10 ms/frame)
-    min_duration_sec: float = 0.08  # drop anything still shorter than 80 ms
-
-
-def _recompute_wave_details(
-    wave: SpeechWave,
-    speech_probs: List[float],
-    crossing: np.ndarray,
-    sampling_rate: int,
-    shape_cfg: WaveShapeConfig,
-    open_threshold: float = 0.5,
-    merge_count: int = 0,
-) -> SpeechWave:
-    """
-    Recalculate all detail fields for *wave* using the global prob/hybrid arrays.
-
-    Call this after adjusting frame_start / frame_end (e.g. after a merge) so
-    that min/max/avg/std and shape diagnostics are always consistent with the
-    actual frame boundaries stored in the wave.
-    """
-    frame_start = wave["details"]["frame_start"]
-    frame_end = wave["details"]["frame_end"]
-    frame_len = frame_end - frame_start
-
-    wave_probs = speech_probs[frame_start:frame_end]
-    wave_hybrid = list(crossing[frame_start:frame_end])
-
-    entry_prob = speech_probs[frame_start - 1] if frame_start > 0 else 0.0
-    exit_prob = speech_probs[frame_end] if frame_end < len(speech_probs) else 0.0
-
-    shape_ok, shape_diag = is_prominent_wave(
-        wave_probs, entry_prob, exit_prob, shape_cfg
-    )
-
-    duration_sec = frame_len * HOP_SIZE / sampling_rate
-    start_sec = frame_start * HOP_SIZE / sampling_rate
-    end_sec = frame_end * HOP_SIZE / sampling_rate
-
-    # Compose merged/recombination diagnostics.
-    merged = merge_count > 0
-
-    wave["start_sec"] = start_sec
-    wave["end_sec"] = end_sec
-    wave["details"] = {
-        "frame_start": frame_start,
-        "frame_end": frame_end,
-        "frame_len": frame_len,
-        "duration_sec": duration_sec,
-        "min_prob": min(wave_probs) if wave_probs else 0.0,
-        "max_prob": max(wave_probs) if wave_probs else 0.0,
-        "avg_prob": statistics.mean(wave_probs) if wave_probs else 0.0,
-        "std_prob": statistics.stdev(wave_probs) if frame_len > 1 else 0.0,
-        "avg_hybrid": float(np.mean(wave_hybrid)) if wave_hybrid else 0.0,
-        # Count frames where the *hybrid* signal (not raw prob) stays above
-        # the open threshold — this is what "holding above speech level" means.
-        "rms_hold_frames": int(np.sum(np.asarray(wave_hybrid) >= open_threshold)),
-        "merge_count": merge_count,
-        "merged": merged,
-        "merged_waves": [],  # populated by merge_raw_waves after absorption
-        **shape_diag,
-    }
-    wave["is_valid"] = (
-        wave["has_risen"]
-        and wave["has_multi_passed"]
-        and shape_ok
-        and duration_sec >= shape_cfg.min_duration_sec
-    )
-    return wave
-
-
-def merge_raw_waves(
-    raw_waves: List[SpeechWave],
-    speech_probs: List[float],
-    crossing: np.ndarray,
-    sampling_rate: int,
-    shape_cfg: WaveShapeConfig,
-    open_threshold: float = 0.5,
-) -> List[SpeechWave]:
-    """
-    Fuse consecutive raw waves whose inter-wave gap is small.
-
-    Why this helps
-    --------------
-    A single spoken word can produce two or three short probability bursts if
-    the speaker takes a micro-breath or the VAD dips briefly between phonemes.
-    Each burst alone may be too short to pass ``min_frames``, but the combined
-    wave is long enough and carries all the speech data.
-
-    Algorithm
-    ---------
-    1. Walk the list left-to-right.
-    2. When the gap between wave[i].frame_end and wave[i+1].frame_start is
-       ≤ max_merge_gap_frames, extend wave[i]'s frame_end to cover wave[i+1]
-       and accumulate the merge count, then skip wave[i+1].
-    3. After merging boundaries, call _recompute_wave_details so all stats
-       (min/max/avg/shape) reflect the new, wider window.
-    4. Return the merged list (may be shorter than the input).
-    """
-    if not raw_waves or shape_cfg.max_merge_gap_frames <= 0:
-        return raw_waves
-
-    merged: List[SpeechWave] = []
-    current = raw_waves[0]
-    merge_count = 0
-    absorbed: List[MergedWaveInfo] = []
-
-    for next_wave in raw_waves[1:]:
-        gap = next_wave["details"]["frame_start"] - current["details"]["frame_end"]
-        if gap <= shape_cfg.max_merge_gap_frames:
-            # ── Absorb next_wave into current ──────────────────────────────
-            # Extend the right boundary to the end of the next wave.
-            current["details"]["frame_end"] = next_wave["details"]["frame_end"]
-            # Inherit the "fallen" flag only if next wave had truly fallen.
-            current["has_fallen"] = next_wave["has_fallen"]
-            # A merged wave definitely crossed the threshold more than once.
-            current["has_multi_passed"] = True
-            merge_count += 1
-            absorbed.append(
-                MergedWaveInfo(
-                    frame_start=next_wave["details"]["frame_start"],
-                    frame_end=next_wave["details"]["frame_end"],
-                    start_sec=next_wave["start_sec"],
-                    end_sec=next_wave["end_sec"],
-                    duration_sec=next_wave["details"].get("duration_sec", 0.0),
-                    max_prob=next_wave["details"].get("max_prob", 0.0),
-                    prominence=next_wave["details"].get("prominence", 0.0),
-                )
-            )
-        else:
-            # ── Finalise current and start fresh ───────────────────────────
-            current = _recompute_wave_details(
-                current,
-                speech_probs,
-                crossing,
-                sampling_rate,
-                shape_cfg,
-                open_threshold,
-                merge_count,
-            )
-            current["details"]["merged_waves"] = absorbed
-            merged.append(current)
-            current = next_wave
-            merge_count = 0
-            absorbed = []
-
-    # Handle the last item in the chain.
-    current = _recompute_wave_details(
-        current,
-        speech_probs,
-        crossing,
-        sampling_rate,
-        shape_cfg,
-        open_threshold,
-        merge_count,
-    )
-    current["details"]["merged_waves"] = absorbed
-    merged.append(current)
-    return merged
+    min_prominence: float = DEFAULT_MIN_PROMINENCE
+    min_excursion: float = DEFAULT_MIN_EXCURSION
+    min_peak_prob: float = DEFAULT_MIN_PEAK_PROB
+    min_frames: int = DEFAULT_MIN_FRAMES
+    min_duration_sec: float = DEFAULT_MIN_DURATION_SEC
+    baseline_threshold: float = DEFAULT_BASELINE_THRESHOLD
 
 
 def is_prominent_wave(
@@ -257,260 +118,587 @@ def is_prominent_wave(
     return passed, diagnostics
 
 
-def compute_hybrid_signal(
-    speech_probs: List[float],
-    rms_values: List[float],
-    prob_weight: float = 0.5,
-    rms_weight: float = 0.5,
-) -> np.ndarray:
-    """
-    Combine speech probability and RMS energy into a single hybrid score
-    per frame.
-
-    Both inputs are brought to the same [0, 1] scale first:
-      - speech_probs are already in [0, 1] from the VAD model.
-      - rms_values are normalized against the loudest frame in the window.
-
-    The result is a weighted average:
-        hybrid[i] = prob_weight * prob[i] + rms_weight * norm_rms[i]
-
-    Weights do NOT need to sum to 1.0, but doing so keeps the output in
-    [0, 1], which makes the existing threshold (default 0.5) directly
-    comparable to using probability alone.
-
-    Args:
-        speech_probs: Per-frame VAD probabilities from FireRedVAD.
-        rms_values:   Per-frame RMS energy values (raw, not normalized).
-        prob_weight:  How much the VAD probability contributes (default 0.5).
-        rms_weight:   How much the RMS energy contributes (default 0.5).
-
-    Returns:
-        np.ndarray of hybrid scores, one per frame, length = min(len(probs), len(rms)).
-    """
-    min_len = min(len(speech_probs), len(rms_values))
-    probs_arr = np.asarray(speech_probs[:min_len], dtype=np.float64)
-    rms_arr = np.asarray(rms_values[:min_len], dtype=np.float64)
-    # norm_rms = normalize_energy(rms_arr, clip=True)  # → [0, 1]
-
-    # --- Robust RMS normalization (p95 instead of max to avoid spikes) ---
-    if len(rms_arr) > 0:
-        p95 = np.percentile(rms_arr, 95)
-        denom = p95 if p95 > 1e-8 else 1e-8
-        norm_rms = np.clip(rms_arr / denom, 0.0, 1.0)
-    else:
-        norm_rms = rms_arr
-
-    hybrid = prob_weight * probs_arr + rms_weight * norm_rms
-    return hybrid
-
-
-def get_speech_waves(
-    audio: AudioInput,
-    speech_probs: List[float],
-    threshold: float = 0.5,
-    close_threshold: Optional[float] = None,
-    sampling_rate: int = SAMPLE_RATE,
-    shape_cfg: Optional[WaveShapeConfig] = None,
-    prob_weight: float = 0.5,
-    rms_weight: float = 0.5,
-    disable_merge: bool = False,
-) -> List[SpeechWave]:
-    """
-    Identify complete speech waves (rise → sustained high → fall) from FireRedVAD probabilities.
-
-    prob_weight / rms_weight control the hybrid VAD+energy signal used for
-    threshold crossing. Both default to 0.5 (equal blend). Set rms_weight=0
-    to restore the original probability-only behaviour.
-
-    close_threshold: If given, hysteresis is enabled: wave closes on a lower
-    threshold than it opens. If not, uses threshold for both open/close.
-    """
-    audio_np, loaded_sr = load_audio(audio, sr=sampling_rate, mono=True)
-    all_waves = check_speech_waves(
-        speech_probs=speech_probs,
-        threshold=threshold,
-        close_threshold=close_threshold,
-        sampling_rate=loaded_sr,
-        shape_cfg=shape_cfg,
-        audio_np=audio_np,
-        prob_weight=prob_weight,
-        rms_weight=rms_weight,
-        disable_merge=disable_merge,
-    )
-    valid_waves: List[SpeechWave] = []
-    for wave in all_waves:
-        if wave.get("is_valid", False):
-            valid_waves.append(wave)
-    return valid_waves
-
-
 def check_speech_waves(
     speech_probs: List[float],
-    threshold: float = 0.5,
-    close_threshold: Optional[float] = None,
+    threshold: float = DEFAULT_THRESHOLD,
     sampling_rate: int = SAMPLE_RATE,
     shape_cfg: Optional[WaveShapeConfig] = None,
-    audio_np: Optional[np.ndarray] = None,
-    prob_weight: float = 0.5,
-    rms_weight: float = 0.5,
-    disable_merge: bool = False,
 ) -> List[SpeechWave]:
-    """
-    Analyze speech probabilities from FireRedVAD and return complete wave
-    metadata.  Updated for 10 ms hop length (HOP_SIZE samples per frame).
-
-    When audio_np is provided the function computes a hybrid signal that
-    blends VAD probability with normalised RMS energy (controlled by
-    prob_weight / rms_weight).  Wave boundaries (rise/fall) are decided on
-    this hybrid signal instead of raw probability, making detection more
-    robust against frames where the model is confident but the microphone
-    captured almost no energy, or vice-versa.
-
-    When audio_np is None the function falls back to probability-only mode
-    (original behaviour).
-
-    If close_threshold is specified, the signal must drop below this value
-    to close — creating hysteresis behaviour for more stable endpointing.
-    """
-
-    # If no separate close threshold is given, use the same value as open.
-    _close_threshold = close_threshold if close_threshold is not None else threshold
-
-    # ──────────────────────────────────────────────────────────────
-    # Phase 0: Parameter / input setup
     if shape_cfg is None:
-        shape_cfg = WaveShapeConfig(
-            max_merge_gap_frames=WaveShapeConfig.max_merge_gap_frames
-            if not disable_merge
-            else 0
-        )
+        shape_cfg = WaveShapeConfig()
 
     if not speech_probs:
         return []
 
-    # ── Build per-frame RMS and hybrid signal ─────────────────────────────
-    n_frames = len(speech_probs)
-    if audio_np is not None and len(audio_np) > 0:
-        rms_all = compute_rms_per_frame(audio_np, HOP_SIZE, 0, n_frames - 1)
-        hybrid_signal = compute_hybrid_signal(
-            speech_probs, rms_all, prob_weight, rms_weight
-        )
-    else:
-        # Fallback: treat pure probability as the hybrid signal
-        rms_all = [0.0] * n_frames
-        hybrid_signal = np.asarray(speech_probs, dtype=np.float64)
-
-    crossing = hybrid_signal  # thresholding and window logic always uses this
-
     waves: List[SpeechWave] = []
-    current_wave: Optional[SpeechWave] = None
+    current_wave: SpeechWave | None = None
     state: WaveState = "below"
-    rise_frame_idx: Optional[int] = None
+    rise_frame_idx: int | None = None
+
+    if speech_probs:
+        if speech_probs[0] < shape_cfg.baseline_threshold:
+            current_wave = SpeechWave(
+                has_risen=False,
+                has_multi_passed=False,
+                has_fallen=False,
+                is_valid=False,
+                start_sec=0.0,
+                end_sec=0.0,
+                details={
+                    "frame_start": 0,
+                    "frame_end": 0,
+                    "frame_len": 0,
+                    "duration_sec": 0.0,
+                    "min_prob": speech_probs[0],
+                    "max_prob": speech_probs[0],
+                    "avg_prob": speech_probs[0],
+                    "std_prob": 0.0,
+                    "composite_score": 0.0,
+                },
+            )
+            state = "below"
+
+        elif speech_probs[0] >= threshold:
+            state = "above"
 
     for i, prob in enumerate(speech_probs):
         frame_time_sec = i * HOP_SIZE / sampling_rate
-        hybrid_val = float(crossing[i]) if i < len(crossing) else prob
 
         if state == "below":
-            # open: signal crosses UP past open_threshold
-            if hybrid_val >= threshold:
+            if prob >= threshold:
                 rise_frame_idx = i
+
+                # ── Preroll: walk back from rise_frame_idx until we find a
+                #    frame strictly below baseline_threshold (or hit index 0).
+                preroll_start = rise_frame_idx
+                while (
+                    preroll_start > 0
+                    and speech_probs[preroll_start - 1] >= shape_cfg.baseline_threshold
+                ):
+                    preroll_start -= 1
+                preroll_start_sec = preroll_start * HOP_SIZE / sampling_rate
+
                 current_wave = SpeechWave(
-                    has_risen=True,
+                    has_risen=current_wave["has_risen"] if current_wave else True,
                     has_multi_passed=False,
                     has_fallen=False,
                     is_valid=False,
-                    start_sec=frame_time_sec,
-                    end_sec=frame_time_sec,
+                    start_sec=preroll_start_sec,
+                    end_sec=preroll_start_sec,
                     details={
-                        "frame_start": i,
-                        "frame_end": i,
+                        "frame_start": preroll_start,
+                        "frame_end": preroll_start,
                         "frame_len": 0,
                         "duration_sec": 0.0,
                         "min_prob": prob,
                         "max_prob": prob,
                         "avg_prob": prob,
                         "std_prob": 0.0,
-                        "avg_hybrid": hybrid_val,
-                        "rms_hold_frames": 0,
-                        "merge_count": 0,
+                        "composite_score": 0.0,
                     },
                 )
+
                 state = "above"
-        else:  # state == "above"
-            if hybrid_val >= _close_threshold:
-                # ── Signal is "alive" — anywhere at or above the close floor ──
-                # This covers three sub-zones:
-                #   a) hybrid_val >= threshold          → strongly above open level
-                #   b) _close_threshold <= hybrid_val < threshold → hysteresis band
-                # In all cases the wave is still open and counts as sustained.
+        else:
+            if prob >= threshold:
                 if current_wave is not None:
                     current_wave["has_multi_passed"] = True
             else:
-                # ── Signal fell below the close threshold — end the wave ───────
                 if current_wave is not None:
-                    current_wave["has_fallen"] = True
-                    frame_start = rise_frame_idx if rise_frame_idx is not None else 0
+                    if prob <= shape_cfg.baseline_threshold:
+                        current_wave["has_fallen"] = True
+
+                    # frame_start uses the preroll-adjusted value stored in details
+                    frame_start = current_wave["details"]["frame_start"]
                     frame_end = i
-                    # Only update frame indices in details; keep other fields
-                    current_wave["details"]["frame_start"] = frame_start
-                    current_wave["details"]["frame_end"] = frame_end
-                    # Recompute all details cleanly for this wave
-                    current_wave = _recompute_wave_details(
-                        current_wave,
-                        speech_probs,
-                        crossing,
-                        sampling_rate,
-                        shape_cfg,
-                        open_threshold=threshold,
-                        merge_count=0,
+                    wave_probs = speech_probs[frame_start:frame_end]
+                    frame_len = frame_end - frame_start
+
+                    # entry_prob: the frame immediately before the preroll start
+                    entry_prob = (
+                        speech_probs[frame_start - 1] if frame_start > 0 else 0.0
                     )
-                    waves.append(current_wave)
-                current_wave = None
-                rise_frame_idx = None
-                state = "below"
+                    exit_prob = prob
 
-            # else: still in hysteresis band — stay open, do nothing
+                    shape_ok, shape_diag = is_prominent_wave(
+                        wave_probs, entry_prob, exit_prob, shape_cfg
+                    )
 
+                    duration_sec = frame_time_sec - current_wave["start_sec"]
+                    duration_ok = duration_sec >= shape_cfg.min_duration_sec
+
+                    current_wave["is_valid"] = (
+                        current_wave["has_risen"]
+                        and current_wave["has_multi_passed"]
+                        and current_wave["has_fallen"]
+                        and shape_ok
+                        and duration_ok
+                    )
+                    current_wave["end_sec"] = frame_time_sec
+                    current_wave["details"] = {
+                        "frame_start": frame_start,
+                        "frame_end": frame_end,
+                        "frame_len": frame_len,
+                        "duration_sec": duration_sec,
+                        "min_prob": min(wave_probs) if wave_probs else 0.0,
+                        "max_prob": max(wave_probs) if wave_probs else 0.0,
+                        "avg_prob": statistics.mean(wave_probs) if wave_probs else 0.0,
+                        "std_prob": statistics.stdev(wave_probs)
+                        if frame_len > 1
+                        else 0.0,
+                        "duration_ok": duration_ok,
+                        **shape_diag,
+                        "composite_score": 0.0,
+                    }
+                    current_wave["details"]["composite_score"] = (
+                        compute_composite_score(current_wave)
+                    )
+
+                # FIX: Only append if current_wave is not None
+                if prob < shape_cfg.baseline_threshold:
+                    if current_wave is not None:
+                        waves.append(current_wave)
+                    current_wave = None
+                    rise_frame_idx = None
+                    state = "below"
+
+    # FIX: Handle a wave that never fell back below the threshold
+    # Guard ensures we only append if current_wave exists
     if current_wave is not None:
         current_wave["has_fallen"] = False
         current_wave["is_valid"] = False
+        current_wave["end_sec"] = len(speech_probs) * HOP_SIZE / sampling_rate
+
         if rise_frame_idx is not None:
-            frame_start = rise_frame_idx
+            # frame_start is already preroll-adjusted in details
+            frame_start = current_wave["details"]["frame_start"]
             frame_end = len(speech_probs)
-            # Only update frame indices in details; keep other fields
-            current_wave["details"]["frame_start"] = frame_start
-            current_wave["details"]["frame_end"] = frame_end
-            # Tail waves haven't fallen — use threshold as a stand-in exit prob
-            # so _recompute can still run is_prominent_wave consistently.
-            # _recompute will also set start_sec / end_sec / duration_sec correctly.
-            current_wave = _recompute_wave_details(
-                current_wave,
-                speech_probs,
-                crossing,
-                sampling_rate,
-                shape_cfg,
-                open_threshold=threshold,
-                merge_count=0,
+            wave_probs = speech_probs[frame_start:frame_end]
+            frame_len = frame_end - frame_start
+            duration_sec = current_wave["end_sec"] - current_wave["start_sec"]
+            entry_prob = speech_probs[frame_start - 1] if frame_start > 0 else 0.0
+            exit_prob = threshold
+            shape_ok, shape_diag = is_prominent_wave(
+                wave_probs, entry_prob, exit_prob, shape_cfg
             )
-            # Override is_valid: a wave that hasn't fallen is not valid yet.
-            current_wave["is_valid"] = False
+            current_wave["details"] = {
+                "frame_start": frame_start,
+                "frame_end": frame_end,
+                "frame_len": frame_len,
+                "duration_sec": duration_sec,
+                "min_prob": min(wave_probs) if wave_probs else 0.0,
+                "max_prob": max(wave_probs) if wave_probs else 0.0,
+                "avg_prob": statistics.mean(wave_probs) if wave_probs else 0.0,
+                "std_prob": statistics.stdev(wave_probs) if frame_len > 1 else 0.0,
+                "duration_ok": False,
+                **shape_diag,
+                "composite_score": 0.0,
+            }
+            current_wave["details"]["composite_score"] = compute_composite_score(
+                current_wave
+            )
+
         waves.append(current_wave)
 
-    # ── Phase 2: merge nearby raw waves ────────────────────────────────
-    # Fuse pairs (or chains) of waves whose inter-wave gap is short enough,
-    # then re-validate each merged wave.  This recovers speech data that
-    # would otherwise be dropped as individual short waves.
-    waves = merge_raw_waves(
-        waves,
-        speech_probs,
-        crossing,
-        sampling_rate,
-        shape_cfg,
-        open_threshold=threshold,
+    return waves
+
+
+def get_speech_waves(
+    audio: AudioInput,
+    speech_probs: List[float],
+    threshold: float = DEFAULT_THRESHOLD,
+    sampling_rate: int = SAMPLE_RATE,
+    shape_cfg: Optional[WaveShapeConfig] = None,
+    with_audio: bool = False,
+) -> List[SpeechWave] | List[Tuple[SpeechWave, np.ndarray]]:
+    """
+    Identify complete speech waves (rise → sustained high → fall) from FireRedVAD probabilities.
+
+    Follows the same pipeline as _main_speech_waves.main():
+      1. Runs shape analysis on pre-computed VAD scores
+      2. Filters to valid waves
+      3. Optionally loads audio and extracts segments
+
+    Args:
+        audio: Audio input (file path, bytes, numpy array, or torch tensor)
+        speech_probs: Speech probability scores from VAD
+        threshold: VAD probability threshold
+        sampling_rate: Audio sample rate in Hz
+        shape_cfg: Configuration for wave shape validation (defaults to WaveShapeConfig())
+        with_audio: If True, returns list of tuples (SpeechWave, np.ndarray) with
+                   the audio data for each wave extracted from the loaded audio
+
+    Returns:
+        If with_audio=False: List[SpeechWave] containing valid speech waves
+        If with_audio=True: List[Tuple[SpeechWave, np.ndarray]] containing valid
+                           speech waves paired with their audio segments
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info(
+        f"get_speech_waves called with with_audio={with_audio}, threshold={threshold}"
     )
 
-    return waves
+    if shape_cfg is None:
+        shape_cfg = WaveShapeConfig()
+        logger.debug(f"Using default WaveShapeConfig: {shape_cfg}")
+
+    # Step 1: Shape analysis on existing scores (same as _main_speech_waves)
+    all_waves = check_speech_waves(
+        speech_probs=speech_probs,
+        threshold=threshold,
+        sampling_rate=sampling_rate,
+        shape_cfg=shape_cfg,
+    )
+    logger.info(f"Total waves detected: {len(all_waves)}")
+
+    # Step 2: Filter to valid waves only
+    valid_waves: List[SpeechWave] = []
+    for wave in all_waves:
+        if wave.get("is_valid", False):
+            valid_waves.append(wave)
+
+    logger.info(f"Valid waves (without audio): {len(valid_waves)}")
+
+    # Step 3: Return early if audio extraction not requested
+    if not with_audio:
+        return valid_waves
+
+    # Step 4: Load audio only when needed for extraction
+    loaded_audio, loaded_sr = load_audio(audio, sr=sampling_rate, mono=True)
+    logger.debug(
+        f"Audio loaded for extraction: shape={loaded_audio.shape}, sr={loaded_sr}"
+    )
+
+    # Step 5: Extract audio segments
+    valid_waves_with_audio: List[Tuple[SpeechWave, np.ndarray]] = []
+    for wave in valid_waves:
+        frame_start = wave["details"]["frame_start"]
+        frame_end = wave["details"]["frame_end"]
+
+        start_sample = frame_start * HOP_SIZE
+        end_sample = (frame_end + 1) * HOP_SIZE
+        start_sample = max(0, start_sample)
+        end_sample = min(len(loaded_audio), end_sample)
+
+        if end_sample > start_sample:
+            wave_audio = loaded_audio[start_sample:end_sample].copy()
+            valid_waves_with_audio.append((wave, wave_audio))
+            logger.debug(
+                f"Wave audio extracted: frames [{frame_start}:{frame_end}], "
+                f"samples [{start_sample}:{end_sample}], "
+                f"duration={wave['details']['duration_sec']:.3f}s"
+            )
+
+    logger.info(f"Valid waves (with audio): {len(valid_waves_with_audio)}")
+    return valid_waves_with_audio
+
+
+def get_valid_speech_waves(
+    audio: AudioInput,
+    sampling_rate: int = SAMPLE_RATE,
+    vad_threshold: float = DEFAULT_THRESHOLD,
+    min_prominence: float = DEFAULT_MIN_PROMINENCE,
+    min_excursion: float = DEFAULT_MIN_EXCURSION,
+    min_peak_prob: float = DEFAULT_MIN_PEAK_PROB,
+    min_frames: int = DEFAULT_MIN_FRAMES,
+    min_duration_sec: float = DEFAULT_MIN_DURATION_SEC,
+    baseline_threshold: float = DEFAULT_BASELINE_THRESHOLD,
+    min_speech_duration_ms: int = DEFAULT_MIN_SPEECH_DURATION_MS,
+    min_silence_duration_ms: int = DEFAULT_MIN_SILENCE_DURATION_MS,
+    with_audio: bool = False,
+) -> List[SpeechWave] | List[Tuple[SpeechWave, np.ndarray]]:
+    """
+    Identify valid speech waves from audio using VAD and shape analysis.
+
+    This function follows the same pipeline as _main_speech_waves.main():
+      1. Loads audio (accepts file path, bytes, numpy array, or torch tensor)
+      2. Runs VAD (extract_speech_timestamps) to get probability scores
+      3. Identifies speech waves via shape analysis (check_speech_waves)
+      4. Filters to only valid (is_valid=True) waves
+      5. Optionally extracts audio segments for each wave
+
+    All parameters default to the module-level DEFAULT_* constants,
+    matching the all-defaults usage in _main_speech_waves.
+
+    Args:
+        audio: Audio input — file path (str/Path), bytes, numpy array, or torch tensor.
+               Accepts the same types as load_audio() (AudioInput union).
+        sampling_rate: Audio sampling rate in Hz (used when audio is not a file)
+        vad_threshold: VAD probability threshold (above = speech)
+        min_prominence: Minimum peak prominence above baseline
+        min_excursion: Minimum peak-to-valley excursion
+        min_peak_prob: Minimum peak probability
+        min_frames: Minimum frames per wave
+        min_duration_sec: Minimum wave duration in seconds
+        baseline_threshold: Probability threshold for silence/baseline
+        min_speech_duration_ms: Minimum speech segment for VAD
+        min_silence_duration_ms: Minimum silence gap for VAD
+        with_audio: If True, returns list of tuples (SpeechWave, np.ndarray)
+                   with the audio data for each wave extracted from the input audio
+
+    Returns:
+        If with_audio=False: List[SpeechWave] containing valid speech waves.
+        If with_audio=True: List[Tuple[SpeechWave, np.ndarray]] containing valid
+                           speech waves paired with their audio segments.
+        Returns empty list if no valid speech found or VAD fails.
+
+    Example:
+        >>> # With file path
+        >>> waves = get_valid_speech_waves("recording.wav")
+        >>>
+        >>> # With audio extraction
+        >>> waves_with_audio = get_valid_speech_waves("recording.wav", with_audio=True)
+        >>> for wave, audio_chunk in waves_with_audio:
+        ...     print(f"Duration: {wave['details']['duration_sec']:.2f}s")
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info(
+        f"get_valid_speech_waves called with with_audio={with_audio}, "
+        f"vad_threshold={vad_threshold}, min_duration={min_duration_sec}s"
+    )
+
+    # Build WaveShapeConfig from parameters (all default to module constants)
+    shape_cfg = WaveShapeConfig(
+        min_prominence=min_prominence,
+        min_excursion=min_excursion,
+        min_peak_prob=min_peak_prob,
+        min_frames=min_frames,
+        min_duration_sec=min_duration_sec,
+        baseline_threshold=baseline_threshold,
+    )
+    logger.debug(f"WaveShapeConfig: {shape_cfg}")
+
+    # Step 1: Load audio (handles file path, bytes, numpy array, or torch tensor)
+    #          Uses the same load_audio as _main_speech_waves.main()
+    audio_np, sr = load_audio(audio, sr=sampling_rate, mono=True)
+    logger.debug(
+        f"Audio loaded: shape={audio_np.shape}, sr={sr}, dtype={audio_np.dtype}"
+    )
+
+    # Step 2: Run VAD — same call as _main_speech_waves.main()
+    try:
+        _, scores = extract_speech_timestamps(
+            audio=audio_np,
+            include_non_speech=False,
+            threshold=vad_threshold,
+            min_speech_duration_sec=min_speech_duration_ms / 1000.0,
+            min_silence_duration_sec=min_silence_duration_ms / 1000.0,
+            with_scores=True,
+        )
+    except Exception as e:
+        logger.error(f"VAD extraction failed: {e}")
+        console.print(f"[error]VAD extraction failed: {e}[/error]")
+        return []
+
+    if not scores:
+        logger.warning("No speech scores returned from VAD")
+        return []
+
+    logger.info(f"VAD produced {len(scores)} probability scores")
+
+    # Step 3: Shape analysis — same call chain as _main_speech_waves.main()
+    all_waves = check_speech_waves(
+        speech_probs=scores,
+        threshold=vad_threshold,
+        sampling_rate=sr,
+        shape_cfg=shape_cfg,
+    )
+    logger.info(f"Total waves detected by shape analysis: {len(all_waves)}")
+
+    # Step 4: Filter to valid waves only (is_valid=True)
+    valid_waves: List[SpeechWave] = []
+    for wave in all_waves:
+        if wave is None:
+            continue
+        if not isinstance(wave, dict):
+            continue
+        if not wave.get("is_valid", False):
+            continue
+        valid_waves.append(wave)
+
+    logger.info(f"Valid waves after filtering: {len(valid_waves)}")
+
+    # Step 5: Return early if audio extraction not requested
+    if not with_audio:
+        return valid_waves
+
+    # Step 6: Extract audio segments for each valid wave
+    valid_waves_with_audio: List[Tuple[SpeechWave, np.ndarray]] = []
+    for wave in valid_waves:
+        frame_start = wave["details"]["frame_start"]
+        frame_end = wave["details"]["frame_end"]
+
+        # Convert frame indices to sample indices using HOP_SIZE (160 samples = 10ms)
+        start_sample = frame_start * HOP_SIZE
+        end_sample = (frame_end + 1) * HOP_SIZE
+
+        # Clamp to valid range within the loaded audio
+        start_sample = max(0, start_sample)
+        end_sample = min(len(audio_np), end_sample)
+
+        if end_sample > start_sample:
+            wave_audio = audio_np[start_sample:end_sample].copy()
+            valid_waves_with_audio.append((wave, wave_audio))
+            logger.debug(
+                f"Wave audio extracted: frames [{frame_start}:{frame_end}], "
+                f"samples [{start_sample}:{end_sample}], "
+                f"duration={wave['details']['duration_sec']:.3f}s"
+            )
+        else:
+            logger.warning(
+                f"Skipping wave with invalid sample range: "
+                f"frames [{frame_start}:{frame_end}] → "
+                f"samples [{start_sample}:{end_sample}] "
+                f"(audio_np length={len(audio_np)})"
+            )
+
+    logger.info(f"Valid waves (with audio): {len(valid_waves_with_audio)}")
+    return valid_waves_with_audio
+
+
+def extract_pure_speech_segments(
+    audio: np.ndarray,
+    sampling_rate: int = SAMPLE_RATE,
+    hop_size: int = HOP_SIZE,
+    vad_threshold: float = DEFAULT_THRESHOLD,
+    min_prominence: float = DEFAULT_MIN_PROMINENCE,
+    min_excursion: float = DEFAULT_MIN_EXCURSION,
+    min_peak_prob: float = DEFAULT_MIN_PEAK_PROB,
+    min_frames: int = DEFAULT_MIN_FRAMES,
+    min_duration_sec: float = DEFAULT_MIN_DURATION_SEC,
+    baseline_threshold: float = DEFAULT_BASELINE_THRESHOLD,
+    min_speech_duration_ms: int = DEFAULT_MIN_SPEECH_DURATION_MS,
+    min_silence_duration_ms: int = DEFAULT_MIN_SILENCE_DURATION_MS,
+) -> List[np.ndarray]:
+    """
+    Extract high-confidence speech audio segments from a raw waveform.
+
+    This function:
+    1. Calls get_valid_speech_waves to identify valid speech waves
+    2. Extracts audio samples for each wave based on frame indices
+
+    Args:
+        audio: Raw audio as numpy array (int16 or float32)
+        sampling_rate: Audio sampling rate in Hz
+        hop_size: Frame hop size for VAD processing
+        vad_threshold: VAD probability threshold (above = speech)
+        min_prominence: Minimum peak prominence above baseline
+        min_excursion: Minimum peak-to-valley excursion
+        min_peak_prob: Minimum peak probability
+        min_frames: Minimum frames per wave
+        min_duration_sec: Minimum wave duration in seconds
+        baseline_threshold: Probability threshold for silence/baseline
+        min_speech_duration_ms: Minimum speech segment for VAD
+        min_silence_duration_ms: Minimum silence gap for VAD
+
+    Returns:
+        List[np.ndarray]: List of speech audio segments (same dtype as input).
+        Returns empty list if no valid speech found.
+    """
+    # Get valid speech waves
+    valid_waves = get_valid_speech_waves(
+        audio=audio,
+        sampling_rate=sampling_rate,
+        vad_threshold=vad_threshold,
+        min_prominence=min_prominence,
+        min_excursion=min_excursion,
+        min_peak_prob=min_peak_prob,
+        min_frames=min_frames,
+        min_duration_sec=min_duration_sec,
+        baseline_threshold=baseline_threshold,
+        min_speech_duration_ms=min_speech_duration_ms,
+        min_silence_duration_ms=min_silence_duration_ms,
+    )
+
+    if not valid_waves:
+        return []
+
+    # Extract audio segments from each valid wave
+    speech_segments = []
+    for wave in valid_waves:
+        frame_start = wave["details"]["frame_start"]
+        frame_end = wave["details"]["frame_end"]
+
+        start_sample = frame_start * hop_size
+        end_sample = (frame_end + 1) * hop_size
+
+        start_sample = max(0, start_sample)
+        end_sample = min(len(audio), end_sample)
+
+        if end_sample > start_sample:
+            speech_segments.append(audio[start_sample:end_sample])
+
+    return speech_segments
+
+
+def extract_pure_speech_audio(
+    audio: np.ndarray,
+    sampling_rate: int = SAMPLE_RATE,
+    hop_size: int = HOP_SIZE,
+    vad_threshold: float = DEFAULT_THRESHOLD,
+    min_prominence: float = DEFAULT_MIN_PROMINENCE,
+    min_excursion: float = DEFAULT_MIN_EXCURSION,
+    min_peak_prob: float = DEFAULT_MIN_PEAK_PROB,
+    min_frames: int = DEFAULT_MIN_FRAMES,
+    min_duration_sec: float = DEFAULT_MIN_DURATION_SEC,
+    baseline_threshold: float = DEFAULT_BASELINE_THRESHOLD,
+    min_speech_duration_ms: int = DEFAULT_MIN_SPEECH_DURATION_MS,
+    min_silence_duration_ms: int = DEFAULT_MIN_SILENCE_DURATION_MS,
+) -> np.ndarray:
+    """
+    Extract high-confidence speech audio from a raw waveform and concatenate.
+
+    This is a convenience wrapper that:
+    1. Calls extract_pure_speech_segments to get individual speech segments
+    2. Concatenates them into a single audio array
+
+    Args:
+        audio: Raw audio as numpy array (int16 or float32)
+        sampling_rate: Audio sampling rate in Hz
+        hop_size: Frame hop size for VAD processing
+        vad_threshold: VAD probability threshold (above = speech)
+        min_prominence: Minimum peak prominence above baseline
+        min_excursion: Minimum peak-to-valley excursion
+        min_peak_prob: Minimum peak probability
+        min_frames: Minimum frames per wave
+        min_duration_sec: Minimum wave duration in seconds
+        baseline_threshold: Probability threshold for silence/baseline
+        min_speech_duration_ms: Minimum speech segment for VAD
+        min_silence_duration_ms: Minimum silence gap for VAD
+
+    Returns:
+        numpy.ndarray: Combined pure speech audio (same dtype as input).
+        Returns empty array if no valid speech found.
+    """
+    # Convert dtype
+    audio_int16 = convert_audio_dtype(audio, "int16")
+    audio = audio_int16
+
+    # Get individual speech segments
+    speech_segments = extract_pure_speech_segments(
+        audio=audio,
+        sampling_rate=sampling_rate,
+        hop_size=hop_size,
+        vad_threshold=vad_threshold,
+        min_prominence=min_prominence,
+        min_excursion=min_excursion,
+        min_peak_prob=min_peak_prob,
+        min_frames=min_frames,
+        min_duration_sec=min_duration_sec,
+        baseline_threshold=baseline_threshold,
+        min_speech_duration_ms=min_speech_duration_ms,
+        min_silence_duration_ms=min_silence_duration_ms,
+    )
+
+    # Concatenate and return
+    if not speech_segments:
+        return np.array([], dtype=audio.dtype)
+
+    return np.concatenate(speech_segments)
 
 
 def save_wave_audio(
@@ -528,75 +716,241 @@ def save_wave_audio(
     wavfile.write(output_path, sampling_rate, wave_audio)
 
 
+def compute_composite_score(wave: SpeechWave) -> float:
+    """
+    Composite quality score for ranking speech waves.
+
+    Formula:
+        score = avg_prob * prominence * log1p(duration_sec) * (1 + 0.3 * excursion)
+
+    Rationale for each term:
+    - avg_prob: rewards sustained confidence across the whole wave, not just
+      a single spike; a wave hovering at 0.95 outranks one that spikes once
+      and sits at 0.55.
+    - prominence: the mountain height above the noise floor (peak minus
+      baseline); guards against flat plateaus that happen to be above threshold.
+    - log1p(duration_sec): duration reward with diminishing returns so long
+      but featureless segments don't dominate short, sharp utterances.
+      log1p(1 s) ≈ 0.69, log1p(3 s) ≈ 1.39, log1p(10 s) ≈ 2.40.
+    - (1 + 0.3 * excursion): small multiplicative bonus for shape sharpness;
+      high excursion means the wave truly rises and falls rather than
+      lingering as a flat plateau. Coefficient 0.3 caps the bonus at ×1.3
+      (when excursion = 1.0) so it modulates rather than dominates.
+    """
+    d = wave["details"]
+    avg_prob = d.get("avg_prob", 0.0)
+    prominence = d.get("prominence", d["max_prob"])
+    duration_sec = d.get("duration_sec", 0.0)
+    excursion = d.get("excursion", 0.0)
+    return avg_prob * prominence * math.log1p(duration_sec) * (1.0 + 0.3 * excursion)
+
+
 def save_wave_plot(
     probs: List[float],
     rms_values: List[float],
     output_path: Path,
     wave_num: int,
     seg_num: int,
-    prob_weight: float = 0.5,
-    rms_weight: float = 0.5,
+    wave: Optional[SpeechWave] = None,
+    threshold: float = DEFAULT_THRESHOLD,
+    hop_size: int = HOP_SIZE,
+    sampling_rate: int = SAMPLE_RATE,
+    shape_cfg: Optional[WaveShapeConfig] = None,
 ) -> None:
-    """Create visualization plot with three panels:
-      1. VAD speech probability (with blue gradient fill)
-      2. Raw RMS energy (with green gradient fill)
-      3. Hybrid signal (weighted blend, with orange gradient fill)
-    Handles potential length mismatches between probs and rms_values.
     """
+    Create a two-panel visualization for a single speech wave.
+
+    Top panel — VAD probability:
+    - X-axis in milliseconds (real time, not frame index)
+    - Above-threshold region shaded in light blue
+    - Vertical dashed markers at wave start and end
+    - Baseline shown as a horizontal dashed line with label
+    - Peak annotated with a dot and probability label
+    - Metric text-box: peak, avg, prominence, excursion, baseline, composite,
+      duration (drawn in the upper-right corner so it never overlaps the curve)
+
+    Bottom panel — RMS energy:
+    - Normalised to [0, 1] within the plot window for readability at any
+      absolute amplitude; annotated with "(normalised)" on the y-axis
+    - Same x-axis and time markers as the top panel
+    """
+    if shape_cfg is None:
+        shape_cfg = WaveShapeConfig()
+
+    baseline_threshold = shape_cfg.baseline_threshold
+
+    # --- align arrays --------------------------------------------------------
     min_length = min(len(probs), len(rms_values))
     probs_aligned = probs[:min_length]
     rms_aligned = rms_values[:min_length]
-    hybrid = compute_hybrid_signal(probs_aligned, rms_aligned, prob_weight, rms_weight)
 
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 9), sharex=True)
+    # Convert frame indices to milliseconds
+    ms_per_frame = hop_size / sampling_rate * 1000.0
     frames = np.arange(min_length)
+    times_ms = frames * ms_per_frame
 
-    # --- Panel 1: VAD probability with blue gradient fill ---
-    _gradient_fill(
-        ax1,
-        frames,
-        np.asarray(probs_aligned),
-        color_top="royalblue",
-        color_bottom="white",
-        alpha=0.55,
-    )
-    ax1.plot(frames, probs_aligned, color="royalblue", linewidth=1, zorder=3)
-    ax1.axhline(y=0.5, color="red", linestyle="--", alpha=0.5, label="Threshold")
-    ax1.set_ylabel("VAD Probability")
-    ax1.set_ylim(0, 1)
-    ax1.grid(True, alpha=0.3)
-    ax1.set_title(f"Segment {seg_num:03d} - Wave {wave_num:03d} (Valid: {wave_num})")
-    ax1.legend()
+    # --- pull wave metadata --------------------------------------------------
+    d = wave["details"] if wave is not None else {}
+    peak_prob = d.get("max_prob", max(probs_aligned) if probs_aligned else 0.0)
+    avg_prob = d.get("avg_prob", 0.0)
+    prominence = d.get("prominence", 0.0)
+    excursion = d.get("excursion", 0.0)
+    baseline = d.get("baseline", 0.0)
+    duration_s = d.get("duration_sec", min_length * hop_size / sampling_rate)
+    composite = compute_composite_score(wave) if wave is not None else 0.0
 
-    # --- Panel 2: RMS energy with green gradient fill ---
-    rms_arr = np.asarray(rms_aligned)
-    _gradient_fill(
-        ax2, frames, rms_arr, color_top="seagreen", color_bottom="white", alpha=0.55
-    )
-    ax2.plot(frames, rms_arr, color="seagreen", linewidth=1, zorder=3)
-    ax2.set_ylabel("RMS Energy")
-    ax2.grid(True, alpha=0.3)
+    # Wave start/end in milliseconds relative to the wave window origin
+    # (frame_start is absolute; the slice already starts there, so t=0 in
+    # the plot is the wave's own first frame)
+    wave_start_ms = 0.0
+    wave_end_ms = duration_s * 1000.0
 
-    # --- Panel 3: Hybrid signal with orange gradient fill ---
-    _gradient_fill(
-        ax3, frames, hybrid, color_top="darkorange", color_bottom="white", alpha=0.55
-    )
-    ax3.plot(
-        frames,
-        hybrid,
-        color="darkorange",
-        linewidth=1.5,
-        label=f"Hybrid (prob×{prob_weight} + rms×{rms_weight})",
-        zorder=3,
-    )
-    ax3.axhline(y=0.5, color="red", linestyle="--", alpha=0.5, label="Threshold")
-    ax3.set_xlabel("Frame Index (relative to wave)")
-    ax3.set_ylabel("Hybrid Score")
-    ax3.set_ylim(0, max(1.0, float(hybrid.max()) * 1.05) if len(hybrid) else 1.0)
-    ax3.grid(True, alpha=0.3)
-    ax3.legend()
+    # --- normalise RMS -------------------------------------------------------
+    rms_arr = np.array(rms_aligned, dtype=float)
+    rms_max = rms_arr.max() if rms_arr.size and rms_arr.max() > 0 else 1.0
+    rms_norm = rms_arr / rms_max
 
-    plt.tight_layout()
+    # --- figure setup --------------------------------------------------------
+    fig, (ax1, ax2) = plt.subplots(
+        2,
+        1,
+        figsize=(11, 6),
+        sharex=True,
+        gridspec_kw={"height_ratios": [3, 1.6]},
+    )
+    fig.subplots_adjust(hspace=0.08, left=0.09, right=0.97, top=0.92, bottom=0.11)
+
+    # ── TOP PANEL: VAD probability ──────────────────────────────────────────
+    # Above-threshold shading
+    ax1.fill_between(
+        times_ms,
+        probs_aligned,
+        threshold,
+        where=[p >= threshold for p in probs_aligned],
+        alpha=0.18,
+        color="#2196F3",
+        interpolate=True,
+        label=None,
+    )
+
+    # Probability curve
+    ax1.plot(times_ms, probs_aligned, color="#1565C0", linewidth=1.4, zorder=3)
+
+    # Threshold line
+    ax1.axhline(
+        y=threshold,
+        color="#E53935",
+        linestyle="--",
+        linewidth=0.9,
+        alpha=0.7,
+        label=f"Threshold ({threshold:.2f})",
+    )
+
+    # Baseline threshold line
+    ax1.axhline(
+        y=baseline_threshold,
+        color="#6D4C41",
+        linestyle=":",
+        linewidth=1.0,
+        alpha=0.8,
+        label=f"Baseline threshold ({baseline_threshold:.3f})",
+    )
+
+    # Wave start / end vertical markers
+    ax1.axvline(
+        wave_start_ms,
+        color="#4CAF50",
+        linestyle="--",
+        linewidth=1.0,
+        alpha=0.7,
+        label="Wave start",
+    )
+    ax1.axvline(
+        wave_end_ms,
+        color="#FF7043",
+        linestyle="--",
+        linewidth=1.0,
+        alpha=0.7,
+        label="Wave end",
+    )
+
+    # Peak annotation
+    if probs_aligned:
+        peak_frame = int(np.argmax(probs_aligned))
+        peak_ms = times_ms[peak_frame]
+        ax1.plot(
+            peak_ms,
+            probs_aligned[peak_frame],
+            "o",
+            color="#E53935",
+            markersize=5,
+            zorder=5,
+        )
+        ax1.annotate(
+            f"{probs_aligned[peak_frame]:.3f}",
+            xy=(peak_ms, probs_aligned[peak_frame]),
+            xytext=(4, 4),
+            textcoords="offset points",
+            fontsize=8,
+            color="#E53935",
+            zorder=6,
+        )
+
+    # Metric text-box (upper-right corner)
+    metrics_text = (
+        f"peak:        {peak_prob:.3f}\n"
+        f"avg:         {avg_prob:.3f}\n"
+        f"prominence:  {prominence:.3f}\n"
+        f"excursion:   {excursion:.3f}\n"
+        f"baseline:    {baseline:.3f}\n"
+        f"duration:    {duration_s:.2f} s\n"
+        f"composite:   {composite:.4f}"
+    )
+    ax1.text(
+        0.985,
+        0.97,
+        metrics_text,
+        transform=ax1.transAxes,
+        fontsize=7.5,
+        family="monospace",
+        verticalalignment="top",
+        horizontalalignment="right",
+        bbox=dict(
+            boxstyle="round,pad=0.4",
+            facecolor="white",
+            edgecolor="#BDBDBD",
+            alpha=0.88,
+            linewidth=0.6,
+        ),
+        zorder=7,
+    )
+
+    ax1.set_ylabel("VAD probability", fontsize=9)
+    ax1.set_ylim(-0.05, 1.08)
+    ax1.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
+    ax1.grid(True, alpha=0.25, linewidth=0.5)
+    ax1.legend(fontsize=7.5, loc="upper left", framealpha=0.85, edgecolor="#BDBDBD")
+    ax1.set_title(
+        f"Segment {seg_num:03d}  ·  Wave {wave_num:03d}  ·  {duration_s * 1000:.0f} ms",
+        fontsize=10,
+        pad=6,
+    )
+
+    # ── BOTTOM PANEL: normalised RMS energy ─────────────────────────────────
+    ax2.fill_between(times_ms[: len(rms_norm)], rms_norm, alpha=0.25, color="#388E3C")
+    ax2.plot(times_ms[: len(rms_norm)], rms_norm, color="#2E7D32", linewidth=1.2)
+
+    ax2.axvline(
+        wave_start_ms, color="#4CAF50", linestyle="--", linewidth=1.0, alpha=0.7
+    )
+    ax2.axvline(wave_end_ms, color="#FF7043", linestyle="--", linewidth=1.0, alpha=0.7)
+
+    ax2.set_xlabel("Time (ms)", fontsize=9)
+    ax2.set_ylabel("RMS energy\n(normalised)", fontsize=8)
+    ax2.set_ylim(-0.05, 1.15)
+    ax2.set_yticks([0.0, 0.5, 1.0])
+    ax2.grid(True, alpha=0.25, linewidth=0.5)
+
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
@@ -610,237 +964,81 @@ def save_wave_data(
     seg_num: int,
     wave_num: int,
     hop_size: int = HOP_SIZE,
-    prob_weight: float = 0.5,
-    rms_weight: float = 0.5,
-) -> Path:
+    threshold: float = DEFAULT_THRESHOLD,
+    shape_cfg: Optional[WaveShapeConfig] = None,
+) -> None:
     """Save all wave-related data to the specified directory."""
     wave_dir = output_dir / f"segment_{seg_num:03d}_wave_{wave_num:03d}"
     wave_dir.mkdir(parents=True, exist_ok=True)
 
+    # Extract frame info
     frame_start = wave["details"]["frame_start"]
     frame_end = wave["details"]["frame_end"]
 
+    # Save wave audio
     wav_path = wave_dir / "sound.wav"
     save_wave_audio(audio_np, sampling_rate, frame_start, frame_end, wav_path, hop_size)
 
+    # Save wave probabilities slice
     wave_probs = speech_probs[frame_start:frame_end]
     probs_path = wave_dir / "speech_probs.json"
     with open(probs_path, "w") as f:
         json.dump(wave_probs, f, indent=2)
 
+    # Calculate and save RMS energies
     rms_values = compute_rms_per_frame(audio_np, hop_size, frame_start, frame_end)
     energies_path = wave_dir / "energies.json"
     with open(energies_path, "w") as f:
         json.dump(rms_values, f, indent=2)
 
-    hybrid_values = list(
-        compute_hybrid_signal(wave_probs, rms_values, prob_weight, rms_weight)
-    )
-    hybrid_path = wave_dir / "hybrid_signal.json"
-    with open(hybrid_path, "w") as f:
-        json.dump(hybrid_values, f, indent=2)
-
+    # Save wave metadata
     wave_json_path = wave_dir / "wave.json"
     wave_copy = wave.copy()
     wave_copy["segment_num"] = seg_num
     wave_copy["wave_num"] = wave_num
-    wave_copy["prob_weight"] = prob_weight
-    wave_copy["rms_weight"] = rms_weight
     with open(wave_json_path, "w") as f:
         json.dump(wave_copy, f, indent=2)
 
+    # Create and save visualization (pass full wave context)
     plot_path = wave_dir / "wave_plot.png"
     save_wave_plot(
-        wave_probs,
-        rms_values,
-        plot_path,
-        wave_num,
-        seg_num,
-        prob_weight=prob_weight,
-        rms_weight=rms_weight,
+        probs=wave_probs,
+        rms_values=rms_values,
+        output_path=plot_path,
+        wave_num=wave_num,
+        seg_num=seg_num,
+        wave=wave,
+        threshold=threshold,
+        hop_size=hop_size,
+        sampling_rate=sampling_rate,
+        shape_cfg=shape_cfg,
     )
-    return wave_dir
-
-
-def save_global_wave_plot(
-    speech_probs: List[float],
-    speech_waves: List[SpeechWave],
-    output_path: Path,
-    threshold: float = 0.5,
-) -> None:
-    """
-    Save a single overview plot of the entire VAD probability timeline with
-    every valid wave's region filled by a vertical gradient.
-
-    Layout
-    ------
-    - Grey line  : full speech_probs timeline (background context).
-    - Coloured gradient fills : one per wave, each bounded exactly by the
-      wave's ``frame_start`` / ``frame_end`` edges and the wave's own
-      probability curve (not a rectangle — the top edge follows the curve).
-    - Red dashed line : the 0.5 threshold.
-
-    The gradient for each wave runs from white at y = 0 up to the wave's
-    colour at the peak, so the intensity naturally encodes height.
-    Multiple waves cycle through a qualitative colour palette so they remain
-    visually distinct even when many waves are present.
-
-    Parameters
-    ----------
-    speech_probs  : full list of per-frame VAD probabilities
-    speech_waves  : list of valid SpeechWave objects (already filtered)
-    output_path   : where to write the PNG  (e.g. output_dir / "wave.png")
-    threshold     : threshold line drawn on the plot (default 0.5)
-    """
-    if not speech_probs:
-        return
-
-    # Colour palette — cycles if there are more waves than colours
-    PALETTE = [
-        "royalblue",
-        "seagreen",
-        "darkorange",
-        "orchid",
-        "crimson",
-        "steelblue",
-        "goldenrod",
-        "teal",
-    ]
-
-    n_frames = len(speech_probs)
-    frames_all = np.arange(n_frames)
-    probs_arr = np.asarray(speech_probs, dtype=np.float64)
-
-    fig, ax = plt.subplots(figsize=(14, 4))
-
-    # Background: full probability curve in light grey
-    ax.plot(
-        frames_all,
-        probs_arr,
-        color="lightgrey",
-        linewidth=0.8,
-        zorder=1,
-        label="VAD prob (all frames)",
-    )
-
-    # One gradient fill per wave, bounded by its own frame edges & curve
-    for wave_idx, wave in enumerate(speech_waves):
-        fs = wave["details"]["frame_start"]
-        fe = wave["details"]["frame_end"]
-        wave_frames = np.arange(fs, fe)
-        wave_probs = probs_arr[fs:fe]
-
-        if len(wave_frames) == 0:
-            continue
-
-        color = PALETTE[wave_idx % len(PALETTE)]
-        _gradient_fill(
-            ax,
-            wave_frames,
-            wave_probs,
-            color_top=color,
-            color_bottom="white",
-            alpha=0.65,
-        )
-        # Solid outline on top so the wave boundary is crisp
-        ax.plot(wave_frames, wave_probs, color=color, linewidth=1.2, zorder=3)
-
-    ax.axhline(
-        y=threshold,
-        color="red",
-        linestyle="--",
-        alpha=0.6,
-        linewidth=1,
-        label=f"Threshold ({threshold})",
-    )
-    ax.set_xlim(0, n_frames - 1)
-    ax.set_ylim(0, 1.05)
-    ax.set_xlabel("Frame Index")
-    ax.set_ylabel("VAD Probability")
-    ax.set_title(f"Global Wave Overview  ({len(speech_waves)} valid waves)")
-    ax.legend(loc="upper right", fontsize=8)
-    ax.grid(True, alpha=0.25)
-
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
 
 
 # ── Reporting helpers ──
 
 
-def _gradient_fill(
-    ax: plt.Axes,
-    x: np.ndarray,
-    y: np.ndarray,
-    color_top: str,
-    color_bottom: str = "white",
-    alpha: float = 0.7,
-) -> None:
+def find_parent_segment(wave: SpeechWave, segments: list) -> int:
     """
-    Fill the area under curve (x, y) with a vertical gradient.
-
-    How it works
-    ------------
-    1. Draw a solid ``fill_between`` polygon — this gives us the exact wave
-       shape as a matplotlib patch (the clip path).
-    2. Lay an ``imshow`` rectangle over the same x/y extent, coloured with a
-       two-stop gradient from *color_bottom* (at y=0) to *color_top* (at the
-       peak).  The image is clipped to the polygon so only pixels inside the
-       wave shape are visible.
-
-    Parameters
-    ----------
-    ax           : target axes
-    x            : frame indices (1-D)
-    y            : signal values (same length as x)
-    color_top    : gradient colour at the peak of the wave
-    color_bottom : gradient colour at y = 0  (default white → transparent feel)
-    alpha        : overall opacity of the gradient layer
+    Find which segment a wave belongs to based on time overlap.
+    Returns 1-based segment number.
     """
-    if len(x) == 0:
-        return
+    wave_start = wave["start_sec"]
+    wave_end = wave["end_sec"]
 
-    # Step 1 — invisible filled polygon just to get the clip path
-    poly = ax.fill_between(x, 0, y, alpha=0.0)
-    clip_path = poly.get_paths()[0]
-    patch = mpatches.PathPatch(clip_path, transform=ax.transData, visible=False)
-    ax.add_patch(patch)
-
-    # Step 2 — vertical gradient image clipped to the polygon
-    gradient = np.linspace(0, 1, 256).reshape(256, 1)  # 256-row, 1-col
-    cmap = mcolors.LinearSegmentedColormap.from_list(
-        "wave_grad", [color_bottom, color_top]
-    )
-    y_min, y_max = 0, max(float(np.max(y)), 1e-6)
-    x_min, x_max = float(x[0]), float(x[-1])
-    ax.imshow(
-        gradient,
-        aspect="auto",
-        extent=[x_min, x_max, y_min, y_max],
-        origin="lower",
-        cmap=cmap,
-        alpha=alpha,
-        clip_path=patch,
-        clip_on=True,
-        zorder=2,
-    )
-
-
-def _find_parent_seg_num(frame_start: int, segments: list, default: int = 1) -> int:
-    """
-    Return the segment number whose frame range contains frame_start.
-    Falls back to `default` (1-based, matching the save loop) when no segment matches.
-    Using a shared helper ensures the save loop and _build_wave_report
-    always produce the same directory name.
-    """
     for seg in segments:
-        if seg["frame_start"] <= frame_start <= seg["frame_end"]:
-            return seg["num"]
-    return default
+        seg_start = seg.get("start_sec", 0.0)
+        seg_end = seg.get("end_sec", 0.0)
+
+        # Check for any time overlap between wave and segment
+        if wave_start <= seg_end and wave_end >= seg_start:
+            return seg.get("num", seg.get("segment_num", 1))
+
+    # Fallback to first segment if no match found
+    return 1
 
 
-def _build_wave_report(
+def build_wave_report(
     wave: SpeechWave,
     wave_idx: int,
     waves_dir: Path,
@@ -850,22 +1048,17 @@ def _build_wave_report(
     Flatten one SpeechWave into a clean, self-contained report dict.
     Used for both summary.json rows and top_5_waves.json entries.
     """
-    frame_start = wave["details"]["frame_start"]
-    parent_seg_num = _find_parent_seg_num(frame_start, segments, default=1)
+    parent_seg_num = find_parent_segment(wave, segments)
 
     dir_name = f"segment_{parent_seg_num:03d}_wave_{wave_idx:03d}"
-    wave_json = (waves_dir / dir_name / "wave.json").resolve()
     wav_abs = (waves_dir / dir_name / "sound.wav").resolve()
     plot_abs = (waves_dir / dir_name / "wave_plot.png").resolve()
-    short = _shorten_path(str(wav_abs))
 
     d = wave["details"]
     return {
         # ── identity ──────────────────────────────────────────────────
         "wave": wave_idx,
         "dir": dir_name,
-        # ── summary ────────────────────────────────────────
-        "wave_json": str(wave_json),
         # ── timing ────────────────────────────────────────────────────
         "start_sec": round(wave["start_sec"], 4),
         "end_sec": round(wave["end_sec"], 4),
@@ -873,7 +1066,6 @@ def _build_wave_report(
         # ── Plot file ────────────────────────────────────────────────
         "plot_path": str(plot_abs),
         # ── audio file ────────────────────────────────────────────────
-        "sound_short": short,
         "sound_path": str(wav_abs),
         # ── probability scores ────────────────────────────────────────
         "scores": {
@@ -884,36 +1076,36 @@ def _build_wave_report(
             "baseline": round(d.get("baseline", 0.0), 6),
             "prominence": round(d.get("prominence", 0.0), 6),
             "excursion": round(d.get("excursion", 0.0), 6),
+            "composite": round(compute_composite_score(wave), 6),
         },
     }
 
 
-def _top5_reports(
+def top5_reports(
     speech_waves: List[SpeechWave],
     waves_dir: Path,
     segments: list,
-    duration_weight: float = 0.5,
 ) -> list[dict]:
     """
     Return the 5 waves with the highest composite score, already serialised
     as report dicts (not raw SpeechWave objects).
-    Composite score = prominence * log(1 + duration_sec * duration_weight)
-    This rewards waves that are both prominent and long, while the log scale
-    prevents very long but flat waves from dominating short, sharp ones.
-    Set duration_weight=0 to rank by prominence only (legacy behaviour).
+
+    Composite score (see compute_composite_score for full rationale):
+        avg_prob * prominence * log1p(duration_sec) * (1 + 0.3 * excursion)
+
+    - avg_prob rewards sustained confidence across the whole wave (not just
+      a single spike).
+    - prominence measures mountain height above the noise floor.
+    - log1p(duration_sec) applies a duration bonus with diminishing returns.
+    - (1 + 0.3 * excursion) gives a small multiplicative bonus for waves
+      that genuinely rise and fall rather than sitting as flat plateaus.
     """
-
     indexed = list(enumerate(speech_waves, 1))  # [(1, wave), (2, wave), …]
-
-    def _composite(wave):
-        d = wave["details"]
-        prominence = d.get("prominence", d["max_prob"])
-        duration_sec = d.get("duration_sec", 0.0)
-        return prominence * math.log1p(duration_sec * duration_weight)
-
-    ranked = sorted(indexed, key=lambda iv: _composite(iv[1]), reverse=True)
+    ranked = sorted(
+        indexed, key=lambda iv: compute_composite_score(iv[1]), reverse=True
+    )
     return [
-        _build_wave_report(wave, idx, waves_dir, segments) for idx, wave in ranked[:5]
+        build_wave_report(wave, idx, waves_dir, segments) for idx, wave in ranked[:5]
     ]
 
 
@@ -927,245 +1119,12 @@ def build_summary_rows(
     the rich summary table and summary.json.
     """
     return [
-        _build_wave_report(wave, idx, waves_dir, segments)
+        build_wave_report(wave, idx, waves_dir, segments)
         for idx, wave in enumerate(speech_waves, 1)
     ]
 
 
-def _shorten_path(path_str: str) -> str:
-    """
-    Show only the last 2 components of a path to keep the table columns narrow.
-    E.g. segment_001_wave_003/sound.wav
-    """
-    parts = Path(path_str).parts
-    if len(parts) <= 2:
-        return path_str
-    return "/".join(parts[-2:])
-
-
-def get_args(default_audio: str, default_output_dir: str | Path):
-    parser = argparse.ArgumentParser(
-        description="Extract speech timestamps from audio using TEN VAD.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
-        "input",
-        nargs="?",
-        default=default_audio,
-        help=f"Input audio file path (default: {default_audio})",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        dest="output_dir",
-        default=default_output_dir,
-        type=Path,
-        help=f"Output results dir (default: {default_output_dir})",
-    )
-    parser.add_argument(
-        "-t", "--threshold", type=float, default=0.1, help="VAD probability threshold"
-    )
-    parser.add_argument(
-        "-c",
-        "--close-threshold",
-        type=float,
-        default=None,
-        help="(Hysteresis) Threshold for wave close (default: same as open threshold)",
-    )
-    parser.add_argument(
-        "-s", "--hop-size", type=int, default=160, help="Frame hop size in samples"
-    )
-    parser.add_argument(
-        "--min-speech-duration",
-        "-d",
-        type=int,
-        default=250,
-        help="Minimum speech segment duration in ms",
-    )
-    parser.add_argument(
-        "--min-silence-duration",
-        "-g",
-        type=int,
-        default=100,
-        help="Minimum silence duration in ms",
-    )
-    parser.add_argument(
-        "--include-non-speech",
-        "-n",
-        action="store_true",
-        help="Include non-speech segments",
-    )
-    parser.add_argument(
-        "--prob-weight",
-        type=float,
-        default=0.5,
-        help="Weight for VAD probability in hybrid signal (default 0.5)",
-    )
-    parser.add_argument(
-        "--rms-weight",
-        type=float,
-        default=0.5,
-        help="Weight for RMS energy in hybrid signal (default 0.5)",
-    )
-    parser.add_argument(
-        "--disable-merge",
-        action="store_true",
-        default=False,
-        help=(
-            "Disable merging of consecutive raw waves separated by a short gap "
-            "(up to 150 ms / 15 frames). By default, short gaps are bridged."
-        ),
-    )
-    return parser.parse_args()
-
-
 if __name__ == "__main__":
-    import argparse
+    from jet.audio.speech.firered.main._main_speech_waves import main
 
-    from jet.audio.speech.firered.speech_timestamps_extractor import (
-        extract_speech_timestamps,
-    )
-    from jet.file.utils import save_file
-    from rich import box
-    from rich.console import Console
-    from rich.table import Table
-
-    console = Console()
-
-    OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
-
-    DEFAULT_AUDIO = "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/generated/run_record_mic/recording_3_speakers.wav"
-
-    args = get_args(DEFAULT_AUDIO, OUTPUT_DIR)
-
-    shutil.rmtree(args.output_dir, ignore_errors=True)
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-
-    segments, scores = extract_speech_timestamps(
-        audio=args.input,
-        include_non_speech=args.include_non_speech,
-        threshold=args.threshold,
-        min_speech_duration_sec=args.min_speech_duration / 1000,
-        min_silence_duration_sec=args.min_silence_duration / 1000,
-        # max_speech_duration_sec
-        with_scores=True,
-    )
-
-    # Load audio for wave extraction
-    audio_np, sr = load_audio(args.input, sr=SAMPLE_RATE, mono=True)
-
-    speech_waves = get_speech_waves(
-        args.input,
-        scores,
-        threshold=args.threshold,
-        close_threshold=args.close_threshold,
-        prob_weight=args.prob_weight,
-        rms_weight=args.rms_weight,
-        disable_merge=args.disable_merge,
-    )
-
-    # Save main JSON files
-    save_file(segments, args.output_dir / "segments.json")
-    save_file(scores, args.output_dir / "speech_probs.json")
-    save_file(speech_waves, args.output_dir / "speech_waves.json")
-
-    # Create waves directory and save individual wave files
-    waves_dir = args.output_dir / "waves"
-    waves_dir.mkdir(parents=True, exist_ok=True)
-
-    console.print(
-        f"\n[bold]Generating files for {len(speech_waves)} valid speech waves...[/bold]"
-    )
-
-    for wave_idx, wave in enumerate(speech_waves, 1):
-        wave_frame_start = wave["details"]["frame_start"]
-
-        parent_seg_num = _find_parent_seg_num(wave_frame_start, segments, default=1)
-
-        save_wave_data(
-            wave=wave,
-            audio_np=audio_np,
-            speech_probs=scores,
-            sampling_rate=sr,
-            output_dir=waves_dir,
-            seg_num=parent_seg_num,
-            wave_num=wave_idx,
-            hop_size=args.hop_size,
-            prob_weight=args.prob_weight,
-            rms_weight=args.rms_weight,
-        )
-
-    # ------------------------------------------------------------------ #
-    # Global wave overview plot                                           #
-    # ------------------------------------------------------------------ #
-    global_plot_path = args.output_dir / "wave.png"
-    save_global_wave_plot(
-        speech_probs=scores,
-        speech_waves=speech_waves,
-        output_path=global_plot_path,
-        threshold=args.threshold,
-    )
-
-    # ── summary table & JSON ──────────────────────────────────────────────────
-    rows = build_summary_rows(speech_waves, waves_dir, segments)
-    save_file(rows, args.output_dir / "summary.json")
-
-    # ── top-5 waves (built after waves_dir exists and dirs are known) ─────────
-    top5 = _top5_reports(speech_waves, waves_dir, segments)
-    save_file(top5, args.output_dir / "top_5_waves.json")
-
-    table = Table(
-        title=f"Speech Waves Summary  ({len(rows)} valid waves)",
-        box=box.ROUNDED,
-        show_lines=False,
-        header_style="bold cyan",
-    )
-    table.add_column("#", style="dim", justify="right", no_wrap=True)
-    table.add_column("Dir", style="cyan", justify="left", no_wrap=True)
-    table.add_column("Start (s)", style="white", justify="right", no_wrap=True)
-    table.add_column("End (s)", style="white", justify="right", no_wrap=True)
-    table.add_column("Dur (s)", style="yellow", justify="right", no_wrap=True)
-    table.add_column("Prominence", style="magenta", justify="right", no_wrap=True)
-    table.add_column("Peak prob", style="green", justify="right", no_wrap=True)
-    table.add_column("Play", style="bright_cyan", justify="center", no_wrap=True)
-    table.add_column("Sound", style="bright_black", justify="left")
-
-    top5_dirs = {w["dir"] for w in top5}
-
-    for r in rows:
-        is_top5 = r["dir"] in top5_dirs
-        row_style = "bold" if is_top5 else ""
-        star = "★ " if is_top5 else "  "
-
-        dir_cell = f"[link=file://{r['wave_json']}]{r['dir']}[/link]"
-        sound_cell = f"[link=file://{r['sound_path']}]{r['sound_short']}[/link]"
-        play_cell = f"[link=file://{r['sound_path']}]▶[/link]"
-
-        table.add_row(
-            f"{star}{r['wave']}",
-            dir_cell,
-            f"{r['start_sec']:.2f}",
-            f"{r['end_sec']:.2f}",
-            f"{r['dur_sec']:.2f}",
-            f"{r['scores']['prominence']:.3f}",
-            f"{r['scores']['max_prob']:.3f}",
-            play_cell,
-            sound_cell,
-            style=row_style,
-        )
-
-    console.print()
-    console.print(table)
-    console.print()
-    console.print(
-        f"[bold green]✓[/bold green] All wave files saved under : [cyan]{waves_dir}[/cyan]"
-    )
-    console.print(
-        f"[bold green]✓[/bold green] summary.json              : [cyan][link=file://{(args.output_dir / 'summary.json').resolve()}]{(args.output_dir / 'summary.json').resolve()}[/link][/cyan]"
-    )
-    console.print(
-        f"[bold green]✓[/bold green] top_5_waves.json          : [cyan][link=file://{(args.output_dir / 'top_5_waves.json').resolve()}]{(args.output_dir / 'top_5_waves.json').resolve()}[/link][/cyan]"
-    )
-    console.print(
-        f"[bold green]✓[/bold green] wave.png (global overview) : [cyan][link=file://{global_plot_path.resolve()}]{global_plot_path.resolve()}[/link][/cyan]"
-    )
+    main()
