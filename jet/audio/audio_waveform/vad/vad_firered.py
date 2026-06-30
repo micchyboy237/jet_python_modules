@@ -14,8 +14,6 @@ from fireredvad.core.stream_vad_postprocessor import StreamVadFrameResult
 from fireredvad.stream_vad import FireRedStreamVad, FireRedStreamVadConfig
 from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
-    DEFAULT_PROB_WEIGHT,
-    DEFAULT_RMS_WEIGHT,
     DEFAULT_USE_HYBRID,
 )
 from jet.audio.utils.loader import load_audio
@@ -48,6 +46,9 @@ DEFAULT_INCLUDE_NON_SPEECH = False
 DEFAULT_SMOOTH_WINDOW_SIZE = 5
 DEFAULT_PAD_START_FRAME = 5
 DEFAULT_MAX_BUFFER_SEC = 1.2
+
+DEFAULT_PROB_WEIGHT = 0.5
+DEFAULT_RMS_WEIGHT = 0.5
 
 
 # Single global cached instance to avoid repeated model loading
