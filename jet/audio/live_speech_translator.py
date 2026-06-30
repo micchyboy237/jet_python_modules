@@ -12,12 +12,10 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MAX_SEG_DURATION_SEC,
     DEFAULT_MAX_SEG_GAP_SEC,
     DEFAULT_MIN_SEG_DURATION_SEC,
-    DEFAULT_SOFT_LIMIT_SEC,
     DEFAULT_USE_HYBRID,
 )
 from jet.audio.helpers.silence import SAMPLE_RATE
 from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
-from jet.audio.normalization.quant import quantize_audio
 from jet.audio.speech.segment_store import SegmentStore
 from jet.audio.speech.utils import display_segments
 from jet.audio.speech_detector import record_from_mic
@@ -52,14 +50,6 @@ def dispatch_handlers(
 ) -> None:
     """Fire on_segment_end on every registered handler. Errors are caught per-handler."""
     seg_audio_np, _ = normalize_audio_for_vad(seg_audio_np, sample_rate)
-    duration = speech_seg["duration"]
-    if duration >= DEFAULT_SOFT_LIMIT_SEC:
-        seg_audio_np, _ = quantize_audio(
-            seg_audio_np,
-            target_dtype="float16",
-            sr=sample_rate,
-            verbose=verbose,
-        )
 
     event = SpeechSegmentEndEvent(
         segment=speech_seg,

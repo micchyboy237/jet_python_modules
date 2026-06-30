@@ -27,7 +27,6 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_MIN_SPEECH_SEC,
     DEFAULT_MIN_SUB_SEG_DURATION_SEC,
-    DEFAULT_SOFT_LIMIT_SEC,
     DEFAULT_THRESHOLD,
     DEFAULT_USE_HYBRID,
 )
@@ -37,9 +36,6 @@ from jet.audio.audio_waveform.vad.vad_firered import (
     DEFAULT_SMOOTH_WINDOW_SIZE,
     extract_speech_timestamps,
 )
-from jet.audio.helpers.base import get_audio_duration
-from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
-from jet.audio.normalization.quant import quantize_audio
 from jet.logger import logger
 
 
@@ -568,15 +564,15 @@ def split_segment_with_vad(
         len(audio_np),
     )
 
-    audio_np, _ = normalize_audio_for_vad(audio_np, sample_rate)
-    duration = get_audio_duration(audio_np, sample_rate)
-    if duration >= DEFAULT_SOFT_LIMIT_SEC:
-        audio_np, _ = quantize_audio(
-            audio_np,
-            target_dtype="float16",
-            sr=sample_rate,
-            verbose=verbose,
-        )
+    # audio_np, _ = normalize_audio_for_vad(audio_np, sample_rate)
+    # duration = get_audio_duration(audio_np, sample_rate)
+    # if duration >= DEFAULT_SOFT_LIMIT_SEC:
+    #     audio_np, _ = quantize_audio(
+    #         audio_np,
+    #         target_dtype="float16",
+    #         sr=sample_rate,
+    #         verbose=verbose,
+    #     )
 
     # ── Run VAD ─────────────────────────────────────────────────────────────
     try:

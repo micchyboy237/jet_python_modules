@@ -39,6 +39,7 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_MIN_SPEECH_SEC,
     DEFAULT_SOFT_LIMIT_SEC,
+    DEFAULT_SOFT_LIMIT_SEC_HIGH,
     DEFAULT_THRESHOLD,
 )
 from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
@@ -97,7 +98,14 @@ def extract_current_speech_segment(
 
     full_audio_np, _ = normalize_audio_for_vad(full_audio_np, audio_data.sample_rate)
     duration = get_audio_duration(full_audio_np, audio_data.sample_rate)
-    if duration >= DEFAULT_SOFT_LIMIT_SEC:
+    if duration >= DEFAULT_SOFT_LIMIT_SEC_HIGH:
+        full_audio_np, _ = quantize_audio(
+            full_audio_np,
+            target_dtype="int16",
+            sr=audio_data.sample_rate,
+            verbose=verbose,
+        )
+    elif duration >= DEFAULT_SOFT_LIMIT_SEC:
         full_audio_np, _ = quantize_audio(
             full_audio_np,
             target_dtype="float16",
