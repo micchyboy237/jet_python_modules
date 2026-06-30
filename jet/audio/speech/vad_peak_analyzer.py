@@ -947,6 +947,7 @@ def save_trough_to_trough_segments(
     audio_path: Optional[str],
     sample_rate: int,
     frame_shift_ms: float,
+    min_duration_s: float = 0.0,
 ) -> None:
     """
     For each ValleyTrough, create a segment spanning from the previous trough
@@ -959,6 +960,9 @@ def save_trough_to_trough_segments(
         segment_N:   trough[N-1]  → end of audio
     Also writes a summary ``trough_to_trough.json`` containing all segment
     metadata in a single list.
+    Args:
+        min_duration_s: Minimum segment duration in seconds. Shorter segments
+                        are filtered out. Default 0.0 (no filtering).
     """
     import json
 
@@ -972,6 +976,7 @@ def save_trough_to_trough_segments(
             sample_rate=sample_rate,
             with_audio=True,
             with_scores=True,
+            min_duration_s=min_duration_s,
         )
         segments_with_audio, _ = results
     else:
@@ -981,14 +986,24 @@ def save_trough_to_trough_segments(
             sample_rate=sample_rate,
             with_audio=False,
             with_scores=True,
+            min_duration_s=min_duration_s,
         )
         segments, _ = results
         segments_with_audio = [(seg, np.array([])) for seg in segments]
+
+    if not segments_with_audio:
+        console.print(
+            "⚠️  [yellow]trough_to_trough: no segments after filtering.[/yellow]"
+        )
+        return
+
     cat_dir = output_dir / "trough_to_trough"
     cat_dir.mkdir(parents=True, exist_ok=True)
+
     x = np.array(probs, dtype=float)
     n_frames = len(x)
     all_segments_meta = []
+
     for idx, (seg_meta, audio_slice) in enumerate(segments_with_audio):
         seg_dir = cat_dir / f"segment_{idx:03d}"
         seg_dir.mkdir(parents=True, exist_ok=True)
@@ -997,9 +1012,11 @@ def save_trough_to_trough_segments(
         all_segments_meta.append(seg_meta)
         if len(audio_slice) > 0:
             sf.write(str(seg_dir / "sound.wav"), audio_slice, sample_rate)
+        # Save per-segment probability scores as plain array
         if seg_meta.get("segment_probs"):
             with open(seg_dir / "probs.json", "w", encoding="utf-8") as fh:
                 json.dump(seg_meta["segment_probs"], fh, ensure_ascii=False, indent=2)
+            # Save probability info (frame_shift, frame_start, frame_end, stats)
             if seg_meta.get("prob_stats"):
                 probs_info = {
                     "frame_shift_sec": frame_shift_ms / 1000.0,
@@ -1009,20 +1026,6 @@ def save_trough_to_trough_segments(
                 }
                 with open(seg_dir / "probs_info.json", "w", encoding="utf-8") as fh:
                     json.dump(probs_info, fh, ensure_ascii=False, indent=2)
-        # ─── NEW: save speech_segments.json ───
-        if seg_meta.get("segments"):
-            with open(seg_dir / "speech_segments.json", "w", encoding="utf-8") as fh:
-                json.dump(seg_meta["segments"], fh, ensure_ascii=False, indent=2)
-            speech_segs = seg_meta["segments"]
-            speech_seg_count = len(speech_segs)
-            speech_seg_types = [s.get("type", "unknown") for s in speech_segs]
-            speech_duration = sum(s.get("duration", 0) for s in speech_segs)
-            console.print(
-                f"  Segment {idx:03d}: {speech_seg_count} speech segments "
-                f"(types: {', '.join(speech_seg_types)}, "
-                f"total speech duration: {speech_duration:.2f}s)"
-            )
-        # ─── END NEW ───
         f_start = max(0, seg_meta["start_frame"])
         f_end = min(n_frames, seg_meta["end_frame"] + 1)
         frames = np.arange(f_start, f_end)
@@ -1064,6 +1067,7 @@ def save_trough_to_trough_segments(
         plt.tight_layout()
         plt.savefig(str(seg_dir / "plot.png"), dpi=150, bbox_inches="tight")
         plt.close()
+
     summary_path = output_dir / "trough_to_trough.json"
     with open(summary_path, "w", encoding="utf-8") as fh:
         json.dump(all_segments_meta, fh, ensure_ascii=False, indent=2)
