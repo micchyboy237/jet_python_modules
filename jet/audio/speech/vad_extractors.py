@@ -6,10 +6,12 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import soundfile as sf
 from jet.audio.audio_types import AudioInput
+
+# from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
+#     extract_speech_timestamps,
+# )
+from jet.audio.audio_waveform.vad.vad_firered import extract_speech_timestamps
 from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
-from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
-    extract_speech_timestamps,
-)
 from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE, SILENCE_MAX_THRESHOLD
 from jet.audio.helpers.energy_base import trim_silent_frames
 from jet.audio.speech._main_vad_extractors import main
@@ -108,6 +110,7 @@ def load_probs(
                     min_speech_duration_sec=0.250,
                     min_silence_duration_sec=0.250,
                     with_scores=True,
+                    use_hybrid=True,
                 )
                 if not is_probs_list(probs):
                     raise ValueError(
@@ -684,15 +687,18 @@ def extract_valley_troughs_from_np_audio(
 
 
 def extract_trough_to_trough(
-    valley_troughs: List[ValleyTrough],
-    probs: List[float],
+    probs_or_audio: List[float] | AudioInput,
     frame_shift_ms: float = FRAME_SHIFT_MS,
-    audio: Optional[np.ndarray] = None,
     sample_rate: int = SAMPLE_RATE,
     with_audio: bool = False,
 ) -> Union[List[TroughToTroughSegment], List[Tuple[TroughToTroughSegment, np.ndarray]]]:
     """
     Create segments spanning from one valley trough to the next.
+
+    This function automatically:
+    1. Loads/resolves VAD probabilities from the input (audio file, numpy array, list of floats, etc.)
+    2. Extracts valley troughs using default parameters
+    3. Creates segments between consecutive troughs (including start-to-first and last-to-end)
 
     For N valley_troughs, this produces N+1 segments:
         segment_0: t=0          → trough[0]
@@ -701,21 +707,18 @@ def extract_trough_to_trough(
         segment_N: trough[N-1]  → end of audio
 
     Args:
-        valley_troughs: List of ValleyTrough dicts (from extract_valley_troughs).
-        probs: VAD probability list (used to calculate end time/frame).
+        probs_or_audio: VAD probabilities as a list[float], or an AudioInput
+            (str, bytes, os.PathLike, ndarray, or Tensor) that load_probs
+            can resolve into probabilities.
         frame_shift_ms: Frame shift in milliseconds.
-        audio: Optional numpy audio array. Required if with_audio=True.
         sample_rate: Audio sample rate in Hz (used for sample-to-time conversion).
         with_audio: If True, return list of (segment, audio_slice) tuples.
-                   Requires audio parameter to be provided.
+                   Audio is extracted from the input if it's an audio source.
 
     Returns:
         If with_audio=False: List[TroughToTroughSegment]
         If with_audio=True: List[Tuple[TroughToTroughSegment, np.ndarray]]
         Each audio slice is a numpy array of the waveform for that segment.
-
-    Raises:
-        ValueError: If with_audio=True but audio is None.
 
     Logs:
         Logs the number of troughs processed, segments created, and audio slicing info.
@@ -724,23 +727,42 @@ def extract_trough_to_trough(
 
     logger = logging.getLogger(__name__)
 
-    if with_audio and audio is None:
-        raise ValueError(
-            "extract_trough_to_trough: with_audio=True requires audio parameter to be provided."
-        )
+    # Step 1: Load probabilities and audio from input
+    probs, audio_np = load_probs(probs_or_audio)
 
-    if not valley_troughs:
+    if not probs:
         logger.warning(
-            "extract_trough_to_trough: no valley_troughs provided, returning empty list."
+            "extract_trough_to_trough: no probabilities extracted, returning empty list."
         )
         return []
 
+    # Step 2: Extract valley troughs from the probabilities
+    valley_troughs = extract_valley_troughs(
+        probs_or_audio=probs,
+        sample_rate=sample_rate,
+        frame_shift_ms=frame_shift_ms,
+    )
+
+    if not valley_troughs:
+        logger.warning(
+            "extract_trough_to_trough: no valley_troughs found, returning empty list."
+        )
+        return []
+
+    # Step 3: Validate audio requirement
+    if with_audio and audio_np is None:
+        raise ValueError(
+            "extract_trough_to_trough: with_audio=True requires an audio input "
+            "(not just probabilities). Provide an audio file path, numpy array, etc."
+        )
+
+    # Step 4: Build segments between troughs
     n_frames = len(probs)
     frame_duration_s = frame_shift_ms / 1000.0
     end_time_s = n_frames * frame_duration_s
     end_frame = n_frames - 1
 
-    # Create sentinel start (t=0) and sentinel end (end of audio)
+    # Create sentinel anchors for start and end
     sentinel_start: ValleyTrough = {
         "frame": 0,
         "global_frame": 0,
@@ -758,25 +780,25 @@ def extract_trough_to_trough(
         "valley": valley_troughs[-1]["valley"].copy(),
     }
 
-    # Build anchor list: [sentinel_start, trough_0, trough_1, ..., sentinel_end]
     anchors: List[ValleyTrough] = (
         [sentinel_start] + list(valley_troughs) + [sentinel_end]
     )
 
     segments: List[TroughToTroughSegment] = []
     audio_slices: List[np.ndarray] = []
-
-    total_audio_samples = len(audio) if audio is not None else 0
+    total_audio_samples = len(audio_np) if audio_np is not None else 0
 
     for idx in range(len(anchors) - 1):
         vt_start = anchors[idx]
         vt_end = anchors[idx + 1]
+
         is_first = idx == 0
         is_last = idx == len(anchors) - 2
 
         start_s: float = float(vt_start["global_time_s"])
         end_s: float = float(vt_end["global_time_s"])
         duration_s: float = round(end_s - start_s, 4)
+
         start_frame: int = int(vt_start["global_frame"])
         end_frame_seg: int = int(vt_end["global_frame"])
 
@@ -791,13 +813,13 @@ def extract_trough_to_trough(
         }
         segments.append(segment)
 
-        # Extract audio slice if requested
-        if with_audio and audio is not None:
+        # Extract audio slice if requested and available
+        if with_audio and audio_np is not None:
             start_sample = int(start_s * sample_rate)
             end_sample = int(end_s * sample_rate)
             start_sample = max(0, start_sample)
             end_sample = min(total_audio_samples, end_sample)
-            audio_slice = audio[start_sample:end_sample]
+            audio_slice = audio_np[start_sample:end_sample]
             audio_slices.append(audio_slice)
 
             logger.debug(
