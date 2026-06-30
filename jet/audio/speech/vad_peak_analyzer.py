@@ -960,46 +960,40 @@ def save_trough_to_trough_segments(
         segment_N:   trough[N-1]  → end of audio
     Also writes a summary ``trough_to_trough.json`` containing all segment
     metadata in a single list.
-    Args:
-        min_duration_s: Minimum segment duration in seconds. Shorter segments
-                        are filtered out. Default 0.0 (no filtering).
     """
     import json
 
     if not valley_troughs:
         console.print("⚠️  [yellow]trough_to_trough: no troughs provided.[/yellow]")
         return
+
+    # Use the audio_path as input to the updated extract_trough_to_trough
+    # which now handles everything internally
     if audio_path is not None:
         results = extract_trough_to_trough(
             probs_or_audio=audio_path,
             frame_shift_ms=frame_shift_ms,
             sample_rate=sample_rate,
+            min_duration_s=min_duration_s,
             with_audio=True,
             with_scores=True,
-            min_duration_s=min_duration_s,
         )
         segments_with_audio, _ = results
     else:
+        # Fallback: use just the probabilities (no audio slicing)
         results = extract_trough_to_trough(
             probs_or_audio=probs,
             frame_shift_ms=frame_shift_ms,
             sample_rate=sample_rate,
+            min_duration_s=min_duration_s,
             with_audio=False,
             with_scores=True,
-            min_duration_s=min_duration_s,
         )
         segments, _ = results
         segments_with_audio = [(seg, np.array([])) for seg in segments]
 
-    if not segments_with_audio:
-        console.print(
-            "⚠️  [yellow]trough_to_trough: no segments after filtering.[/yellow]"
-        )
-        return
-
     cat_dir = output_dir / "trough_to_trough"
     cat_dir.mkdir(parents=True, exist_ok=True)
-
     x = np.array(probs, dtype=float)
     n_frames = len(x)
     all_segments_meta = []
@@ -1110,6 +1104,13 @@ def get_args():
         help="Output directory for generated files (default: ./generated/<script name>)",
     )
     parser.add_argument(
+        "--min-duration",
+        "-d",
+        type=float,
+        default=0.25,
+        help="Minimum segment duration in seconds (default: 0.25)",
+    )
+    parser.add_argument(
         "--sample-rate",
         "-sr",
         type=int,
@@ -1178,13 +1179,6 @@ def get_args():
         type=float,
         default=None,
         help="Probability threshold below which regions are valleys (default: None; auto-computed if not set)",
-    )
-    parser.add_argument(
-        "--min-active-duration",
-        "-mad",
-        type=float,
-        default=0.25,
-        help="Minimum active speech duration in seconds (default: 0.25s)",
     )
     parser.add_argument(
         "--min-active-frames",
@@ -1259,7 +1253,7 @@ if __name__ == "__main__":
                 min_speech_duration_sec=0.25,
                 min_silence_duration_sec=0.25,
                 # threshold=args.active_threshold,
-                # min_speech_duration_sec=args.min_active_duration,
+                # min_speech_duration_sec=args.min_duration,
                 # min_silence_duration_sec=args.min_silence_duration,
                 with_scores=True,
             )
@@ -1312,7 +1306,7 @@ if __name__ == "__main__":
     active_regions = analyzer.extract_active_regions(
         probs_smoothed,
         threshold=args.active_threshold,
-        # min_duration_s=args.min_active_duration,
+        # min_duration_s=args.min_duration,
         # min_duration_frames=args.min_active_frames,
     )
 
@@ -1335,7 +1329,7 @@ if __name__ == "__main__":
     # Filter by minimum duration
     active_regions = analyzer.filter_short_segments(
         active_regions,
-        min_duration_s=args.min_active_duration,
+        min_duration_s=args.min_duration,
         min_duration_frames=args.min_active_frames,
     )
 
@@ -1405,6 +1399,7 @@ if __name__ == "__main__":
             audio_path=args.input_file,
             sample_rate=args.sample_rate,
             frame_shift_ms=args.frame_shift_ms,
+            min_duration_s=args.min_duration,
         )
 
     # === Final Plots & JSONs ===

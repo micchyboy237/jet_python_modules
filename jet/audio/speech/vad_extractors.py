@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import soundfile as sf
 from jet.audio.audio_types import AudioInput
-from jet.audio.audio_waveform.vad._types import SpeechSegment
 
 # from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
 #     extract_speech_timestamps,
@@ -16,7 +15,6 @@ from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
 from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE, SILENCE_MAX_THRESHOLD
 from jet.audio.helpers.energy_base import trim_silent_frames
 from jet.audio.speech._main_vad_extractors import main
-from jet.audio.speech.vad_loaders import load_vad_hybrid_probs
 from jet.audio.speech.vad_types import (
     TroughToTroughSegment,
     VADSegment,
@@ -391,7 +389,6 @@ def split_best_valley_trough(
     """
     Split a VAD probability list or audio into two halves at the best valley trough,
     then trim trailing silence from the left half and leading silence from the right half.
-
     Parameters
     ----------
     trim_silence : bool
@@ -400,8 +397,7 @@ def split_best_valley_trough(
         VAD probability below which a frame is considered silent for trimming purposes.
         Defaults to ``valley_threshold`` if set, otherwise ``trough_height``, otherwise 0.3.
     """
-    probs, data = load_vad_hybrid_probs(probs_or_audio)
-    audio_np = data["audio_np"]
+    probs, audio_np = load_probs(probs_or_audio)
 
     best_trough = get_best_valley_trough(
         probs_or_audio=probs,
@@ -714,8 +710,6 @@ def extract_trough_to_trough(
     When with_scores=True, each TroughToTroughSegment is also populated with:
     - segment_probs: list of VAD probabilities for this segment
     - prob_stats: statistics (mean, max, min, std, median) of those probabilities
-    - segments: list of SpeechSegment objects from extract_speech_timestamps that
-      fall within this trough-to-trough segment's time range
     Args:
         probs_or_audio: VAD probabilities as a list[float], or an AudioInput
             (str, bytes, os.PathLike, ndarray, or Tensor) that load_probs
@@ -725,9 +719,7 @@ def extract_trough_to_trough(
         with_audio: If True, return list of (segment, audio_slice) tuples.
                    Audio is extracted from the input if it's an audio source.
         with_scores: If True, include per-segment VAD probability scores and
-                    statistics (mean, max, min, std, median) in each segment,
-                    as well as the list of SpeechSegment objects that overlap
-                    with each trough-to-trough segment.
+                    statistics (mean, max, min, std, median) in each segment.
                     When with_audio is also True, returns (segments_with_audio, probs).
                     When with_audio is False, returns (segments, probs).
         min_duration_s: Minimum segment duration in seconds. Segments shorter than
@@ -740,8 +732,7 @@ def extract_trough_to_trough(
         Each audio slice is a numpy array of the waveform for that segment.
     Logs:
         Logs the number of troughs processed, segments created, and audio slicing info.
-        When with_scores is True, logs probability statistics for each segment
-        and the number of SpeechSegment objects assigned to each trough-to-trough segment.
+        When with_scores is True, logs probability statistics for each segment.
         When min_duration_s > 0, logs how many segments were filtered out.
     """
     probs, audio_np = load_probs(probs_or_audio)
@@ -752,11 +743,13 @@ def extract_trough_to_trough(
         if with_scores:
             return ([], probs) if not with_audio else (([], []), probs)
         return [] if not with_audio else []
+
     valley_troughs = extract_valley_troughs(
         probs_or_audio=probs,
         sample_rate=sample_rate,
         frame_shift_ms=frame_shift_ms,
     )
+
     if not valley_troughs:
         console.print(
             "[yellow]extract_trough_to_trough: no valley_troughs found, returning empty list.[/yellow]"
@@ -764,49 +757,18 @@ def extract_trough_to_trough(
         if with_scores:
             return ([], probs) if not with_audio else (([], []), probs)
         return [] if not with_audio else []
+
     if with_audio and audio_np is None:
         raise ValueError(
             "extract_trough_to_trough: with_audio=True requires an audio input "
             "(not just probabilities). Provide an audio file path, numpy array, etc."
         )
-    all_speech_segments: Optional[List[SpeechSegment]] = None
-    if with_scores:
-        console.print(
-            "[cyan]extract_trough_to_trough: with_scores=True, extracting speech segments[/cyan]"
-        )
-        source_audio = probs_or_audio
-        if audio_np is not None:
-            source_audio = audio_np
-        try:
-            result = extract_speech_timestamps(
-                audio=source_audio,
-                threshold=0.5,
-                min_speech_duration_sec=0.250,
-                min_silence_duration_sec=0.250,
-                return_seconds=True,
-                with_scores=True,
-                use_hybrid=True,
-            )
-            if isinstance(result, tuple) and len(result) == 2:
-                all_speech_segments, _ = result
-                console.print(
-                    f"[green]extract_trough_to_trough: got {len(all_speech_segments)} speech segments "
-                    f"from extract_speech_timestamps[/green]"
-                )
-                for i, seg in enumerate(all_speech_segments[:3]):
-                    console.print(
-                        f"  [dim]Speech seg {i}: start={seg['start']:.3f}s, end={seg['end']:.3f}s, "
-                        f"type={seg['type']}, duration={seg['duration']:.3f}s[/dim]"
-                    )
-        except Exception as e:
-            console.print(
-                f"[yellow]extract_trough_to_trough: failed to extract speech segments: {e}. "
-                f"segments field will be empty.[/yellow]"
-            )
+
     n_frames = len(probs)
     frame_duration_s = frame_shift_ms / 1000.0
     end_time_s = n_frames * frame_duration_s
     end_frame = n_frames - 1
+
     sentinel_start: ValleyTrough = {
         "frame": 0,
         "global_frame": 0,
@@ -815,6 +777,7 @@ def extract_trough_to_trough(
         "global_time_s": 0.0,
         "valley": valley_troughs[0]["valley"].copy(),
     }
+
     sentinel_end: ValleyTrough = {
         "frame": end_frame,
         "global_frame": end_frame,
@@ -823,26 +786,32 @@ def extract_trough_to_trough(
         "global_time_s": end_time_s,
         "valley": valley_troughs[-1]["valley"].copy(),
     }
+
     anchors: List[ValleyTrough] = (
         [sentinel_start] + list(valley_troughs) + [sentinel_end]
     )
+
     segments: List[TroughToTroughSegment] = []
     audio_slices: List[np.ndarray] = []
     total_audio_samples = len(audio_np) if audio_np is not None else 0
+
     # Track filtered-out segments for logging
     filtered_count = 0
     filtered_durations: List[float] = []
+
     for idx in range(len(anchors) - 1):
         vt_start = anchors[idx]
         vt_end = anchors[idx + 1]
         is_first = idx == 0
         is_last = idx == len(anchors) - 2
+
         start_s: float = float(vt_start["global_time_s"])
         end_s: float = float(vt_end["global_time_s"])
         duration_s: float = round(end_s - start_s, 4)
         start_frame: int = int(vt_start["global_frame"])
         end_frame_seg: int = int(vt_end["global_frame"])
-        # ─── NEW: min_duration_s filtering ───
+
+        # ─── min_duration_s filtering ───
         if min_duration_s > 0 and duration_s < min_duration_s:
             filtered_count += 1
             filtered_durations.append(duration_s)
@@ -851,10 +820,11 @@ def extract_trough_to_trough(
                 f"filtered: duration {duration_s:.3f}s < min {min_duration_s:.3f}s[/dim yellow]"
             )
             continue
-        # ─── END NEW ───
+
+        # Extract probability scores for this segment if with_scores is True
         segment_probs: Optional[List[float]] = None
         prob_stats: Optional[Dict[str, float]] = None
-        assigned_segments: Optional[List[SpeechSegment]] = None
+
         if with_scores:
             segment_probs_slice = probs[start_frame : end_frame_seg + 1]
             segment_probs = segment_probs_slice
@@ -874,16 +844,7 @@ def extract_trough_to_trough(
                     f"median={prob_stats['median']:.4f}, "
                     f"frames={prob_stats['num_frames']}[/blue]"
                 )
-            if all_speech_segments:
-                assigned_segments = [
-                    seg
-                    for seg in all_speech_segments
-                    if seg["start"] <= end_s and seg["end"] >= start_s
-                ]
-                console.print(
-                    f"[blue]Segment {idx} [{start_s:.3f}s - {end_s:.3f}s]: "
-                    f"assigned {len(assigned_segments)} speech segments[/blue]"
-                )
+
         segment: TroughToTroughSegment = {
             "start_s": start_s,
             "end_s": end_s,
@@ -894,9 +855,9 @@ def extract_trough_to_trough(
             "trough_end": None if is_last else dict(vt_end),
             "segment_probs": segment_probs if with_scores else None,
             "prob_stats": prob_stats if with_scores else None,
-            "segments": assigned_segments if with_scores else None,
         }
         segments.append(segment)
+
         if with_audio and audio_np is not None:
             start_sample = int(start_s * sample_rate)
             end_sample = int(end_s * sample_rate)
@@ -909,7 +870,8 @@ def extract_trough_to_trough(
                 f"→ audio samples [{start_sample}:{end_sample}] "
                 f"({len(audio_slice)} samples, {len(audio_slice) / sample_rate:.3f}s)[/magenta]"
             )
-    # ─── NEW: Log filtering summary ───
+
+    # Log filtering summary
     if min_duration_s > 0:
         console.print(
             f"[yellow]extract_trough_to_trough: Filtered {filtered_count} segment(s) "
@@ -921,21 +883,23 @@ def extract_trough_to_trough(
             )
             + f". Kept {len(segments)} segment(s).[/yellow]"
         )
-    # ─── END NEW ───
+
     console.print(
         f"[green]extract_trough_to_trough: Created {len(segments)} segments "
         f"from {len(valley_troughs)} trough(s)"
         + (" with audio slices" if with_audio else "")
         + (" with probability scores" if with_scores else "")
-        + (" with speech segments" if with_scores and all_speech_segments else "")
         + (f" (min_duration_s={min_duration_s:.3f}s)" if min_duration_s > 0 else "")
         + ".[/green]"
     )
+
+    # Return appropriate format based on parameters
     if with_audio:
         segments_with_audio = list(zip(segments, audio_slices))
         if with_scores:
             return segments_with_audio, probs
         return segments_with_audio
+
     if with_scores:
         return segments, probs
     return segments
