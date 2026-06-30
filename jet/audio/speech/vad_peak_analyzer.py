@@ -974,8 +974,9 @@ def save_trough_to_trough_segments(
             frame_shift_ms=frame_shift_ms,
             sample_rate=sample_rate,
             with_audio=True,
+            with_scores=True,
         )
-        segments_with_audio = results
+        segments_with_audio, _ = results
     else:
         # Fallback: use just the probabilities (no audio slicing)
         results = extract_trough_to_trough(
@@ -983,8 +984,10 @@ def save_trough_to_trough_segments(
             frame_shift_ms=frame_shift_ms,
             sample_rate=sample_rate,
             with_audio=False,
+            with_scores=True,
         )
-        segments_with_audio = [(seg, np.array([])) for seg in results]
+        segments, _ = results
+        segments_with_audio = [(seg, np.array([])) for seg in segments]
 
     cat_dir = output_dir / "trough_to_trough"
     cat_dir.mkdir(parents=True, exist_ok=True)
@@ -1000,6 +1003,20 @@ def save_trough_to_trough_segments(
         all_segments_meta.append(seg_meta)
         if len(audio_slice) > 0:
             sf.write(str(seg_dir / "sound.wav"), audio_slice, sample_rate)
+        # Save per-segment probability scores as plain array
+        if seg_meta.get("segment_probs"):
+            with open(seg_dir / "probs.json", "w", encoding="utf-8") as fh:
+                json.dump(seg_meta["segment_probs"], fh, ensure_ascii=False, indent=2)
+            # Save probability info (frame_shift, frame_start, frame_end, stats)
+            if seg_meta.get("prob_stats"):
+                probs_info = {
+                    "frame_shift_sec": frame_shift_ms / 1000.0,
+                    "frame_start": seg_meta["start_frame"],
+                    "frame_end": seg_meta["end_frame"],
+                    "stats": seg_meta["prob_stats"],
+                }
+                with open(seg_dir / "probs_info.json", "w", encoding="utf-8") as fh:
+                    json.dump(probs_info, fh, ensure_ascii=False, indent=2)
         f_start = max(0, seg_meta["start_frame"])
         f_end = min(n_frames, seg_meta["end_frame"] + 1)
         frames = np.arange(f_start, f_end)
