@@ -38,7 +38,7 @@ from jet.audio.audio_waveform.vad.vad_firered import (
     DEFAULT_SMOOTH_WINDOW_SIZE,
 )
 from jet.audio.helpers.config import FRAME_SHIFT_MS, FRAME_SHIFT_S, SAMPLE_RATE
-from jet.audio.normalization.quant import quantize_audio
+from jet.audio.normalization.dtype_conversion import convert_audio_dtype
 from jet.audio.speech.vad_extractors import extract_trough_to_trough
 from jet.audio.speech.vad_types import TroughToTroughSegment
 from jet.logger import logger
@@ -567,14 +567,14 @@ def split_segment_with_vad(
         min_sub_segment_duration_sec,
     )
 
-    # audio_np, _ = normalize_audio_for_vad(audio_np, sample_rate)
     if duration_sec >= DEFAULT_SOFT_LIMIT_SEC:
-        audio_np, _ = quantize_audio(
-            audio_np,
-            target_dtype="int16",
-            sr=SAMPLE_RATE,
-            verbose=verbose,
-        )
+        # audio_np, _ = quantize_audio(
+        #     audio_np,
+        #     target_dtype="int16",
+        #     sr=SAMPLE_RATE,
+        #     verbose=verbose,
+        # )
+        audio_np = convert_audio_dtype(audio_np, "int16")
 
     segments_with_audio, probs = extract_trough_to_trough(
         probs_or_audio=audio_np,
