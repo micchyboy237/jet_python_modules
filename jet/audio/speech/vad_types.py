@@ -52,6 +52,7 @@ class TroughToTroughSegment(TypedDict):
     trough_start: Optional[ValleyTrough]
     trough_end: Optional[ValleyTrough]
     # Added for with_scores support
+    segments: Optional[List[Any]]
     segment_probs: Optional[List[float]]
     prob_stats: Optional[Dict[str, float]]
 
