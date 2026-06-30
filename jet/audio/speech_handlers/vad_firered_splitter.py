@@ -28,6 +28,7 @@ from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_MIN_SILENCE_SEC,
     DEFAULT_MIN_SPEECH_SEC,
     DEFAULT_MIN_SUB_SEG_DURATION_SEC,
+    DEFAULT_SOFT_LIMIT_SEC,
     DEFAULT_THRESHOLD,
     DEFAULT_USE_HYBRID,
 )
@@ -37,6 +38,7 @@ from jet.audio.audio_waveform.vad.vad_firered import (
     DEFAULT_SMOOTH_WINDOW_SIZE,
 )
 from jet.audio.helpers.config import FRAME_SHIFT_MS, FRAME_SHIFT_S, SAMPLE_RATE
+from jet.audio.normalization.quant import quantize_audio
 from jet.audio.speech.vad_extractors import extract_trough_to_trough
 from jet.audio.speech.vad_types import TroughToTroughSegment
 from jet.logger import logger
@@ -564,6 +566,15 @@ def split_segment_with_vad(
         "(min_duration_s=%.3fs)",
         min_sub_segment_duration_sec,
     )
+
+    # audio_np, _ = normalize_audio_for_vad(audio_np, sample_rate)
+    if duration_sec >= DEFAULT_SOFT_LIMIT_SEC:
+        audio_np, _ = quantize_audio(
+            audio_np,
+            target_dtype="int16",
+            sr=SAMPLE_RATE,
+            verbose=verbose,
+        )
 
     segments_with_audio, probs = extract_trough_to_trough(
         probs_or_audio=audio_np,
