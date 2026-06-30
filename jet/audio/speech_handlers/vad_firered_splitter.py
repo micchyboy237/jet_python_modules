@@ -17,8 +17,9 @@ This prevents conflicts with the short-segment accumulation logic in
 from __future__ import annotations
 
 import copy
+import json
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 from jet.audio.audio_waveform.vad._types import SpeechSegment
@@ -34,8 +35,10 @@ from jet.audio.audio_waveform.vad.vad_firered import (
     DEFAULT_MAX_BUFFER_SEC,
     DEFAULT_PAD_START_FRAME,
     DEFAULT_SMOOTH_WINDOW_SIZE,
-    extract_speech_timestamps,
 )
+from jet.audio.helpers.config import FRAME_SHIFT_MS, FRAME_SHIFT_S, SAMPLE_RATE
+from jet.audio.speech.vad_extractors import extract_trough_to_trough
+from jet.audio.speech.vad_types import TroughToTroughSegment
 from jet.logger import logger
 
 
@@ -89,7 +92,7 @@ def _merge_short_valley_segments(
     hop_sec: float,
     verbose: bool = False,
 ) -> List[SpeechSegment]:
-    """
+    f"""
     Merge sub-segments that are shorter than min_duration_sec **AND**
     have ``end_reason == "valley"`` into adjacent segments.
 
@@ -115,7 +118,7 @@ def _merge_short_valley_segments(
         had_overflow: Whether the parent segment had overflow
         orig_start_dt: Parsed start datetime of the parent segment
         probs: Full probability array from VAD
-        hop_sec: Hop size in seconds (0.010)
+        hop_sec: Hop size in seconds ({FRAME_SHIFT_S})
         verbose: Enable debug logging
 
     Returns:
@@ -426,8 +429,8 @@ def _merge_short_valley_segments(
 def split_segment_with_vad(
     segment: SpeechSegment,
     audio_np: np.ndarray,
-    sample_rate: int,
     *,
+    sample_rate: int = SAMPLE_RATE,
     threshold: float = DEFAULT_THRESHOLD,
     min_silence_duration_sec: float = DEFAULT_MIN_SILENCE_SEC,
     min_speech_duration_sec: float = DEFAULT_MIN_SPEECH_SEC,
@@ -489,6 +492,21 @@ def split_segment_with_vad(
         - VAD finds no sub-segments
         - All sub-segments are filtered out or merged back to a single segment
     """
+    segment = segment.copy()
+    full_segment_probs = segment.pop("segment_probs", None)
+
+    # ── ADDED: Log entry with segment metadata ─────────────────────────────
+    logger.info(
+        "split_segment_with_vad: ENTER segment %s | start=%.3fs end=%.3fs "
+        "dur=%.3fs end_reason=%s audio_samples=%d",
+        segment.get("num"),
+        float(segment.get("start", 0)),
+        float(segment.get("end", 0)),
+        float(segment.get("duration", 0)),
+        segment.get("end_reason"),
+        len(audio_np) if audio_np is not None else 0,
+    )
+
     if audio_np is None or audio_np.size == 0:
         logger.warning(
             "split_segment_with_vad: empty audio for segment %s — returning as-is",
@@ -496,44 +514,8 @@ def split_segment_with_vad(
         )
         return [segment]
 
-    # ── FIX 1: Correct segment metadata to match actual audio ──────────────
-    # The VAD worker trims the buffer with overlap (trim_overlap_sec=0.300s),
-    # which can cause the emitted segment's declared start/end/duration to
-    # not match the actual audio slice. The audio is the source of truth.
-    #
-    # Example: VAD worker emits segment [0.000, 5.640] dur=5.640s, but
-    # the actual audio slice starts at buffer position 0.300s, so the
-    # audio array is only 5.340s long.
-    #
-    # Instead of trimming the audio (which would lose content), we correct
-    # the segment metadata so all downstream calculations are consistent.
-    declared_duration = float(segment.get("duration", 0.0))
-    actual_duration = len(audio_np) / sample_rate
-    duration_mismatch = actual_duration - declared_duration
-
-    if abs(duration_mismatch) > 0.05:  # More than 50ms mismatch
-        logger.warning(
-            "split_segment_with_vad: segment %s declared duration %.3fs but "
-            "audio is %.3fs (diff=%+.3fs). Correcting segment metadata to match audio. "
-            "This typically happens when the VAD worker trims the buffer with overlap.",
-            segment.get("num"),
-            declared_duration,
-            actual_duration,
-            duration_mismatch,
-        )
-        # Fix the segment's duration and end time to match the actual audio
-        segment["duration"] = actual_duration
-        segment["end"] = float(segment["start"]) + actual_duration
-        if verbose:
-            logger.debug(
-                "  corrected segment: start=%.3fs, end=%.3fs, duration=%.3fs",
-                float(segment["start"]),
-                float(segment["end"]),
-                actual_duration,
-            )
-
     # Use corrected duration going forward
-    duration_sec = actual_duration
+    duration_sec = segment["duration"]
 
     # ── Existing guards ─────────────────────────────────────────────────────
     if duration_sec < min_speech_duration_sec * 2:
@@ -575,28 +557,70 @@ def split_segment_with_vad(
     #     )
 
     # ── Run VAD ─────────────────────────────────────────────────────────────
-    try:
-        sub_segments, probs = extract_speech_timestamps(
-            audio=audio_np,
-            threshold=threshold,
-            min_silence_duration_sec=min_silence_duration_sec,
-            min_speech_duration_sec=min_speech_duration_sec,
-            max_speech_duration_sec=max_speech_duration_sec,
-            return_seconds=True,
-            with_scores=True,
-            include_non_speech=False,
-            smooth_window_size=smooth_window_size,
-            pad_start_frame=pad_start_frame,
-            max_buffer_sec=max_buffer_sec,
-            use_hybrid=use_hybrid,
-        )
-    except Exception as exc:
-        logger.error(
-            "split_segment_with_vad: VAD failed for segment %s: %s — returning as-is",
-            segment.get("num"),
-            exc,
-        )
-        return [segment]
+    # try:
+    #     sub_segments, probs = extract_speech_timestamps(
+    #         audio=audio_np,
+    #         threshold=threshold,
+    #         min_silence_duration_sec=min_silence_duration_sec,
+    #         min_speech_duration_sec=min_speech_duration_sec,
+    #         max_speech_duration_sec=max_speech_duration_sec,
+    #         return_seconds=True,
+    #         with_scores=True,
+    #         include_non_speech=False,
+    #         smooth_window_size=smooth_window_size,
+    #         pad_start_frame=pad_start_frame,
+    #         max_buffer_sec=max_buffer_sec,
+    #         use_hybrid=use_hybrid,
+    #     )
+    # except Exception as exc:
+    #     logger.error(
+    #         "split_segment_with_vad: VAD failed for segment %s: %s — returning as-is",
+    #         segment.get("num"),
+    #         exc,
+    #     )
+    #     return [segment]
+
+    logger.debug(
+        "split_segment_with_vad: segment %s | dur=%.3fs",
+        segment.get("num"),
+        duration_sec,
+    )
+    logger.success(
+        "split_segment_with_vad: segment JSON\n",
+        json.dumps(segment, ensure_ascii=False),
+    )
+
+    # ── ADDED: Log before extract_trough_to_trough call ─────────────────────
+    logger.info(
+        "split_segment_with_vad: calling extract_trough_to_trough "
+        "(min_duration_s=%.3fs)",
+        min_sub_segment_duration_sec,
+    )
+
+    segments_with_audio, probs = extract_trough_to_trough(
+        probs_or_audio=audio_np,
+        frame_shift_ms=FRAME_SHIFT_MS,
+        sample_rate=sample_rate,
+        with_audio=True,
+        with_scores=True,
+        min_duration_s=min_sub_segment_duration_sec,
+    )
+
+    # ── ADDED: Log VAD results ─────────────────────────────────────────────
+    logger.info(
+        "split_segment_with_vad: extract_trough_to_trough returned "
+        "%d segments_with_audio, %d probs frames",
+        len(segments_with_audio),
+        len(probs) if probs else 0,
+    )
+
+    sub_segments = convert_to_segments(segments_with_audio, probs)
+
+    # ── ADDED: Log conversion results ──────────────────────────────────────
+    logger.info(
+        "split_segment_with_vad: convert_to_segments produced %d sub_segments",
+        len(sub_segments),
+    )
 
     if not sub_segments:
         logger.info(
@@ -613,6 +637,14 @@ def split_segment_with_vad(
     original_start_utc = segment.get("start_time_utc")
     had_overflow = segment.get("had_overflow", False)
 
+    # ── ADDED: Log absolute segment building context ────────────────────────
+    logger.debug(
+        "split_segment_with_vad: building absolute sub-segments "
+        "(original_start_sec=%.3fs, max_sub_end=%.3fs)",
+        original_start_sec,
+        len(audio_np) / sample_rate,
+    )
+
     orig_start_dt: Optional[datetime] = None
     if original_start_utc is not None:
         try:
@@ -626,7 +658,7 @@ def split_segment_with_vad(
                 exc,
             )
 
-    hop_sec = 0.010
+    hop_sec = FRAME_SHIFT_S
     # Use the actual audio length as the maximum sub-segment boundary
     max_sub_end = len(audio_np) / sample_rate
 
@@ -639,8 +671,21 @@ def split_segment_with_vad(
         # VAD can produce boundaries outside the audio range due to
         # frame-level rounding or pre/post-roll adjustments in the
         # secondary VAD pass. Clamp to the actual audio bounds.
+        raw_start = sub_start_sec
+        raw_end = sub_end_sec
         sub_start_sec = max(0.0, min(sub_start_sec, max_sub_end))
         sub_end_sec = max(sub_start_sec, min(sub_end_sec, max_sub_end))
+
+        # ── ADDED: Log clamping if it occurred ─────────────────────────────
+        if raw_start != sub_start_sec or raw_end != sub_end_sec:
+            logger.debug(
+                "split_segment_with_vad: clamped sub-segment bounds "
+                "[%.4fs, %.4fs] → [%.4fs, %.4fs]",
+                raw_start,
+                raw_end,
+                sub_start_sec,
+                sub_end_sec,
+            )
 
         sub_duration = sub_end_sec - sub_start_sec
 
@@ -703,6 +748,20 @@ def split_segment_with_vad(
             new_seg.pop("start_time_utc", None)
             new_seg.pop("end_time_utc", None)
 
+        # ── ADDED: Always log each created absolute sub-segment ─────────────
+        logger.info(
+            "split_segment_with_vad: created absolute sub-segment "
+            "[global %.3fs → %.3fs] dur=%.3fs samples=%d probs=%d "
+            "avg_prob=%.4f end_reason=%s",
+            float(new_seg["start"]),
+            float(new_seg["end"]),
+            sub_duration,
+            len(sub_audio),
+            len(sub_probs),
+            float(new_seg.get("prob", 0)),
+            new_seg.get("end_reason"),
+        )
+
         if verbose:
             logger.debug(
                 "split_segment_with_vad: created sub-segment [%.3fs → %.3fs global] "
@@ -717,6 +776,13 @@ def split_segment_with_vad(
 
         absolute_sub_segments.append(new_seg)
 
+    # ── ADDED: Log count of absolute sub-segments built ─────────────────────
+    logger.info(
+        "split_segment_with_vad: built %d absolute sub_segments (%d skipped)",
+        len(absolute_sub_segments),
+        len(sub_segments) - len(absolute_sub_segments),
+    )
+
     if not absolute_sub_segments:
         logger.warning(
             "split_segment_with_vad: all sub-segments had empty audio — "
@@ -728,6 +794,20 @@ def split_segment_with_vad(
     # ── Valley-segment merging ──────────────────────────────────────────────
     if min_sub_segment_duration_sec > 0 and len(absolute_sub_segments) > 1:
         before_merge = len(absolute_sub_segments)
+
+        # ── ADDED: Log short segments before merge ──────────────────────────
+        short_before = [
+            (i, float(s.get("duration", 0)), s.get("end_reason"))
+            for i, s in enumerate(absolute_sub_segments)
+            if float(s.get("duration", 0)) < min_sub_segment_duration_sec
+        ]
+        if short_before:
+            logger.debug(
+                "split_segment_with_vad: short segments (<%.3fs) before merge: %s",
+                min_sub_segment_duration_sec,
+                [(i, f"{d:.3f}s", r) for i, d, r in short_before],
+            )
+
         if verbose:
             end_reasons = [s.get("end_reason") for s in absolute_sub_segments]
             logger.debug(
@@ -759,6 +839,12 @@ def split_segment_with_vad(
                     if float(s.get("duration", 0.0)) < min_sub_segment_duration_sec
                 ),
             )
+        # ── ADDED: Log when no merge happened ───────────────────────────────
+        else:
+            logger.debug(
+                "split_segment_with_vad: no segments merged (count unchanged: %d)",
+                len(absolute_sub_segments),
+            )
 
     # ── Final guard: single segment covering full audio → return original ────
     if len(absolute_sub_segments) == 1:
@@ -783,4 +869,165 @@ def split_segment_with_vad(
         min_sub_segment_duration_sec,
     )
 
+    # ── ADDED: Log final summary of all sub-segments ────────────────────────
+    for i, seg in enumerate(absolute_sub_segments):
+        logger.debug(
+            "split_segment_with_vad: FINAL[%d] global [%.3fs → %.3fs] "
+            "dur=%.3fs end_reason=%s avg_prob=%.4f frames=%d",
+            i,
+            float(seg["start"]),
+            float(seg["end"]),
+            float(seg.get("duration", 0)),
+            seg.get("end_reason"),
+            float(seg.get("prob", 0)),
+            seg.get("frames_length", 0),
+        )
+
+    logger.info(
+        "split_segment_with_vad: EXIT segment %s → %d sub-segments",
+        segment.get("num"),
+        len(absolute_sub_segments),
+    )
+
     return absolute_sub_segments
+
+
+def convert_to_segments(
+    segments_with_audio: List[Tuple[TroughToTroughSegment, np.ndarray]],
+    probs: List[float],
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    sample_rate: int = SAMPLE_RATE,
+) -> List[SpeechSegment]:
+    """
+    Convert trough-to-trough segments with audio into SpeechSegment objects.
+
+    Each segment gets proper metadata including:
+    - Local timestamps (start, end, duration)
+    - Frame indices and per-frame probabilities
+    - End reason based on whether it ends at a valley trough
+    - Probability statistics (avg, min, max, std)
+
+    Args:
+        segments_with_audio: List of (TroughToTroughSegment, np.ndarray) tuples
+            from extract_trough_to_trough
+        probs: Full VAD probability array for extracting per-segment probs
+        frame_shift_ms: Frame shift in milliseconds (default from config)
+        sample_rate: Audio sample rate in Hz (default from config)
+
+    Returns:
+        List of SpeechSegment objects ready for downstream processing
+    """
+    segments: List[SpeechSegment] = []
+
+    # ── ADDED: Log entry ───────────────────────────────────────────────────
+    logger.info(
+        "convert_to_segments: converting %d segments_with_audio "
+        "(probs_len=%d, hop_sec=%.4f)",
+        len(segments_with_audio),
+        len(probs) if probs else 0,
+        frame_shift_ms / 1000.0,
+    )
+
+    if not segments_with_audio:
+        logger.debug("convert_to_segments: no segments to convert")
+        return segments
+
+    for idx, (trough_seg, audio_slice) in enumerate(segments_with_audio):
+        start_s = float(trough_seg["start_s"])
+        end_s = float(trough_seg["end_s"])
+        duration_s = float(trough_seg["duration_s"])
+        start_frame = int(trough_seg["start_frame"])
+        end_frame = int(trough_seg["end_frame"])
+
+        # Extract per-segment probability values
+        segment_probs = probs[start_frame : end_frame + 1] if probs else []
+
+        # Determine why this segment ends (end_reason)
+        is_last = idx == len(segments_with_audio) - 1
+        trough_end = trough_seg.get("trough_end")
+
+        if is_last:
+            # Last segment ends with the audio, not at a valley
+            end_reason = None
+        elif trough_end is not None:
+            # Segment ends at a detected valley trough
+            end_reason = "valley"
+        else:
+            # Segment ends but not at a valley (e.g., sentinel boundary)
+            end_reason = "silence"
+
+        # Calculate probability statistics for this segment
+        if segment_probs:
+            avg_prob = float(np.mean(segment_probs))
+        else:
+            avg_prob = 0.0
+
+        # Build best_valley_trough from trough_end metadata if available
+        best_valley_trough = None
+        if trough_end is not None:
+            best_valley_trough = {
+                "frame": trough_end.get("frame", 0),
+                "global_frame": trough_end.get("global_frame", 0),
+                "prob": trough_end.get("prob", 0.0),
+                "time_s": trough_end.get("time_s", 0.0),
+                "global_time_s": trough_end.get("global_time_s", 0.0),
+                "valley": trough_end.get("valley", {}).copy(),
+            }
+
+        segment: SpeechSegment = {
+            "num": idx,
+            "start": start_s,
+            "end": end_s,
+            "prob": avg_prob,
+            "duration": duration_s,
+            "frames_length": len(segment_probs),
+            "frame_start": start_frame,
+            "frame_end": end_frame,
+            "type": "speech",
+            "is_ongoing": is_last,
+            "segment_probs": segment_probs,
+            "has_risen": True,
+            "has_multi_passed": False,
+            "has_fallen": True if not is_last else False,
+            "is_valid": True,
+            "last_non_speech_sec": None,
+            "end_reason": end_reason,
+            "best_valley_trough": best_valley_trough,
+            "start_time_utc": None,
+            "end_time_utc": None,
+        }
+
+        # ── ENHANCED: More detailed per-segment log ─────────────────────────
+        logger.info(
+            "convert_to_segments: seg[%d] [%.3fs → %.3fs] dur=%.3fs "
+            "frames=%d avg_prob=%.4f end_reason=%s has_trough_end=%s "
+            "audio_samples=%d",
+            idx,
+            start_s,
+            end_s,
+            duration_s,
+            len(segment_probs),
+            avg_prob,
+            end_reason,
+            trough_end is not None,
+            len(audio_slice),
+        )
+
+        segments.append(segment)
+
+    # ── ENHANCED: Summary with counts per end_reason ────────────────────────
+    end_reason_counts = {
+        "valley": sum(1 for s in segments if s.get("end_reason") == "valley"),
+        "silence": sum(1 for s in segments if s.get("end_reason") == "silence"),
+        "none": sum(1 for s in segments if s.get("end_reason") is None),
+    }
+    logger.info(
+        "convert_to_segments: converted %d segments "
+        "(%d valley, %d silence, %d no-reason)",
+        len(segments),
+        end_reason_counts["valley"],
+        end_reason_counts["silence"],
+        end_reason_counts["none"],
+    )
+
+    return segments
