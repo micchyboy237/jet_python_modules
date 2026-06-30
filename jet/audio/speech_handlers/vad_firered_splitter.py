@@ -493,7 +493,6 @@ def split_segment_with_vad(
         - All sub-segments are filtered out or merged back to a single segment
     """
     segment = segment.copy()
-    full_segment_probs = segment.pop("segment_probs", None)
 
     # ── ADDED: Log entry with segment metadata ─────────────────────────────
     logger.info(
@@ -546,48 +545,17 @@ def split_segment_with_vad(
         len(audio_np),
     )
 
-    # audio_np, _ = normalize_audio_for_vad(audio_np, sample_rate)
-    # duration = get_audio_duration(audio_np, sample_rate)
-    # if duration >= DEFAULT_SOFT_LIMIT_SEC:
-    #     audio_np, _ = quantize_audio(
-    #         audio_np,
-    #         target_dtype="float16",
-    #         sr=sample_rate,
-    #         verbose=verbose,
-    #     )
-
-    # ── Run VAD ─────────────────────────────────────────────────────────────
-    # try:
-    #     sub_segments, probs = extract_speech_timestamps(
-    #         audio=audio_np,
-    #         threshold=threshold,
-    #         min_silence_duration_sec=min_silence_duration_sec,
-    #         min_speech_duration_sec=min_speech_duration_sec,
-    #         max_speech_duration_sec=max_speech_duration_sec,
-    #         return_seconds=True,
-    #         with_scores=True,
-    #         include_non_speech=False,
-    #         smooth_window_size=smooth_window_size,
-    #         pad_start_frame=pad_start_frame,
-    #         max_buffer_sec=max_buffer_sec,
-    #         use_hybrid=use_hybrid,
-    #     )
-    # except Exception as exc:
-    #     logger.error(
-    #         "split_segment_with_vad: VAD failed for segment %s: %s — returning as-is",
-    #         segment.get("num"),
-    #         exc,
-    #     )
-    #     return [segment]
-
     logger.debug(
         "split_segment_with_vad: segment %s | dur=%.3fs",
         segment.get("num"),
         duration_sec,
     )
+
+    # Log segment metadata without the verbose segment_probs array
+    segment_log = {k: v for k, v in segment.items() if k != "segment_probs"}
     logger.success(
-        "split_segment_with_vad: segment JSON\n",
-        json.dumps(segment, ensure_ascii=False),
+        "split_segment_with_vad: segment JSON\n%s",
+        json.dumps(segment_log, ensure_ascii=False),
     )
 
     # ── ADDED: Log before extract_trough_to_trough call ─────────────────────

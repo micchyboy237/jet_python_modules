@@ -755,7 +755,7 @@ def extract_trough_to_trough(
             "[yellow]extract_trough_to_trough: no valley_troughs found, returning empty list.[/yellow]"
         )
         if with_scores:
-            return ([], probs) if not with_audio else (([], []), probs)
+            return [], probs
         return [] if not with_audio else []
 
     if with_audio and audio_np is None:
