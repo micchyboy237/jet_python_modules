@@ -169,10 +169,16 @@ def main_live_speech_translation(
         if merged_audio.size == 0:
             logger.warning("[recorder] Merged segment has empty audio — skipping")
             return
-
-        seg_dir, seg_number = segment_store.save(
-            merged_seg, merged_audio, sample_rate=SAMPLE_RATE
-        )
+        try:
+            seg_dir, seg_number = segment_store.save(
+                merged_seg, merged_audio, sample_rate=SAMPLE_RATE
+            )
+        except FileNotFoundError as exc:
+            logger.error(
+                f"[recorder] segment_store.save aborted — segment directory was "
+                f"removed mid-save (likely a session clear): {exc}"
+            )
+            return
         merged_seg["num"] = seg_number
         logger.success(
             f"Speech {seg_number}: "

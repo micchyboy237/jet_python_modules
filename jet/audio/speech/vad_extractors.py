@@ -6,23 +6,22 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import soundfile as sf
 from jet.audio.audio_types import AudioInput
-
-# from jet.audio.audio_waveform.vad.vad_speech_segments_extractor import (
-#     extract_speech_timestamps,
-# )
-from jet.audio.audio_waveform.vad.vad_firered import extract_speech_timestamps
-from jet.audio.audio_waveform.vad.vad_firered_hybrid import FireRedVAD
+from jet.audio.audio_waveform.vad.vad_firered import (
+    FireRedVAD,
+    extract_speech_timestamps,
+)
 from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE, SILENCE_MAX_THRESHOLD
 from jet.audio.helpers.energy_base import trim_silent_frames
-from jet.audio.speech._main_vad_extractors import main
 from jet.audio.speech.vad_types import (
     TroughToTroughSegment,
     VADSegment,
     ValleyInfo,
     ValleyTrough,
 )
+from jet.audio.speech.vad_valley_utils import ThresholdStrategy, auto_threshold
 from jet.audio.utils.loader import load_audio
 from rich.console import Console
+from scipy.signal import find_peaks
 
 console = Console()
 
@@ -57,23 +56,19 @@ def load_probs(
     Attempts to load probability scores for VAD either from a list of floats,
     from an AudioInput (str path, bytes, os.PathLike, ndarray, or Tensor),
     or as a JSON string. Falls back on default_audio if parsing fails.
-
     Returns:
         probs (list[float]): VAD probability scores.
         audio_np (Optional[np.ndarray]): Decoded waveform if AudioInput required
             audio loading, otherwise None.
-
     Raises:
         ValueError: If unable to parse input and no default_audio is provided.
     """
     input_value = probs_or_audio
     audio_np: Optional[np.ndarray] = None
 
-    # Case 1: Already a list of floats.
     if is_probs_list(input_value):
         return input_value, None
 
-    # Case 2: Path (str | Path): .npy/.json/.txt = scores, otherwise treat as audio.
     if isinstance(input_value, (str, Path)):
         input_path = Path(input_value)
         if input_path.is_file():
@@ -117,7 +112,6 @@ def load_probs(
                     )
                 return probs, audio_np
 
-    # Case 3: JSON string containing scores
     if isinstance(input_value, str):
         try:
             loaded = json.loads(input_value)
@@ -126,8 +120,6 @@ def load_probs(
         except Exception:
             pass
 
-    # Case 4: AudioInput objects - bytes, ndarray, Tensor
-    # Handle numpy.ndarray: treat as waveform
     if isinstance(input_value, np.ndarray):
         audio_np = input_value
         _, probs = extract_speech_timestamps(
@@ -143,7 +135,6 @@ def load_probs(
             )
         return probs, audio_np
 
-    # Handle bytes: treat as audio file bytes
     if isinstance(input_value, bytes):
         with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
             tmp.write(input_value)
@@ -165,7 +156,6 @@ def load_probs(
                 )
             return probs, audio_np
 
-    # Handle Torch Tensor (optional, duck-type)
     try:
         import torch
 
@@ -186,7 +176,6 @@ def load_probs(
     except ImportError:
         pass
 
-    # If we haven't parsed, fall back to default_audio if provided
     if default_audio is not None:
         console.print(
             f"[yellow]Input not recognized, falling back to default audio: "
@@ -210,6 +199,453 @@ def load_probs(
     raise ValueError("Input could not be parsed and no default_audio was provided.")
 
 
+# ============================================================================
+# Standalone extraction functions (no dependency on VADPeakAnalyzer)
+# ============================================================================
+
+
+def _compute_times(frame_idx: int, frame_shift_ms: float) -> Tuple[float, float]:
+    """Convert frame index to start/end time in seconds."""
+    frame_duration_s = frame_shift_ms / 1000.0
+    start_s = frame_idx * frame_duration_s
+    end_s = (frame_idx + 1) * frame_duration_s
+    return start_s, end_s
+
+
+def extract_peaks(
+    probs_or_audio: List[float] | AudioInput,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    height: Optional[float] = None,
+    distance: Optional[int] = None,
+    prominence: Optional[float] = None,
+    width: Optional[int] = None,
+    **kwargs,
+) -> List[VADSegment]:
+    """
+    Extract peaks (local maxima) from VAD probabilities using scipy.signal.find_peaks.
+    A peak is a single-frame local maximum in the probability curve.
+    This is useful for identifying the strongest speech moments.
+    Args:
+        probs_or_audio: VAD probability list (values in [0.0, 1.0]) or AudioInput.
+        frame_shift_ms: Frame shift in milliseconds.
+        height: Minimum probability for a peak (e.g. 0.6).
+        distance: Minimum frames between peaks (e.g. 5-20).
+        prominence: Required prominence of peaks (e.g. 0.1-0.3).
+        width: Minimum width of peaks in frames.
+    Returns:
+        List[VADSegment]: Detected peak segments (each spans a single frame).
+    Logs:
+        Logs the number of peaks found and their probabilities.
+    """
+    probs, _ = load_probs(probs_or_audio)
+    if not probs:
+        console.print("[cyan]extract_peaks: empty probs list, returning [][/cyan]")
+        return []
+    x = np.array(probs, dtype=float)
+    console.print(
+        f"[cyan]extract_peaks: len={len(x)}, height={height}, distance={distance}, "
+        f"prominence={prominence}[/cyan]"
+    )
+    peaks_idx, properties = find_peaks(
+        x,
+        height=height,
+        distance=distance,
+        prominence=prominence,
+        width=width if width is not None else 0,
+        **kwargs,
+    )
+    console.print(
+        f"[cyan]extract_peaks: found {len(peaks_idx)} peaks at indices {peaks_idx.tolist()}[/cyan]"
+    )
+    segments: List[VADSegment] = []
+    for i, peak in enumerate(peaks_idx):
+        frame_start = int(peak)
+        frame_end = int(peak)
+        start_s, end_s = _compute_times(frame_start, frame_shift_ms)
+        duration_s = end_s - start_s
+        details = {
+            "peak_index": int(peak),
+            "peak_probability": float(x[peak]),
+            "prominence": float(properties.get("prominences", [0])[i])
+            if "prominences" in properties
+            else None,
+            "width": float(properties.get("widths", [0])[i])
+            if "widths" in properties
+            else None,
+            "left_base": int(properties.get("left_bases", [0])[i])
+            if "left_bases" in properties
+            else None,
+            "right_base": int(properties.get("right_bases", [0])[i])
+            if "right_bases" in properties
+            else None,
+        }
+        segments.append(
+            {
+                "frame_start": frame_start,
+                "frame_end": frame_end,
+                "frame_length": 1,
+                "start_s": round(start_s, 4),
+                "end_s": round(end_s, 4),
+                "duration_s": round(duration_s, 4),
+                "details": details,
+            }
+        )
+    console.print(
+        f"[green]extract_peaks: returning {len(segments)} peak segment(s)[/green]"
+    )
+    return segments
+
+
+def extract_troughs(
+    probs_or_audio: List[float] | AudioInput,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    height: Optional[float] = None,
+    distance: Optional[int] = None,
+    prominence: Optional[float] = None,
+    width: Optional[int] = None,
+    auto_threshold_strategy: ThresholdStrategy = ThresholdStrategy.OTSU,
+    **kwargs,
+) -> List[VADSegment]:
+    """
+    Extract troughs (local minima) from VAD probabilities by finding peaks
+    on the negated signal.
+    A trough is a single-frame local minimum in the probability curve.
+    This is useful for identifying the deepest silence points.
+    Args:
+        probs_or_audio: VAD probability list (values in [0.0, 1.0]) or AudioInput.
+        frame_shift_ms: Frame shift in milliseconds.
+        height: Maximum probability for a trough (None = auto-computed).
+        distance: Minimum frames between troughs (e.g. 5).
+        prominence: Required prominence of troughs (e.g. 0.15).
+        width: Minimum width of troughs in frames.
+        auto_threshold_strategy: Strategy for auto-computing height if None.
+            Default: ThresholdStrategy.OTSU.
+    Returns:
+        List[VADSegment]: Detected trough segments (each spans a single frame).
+    Logs:
+        Logs the auto-computed height (if applicable), number of troughs found,
+        and their probabilities.
+    """
+    probs, _ = load_probs(probs_or_audio)
+    if not probs:
+        console.print("[cyan]extract_troughs: empty probs list, returning [][/cyan]")
+        return []
+    resolved_height = height
+    if resolved_height is None:
+        resolved_height = auto_threshold(probs, strategy=auto_threshold_strategy)
+        console.print(
+            f"[cyan]extract_troughs: auto-computed height={resolved_height:.4f} "
+            f"via {auto_threshold_strategy.value}[/cyan]"
+        )
+    x = np.array(probs, dtype=float)
+    console.print(
+        f"[cyan]extract_troughs: len={len(x)}, height={resolved_height}, "
+        f"distance={distance}, prominence={prominence}[/cyan]"
+    )
+    troughs_idx, properties = find_peaks(
+        -x,
+        height=-resolved_height if resolved_height is not None else None,
+        distance=distance,
+        prominence=prominence,
+        width=width if width is not None else 0,
+        **kwargs,
+    )
+    console.print(
+        f"[cyan]extract_troughs: found {len(troughs_idx)} troughs at indices "
+        f"{troughs_idx.tolist()}[/cyan]"
+    )
+    segments: List[VADSegment] = []
+    for i, trough in enumerate(troughs_idx):
+        frame_start = int(trough)
+        frame_end = int(trough)
+        start_s, end_s = _compute_times(frame_start, frame_shift_ms)
+        duration_s = end_s - start_s
+        details = {
+            "trough_index": int(trough),
+            "trough_probability": float(x[trough]),
+            "prominence": float(properties.get("prominences", [0])[i])
+            if "prominences" in properties
+            else None,
+            "width": float(properties.get("widths", [0])[i])
+            if "widths" in properties
+            else None,
+        }
+        segments.append(
+            {
+                "frame_start": frame_start,
+                "frame_end": frame_end,
+                "frame_length": 1,
+                "start_s": round(start_s, 4),
+                "end_s": round(end_s, 4),
+                "duration_s": round(duration_s, 4),
+                "details": details,
+            }
+        )
+    console.print(
+        f"[green]extract_troughs: returning {len(segments)} trough segment(s)[/green]"
+    )
+    return segments
+
+
+def extract_active_regions(
+    probs_or_audio: List[float] | AudioInput,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    threshold: float = 0.3,
+    min_duration_s: float = 0.0,
+    min_duration_frames: Optional[int] = None,
+) -> List[VADSegment]:
+    """
+    Extract contiguous active (speech) regions where probability >= threshold.
+    An "active region" is a run of consecutive frames all at or above the
+    threshold — the speech bursts between silences.
+    Args:
+        probs_or_audio: VAD probability list or AudioInput.
+        frame_shift_ms: Frame shift in milliseconds.
+        threshold: Minimum probability to count as active (default 0.3).
+        min_duration_s: Minimum duration in seconds for an active region to be kept.
+        min_duration_frames: Alternative minimum frame count (overrides min_duration_s if provided).
+    Returns:
+        List[VADSegment]: Detected active region segments.
+    Logs:
+        Logs the number of active regions found.
+    """
+    probs, _ = load_probs(probs_or_audio)
+    if not probs:
+        console.print(
+            "[cyan]extract_active_regions: empty probs list, returning [][/cyan]"
+        )
+        return []
+    x = np.array(probs, dtype=float)
+    active = x >= threshold
+    segments: List[VADSegment] = []
+    in_region = False
+    region_start = 0
+    for i, is_active in enumerate(active):
+        if is_active and not in_region:
+            in_region = True
+            region_start = i
+        elif not is_active and in_region:
+            _append_active_segment(
+                segments, x, region_start, i, threshold, frame_shift_ms
+            )
+            in_region = False
+    if in_region:
+        _append_active_segment(
+            segments, x, region_start, len(x), threshold, frame_shift_ms
+        )
+    segments = filter_short_segments(
+        segments,
+        min_duration_s=min_duration_s,
+        min_duration_frames=min_duration_frames,
+    )
+    console.print(
+        f"[green]extract_active_regions: returning {len(segments)} active region(s)[/green]"
+    )
+    return segments
+
+
+def _append_active_segment(
+    segments: List[VADSegment],
+    x: np.ndarray,
+    start: int,
+    end: int,
+    threshold: float,
+    frame_shift_ms: float,
+) -> None:
+    """Helper: build and append one active-region VADSegment."""
+    start_s, _ = _compute_times(start, frame_shift_ms)
+    _, end_s = _compute_times(end + 1, frame_shift_ms)
+    duration_s = end_s - start_s
+    region_probs = x[start:end].tolist()
+
+    segments.append(
+        {
+            "frame_start": start,
+            "frame_end": end + 1,
+            "frame_length": end - start,
+            "start_s": round(start_s, 4),
+            "end_s": round(end_s, 4),
+            "duration_s": round(duration_s, 4),
+            "details": {
+                "threshold": threshold,
+                "max_probability": float(np.max(x[start:end])),
+                "mean_probability": float(np.mean(x[start:end])),
+                "frame_count": end - start,
+                "region_probs": region_probs,
+            },
+        }
+    )
+
+
+def extract_valleys(
+    probs_or_audio: List[float] | AudioInput,
+    frame_shift_ms: float = FRAME_SHIFT_MS,
+    threshold: Optional[float] = None,
+    min_duration_s: float = 0.0,
+    min_duration_frames: Optional[int] = None,
+    troughs: Optional[List[VADSegment]] = None,
+    auto_threshold_strategy: ThresholdStrategy = ThresholdStrategy.OTSU,
+) -> List[VADSegment]:
+    """
+    Extract contiguous valley (silence) regions where probability < threshold.
+    A "valley" is a run of consecutive frames all strictly below the
+    threshold — the silence stretches between speech bursts. This is the
+    region-based counterpart to extract_troughs(), which finds only the
+    single lowest frame inside each dip.
+    Relationship to other functions:
+        extract_troughs()        → single-frame local minimum inside a dip
+        extract_valleys()        → the whole contiguous low-probability region
+        extract_active_regions() → the whole contiguous high-probability region
+    Args:
+        probs_or_audio: VAD probability list or AudioInput.
+        frame_shift_ms: Frame shift in milliseconds.
+        threshold: Frames strictly below this value are considered silent
+                   (default: auto-computed via auto_threshold_strategy).
+        min_duration_s: Minimum duration in seconds for a valley to be kept.
+        min_duration_frames: Alternative minimum frame count (overrides min_duration_s if set).
+        troughs: Optional pre-extracted trough VADSegments. Each trough whose
+                 frame index falls within a valley's boundary is attached to
+                 that valley's details["troughs"] list.
+        auto_threshold_strategy: Strategy for auto-computing threshold if None.
+            Default: ThresholdStrategy.OTSU.
+    Returns:
+        List[VADSegment]: Detected valley segments.
+    Logs:
+        Logs the auto-computed threshold (if applicable), number of valleys found,
+        and which troughs are contained in each valley.
+    """
+    probs, _ = load_probs(probs_or_audio)
+    if not probs:
+        console.print("[cyan]extract_valleys: empty probs list, returning [][/cyan]")
+        return []
+    resolved_threshold = threshold
+    if resolved_threshold is None:
+        resolved_threshold = auto_threshold(probs, strategy=auto_threshold_strategy)
+        console.print(
+            f"[cyan]extract_valleys: auto-computed threshold={resolved_threshold:.4f} "
+            f"via {auto_threshold_strategy.value}[/cyan]"
+        )
+    x = np.array(probs, dtype=float)
+    silent = x < resolved_threshold
+    segments: List[VADSegment] = []
+    in_valley = False
+    valley_start = 0
+    for i, is_silent in enumerate(silent):
+        if is_silent and not in_valley:
+            in_valley = True
+            valley_start = i
+        elif not is_silent and in_valley:
+            _append_valley_segment(
+                segments, x, valley_start, i, resolved_threshold, frame_shift_ms
+            )
+            in_valley = False
+    if in_valley:
+        _append_valley_segment(
+            segments, x, valley_start, len(x), resolved_threshold, frame_shift_ms
+        )
+    if troughs and segments:
+        for segment in segments:
+            v_start = segment["frame_start"]
+            v_end = segment["frame_end"]
+            contained = [t for t in troughs if v_start <= t["frame_start"] <= v_end]
+            segment["details"]["troughs"] = contained
+            if contained:
+                console.print(
+                    f"[cyan]extract_valleys: valley [{v_start}, {v_end}] "
+                    f"contains {len(contained)} trough(s) at frames "
+                    f"{[t['frame_start'] for t in contained]}[/cyan]"
+                )
+    segments = filter_short_segments(
+        segments,
+        min_duration_s=min_duration_s,
+        min_duration_frames=min_duration_frames,
+    )
+    console.print(
+        f"[green]extract_valleys: returning {len(segments)} valley segment(s)[/green]"
+    )
+    return segments
+
+
+def _append_valley_segment(
+    segments: List[VADSegment],
+    x: np.ndarray,
+    start: int,
+    end: int,
+    threshold: float,
+    frame_shift_ms: float,
+) -> None:
+    """Helper: build and append one valley VADSegment."""
+    start_s, _ = _compute_times(start, frame_shift_ms)
+    _, end_s = _compute_times(end + 1, frame_shift_ms)
+    duration_s = end_s - start_s
+    region_probs = x[start:end].tolist()
+    min_prob_frame = int(start + np.argmin(x[start:end]))
+    min_prob_s, _ = _compute_times(min_prob_frame, frame_shift_ms)
+    frame_length = end - start
+
+    segments.append(
+        {
+            "frame_start": start,
+            "frame_end": end + 1,
+            "frame_length": frame_length,
+            "start_s": round(start_s, 4),
+            "end_s": round(end_s, 4),
+            "duration_s": round(duration_s, 4),
+            "details": {
+                "threshold": threshold,
+                "min_probability": float(np.min(x[start:end])),
+                "min_prob_frame": min_prob_frame,
+                "min_prob_s": round(min_prob_s, 4),
+                "mean_probability": float(np.mean(x[start:end])),
+                "frame_count": frame_length,
+            },
+        }
+    )
+
+
+def filter_short_segments(
+    segments: List[VADSegment],
+    min_duration_s: float = 0.0,
+    min_duration_frames: Optional[int] = None,
+) -> List[VADSegment]:
+    """
+    Filter out segments shorter than the specified minimum duration.
+
+    Args:
+        segments: List of VADSegment dicts.
+        min_duration_s: Minimum duration in seconds.
+        min_duration_frames: Alternative minimum frame count (overrides min_duration_s).
+
+    Returns:
+        Filtered list of VADSegment dicts.
+
+    Logs:
+        Logs how many segments were filtered out.
+    """
+    if not segments:
+        return segments
+
+    before = len(segments)
+    if min_duration_frames is not None:
+        filtered = [s for s in segments if s["frame_length"] >= min_duration_frames]
+    else:
+        filtered = [s for s in segments if s["duration_s"] >= min_duration_s]
+
+    removed = before - len(filtered)
+    if removed > 0:
+        console.print(
+            f"[yellow]filter_short_segments: removed {removed} short segment(s), "
+            f"kept {len(filtered)}[/yellow]"
+        )
+
+    return filtered
+
+
+# ============================================================================
+# Valley trough extraction (updated to use standalone functions)
+# ============================================================================
+
+
 def base_extract_valley_troughs(
     valleys: List[VADSegment], duration_s: float = 0.25
 ) -> List[ValleyTrough]:
@@ -224,13 +660,16 @@ def base_extract_valley_troughs(
         if len(valley["details"].get("troughs", [])) == 1
         and valley["duration_s"] >= duration_s
     ]
+
     last_frame = max((v["frame_end"] for v in filtered_valleys), default=-1)
+
     valley_troughs: List[ValleyTrough] = []
     for valley in filtered_valleys:
         details = valley["details"]
         valley_score = details.get("valley_score", 0.0)
         trough_score = details.get("trough_score", 0.0)
         final_score = details.get("final_score", 0.0)
+
         valley_info: ValleyInfo = {
             "frame_start": valley["frame_start"],
             "frame_end": valley["frame_end"],
@@ -251,6 +690,7 @@ def base_extract_valley_troughs(
             "global_final_score": final_score,
             "is_last": valley["frame_end"] >= last_frame,
         }
+
         valley_troughs.append(
             ValleyTrough(
                 frame=details["min_prob_frame"],
@@ -261,6 +701,7 @@ def base_extract_valley_troughs(
                 valley=valley_info,
             )
         )
+
     return valley_troughs
 
 
@@ -283,9 +724,7 @@ def get_best_valley_trough(
     Returns None if no suitable trough is found.
 
     Args:
-        probs_or_audio: VAD probabilities as a list[float], or an AudioInput
-            (str, bytes, os.PathLike, ndarray, or Tensor) that load_probs
-            can resolve into probabilities.
+        probs_or_audio: VAD probabilities as a list[float], or an AudioInput.
         All other kwargs are forwarded to extract_valley_troughs.
     """
     probs, _ = load_probs(probs_or_audio)
@@ -329,14 +768,13 @@ def get_last_valley_trough(
 
     "Covers the last frame" means the valley's ``frame_end`` reaches
     ``len(probs) - 1`` (accounting for the ``frame_offset`` shift).
+
     If more than one such trough exists, the one with the highest
-    ``final_score`` is returned.  Returns ``None`` when no matching
+    ``final_score`` is returned. Returns ``None`` when no matching
     trough is found.
 
     Args:
-        probs_or_audio: VAD probabilities as a list[float], or an AudioInput
-            (str, bytes, os.PathLike, ndarray, or Tensor) that load_probs
-            can resolve into probabilities.
+        probs_or_audio: VAD probabilities as a list[float], or an AudioInput.
         All other kwargs are forwarded to extract_valley_troughs.
     """
     probs, _ = load_probs(probs_or_audio)
@@ -360,10 +798,6 @@ def get_last_valley_trough(
     return max(last_troughs, key=lambda t: t["valley"].get("final_score", 0.0))
 
 
-# Each half is either (probs, trough) when the input was already a list[float],
-# or (probs, trough, audio_np) when the input was an AudioInput (str, bytes,
-# os.PathLike, ndarray, or Tensor) that had to be decoded into probabilities —
-# so callers can access the raw waveform without re-loading.
 SplitResult = Union[
     Tuple[List[float], List[float], ValleyTrough],
     Tuple[List[float], List[float], ValleyTrough, np.ndarray, np.ndarray],
@@ -389,6 +823,7 @@ def split_best_valley_trough(
     """
     Split a VAD probability list or audio into two halves at the best valley trough,
     then trim trailing silence from the left half and leading silence from the right half.
+
     Parameters
     ----------
     trim_silence : bool
@@ -398,7 +833,6 @@ def split_best_valley_trough(
         Defaults to ``valley_threshold`` if set, otherwise ``trough_height``, otherwise 0.3.
     """
     probs, audio_np = load_probs(probs_or_audio)
-
     best_trough = get_best_valley_trough(
         probs_or_audio=probs,
         sample_rate=sample_rate,
@@ -413,6 +847,7 @@ def split_best_valley_trough(
         frame_offset=frame_offset,
         min_trough_offset_s=min_trough_offset_s,
     )
+
     if best_trough is None:
         return None
 
@@ -470,17 +905,31 @@ def extract_valley_troughs(
     """
     Extract salient valley troughs (composite valley + trough detection) with scoring.
 
+    This is the main entry point for finding the best silence cut points in VAD
+    probability curves. It uses the standalone extract_troughs() and extract_valleys()
+    functions (no VADPeakAnalyzer dependency).
+
+    Workflow:
+        1. Load/parse VAD probabilities from the input.
+        2. Optionally smooth the probabilities.
+        3. Extract single-frame troughs via extract_troughs().
+        4. Extract contiguous valley regions via extract_valleys().
+        5. Filter valleys by minimum duration.
+        6. Score each valley+trough combination using compute_valley_score()
+           and compute_trough_score().
+        7. Filter to valleys with exactly one trough.
+        8. Build and return ValleyTrough dicts with local/global coordinates.
+
     Args:
-        probs_or_audio: VAD speech probabilities as a list[float] in [0.0, 1.0],
-            or an AudioInput (str, bytes, os.PathLike, ndarray, or Tensor)
-            that load_probs can resolve into probabilities.
+        probs_or_audio: VAD speech probabilities as a list[float], or an AudioInput
+            (str, bytes, os.PathLike, ndarray, or Tensor) that load_probs can resolve.
         sample_rate: Audio sample rate in Hz.
         frame_shift_ms: Frame shift in milliseconds.
         smoothing_window: Smoothing window size (0 = disabled).
-        trough_height: Min trough height (None = auto).
+        trough_height: Min trough height (None = auto-computed via auto_threshold).
         trough_prominence: Trough prominence. Default 0.15.
         trough_distance: Min frames between troughs. Default 5.
-        valley_threshold: Valley threshold (None = auto).
+        valley_threshold: Valley threshold (None = auto-computed via auto_threshold).
         min_valley_duration_s: Minimum valley duration. Default 0.25.
         min_valley_frames: Min valley frames (overrides duration if set).
         frame_offset: Global frame offset for chunked processing.
@@ -489,33 +938,56 @@ def extract_valley_troughs(
     Returns:
         List[ValleyTrough]: Detected troughs with enclosing valley info,
         local/global coordinates, and composite scores (valley_score × trough_score).
-    """
-    from jet.audio.speech.vad_peak_analyzer import VADPeakAnalyzer
 
+    Logs:
+        Logs each step: smoothing, trough extraction, valley extraction,
+        scoring, filtering, and final result count.
+    """
     probs, _ = load_probs(probs_or_audio)
-    analyzer = VADPeakAnalyzer(
-        sample_rate=sample_rate,
-        frame_shift_ms=frame_shift_ms,
-    )
-    smoothed = (
-        smooth_vad_probs(probs, window=smoothing_window) if smoothing_window else probs
-    )
-    troughs = analyzer.extract_troughs(
+
+    # Step 1: Smooth probabilities if requested
+    if smoothing_window:
+        smoothed = smooth_vad_probs(probs, window=smoothing_window)
+        console.print(
+            f"[cyan]extract_valley_troughs: applied smoothing (window={smoothing_window})[/cyan]"
+        )
+    else:
+        smoothed = probs
+
+    # Step 2: Extract single-frame troughs
+    troughs = extract_troughs(
         smoothed,
+        frame_shift_ms=frame_shift_ms,
         height=trough_height,
         prominence=trough_prominence,
         distance=trough_distance,
     )
-    valleys = analyzer.extract_valleys(
+    console.print(
+        f"[cyan]extract_valley_troughs: extracted {len(troughs)} trough(s)[/cyan]"
+    )
+
+    # Step 3: Extract contiguous valley regions, attaching troughs
+    valleys = extract_valleys(
         smoothed,
+        frame_shift_ms=frame_shift_ms,
         threshold=valley_threshold,
         troughs=troughs,
     )
-    valleys = analyzer.filter_short_segments(
+    console.print(
+        f"[cyan]extract_valley_troughs: extracted {len(valleys)} valley(s)[/cyan]"
+    )
+
+    # Step 4: Filter valleys by minimum duration
+    valleys = filter_short_segments(
         valleys,
         min_duration_s=min_valley_duration_s,
         min_duration_frames=min_valley_frames,
     )
+    console.print(
+        f"[cyan]extract_valley_troughs: {len(valleys)} valley(s) after duration filter[/cyan]"
+    )
+
+    # Step 5: Score each valley and its best trough
     for valley in valleys:
         details = valley["details"]
         valley_score = compute_valley_score(
@@ -524,6 +996,7 @@ def extract_valley_troughs(
             duration_s=valley["duration_s"],
         )
         details["valley_score"] = valley_score
+
         trough_list = details.get("troughs", [])
         if trough_list:
             trough = min(
@@ -543,13 +1016,19 @@ def extract_valley_troughs(
             details["trough_score"] = 0.0
             details["final_score"] = 0.0
 
+    # Step 6: Filter to valleys with exactly one trough and minimum duration
     filtered_valleys = [
         v
         for v in valleys
         if len(v.get("details", {}).get("troughs", [])) == 1
         and v["duration_s"] >= min_valley_duration_s
     ]
+    console.print(
+        f"[cyan]extract_valley_troughs: {len(filtered_valleys)} valley(s) with exactly "
+        f"one trough and duration >= {min_valley_duration_s}s[/cyan]"
+    )
 
+    # Step 7: Build ValleyTrough results
     result: List[ValleyTrough] = []
     seconds_per_frame = frame_shift_ms / 1000.0
     total_frames = len(probs)
@@ -557,9 +1036,16 @@ def extract_valley_troughs(
     for valley in filtered_valleys:
         details = valley["details"]
         local_trough_time_s = details["min_prob_s"]
+
         if local_trough_time_s < min_trough_offset_s:
+            console.print(
+                f"[grey62]extract_valley_troughs: skipping trough at "
+                f"{local_trough_time_s:.3f}s (below min_trough_offset_s={min_trough_offset_s}s)[/grey62]"
+            )
             continue
+
         global_trough_time_s = local_trough_time_s + (frame_offset * seconds_per_frame)
+
         valley_info: ValleyInfo = {
             "frame_start": valley["frame_start"],
             "frame_end": valley["frame_end"],
@@ -580,6 +1066,7 @@ def extract_valley_troughs(
             "global_final_score": details["final_score"],
             "is_last": valley["frame_end"] >= total_frames - 1,
         }
+
         result.append(
             {
                 "frame": details["min_prob_frame"],
@@ -590,6 +1077,10 @@ def extract_valley_troughs(
                 "valley": valley_info,
             }
         )
+
+    console.print(
+        f"[cyan]extract_valley_troughs: returning {len(result)} valley trough(s)[/cyan]"
+    )
     return result
 
 
@@ -615,8 +1106,7 @@ def extract_valley_troughs_from_np_audio(
 
     This is a high-level utility that computes speech probability curves using
     a VAD, then analyzes the result to return a list of the most prominent
-    troughs located in sufficiently silent zones. Suitable for downstream
-    alignment, trimming, splitting, etc.
+    troughs located in sufficiently silent zones.
 
     Workflow:
         1. Saves the provided audio (float32, 16kHz recommended) to a temp WAV.
@@ -645,12 +1135,14 @@ def extract_valley_troughs_from_np_audio(
     """
     if len(audio) == 0:
         return []
+
     audio = np.asarray(audio, dtype=np.float32)
     if np.max(np.abs(audio)) > 1.0:
         audio = audio / (np.max(np.abs(audio)) + 1e-8)
 
     with tempfile.NamedTemporaryFile(suffix=".wav", dir=temp_dir, delete=False) as tmp:
         temp_wav_path = Path(tmp.name)
+
     try:
         sf.write(str(temp_wav_path), audio, sample_rate, subtype="FLOAT")
         _, probs = extract_speech_timestamps(
@@ -663,6 +1155,7 @@ def extract_valley_troughs_from_np_audio(
         )
         if not probs:
             return []
+
         troughs = extract_valley_troughs(
             probs_or_audio=probs,
             smoothing_window=smoothing_window,
@@ -675,6 +1168,7 @@ def extract_valley_troughs_from_np_audio(
             trough_distance=trough_distance,
         )
         return troughs
+
     finally:
         try:
             if temp_wav_path.exists():
@@ -698,47 +1192,38 @@ def extract_trough_to_trough(
 ]:
     """
     Create segments spanning from one valley trough to the next.
+
     This function automatically:
-    1. Loads/resolves VAD probabilities from the input (audio file, numpy array, list of floats, etc.)
-    2. Extracts valley troughs using default parameters
-    3. Creates segments between consecutive troughs (including start-to-first and last-to-end)
+    1. Loads/resolves VAD probabilities from the input.
+    2. Extracts valley troughs using default parameters.
+    3. Creates segments between consecutive troughs (including start-to-first and last-to-end).
+
     For N valley_troughs, this produces N+1 segments:
         segment_0: t=0          → trough[0]
         segment_1: trough[0]    → trough[1]
         ...
         segment_N: trough[N-1]  → end of audio
-    When with_scores=True, each TroughToTroughSegment is also populated with:
-    - segment_probs: list of VAD probabilities for this segment
-    - prob_stats: statistics (mean, max, min, std, median) of those probabilities
+
     Args:
-        probs_or_audio: VAD probabilities as a list[float], or an AudioInput
-            (str, bytes, os.PathLike, ndarray, or Tensor) that load_probs
-            can resolve into probabilities.
+        probs_or_audio: VAD probabilities or audio input.
         frame_shift_ms: Frame shift in milliseconds.
-        sample_rate: Audio sample rate in Hz (used for sample-to-time conversion).
+        sample_rate: Audio sample rate in Hz.
         with_audio: If True, return list of (segment, audio_slice) tuples.
-                   Audio is extracted from the input if it's an audio source.
-        with_scores: If True, include per-segment VAD probability scores and
-                    statistics (mean, max, min, std, median) in each segment.
-                    When with_audio is also True, returns (segments_with_audio, probs).
-                    When with_audio is False, returns (segments, probs).
-        min_duration_s: Minimum segment duration in seconds. Segments shorter than
-                        this are filtered out. Default 0.0 (no filtering).
+        with_scores: If True, include per-segment VAD probability scores.
+        min_duration_s: Minimum segment duration in seconds.
+
     Returns:
-        If with_audio=False, with_scores=False: List[TroughToTroughSegment]
-        If with_audio=True, with_scores=False: List[Tuple[TroughToTroughSegment, np.ndarray]]
-        If with_audio=False, with_scores=True: Tuple[List[TroughToTroughSegment], List[float]]
-        If with_audio=True, with_scores=True: Tuple[List[Tuple[TroughToTroughSegment, np.ndarray]], List[float]]
-        Each audio slice is a numpy array of the waveform for that segment.
+        Segments with optional audio slices and probability scores.
+
     Logs:
-        Logs the number of troughs processed, segments created, and audio slicing info.
-        When with_scores is True, logs probability statistics for each segment.
-        When min_duration_s > 0, logs how many segments were filtered out.
+        Logs number of troughs, segments created, and any filtering.
     """
     probs, audio_np = load_probs(probs_or_audio)
+
     if not probs:
         console.print(
-            "[yellow]extract_trough_to_trough: no probabilities extracted, returning empty list.[/yellow]"
+            "[yellow]extract_trough_to_trough: no probabilities extracted, "
+            "returning empty list.[/yellow]"
         )
         if with_scores:
             return ([], probs) if not with_audio else (([], []), probs)
@@ -752,7 +1237,8 @@ def extract_trough_to_trough(
 
     if not valley_troughs:
         console.print(
-            "[yellow]extract_trough_to_trough: no valley_troughs found, returning empty list.[/yellow]"
+            "[yellow]extract_trough_to_trough: no valley_troughs found, "
+            "returning empty list.[/yellow]"
         )
         if with_scores:
             return [], probs
@@ -769,6 +1255,7 @@ def extract_trough_to_trough(
     end_time_s = n_frames * frame_duration_s
     end_frame = n_frames - 1
 
+    # Create sentinel anchors for start and end
     sentinel_start: ValleyTrough = {
         "frame": 0,
         "global_frame": 0,
@@ -777,7 +1264,6 @@ def extract_trough_to_trough(
         "global_time_s": 0.0,
         "valley": valley_troughs[0]["valley"].copy(),
     }
-
     sentinel_end: ValleyTrough = {
         "frame": end_frame,
         "global_frame": end_frame,
@@ -794,8 +1280,6 @@ def extract_trough_to_trough(
     segments: List[TroughToTroughSegment] = []
     audio_slices: List[np.ndarray] = []
     total_audio_samples = len(audio_np) if audio_np is not None else 0
-
-    # Track filtered-out segments for logging
     filtered_count = 0
     filtered_durations: List[float] = []
 
@@ -811,17 +1295,16 @@ def extract_trough_to_trough(
         start_frame: int = int(vt_start["global_frame"])
         end_frame_seg: int = int(vt_end["global_frame"])
 
-        # ─── min_duration_s filtering ───
         if min_duration_s > 0 and duration_s < min_duration_s:
             filtered_count += 1
             filtered_durations.append(duration_s)
             console.print(
                 f"[dim yellow]Segment {idx} [{start_s:.3f}s - {end_s:.3f}s] "
-                f"filtered: duration {duration_s:.3f}s < min {min_duration_s:.3f}s[/dim yellow]"
+                f"filtered: duration {duration_s:.3f}s < min {min_duration_s:.3f}s"
+                f"[/dim yellow]"
             )
             continue
 
-        # Extract probability scores for this segment if with_scores is True
         segment_probs: Optional[List[float]] = None
         prob_stats: Optional[Dict[str, float]] = None
 
@@ -868,10 +1351,10 @@ def extract_trough_to_trough(
             console.print(
                 f"[magenta]Segment {idx}: [{start_s:.3f}s - {end_s:.3f}s] "
                 f"→ audio samples [{start_sample}:{end_sample}] "
-                f"({len(audio_slice)} samples, {len(audio_slice) / sample_rate:.3f}s)[/magenta]"
+                f"({len(audio_slice)} samples, {len(audio_slice) / sample_rate:.3f}s)"
+                f"[/magenta]"
             )
 
-    # Log filtering summary
     if min_duration_s > 0:
         console.print(
             f"[yellow]extract_trough_to_trough: Filtered {filtered_count} segment(s) "
@@ -893,13 +1376,11 @@ def extract_trough_to_trough(
         + ".[/green]"
     )
 
-    # Return appropriate format based on parameters
     if with_audio:
         segments_with_audio = list(zip(segments, audio_slices))
         if with_scores:
             return segments_with_audio, probs
         return segments_with_audio
-
     if with_scores:
         return segments, probs
     return segments
@@ -930,14 +1411,14 @@ def compute_valley_score(
     Composite score for valley quality. Higher score = stronger silence (safe to cut).
 
     Args:
-        min_prob: Minimum probability in valley
-        mean_prob: Mean probability in valley
-        duration_s: Duration in seconds
-        max_duration_ref: Duration normalization cap
-        w_depth, w_mean, w_duration: Weights
+        min_prob: Minimum probability in valley.
+        mean_prob: Mean probability in valley.
+        duration_s: Duration in seconds.
+        max_duration_ref: Duration normalization cap.
+        w_depth, w_mean, w_duration: Weights.
 
     Returns:
-        float score in [0, 1]
+        float score in [0, 1].
     """
     duration_norm = min(duration_s / max_duration_ref, 1.0)
     score = (
@@ -972,4 +1453,6 @@ def compute_trough_score(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    from jet.audio.speech.main._main_vad_extractors import main
+
     main()

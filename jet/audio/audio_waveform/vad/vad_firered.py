@@ -16,6 +16,8 @@ from jet.audio.audio_waveform.vad._types import SpeechSegment
 from jet.audio.audio_waveform.vad.vad_config import (
     DEFAULT_USE_HYBRID,
 )
+from jet.audio.normalization.dtype_conversion import convert_audio_dtype
+from jet.audio.utils.info import display_audio_info
 from jet.audio.utils.loader import load_audio
 from rich.console import Console
 from rich.progress import (
@@ -33,7 +35,7 @@ SAVE_DIR = str(
     Path("~/.cache/pretrained_models/FireRedVAD/Stream-VAD").expanduser().resolve()
 )
 
-DEFAULT_THRESHOLD = 0.5
+DEFAULT_THRESHOLD = 0.3
 DEFAULT_NEG_THRESHOLD = 0.1
 DEFAULT_MIN_SILENCE_SEC = 0.250
 DEFAULT_MIN_SPEECH_SEC = 0.250
@@ -949,6 +951,8 @@ if __name__ == "__main__":
     import shutil
     import subprocess
 
+    from jet.audio.speech.vad_extractors import load_probs
+
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     DEFAULT_AUDIO = str(
         Path("~/.cache/files/audio/recording_3_speakers.wav").expanduser().resolve()
@@ -1041,6 +1045,12 @@ if __name__ == "__main__":
         default=DEFAULT_MAX_BUFFER_SEC,
         help=f"stream buffer duration in seconds (default: {DEFAULT_MAX_BUFFER_SEC})",
     )
+    parser.add_argument(
+        "--quantize",
+        "-q",
+        action="store_true",
+        help="Quantize audio to int16 before processing (default: False)",
+    )
 
     args = parser.parse_args()
 
@@ -1051,9 +1061,16 @@ if __name__ == "__main__":
     console.rule("Audio Segmenter – FireRedVAD2", style="blue")
     console.print(f"[bold cyan]Processing:[/bold cyan] {Path(audio_path).name}\n")
 
+    _, audio_np = load_probs(args.audio_path)
+
+    if args.quantize:
+        audio_np = convert_audio_dtype(audio_np, "int16")
+
+    display_audio_info(audio_np)
+
     # ── Step 1: detect segments ───────────────────────────────────────────
     segments, speech_probs = extract_speech_timestamps(
-        audio_path,
+        audio_np,
         threshold=args.threshold,
         neg_threshold=args.neg_threshold,
         min_silence_duration_sec=args.min_silence,

@@ -369,7 +369,7 @@ class CustomLogger:
                     colored_output = " ".join(msg for msg, _ in processed_messages)
             except io.UnsupportedOperation:
                 colored_output = " ".join(msg for msg, _ in processed_messages)
-                print(
+                self._print_direct(
                     "[WARNING] Fallback to non-colored output due to io.UnsupportedOperation"
                 )
             if level.lower() == "error" and exc_info:
@@ -381,10 +381,10 @@ class CustomLogger:
                         error_msg = clean_ansi(error_msg)
                 except io.UnsupportedOperation:
                     error_msg = clean_ansi(error_msg)
-                    print(
+                    self._print_direct(
                         "[WARNING] Fallback to non-colored error message due to io.UnsupportedOperation"
                     )
-                print(error_msg, flush=True)
+                self._print_direct(error_msg)
                 error_trace = colorize_log(traceback.format_exc(), level)
                 try:
                     if not (
@@ -393,13 +393,15 @@ class CustomLogger:
                         error_trace = clean_ansi(error_trace)
                 except io.UnsupportedOperation:
                     error_trace = clean_ansi(error_trace)
-                    print(
+                    self._print_direct(
                         "[WARNING] Fallback to non-colored error trace due to io.UnsupportedOperation"
                     )
-                print(error_trace, flush=True)
+                self._print_direct(error_trace)
             if not end:
                 end = "" if flush else "\n"
-            print(colored_output, end=end, flush=True)
+            # Write output directly to stdout buffer to bypass Rich's FileProxy
+            # which can cause RecursionError in multi-threaded contexts
+            self._print_direct(colored_output, end=end)
             target_log_file = log_file if log_file is not None else self.log_file
             if target_log_file:
                 log_dir = os.path.dirname(os.path.abspath(target_log_file))
@@ -562,6 +564,25 @@ class CustomLogger:
         if name.upper() in COLORS:
             return self.custom_logger_method(name.upper())
         self.warning(f"'CustomLogger' object has no attribute '{name}'")
+
+    @staticmethod
+    def _print_direct(message: str = "", end: str = "\n") -> None:
+        """
+        Write output directly to stdout buffer, bypassing Rich's FileProxy.
+
+        Rich's FileProxy can cause RecursionError in multi-threaded contexts
+        (e.g., audio recorder threads). Writing to sys.stdout.buffer avoids
+        the proxy entirely while still outputting to the console.
+        """
+        try:
+            output = message
+            if end:
+                output += end
+            sys.stdout.buffer.write(output.encode("utf-8"))
+            sys.stdout.buffer.flush()
+        except (AttributeError, io.UnsupportedOperation):
+            # Fallback for non-standard stdout (e.g., StringIO in tests)
+            print(message, end=end, flush=True)
 
     # ──────────────────────────────────────────────────────────────
     # Add a classmethod that mimics logging.getLogger()
