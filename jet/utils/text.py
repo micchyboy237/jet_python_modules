@@ -1,7 +1,8 @@
 # import nltk
-import re
 import os
+import re
 import string
+
 from nltk.tokenize import sent_tokenize
 from unidecode import unidecode
 
@@ -9,22 +10,27 @@ from unidecode import unidecode
 
 
 def remove_non_alphanumeric(text):
-    return re.sub(r'[^a-zA-Z0-9\s-](?<!-)|(?<![\w])-(?![\w])', '', text)
+    return re.sub(r"[^a-zA-Z0-9\s-](?<!-)|(?<![\w])-(?![\w])", "", text)
 
 
 def fix_and_unidecode(text: str) -> str:
-    """Converts escaped sequences to actual characters before unidecoding,
-    while preserving direct Unicode characters."""
+    """Fixes escaped sequences but preserves real Unicode (Japanese, Chinese, etc.)."""
 
-    # Decode only escaped sequences (e.g., "\u00e9" → "é"), keep direct Unicode intact
+    if not text or not isinstance(text, str):
+        return text
+
+    # 1. Decode only escaped sequences like \u00e9 → é
     def decode_match(match):
         return bytes(match.group(0), "utf-8").decode("unicode_escape")
 
-    fixed_text = re.sub(
-        r'\\u[0-9A-Fa-f]{4}|\\x[0-9A-Fa-f]{2}', decode_match, text
-    )
+    fixed_text = re.sub(r"\\u[0-9A-Fa-f]{4}|\\x[0-9A-Fa-f]{2}", decode_match, text)
 
-    return unidecode(fixed_text)
+    # 2. ONLY apply unidecode to ASCII-only text
+    #    This is the key change for Japanese support
+    if has_non_ascii(fixed_text):
+        return fixed_text  # ← Preserve Japanese, Korean, Chinese, etc.
+    else:
+        return unidecode(fixed_text)  # Safe to transliterate pure ASCII + Latin
 
 
 def has_non_ascii(text: str) -> bool:
@@ -43,7 +49,7 @@ def find_word_indexes(text: str, word: str) -> list[tuple[int, int]]:
     word_length = len(word)
 
     for i in range(len(text) - word_length + 1):
-        if text[i:i + word_length] == word:
+        if text[i : i + word_length] == word:
             indexes.append([i, i + word_length - 1])
 
     return indexes
@@ -90,7 +96,7 @@ def extract_substrings(text: str, indexes: list[tuple[int, int]]) -> list[str]:
     :param indexes: A list of [start, end] positions.
     :return: A list of extracted substrings.
     """
-    return [text[start:end + 1] for start, end in indexes]
+    return [text[start : end + 1] for start, end in indexes]
 
 
 def remove_substring(text: str, start: int, end: int) -> str:
@@ -112,15 +118,16 @@ def remove_substring(text: str, start: int, end: int) -> str:
 
 def format_file_path(text: str) -> str:
     # Replace newlines with underscores first
-    result = text.replace('\n', '_')
+    result = text.replace("\n", "_")
     # Replace non-alphanumeric characters (except spaces) with underscore and convert to lowercase
-    result = re.sub(r'[^\w\s]', '_', result.lower())
+    result = re.sub(r"[^\w\s]", "_", result.lower())
     # Replace one or more spaces with a single underscore
-    result = re.sub(r'\s+', '_', result)
+    result = re.sub(r"\s+", "_", result)
     # Replace multiple consecutive underscores with a single underscore
-    result = re.sub(r'_+', '_', result)
+    result = re.sub(r"_+", "_", result)
     # Remove leading and trailing underscores
-    return result.strip('_')
+    return result.strip("_")
+
 
 def format_sub_dir(text: str) -> str:
     return format_file_path(text)
@@ -128,12 +135,12 @@ def format_sub_dir(text: str) -> str:
 
 def format_sub_source_dir(source: str) -> str:
     """Format a source (URL or file path) into a directory name."""
-    clean_source = re.sub(r'^(https?://|www\.)|(\?.*)', '', source)
-    clean_source = clean_source.replace(os.sep, '_')
-    trans_table = str.maketrans({p: '_' for p in string.punctuation})
+    clean_source = re.sub(r"^(https?://|www\.)|(\?.*)", "", source)
+    clean_source = clean_source.replace(os.sep, "_")
+    trans_table = str.maketrans({p: "_" for p in string.punctuation})
     formatted = clean_source.translate(trans_table).lower()
-    formatted = re.sub(r'_+', '_', formatted)
-    return formatted.strip('_')
+    formatted = re.sub(r"_+", "_", formatted)
+    return formatted.strip("_")
 
 
 def format_double_single_braces(text: str) -> str:
@@ -161,7 +168,7 @@ def format_double_single_braces(text: str) -> str:
     # - For '{': not preceded by '{' and not followed by '{'
     # - For '}': not preceded by '}' and not followed by '}'
     _SINGLE_BRACE_PATTERN: re.Pattern[str] = re.compile(
-        r'(?<!\{)\{(?!\{)|(?<!\})\}(?!\})'
+        r"(?<!\{)\{(?!\{)|(?<!\})\}(?!\})"
     )
     return _SINGLE_BRACE_PATTERN.sub(lambda m: m.group(0) * 2, text)
 

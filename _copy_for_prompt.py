@@ -406,7 +406,11 @@ def count_tokens(
         encoding = tiktoken.get_encoding(encoding_name)
     else:
         encoding = tiktoken.encoding_for_model(model)
-    return len(encoding.encode(text))
+    # Disable special-token checks entirely — the input is arbitrary file
+    # content/prompt text, not something where special tokens should be
+    # interpreted as control tokens. This prevents ValueError crashes when
+    # source files happen to contain strings like "<|endoftext|>".
+    return len(encoding.encode(text, disallowed_special=()))
 
 
 if __name__ == "__main__":
