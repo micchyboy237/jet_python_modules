@@ -3,13 +3,13 @@ import json
 import os
 
 import tiktoken
-from headroom import compress
 from jet.logger import logger
 from tqdm import tqdm
 
-from _copy_file_structure import (
+from _utils_copy_for_prompt import (
     clean_content,
     clean_newlines,
+    copy_to_clipboard,
     find_files,
     format_file_structure,
     remove_parent_paths,
@@ -30,6 +30,7 @@ exclude_files = [
     "**/dream/",
     "**/jupyter/",
     "**/*.png",
+    "**/*.wav",
     "**/*.svg",
     "**/*.pyc",
     "**/_git_stats.json",
@@ -49,14 +50,6 @@ exclude_files = [
 ]
 include_files = [
     # "/Users/jethroestrada/Library/Application Support/Cursor/User/profiles/244a6bcd/settings.json",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/pyrightconfig.json",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/web-extensions/jet-web-extension",
-    # "",
-    # "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/firered/firered/inference/VAD.py",
-    # "",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/record_mic_speech_detection.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/JetScripts/audio/run_record_mic_speech_detection.py",
-    # "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/audio/speech/wav_utils.py",
     "",
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/linked_in.py",
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/job_scraper.py",
@@ -65,7 +58,7 @@ include_files = [
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/jobstreet.py",
     # "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/scrapers/online_jobs_ph.py",
     "",
-    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/overlays/audio_waveform_overlay.py",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Windows_Workspace/servers/audio_streaming/demo4",
     "",
 ]
 
@@ -85,7 +78,7 @@ COMPRESSION_MODEL = "gpt-4o"
 TOKEN_BUDGET = 8000
 
 DEFAULT_QUERY_MESSAGE = r"""
-Check why even if I change the default OVERLAY_WIDTH, its not reflecting
+Summarize endpoints
 """.strip()
 
 DEFAULT_INSTRUCTIONS_MESSAGE = """
@@ -351,6 +344,8 @@ def main():
     clipboard_content = "\n\n".join(clipboard_content_parts)
     # Compress to reduce tokens (optional)
     if compress_enabled:
+        from headroom import compress
+
         messages = [{"role": "user", "content": clipboard_content}]
         result = compress(
             messages,
