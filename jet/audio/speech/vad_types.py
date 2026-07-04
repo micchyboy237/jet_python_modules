@@ -32,6 +32,7 @@ class ValleyInfo(TypedDict):
     is_last: bool
 
 
+# vad_types.py
 class ValleyTrough(TypedDict):
     frame: int
     global_frame: int
@@ -39,6 +40,8 @@ class ValleyTrough(TypedDict):
     time_s: float
     global_time_s: float
     valley: ValleyInfo
+    prominence: Optional[float]
+    width: Optional[float]
 
 
 class TroughToTroughSegment(TypedDict):
