@@ -93,3 +93,28 @@ DEFAULT_MIN_SUB_SEG_DURATION_SEC = 0.8
 
 # --- vad probs defaults ---
 DEFAULT_USE_HYBRID = True
+
+# --- vad extractors defaults ---
+DEFAULT_SMOOTHING_WINDOW = 0
+# Maximum allowed probability for a trough (lower = deeper troughs required)
+DEFAULT_TROUGH_HEIGHT = None
+# Increasing means deeper, more pronounced dips required
+DEFAULT_TROUGH_PROMINENCE = 0.15
+# Increasing means larger trough gaps
+DEFAULT_TROUGH_DISTANCE = 5
+DEFAULT_VALLEY_THRESHOLD = None
+DEFAULT_MIN_VALLEY_DURATION = 0.25
+DEFAULT_MIN_VALLEY_FRAMES = None
+DEFAULT_FRAME_OFFSET = 0
+DEFAULT_MIN_TROUGH_OFFSET = 0.4
+
+# For higher speech probs and longer segments
+# DEFAULT_SMOOTHING_WINDOW = 0
+# DEFAULT_TROUGH_HEIGHT = 0.1
+# DEFAULT_TROUGH_PROMINENCE = 0.6
+# DEFAULT_TROUGH_DISTANCE = 200
+# DEFAULT_VALLEY_THRESHOLD = None
+# DEFAULT_MIN_VALLEY_DURATION = 0.25
+# DEFAULT_MIN_VALLEY_FRAMES = None
+# DEFAULT_FRAME_OFFSET = 0
+# DEFAULT_MIN_TROUGH_OFFSET = 1.0
