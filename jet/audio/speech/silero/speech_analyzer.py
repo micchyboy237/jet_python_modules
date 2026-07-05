@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf
 import torch
-from jet.audio.normalization.norm_speech_loudness import normalize_speech_loudness
+from jet.audio.normalization.norm_speech_loudness import normalize_audio_for_vad
 from rich.console import Console
 from rich.table import Table
 
@@ -301,15 +301,15 @@ class SpeechAnalyzer:
 
         if normalize:
             # Apply speech-aware loudness normalization as preprocessing
-            wav = normalize_speech_loudness(
+            wav = normalize_audio_for_vad(
                 wav.numpy(),  # expects numpy array
-                sample_rate=self.sr,
-                target_lufs=-14.0,  # common podcast/YouTube speech target
-                # You can tune the parameters below if needed:
-                # min_lufs_threshold=-60.0,
-                # max_loudness_threshold=-8.0,
-                # peak_target=0.98,
-                return_dtype=np.float32,
+                sr=self.sr,
+                # target_lufs=-14.0,  # common podcast/YouTube speech target
+                # # You can tune the parameters below if needed:
+                # # min_lufs_threshold=-60.0,
+                # # max_loudness_threshold=-8.0,
+                # # peak_target=0.98,
+                # return_dtype=np.float32,
             )
             wav = torch.from_numpy(wav).float()
         else:
