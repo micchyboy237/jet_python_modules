@@ -96,7 +96,12 @@ def extract_current_speech_segment(
     if full_audio_np.size == 0 or np.max(np.abs(full_audio_np)) == 0:
         return []
 
-    full_audio_np, _ = normalize_audio_for_vad(full_audio_np, audio_data.sample_rate)
+    full_audio_np, _ = normalize_audio_for_vad(
+        full_audio_np,
+        audio_data.sample_rate,
+        target_rms_db=-20.0,  # Matches V1 default + standard preset
+        max_peak_db=-0.45,  # Exact V1 default peak ceiling
+    )
     duration = get_audio_duration(full_audio_np, audio_data.sample_rate)
     if duration >= DEFAULT_SOFT_LIMIT_SEC_HIGH:
         full_audio_np, _ = quantize_audio(
