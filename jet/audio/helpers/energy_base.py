@@ -324,3 +324,77 @@ def smooth_signal(
         return arr.copy()
     kernel = np.ones(window) / window
     return np.convolve(arr, kernel, mode=mode)
+
+
+def rms_to_db(rms: float, ref: float = 1.0) -> float:
+    """Convert RMS value (0-1 range) to decibels (dBFS).
+
+    Typical reference for audio: ref=1.0 (full scale = 0 dBFS)
+    """
+    if rms <= 0.0:
+        return -float("inf")  # or a large negative number
+    return 20.0 * np.log10(rms / ref)
+
+
+def amplitude_to_db(amp: float, ref: float = 1.0) -> float:
+    """Convert peak amplitude to dBFS."""
+    if amp <= 0.0:
+        return -float("inf")
+    return 20.0 * np.log10(amp / ref)
+
+
+def compute_db(
+    samples: np.ndarray,
+    ref: float = 1.0,
+    use_rms: bool = True,
+    frame_length: Optional[int] = None,
+    hop_length: Optional[int] = None,
+) -> float | np.ndarray:
+    """
+    Compute decibel (dBFS) level of audio signal.
+
+    Args:
+        samples: Audio samples (mono, float32/float64).
+        ref: Reference value (default 1.0 → 0 dBFS).
+        use_rms: If True, use RMS energy. If False, use peak amplitude.
+        frame_length: If provided, compute per-frame dB (returns array).
+        hop_length: Hop length for frame-wise computation.
+
+    Returns:
+        Single float (overall dB) or np.ndarray of per-frame dB values.
+    """
+    if len(samples) == 0:
+        return -float("inf") if not frame_length else np.array([], dtype=np.float32)
+
+    if frame_length is not None:
+        # Frame-wise computation
+        if hop_length is None:
+            hop_length = frame_length // 2  # 50% overlap default
+
+        frames = [
+            samples[i : i + frame_length]
+            for i in range(0, len(samples) - frame_length + 1, hop_length)
+        ]
+
+        if use_rms:
+            db_values = [
+                rms_to_db(compute_rms(frame), ref) if len(frame) > 0 else -float("inf")
+                for frame in frames
+            ]
+        else:
+            db_values = [
+                amplitude_to_db(compute_amplitude(frame), ref)
+                if len(frame) > 0
+                else -float("inf")
+                for frame in frames
+            ]
+
+        return np.array(db_values, dtype=np.float32)
+
+    # Overall (single value)
+    if use_rms:
+        rms = compute_rms(samples)
+        return rms_to_db(rms, ref)
+    else:
+        amp = compute_amplitude(samples)
+        return amplitude_to_db(amp, ref)

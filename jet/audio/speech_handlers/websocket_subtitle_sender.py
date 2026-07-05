@@ -76,7 +76,7 @@ _END_REASON_TO_VAD: dict[str | None, str] = {
     "silence": "silence",
     "hard_limit": "hard_limit",
     "valley": "valley",
-    None: "silence",
+    None: "ongoing",
 }
 
 # Default queue limits
@@ -85,7 +85,7 @@ DEFAULT_MAX_QUEUE_AGE_SEC: float = 30.0  # Skip segments older than 30s
 
 
 def _vad_reason(segment: SpeechSegment) -> str:
-    return _END_REASON_TO_VAD.get(segment.get("end_reason"), "silence")
+    return _END_REASON_TO_VAD.get(segment.get("end_reason"), "ongoing")
 
 
 def _to_pcm_int16_bytes(audio_np: np.ndarray) -> bytes:

@@ -265,11 +265,13 @@ def extract_speech_timestamps(
         )
 
         # Only override if we have no strong reason yet OR it's a weak "silence"
-        if current_reason in (None, "silence"):
+        if current_reason == "silence":
             seg["end_reason"] = refined_reason or current_reason
+        elif current_reason is None and last_non_speech:
+            seg["end_reason"] = "silence"
 
         seg["last_non_speech_sec"] = last_non_speech
-        seg["is_ongoing"] = bool(i == len(enhanced) - 1)
+        seg["is_ongoing"] = not bool(seg["end_reason"])
 
     if with_scores:
         return enhanced, probs

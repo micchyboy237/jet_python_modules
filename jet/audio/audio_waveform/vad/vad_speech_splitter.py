@@ -313,7 +313,7 @@ def apply_limit_splits(
                 piece_end_reason = chosen_config.end_reason
                 piece_trough = chosen_trough
             else:
-                piece_end_reason = "silent"
+                piece_end_reason = "silence"
                 piece_trough = None
 
             result.append(
