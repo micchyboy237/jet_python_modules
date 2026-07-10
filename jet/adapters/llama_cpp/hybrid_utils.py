@@ -35,32 +35,24 @@ def hybrid_search(
     """
     Production search pipeline: Embed for recall, rerank for precision.
     This is the recommended architecture for most use cases.
-
     Args:
         query: Search query
         documents: List of documents to search
         top_k: Number of final results to return
         embed_candidates: Number of candidates from embedding stage
-
     Returns:
         List of HybridSearchResult with document, score, and original_index
     """
-    # Stage 1: Fast embedding retrieval (recall)
     query_emb = embed(query)
     doc_embs = embed(documents)
-
     similarities = [_cosine_similarity(query_emb, doc_emb) for doc_emb in doc_embs]
     candidates_count = min(embed_candidates, len(documents))
     top_indices = np.argsort(similarities)[-candidates_count:][::-1]
-
     candidate_docs = [documents[i] for i in top_indices]
-
-    # Stage 2: Precision reranking
     reranked = rerank(query, candidate_docs, top_n=top_k)
-
     return [
         HybridSearchResult(
-            document=r["document"],
+            document=r["text"],  # Fixed: 'text' instead of 'document'
             score=r["score"],
             original_index=top_indices[r["index"]],
         )
@@ -80,7 +72,6 @@ def hybrid_search_with_keywords(
     """
     Hybrid search combining keyword (BM25) and semantic (embeddings) search.
     Best for domain-specific vocabulary, exact matching, and cold start problems.
-
     Args:
         query: Search query
         documents: List of documents to search
@@ -89,25 +80,18 @@ def hybrid_search_with_keywords(
         keyword_weight: Weight for keyword similarity (0-1)
         use_reranker: Whether to apply reranker as final stage
         embed_candidates: Number of candidates for reranker stage
-
     Returns:
         List of KeywordHybridResult with document, scores, and original_index
     """
-    # Stage 1: Compute both similarity scores
-    # Keyword search (BM25)
     tokenized_docs = [doc.lower().split() for doc in documents]
     bm25 = BM25Okapi(tokenized_docs)
     tokenized_query = query.lower().split()
     keyword_scores = bm25.get_scores(tokenized_query)
-
-    # Semantic search (embeddings)
     query_emb = embed(query)
     doc_embs = embed(documents)
     embed_scores = np.array(
         [_cosine_similarity(query_emb, doc_emb) for doc_emb in doc_embs]
     )
-
-    # Normalize scores to 0-1 range
     if keyword_scores.max() > 0:
         keyword_scores = (keyword_scores - keyword_scores.min()) / (
             keyword_scores.max() - keyword_scores.min()
@@ -115,21 +99,15 @@ def hybrid_search_with_keywords(
     embed_scores = (embed_scores - embed_scores.min()) / (
         embed_scores.max() - embed_scores.min()
     )
-
-    # Combine scores
     combined_scores = (embed_weight * embed_scores) + (keyword_weight * keyword_scores)
-
-    # Stage 2: Get top candidates
     candidates_count = min(embed_candidates, len(documents))
     top_indices = np.argsort(combined_scores)[-candidates_count:][::-1]
     candidate_docs = [documents[i] for i in top_indices]
-
-    # Stage 3 (optional): Rerank for precision
     if use_reranker and len(candidate_docs) > top_k:
         reranked = rerank(query, candidate_docs, top_n=top_k)
         return [
             KeywordHybridResult(
-                document=r["document"],
+                document=r["text"],  # Fixed: 'text' instead of 'document'
                 score=r["score"],
                 original_index=int(top_indices[r["index"]]),
                 keyword_score=float(keyword_scores[top_indices[r["index"]]]),
@@ -137,8 +115,6 @@ def hybrid_search_with_keywords(
             )
             for r in reranked
         ]
-
-    # No reranker, just return combined results
     top_k_indices = top_indices[:top_k]
     return [
         KeywordHybridResult(
@@ -171,7 +147,6 @@ if __name__ == "__main__":
         "JavaScript is commonly used for web development.",
         "Conservation efforts have helped increase wild panda populations.",
     ]
-
     print("=" * 60)
     print("HYBRID SEARCH (Embed → Rerank)")
     print("=" * 60)
@@ -179,7 +154,6 @@ if __name__ == "__main__":
     results = hybrid_search(query, documents, top_k=5, embed_candidates=7)
     for i, r in enumerate(results, 1):
         print(f"{i}. [{r['score']:.4f}] (idx:{r['original_index']}) {r['document']}")
-
     print("\n" + "=" * 60)
     print("HYBRID SEARCH WITH KEYWORDS (BM25 + Embed + Rerank)")
     print("=" * 60)
