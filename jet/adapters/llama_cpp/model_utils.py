@@ -1,33 +1,57 @@
+# /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/model_utils.py
 import os
-from typing import Any, Dict, List, Optional, Union, TypedDict
-import requests
-from openai import OpenAI
-from jet.adapters.llama_cpp.config import LLM_BASE_URL
-from jet.adapters.llama_cpp.factory import get_llm_client
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
-# Environment-aware base URLs (reuses config + supports new embed host export)
-LLM_BASE_URL_ENV = (
-    os.getenv("LLAMA_CPP_LLM_HOST") or LLM_BASE_URL
-)  # No /v1 - for native endpoints
-LLM_V1_URL_ENV = os.getenv(
-    "LLAMA_CPP_LLM_URL"
-)  # With /v1 - for OpenAI-compatible endpoints
-EMBED_BASE_URL_ENV = os.getenv("LLAMA_CPP_EMBED_HOST") or os.getenv(
-    "LLAMA_CPP_EMBED_URL"
+from jet.adapters.llama_cpp.config import (
+    EMBED_BASE_URL,
+    LLM_BASE_URL,
+    RERANK_BASE_URL,
 )
+from jet.logger import logger
+from openai import OpenAI
+
+# Environment-aware base URL for OpenAI-compatible endpoints
+LLM_V1_URL_ENV = os.getenv("LLAMA_CPP_LLM_URL")
+
+ServerType = Literal["llm", "embed", "rerank"]
 
 
-class Token(TypedDict):
-    id: int
-    piece: Union[str, List[int]]
+def get_llama_cpp_base_url(
+    server: ServerType = "llm", override: Optional[str] = None
+) -> str:
+    """Return base URL for any of the three llama.cpp servers (no /v1).
 
+    Args:
+        server: Which server to target: 'llm', 'embed', or 'rerank'
+        override: Direct URL override (highest priority)
+    """
+    if override:
+        base = override
+    else:
+        if server == "llm":
+            base = LLM_BASE_URL
+        elif server == "embed":
+            base = EMBED_BASE_URL
+        elif server == "rerank":
+            base = RERANK_BASE_URL
+        else:
+            base = LLM_BASE_URL
 
-class TokenizeResponse(TypedDict):
-    tokens: List[Union[int, Token]]
+    if not base:
+        # Default fallbacks
+        defaults = {
+            "llm": "http://localhost:8080",
+            "embed": "http://localhost:8081",
+            "rerank": "http://localhost:8082",
+        }
+        base = defaults.get(server, "http://localhost:8080")
 
+    # Clean URL: remove trailing slash and accidental /v1
+    base = base.rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3].rstrip("/")
 
-class DetokenizeResponse(TypedDict):
-    content: str
+    return base
 
 
 class ModelInfo(TypedDict):
@@ -43,151 +67,48 @@ class ModelsResponse(TypedDict):
     data: List[ModelInfo]
 
 
-def _get_llm_base_url(override: Optional[str] = None) -> str:
-    """Return LLM server base URL (NO /v1) for native llama.cpp endpoints.
-
-    Used by endpoints like /tokenize, /detokenize, /completion, /embedding, /health
-    """
-    base = override or LLM_BASE_URL_ENV
-    return base.rstrip("/") if base else "http://localhost:8080"
-
-
-def _get_embed_base_url(override: Optional[str] = None) -> str:
-    """Return Embed server base URL (supports LLAMA_CPP_EMBED_HOST export)."""
-    base = override or EMBED_BASE_URL_ENV
-    return base.rstrip("/") if base else "http://localhost:8081"
-
-
-def tokenize(
-    content: str,
-    add_special: bool = False,
-    parse_special: bool = True,
-    with_pieces: bool = False,
+def get_models(
     base_url: Optional[str] = None,
-) -> TokenizeResponse:
-    """
-    Tokenize text via llama.cpp /tokenize endpoint.
-
-    Note: This is a NATIVE llama.cpp endpoint (no /v1 prefix).
-
-    Args:
-        content: Text to tokenize.
-        add_special: Insert special tokens (BOS etc.).
-        parse_special: Parse special tokens vs treat as text.
-        with_pieces: Return token pieces (for debugging).
-        base_url: Override server URL (should NOT include /v1).
-
-    Returns:
-        Tokenization result.
-    """
-    url = f"{_get_llm_base_url(base_url)}/tokenize"
-    payload: Dict[str, Any] = {
-        "content": content,
-        "add_special": add_special,
-        "parse_special": parse_special,
-        "with_pieces": with_pieces,
-    }
-    response = requests.post(url, json=payload, timeout=30.0)
-    response.raise_for_status()
-    return response.json()  # type: ignore
-
-
-def detokenize(
-    tokens: List[int],
-    base_url: Optional[str] = None,
-) -> DetokenizeResponse:
-    """
-    Convert token IDs back to text via /detokenize.
-
-    Note: This is a NATIVE llama.cpp endpoint (no /v1 prefix).
-
-    Args:
-        tokens: Token ID list.
-        base_url: Override server URL (should NOT include /v1).
-
-    Returns:
-        Detokenized text.
-    """
-    url = f"{_get_llm_base_url(base_url)}/detokenize"
-    payload: Dict[str, Any] = {"tokens": tokens}
-    response = requests.post(url, json=payload, timeout=30.0)
-    response.raise_for_status()
-    return response.json()  # type: ignore
-
-
-def count_tokens(
-    content: Union[str, List[Union[int, str, List[int]]]],
-    add_special: bool = False,
-    base_url: Optional[str] = None,
-) -> int:
-    """
-    Count tokens in content (string or token list).
-
-    Uses /tokenize for strings, or simply counts list length.
-
-    Args:
-        content: Text or token sequence.
-        add_special: Add special tokens when tokenizing strings.
-        base_url: Override server URL (should NOT include /v1).
-
-    Returns:
-        Token count.
-    """
-    if isinstance(content, str):
-        result = tokenize(
-            content,
-            add_special=add_special,
-            base_url=base_url,
-        )
-        return len(result["tokens"])
-    if isinstance(content, list):
-        return len(content)
-    return 0
-
-
-def get_models(base_url: Optional[str] = None) -> ModelsResponse:
+    server: ServerType = "llm",
+) -> ModelsResponse:
     """
     Get loaded model(s) via OpenAI-compatible /v1/models.
 
-    Note: This uses the OpenAI client which needs the /v1 prefix.
-
     Args:
-        base_url: Override server URL (should include /v1).
-
-    Returns:
-        Models list response.
+        base_url: Direct URL override (highest priority)
+        server: Which server to target: 'llm', 'embed', or 'rerank'
     """
-    client: OpenAI = get_llm_client()
-    if base_url:
-        # Temporary override for this call
-        original_base = client.base_url
-        client.base_url = base_url  # type: ignore[attr-defined]
-        try:
-            models = client.models.list()
-            return models.model_dump()  # type: ignore[attr-defined]
-        finally:
-            client.base_url = original_base  # type: ignore[attr-defined]
+    url = get_llama_cpp_base_url(server=server, override=base_url)
+    client = OpenAI(base_url=f"{url}/v1", api_key="not-needed")
+
+    logger.info(f"Fetching models from server '{server}' at {url}")
     models = client.models.list()
-    return models.model_dump()  # type: ignore[attr-defined]
+    logger.debug(f"Retrieved {len(models.data)} model(s)")
+
+    return models.model_dump()
 
 
 if __name__ == "__main__":
-    # Tokenize (native endpoint - no /v1)
-    tokens_resp = tokenize("Hello world!", add_special=True, with_pieces=True)
-    print("Tokens:", tokens_resp["tokens"])
+    # Demonstrate fetching models from each server type
+    servers: List[ServerType] = ["llm", "embed", "rerank"]
 
-    # Detokenize (native endpoint - no /v1)
-    text_resp = detokenize([123, 456, 789])
-    print("Detokenized:", text_resp["content"])
+    for server_type in servers:
+        print(f"\n{'=' * 60}")
+        print(f"Server: {server_type}")
+        print(f"{'=' * 60}")
 
-    # Count tokens (native endpoint - no /v1)
-    num_tokens = count_tokens("This is a test prompt.")
-    print("Token count:", num_tokens)
+        try:
+            models = get_models(server=server_type)
+            model_count = len(models["data"])
 
-    # Get models (v1 endpoint - uses /v1/models)
-    models = get_models()
-    for model in models["data"]:
-        print(f"\nModel: {model['id']}")
-        for key, value in model.items():
-            if key != "id":  # Already printed above
-                print(f"  {key}: {value}")
+            if model_count == 0:
+                print("  ⚠️  No models loaded")
+            else:
+                print(f"  ✅ Found {model_count} model(s):")
+                for model in models["data"]:
+                    print(f"\n  Model: {model['id']}")
+                    for key, value in model.items():
+                        if key != "id":
+                            print(f"    {key}: {value}")
+        except Exception as e:
+            print(f"  ❌ Failed to fetch models: {e}")

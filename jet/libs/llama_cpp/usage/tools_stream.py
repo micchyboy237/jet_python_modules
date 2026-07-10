@@ -1,9 +1,15 @@
-# jet_python_modules/jet/libs/llama_cpp/jet_examples/tools-stream.py
 import json
-from openai import OpenAI
-from typing import Any, Dict, Callable
+import os
+from typing import Any, Callable, Dict
 
-client = OpenAI(base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234")
+from jet.logger import logger
+from openai import OpenAI, Stream
+from openai.types.chat import ChatCompletionChunk
+
+client = OpenAI(
+    base_url=os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:1234/v1"),
+    api_key="sk-1234",
+)
 
 tools = [
     {
@@ -38,7 +44,6 @@ tools = [
     },
 ]
 
-# Map function name → callable
 available_functions: Dict[str, Callable[..., Any]] = {}
 for tool in tools:
     name = tool["function"]["name"]
@@ -50,36 +55,50 @@ for tool in tools:
 messages = [{"role": "user", "content": "What is three plus one?"}]
 print("Prompt:", messages[0]["content"])
 
-create_kwargs = {
-    "messages": messages,
-    "stream": True,
-    "model": "qwen3-instruct-2507:4b",
-    "temperature": 0.0,
-    # "tool_choice": "auto",
-    "tools": tools,
-}
+stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
+    model=os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed"),
+    messages=messages,
+    temperature=0.0,
+    tools=tools,
+    stream_options={"include_usage": True},
+    extra_body={
+        "chat_template_kwargs": {
+            "enable_thinking": False,
+        },
+    },
+    stream=True,
+)
 
-stream = client.chat.completions.create(**create_kwargs)
-chunks = list(stream)
-
-# ----------------------------------------------------------------------
-# 1. Accumulate streamed tool-call deltas
-# ----------------------------------------------------------------------
 tool_calls: list[dict] = []
-current_tool_call = None
-accumulated_args = ""
+content_parts = []
+chunk_count = 0
 
-for chunk in chunks:
+for chunk in stream:
+    chunk_count += 1
+
     if not chunk.choices:
+        if chunk.usage:
+            logger.success(
+                f"\nUsage: prompt={chunk.usage.prompt_tokens}, "
+                f"completion={chunk.usage.completion_tokens}, "
+                f"total={chunk.usage.total_tokens}",
+                flush=True,
+            )
         continue
+
     delta = chunk.choices[0].delta
+
+    # Process tool calls - stream argument content directly
     if delta.tool_calls:
         for tc_delta in delta.tool_calls:
             idx = tc_delta.index
-            # Ensure we have a slot for this index
             while len(tool_calls) <= idx:
                 tool_calls.append(
-                    {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+                    {
+                        "id": "",
+                        "type": "function",
+                        "function": {"name": "", "arguments": ""},
+                    }
                 )
             tool_call = tool_calls[idx]
 
@@ -87,48 +106,52 @@ for chunk in chunks:
                 tool_call["id"] += tc_delta.id
             if tc_delta.function and tc_delta.function.name:
                 tool_call["function"]["name"] += tc_delta.function.name
+                logger.info(f"\nTool call: {tc_delta.function.name}")
             if tc_delta.function and tc_delta.function.arguments:
                 tool_call["function"]["arguments"] += tc_delta.function.arguments
+                # Stream the raw argument content without prefix
+                logger.teal(tc_delta.function.arguments, flush=True, end="")
 
-# ----------------------------------------------------------------------
-# 2. Parse arguments **once** for execution, but keep original JSON string
-# ----------------------------------------------------------------------
-parsed_tool_calls: list[tuple[dict, dict]] = []   # (tool_call_for_history, args_dict)
+    # Flush text content as it streams
+    if delta.content:
+        content_parts.append(delta.content)
+        logger.teal(delta.content, flush=True, end="")
 
+print()
+logger.info(f"Stream complete: {chunk_count} chunks")
+
+# Parse and execute tool calls
+parsed_tool_calls: list[tuple[dict, dict]] = []
 for tc in tool_calls:
     args_str = tc["function"]["arguments"]
     try:
         args_dict = json.loads(args_str)
-    except json.JSONDecodeError:
-        print(f"Invalid JSON in arguments: {args_str}")
+        logger.success(f"Parsed tool call: {tc['function']['name']}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse args: {e}")
         continue
 
-    # Build a clean tool-call dict that contains the *raw* JSON string
     clean_tc = {
         "id": tc["id"],
         "type": "function",
         "function": {
             "name": tc["function"]["name"],
-            "arguments": args_str,               # ← critical: string, not dict
+            "arguments": args_str,
         },
     }
     parsed_tool_calls.append((clean_tc, args_dict))
 
-# ----------------------------------------------------------------------
-# 3. Append assistant message with **string** arguments
-# ----------------------------------------------------------------------
-messages.append(
-    {"role": "assistant", "tool_calls": [tc for tc, _ in parsed_tool_calls]}
-)
-
-# ----------------------------------------------------------------------
-# 4. Execute tools (if any) and send tool responses back to the model
-# ----------------------------------------------------------------------
 if parsed_tool_calls:
+    messages.append(
+        {"role": "assistant", "tool_calls": [tc for tc, _ in parsed_tool_calls]}
+    )
+
     for tool_call, arguments in parsed_tool_calls:
         func_name = tool_call["function"]["name"]
+        logger.info(f"Executing: {func_name}", flush=True)
+
         if function_to_call := available_functions.get(func_name):
-            print("Calling function:", func_name)
+            print("\n\nCalling function:", func_name)
             print("Arguments:", arguments)
             output: Any = function_to_call(**arguments)
             print("Function output:", output)
@@ -141,19 +164,13 @@ if parsed_tool_calls:
                 }
             )
         else:
-            print("Function", func_name, "not found")
+            logger.error(f"Function {func_name} not found")
 
-    # Final non-streaming call to get the model’s answer
     final_response = client.chat.completions.create(
-        model="qwen3-instruct-2507:4b",
+        model=os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed"),
         messages=messages,
     )
     print("Final response:", final_response.choices[0].message.content)
 else:
-    # No tool calls – just stream the text response
-    content = "".join(
-        c.choices[0].delta.content or ""
-        for c in chunks
-        if c.choices and c.choices[0].delta.content
-    )
+    content = "".join(content_parts)
     print("No tool calls. Response:", content)
