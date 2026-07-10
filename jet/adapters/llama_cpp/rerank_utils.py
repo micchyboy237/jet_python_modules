@@ -1,7 +1,7 @@
 import os
 
-import numpy as np
 import requests
+from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
 
 RERANK_BASE_URL = os.getenv("LLAMA_CPP_RERANK_URL", "http://localhost:8082/v1")
 RERANK_URL = RERANK_BASE_URL + "/rerank"
@@ -21,9 +21,9 @@ def rerank(query: str, documents: list[str], top_n: int | None = None) -> list[d
     results = resp.json()["results"]
     ranked = [
         {
-            "document": documents[r["index"]],
-            "score": r["relevance_score"],
             "index": r["index"],
+            "score": r["relevance_score"],
+            "text": documents[r["index"]],
         }
         for r in results
     ]
@@ -51,9 +51,6 @@ if __name__ == "__main__":
     query_embedding = embed(query)
     doc_embeddings = embed(docs)
 
-    def cosine_similarity(a, b):
-        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
     similarities = [
         cosine_similarity(query_embedding, doc_emb) for doc_emb in doc_embeddings
     ]
@@ -69,4 +66,4 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"\nQuery: {query}\n")
     for r in rerank(query, docs, top_n=5):
-        print(f"{r['score']:.4f}  {r['document']}")
+        print(f"{r['score']:.4f}  {r['text']}")
