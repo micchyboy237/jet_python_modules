@@ -1,5 +1,10 @@
 """
-BERTopic Factory Module
+BERTopic Factory - Enhanced Representation Module
+
+Extends the base BERTopic factory with improved topic representation models:
+- KeyBERTInspired for better topic labeling
+- Stop word removal for cleaner keywords
+- Bigram support for phrase detection
 
 Provides reusable factory functions and classes for BERTopic integration
 with llama.cpp embedding servers.
