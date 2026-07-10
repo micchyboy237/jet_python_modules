@@ -1,7 +1,7 @@
 import argparse
 import os
 
-from jet.libs.llama_cpp.performance_tracker import (
+from jet.libs.llama_cpp.utils.performance_tracker import (
     PerformanceMetrics,
     PerformanceTracker,
 )
@@ -87,12 +87,12 @@ if __name__ == "__main__":
     tracker = PerformanceTracker()
 
     stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
-        model="Qwen/Qwen3.5-2B",
+        model=os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed"),
         messages=messages,
         max_tokens=32768,
         temperature=1.0,
-        top_p=1.0,
-        presence_penalty=2.0,
+        top_p=0.95,
+        presence_penalty=1.5,
         extra_body={
             "top_k": 20,
             "chat_template_kwargs": {

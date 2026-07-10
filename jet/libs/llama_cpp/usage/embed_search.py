@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 import numpy as np
@@ -170,12 +171,12 @@ def main() -> None:
     # Client setup (llama.cpp local server)
     # ------------------------------------------------------------
     client = OpenAI(
-        base_url="http://shawn-pc.local:8081/v1",
+        base_url=os.getenv("LLAMA_CPP_EMBED_URL"),
         api_key="no-key-required",
         max_retries=3,
     )
 
-    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
+    model: LLAMACPP_EMBED_KEYS = os.getenv("LLAMA_CPP_EMBED_MODEL")
 
     logger.info("Embedding model: %s", model)
 

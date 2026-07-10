@@ -12,6 +12,12 @@ from jet.audio.audio_waveform.vad.vad_firered import (
 )
 from jet.audio.helpers.config import FRAME_SHIFT_MS, SAMPLE_RATE, SILENCE_MAX_THRESHOLD
 from jet.audio.helpers.energy_base import trim_silent_frames
+from jet.audio.speech.vad_extractors_scoring import score_trough_to_trough_segments
+from jet.audio.speech.vad_probs_utils import (
+    compute_trough_score,
+    compute_valley_score,
+    smooth_vad_probs,
+)
 from jet.audio.speech.vad_types import (
     TroughToTroughSegment,
     VADSegment,
@@ -1220,15 +1226,26 @@ def extract_trough_to_trough(
 ]:
     """
     Create segments spanning from one valley trough to the next.
+
     This function automatically:
     1. Loads/resolves VAD probabilities from the input.
     2. Extracts valley troughs using provided or default parameters.
-    3. Creates segments between consecutive troughs (including start-to-first and last-to-end).
+    3. Creates segments between consecutive troughs (including start-to-first
+       and last-to-end).
+    4. Scores every segment via score_trough_to_trough_segments().
+
     For N valley_troughs, this produces N+1 segments:
         segment_0: t=0          → trough[0]
         segment_1: trough[0]    → trough[1]
         ...
         segment_N: trough[N-1]  → end of audio
+
+    Note on smoothing:
+        The ``smoothing_window`` parameter only affects trough/valley detection.
+        Segment scoring (``score_trough_to_trough_segments``) applies its own
+        internal fixed smoothing window to ensure consistent, jitter-free
+        quality assessment regardless of this parameter.
+
     Args:
         probs_or_audio: VAD probabilities or audio input.
         frame_shift_ms: Frame shift in milliseconds.
@@ -1236,7 +1253,8 @@ def extract_trough_to_trough(
         with_audio: If True, return list of (segment, audio_slice) tuples.
         with_scores: If True, include per-segment VAD probability scores.
         min_duration_s: Minimum segment duration in seconds.
-        smoothing_window: Smoothing window size for VAD probabilities (0 = disabled).
+        smoothing_window: Smoothing window size for trough/valley detection.
+            Set to 0 or 1 to disable. Does NOT affect segment scoring.
         trough_height: Min trough height (None = auto-computed).
         trough_prominence: Trough prominence. Default 0.15.
         trough_distance: Min frames between troughs. Default 5.
@@ -1245,8 +1263,12 @@ def extract_trough_to_trough(
         min_valley_frames: Min valley frames (overrides duration if set).
         frame_offset: Global frame offset for chunked processing.
         min_trough_offset_s: Min seconds from start for valid trough. Default 0.4.
+
     Returns:
         Segments with optional audio slices and probability scores.
+        Every segment includes ``scores`` (TroughToTroughScores) and
+        ``final_score`` fields from score_trough_to_trough_segments().
+
     Logs:
         Logs number of troughs, segments created, and any filtering.
     """
@@ -1261,6 +1283,7 @@ def extract_trough_to_trough(
             return ([], probs) if not with_audio else (([], []), probs)
         return [] if not with_audio else []
 
+    # ── Extract valley troughs ──
     valley_troughs = extract_valley_troughs(
         probs_or_audio=probs,
         sample_rate=sample_rate,
@@ -1296,7 +1319,7 @@ def extract_trough_to_trough(
     end_time_s = n_frames * frame_duration_s
     end_frame = n_frames - 1
 
-    # Create sentinel anchors for start and end
+    # ── Build sentinel boundaries for first/last segments ──
     sentinel_start: ValleyTrough = {
         "frame": 0,
         "global_frame": 0,
@@ -1304,7 +1327,8 @@ def extract_trough_to_trough(
         "time_s": 0.0,
         "global_time_s": 0.0,
         "valley": valley_troughs[0]["valley"].copy(),
-        "measured": None,
+        "prominence": None,
+        "width": None,
     }
     sentinel_end: ValleyTrough = {
         "frame": end_frame,
@@ -1313,13 +1337,15 @@ def extract_trough_to_trough(
         "time_s": end_time_s,
         "global_time_s": end_time_s,
         "valley": valley_troughs[-1]["valley"].copy(),
-        "measured": None,
+        "prominence": None,
+        "width": None,
     }
 
     anchors: List[ValleyTrough] = (
         [sentinel_start] + list(valley_troughs) + [sentinel_end]
     )
 
+    # ── Create segments ──
     segments: List[TroughToTroughSegment] = []
     audio_slices: List[np.ndarray] = []
     total_audio_samples = len(audio_np) if audio_np is not None else 0
@@ -1335,9 +1361,11 @@ def extract_trough_to_trough(
         start_s: float = float(vt_start["global_time_s"])
         end_s: float = float(vt_end["global_time_s"])
         duration_s: float = round(end_s - start_s, 4)
+
         start_frame: int = int(vt_start["global_frame"])
         end_frame_seg: int = int(vt_end["global_frame"])
 
+        # ── Duration filter ──
         if min_duration_s > 0 and duration_s < min_duration_s:
             filtered_count += 1
             filtered_durations.append(duration_s)
@@ -1348,29 +1376,32 @@ def extract_trough_to_trough(
             )
             continue
 
+        # ── Probability statistics for this segment ──
         segment_probs: Optional[List[float]] = None
         prob_stats: Optional[Dict[str, float]] = None
 
+        segment_probs_slice = probs[start_frame : end_frame_seg + 1]
         if with_scores:
-            segment_probs_slice = probs[start_frame : end_frame_seg + 1]
             segment_probs = segment_probs_slice
-            if segment_probs_slice:
-                prob_stats = {
-                    "mean": float(np.mean(segment_probs_slice)),
-                    "max": float(np.max(segment_probs_slice)),
-                    "min": float(np.min(segment_probs_slice)),
-                    "std": float(np.std(segment_probs_slice)),
-                    "median": float(np.median(segment_probs_slice)),
-                    "num_frames": len(segment_probs_slice),
-                }
-                console.print(
-                    f"[blue]Segment {idx}: probs stats - "
-                    f"mean={prob_stats['mean']:.4f}, max={prob_stats['max']:.4f}, "
-                    f"min={prob_stats['min']:.4f}, std={prob_stats['std']:.4f}, "
-                    f"median={prob_stats['median']:.4f}, "
-                    f"frames={prob_stats['num_frames']}[/blue]"
-                )
 
+        if segment_probs_slice:
+            prob_stats = {
+                "mean": float(np.mean(segment_probs_slice)),
+                "max": float(np.max(segment_probs_slice)),
+                "min": float(np.min(segment_probs_slice)),
+                "std": float(np.std(segment_probs_slice)),
+                "median": float(np.median(segment_probs_slice)),
+                "num_frames": len(segment_probs_slice),
+            }
+            console.print(
+                f"[blue]Segment {idx}: probs stats - "
+                f"mean={prob_stats['mean']:.4f}, max={prob_stats['max']:.4f}, "
+                f"min={prob_stats['min']:.4f}, std={prob_stats['std']:.4f}, "
+                f"median={prob_stats['median']:.4f}, "
+                f"frames={prob_stats['num_frames']}[/blue]"
+            )
+
+        # ── Build segment ──
         segment: TroughToTroughSegment = {
             "start_s": start_s,
             "end_s": end_s,
@@ -1380,10 +1411,11 @@ def extract_trough_to_trough(
             "trough_start": None if is_first else dict(vt_start),
             "trough_end": None if is_last else dict(vt_end),
             "segment_probs": segment_probs if with_scores else None,
-            "prob_stats": prob_stats if with_scores else None,
+            "prob_stats": prob_stats,
         }
         segments.append(segment)
 
+        # ── Extract audio slice if requested ──
         if with_audio and audio_np is not None:
             start_sample = int(start_s * sample_rate)
             end_sample = int(end_s * sample_rate)
@@ -1398,6 +1430,7 @@ def extract_trough_to_trough(
                 f"[/magenta]"
             )
 
+    # ── Duration filter summary ──
     if min_duration_s > 0:
         console.print(
             f"[yellow]extract_trough_to_trough: Filtered {filtered_count} segment(s) "
@@ -1409,6 +1442,9 @@ def extract_trough_to_trough(
             )
             + f". Kept {len(segments)} segment(s).[/yellow]"
         )
+
+    # ── Score all segments (always, uses internal fixed smoothing) ──
+    segments = score_trough_to_trough_segments(segments)
 
     console.print(
         f"[green]extract_trough_to_trough: Created {len(segments)} segments "
@@ -1427,68 +1463,6 @@ def extract_trough_to_trough(
     if with_scores:
         return segments, probs
     return segments
-
-
-def smooth_vad_probs(probs: List[float], window: int = 20) -> List[float]:
-    """Light moving average smoothing to reduce jitter in VAD probabilities."""
-    if window <= 1 or len(probs) <= window:
-        return probs[:]
-    x = np.array(probs, dtype=float)
-    smoothed = np.convolve(x, np.ones(window) / window, mode="same")
-    smoothed[0] = (x[0] + x[1]) / 2 if len(x) > 1 else x[0]
-    if len(x) > 2:
-        smoothed[-1] = (x[-1] + x[-2]) / 2
-    return smoothed.tolist()
-
-
-def compute_valley_score(
-    min_prob: float,
-    mean_prob: float,
-    duration_s: float,
-    max_duration_ref: float = 1.0,
-    w_depth: float = 0.4,
-    w_mean: float = 0.4,
-    w_duration: float = 0.2,
-) -> float:
-    """
-    Composite score for valley quality. Higher score = stronger silence (safe to cut).
-
-    Args:
-        min_prob: Minimum probability in valley.
-        mean_prob: Mean probability in valley.
-        duration_s: Duration in seconds.
-        max_duration_ref: Duration normalization cap.
-        w_depth, w_mean, w_duration: Weights.
-
-    Returns:
-        float score in [0, 1].
-    """
-    duration_norm = min(duration_s / max_duration_ref, 1.0)
-    score = (
-        w_depth * (1.0 - min_prob)
-        + w_mean * (1.0 - mean_prob)
-        + w_duration * duration_norm
-    )
-    return float(score)
-
-
-def compute_trough_score(
-    min_prob: float,
-    prominence: float,
-    width: float,
-    max_width_ref: float = 20.0,
-    w_depth: float = 0.4,
-    w_prominence: float = 0.4,
-    w_width: float = 0.2,
-) -> float:
-    """Score how safe a trough is for cutting. Higher score = safer cut point."""
-    depth_score = 1.0 - min_prob
-    prominence_norm = min(prominence / 0.5, 1.0) if prominence is not None else 0.0
-    width_norm = min(width / max_width_ref, 1.0) if width is not None else 0.0
-    score = (
-        w_depth * depth_score + w_prominence * prominence_norm + w_width * width_norm
-    )
-    return float(score)
 
 
 # ---------------------------------------------------------------------------

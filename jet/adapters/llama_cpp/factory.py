@@ -3,6 +3,7 @@
 
 from jet.adapters.llama_cpp.config import EMBED_BASE_URL, LLM_BASE_URL
 from openai import OpenAI
+from openai.resources import Embeddings
 
 
 def get_llm_client() -> OpenAI:
@@ -21,3 +22,8 @@ def get_embedding_client() -> OpenAI:
         timeout=30.0,
         max_retries=0,
     )
+
+
+def get_embeddings() -> Embeddings:
+    client = get_embedding_client()
+    return client.embeddings

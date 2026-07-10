@@ -44,7 +44,18 @@ class ValleyTrough(TypedDict):
     width: Optional[float]
 
 
-class TroughToTroughSegment(TypedDict):
+class TroughToTroughScores(TypedDict):
+    """Component scores for a TroughToTroughSegment's quality."""
+
+    median_prob_score: float  # Median VAD probability (^1.3 non-linear)
+    speech_ratio_score: float  # Fraction of frames ≥ speech threshold
+    duration_score: float  # Trapezoidal duration optimality
+    consistency_score: float  # IQR-based stability (1.0 - IQR/0.5)
+    boundary_quality_score: float  # MIN of start/end boundary scores
+    content_score: float  # Weighted composite of above 4
+
+
+class TroughToTroughSegment(TypedDict, total=False):
     """A segment between two consecutive valley troughs (or start/end sentinels)."""
 
     start_s: float
@@ -54,9 +65,10 @@ class TroughToTroughSegment(TypedDict):
     end_frame: int
     trough_start: Optional[ValleyTrough]
     trough_end: Optional[ValleyTrough]
-    # Added for with_scores support
     segment_probs: Optional[List[float]]
     prob_stats: Optional[Dict[str, float]]
+    scores: TroughToTroughScores  # Component quality scores
+    final_score: float  # Composite: content_score * boundary_quality_score
 
 
 class StreamVadFrame(TypedDict):

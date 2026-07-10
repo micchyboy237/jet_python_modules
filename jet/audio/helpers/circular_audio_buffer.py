@@ -13,7 +13,8 @@ from jet.audio.helpers.config import SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
 
-_MIN_REAL_GAP_SEC: float = 0.050
+# Relax gap tolerance for real-world jitter
+_MIN_REAL_GAP_SEC: float = 0.200  # Was 0.050 - allow 200ms jitter
 # Gaps below this threshold are likely clock jitter, not real data loss
 _GAP_WARNING_THRESHOLD_SEC: float = 0.100
 

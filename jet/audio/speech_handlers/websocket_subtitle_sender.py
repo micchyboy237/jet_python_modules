@@ -271,17 +271,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         max_queue_size: int = DEFAULT_MAX_QUEUE_SIZE,
         max_queue_age_sec: float = DEFAULT_MAX_QUEUE_AGE_SEC,
     ) -> None:
-        _default_ws_url = (
-            "ws://"
-            + os.getenv("LOCAL_LIVE_SUBTITLES_HOST", "localhost:8000")
-            + "/ws/live-subtitles"
-        )
-        self.ws_url = ws_url or _default_ws_url
+        self.ws_url = ws_url or os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL")
         if not self.ws_url:
-            raise ValueError(
-                "WebSocket URL not provided. "
-                "Pass ws_url= or set LOCAL_LIVE_SUBTITLES_HOST."
-            )
+            raise ValueError("LOCAL_WS_LIVE_SUBTITLES_URL not set or empty")
         self.reconnect_delay = reconnect_delay
         self.send_timeout = send_timeout
         self.global_srt_path = global_srt_path

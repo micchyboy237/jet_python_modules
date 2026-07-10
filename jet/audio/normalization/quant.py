@@ -11,7 +11,7 @@ def quantize_audio(
     dither: bool = True,
     dither_amount: float = 0.5,
     normalize: bool = True,
-    verbose: bool = True,
+    verbose: bool = False,
     force_mono: bool = True,  # New parameter to handle multi-dimensional audio
 ) -> Tuple[Union[np.ndarray, torch.Tensor], dict]:
     """

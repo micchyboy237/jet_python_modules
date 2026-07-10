@@ -1,5 +1,4 @@
 import argparse
-import os
 
 from jet.libs.llama_cpp.utils.performance_tracker import PerformanceTracker, log_metrics
 from jet.logger import logger
@@ -7,8 +6,7 @@ from openai import OpenAI, Stream
 from openai.types.chat import ChatCompletionChunk
 
 client = OpenAI(
-    base_url=os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:1234/v1"),
-    api_key="sk-1234",
+    base_url="http://localhost:8080/v1",  # headroom-ai proxy
 )
 
 
@@ -39,13 +37,12 @@ def run_chat_stream(
     tracker = PerformanceTracker()
 
     stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
-        model=os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed"),
+        model="Qwen/Qwen3.5-2B",
         messages=messages,
         max_tokens=1024,
         temperature=1.0,
-        top_p=0.95,
-        presence_penalty=1.5,
-        stream_options={"include_usage": True},
+        top_p=1.0,
+        presence_penalty=2.0,
         extra_body={
             "top_k": 20,
             "chat_template_kwargs": {
@@ -109,6 +106,5 @@ if __name__ == "__main__":
 
     user_prompt = args.prompt
     system_prompt = args.system
-    verbose = True
 
-    run_chat_stream(user_prompt, system_prompt, verbose=verbose)
+    run_chat_stream(user_prompt, system_prompt, verbose=True)

@@ -1,3 +1,5 @@
+import os
+
 from jet.logger import logger
 from openai import OpenAI
 
@@ -10,10 +12,10 @@ def main():
         },
     ]
     client = OpenAI(
-        base_url="http://shawn-pc.local:8080/v1", api_key="sk-1234"
+        base_url=os.getenv("LLAMA_CPP_LLM_URL"), api_key="sk-1234"
     )  # Dummy API key
     response = client.chat.completions.create(
-        model="qwen3-instruct-2507:4b",
+        model=os.getenv("LLAMA_CPP_LLM_MODEL"),
         messages=messages,
     )
     logger.teal(response.choices[0].message.content)

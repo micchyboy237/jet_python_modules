@@ -228,3 +228,38 @@ def embed_batch(
     if return_format == "numpy":
         return np.array(embeddings, dtype=np.float32)
     return embeddings
+
+
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    # Simple demonstration of embed_utils with similarity
+    query = "What is a giant panda?"
+    docs = [
+        "The giant panda is a bear species endemic to China.",
+        "Python is a high-level programming language.",
+        "Bears are carnivoran mammals of the family Ursidae.",
+        "Machine learning is a subset of artificial intelligence.",
+        "Pandas eat bamboo and live in mountainous regions.",
+    ]
+
+    # Embed query and documents
+    print("Embedding query and documents...")
+    query_embedding = embed(query)
+    doc_embeddings = embed(docs)
+
+    # Calculate similarities and sort
+    similarities = [
+        cosine_similarity(query_embedding, doc_emb) for doc_emb in doc_embeddings
+    ]
+    ranked = sorted(zip(similarities, docs), reverse=True)
+
+    # Display results
+    print(f"\nQuery: {query}\n")
+    print("Documents ranked by similarity:")
+    for score, doc in ranked:
+        print(f"{score:.4f}  {doc}")

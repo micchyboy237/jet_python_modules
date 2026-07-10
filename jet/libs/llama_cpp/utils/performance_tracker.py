@@ -4,6 +4,8 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+from jet.logger import logger
+
 
 @dataclass
 class PerformanceMetrics:
@@ -90,4 +92,31 @@ class PerformanceTracker:
             decode_speed=decode_speed,
             total_latency=total_latency,
             end_to_end_throughput=end_to_end_throughput,
+        )
+
+
+def log_metrics(metrics: PerformanceMetrics) -> None:
+    logger.info("\n\n=== Completion Details (llama.cpp aligned) ===")
+
+    logger.info(f"Prompt tokens     : {metrics.prompt_tokens}")
+    logger.info(f"Completion tokens : {metrics.completion_tokens}")
+    logger.info(f"Total tokens      : {metrics.total_tokens}")
+
+    if metrics.ttft is not None:
+        logger.info(f"TTFT              : {metrics.ttft:.3f}s")
+
+    if metrics.prompt_eval_speed is not None:
+        logger.info(
+            f"Prompt eval speed : {metrics.prompt_eval_speed:.2f} tokens/s (approx)"
+        )
+
+    if metrics.decode_speed is not None:
+        logger.info(f"Decode speed      : {metrics.decode_speed:.2f} tokens/s (eval)")
+
+    logger.info(f"Total latency     : {metrics.total_latency:.3f}s")
+
+    # Optional: keep but clearly marked as non-standard
+    if metrics.end_to_end_throughput is not None:
+        logger.info(
+            f"End-to-end throughput : {metrics.end_to_end_throughput:.2f} tokens/s"
         )

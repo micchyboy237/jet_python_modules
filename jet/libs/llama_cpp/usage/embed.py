@@ -21,7 +21,7 @@ def main():
         "Another text for embedding.",
     ]
 
-    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
+    model: LLAMACPP_EMBED_KEYS = os.getenv("LLAMA_CPP_EMBED_MODEL")
     batch_size = 32
     embeddings_list = []
     embeddings_numpy = []
