@@ -1,4 +1,4 @@
-# embed_utils.py
+# jet.adapters.llama_cpp.embed_utils
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
