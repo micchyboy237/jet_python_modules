@@ -18,14 +18,13 @@ from typing import List, Optional, Tuple, TypedDict
 
 import numpy as np
 import pandas as pd
-import requests
 from jet.adapters.llama_cpp.config import (
     EMBED_BASE_URL,
     EMBED_DIMS,
     EMBED_MODEL,
 )
 from jet.adapters.llama_cpp.factory import get_embedding_client
-from jet.adapters.llama_cpp.model_utils import (
+from jet.adapters.llama_cpp.token_utils import (
     detokenize,
     tokenize,
 )

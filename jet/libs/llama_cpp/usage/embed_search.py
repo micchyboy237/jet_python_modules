@@ -64,7 +64,7 @@ def cosine_similarity_matrix(
     return a @ b.T
 
 
-def main() -> None:
+def main(embed_model: str) -> None:
     # ------------------------------------------------------------
     # Sample inputs (variety of cases)
     # ------------------------------------------------------------
@@ -176,7 +176,7 @@ def main() -> None:
         max_retries=3,
     )
 
-    model: LLAMACPP_EMBED_KEYS = os.getenv("LLAMA_CPP_EMBED_MODEL")
+    model: LLAMACPP_EMBED_KEYS = embed_model  # type: ignore
 
     logger.info("Embedding model: %s", model)
 
@@ -227,4 +227,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Test text embedding and similarity search with llama.cpp."
+    )
+    parser.add_argument(
+        "-m",
+        "--embed-model",
+        type=str,
+        default=os.getenv("LLAMA_CPP_EMBED_MODEL"),
+        help="Embedding model to use (default: from LLAMA_CPP_EMBED_MODEL env var)",
+    )
+    args = parser.parse_args()
+
+    main(args.embed_model)
