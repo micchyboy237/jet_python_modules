@@ -1,6 +1,6 @@
 """Hybrid search utilities combining embeddings, reranking, and keyword search."""
 
-from typing import TypedDict
+from typing import Optional, TypedDict
 
 import numpy as np
 from jet.adapters.llama_cpp.embed_utils import embed
@@ -31,28 +31,46 @@ def hybrid_search(
     documents: list[str],
     top_k: int = 10,
     embed_candidates: int = 100,
+    doc_embeddings: Optional[list[list[float]]] = None,
 ) -> list[HybridSearchResult]:
     """
     Production search pipeline: Embed for recall, rerank for precision.
-    This is the recommended architecture for most use cases.
+
     Args:
         query: Search query
         documents: List of documents to search
         top_k: Number of final results to return
         embed_candidates: Number of candidates from embedding stage
+        doc_embeddings: Pre-computed document embeddings (skips embed step if provided,
+                        must be same length as documents)
+
     Returns:
         List of HybridSearchResult with document, score, and original_index
     """
+    # Always embed the query (fast, single vector)
     query_emb = embed(query)
-    doc_embs = embed(documents)
+
+    # Use pre-computed doc embeddings or compute fresh
+    if doc_embeddings is not None:
+        if len(doc_embeddings) != len(documents):
+            raise ValueError(
+                f"doc_embeddings length ({len(doc_embeddings)}) "
+                f"must match documents length ({len(documents)})"
+            )
+        doc_embs = doc_embeddings
+    else:
+        doc_embs = embed(documents)
+
     similarities = [_cosine_similarity(query_emb, doc_emb) for doc_emb in doc_embs]
     candidates_count = min(embed_candidates, len(documents))
     top_indices = np.argsort(similarities)[-candidates_count:][::-1]
+
     candidate_docs = [documents[i] for i in top_indices]
     reranked = rerank(query, candidate_docs, top_n=top_k)
+
     return [
         HybridSearchResult(
-            document=r["text"],  # Fixed: 'text' instead of 'document'
+            document=r["text"],
             score=r["score"],
             original_index=top_indices[r["index"]],
         )
@@ -68,10 +86,11 @@ def hybrid_search_with_keywords(
     keyword_weight: float = 0.5,
     use_reranker: bool = True,
     embed_candidates: int = 100,
+    doc_embeddings: Optional[list[list[float]]] = None,
 ) -> list[KeywordHybridResult]:
     """
     Hybrid search combining keyword (BM25) and semantic (embeddings) search.
-    Best for domain-specific vocabulary, exact matching, and cold start problems.
+
     Args:
         query: Search query
         documents: List of documents to search
@@ -80,18 +99,37 @@ def hybrid_search_with_keywords(
         keyword_weight: Weight for keyword similarity (0-1)
         use_reranker: Whether to apply reranker as final stage
         embed_candidates: Number of candidates for reranker stage
+        doc_embeddings: Pre-computed document embeddings (skips embed step if provided,
+                        must be same length as documents)
+
     Returns:
         List of KeywordHybridResult with document, scores, and original_index
     """
+    # Tokenize for BM25 (always needed)
     tokenized_docs = [doc.lower().split() for doc in documents]
     bm25 = BM25Okapi(tokenized_docs)
     tokenized_query = query.lower().split()
     keyword_scores = bm25.get_scores(tokenized_query)
+
+    # Always embed the query (fast, single vector)
     query_emb = embed(query)
-    doc_embs = embed(documents)
+
+    # Use pre-computed doc embeddings or compute fresh
+    if doc_embeddings is not None:
+        if len(doc_embeddings) != len(documents):
+            raise ValueError(
+                f"doc_embeddings length ({len(doc_embeddings)}) "
+                f"must match documents length ({len(documents)})"
+            )
+        doc_embs = doc_embeddings
+    else:
+        doc_embs = embed(documents)
+
     embed_scores = np.array(
         [_cosine_similarity(query_emb, doc_emb) for doc_emb in doc_embs]
     )
+
+    # Normalize scores
     if keyword_scores.max() > 0:
         keyword_scores = (keyword_scores - keyword_scores.min()) / (
             keyword_scores.max() - keyword_scores.min()
@@ -99,15 +137,18 @@ def hybrid_search_with_keywords(
     embed_scores = (embed_scores - embed_scores.min()) / (
         embed_scores.max() - embed_scores.min()
     )
+
     combined_scores = (embed_weight * embed_scores) + (keyword_weight * keyword_scores)
+
     candidates_count = min(embed_candidates, len(documents))
     top_indices = np.argsort(combined_scores)[-candidates_count:][::-1]
     candidate_docs = [documents[i] for i in top_indices]
+
     if use_reranker and len(candidate_docs) > top_k:
         reranked = rerank(query, candidate_docs, top_n=top_k)
         return [
             KeywordHybridResult(
-                document=r["text"],  # Fixed: 'text' instead of 'document'
+                document=r["text"],
                 score=r["score"],
                 original_index=int(top_indices[r["index"]]),
                 keyword_score=float(keyword_scores[top_indices[r["index"]]]),
@@ -115,6 +156,7 @@ def hybrid_search_with_keywords(
             )
             for r in reranked
         ]
+
     top_k_indices = top_indices[:top_k]
     return [
         KeywordHybridResult(

@@ -1,11 +1,36 @@
 """Ensemble methods for combining multiple search signals."""
 
-from typing import Callable
+from typing import Callable, Optional, TypedDict
 
 import numpy as np
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.rerank_utils import rerank
 from rank_bm25 import BM25Okapi
+
+
+class SignalWeights(TypedDict, total=False):
+    """Weights for each ranking signal. All keys optional; unspecified = 0."""
+
+    embedding: float
+    keyword: float
+    reranker: float
+
+
+class SignalScores(TypedDict, total=False):
+    """Per-signal scores for a single document, keyed by signal name."""
+
+    embedding: float
+    keyword: float
+    reranker: float
+
+
+class SearchResult(TypedDict, total=False):
+    """A single ranked result from ensemble_search / EnsembleSearch.search."""
+
+    document: str
+    score: float
+    index: int
+    signals: SignalScores  # only present when return_details=True
 
 
 class EnsembleSearch:
@@ -16,7 +41,6 @@ class EnsembleSearch:
     def __init__(self, weights: dict[str, float] = None):
         """
         Initialize ensemble with signal weights.
-
         Args:
             weights: Dict mapping signal names to weights.
                     Default: {"embedding": 0.4, "keyword": 0.3, "reranker": 0.3}
@@ -41,39 +65,41 @@ class EnsembleSearch:
         documents: list[str],
         top_k: int = 10,
         return_details: bool = False,
-    ) -> list[dict]:
+        doc_embeddings: Optional[list[list[float]]] = None,
+    ) -> list[SearchResult]:
         """
         Ensemble search combining multiple signals.
-
         Args:
             query: Search query
             documents: List of documents to search
             top_k: Number of results to return
             return_details: If True, return individual signal scores
-
+            doc_embeddings: Pre-computed document embeddings (skips embed step if provided,
+                            must be same length as documents)
         Returns:
             Ranked results with ensemble scores
         """
+        # Validate doc_embeddings length if provided
+        if doc_embeddings is not None and len(doc_embeddings) != len(documents):
+            raise ValueError(
+                f"doc_embeddings length ({len(doc_embeddings)}) "
+                f"must match documents length ({len(documents)})"
+            )
+
         signals = {}
-
-        # 1. Embedding signal
         if "embedding" in self.weights and self.weights["embedding"] > 0:
-            signals["embedding"] = self._get_embedding_scores(query, documents)
-
-        # 2. Keyword signal (BM25)
+            signals["embedding"] = self._get_embedding_scores(
+                query, documents, doc_embeddings=doc_embeddings
+            )
         if "keyword" in self.weights and self.weights["keyword"] > 0:
             signals["keyword"] = self._get_keyword_scores(query, documents)
-
-        # 3. Reranker signal
         if "reranker" in self.weights and self.weights["reranker"] > 0:
             signals["reranker"] = self._get_reranker_scores(query, documents)
 
-        # Combine signals
         ensemble_scores = np.zeros(len(documents))
         for signal_name, scores in signals.items():
             ensemble_scores += self.weights[signal_name] * scores
 
-        # Get top results
         top_indices = np.argsort(ensemble_scores)[-top_k:][::-1]
 
         results = []
@@ -83,29 +109,32 @@ class EnsembleSearch:
                 "score": float(ensemble_scores[idx]),
                 "index": idx,
             }
-
             if return_details:
                 result["signals"] = {
                     name: float(scores[idx]) for name, scores in signals.items()
                 }
-
             results.append(result)
-
         return results
 
-    def _get_embedding_scores(self, query: str, documents: list[str]) -> np.ndarray:
+    def _get_embedding_scores(
+        self,
+        query: str,
+        documents: list[str],
+        doc_embeddings: Optional[list[list[float]]] = None,
+    ) -> np.ndarray:
         """Get normalized embedding similarity scores."""
         query_emb = embed(query)
-        doc_embs = embed(documents)
+
+        if doc_embeddings is not None:
+            doc_embs = doc_embeddings
+        else:
+            doc_embs = embed(documents)
 
         scores = np.array(
             [_cosine_similarity(query_emb, doc_emb) for doc_emb in doc_embs]
         )
-
-        # Normalize to 0-1
         if scores.max() > scores.min():
             scores = (scores - scores.min()) / (scores.max() - scores.min())
-
         return scores
 
     def _get_keyword_scores(self, query: str, documents: list[str]) -> np.ndarray:
@@ -189,6 +218,41 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
+def ensemble_search(
+    query: str,
+    documents: list[str],
+    weights: dict[str, float] = None,
+    top_k: int = 10,
+    return_details: bool = False,
+    doc_embeddings: Optional[list[list[float]]] = None,
+) -> list[SearchResult]:
+    """
+    Standalone convenience function for ensemble search.
+
+    Thin wrapper around EnsembleSearch for one-off queries where
+    instantiating the class explicitly isn't needed.
+
+    Args:
+        query: Search query
+        documents: List of documents to search
+        weights: Dict mapping signal names to weights.
+                 Default: {"embedding": 0.4, "keyword": 0.3, "reranker": 0.3}
+        top_k: Number of results to return
+        return_details: If True, return individual signal scores
+
+    Returns:
+        Ranked results with ensemble scores
+    """
+    ensemble = EnsembleSearch(weights=weights)
+    return ensemble.search(
+        query,
+        documents,
+        top_k=top_k,
+        return_details=return_details,
+        doc_embeddings=doc_embeddings,
+    )
+
+
 if __name__ == "__main__":
     query = "What is a giant panda?"
     documents = [
@@ -210,7 +274,7 @@ if __name__ == "__main__":
     print(f"Query: {query}\n")
 
     ensemble = EnsembleSearch()
-    results = ensemble.search(query, documents, top_k=5, return_details=True)
+    results = ensemble_search(query, documents, top_k=5, return_details=True)
 
     for i, r in enumerate(results, 1):
         print(f"{i}. [ensemble:{r['score']:.4f}] {r['document']}")
