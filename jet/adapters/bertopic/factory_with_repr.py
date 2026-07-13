@@ -29,7 +29,7 @@ from jet.adapters.llama_cpp.config import (
     EMBED_MODEL,
 )
 from jet.adapters.llama_cpp.factory import get_embedding_client
-from jet.adapters.llama_cpp.model_utils import (
+from jet.adapters.llama_cpp.token_utils import (
     detokenize,
     tokenize,
 )
