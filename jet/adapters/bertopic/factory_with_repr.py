@@ -66,7 +66,7 @@ class Topic(TypedDict):
     name: str
     keywords: List[str]
     size: int
-    representative_doc: str
+    representative_docs: List[str]
 
 
 class TopicExtractionResult(TypedDict):
@@ -362,13 +362,12 @@ def extract_topics(
     remove_stop_words: bool = True,
     use_keybert: bool = True,
     verbose: bool = False,
+    n_representative_docs: Optional[int] = None,  # None = return all
 ) -> TopicExtractionResult:
     """
     Extract topics from documents using BERTopic with llama.cpp embeddings.
-
     This is the main high-level function for topic extraction. It handles
     the complete pipeline: embedding, topic modeling, and result formatting.
-
     Args:
         documents: List of text documents to analyze
         embedder: Embedding backend (auto-created if not provided)
@@ -377,21 +376,21 @@ def extract_topics(
         remove_stop_words: Remove English stop words for cleaner keywords
         use_keybert: Use KeyBERT-inspired representation for better topics
         verbose: Enable progress logging
-
+        n_representative_docs: Max representative docs per topic.
+            None (default) returns all available. Set to an int to cap.
     Returns:
-        TopicExtractionResult containing structured topic data
-
+        TopicExtractionResult containing structured topic data, sorted by size desc
     Example:
         docs = ["Document one text...", "Document two text..."]
+        # Return all representative docs
         result = extract_topics(docs)
-
+        # Return at most 5 representative docs
+        result = extract_topics(docs, n_representative_docs=5)
         for topic in result['topics']:
-            print(f"{topic['name']}: {', '.join(topic['keywords'])}")
+            print(f"{topic['name']}: {topic['representative_docs'][:2]}")
     """
     if embedder is None:
         embedder = create_bertopic_embedder()
-
-    # Create and fit topic model with improvements
     topic_model = create_topic_model(
         embedder=embedder,
         min_topic_size=min_topic_size,
@@ -400,21 +399,30 @@ def extract_topics(
         use_keybert=use_keybert,
         verbose=verbose,
     )
-
-    topics, embeddings = topic_model.fit_transform(documents)
+    topic_labels, embeddings = topic_model.fit_transform(documents)
     topic_info = topic_model.get_topic_info()
 
-    # Format results
-    topics_list: List[Topic] = []
+    # Build mapping of topic_id -> list of document indices
+    # topic_labels is a list where each element is the topic ID for that document
+    topic_doc_indices: dict[int, list[int]] = {}
+    for doc_idx, topic_id in enumerate(topic_labels):
+        if topic_id == -1:  # Skip outlier topic
+            continue
+        if topic_id not in topic_doc_indices:
+            topic_doc_indices[topic_id] = []
+        topic_doc_indices[topic_id].append(doc_idx)
 
+    logger.debug(
+        "Topic document indices built: %s",
+        {k: len(v) for k, v in topic_doc_indices.items()},
+    )
+
+    topics_list: List[Topic] = []
     for _, row in topic_info.iterrows():
         topic_id = int(row["Topic"])
-
-        # Skip outlier topic
         if topic_id == -1:
             continue
 
-        # Get keywords from Representation column
         keywords = row["Representation"]
         if isinstance(keywords, str):
             keywords = [kw.strip() for kw in keywords.split(",")]
@@ -423,9 +431,64 @@ def extract_topics(
         else:
             keywords = []
 
-        # Get representative document
-        rep_docs = topic_model.get_representative_docs(topic_id)
-        rep_doc = rep_docs[0] if rep_docs else ""
+        # Get all documents assigned to this topic using the indices mapping
+        doc_indices = topic_doc_indices.get(topic_id, [])
+        if doc_indices:
+            # Get original document texts in order of assignment
+            all_rep_docs = [documents[idx] for idx in doc_indices]
+
+            # Use c-TF-IDF scores to sort by representativeness if possible
+            # topic_model.get_topic(topic_id) returns [(word, score), ...] for keywords
+            # For document-level scores, we use the topic assignment probabilities
+            try:
+                doc_info = topic_model.get_document_info(documents)
+                topic_doc_info = doc_info[doc_info["Topic"] == topic_id]
+                if "Probability" in topic_doc_info.columns:
+                    # Sort by probability (most representative first)
+                    topic_doc_info = topic_doc_info.sort_values(
+                        "Probability", ascending=False
+                    )
+                    all_rep_docs = topic_doc_info["Document"].tolist()
+                    logger.debug(
+                        "Topic %d: sorted %d docs by probability scores",
+                        topic_id,
+                        len(all_rep_docs),
+                    )
+            except Exception as e:
+                logger.debug(
+                    "Topic %d: couldn't sort by probability, using assignment order: %s",
+                    topic_id,
+                    e,
+                )
+
+            logger.debug(
+                "Topic %d: fetched %d docs from topic assignment",
+                topic_id,
+                len(all_rep_docs),
+            )
+        else:
+            all_rep_docs = []
+            logger.warning(
+                "Topic %d: no documents found in topic assignment",
+                topic_id,
+            )
+
+        # Apply cap if configured
+        if n_representative_docs is not None:
+            rep_docs = all_rep_docs[:n_representative_docs]
+            logger.debug(
+                "Topic %d: %d docs available, capped to %d",
+                topic_id,
+                len(all_rep_docs),
+                n_representative_docs,
+            )
+        else:
+            rep_docs = all_rep_docs
+            logger.debug(
+                "Topic %d: returning all %d documents in topic",
+                topic_id,
+                len(all_rep_docs),
+            )
 
         topics_list.append(
             {
@@ -433,13 +496,20 @@ def extract_topics(
                 "name": row.get("Name", f"Topic_{topic_id}"),
                 "keywords": keywords,
                 "size": int(row["Count"]),
-                "representative_doc": rep_doc,
+                "representative_docs": rep_docs,
             }
         )
 
+    # Sort topics by size in descending order
+    topics_list.sort(key=lambda t: t["size"], reverse=True)
+    logger.info(
+        "Topics sorted by size (descending): %s",
+        [f"Topic {t['topic_id']} (size={t['size']})" for t in topics_list],
+    )
+
     return {
         "topics": topics_list,
-        "topic_labels": [int(t) for t in topics],
+        "topic_labels": [int(t) for t in topic_labels],
         "topic_info": topic_info,
         "embeddings": embeddings,
     }
