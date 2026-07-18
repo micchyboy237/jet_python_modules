@@ -99,9 +99,10 @@ class LlamacppLLM:
             max_tokens=max_tokens,
             stream=stream,
             stop=stop,
-            stream_options={"include_usage": True},
             extra_body=generation_params,
         )
+        if stream:
+            create_kwargs["stream_options"] = {"include_usage": True}
         if top_p is not None:
             create_kwargs["top_p"] = top_p
         if presence_penalty is not None:
@@ -114,6 +115,9 @@ class LlamacppLLM:
             def stream_generator() -> Iterator[str]:
                 response_text = ""
                 for chunk in response:
+                    if not chunk.choices:
+                        continue
+
                     delta = chunk.choices[0].delta
 
                     # Check for reasoning_content first
@@ -243,6 +247,8 @@ class LlamacppLLM:
             **({"max_tokens": max_tokens} if max_tokens is not None else {}),
             **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
+        if stream:
+            create_kwargs["stream_options"] = {"include_usage": True}
         if top_p is not None:
             create_kwargs["top_p"] = top_p
         if presence_penalty is not None:
@@ -696,6 +702,8 @@ class LlamacppLLM:
             **({"max_tokens": max_tokens} if max_tokens is not None else {}),
             **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
+        if stream:
+            create_kwargs["stream_options"] = {"include_usage": True}
         if top_p is not None:
             create_kwargs["top_p"] = top_p
         if presence_penalty is not None:
