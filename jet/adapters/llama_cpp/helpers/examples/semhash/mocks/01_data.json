@@ -1,0 +1,29 @@
+[
+  { "text": "The quick brown fox jumps over the lazy dog" },
+  { "text": "A quick brown fox leaps over a lazy dog" },
+  { "text": "The fast brown fox jumps over the sleepy dog" },
+  { "text": "Machine learning models require large amounts of training data" },
+  { "text": "Deep learning models need vast training datasets" },
+  { "text": "AI models depend on extensive training examples" },
+  { "text": "The stock market experienced significant volatility today" },
+  { "text": "The stock exchange saw major fluctuations today" },
+  { "text": "Paris is the capital city of France" },
+  { "text": "France's capital city is Paris" },
+  { "text": "The capital of France is Paris" },
+  { "text": "I love hiking in the mountains during summer" },
+  { "text": "Hiking in the mountains in summer is my favorite activity" },
+  { "text": "Summer mountain hiking is a passion of mine" },
+  { "text": "The recipe calls for two cups of flour and one egg" },
+  { "text": "To make the dish, you need two cups of flour and an egg" },
+  {
+    "text": "Quantum computing could revolutionize cryptography in the future"
+  },
+  { "text": "Cryptography might be transformed by quantum computing" },
+  {
+    "text": "The future of cryptography could be changed by quantum computing"
+  },
+  { "text": "Climate change is a global challenge requiring urgent action" },
+  {
+    "text": "Urgent action is needed to address the global issue of climate change"
+  }
+]
