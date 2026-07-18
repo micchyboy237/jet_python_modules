@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any, Literal, TypedDict
 
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_TYPES
-from jet.adapters.llama_cpp.utils import resolve_model_value
+from jet.adapters.llama_cpp.utils import resolve_model_key
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.llm.logger_utils import ChatLogger
 from jet.logger import CustomLogger
@@ -42,8 +42,8 @@ class LlamacppLLM:
 
     def __init__(
         self,
-        model: LLAMACPP_LLM_TYPES = "qwen3-instruct-2507:4b",
-        base_url: str = "http://shawn-pc.local:8080/v1",
+        model: LLAMACPP_LLM_TYPES = os.getenv("LLAMA_CPP_LLM_MODEL"),
+        base_url: str = os.getenv("LLAMA_CPP_LLM_URL"),
         api_key: str = "sk-1234",
         max_retries: int = 3,
         verbose: bool = True,
@@ -52,7 +52,7 @@ class LlamacppLLM:
         logger: CustomLogger | None = None,
     ):
         """Initialize sync and async clients with model resolution."""
-        self.model = resolve_model_value(model)
+        self.model = resolve_model_key(model)
         self.sync_client = OpenAI(
             base_url=base_url, api_key=api_key, max_retries=max_retries
         )
@@ -76,18 +76,39 @@ class LlamacppLLM:
         messages: list[ChatMessage],
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        top_p: float | None = None,
+        presence_penalty: float | None = None,
+        top_k: int | None = None,
         stream: bool = False,
         stop: list[str] | None = None,
+        enable_thinking: bool = False,
     ) -> str | Iterator[str]:
         """Generate chat response (non-streaming or streaming)."""
-        response = self.sync_client.chat.completions.create(
+        # Dynamically build generation params based on provided values
+        generation_params = {}
+        if top_k is not None:
+            generation_params["top_k"] = top_k
+
+        generation_params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+
+        # Prepare the arguments for create
+        create_kwargs = dict(
             model=self.model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=stream,
             stop=stop,
+            stream_options={"include_usage": True},
+            extra_body=generation_params,
         )
+        if top_p is not None:
+            create_kwargs["top_p"] = top_p
+        if presence_penalty is not None:
+            create_kwargs["presence_penalty"] = presence_penalty
+
+        response = self.sync_client.chat.completions.create(**create_kwargs)
+
         if stream:
 
             def stream_generator() -> Iterator[str]:
@@ -179,7 +200,11 @@ class LlamacppLLM:
         available_functions: dict[str, Callable[..., Any]],
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        top_p: float | None = None,
+        presence_penalty: float | None = None,
+        top_k: int | None = None,
         stream: bool = False,
+        enable_thinking: bool = False,
         **kwargs: Any,
     ) -> str | Iterator[str]:
         """
@@ -187,6 +212,13 @@ class LlamacppLLM:
         When stream=True, yields partial updates including tool calls and final response.
         """
         tool_choice = kwargs.get("tool_choice") or "auto"
+
+        # Dynamically build generation params
+        generation_params = {}
+        if top_k is not None:
+            generation_params["top_k"] = top_k
+        generation_params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+
         create_kwargs = {
             "model": self.model,
             "messages": messages,
@@ -194,9 +226,14 @@ class LlamacppLLM:
             "temperature": temperature,
             "tool_choice": tool_choice,
             "stream": stream,
+            "extra_body": generation_params,
             **({"max_tokens": max_tokens} if max_tokens is not None else {}),
             **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
+        if top_p is not None:
+            create_kwargs["top_p"] = top_p
+        if presence_penalty is not None:
+            create_kwargs["presence_penalty"] = presence_penalty
 
         if not stream:
             # Existing non-streaming path
@@ -520,17 +557,29 @@ class LlamacppLLM:
         messages: list[ChatMessage],
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        top_p: float | None = None,
+        presence_penalty: float | None = None,
+        top_k: int | None = None,
         stream: bool = False,
         stop: list[str] | None = None,
+        enable_thinking: bool = False,
     ) -> str | AsyncIterator[str]:
         """Async chat completion (non-streaming or streaming)."""
+        # Dynamically build generation params
+        generation_params = {}
+        if top_k is not None:
+            generation_params["top_k"] = top_k
+        generation_params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+
         response = await self.async_client.chat.completions.create(
             model=self.model,
             messages=messages,  # type: ignore[arg-type]
             temperature=temperature,
             max_tokens=max_tokens,
+            top_p=top_p,
             stream=stream,
             stop=stop,
+            extra_body=generation_params,
         )
         if stream:
 
@@ -608,10 +657,21 @@ class LlamacppLLM:
         available_functions: dict[str, Callable[..., Any]],
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        top_p: float | None = None,
+        presence_penalty: float | None = None,
+        top_k: int | None = None,
         stream: bool = False,
+        enable_thinking: bool = False,
         **kwargs: Any,
     ) -> str | AsyncIterator[str]:
         tool_choice = kwargs.get("tool_choice") or "auto"
+
+        # Dynamically build generation params
+        generation_params = {}
+        if top_k is not None:
+            generation_params["top_k"] = top_k
+        generation_params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+
         create_kwargs = {
             "model": self.model,
             "messages": messages,
@@ -619,9 +679,14 @@ class LlamacppLLM:
             "temperature": temperature,
             "tool_choice": tool_choice,
             "stream": stream,
+            "extra_body": generation_params,
             **({"max_tokens": max_tokens} if max_tokens is not None else {}),
             **{k: v for k, v in kwargs.items() if k != "tool_choice"},
         }
+        if top_p is not None:
+            create_kwargs["top_p"] = top_p
+        if presence_penalty is not None:
+            create_kwargs["presence_penalty"] = presence_penalty
 
         if not stream:
             # Existing non-stream path (unchanged)

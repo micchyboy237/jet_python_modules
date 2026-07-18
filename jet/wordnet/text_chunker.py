@@ -1,6 +1,6 @@
 import re
 import uuid
-from typing import TypedDict, Union
+from typing import TypedDict
 
 # from jet.vectors.document_types import HeaderDocument, HeaderMetadata
 from jet._token.token_utils import (
@@ -9,7 +9,6 @@ from jet._token.token_utils import (
     get_tokenizer,
     get_tokenizer_fn,
 )
-from jet.llm.models import OLLAMA_MODEL_NAMES
 from jet.logger import logger
 from jet.wordnet.sentence import (
     is_list_marker,
@@ -156,7 +155,7 @@ def chunk_texts(
     texts: str | list[str],
     chunk_size: int = 128,
     chunk_overlap: int = 0,
-    model: str | OLLAMA_MODEL_NAMES | None = None,
+    model: str | None = None,
     buffer: int = 0,
     strict_sentences: bool = False,
     min_chunk_size: int = 32,
@@ -304,7 +303,7 @@ def chunk_texts_with_data(
     texts: str | list[str],
     chunk_size: int = 128,
     chunk_overlap: int = 0,
-    model: Union[str, "OLLAMA_MODEL_NAMES"] | None = None,
+    model: str | None = None,
     ids: list[str] | None = None,
     buffer: int = 0,
     strict_sentences: bool = False,
@@ -533,7 +532,7 @@ def chunk_texts_sliding_window(
     texts: str | list[str],
     chunk_size: int = 128,
     step_size: int = 96,
-    model: str | OLLAMA_MODEL_NAMES | None = None,
+    model: str | None = None,
     ids: list[str] | None = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
@@ -628,7 +627,7 @@ def chunk_texts_sliding_window_fast(
     texts: str | list[str],
     chunk_size: int = 128,
     step_size: int = 96,
-    model: str | OLLAMA_MODEL_NAMES | None = None,
+    model: str | None = None,
     ids: list[str] | None = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
@@ -700,7 +699,7 @@ def chunk_texts_sliding_window_fast(
 
 def truncate_texts(
     texts: str | list[str],
-    model: str | OLLAMA_MODEL_NAMES,
+    model: str,
     max_tokens: int | None = None,
     strict_sentences: bool = False,
 ) -> list[str]:
@@ -777,7 +776,7 @@ def truncate_texts(
 
 def truncate_texts_fast(
     texts: str | list[str],
-    model: str | OLLAMA_MODEL_NAMES,
+    model: str,
     max_tokens: int | None = None,
     strict_sentences: bool = False,
     show_progress: bool = False,
@@ -824,7 +823,7 @@ def chunk_sentences(
     texts: str | list[str],
     chunk_size: int = 5,
     chunk_overlap: int = 0,
-    model: str | OLLAMA_MODEL_NAMES | None = None,
+    model: str | None = None,
 ) -> list[str]:
     """Chunk texts by sentences with sentence overlap, using tokens if model is provided, preserving original separators.
 
@@ -943,7 +942,7 @@ def chunk_sentences_optimized(
     texts: str | list[str],
     chunk_size: int = 5,
     chunk_overlap: int = 0,
-    model: str | OLLAMA_MODEL_NAMES | None = None,
+    model: str | None = None,
     show_progress: bool = False,
 ) -> list[str]:
     """Fast, memory-efficient sentence chunking with optional progress bar."""
@@ -1027,7 +1026,7 @@ def chunk_sentences_with_indices(
     texts: str | list[str],
     chunk_size: int = 5,
     chunk_overlap: int = 0,
-    model: str | OLLAMA_MODEL_NAMES | None = None,
+    model: str | None = None,
 ) -> tuple[list[str], list[int]]:
     """Chunk texts by sentences with sentence overlap and track original document indices, using tokens if model is provided.
 
@@ -1088,7 +1087,7 @@ def chunk_sentences_with_indices_optimized(
     texts: str | list[str],
     chunk_size: int = 5,
     chunk_overlap: int = 0,
-    model: str | OLLAMA_MODEL_NAMES | None = None,
+    model: str | None = None,
     show_progress: bool = False,
 ) -> tuple[list[str], list[int]]:
     """Optimized sentence chunking with document index tracking and optional progress bar."""
@@ -1158,7 +1157,7 @@ def chunk_sentences_with_indices_optimized(
     return chunked_texts, doc_indices
 
 
-# def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Optional[Union[str, OLLAMA_MODEL_NAMES]] = None) -> List[HeaderDocument]:
+# def chunk_headers(docs: List[HeaderDocument], max_tokens: int = 500, model: Optional[str] = None) -> List[HeaderDocument]:
 #     """Chunk HeaderDocument list into smaller segments based on token count or lines, ensuring complete sentences when model is provided.
 
 #     Args:

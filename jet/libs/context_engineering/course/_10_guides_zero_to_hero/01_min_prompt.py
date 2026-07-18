@@ -26,14 +26,15 @@ Notes:
 
 """
 
-import time
-import logging
-from typing import Dict, Any, Tuple, List
-import matplotlib.pyplot as plt
-import shutil
-import pathlib
 import json
+import logging
+import os
+import pathlib
+import shutil
+import time
+from typing import Any, Dict, List, Tuple
 
+import matplotlib.pyplot as plt
 from jet._token.token_utils import token_counter
 from jet.adapters.llama_cpp.llm import LlamacppLLM
 
@@ -45,13 +46,14 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # Constants
-DEFAULT_MODEL = "qwen3-instruct-2507:4b"
+DEFAULT_MODEL = os.getenv("LLAMA_CPP_LLM_MODEL")
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1000
 
 # If you're using OpenAI's API, uncomment these lines and add your API key
 # import openai
 # openai.api_key = os.getenv("OPENAI_API_KEY")  # Set your API key as an environment variable
+
 
 # If you're using another provider, adjust accordingly
 # Dummy LLM class for demonstration purposes
@@ -91,7 +93,7 @@ class SimpleLLM:
             "model": model,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
 
         try:
@@ -100,7 +102,7 @@ class SimpleLLM:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
                 max_tokens=500,
-                stream=True
+                stream=True,
             )
 
             response = ""
@@ -110,13 +112,20 @@ class SimpleLLM:
 
             response_text = response
             response_tokens = token_counter(response_text, model=model)
-            metadata.update({
-                "latency": latency,
-                "response_tokens": response_tokens,
-                "total_tokens": prompt_tokens + system_tokens + response_tokens,
-                "token_efficiency": response_tokens / (prompt_tokens + system_tokens) if (prompt_tokens + system_tokens) > 0 else 0,
-                "tokens_per_second": response_tokens / latency if latency > 0 else 0
-            })
+            metadata.update(
+                {
+                    "latency": latency,
+                    "response_tokens": response_tokens,
+                    "total_tokens": prompt_tokens + system_tokens + response_tokens,
+                    "token_efficiency": response_tokens
+                    / (prompt_tokens + system_tokens)
+                    if (prompt_tokens + system_tokens) > 0
+                    else 0,
+                    "tokens_per_second": response_tokens / latency
+                    if latency > 0
+                    else 0,
+                }
+            )
 
             self.metadata = metadata
 
@@ -131,7 +140,9 @@ class SimpleLLM:
         """Return usage statistics."""
         return self.metadata
 
+
 llm = SimpleLLM()
+
 
 def save_example_artifacts(example_dir: pathlib.Path, data: Dict[str, Any]):
     """Save all artifacts for an example in its directory."""
@@ -147,7 +158,9 @@ def save_example_artifacts(example_dir: pathlib.Path, data: Dict[str, Any]):
 
     # Save metadata
     if "metadata" in data:
-        (example_dir / "metadata.json").write_text(json.dumps(data["metadata"], indent=2))
+        (example_dir / "metadata.json").write_text(
+            json.dumps(data["metadata"], indent=2)
+        )
 
     # Save summary
     summary_lines = []
@@ -167,6 +180,7 @@ def save_example_artifacts(example_dir: pathlib.Path, data: Dict[str, Any]):
         plt.savefig(data["plot_path"])
         plt.close()
 
+
 def example_1_atomic_prompt():
     """Experiment 1: Single atomic prompt."""
     example_dir = OUTPUT_DIR / "example_1_atomic_prompt"
@@ -174,13 +188,17 @@ def example_1_atomic_prompt():
     tokens = llm.count_tokens(prompt)
     response, metadata = llm.generate_response(prompt)
 
-    save_example_artifacts(example_dir, {
-        "title": "Experiment 1: The Atomic Prompt",
-        "description": "Testing the most basic instruction with no constraints.",
-        "prompt": prompt,
-        "response": response,
-        "metadata": metadata
-    })
+    save_example_artifacts(
+        example_dir,
+        {
+            "title": "Experiment 1: The Atomic Prompt",
+            "description": "Testing the most basic instruction with no constraints.",
+            "prompt": prompt,
+            "response": response,
+            "metadata": metadata,
+        },
+    )
+
 
 def example_2_constraints():
     """Experiment 2: Adding constraints to atomic prompt."""
@@ -188,7 +206,7 @@ def example_2_constraints():
     prompts = [
         "Write a short poem about programming.",
         "Write a short poem about programming in 4 lines.",
-        "Write a short haiku about programming using only simple words."
+        "Write a short haiku about programming using only simple words.",
     ]
     results = []
     for i, prompt in enumerate(prompts):
@@ -196,28 +214,37 @@ def example_2_constraints():
         start_time = time.time()
         response, metadata = llm.generate_response(prompt)
         latency = time.time() - start_time
-        results.append({
-            "prompt": prompt,
-            "tokens": tokens,
-            "response": response,
-            "latency": latency,
-            "metadata": metadata
-        })
+        results.append(
+            {
+                "prompt": prompt,
+                "tokens": tokens,
+                "response": response,
+                "latency": latency,
+                "metadata": metadata,
+            }
+        )
         # Save individual response
-        sub_dir = example_dir / f"variant_{i+1}"
-        save_example_artifacts(sub_dir, {
-            "title": f"Variant {i+1}",
-            "prompt": prompt,
-            "response": response,
-            "metadata": metadata
-        })
+        sub_dir = example_dir / f"variant_{i + 1}"
+        save_example_artifacts(
+            sub_dir,
+            {
+                "title": f"Variant {i + 1}",
+                "prompt": prompt,
+                "response": response,
+                "metadata": metadata,
+            },
+        )
 
     # Save comparison summary
-    save_example_artifacts(example_dir, {
-        "title": "Experiment 2: Adding Constraints",
-        "description": "Compare how constraints affect output length and style.",
-        "results": results
-    })
+    save_example_artifacts(
+        example_dir,
+        {
+            "title": "Experiment 2: Adding Constraints",
+            "description": "Compare how constraints affect output length and style.",
+            "results": results,
+        },
+    )
+
 
 def example_3_roi_curve():
     """Experiment 3: Token-Quality ROI Curve."""
@@ -226,7 +253,7 @@ def example_3_roi_curve():
     prompts = [
         "Write a short poem about programming.",
         "Write a short poem about programming in 4 lines.",
-        "Write a short haiku about programming using only simple words."
+        "Write a short haiku about programming using only simple words.",
     ]
     tokens_list = []
     quality_scores = [3, 6, 8]  # Subjective quality
@@ -239,21 +266,31 @@ def example_3_roi_curve():
         results.append({"tokens": tokens, "quality": quality_scores[i]})
 
     plt.figure(figsize=(10, 6))
-    plt.plot(tokens_list, quality_scores, marker='o', linestyle='-', color='blue')
-    plt.xlabel('Tokens in Prompt')
-    plt.ylabel('Output Quality (1-10)')
-    plt.title('Token-Quality ROI Curve')
+    plt.plot(tokens_list, quality_scores, marker="o", linestyle="-", color="blue")
+    plt.xlabel("Tokens in Prompt")
+    plt.ylabel("Output Quality (1-10)")
+    plt.title("Token-Quality ROI Curve")
     plt.grid(True)
     for i, (x, y) in enumerate(zip(tokens_list, quality_scores)):
-        plt.annotate(f"Prompt {i+1}", (x, y), textcoords="offset points", xytext=(0, 10), ha='center')
+        plt.annotate(
+            f"Prompt {i + 1}",
+            (x, y),
+            textcoords="offset points",
+            xytext=(0, 10),
+            ha="center",
+        )
 
     plot_path = example_dir / "roi_curve.png"
-    save_example_artifacts(example_dir, {
-        "title": "Experiment 3: ROI Curve",
-        "description": "Visualizing trade-off between prompt length and output quality.",
-        "plot_path": str(plot_path),
-        "results": results
-    })
+    save_example_artifacts(
+        example_dir,
+        {
+            "title": "Experiment 3: ROI Curve",
+            "description": "Visualizing trade-off between prompt length and output quality.",
+            "plot_path": str(plot_path),
+            "results": results,
+        },
+    )
+
 
 def example_4_context_enhancement():
     """Experiment 4: Minimal context enhancement."""
@@ -265,29 +302,38 @@ Focus on the feeling of solving a difficult bug."""
     tokens = llm.count_tokens(enhanced_prompt)
     response, metadata = llm.generate_response(enhanced_prompt)
 
-    save_example_artifacts(example_dir, {
-        "title": "Experiment 4: Minimal Context Enhancement",
-        "description": "Adding structure and focus with minimal tokens.",
-        "prompt": enhanced_prompt,
-        "response": response,
-        "metadata": metadata
-    })
+    save_example_artifacts(
+        example_dir,
+        {
+            "title": "Experiment 4: Minimal Context Enhancement",
+            "description": "Adding structure and focus with minimal tokens.",
+            "prompt": enhanced_prompt,
+            "response": response,
+            "metadata": metadata,
+        },
+    )
+
 
 def example_5_consistency():
     """Experiment 5: Measuring output consistency."""
     example_dir = OUTPUT_DIR / "example_5_consistency"
 
-    def measure_consistency(prompt: str, n_samples: int = 3, output_dir: pathlib.Path = example_dir) -> List[Dict]:
+    def measure_consistency(
+        prompt: str, n_samples: int = 3, output_dir: pathlib.Path = example_dir
+    ) -> List[Dict]:
         responses = []
         for i in range(n_samples):
             response, metadata = llm.generate_response(prompt)
-            sub_dir = output_dir / f"sample_{i+1}"
-            save_example_artifacts(sub_dir, {
-                "title": f"Sample {i+1}",
-                "prompt": prompt,
-                "response": response,
-                "metadata": metadata
-            })
+            sub_dir = output_dir / f"sample_{i + 1}"
+            save_example_artifacts(
+                sub_dir,
+                {
+                    "title": f"Sample {i + 1}",
+                    "prompt": prompt,
+                    "response": response,
+                    "metadata": metadata,
+                },
+            )
             responses.append(response)
         return responses
 
@@ -297,19 +343,27 @@ def example_5_consistency():
 A haiku is a three-line poem with 5, 7, and 5 syllables per line.
 Focus on the feeling of solving a difficult bug."""
 
-    basic_responses = measure_consistency(basic_prompt, n_samples=3, output_dir= example_dir / "basic")
-    enhanced_responses = measure_consistency(enhanced_prompt, n_samples=3, output_dir= example_dir / "enhanced")
+    basic_responses = measure_consistency(
+        basic_prompt, n_samples=3, output_dir=example_dir / "basic"
+    )
+    enhanced_responses = measure_consistency(
+        enhanced_prompt, n_samples=3, output_dir=example_dir / "enhanced"
+    )
 
     consistency_score = 0.5  # Placeholder
 
-    save_example_artifacts(example_dir, {
-        "title": "Experiment 5: Consistency Comparison",
-        "description": "Basic vs enhanced prompt consistency across 3 runs.",
-        "results": [
-            {"type": "basic", "consistency_score": consistency_score},
-            {"type": "enhanced", "consistency_score": consistency_score}
-        ]
-    })
+    save_example_artifacts(
+        example_dir,
+        {
+            "title": "Experiment 5: Consistency Comparison",
+            "description": "Basic vs enhanced prompt consistency across 3 runs.",
+            "results": [
+                {"type": "basic", "consistency_score": consistency_score},
+                {"type": "enhanced", "consistency_score": consistency_score},
+            ],
+        },
+    )
+
 
 if __name__ == "__main__":
     print(f"Saving all experiment results to: {OUTPUT_DIR}")
