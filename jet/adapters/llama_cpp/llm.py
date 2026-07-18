@@ -114,10 +114,23 @@ class LlamacppLLM:
             def stream_generator() -> Iterator[str]:
                 response_text = ""
                 for chunk in response:
-                    if chunk.choices and chunk.choices[0].delta.content is not None:
-                        content: str = chunk.choices[0].delta.content
+                    delta = chunk.choices[0].delta
+
+                    # Check for reasoning_content first
+                    if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                        content: str = delta.reasoning_content
                         if self.verbose:
-                            self._logger.teal(content, flush=True)
+                            self._logger.orange(
+                                delta.reasoning_content, flush=True, end=""
+                            )
+                        yield content
+                        response_text += content
+
+                    # Then check for regular content
+                    elif hasattr(delta, "content") and delta.content:
+                        content: str = delta.content
+                        if self.verbose:
+                            self._logger.teal(delta.content, flush=True, end="")
                         yield content
                         response_text += content
 
