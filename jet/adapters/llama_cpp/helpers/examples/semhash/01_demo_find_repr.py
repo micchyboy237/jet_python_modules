@@ -29,9 +29,7 @@ console.print("[green]SemHash index built[/green]")
 
 # Find representative samples
 with console.status("[bold green]Finding representative samples...", spinner="dots"):
-    result = semhash.self_find_representative(
-        diversity=0.5
-    )  # Adjust diversity as needed
+    result = semhash.self_find_representative(diversity=0.5, selection_size=10)
 
 # Display results
 representative_count = len(result.selected)
