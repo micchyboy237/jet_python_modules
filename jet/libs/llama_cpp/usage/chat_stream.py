@@ -13,7 +13,11 @@ client = OpenAI(
 
 
 def run_chat_stream(
-    user_prompt: str, system_prompt: str | None = None, verbose: bool = False
+    user_prompt: str,
+    system_prompt: str | None = None,
+    enable_thinking: bool = False,
+    verbose: bool = False,
+    **kwargs,
 ):
     messages = []
     if system_prompt:
@@ -38,7 +42,7 @@ def run_chat_stream(
 
     tracker = PerformanceTracker()
 
-    stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
+    create_kwargs = dict(
         model=os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed"),
         messages=messages,
         max_tokens=1024,
@@ -47,12 +51,16 @@ def run_chat_stream(
         presence_penalty=1.5,
         stream_options={"include_usage": True},
         extra_body={
-            "top_k": 20,
             "chat_template_kwargs": {
-                "enable_thinking": False,
+                "enable_thinking": enable_thinking,
             },
         },
         stream=True,
+        **kwargs,
+    )
+
+    stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
+        **create_kwargs
     )
 
     content = ""
