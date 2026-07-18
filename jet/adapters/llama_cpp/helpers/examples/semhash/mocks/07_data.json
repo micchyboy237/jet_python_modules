@@ -1,0 +1,14 @@
+[
+  { "text": "The quick brown fox jumps over the lazy dog" },
+  { "text": "A quick brown fox jumps over a lazy dog" },
+  { "text": "The quick brown fox leaps over the lazy dog" },
+  { "text": "Machine learning models require large amounts of training data" },
+  { "text": "ML models need a lot of training data to work well" },
+  { "text": "The stock market experienced significant volatility today" },
+  { "text": "Paris is the capital city of France" },
+  { "text": "Paris is France's capital" },
+  { "text": "I love hiking in the mountains during summer" },
+  { "text": "Hiking in the mountains during summer is something I love" },
+  { "text": "The recipe calls for two cups of flour and one egg" },
+  { "text": "Quantum computing could revolutionize cryptography in the future" }
+]

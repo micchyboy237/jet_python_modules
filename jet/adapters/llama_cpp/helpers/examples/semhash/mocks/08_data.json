@@ -1,0 +1,12 @@
+{
+  "train": [
+    { "text": "The quick brown fox jumps over the lazy dog" },
+    { "text": "A quick brown fox jumps over a lazy dog" },
+    { "text": "Machine learning models require large datasets" }
+  ],
+  "test": [
+    { "text": "The quick brown fox leaps over the lazy dog" },
+    { "text": "Deep learning models need vast datasets" },
+    { "text": "The stock market is volatile today" }
+  ]
+}
