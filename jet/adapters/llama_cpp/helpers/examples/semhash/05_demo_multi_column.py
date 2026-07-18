@@ -48,7 +48,7 @@ with console.status(
 console.print(f"[green]SemHash index built[/green] using columns {COLUMNS}")
 
 with console.status("[bold green]Finding representative samples...", spinner="dots"):
-    result = semhash.self_find_representative(diversity=0.5)
+    result = semhash.self_find_representative(diversity=0.5, selection_size=6)
 
 representative_count = len(result.selected)
 table = Table(
