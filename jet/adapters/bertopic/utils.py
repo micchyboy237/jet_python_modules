@@ -31,6 +31,7 @@ def extract_topics_without_query(
     ] = DEFAULT_EMBED_MODEL,
     nr_topics: Optional[str] = None,
     min_topic_size: int = 10,
+    embeddings: np.ndarray = None,
     **kwargs: Any,
 ) -> Tuple[np.ndarray, TopicDistribution]:
     """
@@ -62,7 +63,7 @@ def extract_topics_without_query(
         **kwargs,
     )
 
-    topics, probs = model.fit_transform(docs)
+    topics, probs = model.fit_transform(docs, embeddings=embeddings)
     topic_info = model.get_topics()
 
     return topics, topic_info
@@ -77,6 +78,7 @@ def extract_topics_with_query(
     ] = DEFAULT_EMBED_MODEL,
     nr_topics: Optional[str] = None,
     min_topic_size: int = 10,
+    embeddings: np.ndarray = None,
     **kwargs: Any,
 ) -> Tuple[np.ndarray, QueryResult]:
     """
@@ -114,7 +116,7 @@ def extract_topics_with_query(
         **kwargs,
     )
 
-    topics, _ = model.fit_transform(docs)
+    topics, _ = model.fit_transform(docs, embeddings=embeddings)
     similar_topics, similarities = model.find_topics(query, top_n=top_k)
 
     query_result: QueryResult = {
