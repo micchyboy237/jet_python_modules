@@ -20,29 +20,33 @@ with console.status("[bold green]Loading sample data...", spinner="dots"):
         sample_records = json.load(f)
 console.print(f"Loaded [bold]{len(sample_records)}[/bold] sample records")
 
-# 1. Setup sample data (mix of unique and near-duplicates)
-# dataset = [
-#     "The quick brown fox jumps over the lazy dog.",
-#     "The quick brown fox jumped over a lazy dog!",  # Near duplicate
-#     "Artificial intelligence is changing software development.",
-#     "AI is transforming how we write code.",  # Semantically similar
-#     "Baking bread requires flour, water, and yeast.",
-# ]
-
-# 2. Fit the index and run an initial, aggressive deduplication
 console.print("Initializing SemHash and running initial deduplication...")
 sh = SemHash.from_records(sample_records)
 result = sh.self_deduplicate(threshold=0.80)
 
-# Save initial deduplication results
+# --- FIX: snapshot state BEFORE rethreshold() mutates result.selected/.filtered in place. ---
+# result.selected is a live list object and duplicate_ratio/exact_duplicate_ratio are
+# properties computed from the CURRENT state of result. If we don't capture them now,
+# calling result.rethreshold(...) later will silently change these values out from
+# under us, even though we already "saved" them into initial_results.
+initial_selected_records = list(result.selected)  # copy, not a reference
+initial_filtered = list(result.filtered)  # copy, not a reference
+initial_duplicate_ratio = result.duplicate_ratio
+initial_exact_duplicate_ratio = result.exact_duplicate_ratio
+console.print(
+    f"[dim][log] Snapshot captured before rethreshold: "
+    f"{len(initial_selected_records)} selected, {len(initial_filtered)} filtered "
+    f"@ threshold=0.80[/dim]"
+)
+
 initial_results_path = OUTPUT_DIR / "initial_deduplication.json"
 initial_results = {
     "threshold": 0.80,
-    "kept_count": len(result.selected),
-    "filtered_count": len(result.filtered),
-    "duplicate_ratio": result.duplicate_ratio,
-    "exact_duplicate_ratio": result.exact_duplicate_ratio,
-    "selected_records": result.selected,
+    "kept_count": len(initial_selected_records),
+    "filtered_count": len(initial_filtered),
+    "duplicate_ratio": initial_duplicate_ratio,
+    "exact_duplicate_ratio": initial_exact_duplicate_ratio,
+    "selected_records": initial_selected_records,
     "filtered_records": [
         {
             "record": dup.record,
@@ -51,7 +55,7 @@ initial_results = {
                 {"duplicate_record": d, "score": score} for d, score in dup.duplicates
             ],
         }
-        for dup in result.filtered
+        for dup in initial_filtered
     ],
 }
 with open(initial_results_path, "w") as f:
@@ -60,19 +64,14 @@ console.print(
     f"Initial deduplication results saved to [link=file://{initial_results_path}]{initial_results_path.name}[/link]"
 )
 
-# 3. AUDIT: Use get_least_similar_from_duplicates to check our work
 console.print("Auditing the borderline duplicates...")
 borderline_pairs = result.get_least_similar_from_duplicates(n=5)
-
-# Save borderline pairs audit
 audit_results_path = OUTPUT_DIR / "borderline_audit.json"
 audit_results = {"threshold": 0.80, "borderline_pairs": []}
-
 for original, duplicate, score in borderline_pairs:
     console.print(f"Score: {score:.4f}")
     console.print(f" -> Kept: '{original}'")
     console.print(f" -> Dropped: '{duplicate}'\n")
-
     audit_results["borderline_pairs"].append(
         {
             "similarity_score": score,
@@ -80,28 +79,23 @@ for original, duplicate, score in borderline_pairs:
             "dropped_record": duplicate,
         }
     )
-
 with open(audit_results_path, "w") as f:
     json.dump(audit_results, f, indent=2, default=str)
 console.print(
     f"Borderline audit results saved to [link=file://{audit_results_path}]{audit_results_path.name}[/link]"
 )
 
-# 4. ADJUST: If the audit shows unique data was dropped, tighten the threshold
-# Let's say we notice 0.83 score swapped out completely distinct sentences.
-console.print(f"Original kept count: {len(result.selected)}")  # Output: fewer records
-
-console.print("Tightening threshold from 0.80 to 0.98...")
-result.rethreshold(threshold=0.98)
-
+console.print(f"Original kept count: {len(initial_selected_records)}")
+console.print("Tightening threshold from 0.80 to 0.90...")
+result.rethreshold(threshold=0.90)
 console.print(
-    f"Adjusted kept count: {len(result.selected)}"
-)  # Output: records restored!
+    f"[dim][log] rethreshold(0.90) applied. result.selected now has {len(result.selected)} items[/dim]"
+)
+console.print(f"Adjusted kept count: {len(result.selected)}")
 
-# Save adjusted deduplication results
 adjusted_results_path = OUTPUT_DIR / "adjusted_deduplication.json"
 adjusted_results = {
-    "threshold": 0.98,
+    "threshold": 0.90,
     "kept_count": len(result.selected),
     "filtered_count": len(result.filtered),
     "duplicate_ratio": result.duplicate_ratio,
@@ -119,9 +113,10 @@ adjusted_results = {
     ],
     "comparison": {
         "initial_threshold": 0.80,
-        "adjusted_threshold": 0.98,
-        "records_restored": len(result.selected)
-        - len(initial_results["selected_records"]),
+        "adjusted_threshold": 0.90,
+        # FIX: compare against the snapshot taken before rethreshold(), not the
+        # (now-mutated) initial_results["selected_records"].
+        "records_restored": len(result.selected) - len(initial_selected_records),
     },
 }
 with open(adjusted_results_path, "w") as f:
@@ -130,7 +125,6 @@ console.print(
     f"Adjusted deduplication results saved to [link=file://{adjusted_results_path}]{adjusted_results_path.name}[/link]"
 )
 
-# Save selected records with their duplicates mapping
 selected_with_dupes_path = OUTPUT_DIR / "selected_with_duplicates.json"
 selected_with_dupes = [
     {
@@ -147,26 +141,30 @@ console.print(
     f"Selected with duplicates mapping saved to [link=file://{selected_with_dupes_path}]{selected_with_dupes_path.name}[/link]"
 )
 
-# Save complete summary
 summary_path = OUTPUT_DIR / "deduplication_summary.json"
+records_restored = len(result.selected) - len(initial_selected_records)
+console.print(
+    f"[dim][log] records_restored = {len(result.selected)} (adjusted) - "
+    f"{len(initial_selected_records)} (initial snapshot) = {records_restored}[/dim]"
+)
 summary = {
     "total_original_records": len(sample_records),
     "initial_deduplication": {
         "threshold": 0.80,
-        "kept_records": len(initial_results["selected_records"]),
-        "removed_records": len(initial_results["filtered_records"]),
-        "duplicate_ratio": result.duplicate_ratio,
+        # FIX: use the pre-rethreshold snapshot values, not the mutated result/initial_results.
+        "kept_records": len(initial_selected_records),
+        "removed_records": len(initial_filtered),
+        "duplicate_ratio": initial_duplicate_ratio,
     },
     "adjusted_deduplication": {
-        "threshold": 0.98,
+        "threshold": 0.90,
         "kept_records": len(result.selected),
         "removed_records": len(result.filtered),
         "duplicate_ratio": result.duplicate_ratio,
     },
     "optimization": {
-        "records_restored": len(result.selected)
-        - len(initial_results["selected_records"]),
-        "removal_rate_initial": f"{(len(initial_results['filtered_records']) / len(sample_records)) * 100:.1f}%",
+        "records_restored": records_restored,
+        "removal_rate_initial": f"{(len(initial_filtered) / len(sample_records)) * 100:.1f}%",
         "removal_rate_adjusted": f"{(len(result.filtered) / len(sample_records)) * 100:.1f}%",
     },
 }
