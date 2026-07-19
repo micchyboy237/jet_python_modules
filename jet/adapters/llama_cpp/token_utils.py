@@ -1,9 +1,10 @@
 # /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils.py
-import os
-from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
+from typing import Any, Dict, List, Optional, TypedDict, Union
 
 import requests
+from jet.adapters.llama_cpp.config import EMBED_MODEL, LLM_MODEL
 from jet.adapters.llama_cpp.model_utils import ServerType, get_llama_cpp_base_url
+from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS, LLAMACPP_LLM_KEYS
 
 
 class Token(TypedDict):
@@ -25,6 +26,7 @@ def tokenize(
     parse_special: bool = True,
     with_pieces: bool = False,
     base_url: Optional[str] = None,
+    model: Optional[LLAMACPP_LLM_KEYS | LLAMACPP_EMBED_KEYS] = None,
     server: ServerType = "llm",
 ) -> TokenizeResponse:
     """
@@ -32,9 +34,16 @@ def tokenize(
 
     Note: This is a NATIVE llama.cpp endpoint (no /v1 prefix).
     """
+    if model is None:
+        if server == "llm":
+            model: LLAMACPP_LLM_KEYS = LLM_MODEL
+        else:
+            model: LLAMACPP_EMBED_KEYS = EMBED_MODEL
+
     url = f"{get_llama_cpp_base_url(server=server, override=base_url)}/tokenize"
     payload: Dict[str, Any] = {
         "content": content,
+        "model": model,
         "add_special": add_special,
         "parse_special": parse_special,
         "with_pieces": with_pieces,
@@ -47,13 +56,23 @@ def tokenize(
 def detokenize(
     tokens: List[int],
     base_url: Optional[str] = None,
+    model: Optional[LLAMACPP_LLM_KEYS | LLAMACPP_EMBED_KEYS] = None,
     server: ServerType = "llm",
 ) -> DetokenizeResponse:
     """
     Convert token IDs back to text via /detokenize.
     """
+    if model is None:
+        if server == "llm":
+            model: LLAMACPP_LLM_KEYS = LLM_MODEL
+        else:
+            model: LLAMACPP_EMBED_KEYS = EMBED_MODEL
+
     url = f"{get_llama_cpp_base_url(server=server, override=base_url)}/detokenize"
-    payload: Dict[str, Any] = {"tokens": tokens}
+    payload: Dict[str, Any] = {
+        "model": model,
+        "tokens": tokens,
+    }
     response = requests.post(url, json=payload, timeout=30.0)
     response.raise_for_status()
     return response.json()  # type: ignore
@@ -63,6 +82,7 @@ def count_tokens(
     content: Union[str, List[Union[int, str, List[int]]]],
     add_special: bool = False,
     base_url: Optional[str] = None,
+    model: Optional[LLAMACPP_LLM_KEYS | LLAMACPP_EMBED_KEYS] = None,
     server: ServerType = "llm",
 ) -> int:
     """
@@ -73,6 +93,7 @@ def count_tokens(
             content,
             add_special=add_special,
             base_url=base_url,
+            model=model,
             server=server,
         )
         return len(result["tokens"])

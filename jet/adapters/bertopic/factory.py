@@ -202,11 +202,11 @@ class LlamaCppEmbedder(BaseEmbedder):
 
         for doc in documents:
             text = f"{self.doc_prefix}{doc}"
-            tokens = tokenize(text)["tokens"]
+            tokens = tokenize(text, server="embed")["tokens"]
 
             if len(tokens) > self.token_budget:
                 truncated_tokens = tokens[: self.token_budget]
-                text = detokenize(truncated_tokens)["content"]
+                text = detokenize(truncated_tokens, server="embed")["content"]
                 n_truncated += 1
 
             prepared.append(text)

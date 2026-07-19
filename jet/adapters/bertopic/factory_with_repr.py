@@ -26,7 +26,9 @@ import pandas as pd
 from jet.adapters.llama_cpp.config import (
     EMBED_BASE_URL,
     EMBED_DIMS,
+    EMBED_DOC_PREFIX,
     EMBED_MODEL,
+    EMBED_QUERY_PREFIX,
 )
 from jet.adapters.llama_cpp.factory import get_embedding_client
 from jet.adapters.llama_cpp.token_utils import (
@@ -47,7 +49,8 @@ logger = logging.getLogger(__name__)
 # Configuration Constants
 # ---------------------------------------------------------------------------
 
-DOC_PREFIX = os.environ.get("BERTopic_DOC_PREFIX", "search_document: ")
+QUERY_PREFIX = EMBED_QUERY_PREFIX
+DOC_PREFIX = EMBED_DOC_PREFIX
 BATCH_SIZE = int(os.environ.get("BERTopic_BATCH_SIZE", "32"))
 MAX_RETRIES = int(os.environ.get("BERTopic_MAX_RETRIES", "3"))
 MAX_MODEL_TOKENS = int(os.environ.get("LLAMA_CPP_CTX_SIZE", "512"))
@@ -545,3 +548,132 @@ def sanity_check_embedder(embedder: Optional[LlamaCppEmbedder] = None) -> bool:
             EMBED_BASE_URL,
         )
         raise
+
+
+# NEW: Reusable search & hierarchy functions
+def find_topics(
+    topic_model: BERTopic,
+    search_term: str,
+    top_n: int = 5,
+    verbose: bool = True,
+) -> Tuple[List[int], List[float]]:
+    """
+    Find topics most similar to a search term using BERTopic's embedding space.
+    Lightweight semantic search over topic centroids.
+    """
+    start = time.time()
+    if not hasattr(topic_model, "find_topics"):
+        logger.error(
+            "BERTopic model does not support find_topics (embedding_model required)."
+        )
+        raise AttributeError("Model must be fitted with embedding_model.")
+
+    similar_topics, similarities = topic_model.find_topics(search_term, top_n=top_n)
+
+    if verbose:
+        logger.info(
+            "find_topics completed in %.2fs | Query: '%s' | Top %d topics",
+            time.time() - start,
+            search_term,
+            top_n,
+        )
+        for tid, sim in zip(similar_topics[:3], similarities[:3]):
+            logger.info("  → Topic %d: similarity=%.4f", tid, sim)
+
+    return similar_topics, similarities
+
+
+def find_topics_with_data(
+    topic_model: BERTopic,
+    search_term: str,
+    docs: Optional[List[str]] = None,
+    top_n: int = 5,
+    include_reps: bool = True,
+    max_reps: int = 3,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Enhanced topic search: returns DataFrame with similarity, top words,
+    and optional representative documents.
+    """
+    start = time.time()
+    similar_topics, similarities = find_topics(
+        topic_model, search_term, top_n=top_n, verbose=False
+    )
+
+    data = []
+    for tid, sim in zip(similar_topics, similarities):
+        row = {
+            "Topic": tid,
+            "Similarity": round(sim, 4),
+            "Top_Words": [w for w, _ in topic_model.get_topic(tid)[:10]]
+            if tid != -1
+            else [],
+        }
+        if include_reps and docs is not None:
+            reps = topic_model.get_representative_docs(tid) or []
+            row["Representative_Docs"] = reps[:max_reps]
+        data.append(row)
+
+    df = pd.DataFrame(data)
+
+    if verbose:
+        logger.info(
+            "find_topics_with_data completed in %.2fs | Query: '%s' | %d results",
+            time.time() - start,
+            search_term,
+            len(df),
+        )
+        logger.info("\nTop results:\n%s", df.head(5).to_string(index=False))
+
+    return df
+
+
+def explore_hierarchy(
+    topic_model: BERTopic,
+    docs: List[str],
+    use_ctfidf: bool = True,
+    linkage: Optional[str] = None,  # e.g. "ward", "single"
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Build topic hierarchy and return merge DataFrame.
+    Useful for understanding parent-child topic relationships.
+    """
+    if not docs:
+        logger.error("docs list required for hierarchical_topics.")
+        raise ValueError("Provide original documents.")
+
+    start = time.time()
+
+    linkage_func = None
+    if linkage:
+        from scipy.cluster import hierarchy as sch
+
+        linkage_func = lambda x: sch.linkage(x, linkage, optimal_ordering=True)
+
+    hier_df = topic_model.hierarchical_topics(
+        docs, use_ctfidf=use_ctfidf, linkage_function=linkage_func
+    )
+
+    if verbose:
+        logger.info(
+            "explore_hierarchy completed in %.2fs | Merges: %d | use_ctfidf=%s",
+            time.time() - start,
+            len(hier_df),
+            use_ctfidf,
+        )
+        logger.info(
+            "\nTop merges:\n%s",
+            hier_df.head(8)[["Parent_ID", "Parent_Name", "Distance"]].to_string(
+                index=False
+            ),
+        )
+
+        try:
+            tree_preview = topic_model.get_topic_tree(hier_df)[:600]
+            logger.info("\nHierarchy Tree Preview:\n%s...", tree_preview)
+        except Exception as e:
+            logger.warning("Tree preview failed: %s", e)
+
+    return hier_df
