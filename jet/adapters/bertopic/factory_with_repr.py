@@ -567,19 +567,35 @@ def find_topics(
             "BERTopic model does not support find_topics (embedding_model required)."
         )
         raise AttributeError("Model must be fitted with embedding_model.")
-
     similar_topics, similarities = topic_model.find_topics(search_term, top_n=top_n)
-
     if verbose:
+        elapsed = time.time() - start
         logger.info(
             "find_topics completed in %.2fs | Query: '%s' | Top %d topics",
-            time.time() - start,
+            elapsed,
             search_term,
             top_n,
         )
-        for tid, sim in zip(similar_topics[:3], similarities[:3]):
-            logger.info("  → Topic %d: similarity=%.4f", tid, sim)
-
+        topic_info = topic_model.get_topic_info()
+        for rank, (tid, sim) in enumerate(zip(similar_topics, similarities), start=1):
+            if tid == -1:
+                logger.info(
+                    "  #%d Topic %d (Outliers): similarity=%.4f", rank, tid, sim
+                )
+                continue
+            info_row = topic_info[topic_info["Topic"] == tid]
+            name = info_row["Name"].iloc[0] if not info_row.empty else f"Topic_{tid}"
+            size = int(info_row["Count"].iloc[0]) if not info_row.empty else 0
+            rep_docs = topic_model.get_representative_docs(tid) or []
+            logger.info(
+                "  #%d Topic %d: '%s' | similarity=%.4f | size=%d docs | representative_samples=%d",
+                rank,
+                tid,
+                name,
+                sim,
+                size,
+                len(rep_docs),
+            )
     return similar_topics, similarities
 
 
@@ -593,39 +609,56 @@ def find_topics_with_data(
     verbose: bool = True,
 ) -> pd.DataFrame:
     """
-    Enhanced topic search: returns DataFrame with similarity, top words,
-    and optional representative documents.
+    Enhanced topic search: returns DataFrame with similarity, topic name,
+    size, top words, representative-doc count, and optional representative
+    documents (capped at `max_reps`).
     """
     start = time.time()
     similar_topics, similarities = find_topics(
         topic_model, search_term, top_n=top_n, verbose=False
     )
-
+    topic_info = topic_model.get_topic_info()
     data = []
     for tid, sim in zip(similar_topics, similarities):
+        info_row = topic_info[topic_info["Topic"] == tid]
+        name = info_row["Name"].iloc[0] if not info_row.empty else f"Topic_{tid}"
+        size = int(info_row["Count"].iloc[0]) if not info_row.empty else 0
+        all_reps = topic_model.get_representative_docs(tid) or [] if tid != -1 else []
         row = {
             "Topic": tid,
+            "Name": name,
             "Similarity": round(sim, 4),
+            "Size": size,
             "Top_Words": [w for w, _ in topic_model.get_topic(tid)[:10]]
             if tid != -1
             else [],
+            "Representative_Docs_Count": len(all_reps),
         }
         if include_reps and docs is not None:
-            reps = topic_model.get_representative_docs(tid) or []
-            row["Representative_Docs"] = reps[:max_reps]
+            row["Representative_Docs"] = all_reps[:max_reps]
         data.append(row)
-
     df = pd.DataFrame(data)
-
     if verbose:
+        elapsed = time.time() - start
         logger.info(
             "find_topics_with_data completed in %.2fs | Query: '%s' | %d results",
-            time.time() - start,
+            elapsed,
             search_term,
             len(df),
         )
-        logger.info("\nTop results:\n%s", df.head(5).to_string(index=False))
-
+        for _, r in df.iterrows():
+            shown = len(r["Representative_Docs"]) if "Representative_Docs" in r else 0
+            logger.info(
+                "  Topic %d: '%s' | similarity=%.4f | size=%d docs | keywords=%s | "
+                "representative_samples_total=%d (showing %d)",
+                r["Topic"],
+                r["Name"],
+                r["Similarity"],
+                r["Size"],
+                ", ".join(r["Top_Words"][:5]),
+                r["Representative_Docs_Count"],
+                shown,
+            )
     return df
 
 

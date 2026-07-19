@@ -31,20 +31,18 @@ class BERTopic(BaseBERTopic):
         ctfidf_model: TfidfTransformer | None = None,
         representation_model: BaseRepresentation | None = None,
         verbose: bool = True,
-        use_cache: bool = False,
+        **kwargs,
     ):
         if not embedding_model or isinstance(embedding_model, str):
-            if use_cache:
-                logger.warning(
-                    "use_cache=True has no effect: BERTopicLlamacppEmbedder now "
-                    "uses embed_utils.embed_batch, which has no caching layer."
-                )
             embedder = BERTopicLlamacppEmbedder(
                 embedding_model or DEFAULT_EMBEDDING_MODEL
             )
             embedding_model = embedder
         if not vectorizer_model:
             vectorizer_model = get_vectorizer()
+
+        logger.info("Initializing custom BERTopic adapter with keyword arguments.")
+
         super().__init__(
             language=language,
             top_n_words=top_n_words,
@@ -63,4 +61,5 @@ class BERTopic(BaseBERTopic):
             ctfidf_model=ctfidf_model,
             representation_model=representation_model,
             verbose=verbose,
+            **kwargs,
         )

@@ -1,7 +1,25 @@
+"""
+DEPRECATED: Use `jet.adapters.llama_cpp.token_utils` instead.
+
+This module is deprecated. Please migrate all code to use
+`jet.adapters.llama_cpp.token_utils` for tokenization utilities.
+
+Any usage of functions from this file should be updated to import
+directly from `jet.adapters.llama_cpp.token_utils`.
+"""
+
+import warnings
+
+# Trigger deprecation warning on import (points to caller's code)
+warnings.warn(
+    "This module is deprecated and will be removed in a future version. "
+    "Use `jet.adapters.llama_cpp.token_utils` instead for tokenization utilities.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from typing import Callable, List, Literal, Optional, TypedDict, Union, overload
 
-from tqdm import tqdm
-from jet.logger import logger
 # from functools import lru_cache  # optional, not strictly used but as suggested
 # from jet.utils.doc_utils import add_parent_child_relationship, add_sibling_relationship
 # from jet.vectors.document_types import HeaderDocument, HeaderTextNode
@@ -10,8 +28,10 @@ from jet.logger import logger
 # from llama_index.core.node_parser.text.sentence import SentenceSplitter
 # from llama_index.core.schema import Document, NodeWithScore, TextNode
 import tiktoken
-from jet.llm.llm_types import Message
+from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
+
+from jet.llm.llm_types import Message
 from jet.llm.models import (
     OLLAMA_EMBED_MODELS,
     OLLAMA_HF_MODEL_NAMES,
@@ -20,9 +40,13 @@ from jet.llm.models import (
     OLLAMA_MODEL_CONTEXTS,
     OLLAMA_MODEL_NAMES,
 )
+from jet.logger import logger
 
 # Global tokenizer cache — one instance per normalized model name
-TOKENIZER_CACHE: dict[str, Union[PreTrainedTokenizer, PreTrainedTokenizerFast, tiktoken.Encoding]] = {}
+TOKENIZER_CACHE: dict[
+    str, Union[PreTrainedTokenizer, PreTrainedTokenizerFast, tiktoken.Encoding]
+] = {}
+
 
 def _normalize_model_key(model_name: str | None) -> str:
     """Create consistent cache key"""
@@ -30,17 +54,20 @@ def _normalize_model_key(model_name: str | None) -> str:
         return "tiktoken::cl100k_base"
     return model_name.lower().strip()
 
+
 def clear_tokenizer_cache() -> None:
     """Clear all cached tokenizers — useful in tests / REPL"""
     TOKENIZER_CACHE.clear()
     logger.debug("Tokenizer cache cleared")
 
+
 def get_ollama_models():
     """Lazy loading of Ollama models to avoid circular imports"""
     return OLLAMA_HF_MODELS, OLLAMA_MODEL_CONTEXTS
 
+
 def get_ollama_tokenizer(
-    model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES
+    model_name: str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES,
 ) -> PreTrainedTokenizer | PreTrainedTokenizerFast:
     if model_name in OLLAMA_MODEL_NAMES.__args__:
         model_name = OLLAMA_HF_MODELS[model_name]
@@ -49,11 +76,12 @@ def get_ollama_tokenizer(
         # We don't cache here — caching is done one level above
         return AutoTokenizer.from_pretrained(model_name)
 
-    raise ValueError(f"Model \"{model_name}\" not found")
+    raise ValueError(f'Model "{model_name}" not found')
+
 
 def get_tokenizer(
     model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
-    cache: bool = True,               # ← can disable for testing
+    cache: bool = True,  # ← can disable for testing
     verbose: bool = False,
 ) -> Union[PreTrainedTokenizer, PreTrainedTokenizerFast, tiktoken.Encoding]:
     """
@@ -102,6 +130,7 @@ def get_tokenizer(
 
 # ====================== TOKENIZE ======================
 
+
 @overload
 def tokenize(
     text: str,
@@ -110,6 +139,7 @@ def tokenize(
     show_progress: bool = True,
     max_tokens_to_process: int = 128,
 ) -> list[int]: ...
+
 
 @overload
 def tokenize(
@@ -120,6 +150,7 @@ def tokenize(
     max_tokens_to_process: int = 128,
 ) -> list[int]: ...
 
+
 @overload
 def tokenize(
     text: list[str] | list[dict] | list[Message],
@@ -128,6 +159,7 @@ def tokenize(
     show_progress: bool = True,
     max_tokens_to_process: int = 128,
 ) -> list[list[int]]: ...
+
 
 def tokenize(
     text: Union[str, dict, list[str], list[dict], list[Message]] = "",
@@ -138,7 +170,7 @@ def tokenize(
 ) -> Union[list[int], list[list[int]]]:
     """
     Tokenize text first — most natural usage: tokenize("hello", "llama3").
-    
+
     When show_progress=True and input is a list, shows a progress bar while
     tokenizing in batches of max_tokens_to_process items.
 
@@ -158,7 +190,7 @@ def tokenize(
         texts = []
         for t in text:
             if isinstance(t, dict):
-                texts.append(str(t.get('content', t)))
+                texts.append(str(t.get("content", t)))
             else:
                 texts.append(str(t))
         # Show progress bar for large batches if requested
@@ -173,42 +205,47 @@ def tokenize(
                 chunk = texts[i : i + max_tokens_to_process]
                 if isinstance(tokenizer, tiktoken.Encoding):
                     chunk_tokens = tokenizer.encode_batch(
-                        chunk,
-                        allowed_special="all" if add_special_tokens else set()
+                        chunk, allowed_special="all" if add_special_tokens else set()
                     )
                 else:
                     chunk_tokens = tokenizer.batch_encode_plus(
                         chunk,
                         return_tensors=None,
-                        add_special_tokens=add_special_tokens
+                        add_special_tokens=add_special_tokens,
                     )["input_ids"]
                 result.extend(chunk_tokens)
             return result
         else:
             # original batch path (fast path when progress bar not needed)
             if isinstance(tokenizer, tiktoken.Encoding):
-                tokenized = tokenizer.encode_batch(texts, allowed_special="all" if add_special_tokens else set())
+                tokenized = tokenizer.encode_batch(
+                    texts, allowed_special="all" if add_special_tokens else set()
+                )
             else:
                 tokenized = tokenizer.batch_encode_plus(
-                    texts,
-                    return_tensors=None,
-                    add_special_tokens=add_special_tokens
+                    texts, return_tensors=None, add_special_tokens=add_special_tokens
                 )
                 tokenized = tokenized["input_ids"]
             return tokenized
     else:
         # single item path — unchanged
         if isinstance(text, dict):
-            text_str = str(text.get('content', text))
+            text_str = str(text.get("content", text))
         else:
             text_str = str(text)
         if isinstance(tokenizer, tiktoken.Encoding):
-            tokenized = tokenizer.encode(text_str, allowed_special="all" if add_special_tokens else set())
+            tokenized = tokenizer.encode(
+                text_str, allowed_special="all" if add_special_tokens else set()
+            )
         else:
-            tokenized = tokenizer.encode(text_str, add_special_tokens=add_special_tokens)
+            tokenized = tokenizer.encode(
+                text_str, add_special_tokens=add_special_tokens
+            )
         return tokenized
 
+
 # ====================== DETOKENIZE ======================
+
 
 @overload
 def detokenize(
@@ -220,6 +257,7 @@ def detokenize(
     max_tokens_to_process: int = 128,
 ) -> str: ...
 
+
 @overload
 def detokenize(
     tokens: list[list[int]],
@@ -229,6 +267,7 @@ def detokenize(
     show_progress: bool = True,
     max_tokens_to_process: int = 128,
 ) -> list[str]: ...
+
 
 def detokenize(
     tokens: Union[list[int], list[list[int]]],
@@ -304,14 +343,23 @@ def detokenize(
             clean_up_tokenization_spaces=True,
         )
 
+
 # ====================== FACTORY FUNCTIONS (updated order) ======================
+
 
 def get_tokenizer_fn(
     model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
     add_special_tokens: bool = False,
 ) -> Callable[[Union[str, list[str]]], Union[list[int], list[list[int]]]]:
-    def _fn(text: Union[str, list[str]], show_progress: bool = True) -> Union[list[int], list[list[int]]]:
-        return tokenize(text, model_name=model_name, add_special_tokens=add_special_tokens, show_progress=show_progress)
+    def _fn(
+        text: Union[str, list[str]], show_progress: bool = True
+    ) -> Union[list[int], list[list[int]]]:
+        return tokenize(
+            text,
+            model_name=model_name,
+            add_special_tokens=add_special_tokens,
+            show_progress=show_progress,
+        )
 
     return _fn
 
@@ -320,35 +368,45 @@ def get_detokenizer_fn(
     model_name: Optional[str | OLLAMA_MODEL_NAMES | OLLAMA_HF_MODEL_NAMES] = None,
     skip_special_tokens: bool = True,
 ) -> Callable[[Union[list[int], list[list[int]]]], Union[str, list[str]]]:
-    def _fn(tokens: Union[list[int], list[list[int]]], show_progress: bool = True) -> Union[str, list[str]]:
-        return detokenize(tokens, model_name=model_name, skip_special_tokens=skip_special_tokens, show_progress=show_progress)
+    def _fn(
+        tokens: Union[list[int], list[list[int]]], show_progress: bool = True
+    ) -> Union[str, list[str]]:
+        return detokenize(
+            tokens,
+            model_name=model_name,
+            skip_special_tokens=skip_special_tokens,
+            show_progress=show_progress,
+        )
 
     return _fn
 
 
 TokenizableInput = str | dict | list[str] | list[dict] | list[Message]
 
+
 @overload
 def token_counter(
     text: TokenizableInput,
     model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
     prevent_total: Literal[False] = False,
-    add_special_tokens: bool = False
+    add_special_tokens: bool = False,
 ) -> int: ...
+
 
 @overload
 def token_counter(
     text: TokenizableInput,
     model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
     prevent_total: Literal[True] = True,
-    add_special_tokens: bool = False
+    add_special_tokens: bool = False,
 ) -> list[int]: ...
+
 
 def token_counter(
     text: TokenizableInput,
     model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
     prevent_total: bool = False,
-    add_special_tokens: bool = False
+    add_special_tokens: bool = False,
 ) -> Union[int, List[int]]:
     if not text:
         return 0
@@ -364,7 +422,7 @@ def token_counter(
 def count_tokens(
     text: str | dict | list[str] | list[dict] | list[Message],
     model: Optional[str | OLLAMA_MODEL_NAMES] = "llama3.2",
-    add_special_tokens: bool = False
+    add_special_tokens: bool = False,
 ) -> int:
     if not text:
         return 0
@@ -389,19 +447,23 @@ class TokenCountsInfo(TypedDict):
     results: list[TokenCountsInfoResult]
 
 
-def get_token_counts_info(texts: list[str], model: OLLAMA_MODEL_NAMES) -> TokenCountsInfo:
+def get_token_counts_info(
+    texts: list[str], model: OLLAMA_MODEL_NAMES
+) -> TokenCountsInfo:
     token_counts = token_counter(texts, model, prevent_total=True)
     total_count = sum(token_counts)
-    avg_count = round(total_count / len(token_counts),
-                      2) if token_counts else 0.0  # Rounded average
-    results: list[TokenCountsInfoResult] = [{"tokens": count, "text": text}
-                                            for count, text in zip(token_counts, texts)]
+    avg_count = (
+        round(total_count / len(token_counts), 2) if token_counts else 0.0
+    )  # Rounded average
+    results: list[TokenCountsInfoResult] = [
+        {"tokens": count, "text": text} for count, text in zip(token_counts, texts)
+    ]
 
     return {
         "min": min(token_counts) if token_counts else 0,
         "max": max(token_counts) if token_counts else 0,
         "average": avg_count,
-        "results": sorted(results, key=lambda x: x["tokens"])
+        "results": sorted(results, key=lambda x: x["tokens"]),
     }
 
 
@@ -429,8 +491,7 @@ def filter_texts(
 
     tokenizer = get_tokenizer(OLLAMA_HF_MODELS[model])
     if isinstance(max_tokens, float) and max_tokens < 1:
-        max_tokens = int(
-            get_model_max_tokens(model) * max_tokens)
+        max_tokens = int(get_model_max_tokens(model) * max_tokens)
     else:
         max_tokens = max_tokens or get_model_max_tokens(model)
 
@@ -467,7 +528,11 @@ def filter_texts(
                 return messages
 
             # Remove messages one by one from second to last up to second
-            while len(messages) > 2 and isinstance(token_count, int) and token_count > max_tokens:
+            while (
+                len(messages) > 2
+                and isinstance(token_count, int)
+                and token_count > max_tokens
+            ):
                 messages.pop(-2)  # Remove second to last message
                 token_count = token_counter(str(messages), model)
 
@@ -493,9 +558,8 @@ def group_texts(
         grouped_texts = []
 
         for i in range(0, len(tokens), max_tokens):
-            chunk = tokens[i:i + max_tokens]
-            grouped_texts.append(tokenizer.decode(
-                chunk, skip_special_tokens=False))
+            chunk = tokens[i : i + max_tokens]
+            grouped_texts.append(tokenizer.decode(chunk, skip_special_tokens=False))
 
         return grouped_texts
 
@@ -583,7 +647,13 @@ def group_texts(
 #     return grouped_nodes
 
 
-def calculate_num_predict_ctx(prompt: str | list[str] | list[Message], model: str = "llama3.1", *, system: str = "", max_prediction_ratio: float = 0.75):
+def calculate_num_predict_ctx(
+    prompt: str | list[str] | list[Message],
+    model: str = "llama3.1",
+    *,
+    system: str = "",
+    max_prediction_ratio: float = 0.75,
+):
     user_tokens: int = token_counter(prompt, model)
     system_tokens: int = token_counter(system, model)
     prompt_tokens = user_tokens + system_tokens
@@ -593,11 +663,13 @@ def calculate_num_predict_ctx(prompt: str | list[str] | list[Message], model: st
     model_max_tokens = OLLAMA_MODEL_CONTEXTS[model]
 
     if num_ctx > model_max_tokens:
-        raise ValueError({
-            "prompt_tokens": prompt_tokens,
-            "num_predict": num_predict,
-            "error": f"Context window size ({num_ctx}) exceeds model's maximum tokens ({model_max_tokens})",
-        })
+        raise ValueError(
+            {
+                "prompt_tokens": prompt_tokens,
+                "num_predict": num_predict,
+                "error": f"Context window size ({num_ctx}) exceeds model's maximum tokens ({model_max_tokens})",
+            }
+        )
 
     return {
         "user_tokens": user_tokens,
@@ -626,8 +698,7 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
     if isinstance(tokenizer, tiktoken.Encoding):
         tokenized_texts = tokenizer.encode_batch(texts)
     else:
-        tokenized_texts = tokenizer(
-            texts, add_special_tokens=False)["input_ids"]
+        tokenized_texts = tokenizer(texts, add_special_tokens=False)["input_ids"]
 
     truncated_texts = []
     for text, tokens in zip(texts, tokenized_texts):
@@ -637,7 +708,8 @@ def truncate_texts(texts: str | list[str], model: str, max_tokens: int) -> list[
                 truncated_text = tokenizer.decode(truncated_tokens)
             else:
                 truncated_text = tokenizer.decode(
-                    truncated_tokens, skip_special_tokens=True)
+                    truncated_tokens, skip_special_tokens=True
+                )
             truncated_texts.append(truncated_text.strip())
         else:
             truncated_texts.append(text)
@@ -651,7 +723,7 @@ def split_texts(
     chunk_size: Optional[int] = None,
     chunk_overlap: int = 0,
     *,
-    buffer: int = 0
+    buffer: int = 0,
 ) -> list[str]:
     """
     Splits a list of texts into smaller chunks based on chunk_size, chunk_overlap, and buffer.
@@ -671,12 +743,14 @@ def split_texts(
 
     if chunk_size <= chunk_overlap:
         raise ValueError(
-            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})")
+            f"Chunk size ({chunk_size}) must be greater than chunk overlap ({chunk_overlap})"
+        )
 
     effective_max_tokens = max(chunk_size - buffer, 1)  # Ensure positive value
     if effective_max_tokens <= chunk_overlap:
         raise ValueError(
-            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})")
+            f"Effective max tokens ({effective_max_tokens}) must be greater than chunk overlap ({chunk_overlap})"
+        )
 
     tokenizer = get_tokenizer(model)
     split_chunks = []
@@ -685,8 +759,9 @@ def split_texts(
         texts = [texts]
 
     for text in texts:
-        tokens = tokenizer.encode(text) if hasattr(
-            tokenizer, "encode") else tokenizer(text)
+        tokens = (
+            tokenizer.encode(text) if hasattr(tokenizer, "encode") else tokenizer(text)
+        )
         total_tokens = len(tokens)
 
         if total_tokens <= effective_max_tokens:
@@ -698,8 +773,7 @@ def split_texts(
             end = min(start + effective_max_tokens, total_tokens)
             chunk_tokens = tokens[start:end]
             try:
-                chunk_text = tokenizer.decode(
-                    chunk_tokens, skip_special_tokens=True)
+                chunk_text = tokenizer.decode(chunk_tokens, skip_special_tokens=True)
             except:
                 chunk_text = tokenizer.decode(chunk_tokens)
 
@@ -713,7 +787,8 @@ def split_texts(
             start = max(end - chunk_overlap, 0)  # Prevent negative index
 
     logger.debug(
-        f"Split {len(texts)} texts into {len(split_chunks)} chunks (buffer={buffer}, overlap={chunk_overlap}).")
+        f"Split {len(texts)} texts into {len(split_chunks)} chunks (buffer={buffer}, overlap={chunk_overlap})."
+    )
     return split_chunks
 
 
@@ -943,17 +1018,18 @@ def get_subtext_indices(text: str, subtext: str) -> tuple[int, int] | None:
 #     return nodes
 
 
-def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["llm", "embed"] = "llm") -> OLLAMA_LLM_MODELS:
+def get_model_by_max_predict(
+    text: str, max_predict: int = 500, type: Literal["llm", "embed"] = "llm"
+) -> OLLAMA_LLM_MODELS:
     """
     Returns the first OLLAMA model (sorted by max tokens) that can accommodate
     the given text plus max_predict tokens. Raises error if none fits.
     """
-    models = OLLAMA_LLM_MODELS.__args__ if type == "llm" else OLLAMA_EMBED_MODELS.__args__
-
-    sorted_models = sorted(
-        models,
-        key=lambda name: OLLAMA_MODEL_CONTEXTS[name]
+    models = (
+        OLLAMA_LLM_MODELS.__args__ if type == "llm" else OLLAMA_EMBED_MODELS.__args__
     )
+
+    sorted_models = sorted(models, key=lambda name: OLLAMA_MODEL_CONTEXTS[name])
 
     text_token_count: int = token_counter(text)
 
@@ -968,27 +1044,31 @@ def get_model_by_max_predict(text: str, max_predict: int = 500, type: Literal["l
     )
 
 
-def get_last_n_tokens_and_decode(text: str, tokenizer: AutoTokenizer, n: int = 10) -> str:
+def get_last_n_tokens_and_decode(
+    text: str, tokenizer: AutoTokenizer, n: int = 10
+) -> str:
     """
     Encodes text into tokens, extracts the last n tokens, and decodes them back to text.
-    
+
     Args:
         text: Input text to tokenize.
         tokenizer: Pre-trained tokenizer from transformers.
         n: Number of tokens to extract from the end (default: 10).
-    
+
     Returns:
         Decoded string of the last n tokens.
     """
+    from jet.adapters.llama_cpp.token_utils import detokenize, tokenize
+
     # Encode the text into token IDs
-    token_ids = tokenizer.encode(text, add_special_tokens=False)
-    
+    token_ids = tokenize(text, add_special=False)["tokens"]
+
     # Get the last n tokens (or all tokens if len < n)
     last_n_tokens = token_ids[-n:] if len(token_ids) >= n else token_ids
-    
+
     # Decode the last n tokens back to text
-    decoded_text = tokenizer.decode(last_n_tokens, skip_special_tokens=True)
-    
+    decoded_text = detokenize(last_n_tokens)["content"]
+
     return decoded_text
 
 
@@ -1018,7 +1098,6 @@ if __name__ == "__main__":
 
     logger.info("Count tokens info for: str")
     for model_name in models:
-        splitted_texts = split_texts(
-            docs, model_name, chunk_size=200, chunk_overlap=50)
+        splitted_texts = split_texts(docs, model_name, chunk_size=200, chunk_overlap=50)
         result = get_token_counts_info(splitted_texts, model_name)
         logger.log("Count:", format_json(result), colors=["DEBUG", "SUCCESS"])

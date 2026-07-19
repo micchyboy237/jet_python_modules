@@ -1,4 +1,4 @@
-# /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/token_utils.py
+# jet.adapters.llama_cpp.token_utils
 from typing import Any, Dict, List, Optional, TypedDict, Union
 
 import requests

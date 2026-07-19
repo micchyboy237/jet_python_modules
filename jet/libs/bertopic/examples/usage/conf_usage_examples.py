@@ -1,25 +1,28 @@
-# jet/libs/bertopic/examples/usage/conf_usage_examples.py
+from jet.libs.bertopic.monkey_patches.add_check_array import init_patch
+
+init_patch()
+
 import logging
 import os
 import shutil
-from typing import Callable, Dict, List, Optional, Tuple, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from sklearn.datasets import fetch_20newsgroups
-from umap import UMAP
+from bertopic.dimensionality import BaseDimensionalityReduction
+from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
+from bertopic.vectorizers import OnlineCountVectorizer
 from hdbscan import HDBSCAN
 from jet.adapters.bertopic import BERTopic
-from sklearn.cluster import KMeans, MiniBatchKMeans
-from sklearn.decomposition import PCA
-from bertopic.vectorizers import OnlineCountVectorizer
-from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
-from bertopic.dimensionality import BaseDimensionalityReduction
-from sklearn.linear_model import LogisticRegression
-
 from jet.file.utils import save_file
+from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.datasets import fetch_20newsgroups
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
+from umap import UMAP
 
 OUTPUT_DIR = os.path.join(
-    os.path.dirname(__file__), "generated", os.path.splitext(
-        os.path.basename(__file__))[0]
+    os.path.dirname(__file__),
+    "generated",
+    os.path.splitext(os.path.basename(__file__))[0],
 )
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
@@ -29,7 +32,9 @@ EMBED_MODEL = "embeddinggemma"
 def load_sample_data() -> Tuple[List[str], List[int]]:
     """Load sample dataset from 20 newsgroups."""
     logging.info("Loading 20 newsgroups dataset...")
-    newsgroups = fetch_20newsgroups(subset="all", remove=("headers", "footers", "quotes"))
+    newsgroups = fetch_20newsgroups(
+        subset="all", remove=("headers", "footers", "quotes")
+    )
     documents = newsgroups.data[:1000]
     targets = newsgroups.target[:1000]
     return documents, targets
@@ -41,9 +46,7 @@ def example_base_topic_model() -> BERTopic:
     documents, _ = load_sample_data()
     embedding_model = EMBED_MODEL
     model = BERTopic(
-        verbose=True,
-        embedding_model=embedding_model,
-        calculate_probabilities=True
+        verbose=True, embedding_model=embedding_model, calculate_probabilities=True
     )
     model.umap_model.random_state = 42
     model.hdbscan_model.min_cluster_size = 3
@@ -78,8 +81,15 @@ def example_custom_topic_model() -> BERTopic:
     logging.info("Starting custom topic model example...")
     documents, _ = load_sample_data()
     embedding_model = EMBED_MODEL
-    umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
-    hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
+    umap_model = UMAP(
+        n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42
+    )
+    hdbscan_model = HDBSCAN(
+        min_cluster_size=3,
+        metric="euclidean",
+        cluster_selection_method="eom",
+        prediction_data=True,
+    )
     model = BERTopic(
         vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
@@ -98,8 +108,15 @@ def example_representation_topic_model() -> BERTopic:
     logging.info("Starting representation topic model example...")
     documents, _ = load_sample_data()
     embedding_model = EMBED_MODEL
-    umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
-    hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
+    umap_model = UMAP(
+        n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42
+    )
+    hdbscan_model = HDBSCAN(
+        min_cluster_size=3,
+        metric="euclidean",
+        cluster_selection_method="eom",
+        prediction_data=True,
+    )
     representation_model = {
         "Main": KeyBERTInspired(),
         "MMR": [KeyBERTInspired(top_n_words=30), MaximalMarginalRelevance()],
@@ -123,8 +140,15 @@ def example_reduced_topic_model() -> BERTopic:
     logging.info("Starting reduced topic model example...")
     documents, _ = load_sample_data()
     embedding_model = EMBED_MODEL
-    umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
-    hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
+    umap_model = UMAP(
+        n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42
+    )
+    hdbscan_model = HDBSCAN(
+        min_cluster_size=3,
+        metric="euclidean",
+        cluster_selection_method="eom",
+        prediction_data=True,
+    )
     model = BERTopic(
         vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
@@ -145,8 +169,15 @@ def example_merged_topic_model() -> BERTopic:
     logging.info("Starting merged topic model example...")
     documents, _ = load_sample_data()
     embedding_model = EMBED_MODEL
-    umap_model = UMAP(n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42)
-    hdbscan_model = HDBSCAN(min_cluster_size=3, metric="euclidean", cluster_selection_method="eom", prediction_data=True)
+    umap_model = UMAP(
+        n_neighbors=15, n_components=6, min_dist=0.0, metric="cosine", random_state=42
+    )
+    hdbscan_model = HDBSCAN(
+        min_cluster_size=3,
+        metric="euclidean",
+        cluster_selection_method="eom",
+        prediction_data=True,
+    )
     model = BERTopic(
         vectorizer_model=get_vectorizer(len(documents)),
         verbose=True,
@@ -196,7 +227,7 @@ def example_supervised_topic_model() -> BERTopic:
         verbose=True,
         embedding_model=embedding_model,
         umap_model=empty_dimensionality_model,
-        hdbscan_model=clf
+        hdbscan_model=clf,
     )
     logging.info("Fitting supervised topic model...")
     model.fit(documents, y=targets)
@@ -249,7 +280,13 @@ def example_cuml_base_topic_model() -> Optional[BERTopic]:
     return model
 
 
-def extract_topic_data(model: BERTopic, documents: List[str], topics: Optional[List[int]] = None, probs: Optional[List[List[float]]] = None, top_n_words: int = 10) -> Dict[str, Any]:
+def extract_topic_data(
+    model: BERTopic,
+    documents: List[str],
+    topics: Optional[List[int]] = None,
+    probs: Optional[List[List[float]]] = None,
+    top_n_words: int = 10,
+) -> Dict[str, Any]:
     """
     Convert BERTopic model outputs into a JSON-serializable summary.
     """
@@ -262,20 +299,34 @@ def extract_topic_data(model: BERTopic, documents: List[str], topics: Optional[L
         words = model.get_topic(int(topic_id))
         topics_data[int(topic_id)] = {
             "name": topic_info.loc[topic_info.Topic == topic_id, "Name"].values[0],
-            "count": int(topic_info.loc[topic_info.Topic == topic_id, "Count"].values[0]),
-            "words": [{"word": w, "weight": float(wt)} for w, wt in words[:top_n_words]],
+            "count": int(
+                topic_info.loc[topic_info.Topic == topic_id, "Count"].values[0]
+            ),
+            "words": [
+                {"word": w, "weight": float(wt)} for w, wt in words[:top_n_words]
+            ],
         }
 
     # attach document-topic assignments and probabilities
     doc_data = []
     if topics is not None and probs is not None:
         for doc, topic, prob in zip(documents, topics, probs):
-            doc_data.append({"text": doc[:300], "topic": int(topic), "probabilities": [float(p) for p in prob] if prob is not None else None})
+            doc_data.append(
+                {
+                    "text": doc[:300],
+                    "topic": int(topic),
+                    "probabilities": [float(p) for p in prob]
+                    if prob is not None
+                    else None,
+                }
+            )
 
     return {"summary": topics_data, "documents": doc_data}
 
 
-def process_and_save_model(model_fn: Callable[[], Any], name: str, output_dir: Optional[str] = None) -> None:
+def process_and_save_model(
+    model_fn: Callable[[], Any], name: str, output_dir: Optional[str] = None
+) -> None:
     """
     Run an example function that returns either:
       - an unfitted model (so we call fit_transform), or
@@ -289,7 +340,9 @@ def process_and_save_model(model_fn: Callable[[], Any], name: str, output_dir: O
 
     # Safe choice: if model already has topics_ set, use transform() to avoid double-fit issues.
     if hasattr(model, "topics_") and getattr(model, "topics_") is not None:
-        logging.info("Model already fitted — using transform() instead of fit_transform()")
+        logging.info(
+            "Model already fitted — using transform() instead of fit_transform()"
+        )
         topics, probs = model.transform(documents)
     else:
         topics, probs = model.fit_transform(documents)
@@ -298,7 +351,11 @@ def process_and_save_model(model_fn: Callable[[], Any], name: str, output_dir: O
     topic_data = extract_topic_data(model, documents, topics, probs)
 
     # Paths
-    base_dir = output_dir or os.path.join(os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    base_dir = output_dir or os.path.join(
+        os.path.dirname(__file__),
+        "generated",
+        os.path.splitext(os.path.basename(__file__))[0],
+    )
     model_dir = os.path.join(base_dir, name)
     os.makedirs(model_dir, exist_ok=True)
     model_path = os.path.join(model_dir, f"{name}.bertopic")
@@ -314,24 +371,50 @@ def process_and_save_model(model_fn: Callable[[], Any], name: str, output_dir: O
 
 
 if __name__ == "__main__":
-    OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "generated", os.path.splitext(os.path.basename(__file__))[0])
+    OUTPUT_DIR = os.path.join(
+        os.path.dirname(__file__),
+        "generated",
+        os.path.splitext(os.path.basename(__file__))[0],
+    )
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     logging.basicConfig(level=logging.INFO)
 
     # --- Run all examples ---
-    process_and_save_model(example_base_topic_model, "base_topic", output_dir=OUTPUT_DIR)
-    process_and_save_model(example_zeroshot_topic_model, "zeroshot_topic", output_dir=OUTPUT_DIR)
-    process_and_save_model(example_custom_topic_model, "custom_topic", output_dir=OUTPUT_DIR)
-    process_and_save_model(example_representation_topic_model, "representation_topic", output_dir=OUTPUT_DIR)
-    process_and_save_model(example_reduced_topic_model, "reduced_topic", output_dir=OUTPUT_DIR)
-    process_and_save_model(example_merged_topic_model, "merged_topic", output_dir=OUTPUT_DIR)
-    process_and_save_model(example_kmeans_pca_topic_model, "kmeans_pca_topic", output_dir=OUTPUT_DIR)
-    process_and_save_model(example_supervised_topic_model, "supervised_topic", output_dir=OUTPUT_DIR)
-    process_and_save_model(example_online_topic_model, "online_topic", output_dir=OUTPUT_DIR)
+    process_and_save_model(
+        example_base_topic_model, "base_topic", output_dir=OUTPUT_DIR
+    )
+    process_and_save_model(
+        example_zeroshot_topic_model, "zeroshot_topic", output_dir=OUTPUT_DIR
+    )
+    process_and_save_model(
+        example_custom_topic_model, "custom_topic", output_dir=OUTPUT_DIR
+    )
+    process_and_save_model(
+        example_representation_topic_model,
+        "representation_topic",
+        output_dir=OUTPUT_DIR,
+    )
+    process_and_save_model(
+        example_reduced_topic_model, "reduced_topic", output_dir=OUTPUT_DIR
+    )
+    process_and_save_model(
+        example_merged_topic_model, "merged_topic", output_dir=OUTPUT_DIR
+    )
+    process_and_save_model(
+        example_kmeans_pca_topic_model, "kmeans_pca_topic", output_dir=OUTPUT_DIR
+    )
+    process_and_save_model(
+        example_supervised_topic_model, "supervised_topic", output_dir=OUTPUT_DIR
+    )
+    process_and_save_model(
+        example_online_topic_model, "online_topic", output_dir=OUTPUT_DIR
+    )
 
     cuml_model = example_cuml_base_topic_model()
     if cuml_model is not None:
-        process_and_save_model(example_cuml_base_topic_model, "cuml_base_topic", output_dir=OUTPUT_DIR)
+        process_and_save_model(
+            example_cuml_base_topic_model, "cuml_base_topic", output_dir=OUTPUT_DIR
+        )
 
     logging.info("✅ All BERTopic configuration examples completed successfully.")
