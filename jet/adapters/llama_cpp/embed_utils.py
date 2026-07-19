@@ -1,3 +1,5 @@
+# jet.adapters.llama_cpp.embed_utils
+
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Literal, Union, overload
@@ -13,20 +15,11 @@ console = Console()
 # === CONFIG ===
 SERVER_URL = os.getenv("LLAMA_CPP_EMBED_URL")
 MODEL_NAME: LLAMACPP_EMBED_KEYS = os.getenv("LLAMA_CPP_EMBED_MODEL")
-DEFAULT_QUERY_PREFIX = os.getenv("EMBED_QUERY_PREFIX", "")
-DEFAULT_DOC_PREFIX = os.getenv("EMBED_DOC_PREFIX", "")
 
 client = OpenAI(
     base_url=SERVER_URL,
-    api_key="not-needed-for-local",
+    api_key="not-needed-for-local",  # llama.cpp ignores this
 )
-
-
-def _resolve_prefix(prefix: str | None, default: str) -> str | None:
-    """Resolve prefix: explicit arg > env default. Returns None if both are empty."""
-    if prefix is not None:
-        return prefix if prefix else None
-    return default if default else None
 
 
 @overload
@@ -67,22 +60,21 @@ def embed(
     - str input → uses embed_single
     - list[str] input → uses embed_batch
 
-    Prefix behavior:
-      - If `prefix` is provided, it's used directly (empty string = no prefix).
-      - If `prefix` is None, no prefix is applied here — callers like vector_search
-        resolve env vars and pass an explicit prefix.
-
     Keeps API ergonomic while reusing existing implementations.
     """
     if isinstance(text, str):
+        if prefix:
+            text = f"{prefix}{text}"
         return embed_single(
             text=text,
             model=model,
             return_format=return_format,
-            prefix=prefix,
         )
 
     if isinstance(text, list):
+        if prefix:
+            text = [f"{prefix}{t}" for t in text]
+
         return embed_batch(
             texts=text,
             model=model,
@@ -91,7 +83,6 @@ def embed(
             return_format=return_format,
             batch_size=batch_size,
             progress_description=progress_description,
-            prefix=prefix,
         )
 
     raise TypeError(f"Unsupported input type: {type(text)}")
@@ -101,23 +92,17 @@ def embed_single(
     text: str,
     model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
     return_format: Literal["numpy", "list"] = "numpy",
-    prefix: str | None = None,
 ) -> Union[list[float], np.ndarray]:
     """Embed one text string via /v1/embeddings endpoint.
 
     Args:
-        text: Input text to embed.
-        model: Model identifier.
-        return_format: "numpy" returns np.ndarray (default), "list" returns Python list.
-        prefix: Optional prefix prepended to text. Falls back to DEFAULT_QUERY_PREFIX env var.
+        text: Input text to embed
+        model: Model identifier
+        return_format: "numpy" returns np.ndarray (default), "list" returns Python list
 
     Returns:
-        Embedding vector as numpy array (default) or Python list.
+        Embedding vector as numpy array (default) or Python list
     """
-    resolved_prefix = _resolve_prefix(prefix, DEFAULT_QUERY_PREFIX)
-    if resolved_prefix:
-        text = f"{resolved_prefix}{text}"
-
     response = client.embeddings.create(
         input=text,
         model=model,
@@ -130,22 +115,11 @@ def embed_single(
 
 
 def embed_chunk(
-    texts: list[str],
-    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
-    prefix: str | None = None,
+    texts: list[str], model: LLAMACPP_EMBED_KEYS = MODEL_NAME
 ) -> list[list[float]]:
-    """Embed a list of texts sequentially, returns list of embeddings in same order.
-
-    Args:
-        texts: List of texts to embed.
-        model: Model identifier.
-        prefix: Optional prefix prepended to each text. Falls back to DEFAULT_DOC_PREFIX env var.
-    """
-    resolved_prefix = _resolve_prefix(prefix, DEFAULT_DOC_PREFIX)
-    return [
-        embed_single(t, model=model, return_format="list", prefix=resolved_prefix)
-        for t in texts
-    ]
+    """Embed a list of texts sequentially, returns list of embeddings in same order."""
+    # Keep returning plain Python lists here (cheaper + conversion happens once in embed_batch)
+    return [embed_single(t, model=model, return_format="list") for t in texts]
 
 
 def embed_batch(
@@ -154,26 +128,13 @@ def embed_batch(
     max_workers: int = 6,
     show_progress: bool = True,
     return_format: Literal["numpy", "list"] = "numpy",
-    batch_size: int | None = 32,
+    batch_size: int | None = 32,  # sensible default
     progress_description: str = "Embedding texts",
-    prefix: str | None = None,
 ) -> Union[list[list[float]], np.ndarray]:
     """
     Embed multiple texts in parallel using ThreadPoolExecutor + batching.
     Deduplicates input texts for efficiency, reconstructs output list in original order.
-
-    Args:
-        texts: List of texts to embed.
-        model: Model identifier.
-        max_workers: Max parallel threads.
-        show_progress: Whether to display a progress bar.
-        return_format: "numpy" returns np.ndarray, "list" returns Python list.
-        batch_size: Texts per batch. None or <=1 disables batching.
-        progress_description: Label for the progress bar.
-        prefix: Optional prefix prepended to each text. Falls back to DEFAULT_DOC_PREFIX env var.
     """
-    resolved_prefix = _resolve_prefix(prefix, DEFAULT_DOC_PREFIX)
-
     if not texts:
         return np.array([]) if return_format == "numpy" else []
 
@@ -184,9 +145,11 @@ def embed_batch(
 
     unique_texts = list(text_to_indices.keys())
 
+    # We embed only unique texts but must reconstruct full output later
     total_unique = len(unique_texts)
     total_texts = len(texts)
 
+    # Log in case deduplication occurred (original had duplicates)
     deduped_count = total_texts - total_unique
     if deduped_count > 0:
         console.print(
@@ -195,6 +158,8 @@ def embed_batch(
 
     if batch_size is None or batch_size <= 1:
         batch_size = 1
+
+    # NOTE: progress reflects unique texts being embedded
 
     # ── Progress setup ────────────────────────────────
     progress = None
@@ -221,7 +186,7 @@ def embed_batch(
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_info = {
-            executor.submit(embed_chunk, batch_texts, model, resolved_prefix): (
+            executor.submit(embed_chunk, batch_texts, model): (
                 start_idx,
                 len(batch_texts),
             )
@@ -233,11 +198,13 @@ def embed_batch(
             try:
                 batch_emb = future.result()
 
+                # Map unique embeddings back to original indices
                 for offset, emb in enumerate(batch_emb):
                     unique_text = unique_texts[start_idx + offset]
                     for original_idx in text_to_indices[unique_text]:
                         embeddings[original_idx] = emb
 
+                # Update progress
                 if show_progress and task_id is not None:
                     progress.update(task_id, advance=batch_len)
 
@@ -246,6 +213,7 @@ def embed_batch(
                     f"[red]Error in batch starting at index {start_idx} "
                     f"({batch_len} texts): {e}[/red]"
                 )
+                # Optionally continue or raise
 
     if show_progress and progress is not None:
         progress.stop()
