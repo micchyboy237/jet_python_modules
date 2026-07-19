@@ -1,13 +1,14 @@
 from jet.adapters.bertopic.embeddings import BERTopicLlamacppEmbedder
 from jet.adapters.bertopic.utils import get_vectorizer
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
+from jet.logger import logger
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 
-# BERTopic
 from bertopic import BERTopic as BaseBERTopic
 from bertopic.representation import BaseRepresentation
 
-DEFAULT_EMBEDDING_MODEL: LLAMACPP_EMBED_KEYS = "embeddinggemma"
+DEFAULT_EMBEDDING_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 
 
 class BERTopic(BaseBERTopic):
@@ -33,14 +34,17 @@ class BERTopic(BaseBERTopic):
         use_cache: bool = False,
     ):
         if not embedding_model or isinstance(embedding_model, str):
+            if use_cache:
+                logger.warning(
+                    "use_cache=True has no effect: BERTopicLlamacppEmbedder now "
+                    "uses embed_utils.embed_batch, which has no caching layer."
+                )
             embedder = BERTopicLlamacppEmbedder(
-                embedding_model or DEFAULT_EMBEDDING_MODEL, use_cache=use_cache
+                embedding_model or DEFAULT_EMBEDDING_MODEL
             )
             embedding_model = embedder
-
         if not vectorizer_model:
             vectorizer_model = get_vectorizer()
-
         super().__init__(
             language=language,
             top_n_words=top_n_words,

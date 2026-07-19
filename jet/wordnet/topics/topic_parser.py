@@ -1,12 +1,13 @@
-from jet.adapters.bertopic import BERTopic
-from umap import UMAP
-from hdbscan import HDBSCAN
-from sklearn.feature_extraction.text import CountVectorizer
-import pandas as pd
-import numpy as np
 from typing import List, Optional, TypedDict
 
+import numpy as np
+import pandas as pd
+from hdbscan import HDBSCAN
+from jet.adapters.bertopic import BERTopic
 from jet.adapters.bertopic.embeddings import BERTopicLlamacppEmbedder
+from jet.adapters.llama_cpp.config import DEFAULT_EMBED_MODEL
+from sklearn.feature_extraction.text import CountVectorizer
+from umap import UMAP
 
 
 def configure_topic_model(
@@ -15,16 +16,20 @@ def configure_topic_model(
     min_dist: float = 0.1,
     min_cluster_size: int = 2,
     min_samples: int = 2,  # Increased from 1
-    embedding_model: str = "embeddinggemma",
-    random_state: Optional[int] = 42
+    embedding_model: str = DEFAULT_EMBED_MODEL,
+    random_state: Optional[int] = 42,
 ) -> BERTopic:
     """Configure a BERTopic model with UMAP and HDBSCAN."""
-    umap_model = UMAP(n_components=n_components, n_neighbors=n_neighbors,
-                      min_dist=min_dist, random_state=random_state)
+    umap_model = UMAP(
+        n_components=n_components,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        random_state=random_state,
+    )
     hdbscan_model = HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
-        prediction_data=True  # Enable prediction data for probabilities
+        prediction_data=True,  # Enable prediction data for probabilities
     )
     vectorizer_model = CountVectorizer(stop_words="english")
     embedder = BERTopicLlamacppEmbedder(embedding_model)
@@ -34,17 +39,23 @@ def configure_topic_model(
         embedding_model=embedder,
         min_topic_size=min_cluster_size,
         vectorizer_model=vectorizer_model,
-        calculate_probabilities=True  # Explicitly enable probabilities
+        calculate_probabilities=True,  # Explicitly enable probabilities
     )
 
 
-def create_topic_df(docs: List[str], topics: List[int], probs: List[np.ndarray]) -> pd.DataFrame:
+def create_topic_df(
+    docs: List[str], topics: List[int], probs: List[np.ndarray]
+) -> pd.DataFrame:
     """Create a DataFrame with documents, topics, and probabilities."""
-    return pd.DataFrame({
-        "Document": docs,
-        "Assigned Topic": topics,
-        "Topic Probability": [round(prob.max() if prob.size > 0 else 0.0, 4) for prob in probs]
-    })
+    return pd.DataFrame(
+        {
+            "Document": docs,
+            "Assigned Topic": topics,
+            "Topic Probability": [
+                round(prob.max() if prob.size > 0 else 0.0, 4) for prob in probs
+            ],
+        }
+    )
 
 
 class TopicInfo(TypedDict):
@@ -55,13 +66,14 @@ class TopicInfo(TypedDict):
     representative_docs: List[str]
     doc_probabilities: List[float]
 
+
 def extract_topics(
     topic_model: BERTopic,
     docs: List[str],
     topics: List[int],
     probs: List[np.ndarray],
     num_top_words: int = 5,
-    num_representative_docs: int = 3
+    num_representative_docs: int = 3,
 ) -> List[TopicInfo]:
     """Extract topic information with structured output, including probabilities.
 
@@ -78,21 +90,20 @@ def extract_topics(
     """
     topic_info: pd.DataFrame = topic_model.get_topic_info()
     result: List[TopicInfo] = []
-    
+
     for _, row in topic_info.iterrows():
-        topic_id = row['Topic']
+        topic_id = row["Topic"]
         if topic_id == -1:  # Skip outlier topic
             continue
-            
+
         # Get top words, handle potential empty topic
         topic_words = topic_model.get_topic(topic_id) or []
-        top_words = [word for word, _ in topic_words[:num_top_words]] if topic_words else []
-        
+        top_words = (
+            [word for word, _ in topic_words[:num_top_words]] if topic_words else []
+        )
+
         # Get representative documents based on highest probabilities
-        doc_indices = [
-            i for i in range(len(docs)) 
-            if topics[i] == topic_id
-        ]
+        doc_indices = [i for i in range(len(docs)) if topics[i] == topic_id]
         if doc_indices:
             # Sort documents by probability (if probs available)
             doc_probs = []
@@ -106,23 +117,27 @@ def extract_topics(
             doc_probs.sort(key=lambda x: x[1], reverse=True)
             top_doc_indices = [i for i, _ in doc_probs[:num_representative_docs]]
             rep_docs = [docs[i] for i in top_doc_indices]
-            rep_probs = [round(float(prob), 4) for _, prob in doc_probs[:num_representative_docs]]
+            rep_probs = [
+                round(float(prob), 4) for _, prob in doc_probs[:num_representative_docs]
+            ]
         else:
             rep_docs = []
             rep_probs = []
-        
+
         # Create cleaner topic name by joining top words
-        topic_name = row['Name'] if top_words else "Unnamed Topic"
+        topic_name = row["Name"] if top_words else "Unnamed Topic"
         if top_words:
             topic_name = "_".join(top_words[:3]).replace(" ", "_")
-        
-        result.append({
-            'topic_id': topic_id,
-            'topic_name': topic_name,
-            'document_count': row['Count'],
-            'top_words': top_words,
-            'representative_docs': rep_docs,
-            'doc_probabilities': rep_probs
-        })
-    
+
+        result.append(
+            {
+                "topic_id": topic_id,
+                "topic_name": topic_name,
+                "document_count": row["Count"],
+                "top_words": top_words,
+                "representative_docs": rep_docs,
+                "doc_probabilities": rep_probs,
+            }
+        )
+
     return result

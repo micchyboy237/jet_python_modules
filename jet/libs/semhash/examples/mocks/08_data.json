@@ -1,0 +1,41 @@
+[
+  { "text": "The bakery on Main Street won a regional award for best bread" },
+  {
+    "text": "A bakery in town received a regional prize for its excellent bread"
+  },
+  {
+    "text": "The town's bakery was honored with a regional award for bread quality"
+  },
+
+  { "text": "A new public park has opened in the downtown area this week" },
+  {
+    "text": "This week, downtown welcomed the opening of a brand new public park"
+  },
+  { "text": "A brand new park opened for the public in downtown this week" },
+
+  { "text": "The city council voted to approve next year's municipal budget" },
+  {
+    "text": "Next year's municipal budget was approved in a city council vote"
+  },
+  {
+    "text": "In a recent vote, the city council approved the coming year's budget"
+  },
+
+  { "text": "A local tech company launched its newest software product today" },
+  { "text": "Today, a tech company released its latest software product" },
+  { "text": "A tech firm based locally launched a new software product today" },
+
+  { "text": "The local school announced a new after-school tutoring program" },
+  {
+    "text": "A new after-school tutoring program was announced by the local school"
+  },
+  {
+    "text": "The school launched a new tutoring program for after school hours"
+  },
+
+  { "text": "Heavy rain is expected to hit the region over the next two days" },
+  { "text": "The region is expecting heavy rainfall over the coming two days" },
+  {
+    "text": "Forecasters predict heavy rain across the region for the next two days"
+  }
+]
