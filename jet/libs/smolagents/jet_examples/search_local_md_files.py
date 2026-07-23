@@ -1,15 +1,11 @@
 # jet_python_modules/jet/libs/smolagents/jet_examples/search_local_markdown_python.py
 
-from smolagents import OpenAIModel, ToolCallingAgent, LogLevel
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.tools.local_file_search_tool import LocalFileSearchTool
+from smolagents import LogLevel, ToolCallingAgent
 
-# Reuse the same local OpenAI-compatible LLM configuration
-model = OpenAIModel(
-    model_id="local-model",
-    api_base="http://shawn-pc.local:8080/v1",
-    api_key="not-needed",
+model = create_llm_model(
     temperature=0.2,
-    max_tokens=2048,
 )
 
 local_file_search = LocalFileSearchTool()

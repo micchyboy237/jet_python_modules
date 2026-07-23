@@ -2,7 +2,7 @@ import re
 import shutil
 from pathlib import Path
 
-from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.tools.local_file_read_tool import LocalFileReadTool
 from jet.libs.smolagents.tools.local_file_search_tool import LocalFileSearchTool
 from jet.libs.smolagents.tools.local_file_write_tool import LocalFileWriteTool
@@ -18,10 +18,8 @@ WORK_DIR.mkdir(parents=True, exist_ok=True)
 # Local LLM configuration
 # ---------------------------------------------------------------------------
 
-model = OpenAIModel(
-    model_id="qwen3-instruct-2507:4b",
+model = create_llm_model(
     temperature=0.2,
-    max_tokens=12000,
 )
 
 
