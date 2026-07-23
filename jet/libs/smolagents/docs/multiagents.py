@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 import requests
-from jet.adapters.smolagents.factory import create_llm_model
+from jet.adapters.smolagents.factory import create_code_agent, create_llm_model
 from jet.libs.smolagents.step_callbacks import save_step_state
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
@@ -139,7 +139,7 @@ def create_manager_agent(
     else:
         authorized = default_authorized_imports
 
-    return CodeAgent(
+    return create_code_agent(
         tools=[],
         model=model,
         managed_agents=managed_agents,

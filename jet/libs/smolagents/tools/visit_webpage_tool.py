@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.hybrid_search import (
     RELATIVE_CATEGORY_CONFIG,
     HybridSearch,
@@ -119,7 +120,7 @@ If you really need near-complete content, use a very broad or generic query."""
 
     def __init__(
         self,
-        embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe",
+        embed_model: LLAMACPP_EMBED_KEYS = EMBED_MODEL,
         max_output_length: int = 3800,  # now treated as **token** limit
         top_k: int | None = None,
         chunk_target_tokens: int = 500,

@@ -6,7 +6,7 @@ Shows plan interruption, modification, resume, memory inspection.
 
 from collections.abc import Callable
 
-from jet.adapters.smolagents.factory import create_llm_model
+from jet.adapters.smolagents.factory import create_code_agent, create_llm_model
 from smolagents import (
     CodeAgent,
     DuckDuckGoSearchTool,
@@ -109,7 +109,7 @@ def create_rag_like_agent(
 
     callback = create_plan_interrupt_callback(allow_edit=allow_plan_edit)
 
-    agent = CodeAgent(
+    agent = create_code_agent(
         tools=[DuckDuckGoSearchTool()],
         model=model,
         planning_interval=planning_interval,

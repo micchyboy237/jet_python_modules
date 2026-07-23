@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict, List
 
 import datasets
-from jet.adapters.smolagents.factory import create_llm_model
+from jet.adapters.smolagents.factory import create_code_agent, create_llm_model
 from rank_bm25 import BM25Okapi
 from smolagents import CodeAgent, Tool
 
@@ -177,7 +177,7 @@ def create_rag_agent(
     temperature: float = 0.6,
 ) -> CodeAgent:
     model = create_llm_model(temperature=temperature)
-    return CodeAgent(
+    return create_code_agent(
         tools=[RETRIEVER_TOOL],
         model=model,
         max_steps=max_steps,

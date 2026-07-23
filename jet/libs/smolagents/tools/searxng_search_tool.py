@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.hybrid_search import (
     RELATIVE_CATEGORY_CONFIG,
     HybridSearch,
@@ -49,7 +50,7 @@ class SearXNGSearchTool(Tool):
         timeout: int = 10,
         verbose: bool = True,
         logs_dir: str | Path | None = None,
-        embed_model: LLAMACPP_EMBED_KEYS = "nomic-embed-text",
+        embed_model: LLAMACPP_EMBED_KEYS = EMBED_MODEL,
         **kwargs,
     ):
         super().__init__(**kwargs)
