@@ -3,7 +3,7 @@ import logging
 import time
 from datetime import timedelta
 
-from jet.libs.smolagents.utils.model_utils import create_local_model
+from jet.adapters.smolagents.factory import create_llm_model
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
@@ -81,7 +81,7 @@ class CodeSummaryMultiAgent:
         model = (
             InferenceClientModel(model_id=model_id)
             if model_id
-            else create_local_model(agent_name="code_summary_manager")
+            else create_llm_model(agent_name="code_summary_manager")
         )
 
         # ─────────────────────────────────────────────

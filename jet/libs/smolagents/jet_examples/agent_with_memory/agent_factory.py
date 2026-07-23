@@ -1,6 +1,5 @@
 from callbacks import auto_extract_simple_facts, auto_save_shared_state
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.adapters.smolagents.factory import create_llm_model
 from smolagents import CodeAgent
 from tools.memory_tools import (
     LongTermRecallTool,
@@ -10,28 +9,10 @@ from tools.memory_tools import (
 )
 
 
-def create_local_model(
-    temperature: float = 0.7,
-    max_tokens: int | None = 8192,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    agent_name: str | None = None,
-) -> OpenAIModel:
-    """
-    Factory for creating a consistently configured local OpenAI-compatible model
-    (llama.cpp server, vLLM, Ollama with OpenAI compat, etc.).
-    """
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-    )
-
-
 def create_memory_enabled_agent(
     model=None, extra_tools=None, max_steps: int = 40, verbosity: int = 1
 ) -> CodeAgent:
-    model = create_local_model()
+    model = create_llm_model()
     tools = [
         LongTermSaveTool(),
         LongTermRecallTool(),

@@ -4,8 +4,7 @@ from typing import Any
 
 import requests
 from bs4 import BeautifulSoup
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.adapters.smolagents.factory import create_llm_model
 from smolagents import (
     CodeAgent,
     InferenceClientModel,
@@ -15,21 +14,6 @@ from smolagents import (
 OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 # shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int | None = 8000,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    agent_name: str | None = None,
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-    )
 
 
 # ===================
@@ -227,7 +211,7 @@ def run_long_html_extraction(
         model = InferenceClientModel(model_id=model_id)
     else:
         # Example using LiteLLM (OpenAI-compatible endpoint)
-        model = create_local_model(agent_name="worker_agent")
+        model = create_llm_model(agent_name="worker_agent")
 
     # Create worker agent (can be specialized further)
     worker_agent = CodeAgent(

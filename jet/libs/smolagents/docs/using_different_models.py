@@ -13,7 +13,7 @@ import os
 import time
 from typing import Callable, Optional
 
-from jet.libs.smolagents.utils.model_utils import create_local_model
+from jet.adapters.smolagents.factory import create_llm_model
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -120,7 +120,7 @@ def demo_model_1_local_llamacpp():
     """Demo 1: Your local llama.cpp server (default)"""
     console.rule("Demo 1 – Local llama.cpp", style="blue")
 
-    agent = create_simple_agent(create_local_model, max_steps=5)
+    agent = create_simple_agent(create_llm_model, max_steps=5)
 
     console.print(f"\n[bold cyan]Task:[/bold cyan] {COMMON_TASK}")
     start = time.time()

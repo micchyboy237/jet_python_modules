@@ -19,8 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.adapters.smolagents.factory import create_llm_model
 from rich.console import Console
 from rich.panel import Panel
 
@@ -267,27 +266,12 @@ def fake_web_search(query: str) -> str:
     return f"No specific info found for: {query}"
 
 
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int | None = 4096,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    agent_name: str | None = None,
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-    )
-
-
 # ────────────────────────────────────────────────
 #                     Usage Demo
 # ────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    model = create_local_model()
+    model = create_llm_model()
 
     tools = [add, multiply, fake_web_search]
 

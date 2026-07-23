@@ -13,9 +13,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.file.utils import save_file
-from jet.libs.smolagents.custom_models import OpenAIModel
 from rank_bm25 import BM25Okapi
 from smolagents import CodeAgent, Tool
 
@@ -277,22 +276,8 @@ retriever_tool = RetrieverTool(docs_processed)
 # model = InferenceClientModel()  # default model (currently Qwen-based thinking model)
 # or explicitly:
 # model = InferenceClientModel(model_id="meta-llama/Llama-3.3-70B-Instruct")
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int | None = 8000,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    agent_name: str | None = None,
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-    )
 
-
-model = create_local_model()
+model = create_llm_model()
 
 agent = CodeAgent(
     tools=[retriever_tool],

@@ -1,17 +1,17 @@
 # demo_advanced_tools_local.py
 """
-Advanced tool usage demos with smolagents – reusing create_local_model()
+Advanced tool usage demos with smolagents – reusing create_llm_model()
 Shows custom tools, dynamic toolbox, Hub loading, Gradio Spaces, LangChain, etc.
 """
 
-from typing import Optional, Any
+from typing import Any, Optional
 
+from jet.adapters.smolagents.factory import create_llm_model
 from rich.console import Console
 from rich.panel import Panel
-
 from smolagents import (
-    Tool,
     CodeAgent,
+    Tool,
     load_tool,
     # Tool.from_space,
     # Tool.from_langchain,
@@ -28,7 +28,8 @@ console = Console()
 # Reuse your local model factory
 # ──────────────────────────────────────────────────────────────────────────────
 
-def create_local_model(
+
+def create_llm_model(
     temperature: float = 0.7,
     max_tokens: Optional[int] = 1024,
     model_id: str = "local-model",
@@ -49,13 +50,14 @@ def create_local_model(
 # Reusable agent factory
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def create_tool_demo_agent(
     tools: list = None,
     max_steps: int = 8,
     verbosity_level: int = 1,
 ) -> CodeAgent:
     """Creates a simple CodeAgent with local model + provided tools."""
-    model = create_local_model(temperature=0.65)
+    model = create_llm_model(temperature=0.65)
     return CodeAgent(
         tools=tools or [],
         model=model,
@@ -68,11 +70,15 @@ def create_tool_demo_agent(
 # Demo 1 – Custom tool by subclassing Tool
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class SimpleMathTool(Tool):
     name = "simple_math"
     description = "Performs basic arithmetic operations on two numbers."
     inputs = {
-        "operation": {"type": "string", "description": "One of: add, subtract, multiply, divide"},
+        "operation": {
+            "type": "string",
+            "description": "One of: add, subtract, multiply, divide",
+        },
         "a": {"type": "number", "description": "First number"},
         "b": {"type": "number", "description": "Second number"},
     }
@@ -113,6 +119,7 @@ def demo_1_custom_subclass_tool():
 # Demo 2 – Dynamic toolbox management
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def demo_2_dynamic_toolbox():
     """Demo 2: Add / replace tools at runtime"""
     console.rule("Demo 2 – Dynamic toolbox modification", style="blue")
@@ -142,11 +149,14 @@ def demo_2_dynamic_toolbox():
 # Demo 3 – Load tool from Hugging Face Hub Space
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def demo_3_load_tool_from_hub():
     """Demo 3: Load a public tool from HF Hub Space (trust_remote_code=True)"""
     console.rule("Demo 3 – Load tool from Hub Space", style="blue")
 
-    console.print("[yellow]WARNING:[/yellow] Requires trust_remote_code=True – only use trusted repos!")
+    console.print(
+        "[yellow]WARNING:[/yellow] Requires trust_remote_code=True – only use trusted repos!"
+    )
 
     try:
         # Example public tool – you can replace with your own
@@ -163,18 +173,23 @@ def demo_3_load_tool_from_hub():
 
     except Exception as e:
         console.print(f"[yellow]Could not load tool:[/yellow] {str(e)}")
-        console.print("[dim]Try a public tool or set trust_remote_code=True for known repos[/dim]")
+        console.print(
+            "[dim]Try a public tool or set trust_remote_code=True for known repos[/dim]"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Demo 4 – Import Gradio Space as tool
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def demo_4_gradio_space_tool():
     """Demo 4: Import a Gradio Space directly as a tool"""
     console.rule("Demo 4 – Gradio Space as tool", style="blue")
 
-    console.print("[dim]Example: using a simple public text-to-image or similar Space[/dim]")
+    console.print(
+        "[dim]Example: using a simple public text-to-image or similar Space[/dim]"
+    )
 
     try:
         # Choose a small, fast public Space (replace if needed)
@@ -191,19 +206,30 @@ def demo_4_gradio_space_tool():
         console.print(f"\n[bold cyan]Task:[/bold cyan] {task}")
 
         result = agent.run(task)
-        console.print(Panel(str(result), title="Result (image path or description)", border_style="green"))
+        console.print(
+            Panel(
+                str(result),
+                title="Result (image path or description)",
+                border_style="green",
+            )
+        )
 
     except Exception as e:
         console.print(f"[yellow]Could not load Space:[/yellow] {str(e)}")
-        console.print("[dim]Many Spaces require GPU / long startup – try a fast one[/dim]")
+        console.print(
+            "[dim]Many Spaces require GPU / long startup – try a fast one[/dim]"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main runner
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def main():
-    console.rule("Advanced Tools Demos – smolagents + LOCAL llama.cpp", style="bold magenta")
+    console.rule(
+        "Advanced Tools Demos – smolagents + LOCAL llama.cpp", style="bold magenta"
+    )
 
     console.print(
         "[dim]Showing different ways to create, load and manage tools[/dim]\n"

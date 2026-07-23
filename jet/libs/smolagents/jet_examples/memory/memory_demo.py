@@ -2,9 +2,9 @@
 from typing import Any
 
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
-from jet.libs.smolagents.utils.model_utils import create_local_model
 from rich.console import Console
 from rich.panel import Panel
 from smolagents import (
@@ -106,7 +106,7 @@ def create_research_agent(
     model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
 ) -> CodeAgent:
     """Factory for consistent agent setup."""
-    model = create_local_model(
+    model = create_llm_model(
         model_id=model_id,
         temperature=0.4,
         max_tokens=1400,

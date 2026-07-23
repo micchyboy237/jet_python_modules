@@ -1,8 +1,8 @@
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
-from jet.libs.smolagents.utils.model_utils import create_local_model
 from smolagents import CodeAgent
 
-model = create_local_model()
+model = create_llm_model()
 
 agent = CodeAgent(
     tools=[SearXNGSearchTool()],

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from jet.libs.smolagents.utils.model_utils import create_local_model
+from jet.adapters.smolagents.factory import create_llm_model
 from smolagents import tool
 
 
@@ -41,7 +41,7 @@ from smolagents import CodeAgent
 
 model_id = "meta-llama/Llama-3.3-70B-Instruct"
 
-model = create_local_model(agent_name="agent_1")
+model = create_llm_model(agent_name="agent_1")
 agent = CodeAgent(tools=[], model=model, add_base_tools=True)
 
 agent.run(
@@ -57,7 +57,7 @@ agent.prompt_templates["system_prompt"] = (
     agent.prompt_templates["system_prompt"] + "\nHere you go!"
 )
 
-model = create_local_model(agent_name="agent_2")
+model = create_llm_model(agent_name="agent_2")
 agent = CodeAgent(
     tools=[],
     model=model,
@@ -74,7 +74,7 @@ image_generation_tool = load_tool("m-ric/text-to-image", trust_remote_code=True)
 
 search_tool = WebSearchTool()
 
-model = create_local_model(agent_name="agent_3")
+model = create_llm_model(agent_name="agent_3")
 
 agent = CodeAgent(
     tools=[search_tool, image_generation_tool],

@@ -6,23 +6,9 @@ using a LOCAL llama.cpp OpenAI-compatible server
 
 import time
 
-from smolagents import ActionStep, CodeAgent, OpenAIModel, TaskStep
+from jet.adapters.smolagents.factory import create_llm_model
+from smolagents import ActionStep, CodeAgent, TaskStep
 from smolagents.memory import Timing
-
-
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int | None = None,
-    model_id: str = "local-model",
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        api_base="http://shawn-pc.local:8080/v1",
-        api_key="not-needed",  # llama.cpp server ignores this
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
 
 
 def demo_1_simple_run_and_replay():
@@ -31,7 +17,7 @@ def demo_1_simple_run_and_replay():
     print("Demo 1: Simple run + agent.replay()  [LOCAL LLAMA.CPP]")
     print("=" * 70)
 
-    model = create_local_model(temperature=0.7)
+    model = create_llm_model(temperature=0.7)
 
     agent = CodeAgent(tools=[], model=model, verbosity_level=0)
 
@@ -48,7 +34,7 @@ def demo_2_inspect_memory_after_run():
     print("Demo 2: Inspecting memory contents  [LOCAL LLAMA.CPP]")
     print("=" * 70)
 
-    model = create_local_model(temperature=0.7)
+    model = create_llm_model(temperature=0.7)
 
     agent = CodeAgent(tools=[], model=model, verbosity_level=0)
 
@@ -85,7 +71,7 @@ def demo_3_run_one_step_at_a_time():
     print("Demo 3: Step-by-step manual execution  [LOCAL LLAMA.CPP]")
     print("=" * 70)
 
-    model = create_local_model(temperature=0.7)
+    model = create_llm_model(temperature=0.7)
 
     agent = CodeAgent(tools=[], model=model, verbosity_level=1)
 
@@ -137,7 +123,7 @@ def demo_4_get_full_steps_as_dicts():
     print("Demo 4: agent.memory.get_full_steps()  [LOCAL LLAMA.CPP]")
     print("=" * 70)
 
-    model = create_local_model(temperature=0.7)
+    model = create_llm_model(temperature=0.7)
 
     agent = CodeAgent(tools=[], model=model, verbosity_level=0)
 

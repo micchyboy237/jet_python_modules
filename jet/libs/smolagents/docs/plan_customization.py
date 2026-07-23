@@ -6,7 +6,7 @@ Shows plan interruption, modification, resume, memory inspection.
 
 from collections.abc import Callable
 
-from jet.libs.smolagents.utils.model_utils import create_local_model
+from jet.adapters.smolagents.factory import create_llm_model
 from smolagents import (
     CodeAgent,
     DuckDuckGoSearchTool,
@@ -105,7 +105,7 @@ def create_rag_like_agent(
     allow_plan_edit: bool = True,
 ) -> CodeAgent:
     """Create agent with local model + search tool + HITL callback."""
-    model = create_local_model(temperature=0.65)
+    model = create_llm_model(temperature=0.65)
 
     callback = create_plan_interrupt_callback(allow_edit=allow_plan_edit)
 

@@ -2,7 +2,7 @@
 """
 Demonstrations of running synchronous smolagents CodeAgent inside async Starlette apps
 using anyio.to_thread.run_sync to avoid blocking the event loop.
-Reuses create_local_model() → your local llama.cpp OpenAI-compatible endpoint.
+Reuses create_llm_model() → your local llama.cpp OpenAI-compatible endpoint.
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import time
 
 import anyio.to_thread
 import httpx
-from jet.libs.smolagents.utils.model_utils import create_local_model
+from jet.adapters.smolagents.factory import create_llm_model
 from rich.console import Console
 from rich.panel import Panel
 from smolagents import CodeAgent
@@ -29,7 +29,7 @@ console = Console()
 
 def create_sync_agent(max_steps: int = 6, verbosity_level: int = 1) -> CodeAgent:
     """Creates a simple synchronous CodeAgent using local model."""
-    model = create_local_model(temperature=0.65)
+    model = create_llm_model(temperature=0.65)
     return CodeAgent(
         tools=[],
         model=model,

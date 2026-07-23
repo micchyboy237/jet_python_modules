@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,7 +39,7 @@ class SearXNGSearchTool(Tool):
 
     def __init__(
         self,
-        instance_url: str = "http://searxng.local:8888",
+        instance_url: str = os.getenv("SEARXNG_URL"),
         max_results: int | None = 10,
         rate_limit: float | None = 2.0,
         timeout: int = 10,

@@ -19,10 +19,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("web-html-example")
 
 
-def main():
+def main(query: str | list[str]):
     # 1. Optional: customize the search tool if needed
     search_tool = SearXNGSearchTool(
-        instance_url="http://searxng.local:8888",  # ← use your instance
+        # instance_url="http://searxng.local:8888",  # ← use your instance
         max_results=12,
         rate_limit=1.8,  # gentle on public instances
         timeout=12,
@@ -37,12 +37,7 @@ def main():
     )
 
     # 3. Example queries to try
-    queries = [
-        "latest developments in small language models 2026",
-        "What is the current status of Grok 4 release?",
-        "best open-source vector databases comparison 2026",
-        "Python 3.13 new features performance impact",
-    ]
+    queries = [query] if isinstance(query, str) else query
 
     for i, query in enumerate(queries, 1):
         console.rule(f" Example {i} / {len(queries)} ", style="cyan")
@@ -75,9 +70,18 @@ def main():
 
 
 if __name__ == "__main__":
+    queries = [
+        "latest developments in small LLM audio models 2026",
+        # "What is the current status of Grok release?",
+        # "best open-source vector databases comparison 2026",
+        # "Python 3.13 new features performance impact",
+    ]
+
+    main(queries)
+
     console.print(
         "[bold magenta]Web → HTML → Structured Summary Multi-Agent Demo[/]\n",
         justify="center",
     )
-    main()
+
     console.print("\n[dim]Finished.[/dim]\n")

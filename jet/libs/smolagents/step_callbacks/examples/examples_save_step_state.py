@@ -6,9 +6,9 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from jet.adapters.smolagents.factory import create_llm_model
+
 # ─── Imports ────────────────────────────────────────────────────────────────
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.step_callbacks.save_step_state import save_step_state
 from smolagents import CodeAgent, Tool
 
@@ -42,24 +42,6 @@ dummy_tool_instance = DummyLookupTool()
 # or: DummyLookupTool()  # no arguments needed — everything is class-level
 
 
-# ─── Local model factory (reused across all demos) ──────────────────────────
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int | None = 4096,
-    model_id: LLAMACPP_LLM_KEYS | None = None,
-    logs_dir: str | Path | None = None,
-) -> OpenAIModel:
-    if model_id is None:
-        model_id = "qwen3-instruct-2507:4b"
-
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        logs_dir=logs_dir,
-    )
-
-
 # ─── Demo Functions ─────────────────────────────────────────────────────────
 
 
@@ -77,7 +59,7 @@ def demo_basic_usage():
         save_images=False,
     )
 
-    model = create_local_model(
+    model = create_llm_model(
         temperature=0.3,
         max_tokens=2048,
         logs_dir=llm_out_dir,
@@ -101,7 +83,7 @@ def demo_inline_notebook_style():
     base_dir = TOOLS_RUN_DIR / "demo_inline_notebook_style"
     llm_out_dir = LLM_CALLS_DIR / "demo_inline_notebook_style"
 
-    model = create_local_model(temperature=0.7, logs_dir=llm_out_dir)
+    model = create_llm_model(temperature=0.7, logs_dir=llm_out_dir)
 
     agent = CodeAgent(
         model=model,
@@ -128,8 +110,8 @@ def demo_multiple_agents_same_run_dir():
     llm_out_dir_low = LLM_CALLS_DIR / "demo_multiple_agents_same_run_dir" / "low_temp"
     llm_out_dir_high = LLM_CALLS_DIR / "demo_multiple_agents_same_run_dir" / "high_temp"
 
-    model_low_temp = create_local_model(temperature=0.2, logs_dir=llm_out_dir_low)
-    model_high_temp = create_local_model(temperature=0.9, logs_dir=llm_out_dir_high)
+    model_low_temp = create_llm_model(temperature=0.2, logs_dir=llm_out_dir_low)
+    model_high_temp = create_llm_model(temperature=0.9, logs_dir=llm_out_dir_high)
 
     cb_research = save_step_state("research_style", base_dir=base_dir)
     cb_concise = save_step_state("concise_style", base_dir=base_dir)
@@ -165,7 +147,7 @@ def demo_experiment_style_with_images():
         save_images=True,  # ← enable if agent/tools produce images
     )
 
-    model = create_local_model(
+    model = create_llm_model(
         temperature=0.5,
         max_tokens=4096,
         logs_dir=llm_out_dir,
@@ -191,7 +173,7 @@ def demo_silent_background_run():
         save_images=False,
     )
 
-    model = create_local_model(temperature=0.1, logs_dir=llm_out_dir)
+    model = create_llm_model(temperature=0.1, logs_dir=llm_out_dir)
 
     agent = CodeAgent(
         model=model,

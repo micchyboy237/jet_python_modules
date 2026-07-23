@@ -23,8 +23,7 @@ from time import sleep
 
 import helium
 from dotenv import load_dotenv
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.helium_tools import (
     click,
     close_popups,
@@ -245,21 +244,6 @@ if Text('Accept cookies?').exists():
 # ────────────────────────────────────────────────
 
 
-def create_local_model(
-    agent_name: str | None = None,
-    temperature: float = 0.3,
-    max_tokens: int | None = 4096,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-) -> OpenAIModel:
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-        verbose=True,
-    )
-
-
 def _strip_observations_images(steps):
     # Remove 'observations_images' from each step before saving
     stripped_steps = []
@@ -303,7 +287,7 @@ def main(
     # model_id = "mistralai/Pixtral-12B-2409"   # alternative (if supported)
 
     # model = InferenceClientModel(model_id=model_id)
-    model = create_local_model()
+    model = create_llm_model()
 
     # Initialize browser with the chosen mode
     driver = init_browser(headless=headless)

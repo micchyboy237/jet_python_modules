@@ -7,7 +7,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
-from jet.adapters.llama_cpp.tokens import count_tokens
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_LLM_TYPES
 from jet.transformers.object import make_serializable
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
@@ -699,23 +699,29 @@ class OpenAIModel(ApiModel):
         stream,
         live_print: bool = True,
     ) -> tuple[
-        str,  # accumulated content
-        list[dict],  # tool call parts (raw dicts)
-        TokenUsage | None,  # final usage
-        list[ChatMessageStreamDelta],  # deltas for logging
+        str,
+        list[dict],
+        TokenUsage | None,
+        list[ChatMessageStreamDelta],
     ]:
-        """
-        Core shared stream consumption logic.
-        Returns accumulated data + deltas for logging.
-        """
         accumulated_content = ""
         tool_call_parts: list[dict] = []
         final_usage = None
         deltas: list[ChatMessageStreamDelta] = []
+        stop_detected = False
+        closing_tag = "</code>"  # Or make this configurable
 
         for chunk in stream:
+            if stop_detected:
+                # Just collect usage info if needed, but stop processing content
+                if chunk.usage:
+                    final_usage = chunk.usage
+                continue
+
             if chunk.usage:
                 final_usage = chunk.usage
+                if not chunk.choices:
+                    continue
 
             if not chunk.choices:
                 continue
@@ -724,13 +730,64 @@ class OpenAIModel(ApiModel):
 
             # Content
             if delta.content is not None:
+                # Check if this chunk contains the closing tag
+                if closing_tag in delta.content:
+                    # Split at the closing tag and keep everything before it
+                    parts = delta.content.split(closing_tag, 1)
+                    before_tag = parts[0] + closing_tag  # Include the closing tag
+
+                    if live_print:
+                        try:
+                            print(before_tag, end="", flush=True)
+                        except Exception:
+                            print(
+                                before_tag.encode("utf-8", errors="replace").decode(
+                                    "utf-8", errors="replace"
+                                ),
+                                end="",
+                                flush=True,
+                            )
+
+                    accumulated_content += before_tag
+                    deltas.append(ChatMessageStreamDelta(content=before_tag))
+
+                    # Stop processing further content
+                    stop_detected = True
+                    continue
+                else:
+                    # Check if accumulated content + new content would contain the closing tag
+                    combined = accumulated_content + delta.content
+                    if closing_tag in combined:
+                        # Find where the closing tag would be completed
+                        # This handles cases where </code> is split across chunks
+                        tag_pos = combined.find(closing_tag)
+                        before_tag = delta.content[
+                            : tag_pos - len(accumulated_content) + len(closing_tag)
+                        ]
+
+                        if live_print:
+                            try:
+                                print(before_tag, end="", flush=True)
+                            except Exception:
+                                print(
+                                    before_tag.encode("utf-8", errors="replace").decode(
+                                        "utf-8", errors="replace"
+                                    ),
+                                    end="",
+                                    flush=True,
+                                )
+
+                        accumulated_content += before_tag
+                        deltas.append(ChatMessageStreamDelta(content=before_tag))
+
+                        stop_detected = True
+                        continue
+
+                # Normal content processing (no stop tag detected)
                 if live_print:
-                    # FIXED: Do NOT use unicode-escape decode on arbitrary model output.
-                    # It breaks on lone backslashes (very common in code/paths/LaTeX).
-                    # delta.content is already a clean Python str from the OpenAI client.
                     try:
                         print(delta.content, end="", flush=True)
-                    except Exception:  # ultra-safe fallback
+                    except Exception:
                         print(
                             delta.content.encode("utf-8", errors="replace").decode(
                                 "utf-8", errors="replace"
@@ -777,7 +834,6 @@ class OpenAIModel(ApiModel):
                                 tc_delta.function.arguments
                             )
 
-                    # Save delta
                     deltas.append(
                         ChatMessageStreamDelta(
                             tool_calls=[
@@ -798,8 +854,41 @@ class OpenAIModel(ApiModel):
                         )
                     )
 
+        # Stream ended without the closing tag ever appearing (e.g. hit max_tokens,
+        # or the connection just stopped). Mirrors smolagents' own agents.py fallback:
+        #   if output_text and not output_text.strip().endswith(code_block_tags[1]):
+        #       output_text += code_block_tags[1]
+        # Without this, extract_code_from_text()/parse_code_blobs() can't find a
+        # matching open/close pair and raises AgentParsingError downstream.
+        # NOTE: only fires when the closing tag was never detected mid-stream above,
+        # so a stream that already closed its tag normally is left untouched.
+        if (
+            not stop_detected
+            and accumulated_content
+            and not accumulated_content.rstrip().endswith(closing_tag)
+        ):
+            logger.warning(
+                "Stream ended without closing tag %r — appending it so the code "
+                "block can still be parsed. Last 80 chars: %r",
+                closing_tag,
+                accumulated_content[-80:],
+            )
+            accumulated_content += closing_tag
+            deltas.append(ChatMessageStreamDelta(content=closing_tag))
+            if live_print:
+                try:
+                    print(closing_tag, end="", flush=True)
+                except Exception:
+                    print(
+                        closing_tag.encode("utf-8", errors="replace").decode(
+                            "utf-8", errors="replace"
+                        ),
+                        end="",
+                        flush=True,
+                    )
+
         if live_print:
-            print()  # final newline
+            print()
 
         usage = None
         if final_usage:

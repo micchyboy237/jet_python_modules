@@ -1,7 +1,7 @@
-# demo_multi_agent_web_local.py
+# multiagents.py
 """
 Multi-agent web browser demos using smolagents with LOCAL llama.cpp server.
-Reuses create_local_model() from previous examples.
+Reuses create_llm_model() from previous examples.
 Shows manager (CodeAgent) orchestrating a web sub-agent (ToolCallingAgent).
 """
 
@@ -11,10 +11,10 @@ import time
 from pathlib import Path
 
 import requests
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.step_callbacks import save_step_state
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
-from jet.libs.smolagents.utils.model_utils import create_local_model
 from markdownify import markdownify
 from requests.exceptions import RequestException
 from rich.console import Console
@@ -76,7 +76,7 @@ def create_web_sub_agent(
     max_steps: int = 10, verbosity_level: int = 2
 ) -> ToolCallingAgent:
     """Creates the web-specialized ToolCallingAgent."""
-    model = create_local_model(temperature=0.65, agent_name="web_sub_agent")
+    model = create_llm_model(temperature=0.65, agent_name="web_sub_agent")
 
     return ToolCallingAgent(
         tools=[
@@ -104,7 +104,40 @@ def create_manager_agent(
     additional_imports: list[str] | None = None,
 ) -> CodeAgent:
     """Creates the top-level CodeAgent that orchestrates sub-agents."""
-    model = create_local_model(temperature=0.7, agent_name="manager_agent")
+    model = create_llm_model(temperature=0.7, agent_name="manager_agent")
+
+    # ✅ FIXED: Comprehensive whitelist for sandboxed code execution
+    # Include ALL modules the LLM might reasonably generate code using
+    default_authorized_imports = [
+        # Standard library
+        "time",
+        "datetime",
+        "math",
+        "statistics",
+        "random",
+        "json",
+        "re",
+        "collections",
+        "itertools",
+        "functools",
+        "pathlib",
+        "os.path",
+        "typing",
+        # Third-party (only if you trust the LLM to use them safely)
+        "numpy",
+        "pandas",
+        # NOTE: Do NOT add 'requests' or 'markdownify' here unless you
+        # intentionally want the manager to make raw HTTP calls itself.
+        # Web access should be delegated to web_agent via managed_agents.
+    ]
+
+    # Merge caller-supplied imports without duplicates
+    if additional_imports:
+        authorized = list(
+            dict.fromkeys(default_authorized_imports + additional_imports)
+        )
+    else:
+        authorized = default_authorized_imports
 
     return CodeAgent(
         tools=[],
@@ -112,7 +145,7 @@ def create_manager_agent(
         managed_agents=managed_agents,
         max_steps=max_steps,
         verbosity_level=verbosity_level,
-        additional_authorized_imports=additional_imports or ["time", "numpy", "pandas"],
+        additional_authorized_imports=authorized,  # ✅ Key fix
         add_base_tools=True,
         step_callbacks=[
             save_step_state("manager_agent"),

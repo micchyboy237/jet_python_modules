@@ -8,8 +8,7 @@ from typing import Any
 
 # ---- Added: Accurate token counter import
 from jet.adapters.llama_cpp.tokens import count_tokens
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.step_callbacks import save_step_state
 from jet.libs.smolagents.step_callbacks.memory_window import memory_window_limiter
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
@@ -50,21 +49,6 @@ logging.basicConfig(
 logger = logging.getLogger("deep_research")
 
 
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int | None = 4096,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    agent_name: str | None = None,
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-    )
-
-
 @tool
 def extract_key_facts(content: str, query: str) -> str:
     """
@@ -102,7 +86,7 @@ def extract_key_facts(content: str, query: str) -> str:
 
 
 def create_web_research_agent():
-    model = create_local_model(agent_name="web_research_agent")
+    model = create_llm_model(agent_name="web_research_agent")
     return ToolCallingAgent(
         tools=[
             WebSearchTool(
@@ -132,7 +116,7 @@ def create_web_research_agent():
 
 
 def create_evidence_evaluator_agent():
-    model = create_local_model(agent_name="evidence_evaluator_agent")
+    model = create_llm_model(agent_name="evidence_evaluator_agent")
     # Slightly better prompt inside description (helps model output parseable text)
     description = (
         "Evaluates collected evidence. Output format:\n"
@@ -151,7 +135,7 @@ def create_evidence_evaluator_agent():
 
 
 def create_query_refiner():
-    model = create_local_model(agent_name="query_refiner")
+    model = create_llm_model(agent_name="query_refiner")
     return ToolCallingAgent(
         tools=[],
         model=model,
@@ -170,7 +154,7 @@ def create_query_refiner():
 
 
 def create_final_formatter():
-    model = create_local_model(agent_name="final_formatter")
+    model = create_llm_model(agent_name="final_formatter")
     return ToolCallingAgent(
         tools=[],
         model=model,
@@ -197,7 +181,7 @@ def create_deep_research_manager():
     refiner_agent = create_query_refiner()
     formatter_agent = create_final_formatter()
 
-    model = create_local_model(agent_name="deep_research_manager")
+    model = create_llm_model(agent_name="deep_research_manager")
     manager = CodeAgent(
         tools=[],
         model=model,

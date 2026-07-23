@@ -1,6 +1,7 @@
 # local_searx.py
 from typing import Any
 
+import os
 import requests
 
 
@@ -8,7 +9,7 @@ class LocalSearxGoogleSearch:
     """Mimics serpapi.GoogleSearch interface using local SearXNG"""
 
     def __init__(
-        self, params: dict[str, Any], searx_url: str = "http://searxng.local:8888"
+        self, params: dict[str, Any], searx_url: str = os.getenv("SEARXNG_URL")
     ):
         self.base_url = searx_url.rstrip("/") + "/search"
         self.params = params.copy()

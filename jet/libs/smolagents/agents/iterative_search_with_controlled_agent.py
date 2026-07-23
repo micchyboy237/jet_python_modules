@@ -28,14 +28,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.agents.controlled_messages_agent import (
     ControlledCodeAgent,
     ControlledToolCallingAgent,
     LastNTurnsController,
     SummaryPlusRecentController,
 )
-from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from rich.console import Console
@@ -273,21 +272,6 @@ class IterativeResearchLoop:
         return previous_answer
 
 
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int | None = 4096,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    agent_name: str | None = None,
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-    )
-
-
 # ────────────────────────────────────────────────
 #               Example usage
 # ────────────────────────────────────────────────
@@ -355,7 +339,7 @@ if __name__ == "__main__":
     # Decide which task to use - positional wins if provided
     task = args.task_positional if args.task_positional is not None else args.task
 
-    model = create_local_model()
+    model = create_llm_model()
 
     researcher = IterativeResearchLoop(
         agent_type=args.agent_type,

@@ -2,7 +2,7 @@ import hashlib
 import logging
 from typing import Any
 
-from jet.libs.smolagents.utils.model_utils import create_local_model
+from jet.adapters.smolagents.factory import create_llm_model
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
@@ -130,9 +130,9 @@ class ScalableHTMLMultiAgentSummarizer:
         self.cache: dict[str, str] = {}
 
         model = (
-            create_local_model(agent_name="html_manager")
+            create_llm_model(agent_name="html_manager")
             if not model_id
-            else create_local_model(agent_name="html_manager", model_id=model_id)
+            else create_llm_model(agent_name="html_manager", model_id=model_id)
         )
 
         self.subtree_agent = ToolCallingAgent(

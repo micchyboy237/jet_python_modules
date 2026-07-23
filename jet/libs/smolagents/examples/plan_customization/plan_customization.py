@@ -16,11 +16,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pytz
-from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.custom_memory import (
     AgentMemory,  # Your enhanced memory with compression + Mem0
 )
-from jet.libs.smolagents.custom_models import OpenAIModel
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from smolagents import (
@@ -52,21 +51,6 @@ def get_current_datetime(timezone: str | None = "Asia/Manila") -> str:
         return now.strftime("%Y-%m-%d %H:%M:%S %Z")
     except Exception as e:
         return f"Error fetching time for '{timezone}': {str(e)}. Falling back to UTC."
-
-
-def create_local_model(
-    temperature: float = 0.4,
-    max_tokens: int = 12000,
-    model_id: LLAMACPP_LLM_KEYS = "qwen3-instruct-2507:4b",
-    agent_name: str | None = None,
-) -> OpenAIModel:
-    """Factory for creating consistently configured local llama.cpp model."""
-    return OpenAIModel(
-        model_id=model_id,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        agent_name=agent_name,
-    )
 
 
 def create_custom_memory(
@@ -260,7 +244,7 @@ def main():
 
     args = parseargs()
 
-    model = create_local_model(
+    model = create_llm_model(
         temperature=args.temperature,
         max_tokens=args.max_tokens,
         agent_name=args.agent_name,

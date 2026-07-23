@@ -1,3 +1,5 @@
+import os
+
 import requests
 from smolagents import Tool
 
@@ -19,7 +21,7 @@ class WebSearchTool(Tool):
     def __init__(
         self,
         max_results: int = 10,
-        searxng_base_url: str = "http://searxng.local:8888",
+        searxng_base_url: str = os.getenv("SEARXNG_URL"),
         language: str = "en",
     ):
         super().__init__()

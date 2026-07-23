@@ -23,6 +23,7 @@ from time import sleep
 
 import helium
 from dotenv import load_dotenv
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.helium_tools import (
     click,
     close_popups,
@@ -243,9 +244,6 @@ if Text('Accept cookies?').exists():
 # ────────────────────────────────────────────────
 
 
-from jet.libs.smolagents.utils.model_utils import create_local_model
-
-
 def _strip_observations_images(steps):
     # Remove 'observations_images' from each step before saving
     stripped_steps = []
@@ -289,7 +287,7 @@ def main(
     # model_id = "mistralai/Pixtral-12B-2409"   # alternative (if supported)
 
     # model = InferenceClientModel(model_id=model_id)
-    model = create_local_model()
+    model = create_llm_model()
 
     # Initialize browser with the chosen mode
     driver = init_browser(headless=headless)

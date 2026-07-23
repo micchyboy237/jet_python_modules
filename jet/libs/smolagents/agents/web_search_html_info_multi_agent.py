@@ -1,11 +1,11 @@
 # jet_python_modules/jet/libs/smolagents/agents/web_search_html_info_multi_agent.py
 import logging
 
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.agents.html_summary_multi_agent import (
     ScalableHTMLMultiAgentSummarizer,
 )
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
-from jet.libs.smolagents.utils.model_utils import create_local_model
 from rich.console import Console
 from rich.panel import Panel
 from smolagents import CodeAgent, Tool, ToolCallingAgent
@@ -23,7 +23,7 @@ class SearchPlannerAgent(ToolCallingAgent):
 
     def __init__(self, model=None):
         if model is None:
-            model = create_local_model(agent_name="search_planner")
+            model = create_llm_model(agent_name="search_planner")
 
         super().__init__(
             tools=[],
@@ -64,7 +64,7 @@ class PageFetcherAgent(ToolCallingAgent):
 
     def __init__(self, model=None):
         if model is None:
-            model = create_local_model(agent_name="page_fetcher")
+            model = create_llm_model(agent_name="page_fetcher")
 
         # Now use the proper Tool subclass
         fetch_tool = FetchHtmlTool()
@@ -87,7 +87,7 @@ class HTMLSummarizerAgent(ToolCallingAgent):
         self, model=None, summarizer: ScalableHTMLMultiAgentSummarizer | None = None
     ):
         if model is None:
-            model = create_local_model(agent_name="html_summarizer")
+            model = create_llm_model(agent_name="html_summarizer")
 
         self.summarizer = summarizer or ScalableHTMLMultiAgentSummarizer(model_id=None)
 
@@ -128,7 +128,7 @@ class WebSearchHTMLInfoMultiAgent:
         model_id: str | None = None,
         max_pages: int = 5,
     ):
-        model = create_local_model(agent_name="web_orchestrator", model_id=model_id)
+        model = create_llm_model(agent_name="web_orchestrator", model_id=model_id)
 
         self.search_tool = search_tool or SearXNGSearchTool(max_results=12)
 

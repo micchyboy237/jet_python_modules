@@ -13,9 +13,7 @@ import re
 from typing import Optional
 
 import helium
-from jet.libs.smolagents.utils.model_utils import (
-    create_local_model,  # assuming this still exists
-)
+from jet.adapters.smolagents.factory import create_llm_model
 from markdownify import markdownify
 from rich.console import Console
 from rich.panel import Panel
@@ -222,7 +220,7 @@ class SummarizeSearchResultsTool(Tool):
 def create_search_sub_agent(
     max_steps: int = 12, verbosity: int = 1
 ) -> ToolCallingAgent:
-    model = create_local_model(temperature=0.55, agent_name="search_browser_agent")
+    model = create_llm_model(temperature=0.55, agent_name="search_browser_agent")
 
     return ToolCallingAgent(
         tools=[
@@ -249,7 +247,7 @@ def create_search_sub_agent(
 
 
 def create_search_manager_agent(sub_agents: list, max_steps: int = 8) -> CodeAgent:
-    model = create_local_model(temperature=0.65, agent_name="search_manager")
+    model = create_llm_model(temperature=0.65, agent_name="search_manager")
 
     return CodeAgent(
         tools=[],  # manager delegates, doesn't use tools directly

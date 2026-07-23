@@ -11,7 +11,7 @@ from pathlib import Path
 
 from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS
-from jet.libs.smolagents.custom_models import OpenAIModel
+from jet.adapters.smolagents.factory import create_llm_model
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from jet.libs.smolagents.tools.web_search_tool import WebSearchTool
 from smolagents import (
@@ -21,21 +21,6 @@ from smolagents import (
 
 MODEL: LLAMACPP_KEYS = "qwen3-instruct-2507:4b"
 MODEL_MAX_CONTEXT: int = LLAMACPP_MODEL_CONTEXTS[MODEL]
-
-
-# ────────────────────────────────────────────────────────────────
-# Your local model factory (as provided)
-# ────────────────────────────────────────────────────────────────
-def create_local_model(
-    temperature: float = 0.3,
-    max_tokens: int | None = 4096,
-    model_id: str = "local-model",
-    logs_dir: str | Path | None = None,
-) -> OpenAIModel:
-    return OpenAIModel(
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
 
 
 # ────────────────────────────────────────────────────────────────
@@ -100,7 +85,7 @@ def example_simple_hierarchy(out_dir: str | Path | None = None):
     shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    model = create_local_model(temperature=0.4, logs_dir=out_dir / "llm_logs")
+    model = create_llm_model(temperature=0.4, logs_dir=out_dir / "llm_logs")
 
     # Sub-agent: focused web researcher
     web_agent = create_specialist(
@@ -157,7 +142,7 @@ def example_advanced_coordinator(out_dir: str | Path | None = None):
     shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    model = create_local_model(
+    model = create_llm_model(
         temperature=0.35, max_tokens=2048, logs_dir=out_dir / "llm_logs"
     )
 

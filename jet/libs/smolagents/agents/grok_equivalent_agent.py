@@ -15,7 +15,7 @@ try:
 except ImportError:
     fitz = None
 from jet.adapters.llama_cpp.types import LLAMACPP_LLM_KEYS
-from jet.libs.smolagents.utils.model_utils import create_local_model
+from jet.adapters.smolagents.factory import create_llm_model
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
@@ -159,7 +159,7 @@ def create_web_agent(
     """
 
     if model_id in get_args(LLAMACPP_LLM_KEYS):
-        model = create_local_model(model_id=model_id, agent_name=name)
+        model = create_llm_model(model_id=model_id, agent_name=name)
     else:
         model = InferenceClientModel(model_id=model_id)
 
@@ -197,10 +197,9 @@ def create_manager_agent(
         config['instructions'] = "Your custom system prompt here..."
     """
     # Lazy import to avoid circular import at module top-level
-    from jet.libs.smolagents.utils.model_utils import create_local_model
 
     if model_id in get_args(LLAMACPP_LLM_KEYS):
-        model = create_local_model(model_id=model_id, agent_name="manager_agent")
+        model = create_llm_model(model_id=model_id, agent_name="manager_agent")
     else:
         model = InferenceClientModel(model_id=model_id)
 
