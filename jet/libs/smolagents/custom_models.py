@@ -520,8 +520,10 @@ class OpenAIModel(ApiModel):
         custom_role_conversions: dict[str, str] | None = None,
         flatten_messages_as_text: bool = False,
         agent_name: str | None = None,  # ← accept here too
+        enable_thinking: bool = False,
         **kwargs,
     ):
+        self.enable_thinking = enable_thinking
         self.client_kwargs = {
             **(client_kwargs or {}),
             "api_key": api_key,
@@ -657,6 +659,12 @@ class OpenAIModel(ApiModel):
             custom_role_conversions=self.custom_role_conversions,
             convert_images_to_image_urls=True,
             **kwargs,
+        )
+        # Inject enable_thinking via extra_body for llama.cpp server
+        completion_kwargs.setdefault("extra_body", {})
+        completion_kwargs["extra_body"].setdefault("chat_template_kwargs", {})
+        completion_kwargs["extra_body"]["chat_template_kwargs"]["enable_thinking"] = (
+            self.enable_thinking
         )
 
         call_num = None

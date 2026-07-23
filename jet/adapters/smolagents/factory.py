@@ -19,6 +19,7 @@ def create_llm_model(
     model_id: LLAMACPP_LLM_KEYS = LLM_MODEL,
     agent_name: str | None = None,
     logs_dir: str | Path | None = None,
+    enable_thinking: bool = False,
 ) -> OpenAIModel:
     """Factory for creating consistently configured local llama.cpp model."""
     return OpenAIModel(
@@ -27,6 +28,7 @@ def create_llm_model(
         max_tokens=max_tokens,
         agent_name=agent_name,
         logs_dir=logs_dir,
+        enable_thinking=enable_thinking,
     )
 
 
