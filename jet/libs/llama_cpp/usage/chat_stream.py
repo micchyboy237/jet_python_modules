@@ -110,7 +110,7 @@ if __name__ == "__main__":
         "-s",
         "--system",
         type=str,
-        default=None,
+        default="You are a helpful assistant.",
         help="Optional system prompt for the chat model",
     )
     args = parser.parse_args()
