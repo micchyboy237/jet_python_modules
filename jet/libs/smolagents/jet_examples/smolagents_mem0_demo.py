@@ -79,7 +79,6 @@ def demo_basic_agent_with_memory():
     tasks = [
         "Calculate 15 * 23",
         "What is 100 / 4?",
-        "Calculate the square root of 144",
     ]
 
     for task in tasks:
