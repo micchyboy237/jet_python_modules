@@ -2,7 +2,7 @@ import os
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from jet._token.token_utils import token_counter
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.file.utils import save_file
 from jet.models.model_types import CompletionResponse, Message
 from jet.transformers.formatters import format_json
@@ -49,7 +49,6 @@ class ChatLogger:
     ) -> None:
         """Log prompt or messages and response to a timestamped file with additional metadata."""
         effective_method = method if method is not None else self.method
-
         if effective_method not in ALLOWED_METHODS:
             raise ValueError(
                 f"Invalid method '{effective_method}'. Allowed methods are: {sorted(ALLOWED_METHODS)}"
@@ -58,6 +57,7 @@ class ChatLogger:
         timestamp_prefix = get_next_file_counter(self.log_dir, effective_method)
         filename = f"{timestamp_prefix}_{effective_method}.json"
         log_file = os.path.join(self.log_dir, filename)
+
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
 
         tools = None
@@ -67,26 +67,21 @@ class ChatLogger:
                 if callable(tool_fn):
                     tools[tool_idx] = get_method_info(tool_fn)
 
-        # Initialize log_data with the specified keys in order
         log_data = {"model": model}
         if isinstance(messages, str):
             log_data["prompt"] = messages
         else:
             log_data["messages"] = messages.copy()
 
-        log_data["response"] = (
-            None  # Placeholder, will be updated after processing response
-        )
-        log_data["tokens"] = {}  # Placeholder, will be updated after token calculation
+        log_data["response"] = None
 
-        # Add remaining metadata
+        log_data["tokens"] = {}
         log_data["timestamp"] = timestamp
         log_data["session_id"] = self.session_id
         log_data["method"] = effective_method
         log_data["tools"] = tools
         log_data.update(kwargs)
 
-        # Process response
         if isinstance(response, str):
             log_data["response"] = response
         elif isinstance(response, (list, dict)):
@@ -125,13 +120,14 @@ class ChatLogger:
         else:
             log_data["response"] = str(response)
 
-        # Calculate and set tokens
-        prompt_tokens = token_counter(messages, model)
+        # UPDATED: Using count_tokens from llama_cpp adapter
+        prompt_tokens = count_tokens(messages, model=model)
         if tools:
-            tools_tokens = token_counter(format_json(tools), model)
+            tools_tokens = count_tokens(format_json(tools), model=model)
             prompt_tokens += tools_tokens
             log_data["tokens"]["tools"] = tools_tokens
-        response_tokens = token_counter(log_data["response"], model)
+        response_tokens = count_tokens(log_data["response"], model=model)
+
         log_data["tokens"]["prompt"] = prompt_tokens
         log_data["tokens"]["response"] = response_tokens
         log_data["tokens"]["total"] = prompt_tokens + response_tokens

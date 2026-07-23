@@ -976,3 +976,53 @@ class LlamacppLLM:
                 temperature=temperature,
                 response_format={"type": "json_object", "schema": schema},
             )
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Stream chat completion from llama.cpp OpenAI API-compatible endpoint"
+    )
+    parser.add_argument(
+        "prompt",
+        type=str,
+        nargs="?",
+        default="Write a 2 sentence short story about a curious robot.",
+        help="User input prompt for the chat model (default: %(default)s)",
+    )
+    parser.add_argument(
+        "-s",
+        "--system",
+        type=str,
+        default="You are a helpful assistant.",
+        help="Optional system prompt for the chat model",
+    )
+    args = parser.parse_args()
+
+    # Initialize the LLM client
+    # Ensure LLAMA_CPP_LLM_MODEL and LLAMA_CPP_LLM_URL environment variables are set,
+    # or pass them directly here if preferred.
+    llm = LlamacppLLM()
+
+    # Prepare messages in the required ChatMessage format
+    messages: list[ChatMessage] = [
+        {"role": "system", "content": args.system},
+        {"role": "user", "content": args.prompt},
+    ]
+
+    print(f"System: {args.system}")
+    print(f"User: {args.prompt}")
+    print("Assistant: ", end="", flush=True)
+
+    # Call chat with stream=True to get an iterator
+    stream_response = llm.chat(messages=messages, stream=True)
+
+    # Iterate through the stream generator to print tokens as they arrive
+    for token in stream_response:
+        # The logger inside llm.chat already prints to stdout if verbose=True,
+        # but we can also handle it here if needed.
+        # Since the internal logger handles printing, this loop primarily drives the generation.
+        pass
+
+    print()  # New line after completion
