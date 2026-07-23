@@ -25,17 +25,28 @@ if __name__ == "__main__":
         "repo-libs/smolagents/docs/source/en"
     )
 
-    result = agent.run(
-        f"""
-        Find all Markdown files under the following directory
-        that contain Python code examples.
+    def run_example(query: str):
+        """Helper to run a query and print result with clear separation"""
+        print(f"\n{'═' * 80}")
+        print(f"QUERY: {query}")
+        print(f"{'═' * 80}\n")
+        result = agent.run(query)
+        print(result)
+        print(f"{'─' * 80}\n")
 
-        Base directory: {base_dir}
-        File pattern: **/*.md
-        The files must contain Python code blocks
-        (look for ```python in the file content).
-        Limit results to 50 files.
-        """
+    # Search for Markdown files containing Python examples and summarize them
+    run_example(
+        f"Search for Markdown files (*.md) under this directory: {base_dir}. "
+        "For each file found that contains Python code blocks (```python), "
+        "read its content and provide a concise summary of what the file covers — "
+        "key topics, main Python examples shown, and any important concepts. "
+        "Limit to 10 files. Present results as a structured summary with "
+        "file name, topics, and a brief description for each."
     )
 
-    print(result)
+    # Alternative: focused search with content filtering
+    run_example(
+        f"Find all Markdown files under {base_dir} that mention 'tool' or 'agent' "
+        "in their content. Read up to 5 of the most relevant ones and summarize "
+        "the key patterns or API usage they demonstrate."
+    )
