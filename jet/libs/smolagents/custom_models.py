@@ -7,6 +7,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
+from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS, LLAMACPP_LLM_TYPES
 from jet.transformers.object import make_serializable
@@ -42,7 +43,7 @@ from smolagents.utils import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_API_BASE = os.getenv("LLAMA_CPP_LLM_URL")
-DEFAULT_MODEL_ID: LLAMACPP_LLM_TYPES = "qwen3-instruct-2507:4b"
+DEFAULT_MODEL_ID: LLAMACPP_LLM_TYPES = LLM_MODEL
 DEFAULT_API_KEY = None
 
 
@@ -481,7 +482,7 @@ class OpenAIModel(ApiModel):
     like llama.cpp server, vLLM, LM Studio, TabbyAPI, etc.).
 
     Parameters:
-        model_id (`str`, default `"qwen3-instruct-2507:4b"`):
+        model_id (`str`, default `LLM_MODEL`):
             The model identifier to use on the server (e.g. "gpt-4o", "llama-3.1-8b", ...).
         api_base (`str`, optional):
             The base URL of the OpenAI-compatible API server.
