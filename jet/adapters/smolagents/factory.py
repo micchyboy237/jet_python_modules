@@ -45,7 +45,7 @@ def create_code_agent(
     code_block_tags: str | tuple[str, str] | None = ("<code>", "</code>"),
     **kwargs,
 ):
-    return CodeAgent(
+    agent_args = dict(
         tools=tools,
         model=model,
         prompt_templates=prompt_templates,
@@ -60,3 +60,4 @@ def create_code_agent(
         code_block_tags=code_block_tags,
         **kwargs,
     )
+    return CodeAgent(**agent_args)

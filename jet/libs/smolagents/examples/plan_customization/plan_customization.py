@@ -16,14 +16,13 @@ from datetime import datetime
 from pathlib import Path
 
 import pytz
-from jet.adapters.smolagents.factory import create_llm_model
+from jet.adapters.smolagents.factory import create_code_agent, create_llm_model
 from jet.libs.smolagents.custom_memory import (
     AgentMemory,  # Your enhanced memory with compression + Mem0
 )
 from jet.libs.smolagents.tools.searxng_search_tool import SearXNGSearchTool
 from jet.libs.smolagents.tools.visit_webpage_tool import VisitWebpageTool
 from smolagents import (
-    CodeAgent,
     LocalPythonExecutor,
     PlanningStep,
     tool,
@@ -260,7 +259,7 @@ def main():
     executor = LocalPythonExecutor(
         additional_authorized_imports, timeout_seconds=CODE_EXECUTION_TIME_SECONDS
     )
-    agent = CodeAgent(
+    agent = create_code_agent(
         model=model,
         tools=[
             # get_current_datetime,  # dynamic date/time tool

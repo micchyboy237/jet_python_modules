@@ -559,31 +559,47 @@ class OpenAIModel(ApiModel):
             print(
                 f"[OpenAIModel] Generating (streaming internally) for {self.model_id}"
             )
-
         completion_kwargs, call_num, input_tokens = self._prepare_and_log_request(
             messages, stop_sequences, response_format, tools_to_call_from, **kwargs
         )
-
         self._apply_rate_limit()
-
         stream = self.retryer(
             self.client.chat.completions.create,
             **completion_kwargs,
             stream=True,
             stream_options={"include_usage": True},
         )
-
         content, tool_call_parts, usage, deltas = self._consume_stream_and_collect(
             stream,
-            live_print=True,  # ← only generate prints live
+            live_print=True,
         )
+
+        # ========== DEBUG LOGS START ==========
+        logger.warning(f"[DEBUG generate] content repr: {repr(content)}")
+        logger.warning(f"[DEBUG generate] content type: {type(content)}")
+        logger.warning(
+            f"[DEBUG generate] content length: {len(content) if content else 0}"
+        )
+        logger.warning(f"[DEBUG generate] tool_call_parts: {tool_call_parts}")
+        logger.warning(f"[DEBUG generate] usage: {usage}")
+        logger.warning(f"[DEBUG generate] len(deltas): {len(deltas)}")
+        if deltas:
+            logger.warning(f"[DEBUG generate] first delta: {deltas[0]}")
+            logger.warning(f"[DEBUG generate] last delta: {deltas[-1]}")
+        # ========== DEBUG LOGS END ==========
 
         message = self._build_final_message(
             content, tool_call_parts, usage, stop_sequences
         )
 
-        self._save_stream_log(call_num, deltas, usage)
+        # ========== DEBUG LOGS START ==========
+        logger.warning(
+            f"[DEBUG generate] message.content repr: {repr(message.content)}"
+        )
+        logger.warning(f"[DEBUG generate] message.role: {message.role}")
+        # ========== DEBUG LOGS END ==========
 
+        self._save_stream_log(call_num, deltas, usage)
         return message
 
     def generate_stream(
@@ -708,15 +724,27 @@ class OpenAIModel(ApiModel):
         tool_call_parts: list[dict] = []
         final_usage = None
         deltas: list[ChatMessageStreamDelta] = []
-        stop_detected = False
-        closing_tag = "</code>"  # Or make this configurable
+
+        chunk_count = 0
 
         for chunk in stream:
-            if stop_detected:
-                # Just collect usage info if needed, but stop processing content
-                if chunk.usage:
-                    final_usage = chunk.usage
-                continue
+            chunk_count += 1
+
+            # ========== DEBUG LOGS START (only first 3 chunks) ==========
+            if chunk_count <= 3:
+                logger.warning(f"[DEBUG stream] === CHUNK #{chunk_count} ===")
+                if chunk.choices:
+                    choice = chunk.choices[0]
+                    delta = choice.delta
+                    if delta is not None:
+                        # Check for reasoning_content (not in __dict__ keys for some reason)
+                        reasoning = getattr(delta, "reasoning_content", None)
+                        logger.warning(f"  delta.content: {repr(delta.content)}")
+                        logger.warning(f"  delta.reasoning_content: {repr(reasoning)}")
+                        logger.warning(
+                            f"  delta.role: {repr(getattr(delta, 'role', None))}"
+                        )
+            # ========== DEBUG LOGS END ==========
 
             if chunk.usage:
                 final_usage = chunk.usage
@@ -728,62 +756,7 @@ class OpenAIModel(ApiModel):
 
             delta = chunk.choices[0].delta
 
-            # Content
             if delta.content is not None:
-                # Check if this chunk contains the closing tag
-                if closing_tag in delta.content:
-                    # Split at the closing tag and keep everything before it
-                    parts = delta.content.split(closing_tag, 1)
-                    before_tag = parts[0] + closing_tag  # Include the closing tag
-
-                    if live_print:
-                        try:
-                            print(before_tag, end="", flush=True)
-                        except Exception:
-                            print(
-                                before_tag.encode("utf-8", errors="replace").decode(
-                                    "utf-8", errors="replace"
-                                ),
-                                end="",
-                                flush=True,
-                            )
-
-                    accumulated_content += before_tag
-                    deltas.append(ChatMessageStreamDelta(content=before_tag))
-
-                    # Stop processing further content
-                    stop_detected = True
-                    continue
-                else:
-                    # Check if accumulated content + new content would contain the closing tag
-                    combined = accumulated_content + delta.content
-                    if closing_tag in combined:
-                        # Find where the closing tag would be completed
-                        # This handles cases where </code> is split across chunks
-                        tag_pos = combined.find(closing_tag)
-                        before_tag = delta.content[
-                            : tag_pos - len(accumulated_content) + len(closing_tag)
-                        ]
-
-                        if live_print:
-                            try:
-                                print(before_tag, end="", flush=True)
-                            except Exception:
-                                print(
-                                    before_tag.encode("utf-8", errors="replace").decode(
-                                        "utf-8", errors="replace"
-                                    ),
-                                    end="",
-                                    flush=True,
-                                )
-
-                        accumulated_content += before_tag
-                        deltas.append(ChatMessageStreamDelta(content=before_tag))
-
-                        stop_detected = True
-                        continue
-
-                # Normal content processing (no stop tag detected)
                 if live_print:
                     try:
                         print(delta.content, end="", flush=True)
@@ -795,11 +768,9 @@ class OpenAIModel(ApiModel):
                             end="",
                             flush=True,
                         )
-
                 accumulated_content += delta.content
                 deltas.append(ChatMessageStreamDelta(content=delta.content))
 
-            # Tool calls
             if delta.tool_calls:
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index if tc_delta.index is not None else 0
@@ -811,9 +782,7 @@ class OpenAIModel(ApiModel):
                                 "function": {"name": "", "arguments": ""},
                             }
                         )
-
                     current = tool_call_parts[idx]
-
                     if tc_delta.id is not None:
                         current["id"] = tc_delta.id
                     if tc_delta.type is not None:
@@ -828,12 +797,10 @@ class OpenAIModel(ApiModel):
                                     f"\n→ Calling tool: {current['function']['name']}",
                                     flush=True,
                                 )
-
                         if tc_delta.function.arguments is not None:
                             current["function"]["arguments"] += (
                                 tc_delta.function.arguments
                             )
-
                     deltas.append(
                         ChatMessageStreamDelta(
                             tool_calls=[
@@ -854,39 +821,6 @@ class OpenAIModel(ApiModel):
                         )
                     )
 
-        # Stream ended without the closing tag ever appearing (e.g. hit max_tokens,
-        # or the connection just stopped). Mirrors smolagents' own agents.py fallback:
-        #   if output_text and not output_text.strip().endswith(code_block_tags[1]):
-        #       output_text += code_block_tags[1]
-        # Without this, extract_code_from_text()/parse_code_blobs() can't find a
-        # matching open/close pair and raises AgentParsingError downstream.
-        # NOTE: only fires when the closing tag was never detected mid-stream above,
-        # so a stream that already closed its tag normally is left untouched.
-        if (
-            not stop_detected
-            and accumulated_content
-            and not accumulated_content.rstrip().endswith(closing_tag)
-        ):
-            logger.warning(
-                "Stream ended without closing tag %r — appending it so the code "
-                "block can still be parsed. Last 80 chars: %r",
-                closing_tag,
-                accumulated_content[-80:],
-            )
-            accumulated_content += closing_tag
-            deltas.append(ChatMessageStreamDelta(content=closing_tag))
-            if live_print:
-                try:
-                    print(closing_tag, end="", flush=True)
-                except Exception:
-                    print(
-                        closing_tag.encode("utf-8", errors="replace").decode(
-                            "utf-8", errors="replace"
-                        ),
-                        end="",
-                        flush=True,
-                    )
-
         if live_print:
             print()
 
@@ -897,6 +831,13 @@ class OpenAIModel(ApiModel):
                 output_tokens=final_usage.completion_tokens,
             )
 
+        # ========== DEBUG LOGS START ==========
+        logger.warning(f"[DEBUG stream] === STREAM END ===")
+        logger.warning(f"  Total chunks: {chunk_count}")
+        logger.warning(f"  accumulated_content length: {len(accumulated_content)}")
+        logger.warning(f"  accumulated_content repr: {repr(accumulated_content[:500])}")
+        # ========== DEBUG LOGS END ==========
+
         return accumulated_content, tool_call_parts, usage, deltas
 
     def _build_final_message(
@@ -906,6 +847,16 @@ class OpenAIModel(ApiModel):
         usage: TokenUsage | None,
         stop_sequences: list[str] | None = None,
     ) -> ChatMessage:
+        # ========== DEBUG LOGS START ==========
+        logger.warning(
+            f"[DEBUG _build_final_message] input content repr: {repr(content)}"
+        )
+        logger.warning(
+            f"[DEBUG _build_final_message] input content type: {type(content)}"
+        )
+        logger.warning(f"[DEBUG _build_final_message] stop_sequences: {stop_sequences}")
+        # ========== DEBUG LOGS END ==========
+
         if stop_sequences and not self.supports_stop_parameter:
             content = remove_content_after_stop_sequences(content, stop_sequences)
 
@@ -924,6 +875,13 @@ class OpenAIModel(ApiModel):
                         ),
                     )
                 )
+
+        # ========== DEBUG LOGS START ==========
+        logger.warning(f"[DEBUG _build_final_message] final content: {repr(content)}")
+        logger.warning(
+            f"[DEBUG _build_final_message] content or None: {repr(content or None)}"
+        )
+        # ========== DEBUG LOGS END ==========
 
         return ChatMessage(
             role=MessageRole.ASSISTANT,
