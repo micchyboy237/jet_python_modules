@@ -226,7 +226,9 @@ def count_chat_tokens(
     )
     response = requests.post(url, json=payload, timeout=30.0)
     response.raise_for_status()
-    return response.json()
+    result = response.json()
+    logger.info(f"Chat token count response: {result['input_tokens']} input tokens")
+    return result
 
 
 def count_raw_tokens(
@@ -266,7 +268,9 @@ def count_raw_tokens(
     logger.debug(f"Counting raw tokens for: {input_text[:50]}...")
     response = requests.post(url, json=payload, timeout=30.0)
     response.raise_for_status()
-    return response.json()
+    result = response.json()
+    logger.info(f"Raw token count response: {result['input_tokens']} input tokens")
+    return result
 
 
 def count_tokens_with_template(

@@ -14,10 +14,6 @@ from jet.utils.text import format_sub_dir
 from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel
 
-# ---------------------------------------------------------------------------
-# Lightweight context shared by all standalone functions
-# ---------------------------------------------------------------------------
-
 
 @dataclass
 class LLMContext:
@@ -54,11 +50,9 @@ class LLMContext:
             api_key=api_key,
             max_retries=max_retries,
         )
-
         _log_dir = log_dir or DEFAULT_LOG_DIR
         if agent_name:
             _log_dir = os.path.join(_log_dir, format_sub_dir(agent_name))
-
         return cls(
             model=resolved_model,
             sync_client=sync_client,
@@ -68,10 +62,6 @@ class LLMContext:
             chat_logger=ChatLogger(_log_dir),
         )
 
-
-# ---------------------------------------------------------------------------
-# Module-level lazy default context
-# ---------------------------------------------------------------------------
 
 _DEFAULT_CTX: LLMContext | None = None
 
@@ -96,19 +86,17 @@ def reset_default_context() -> None:
     _DEFAULT_CTX = None
 
 
-# ---------------------------------------------------------------------------
-# Helper builders
-# ---------------------------------------------------------------------------
-
-
 def _build_generation_params(
     top_k: int | None = None,
     enable_thinking: bool = False,
+    seed: int | None = None,
 ) -> dict[str, Any]:
     """Build the extra_body dict for llama.cpp-specific params."""
     params: dict[str, Any] = {}
     if top_k is not None:
         params["top_k"] = top_k
+    if seed is not None:
+        params["seed"] = seed
     params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
     return params
 
@@ -121,6 +109,7 @@ def _build_create_kwargs(
     max_tokens: int | None = None,
     top_p: float | None = None,
     presence_penalty: float | None = None,
+    seed: int | None = None,
     stream: bool = False,
     stop: list[str] | None = None,
     top_k: int | None = None,
@@ -130,8 +119,7 @@ def _build_create_kwargs(
     extra_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble kwargs dict for OpenAI chat.completions.create."""
-    params = _build_generation_params(top_k, enable_thinking)
-
+    params = _build_generation_params(top_k, enable_thinking, seed)
     kwargs: dict[str, Any] = {
         "model": model,
         "temperature": temperature,
@@ -158,11 +146,6 @@ def _build_create_kwargs(
     return kwargs
 
 
-# ---------------------------------------------------------------------------
-# Sync functions
-# ---------------------------------------------------------------------------
-
-
 def chat(
     messages: list[ChatMessage],
     temperature: float = 0.0,
@@ -170,6 +153,7 @@ def chat(
     top_p: float | None = None,
     presence_penalty: float | None = None,
     top_k: int | None = None,
+    seed: int | None = None,
     stream: bool = False,
     stop: list[str] | None = None,
     enable_thinking: bool = False,
@@ -179,7 +163,6 @@ def chat(
     """Generate chat response (non-streaming or streaming)."""
     if ctx is None:
         ctx = get_default_context()
-
     kwargs = _build_create_kwargs(
         model=ctx.model,
         messages=messages,
@@ -187,14 +170,13 @@ def chat(
         max_tokens=max_tokens,
         top_p=top_p,
         presence_penalty=presence_penalty,
+        seed=seed,
         stream=stream,
         stop=stop,
         top_k=top_k,
         enable_thinking=enable_thinking,
     )
-
     response = ctx.sync_client.chat.completions.create(**kwargs)
-
     if stream:
 
         def stream_generator() -> Iterator[str]:
@@ -203,7 +185,6 @@ def chat(
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
-                # reasoning_content (thinking tokens) first
                 if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                     content: str = delta.reasoning_content
                     if ctx.verbose:
@@ -216,7 +197,6 @@ def chat(
                         ctx.logger.teal(content, flush=True, end="")
                     yield content
                     response_text += content
-
             ctx.chat_logger.log_interaction(
                 messages=messages,
                 response=response_text,
@@ -225,11 +205,9 @@ def chat(
             )
 
         return stream_generator()
-
     content = response.choices[0].message.content
     if ctx.verbose:
         ctx.logger.teal(content)
-
     ctx.chat_logger.log_interaction(
         messages=messages,
         response=content,
@@ -243,6 +221,7 @@ def generate(
     prompt: str,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    seed: int | None = None,
     stream: bool = False,
     *,
     ctx: LLMContext | None = None,
@@ -250,15 +229,15 @@ def generate(
     """Generate text completion from prompt."""
     if ctx is None:
         ctx = get_default_context()
-
+    params = _build_generation_params(seed=seed)
     response = ctx.sync_client.completions.create(
         model=ctx.model,
         prompt=prompt,
         temperature=temperature,
         max_tokens=max_tokens,
         stream=stream,
+        extra_body=params,
     )
-
     if stream:
 
         def stream_generator() -> Iterator[str]:
@@ -278,11 +257,9 @@ def generate(
             )
 
         return stream_generator()
-
     content = response.choices[0].text
     if ctx.verbose:
         ctx.logger.teal(content)
-
     ctx.chat_logger.log_interaction(
         messages=prompt,
         response=content,
@@ -301,6 +278,7 @@ def chat_with_tools(
     top_p: float | None = None,
     presence_penalty: float | None = None,
     top_k: int | None = None,
+    seed: int | None = None,
     stream: bool = False,
     enable_thinking: bool = False,
     *,
@@ -313,7 +291,6 @@ def chat_with_tools(
     """
     if ctx is None:
         ctx = get_default_context()
-
     tool_choice = kwargs.pop("tool_choice", "auto")
     create_kwargs = _build_create_kwargs(
         model=ctx.model,
@@ -322,6 +299,7 @@ def chat_with_tools(
         max_tokens=max_tokens,
         top_p=top_p,
         presence_penalty=presence_penalty,
+        seed=seed,
         stream=stream,
         top_k=top_k,
         enable_thinking=enable_thinking,
@@ -329,13 +307,10 @@ def chat_with_tools(
         tool_choice=tool_choice,
         extra_kwargs=kwargs,
     )
-
-    # --- Non-streaming path ---
     if not stream:
         response = ctx.sync_client.chat.completions.create(**create_kwargs)
         message = response.choices[0].message
         tool_calls: list[ToolCall] = getattr(message, "tool_calls", []) or []
-
         if not tool_calls:
             content = message.content or ""
             if ctx.verbose:
@@ -344,7 +319,6 @@ def chat_with_tools(
                 **{**create_kwargs, "response": content, "method": "chat"}
             )
             return content
-
         updated_messages: list[ChatMessage] = list(messages)
         assistant_msg: ChatMessage = {
             "role": "assistant",
@@ -363,7 +337,6 @@ def chat_with_tools(
                 for tc in tool_calls
             ]
         updated_messages.append(assistant_msg)
-
         for tool_call in tool_calls:
             func_name = tool_call.function.name
             if ctx.verbose:
@@ -383,7 +356,6 @@ def chat_with_tools(
                     "tool_call_id": tool_call.id,
                 }
             )
-
         final_kwargs = {
             k: v
             for k, v in create_kwargs.items()
@@ -393,7 +365,6 @@ def chat_with_tools(
         final_kwargs["stream"] = False
         final_response = ctx.sync_client.chat.completions.create(**final_kwargs)
         final_content = final_response.choices[0].message.content
-
         if ctx.verbose:
             ctx.logger.teal(final_content)
         ctx.chat_logger.log_interaction(
@@ -401,14 +372,12 @@ def chat_with_tools(
         )
         return final_content
 
-    # --- Streaming path ---
     def stream_generator() -> Iterator[str]:
         response_text = ""
         updated_messages: list[ChatMessage] = list(messages)
         response = ctx.sync_client.chat.completions.create(**create_kwargs)
         message_content = ""
         tool_calls: list[ToolCall] = []
-
         for chunk in response:
             if not chunk.choices or not chunk.choices[0].delta:
                 continue
@@ -437,7 +406,6 @@ def chat_with_tools(
                         tc["function"]["name"] += tc_delta.function.name
                     if tc_delta.function and tc_delta.function.arguments:
                         tc["function"]["arguments"] += tc_delta.function.arguments
-
         if tool_calls:
             assistant_msg: ChatMessage = {
                 "role": "assistant",
@@ -445,7 +413,6 @@ def chat_with_tools(
                 "tool_calls": tool_calls,
             }
             updated_messages.append(assistant_msg)
-
             for tool_call in tool_calls:
                 func_name = tool_call["function"]["name"]
                 if ctx.verbose:
@@ -465,7 +432,6 @@ def chat_with_tools(
                         "tool_call_id": tool_call["id"],
                     }
                 )
-
         final_kwargs = {
             k: v
             for k, v in create_kwargs.items()
@@ -475,7 +441,6 @@ def chat_with_tools(
         final_kwargs["stream"] = True
         final_response = ctx.sync_client.chat.completions.create(**final_kwargs)
         final_content = ""
-
         for chunk in final_response:
             if chunk.choices and chunk.choices[0].delta.content is not None:
                 content = chunk.choices[0].delta.content
@@ -483,7 +448,6 @@ def chat_with_tools(
                 if ctx.verbose:
                     ctx.logger.teal(content, flush=True)
                 yield content
-
         ctx.chat_logger.log_interaction(
             **{**create_kwargs, "response": final_content, "method": "stream_chat"}
         )
@@ -495,25 +459,25 @@ def chat_structured(
     messages: list[ChatMessage],
     response_model: type[BaseModel],
     temperature: float = 0.0,
+    seed: int | None = None,
     *,
     ctx: LLMContext | None = None,
 ) -> BaseModel:
     """Generate structured JSON output using a Pydantic model."""
     if ctx is None:
         ctx = get_default_context()
-
     schema = response_model.model_json_schema()
+    params = _build_generation_params(seed=seed)
     response = ctx.sync_client.chat.completions.create(
         model=ctx.model,
         messages=messages,
         response_format={"type": "json_object", "schema": schema},
         temperature=temperature,
+        extra_body=params,
     )
-
     raw_json = response.choices[0].message.content or ""
     if ctx.verbose:
         ctx.logger.teal(raw_json)
-
     ctx.chat_logger.log_interaction(
         messages=messages,
         response=raw_json,
@@ -529,6 +493,7 @@ def chat_structured_stream(
     messages: list[ChatMessage],
     response_model: Any,
     temperature: float = 0.0,
+    seed: int | None = None,
     *,
     ctx: LLMContext | None = None,
 ) -> Iterator[Any]:
@@ -539,7 +504,6 @@ def chat_structured_stream(
     """
     if ctx is None:
         ctx = get_default_context()
-
     if hasattr(response_model, "model_json_schema"):
         schema = response_model.model_json_schema()
         validate_fn = response_model.model_validate_json
@@ -548,18 +512,17 @@ def chat_structured_stream(
         schema = response_model.json_schema()
         validate_fn = response_model.validate_json
         is_list = True
-
+    params = _build_generation_params(seed=seed)
     response = ctx.sync_client.chat.completions.create(
         model=ctx.model,
         messages=messages,
         response_format={"type": "json_object", "schema": schema},
         temperature=temperature,
         stream=True,
+        extra_body=params,
     )
-
     buffer = ""
     seen_items: list[Any] = []
-
     for chunk in response:
         if not chunk.choices or chunk.choices[0].delta.content is None:
             continue
@@ -583,7 +546,6 @@ def chat_structured_stream(
                 yield item
         except Exception:
             pass
-
     if buffer.strip():
         try:
             final_parsed = validate_fn(buffer.strip())
@@ -599,7 +561,6 @@ def chat_structured_stream(
         except Exception as e:
             if ctx.verbose:
                 ctx.logger.warning(f"Final parse failed: {e}")
-
     ctx.chat_logger.log_interaction(
         messages=messages,
         response=seen_items if is_list else (seen_items[0] if seen_items else None),
@@ -610,11 +571,6 @@ def chat_structured_stream(
     )
 
 
-# ---------------------------------------------------------------------------
-# Async functions
-# ---------------------------------------------------------------------------
-
-
 async def achat(
     messages: list[ChatMessage],
     temperature: float = 0.0,
@@ -622,6 +578,7 @@ async def achat(
     top_p: float | None = None,
     presence_penalty: float | None = None,
     top_k: int | None = None,
+    seed: int | None = None,
     stream: bool = False,
     stop: list[str] | None = None,
     enable_thinking: bool = False,
@@ -631,8 +588,7 @@ async def achat(
     """Async chat completion (non-streaming or streaming)."""
     if ctx is None:
         ctx = get_default_context()
-
-    params = _build_generation_params(top_k, enable_thinking)
+    params = _build_generation_params(top_k, enable_thinking, seed)
     response = await ctx.async_client.chat.completions.create(
         model=ctx.model,
         messages=messages,
@@ -643,7 +599,6 @@ async def achat(
         stop=stop,
         extra_body=params,
     )
-
     if stream:
 
         async def stream_generator() -> AsyncIterator[str]:
@@ -663,7 +618,6 @@ async def achat(
             )
 
         return stream_generator()
-
     content = response.choices[0].message.content
     if ctx.verbose:
         ctx.logger.teal(content)
@@ -674,6 +628,7 @@ async def agenerate(
     prompt: str,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    seed: int | None = None,
     stream: bool = False,
     *,
     ctx: LLMContext | None = None,
@@ -681,15 +636,15 @@ async def agenerate(
     """Async text completion (non-streaming or streaming)."""
     if ctx is None:
         ctx = get_default_context()
-
+    params = _build_generation_params(seed=seed)
     response = await ctx.async_client.completions.create(
         model=ctx.model,
         prompt=prompt,
         temperature=temperature,
         max_tokens=max_tokens,
         stream=stream,
+        extra_body=params,
     )
-
     if stream:
 
         async def stream_generator() -> AsyncIterator[str]:
@@ -709,7 +664,6 @@ async def agenerate(
             )
 
         return stream_generator()
-
     content = response.choices[0].text
     if ctx.verbose:
         ctx.logger.teal(content)
@@ -725,6 +679,7 @@ async def achat_with_tools(
     top_p: float | None = None,
     presence_penalty: float | None = None,
     top_k: int | None = None,
+    seed: int | None = None,
     stream: bool = False,
     enable_thinking: bool = False,
     *,
@@ -734,7 +689,6 @@ async def achat_with_tools(
     """Async tool-calling loop with optional streaming."""
     if ctx is None:
         ctx = get_default_context()
-
     tool_choice = kwargs.pop("tool_choice", "auto")
     create_kwargs = _build_create_kwargs(
         model=ctx.model,
@@ -743,6 +697,7 @@ async def achat_with_tools(
         max_tokens=max_tokens,
         top_p=top_p,
         presence_penalty=presence_penalty,
+        seed=seed,
         stream=stream,
         top_k=top_k,
         enable_thinking=enable_thinking,
@@ -750,26 +705,21 @@ async def achat_with_tools(
         tool_choice=tool_choice,
         extra_kwargs=kwargs,
     )
-
-    # --- Non-streaming ---
     if not stream:
         response = await ctx.async_client.chat.completions.create(**create_kwargs)
         message = response.choices[0].message
         tool_calls: list[ToolCall] = getattr(message, "tool_calls", []) or []
-
         if not tool_calls:
             content = message.content or ""
             if ctx.verbose:
                 ctx.logger.teal(content)
             return content
-
         updated_messages = list(messages)
         assistant_msg: ChatMessage = {
             "role": "assistant",
             "content": message.content or "",
         }
         updated_messages.append(assistant_msg)
-
         for tool_call in tool_calls:
             func_name = tool_call.function.name
             if func := available_functions.get(func_name):
@@ -782,7 +732,6 @@ async def achat_with_tools(
                         "tool_call_id": tool_call.id,
                     }
                 )
-
         final_response = await ctx.async_client.chat.completions.create(
             model=ctx.model,
             messages=updated_messages,
@@ -793,13 +742,11 @@ async def achat_with_tools(
             ctx.logger.teal(final_content)
         return final_content
 
-    # --- Streaming ---
     async def stream_generator() -> AsyncIterator[str]:
         response_text = ""
         response = await ctx.async_client.chat.completions.create(**create_kwargs)
         message_content = ""
         tool_calls: list[ToolCall] = []
-
         async for chunk in response:
             if chunk.choices and chunk.choices[0].delta:
                 delta = chunk.choices[0].delta
@@ -827,7 +774,6 @@ async def achat_with_tools(
                             tc["function"]["name"] += tc_delta.function.name
                         if tc_delta.function.arguments:
                             tc["function"]["arguments"] += tc_delta.function.arguments
-
         if not tool_calls:
             ctx.chat_logger.log_interaction(
                 messages=messages,
@@ -836,7 +782,6 @@ async def achat_with_tools(
                 method="stream_chat",
             )
             return
-
         assistant_msg: ChatMessage = {
             "role": "assistant",
             "content": message_content,
@@ -844,12 +789,10 @@ async def achat_with_tools(
         }
         updated_messages = list(messages)
         updated_messages.append(assistant_msg)
-
         for tool_call in tool_calls:
             func_name = tool_call["function"]["name"]
             yield f"\n[TOOL CALL] {func_name}\n"
             response_text += f"\n[TOOL CALL] {func_name}\n"
-
             func = available_functions.get(func_name)
             if not func:
                 result_str = json.dumps({"error": f"Tool {func_name} not found"})
@@ -860,7 +803,6 @@ async def achat_with_tools(
                     result_str = json.dumps({"result": result}, ensure_ascii=False)
                 except Exception as e:
                     result_str = json.dumps({"error": str(e)})
-
             yield f"[TOOL RESULT] {result_str}\n"
             response_text += f"[TOOL RESULT] {result_str}\n"
             updated_messages.append(
@@ -870,7 +812,6 @@ async def achat_with_tools(
                     "tool_call_id": tool_call["id"],
                 }
             )
-
         final_create_kwargs = {
             k: v
             for k, v in create_kwargs.items()
@@ -881,7 +822,6 @@ async def achat_with_tools(
         final_response = await ctx.async_client.chat.completions.create(
             **final_create_kwargs
         )
-
         final_content = ""
         async for chunk in final_response:
             if chunk.choices and chunk.choices[0].delta.content is not None:
@@ -891,7 +831,6 @@ async def achat_with_tools(
                 if ctx.verbose:
                     ctx.logger.teal(content, flush=True)
                 yield content
-
         ctx.chat_logger.log_interaction(
             messages=messages,
             response=response_text,
@@ -906,25 +845,25 @@ async def achat_structured(
     messages: list[ChatMessage],
     response_model: type[BaseModel],
     temperature: float = 0.0,
+    seed: int | None = None,
     *,
     ctx: LLMContext | None = None,
 ) -> BaseModel:
     """Async structured JSON output using Pydantic model."""
     if ctx is None:
         ctx = get_default_context()
-
     schema = response_model.model_json_schema()
+    params = _build_generation_params(seed=seed)
     response = await ctx.async_client.chat.completions.create(
         model=ctx.model,
         messages=messages,
         response_format={"type": "json_object", "schema": schema},
         temperature=temperature,
+        extra_body=params,
     )
-
     raw_json = response.choices[0].message.content or ""
     if ctx.verbose:
         ctx.logger.teal(raw_json)
-
     ctx.chat_logger.log_interaction(
         messages=messages,
         response=raw_json,
@@ -940,6 +879,7 @@ async def achat_structured_stream(
     messages: list[ChatMessage],
     response_model: Any,
     temperature: float = 0.0,
+    seed: int | None = None,
     *,
     ctx: LLMContext | None = None,
 ) -> AsyncIterator[Any]:
@@ -950,7 +890,6 @@ async def achat_structured_stream(
     """
     if ctx is None:
         ctx = get_default_context()
-
     if hasattr(response_model, "model_json_schema"):
         schema = response_model.model_json_schema()
         validate_fn = response_model.model_validate_json
@@ -959,15 +898,15 @@ async def achat_structured_stream(
         schema = response_model.json_schema()
         validate_fn = response_model.validate_json
         is_list = True
-
+    params = _build_generation_params(seed=seed)
     response = await ctx.async_client.chat.completions.create(
         model=ctx.model,
         messages=messages,
         response_format={"type": "json_object", "schema": schema},
         temperature=temperature,
         stream=True,
+        extra_body=params,
     )
-
     buffer = ""
     seen_items: list[Any] = []
     try:
@@ -994,7 +933,6 @@ async def achat_structured_stream(
                     yield item
             except Exception:
                 pass
-
         if buffer.strip():
             try:
                 final_parsed = validate_fn(buffer.strip())
@@ -1021,10 +959,6 @@ async def achat_structured_stream(
         )
 
 
-# ---------------------------------------------------------------------------
-# Demo
-# ---------------------------------------------------------------------------
-
 if __name__ == "__main__":
     import argparse
 
@@ -1048,17 +982,13 @@ if __name__ == "__main__":
         help="Optional system prompt for the chat model",
     )
     args = parser.parse_args()
-
     messages: list[ChatMessage] = [
         {"role": "system", "content": args.system},
         {"role": "user", "content": args.prompt},
     ]
-
     print(f"System: {args.system}")
     print(f"User: {args.prompt}")
     print("Assistant: ", end="", flush=True)
-
-    # No context needed — uses environment variables automatically
     stream_response = chat(messages=messages, stream=True)
     for token in stream_response:
         pass

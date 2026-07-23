@@ -13,7 +13,6 @@ from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel
 
 
-# === Strict TypedDict for OpenAI-compatible messages ===
 class ToolFunction(TypedDict):
     name: str
     arguments: str
@@ -30,7 +29,7 @@ class ChatMessage(TypedDict, total=False):
 
     role: Literal["system", "user", "assistant", "tool"]
     content: str
-    tool_call_id: str  # Required only when role == "tool"
+    tool_call_id: str
     tool_calls: list[ToolCall]
 
 
@@ -60,17 +59,13 @@ class LlamacppLLM:
             base_url=base_url, api_key=api_key, max_retries=max_retries
         )
         self.verbose = verbose
-
         if not log_dir:
             log_dir = DEFAULT_LOG_DIR
-
         if agent_name:
             log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
-
         self._chat_logger = ChatLogger(log_dir)
         self._logger = logger or CustomLogger()
 
-    # === Sync Chat ===
     def chat(
         self,
         messages: list[ChatMessage],
@@ -79,19 +74,18 @@ class LlamacppLLM:
         top_p: float | None = None,
         presence_penalty: float | None = None,
         top_k: int | None = None,
+        seed: int | None = None,
         stream: bool = False,
         stop: list[str] | None = None,
         enable_thinking: bool = False,
     ) -> str | Iterator[str]:
         """Generate chat response (non-streaming or streaming)."""
-        # Dynamically build generation params based on provided values
         generation_params = {}
         if top_k is not None:
             generation_params["top_k"] = top_k
-
+        if seed is not None:
+            generation_params["seed"] = seed
         generation_params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
-
-        # Prepare the arguments for create
         create_kwargs = dict(
             model=self.model,
             messages=messages,
@@ -107,9 +101,7 @@ class LlamacppLLM:
             create_kwargs["top_p"] = top_p
         if presence_penalty is not None:
             create_kwargs["presence_penalty"] = presence_penalty
-
         response = self.sync_client.chat.completions.create(**create_kwargs)
-
         if stream:
 
             def stream_generator() -> Iterator[str]:
@@ -117,10 +109,7 @@ class LlamacppLLM:
                 for chunk in response:
                     if not chunk.choices:
                         continue
-
                     delta = chunk.choices[0].delta
-
-                    # Check for reasoning_content first
                     if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                         content: str = delta.reasoning_content
                         if self.verbose:
@@ -129,15 +118,12 @@ class LlamacppLLM:
                             )
                         yield content
                         response_text += content
-
-                    # Then check for regular content
                     elif hasattr(delta, "content") and delta.content:
                         content: str = delta.content
                         if self.verbose:
                             self._logger.teal(delta.content, flush=True, end="")
                         yield content
                         response_text += content
-
                 self._chat_logger.log_interaction(
                     messages=messages,
                     response=response_text,
@@ -146,35 +132,36 @@ class LlamacppLLM:
                 )
 
             return stream_generator()
-
         content = response.choices[0].message.content
         if self.verbose:
             self._logger.teal(content)
-
         self._chat_logger.log_interaction(
             messages=messages,
             response=content,
             model=self.model,
             method="chat",
         )
-
         return content
 
-    # === Sync Completions ===
     def generate(
         self,
         prompt: str,
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        seed: int | None = None,
         stream: bool = False,
     ) -> str | Iterator[str]:
         """Generate text completion from prompt."""
+        generation_params = {}
+        if seed is not None:
+            generation_params["seed"] = seed
         response = self.sync_client.completions.create(
             model=self.model,
             prompt=prompt,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=stream,
+            extra_body=generation_params,
         )
         if stream:
 
@@ -187,7 +174,6 @@ class LlamacppLLM:
                             self._logger.teal(content, flush=True)
                         yield content
                         response_text += content
-
                 self._chat_logger.log_interaction(
                     messages=prompt,
                     response=response_text,
@@ -199,17 +185,14 @@ class LlamacppLLM:
         content = response.choices[0].text
         if self.verbose:
             self._logger.teal(content)
-
         self._chat_logger.log_interaction(
             messages=prompt,
             response=content,
             model=self.model,
             method="generate",
         )
-
         return content
 
-    # === Tools (Sync) ===
     def chat_with_tools(
         self,
         messages: list[ChatMessage],
@@ -220,6 +203,7 @@ class LlamacppLLM:
         top_p: float | None = None,
         presence_penalty: float | None = None,
         top_k: int | None = None,
+        seed: int | None = None,
         stream: bool = False,
         enable_thinking: bool = False,
         **kwargs: Any,
@@ -229,13 +213,12 @@ class LlamacppLLM:
         When stream=True, yields partial updates including tool calls and final response.
         """
         tool_choice = kwargs.get("tool_choice") or "auto"
-
-        # Dynamically build generation params
         generation_params = {}
         if top_k is not None:
             generation_params["top_k"] = top_k
+        if seed is not None:
+            generation_params["seed"] = seed
         generation_params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
-
         create_kwargs = {
             "model": self.model,
             "messages": messages,
@@ -253,9 +236,7 @@ class LlamacppLLM:
             create_kwargs["top_p"] = top_p
         if presence_penalty is not None:
             create_kwargs["presence_penalty"] = presence_penalty
-
         if not stream:
-            # Existing non-streaming path
             response = self.sync_client.chat.completions.create(**create_kwargs)
             message = response.choices[0].message
             tool_calls: list[ToolCall] = getattr(message, "tool_calls", []) or []
@@ -271,7 +252,6 @@ class LlamacppLLM:
                     }
                 )
                 return content
-
             updated_messages: list[ChatMessage] = messages.copy()
             assistant_msg: ChatMessage = {
                 "role": "assistant",
@@ -290,7 +270,6 @@ class LlamacppLLM:
                     for tc in tool_calls
                 ]
             updated_messages.append(assistant_msg)
-
             for tool_call in tool_calls:
                 func_name = tool_call.function.name
                 if self.verbose:
@@ -299,20 +278,16 @@ class LlamacppLLM:
                 if not func:
                     self._logger.warning(f"Tool '{func_name}' not found. Skipping.")
                     continue
-
                 args = json.loads(tool_call.function.arguments)
                 result = func(**args)
-
                 if self.verbose:
                     self._logger.debug(f"[TOOL OUT] {result}")
-
                 tool_response: ChatMessage = {
                     "role": "tool",
                     "content": str(result),
                     "tool_call_id": tool_call.id,
                 }
                 updated_messages.append(tool_response)
-
             final_kwargs = {
                 k: v
                 for k, v in create_kwargs.items()
@@ -320,7 +295,6 @@ class LlamacppLLM:
             }
             final_kwargs["messages"] = updated_messages
             final_kwargs["stream"] = False
-
             final_response = self.sync_client.chat.completions.create(**final_kwargs)
             final_content = final_response.choices[0].message.content
             if self.verbose:
@@ -334,30 +308,22 @@ class LlamacppLLM:
             )
             return final_content
 
-        # === STREAMING PATH ===
         def stream_generator() -> Iterator[str]:
             response_text = ""
             updated_messages: list[ChatMessage] = messages.copy()
-
-            # First call: detect tool calls (stream content + tool_calls)
             response = self.sync_client.chat.completions.create(**create_kwargs)
             message_content = ""
             tool_calls: list[ToolCall] = []
-
             for chunk in response:
                 if not chunk.choices or not chunk.choices[0].delta:
                     continue
                 delta = chunk.choices[0].delta
-
-                # Stream assistant content
                 if delta.content is not None:
                     message_content += delta.content
                     response_text += delta.content
                     if self.verbose:
                         self._logger.teal(delta.content, flush=True)
                     yield delta.content
-
-                # Accumulate tool calls
                 if delta.tool_calls:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
@@ -376,8 +342,6 @@ class LlamacppLLM:
                             tc["function"]["name"] += tc_delta.function.name
                         if tc_delta.function and tc_delta.function.arguments:
                             tc["function"]["arguments"] += tc_delta.function.arguments
-
-            # === EXECUTE TOOLS (NO YIELD) ===
             if tool_calls:
                 assistant_msg: ChatMessage = {
                     "role": "assistant",
@@ -385,12 +349,10 @@ class LlamacppLLM:
                     "tool_calls": tool_calls,
                 }
                 updated_messages.append(assistant_msg)
-
                 for tool_call in tool_calls:
                     func_name = tool_call["function"]["name"]
                     if self.verbose:
                         self._logger.info(f"[TOOL EXEC] {func_name}")
-
                     func = available_functions.get(func_name)
                     if not func:
                         self._logger.warning(f"Tool '{func_name}' not found. Skipping.")
@@ -398,10 +360,8 @@ class LlamacppLLM:
                     else:
                         args = json.loads(tool_call["function"]["arguments"])
                         result = func(**args)
-
                     if self.verbose:
                         self._logger.debug(f"[TOOL OUT] {result}")
-
                     updated_messages.append(
                         {
                             "role": "tool",
@@ -409,8 +369,6 @@ class LlamacppLLM:
                             "tool_call_id": tool_call["id"],
                         }
                     )
-
-            # === FINAL LLM CALL (STREAM ONLY CONTENT) ===
             final_kwargs = {
                 k: v
                 for k, v in create_kwargs.items()
@@ -418,7 +376,6 @@ class LlamacppLLM:
             }
             final_kwargs["messages"] = updated_messages
             final_kwargs["stream"] = True
-
             final_response = self.sync_client.chat.completions.create(**final_kwargs)
             final_content = ""
             for chunk in final_response:
@@ -428,8 +385,6 @@ class LlamacppLLM:
                     if self.verbose:
                         self._logger.teal(content, flush=True)
                     yield content
-
-            # === FINAL LOG ===
             self._chat_logger.log_interaction(
                 **{
                     **create_kwargs,
@@ -440,27 +395,30 @@ class LlamacppLLM:
 
         return stream_generator()
 
-    # === Structured Outputs (Sync) ===
     def chat_structured(
         self,
         messages: list[ChatMessage],
         response_model: type[BaseModel],
         temperature: float = 0.0,
+        seed: int | None = None,
     ) -> BaseModel:
         """Generate structured JSON output using a Pydantic model with optional verbose logging."""
+        generation_params = {}
+        if seed is not None:
+            generation_params["seed"] = seed
         response = self.sync_client.chat.completions.create(
             model=self.model,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,
             response_format={
                 "type": "json_object",
                 "schema": response_model.model_json_schema(),
             },
             temperature=temperature,
+            extra_body=generation_params,
         )
         raw_json = response.choices[0].message.content or ""
         if self.verbose:
             self._logger.teal(raw_json)
-
         self._chat_logger.log_interaction(
             **{
                 "messages": messages,
@@ -474,42 +432,41 @@ class LlamacppLLM:
                 "temperature": temperature,
             }
         )
-
         return response_model.model_validate_json(raw_json)
 
-    # === Sync Structured Stream ===
     def chat_structured_stream(
         self,
         messages: list[ChatMessage],
-        response_model: Any,  # BaseModel or TypeAdapter(List[T])
+        response_model: Any,
         temperature: float = 0.0,
+        seed: int | None = None,
     ) -> Iterator[Any]:
         """
         Stream structured output with NO duplicates.
         - Single object → yields once
         - List[T] → yields only NEW items as they complete
         """
-        # Determine schema and validator
-        if hasattr(response_model, "model_json_schema"):  # single BaseModel
+        if hasattr(response_model, "model_json_schema"):
             schema = response_model.model_json_schema()
             validate_fn = response_model.model_validate_json
             is_list = False
-        else:  # TypeAdapter(List[...])
+        else:
             schema = response_model.json_schema()
             validate_fn = response_model.validate_json
             is_list = True
-
+        generation_params = {}
+        if seed is not None:
+            generation_params["seed"] = seed
         response = self.sync_client.chat.completions.create(
             model=self.model,
             messages=messages,
             response_format={"type": "json_object", "schema": schema},
             temperature=temperature,
             stream=True,
+            extra_body=generation_params,
         )
-
         buffer = ""
-        seen_items: list[Any] = []  # Track yielded items (for lists only)
-
+        seen_items: list[Any] = []
         for chunk in response:
             if not chunk.choices or chunk.choices[0].delta.content is None:
                 continue
@@ -517,36 +474,25 @@ class LlamacppLLM:
             if self.verbose:
                 self._logger.teal(content, flush=True)
             buffer += content
-
             stripped = buffer.strip()
             if not (stripped.startswith("{") or stripped.startswith("[")):
                 continue
-
             try:
                 parsed = validate_fn(stripped)
-
                 if not is_list:
-                    # Single object: yield once and done
                     seen_items.append(parsed)
                     yield parsed
-                    buffer = ""  # prevent re-yielding
+                    buffer = ""
                     continue
-
-                # List mode: yield only NEW items
                 new_items = parsed[len(seen_items) :]
                 for item in new_items:
                     seen_items.append(item)
                     yield item
-
             except Exception:
-                # Not complete yet
                 pass
-
-        # Final parse
         if buffer.strip():
             try:
                 final_parsed = validate_fn(buffer.strip())
-
                 if not is_list:
                     if final_parsed not in seen_items:
                         seen_items.append(final_parsed)
@@ -556,11 +502,9 @@ class LlamacppLLM:
                     for item in new_items:
                         seen_items.append(item)
                         yield item
-
             except Exception as e:
                 if self.verbose:
                     self._logger.warning(f"Final parse failed: {e}")
-
         self._chat_logger.log_interaction(
             messages=messages,
             response=seen_items if is_list else (seen_items[0] if seen_items else None),
@@ -570,7 +514,6 @@ class LlamacppLLM:
             response_format={"type": "json_object", "schema": schema},
         )
 
-    # === Async Chat ===
     async def achat(
         self,
         messages: list[ChatMessage],
@@ -579,20 +522,21 @@ class LlamacppLLM:
         top_p: float | None = None,
         presence_penalty: float | None = None,
         top_k: int | None = None,
+        seed: int | None = None,
         stream: bool = False,
         stop: list[str] | None = None,
         enable_thinking: bool = False,
     ) -> str | AsyncIterator[str]:
         """Async chat completion (non-streaming or streaming)."""
-        # Dynamically build generation params
         generation_params = {}
         if top_k is not None:
             generation_params["top_k"] = top_k
+        if seed is not None:
+            generation_params["seed"] = seed
         generation_params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
-
         response = await self.async_client.chat.completions.create(
             model=self.model,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
@@ -611,7 +555,6 @@ class LlamacppLLM:
                             self._logger.teal(content, flush=True)
                         yield content
                         response_text += content
-
                 self._chat_logger.log_interaction(
                     messages=messages,
                     response=response_text,
@@ -620,27 +563,30 @@ class LlamacppLLM:
                 )
 
             return stream_generator()
-
         content = response.choices[0].message.content
         if self.verbose:
             self._logger.teal(content)
         return content
 
-    # === Async Completions ===
     async def agenerate(
         self,
         prompt: str,
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        seed: int | None = None,
         stream: bool = False,
     ) -> str | AsyncIterator[str]:
         """Async text completion (non-streaming or streaming)."""
+        generation_params = {}
+        if seed is not None:
+            generation_params["seed"] = seed
         response = await self.async_client.completions.create(
             model=self.model,
             prompt=prompt,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=stream,
+            extra_body=generation_params,
         )
         if stream:
 
@@ -653,7 +599,6 @@ class LlamacppLLM:
                             self._logger.teal(content, flush=True)
                         yield content
                         response_text += content
-
                 self._chat_logger.log_interaction(
                     messages=prompt,
                     response=response_text,
@@ -662,13 +607,11 @@ class LlamacppLLM:
                 )
 
             return stream_generator()
-
         content = response.choices[0].text
         if self.verbose:
             self._logger.teal(content)
         return content
 
-    # === Async Tools ===
     async def achat_with_tools(
         self,
         messages: list[ChatMessage],
@@ -679,18 +622,18 @@ class LlamacppLLM:
         top_p: float | None = None,
         presence_penalty: float | None = None,
         top_k: int | None = None,
+        seed: int | None = None,
         stream: bool = False,
         enable_thinking: bool = False,
         **kwargs: Any,
     ) -> str | AsyncIterator[str]:
         tool_choice = kwargs.get("tool_choice") or "auto"
-
-        # Dynamically build generation params
         generation_params = {}
         if top_k is not None:
             generation_params["top_k"] = top_k
+        if seed is not None:
+            generation_params["seed"] = seed
         generation_params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
-
         create_kwargs = {
             "model": self.model,
             "messages": messages,
@@ -708,9 +651,7 @@ class LlamacppLLM:
             create_kwargs["top_p"] = top_p
         if presence_penalty is not None:
             create_kwargs["presence_penalty"] = presence_penalty
-
         if not stream:
-            # Existing non-stream path (unchanged)
             response = await self.async_client.chat.completions.create(**create_kwargs)
             message = response.choices[0].message
             tool_calls: list[ToolCall] = getattr(message, "tool_calls", []) or []
@@ -719,14 +660,12 @@ class LlamacppLLM:
                 if self.verbose:
                     self._logger.teal(content)
                 return content
-
             updated_messages = messages.copy()
             assistant_msg: ChatMessage = {
                 "role": "assistant",
                 "content": message.content or "",
             }
             updated_messages.append(assistant_msg)
-
             for tool_call in tool_calls:
                 func_name = tool_call.function.name
                 if func := available_functions.get(func_name):
@@ -739,7 +678,6 @@ class LlamacppLLM:
                             "tool_call_id": tool_call.id,
                         }
                     )
-
             final_response = await self.async_client.chat.completions.create(
                 model=self.model,
                 messages=updated_messages,
@@ -750,11 +688,9 @@ class LlamacppLLM:
                 self._logger.teal(final_content)
             return final_content
 
-        # === ASYNC STREAMING PATH ===
         async def stream_generator() -> AsyncIterator[str]:
             response_text = ""
             tool_results = []
-
             response = await self.async_client.chat.completions.create(**create_kwargs)
             message_content = ""
             tool_calls: list[ToolCall] = []
@@ -787,7 +723,6 @@ class LlamacppLLM:
                                 tc["function"]["arguments"] += (
                                     tc_delta.function.arguments
                                 )
-
             if not tool_calls:
                 self._chat_logger.log_interaction(
                     messages=messages,
@@ -796,7 +731,6 @@ class LlamacppLLM:
                     method="stream_chat",
                 )
                 return
-
             assistant_msg: ChatMessage = {
                 "role": "assistant",
                 "content": message_content,
@@ -804,7 +738,6 @@ class LlamacppLLM:
             }
             updated_messages = messages.copy()
             updated_messages.append(assistant_msg)
-
             for tool_call in tool_calls:
                 func_name = tool_call["function"]["name"]
                 yield f"\n[TOOL CALL] {func_name}\n"
@@ -829,7 +762,6 @@ class LlamacppLLM:
                         "tool_call_id": tool_call["id"],
                     }
                 )
-
             final_create_kwargs = {
                 k: v
                 for k, v in create_kwargs.items()
@@ -837,7 +769,6 @@ class LlamacppLLM:
             }
             final_create_kwargs["messages"] = updated_messages
             final_create_kwargs["stream"] = True
-
             final_response = await self.async_client.chat.completions.create(
                 **final_create_kwargs
             )
@@ -850,7 +781,6 @@ class LlamacppLLM:
                     if self.verbose:
                         self._logger.teal(content, flush=True)
                     yield content
-
             self._chat_logger.log_interaction(
                 messages=messages,
                 response=response_text,
@@ -860,27 +790,30 @@ class LlamacppLLM:
 
         return stream_generator()
 
-    # === Async Structured Outputs ===
     async def achat_structured(
         self,
         messages: list[ChatMessage],
         response_model: type[BaseModel],
         temperature: float = 0.0,
+        seed: int | None = None,
     ) -> BaseModel:
         """Async structured JSON output using Pydantic model with verbose logging."""
+        generation_params = {}
+        if seed is not None:
+            generation_params["seed"] = seed
         response = await self.async_client.chat.completions.create(
             model=self.model,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,
             response_format={
                 "type": "json_object",
                 "schema": response_model.model_json_schema(),
             },
             temperature=temperature,
+            extra_body=generation_params,
         )
         raw_json = response.choices[0].message.content or ""
         if self.verbose:
             self._logger.teal(raw_json)
-
         self._chat_logger.log_interaction(
             **{
                 "messages": messages,
@@ -894,15 +827,14 @@ class LlamacppLLM:
                 "temperature": temperature,
             }
         )
-
         return response_model.model_validate_json(raw_json)
 
-    # === Async Structured Stream ===
     async def achat_structured_stream(
         self,
         messages: list[ChatMessage],
         response_model: Any,
         temperature: float = 0.0,
+        seed: int | None = None,
     ) -> AsyncIterator[Any]:
         """
         Async structured streaming output with NO duplicates.
@@ -917,12 +849,16 @@ class LlamacppLLM:
             schema = response_model.json_schema()
             validate_fn = response_model.validate_json
             is_list = True
+        generation_params = {}
+        if seed is not None:
+            generation_params["seed"] = seed
         response = await self.async_client.chat.completions.create(
             model=self.model,
             messages=messages,
             response_format={"type": "json_object", "schema": schema},
             temperature=temperature,
             stream=True,
+            extra_body=generation_params,
         )
         buffer = ""
         seen_items: list[Any] = []
@@ -999,30 +935,15 @@ if __name__ == "__main__":
         help="Optional system prompt for the chat model",
     )
     args = parser.parse_args()
-
-    # Initialize the LLM client
-    # Ensure LLAMA_CPP_LLM_MODEL and LLAMA_CPP_LLM_URL environment variables are set,
-    # or pass them directly here if preferred.
     llm = LlamacppLLM()
-
-    # Prepare messages in the required ChatMessage format
     messages: list[ChatMessage] = [
         {"role": "system", "content": args.system},
         {"role": "user", "content": args.prompt},
     ]
-
     print(f"System: {args.system}")
     print(f"User: {args.prompt}")
     print("Assistant: ", end="", flush=True)
-
-    # Call chat with stream=True to get an iterator
     stream_response = llm.chat(messages=messages, stream=True)
-
-    # Iterate through the stream generator to print tokens as they arrive
     for token in stream_response:
-        # The logger inside llm.chat already prints to stdout if verbose=True,
-        # but we can also handle it here if needed.
-        # Since the internal logger handles printing, this loop primarily drives the generation.
         pass
-
-    print()  # New line after completion
+    print()
