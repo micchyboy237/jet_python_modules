@@ -23,41 +23,41 @@ class PostgresConfigObject:
 
 # Define environment groups
 ENV_GROUPS = {
+    "local": PostgresConfig(
+        DEFAULT_DB=os.getenv("DB_POSTGRES_DB_LOCAL", "postgres"),
+        DEFAULT_USER=os.getenv("DB_POSTGRES_USER_LOCAL", "jethroestrada"),
+        DEFAULT_PASSWORD=os.getenv("DB_POSTGRES_PASSWORD_LOCAL", ""),
+        DEFAULT_HOST=os.getenv("DB_POSTGRES_HOST_LOCAL", "localhost"),
+        DEFAULT_PORT=int(os.getenv("DB_POSTGRES_PORT_LOCAL", 5432)),
+    ),
     "macbook": PostgresConfig(
-        DEFAULT_DB="postgres",
-        DEFAULT_USER="jethroestrada",
-        DEFAULT_PASSWORD="",
-        DEFAULT_HOST=os.getenv("HOST_MAC"),
-        DEFAULT_PORT=5432,
+        DEFAULT_DB=os.getenv("DB_POSTGRES_DB_MAC", "postgres"),
+        DEFAULT_USER=os.getenv("DB_POSTGRES_USER_MAC", "jethroestrada"),
+        DEFAULT_PASSWORD=os.getenv("DB_POSTGRES_PASSWORD_MAC", ""),
+        DEFAULT_HOST=os.getenv("DB_POSTGRES_HOST_MAC", "localhost"),
+        DEFAULT_PORT=int(os.getenv("DB_POSTGRES_PORT_MAC", 5432)),
     ),
     "windows": PostgresConfig(
-        DEFAULT_DB="postgres",
-        DEFAULT_USER="jethroestrada",
-        DEFAULT_PASSWORD="1",
-        DEFAULT_HOST=os.getenv("HOST_PC"),
-        DEFAULT_PORT=5432,
-    ),
-    "local": PostgresConfig(
-        DEFAULT_DB="postgres",
-        DEFAULT_USER="jethroestrada",
-        DEFAULT_PASSWORD="",
-        DEFAULT_HOST="localhost",
-        DEFAULT_PORT=5432,
+        DEFAULT_DB=os.getenv("DB_POSTGRES_DB_PC", "postgres"),
+        DEFAULT_USER=os.getenv("DB_POSTGRES_USER_PC", "jethroestrada"),
+        DEFAULT_PASSWORD=os.getenv("DB_POSTGRES_PASSWORD_PC", "1"),
+        DEFAULT_HOST=os.getenv("DB_POSTGRES_HOST_PC", "localhost"),
+        DEFAULT_PORT=int(os.getenv("DB_POSTGRES_PORT_PC", 5432)),
     ),
 }
 
 # Default configuration if no environment is specified
-DEFAULT_CONFIG = ENV_GROUPS["windows"]
+postgres_env = os.getenv("JET_POSTGRES_ENV", "local")
+DEFAULT_CONFIG = ENV_GROUPS[postgres_env]
 
 
 def load_config() -> PostgresConfigObject:
     """Load PostgreSQL configuration based on JET_POSTGRES_ENV environment variable."""
-    env = os.getenv("JET_POSTGRES_ENV", "local")
-    if env not in ENV_GROUPS:
+    if postgres_env not in ENV_GROUPS:
         raise ValueError(
-            f"Invalid JET_POSTGRES_ENV: {env}. Valid options are {list(ENV_GROUPS.keys())}"
+            f"Invalid JET_POSTGRES_ENV: {postgres_env}. Valid options are {list(ENV_GROUPS.keys())}"
         )
-    return PostgresConfigObject(ENV_GROUPS[env])
+    return PostgresConfigObject(ENV_GROUPS[postgres_env])
 
 
 # Load and export configuration

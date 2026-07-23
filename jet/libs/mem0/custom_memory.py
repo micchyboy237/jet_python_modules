@@ -1,6 +1,18 @@
-import os
-
-from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_EMBEDDING_SIZES
+from jet.adapters.llama_cpp.config import (
+    EMBED_BASE_URL,
+    EMBED_DIMS,
+    EMBED_MODEL,
+    LLM_BASE_URL,
+    LLM_MODEL,
+)
+from jet.db.postgres.cleanup import drop_table_if_exists, drop_type_if_exists
+from jet.db.postgres.config import (
+    DEFAULT_DB,
+    DEFAULT_HOST,
+    DEFAULT_PASSWORD,
+    DEFAULT_PORT,
+    DEFAULT_USER,
+)
 from mem0 import Memory
 
 # ──────────────────────────────────────────────
@@ -8,54 +20,41 @@ from mem0 import Memory
 # ──────────────────────────────────────────────
 
 
-def create_memory(collection_name: str = "memories") -> Memory:
+def create_memory(collection_name: str = "memories", reset: bool = False) -> Memory:
+    if reset:
+        drop_table_if_exists(f"public.{collection_name}_entities")
+        drop_type_if_exists(f"public.{collection_name}_entities")
+
     config = {
         "llm": {
             "provider": "openai",
             "config": {
-                "model": os.getenv("LLAMA_CPP_LLM_MODEL"),
+                "model": LLM_MODEL,
                 "temperature": 0.7,
                 "max_tokens": 12000,
-                "openai_base_url": os.getenv("LLAMA_CPP_LLM_URL"),
+                "openai_base_url": LLM_BASE_URL,
                 "api_key": "dummy",
             },
         },
         "embedder": {
             "provider": "openai",
             "config": {
-                "model": os.getenv("LLAMA_CPP_EMBED_MODEL"),
-                "embedding_dims": LLAMACPP_MODEL_EMBEDDING_SIZES.get(
-                    os.getenv("LLAMA_CPP_EMBED_MODEL"), 768
-                ),  # fallback 768 if model not in dict
-                "openai_base_url": os.getenv("LLAMA_CPP_EMBED_URL"),
+                "model": EMBED_MODEL,
+                "embedding_dims": EMBED_DIMS,  # fallback 768 if model not in dict
+                "openai_base_url": EMBED_BASE_URL,
                 "api_key": "dummy",
             },
         },
-        # "vector_store": {
-        #     "provider": "chroma",
-        #     "config": {
-        #         "collection_name": collection_name,
-        #         "path": str(
-        #             Path("~/.cache/chroma_db/basic_mem0_chatbot").expanduser().resolve()
-        #         ),
-        #     },
-        # },
         "vector_store": {
             "provider": "pgvector",
             "config": {
                 "collection_name": collection_name,
-                "embedding_model_dims": LLAMACPP_MODEL_EMBEDDING_SIZES.get(
-                    os.getenv("LLAMA_CPP_EMBED_MODEL"), 768
-                ),
-                "user": os.getenv("DB_POSTGRES_USER", "test"),
-                "password": os.getenv("DB_POSTGRES_PASSWORD", "123"),
-                "host": os.getenv("DB_POSTGRES_HOST", "127.0.0.1"),
-                "port": int(os.getenv("DB_POSTGRES_PORT", 5432)),
-                "dbname": os.getenv(
-                    "DB_VECTOR_DBNAME", "postgres"
-                ),  # Changed to default 'postgres' db
-                "diskann": False,  # Optional, requires pgvectorscale extension
-                "hnsw": False,  # Optional, for HNSW indexing
+                "embedding_model_dims": EMBED_DIMS,
+                "dbname": DEFAULT_DB,
+                "user": DEFAULT_USER,
+                "password": DEFAULT_PASSWORD,
+                "host": DEFAULT_HOST,
+                "port": DEFAULT_PORT,
             },
         },
     }
