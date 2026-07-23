@@ -1,237 +1,1037 @@
-"""LLM utility functions for chat completions using llama.cpp OpenAI-compatible API."""
-
-import argparse
+import json
 import os
-from typing import Dict, Iterable, List, Optional, Union
+from collections.abc import AsyncIterator, Callable, Iterator
+from dataclasses import dataclass, field
+from typing import Any
 
-from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.adapters.llama_cpp.llm_types import (
-    CompletionCreateParams,
-    ResponseFormatParam,
-)
-from jet.libs.llama_cpp.utils.performance_tracker import PerformanceTracker, log_metrics
-from jet.logger import logger
-from openai import Stream
-from openai.types.chat import (
-    ChatCompletionChunk,
-    ChatCompletionMessageParam,
-    ChatCompletionStreamOptionsParam,
-    ChatCompletionToolChoiceOptionParam,
-    ChatCompletionToolUnionParam,
-)
+from jet.adapters.llama_cpp.llm import ChatMessage, ToolCall
+from jet.adapters.llama_cpp.types import LLAMACPP_LLM_TYPES
+from jet.adapters.llama_cpp.utils import resolve_model_key
+from jet.llm.config import DEFAULT_LOG_DIR
+from jet.llm.logger_utils import ChatLogger
+from jet.logger import CustomLogger
+from jet.utils.text import format_sub_dir
+from openai import AsyncOpenAI, OpenAI
+from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
-# Defaults (matching the original create_kwargs)
-# ---------------------------------------------------------------------------
-
-DEFAULT_MODEL = os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed")
-DEFAULT_MAX_TOKENS = 1024
-DEFAULT_TEMPERATURE = 1.0
-DEFAULT_TOP_P = 0.95
-DEFAULT_PRESENCE_PENALTY = 1.5
-DEFAULT_STREAM = True
-DEFAULT_STREAM_OPTIONS: ChatCompletionStreamOptionsParam = {"include_usage": True}
-DEFAULT_EXTRA_BODY_TEMPLATE: Dict[str, object] = {
-    "chat_template_kwargs": {
-        "enable_thinking": False,
-    },
-}
-
-# ---------------------------------------------------------------------------
-# Client
-# ---------------------------------------------------------------------------
-
-client = get_llm_client()
-
-
-# ---------------------------------------------------------------------------
-# Helpers
+# Lightweight context shared by all standalone functions
 # ---------------------------------------------------------------------------
 
 
-def _deep_merge(base: Dict[str, object], override: Dict[str, object]) -> None:
-    """Recursively merge override into base dict in-place."""
-    for key, value in override.items():
-        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-            _deep_merge(base[key], value)  # type: ignore[arg-type]
-        else:
-            base[key] = value
+@dataclass
+class LLMContext:
+    """Holds clients, model name, logging, and verbosity."""
 
+    model: str
+    sync_client: OpenAI
+    async_client: AsyncOpenAI
+    verbose: bool = True
+    logger: CustomLogger = field(default_factory=CustomLogger)
+    chat_logger: ChatLogger | None = None
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def chat_stream(
-    user_prompt: str,
-    system_prompt: str | None = None,
-    enable_thinking: bool = False,
-    verbose: bool = False,
-    # ── Sampling / token control ────────────────────────────────────────
-    frequency_penalty: Optional[float] = None,
-    logit_bias: Optional[Dict[str, int]] = None,
-    logprobs: Optional[bool] = None,
-    max_tokens: Optional[int] = DEFAULT_MAX_TOKENS,
-    n: Optional[int] = None,
-    presence_penalty: Optional[float] = DEFAULT_PRESENCE_PENALTY,
-    seed: Optional[int] = None,
-    stop: Optional[Union[str, List[str]]] = None,
-    temperature: Optional[float] = DEFAULT_TEMPERATURE,
-    top_logprobs: Optional[int] = None,
-    top_p: Optional[float] = DEFAULT_TOP_P,
-    # ── Streaming ───────────────────────────────────────────────────────
-    stream: Optional[bool] = DEFAULT_STREAM,
-    stream_options: Optional[ChatCompletionStreamOptionsParam] = DEFAULT_STREAM_OPTIONS,
-    # ── Tools / function calling ────────────────────────────────────────
-    tools: Optional[Iterable[ChatCompletionToolUnionParam]] = None,
-    tool_choice: Optional[ChatCompletionToolChoiceOptionParam] = None,
-    parallel_tool_calls: Optional[bool] = None,
-    # ── Response format ─────────────────────────────────────────────────
-    response_format: Optional[ResponseFormatParam] = None,
-    # ── Extra / transport ───────────────────────────────────────────────
-    extra_body: Optional[Dict[str, object]] = None,
-    timeout: Optional[float] = None,
-) -> str:
-    """Stream a chat completion from a local llama.cpp server and return the full response text.
-
-    Args:
-        user_prompt: The user's input message.
-        system_prompt: Optional system-level instruction.
-        enable_thinking: If True, passes enable_thinking=True in chat_template_kwargs
-                         so the model emits reasoning tokens (llama.cpp specific).
-        verbose: If True, logs prompts and streams tokens to console with colors.
-
-        frequency_penalty: Number between -2.0 and 2.0. Positive values penalize repeated tokens.
-        logit_bias: Modify likelihood of specified tokens. Maps token ID to bias (-100 to 100).
-        logprobs: Whether to return log probabilities of output tokens.
-        max_tokens: Maximum tokens to generate.
-        n: How many chat completion choices to generate.
-        presence_penalty: Number between -2.0 and 2.0. Positive values encourage new topics.
-        seed: Seed for deterministic sampling.
-        stop: Up to 4 sequences where the API stops generating.
-        temperature: Sampling temperature between 0 and 2.
-        top_logprobs: Number of most likely tokens to return (0-20). Requires logprobs=True.
-        top_p: Nucleus sampling parameter. Alternative to temperature.
-
-        stream: If True, streams the response (default True).
-        stream_options: Options for streaming response (e.g., {"include_usage": True}).
-
-        tools: List of tools the model may call.
-        tool_choice: Controls which tool is called (none/auto/required or specific tool).
-        parallel_tool_calls: Whether to enable parallel function calling.
-
-        response_format: Output format specification (text/json_object/json_schema).
-
-        extra_body: Additional JSON body properties. Deep-merged over the template.
-                    Useful for llama.cpp-specific params like chat_template_kwargs.
-        timeout: Request timeout in seconds.
-
-    Returns:
-        The concatenated content string from the streamed response.
-    """
-    messages: List[ChatCompletionMessageParam] = []
-
-    if system_prompt:
-        messages.append(
-            {
-                "role": "system",
-                "content": system_prompt,
-            }
+    @classmethod
+    def from_params(
+        cls,
+        model: LLAMACPP_LLM_TYPES | None = None,
+        base_url: str | None = None,
+        api_key: str = "sk-1234",
+        max_retries: int = 3,
+        verbose: bool = True,
+        agent_name: str | None = None,
+        log_dir: str | None = None,
+        logger: CustomLogger | None = None,
+    ) -> "LLMContext":
+        """Factory that mirrors LlamacppLLM.__init__ behaviour."""
+        resolved_model = resolve_model_key(model or os.getenv("LLAMA_CPP_LLM_MODEL"))
+        sync_client = OpenAI(
+            base_url=base_url or os.getenv("LLAMA_CPP_LLM_URL"),
+            api_key=api_key,
+            max_retries=max_retries,
         )
-        if verbose:
-            logger.log("System prompt: ", system_prompt, colors=["PURPLE", "DEBUG"])
+        async_client = AsyncOpenAI(
+            base_url=base_url or os.getenv("LLAMA_CPP_LLM_URL"),
+            api_key=api_key,
+            max_retries=max_retries,
+        )
 
-    messages.append(
-        {
-            "role": "user",
-            "content": user_prompt,
-        }
-    )
-    if verbose:
-        logger.log("User prompt: ", user_prompt, colors=["GRAY", "DEBUG"])
+        _log_dir = log_dir or DEFAULT_LOG_DIR
+        if agent_name:
+            _log_dir = os.path.join(_log_dir, format_sub_dir(agent_name))
 
-    tracker = PerformanceTracker()
+        return cls(
+            model=resolved_model,
+            sync_client=sync_client,
+            async_client=async_client,
+            verbose=verbose,
+            logger=logger or CustomLogger(),
+            chat_logger=ChatLogger(_log_dir),
+        )
 
-    # Start from template, deep-merge caller's extra_body, then set enable_thinking
-    merged_extra_body: Dict[str, object] = dict(DEFAULT_EXTRA_BODY_TEMPLATE)
-    if extra_body:
-        _deep_merge(merged_extra_body, extra_body)
-    if isinstance(merged_extra_body.get("chat_template_kwargs"), dict):
-        merged_extra_body["chat_template_kwargs"]["enable_thinking"] = enable_thinking
 
-    create_kwargs: CompletionCreateParams = {
-        "model": DEFAULT_MODEL,
-        "messages": messages,
-        "frequency_penalty": frequency_penalty,
-        "logit_bias": logit_bias,
-        "logprobs": logprobs,
-        "max_tokens": max_tokens,
-        "n": n,
-        "presence_penalty": presence_penalty,
-        "seed": seed,
-        "stop": stop,
+# ---------------------------------------------------------------------------
+# Module-level lazy default context
+# ---------------------------------------------------------------------------
+
+_DEFAULT_CTX: LLMContext | None = None
+
+
+def get_default_context() -> LLMContext:
+    """Return a cached default LLMContext, creating it on first access."""
+    global _DEFAULT_CTX
+    if _DEFAULT_CTX is None:
+        _DEFAULT_CTX = LLMContext.from_params()
+    return _DEFAULT_CTX
+
+
+def set_default_context(ctx: LLMContext) -> None:
+    """Override the module-level default context."""
+    global _DEFAULT_CTX
+    _DEFAULT_CTX = ctx
+
+
+def reset_default_context() -> None:
+    """Reset the default context (next access will rebuild from env)."""
+    global _DEFAULT_CTX
+    _DEFAULT_CTX = None
+
+
+# ---------------------------------------------------------------------------
+# Helper builders
+# ---------------------------------------------------------------------------
+
+
+def _build_generation_params(
+    top_k: int | None = None,
+    enable_thinking: bool = False,
+) -> dict[str, Any]:
+    """Build the extra_body dict for llama.cpp-specific params."""
+    params: dict[str, Any] = {}
+    if top_k is not None:
+        params["top_k"] = top_k
+    params["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+    return params
+
+
+def _build_create_kwargs(
+    *,
+    model: str,
+    messages: list[ChatMessage] | None = None,
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    presence_penalty: float | None = None,
+    stream: bool = False,
+    stop: list[str] | None = None,
+    top_k: int | None = None,
+    enable_thinking: bool = False,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str = "auto",
+    extra_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assemble kwargs dict for OpenAI chat.completions.create."""
+    params = _build_generation_params(top_k, enable_thinking)
+
+    kwargs: dict[str, Any] = {
+        "model": model,
         "temperature": temperature,
-        "top_logprobs": top_logprobs,
-        "top_p": top_p,
         "stream": stream,
-        "stream_options": stream_options,
-        "tools": tools,
-        "tool_choice": tool_choice,
-        "parallel_tool_calls": parallel_tool_calls,
-        "response_format": response_format,
-        "extra_body": merged_extra_body,
-        "timeout": timeout,
+        "extra_body": params,
     }
+    if messages is not None:
+        kwargs["messages"] = messages
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    if top_p is not None:
+        kwargs["top_p"] = top_p
+    if presence_penalty is not None:
+        kwargs["presence_penalty"] = presence_penalty
+    if stop is not None:
+        kwargs["stop"] = stop
+    if tools is not None:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = tool_choice
+    if stream:
+        kwargs["stream_options"] = {"include_usage": True}
+    if extra_kwargs:
+        kwargs.update(extra_kwargs)
+    return kwargs
 
-    # Remove None values so OpenAI client uses its own defaults
-    create_kwargs = {k: v for k, v in create_kwargs.items() if v is not None}
 
-    logger.debug(
-        f"Calling chat.completions.create with keys: {list(create_kwargs.keys())}"
+# ---------------------------------------------------------------------------
+# Sync functions
+# ---------------------------------------------------------------------------
+
+
+def chat(
+    messages: list[ChatMessage],
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    presence_penalty: float | None = None,
+    top_k: int | None = None,
+    stream: bool = False,
+    stop: list[str] | None = None,
+    enable_thinking: bool = False,
+    *,
+    ctx: LLMContext | None = None,
+) -> str | Iterator[str]:
+    """Generate chat response (non-streaming or streaming)."""
+    if ctx is None:
+        ctx = get_default_context()
+
+    kwargs = _build_create_kwargs(
+        model=ctx.model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p,
+        presence_penalty=presence_penalty,
+        stream=stream,
+        stop=stop,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
     )
 
-    stream_response: Stream[ChatCompletionChunk] = client.chat.completions.create(
-        **create_kwargs
-    )
+    response = ctx.sync_client.chat.completions.create(**kwargs)
 
-    content = ""
-    for part in stream_response:
-        if part.choices and part.choices[0].delta:
-            delta = part.choices[0].delta
-            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                content += delta.reasoning_content
-                tracker.mark_token()
-                if verbose:
-                    logger.orange(delta.reasoning_content, flush=True, end="")
-            elif hasattr(delta, "content") and delta.content:
-                content += delta.content
-                tracker.mark_token()
-                if verbose:
-                    logger.teal(delta.content, flush=True, end="")
+    if stream:
 
-        usage = getattr(part, "usage", None)
-        if usage is not None:
-            metrics = tracker.finalize(
-                prompt_tokens=usage.prompt_tokens,
-                completion_tokens=usage.completion_tokens,
-                total_tokens=usage.total_tokens,
+        def stream_generator() -> Iterator[str]:
+            response_text = ""
+            for chunk in response:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                # reasoning_content (thinking tokens) first
+                if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                    content: str = delta.reasoning_content
+                    if ctx.verbose:
+                        ctx.logger.orange(content, flush=True, end="")
+                    yield content
+                    response_text += content
+                elif hasattr(delta, "content") and delta.content:
+                    content: str = delta.content
+                    if ctx.verbose:
+                        ctx.logger.teal(content, flush=True, end="")
+                    yield content
+                    response_text += content
+
+            ctx.chat_logger.log_interaction(
+                messages=messages,
+                response=response_text,
+                model=ctx.model,
+                method="stream_chat",
             )
-            logger.debug(f"\nUsage received: {metrics}")
-            if verbose:
-                log_metrics(metrics)
 
-    logger.debug(f"Stream complete. Total content length: {len(content)} chars")
+        return stream_generator()
+
+    content = response.choices[0].message.content
+    if ctx.verbose:
+        ctx.logger.teal(content)
+
+    ctx.chat_logger.log_interaction(
+        messages=messages,
+        response=content,
+        model=ctx.model,
+        method="chat",
+    )
     return content
 
 
+def generate(
+    prompt: str,
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
+    stream: bool = False,
+    *,
+    ctx: LLMContext | None = None,
+) -> str | Iterator[str]:
+    """Generate text completion from prompt."""
+    if ctx is None:
+        ctx = get_default_context()
+
+    response = ctx.sync_client.completions.create(
+        model=ctx.model,
+        prompt=prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=stream,
+    )
+
+    if stream:
+
+        def stream_generator() -> Iterator[str]:
+            response_text = ""
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].text is not None:
+                    content = chunk.choices[0].text
+                    if ctx.verbose:
+                        ctx.logger.teal(content, flush=True)
+                    yield content
+                    response_text += content
+            ctx.chat_logger.log_interaction(
+                messages=prompt,
+                response=response_text,
+                model=ctx.model,
+                method="stream_generate",
+            )
+
+        return stream_generator()
+
+    content = response.choices[0].text
+    if ctx.verbose:
+        ctx.logger.teal(content)
+
+    ctx.chat_logger.log_interaction(
+        messages=prompt,
+        response=content,
+        model=ctx.model,
+        method="generate",
+    )
+    return content
+
+
+def chat_with_tools(
+    messages: list[ChatMessage],
+    tools: list[dict[str, Any]],
+    available_functions: dict[str, Callable[..., Any]],
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    presence_penalty: float | None = None,
+    top_k: int | None = None,
+    stream: bool = False,
+    enable_thinking: bool = False,
+    *,
+    ctx: LLMContext | None = None,
+    **kwargs: Any,
+) -> str | Iterator[str]:
+    """
+    Execute tool-calling loop with optional streaming.
+    When stream=True, yields partial updates including tool calls and final response.
+    """
+    if ctx is None:
+        ctx = get_default_context()
+
+    tool_choice = kwargs.pop("tool_choice", "auto")
+    create_kwargs = _build_create_kwargs(
+        model=ctx.model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p,
+        presence_penalty=presence_penalty,
+        stream=stream,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
+        tools=tools,
+        tool_choice=tool_choice,
+        extra_kwargs=kwargs,
+    )
+
+    # --- Non-streaming path ---
+    if not stream:
+        response = ctx.sync_client.chat.completions.create(**create_kwargs)
+        message = response.choices[0].message
+        tool_calls: list[ToolCall] = getattr(message, "tool_calls", []) or []
+
+        if not tool_calls:
+            content = message.content or ""
+            if ctx.verbose:
+                ctx.logger.teal(content)
+            ctx.chat_logger.log_interaction(
+                **{**create_kwargs, "response": content, "method": "chat"}
+            )
+            return content
+
+        updated_messages: list[ChatMessage] = list(messages)
+        assistant_msg: ChatMessage = {
+            "role": "assistant",
+            "content": message.content or "",
+        }
+        if tool_calls:
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in tool_calls
+            ]
+        updated_messages.append(assistant_msg)
+
+        for tool_call in tool_calls:
+            func_name = tool_call.function.name
+            if ctx.verbose:
+                ctx.logger.info(f"[TOOL EXEC] {func_name}")
+            func = available_functions.get(func_name)
+            if not func:
+                ctx.logger.warning(f"Tool '{func_name}' not found. Skipping.")
+                continue
+            args = json.loads(tool_call.function.arguments)
+            result = func(**args)
+            if ctx.verbose:
+                ctx.logger.debug(f"[TOOL OUT] {result}")
+            updated_messages.append(
+                {
+                    "role": "tool",
+                    "content": str(result),
+                    "tool_call_id": tool_call.id,
+                }
+            )
+
+        final_kwargs = {
+            k: v
+            for k, v in create_kwargs.items()
+            if k not in ("messages", "tools", "tool_choice")
+        }
+        final_kwargs["messages"] = updated_messages
+        final_kwargs["stream"] = False
+        final_response = ctx.sync_client.chat.completions.create(**final_kwargs)
+        final_content = final_response.choices[0].message.content
+
+        if ctx.verbose:
+            ctx.logger.teal(final_content)
+        ctx.chat_logger.log_interaction(
+            **{**create_kwargs, "response": final_content, "method": "chat"}
+        )
+        return final_content
+
+    # --- Streaming path ---
+    def stream_generator() -> Iterator[str]:
+        response_text = ""
+        updated_messages: list[ChatMessage] = list(messages)
+        response = ctx.sync_client.chat.completions.create(**create_kwargs)
+        message_content = ""
+        tool_calls: list[ToolCall] = []
+
+        for chunk in response:
+            if not chunk.choices or not chunk.choices[0].delta:
+                continue
+            delta = chunk.choices[0].delta
+            if delta.content is not None:
+                message_content += delta.content
+                response_text += delta.content
+                if ctx.verbose:
+                    ctx.logger.teal(delta.content, flush=True)
+                yield delta.content
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    while len(tool_calls) <= idx:
+                        tool_calls.append(
+                            {
+                                "id": "",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        )
+                    tc = tool_calls[idx]
+                    if tc_delta.id:
+                        tc["id"] = tc_delta.id
+                    if tc_delta.function and tc_delta.function.name:
+                        tc["function"]["name"] += tc_delta.function.name
+                    if tc_delta.function and tc_delta.function.arguments:
+                        tc["function"]["arguments"] += tc_delta.function.arguments
+
+        if tool_calls:
+            assistant_msg: ChatMessage = {
+                "role": "assistant",
+                "content": message_content or None,
+                "tool_calls": tool_calls,
+            }
+            updated_messages.append(assistant_msg)
+
+            for tool_call in tool_calls:
+                func_name = tool_call["function"]["name"]
+                if ctx.verbose:
+                    ctx.logger.info(f"[TOOL EXEC] {func_name}")
+                func = available_functions.get(func_name)
+                if not func:
+                    ctx.logger.warning(f"Tool '{func_name}' not found. Skipping.")
+                    continue
+                args = json.loads(tool_call["function"]["arguments"])
+                result = func(**args)
+                if ctx.verbose:
+                    ctx.logger.debug(f"[TOOL OUT] {result}")
+                updated_messages.append(
+                    {
+                        "role": "tool",
+                        "content": str(result),
+                        "tool_call_id": tool_call["id"],
+                    }
+                )
+
+        final_kwargs = {
+            k: v
+            for k, v in create_kwargs.items()
+            if k not in ("messages", "tools", "tool_choice")
+        }
+        final_kwargs["messages"] = updated_messages
+        final_kwargs["stream"] = True
+        final_response = ctx.sync_client.chat.completions.create(**final_kwargs)
+        final_content = ""
+
+        for chunk in final_response:
+            if chunk.choices and chunk.choices[0].delta.content is not None:
+                content = chunk.choices[0].delta.content
+                final_content += content
+                if ctx.verbose:
+                    ctx.logger.teal(content, flush=True)
+                yield content
+
+        ctx.chat_logger.log_interaction(
+            **{**create_kwargs, "response": final_content, "method": "stream_chat"}
+        )
+
+    return stream_generator()
+
+
+def chat_structured(
+    messages: list[ChatMessage],
+    response_model: type[BaseModel],
+    temperature: float = 0.0,
+    *,
+    ctx: LLMContext | None = None,
+) -> BaseModel:
+    """Generate structured JSON output using a Pydantic model."""
+    if ctx is None:
+        ctx = get_default_context()
+
+    schema = response_model.model_json_schema()
+    response = ctx.sync_client.chat.completions.create(
+        model=ctx.model,
+        messages=messages,
+        response_format={"type": "json_object", "schema": schema},
+        temperature=temperature,
+    )
+
+    raw_json = response.choices[0].message.content or ""
+    if ctx.verbose:
+        ctx.logger.teal(raw_json)
+
+    ctx.chat_logger.log_interaction(
+        messages=messages,
+        response=raw_json,
+        model=ctx.model,
+        response_format={"type": "json_object", "schema": schema},
+        method="chat",
+        temperature=temperature,
+    )
+    return response_model.model_validate_json(raw_json)
+
+
+def chat_structured_stream(
+    messages: list[ChatMessage],
+    response_model: Any,
+    temperature: float = 0.0,
+    *,
+    ctx: LLMContext | None = None,
+) -> Iterator[Any]:
+    """
+    Stream structured output with NO duplicates.
+    - Single object → yields once
+    - List[T] → yields only NEW items as they complete
+    """
+    if ctx is None:
+        ctx = get_default_context()
+
+    if hasattr(response_model, "model_json_schema"):
+        schema = response_model.model_json_schema()
+        validate_fn = response_model.model_validate_json
+        is_list = False
+    else:
+        schema = response_model.json_schema()
+        validate_fn = response_model.validate_json
+        is_list = True
+
+    response = ctx.sync_client.chat.completions.create(
+        model=ctx.model,
+        messages=messages,
+        response_format={"type": "json_object", "schema": schema},
+        temperature=temperature,
+        stream=True,
+    )
+
+    buffer = ""
+    seen_items: list[Any] = []
+
+    for chunk in response:
+        if not chunk.choices or chunk.choices[0].delta.content is None:
+            continue
+        content: str = chunk.choices[0].delta.content
+        if ctx.verbose:
+            ctx.logger.teal(content, flush=True)
+        buffer += content
+        stripped = buffer.strip()
+        if not (stripped.startswith("{") or stripped.startswith("[")):
+            continue
+        try:
+            parsed = validate_fn(stripped)
+            if not is_list:
+                seen_items.append(parsed)
+                yield parsed
+                buffer = ""
+                continue
+            new_items = parsed[len(seen_items) :]
+            for item in new_items:
+                seen_items.append(item)
+                yield item
+        except Exception:
+            pass
+
+    if buffer.strip():
+        try:
+            final_parsed = validate_fn(buffer.strip())
+            if not is_list:
+                if final_parsed not in seen_items:
+                    seen_items.append(final_parsed)
+                    yield final_parsed
+            else:
+                new_items = final_parsed[len(seen_items) :]
+                for item in new_items:
+                    seen_items.append(item)
+                    yield item
+        except Exception as e:
+            if ctx.verbose:
+                ctx.logger.warning(f"Final parse failed: {e}")
+
+    ctx.chat_logger.log_interaction(
+        messages=messages,
+        response=seen_items if is_list else (seen_items[0] if seen_items else None),
+        model=ctx.model,
+        method="stream_chat",
+        temperature=temperature,
+        response_format={"type": "json_object", "schema": schema},
+    )
+
+
 # ---------------------------------------------------------------------------
-# CLI entry point
+# Async functions
+# ---------------------------------------------------------------------------
+
+
+async def achat(
+    messages: list[ChatMessage],
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    presence_penalty: float | None = None,
+    top_k: int | None = None,
+    stream: bool = False,
+    stop: list[str] | None = None,
+    enable_thinking: bool = False,
+    *,
+    ctx: LLMContext | None = None,
+) -> str | AsyncIterator[str]:
+    """Async chat completion (non-streaming or streaming)."""
+    if ctx is None:
+        ctx = get_default_context()
+
+    params = _build_generation_params(top_k, enable_thinking)
+    response = await ctx.async_client.chat.completions.create(
+        model=ctx.model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p,
+        stream=stream,
+        stop=stop,
+        extra_body=params,
+    )
+
+    if stream:
+
+        async def stream_generator() -> AsyncIterator[str]:
+            response_text = ""
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content is not None:
+                    content: str = chunk.choices[0].delta.content
+                    if ctx.verbose:
+                        ctx.logger.teal(content, flush=True)
+                    yield content
+                    response_text += content
+            ctx.chat_logger.log_interaction(
+                messages=messages,
+                response=response_text,
+                model=ctx.model,
+                method="stream_chat",
+            )
+
+        return stream_generator()
+
+    content = response.choices[0].message.content
+    if ctx.verbose:
+        ctx.logger.teal(content)
+    return content
+
+
+async def agenerate(
+    prompt: str,
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
+    stream: bool = False,
+    *,
+    ctx: LLMContext | None = None,
+) -> str | AsyncIterator[str]:
+    """Async text completion (non-streaming or streaming)."""
+    if ctx is None:
+        ctx = get_default_context()
+
+    response = await ctx.async_client.completions.create(
+        model=ctx.model,
+        prompt=prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=stream,
+    )
+
+    if stream:
+
+        async def stream_generator() -> AsyncIterator[str]:
+            response_text = ""
+            async for chunk in response:
+                if chunk.choices and chunk.choices[0].text is not None:
+                    content: str = chunk.choices[0].text
+                    if ctx.verbose:
+                        ctx.logger.teal(content, flush=True)
+                    yield content
+                    response_text += content
+            ctx.chat_logger.log_interaction(
+                messages=prompt,
+                response=response_text,
+                model=ctx.model,
+                method="stream_generate",
+            )
+
+        return stream_generator()
+
+    content = response.choices[0].text
+    if ctx.verbose:
+        ctx.logger.teal(content)
+    return content
+
+
+async def achat_with_tools(
+    messages: list[ChatMessage],
+    tools: list[dict[str, Any]],
+    available_functions: dict[str, Callable[..., Any]],
+    temperature: float = 0.0,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    presence_penalty: float | None = None,
+    top_k: int | None = None,
+    stream: bool = False,
+    enable_thinking: bool = False,
+    *,
+    ctx: LLMContext | None = None,
+    **kwargs: Any,
+) -> str | AsyncIterator[str]:
+    """Async tool-calling loop with optional streaming."""
+    if ctx is None:
+        ctx = get_default_context()
+
+    tool_choice = kwargs.pop("tool_choice", "auto")
+    create_kwargs = _build_create_kwargs(
+        model=ctx.model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        top_p=top_p,
+        presence_penalty=presence_penalty,
+        stream=stream,
+        top_k=top_k,
+        enable_thinking=enable_thinking,
+        tools=tools,
+        tool_choice=tool_choice,
+        extra_kwargs=kwargs,
+    )
+
+    # --- Non-streaming ---
+    if not stream:
+        response = await ctx.async_client.chat.completions.create(**create_kwargs)
+        message = response.choices[0].message
+        tool_calls: list[ToolCall] = getattr(message, "tool_calls", []) or []
+
+        if not tool_calls:
+            content = message.content or ""
+            if ctx.verbose:
+                ctx.logger.teal(content)
+            return content
+
+        updated_messages = list(messages)
+        assistant_msg: ChatMessage = {
+            "role": "assistant",
+            "content": message.content or "",
+        }
+        updated_messages.append(assistant_msg)
+
+        for tool_call in tool_calls:
+            func_name = tool_call.function.name
+            if func := available_functions.get(func_name):
+                args = json.loads(tool_call.function.arguments)
+                result = func(**args)
+                updated_messages.append(
+                    {
+                        "role": "tool",
+                        "content": json.dumps({"result": result}),
+                        "tool_call_id": tool_call.id,
+                    }
+                )
+
+        final_response = await ctx.async_client.chat.completions.create(
+            model=ctx.model,
+            messages=updated_messages,
+            temperature=temperature,
+        )
+        final_content = final_response.choices[0].message.content or ""
+        if ctx.verbose:
+            ctx.logger.teal(final_content)
+        return final_content
+
+    # --- Streaming ---
+    async def stream_generator() -> AsyncIterator[str]:
+        response_text = ""
+        response = await ctx.async_client.chat.completions.create(**create_kwargs)
+        message_content = ""
+        tool_calls: list[ToolCall] = []
+
+        async for chunk in response:
+            if chunk.choices and chunk.choices[0].delta:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    message_content += delta.content
+                    if ctx.verbose:
+                        ctx.logger.teal(delta.content, flush=True)
+                    yield delta.content
+                    response_text += delta.content
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        while len(tool_calls) <= idx:
+                            tool_calls.append(
+                                {
+                                    "id": "",
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""},
+                                }
+                            )
+                        tc = tool_calls[idx]
+                        if tc_delta.id:
+                            tc["id"] = tc_delta.id
+                        if tc_delta.function.name:
+                            tc["function"]["name"] += tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tc["function"]["arguments"] += tc_delta.function.arguments
+
+        if not tool_calls:
+            ctx.chat_logger.log_interaction(
+                messages=messages,
+                response=response_text,
+                model=ctx.model,
+                method="stream_chat",
+            )
+            return
+
+        assistant_msg: ChatMessage = {
+            "role": "assistant",
+            "content": message_content,
+            "tool_calls": tool_calls,
+        }
+        updated_messages = list(messages)
+        updated_messages.append(assistant_msg)
+
+        for tool_call in tool_calls:
+            func_name = tool_call["function"]["name"]
+            yield f"\n[TOOL CALL] {func_name}\n"
+            response_text += f"\n[TOOL CALL] {func_name}\n"
+
+            func = available_functions.get(func_name)
+            if not func:
+                result_str = json.dumps({"error": f"Tool {func_name} not found"})
+            else:
+                try:
+                    args = json.loads(tool_call["function"]["arguments"])
+                    result = func(**args)
+                    result_str = json.dumps({"result": result}, ensure_ascii=False)
+                except Exception as e:
+                    result_str = json.dumps({"error": str(e)})
+
+            yield f"[TOOL RESULT] {result_str}\n"
+            response_text += f"[TOOL RESULT] {result_str}\n"
+            updated_messages.append(
+                {
+                    "role": "tool",
+                    "content": result_str,
+                    "tool_call_id": tool_call["id"],
+                }
+            )
+
+        final_create_kwargs = {
+            k: v
+            for k, v in create_kwargs.items()
+            if k not in ("messages", "tools", "tool_choice")
+        }
+        final_create_kwargs["messages"] = updated_messages
+        final_create_kwargs["stream"] = True
+        final_response = await ctx.async_client.chat.completions.create(
+            **final_create_kwargs
+        )
+
+        final_content = ""
+        async for chunk in final_response:
+            if chunk.choices and chunk.choices[0].delta.content is not None:
+                content = chunk.choices[0].delta.content
+                final_content += content
+                response_text += content
+                if ctx.verbose:
+                    ctx.logger.teal(content, flush=True)
+                yield content
+
+        ctx.chat_logger.log_interaction(
+            messages=messages,
+            response=response_text,
+            model=ctx.model,
+            method="stream_chat",
+        )
+
+    return stream_generator()
+
+
+async def achat_structured(
+    messages: list[ChatMessage],
+    response_model: type[BaseModel],
+    temperature: float = 0.0,
+    *,
+    ctx: LLMContext | None = None,
+) -> BaseModel:
+    """Async structured JSON output using Pydantic model."""
+    if ctx is None:
+        ctx = get_default_context()
+
+    schema = response_model.model_json_schema()
+    response = await ctx.async_client.chat.completions.create(
+        model=ctx.model,
+        messages=messages,
+        response_format={"type": "json_object", "schema": schema},
+        temperature=temperature,
+    )
+
+    raw_json = response.choices[0].message.content or ""
+    if ctx.verbose:
+        ctx.logger.teal(raw_json)
+
+    ctx.chat_logger.log_interaction(
+        messages=messages,
+        response=raw_json,
+        model=ctx.model,
+        response_format={"type": "json_object", "schema": schema},
+        method="chat",
+        temperature=temperature,
+    )
+    return response_model.model_validate_json(raw_json)
+
+
+async def achat_structured_stream(
+    messages: list[ChatMessage],
+    response_model: Any,
+    temperature: float = 0.0,
+    *,
+    ctx: LLMContext | None = None,
+) -> AsyncIterator[Any]:
+    """
+    Async structured streaming output with NO duplicates.
+    - Single object → yields once when complete
+    - List[T] → yields only NEW items as they become valid
+    """
+    if ctx is None:
+        ctx = get_default_context()
+
+    if hasattr(response_model, "model_json_schema"):
+        schema = response_model.model_json_schema()
+        validate_fn = response_model.model_validate_json
+        is_list = False
+    else:
+        schema = response_model.json_schema()
+        validate_fn = response_model.validate_json
+        is_list = True
+
+    response = await ctx.async_client.chat.completions.create(
+        model=ctx.model,
+        messages=messages,
+        response_format={"type": "json_object", "schema": schema},
+        temperature=temperature,
+        stream=True,
+    )
+
+    buffer = ""
+    seen_items: list[Any] = []
+    try:
+        async for chunk in response:
+            if not chunk.choices or chunk.choices[0].delta.content is None:
+                continue
+            content: str = chunk.choices[0].delta.content
+            if ctx.verbose:
+                ctx.logger.teal(content, flush=True)
+            buffer += content
+            stripped = buffer.strip()
+            if not (stripped.startswith("{") or stripped.startswith("[")):
+                continue
+            try:
+                parsed = validate_fn(stripped)
+                if not is_list:
+                    seen_items.append(parsed)
+                    yield parsed
+                    buffer = ""
+                    continue
+                new_items = parsed[len(seen_items) :]
+                for item in new_items:
+                    seen_items.append(item)
+                    yield item
+            except Exception:
+                pass
+
+        if buffer.strip():
+            try:
+                final_parsed = validate_fn(buffer.strip())
+                if not is_list:
+                    if final_parsed not in seen_items:
+                        seen_items.append(final_parsed)
+                        yield final_parsed
+                else:
+                    new_items = final_parsed[len(seen_items) :]
+                    for item in new_items:
+                        seen_items.append(item)
+                        yield item
+            except Exception as e:
+                if ctx.verbose:
+                    ctx.logger.warning(f"Final parse failed: {e}")
+    finally:
+        ctx.chat_logger.log_interaction(
+            messages=messages,
+            response=seen_items if is_list else (seen_items[0] if seen_items else None),
+            model=ctx.model,
+            method="stream_chat",
+            temperature=temperature,
+            response_format={"type": "json_object", "schema": schema},
+        )
+
+
+# ---------------------------------------------------------------------------
+# Demo
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse
+
+    from jet.adapters.llama_cpp.llm_utils import ChatMessage, chat
+
     parser = argparse.ArgumentParser(
-        description="Stream chat completion from llama.cpp OpenAI API-compatible endpoint"
+        description="Stream chat completion using standalone llm_utils functions"
     )
     parser.add_argument(
         "prompt",
@@ -249,8 +1049,17 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    user_prompt = args.prompt
-    system_prompt = args.system
-    verbose = True
+    messages: list[ChatMessage] = [
+        {"role": "system", "content": args.system},
+        {"role": "user", "content": args.prompt},
+    ]
 
-    chat_stream(user_prompt, system_prompt, verbose=verbose)
+    print(f"System: {args.system}")
+    print(f"User: {args.prompt}")
+    print("Assistant: ", end="", flush=True)
+
+    # No context needed — uses environment variables automatically
+    stream_response = chat(messages=messages, stream=True)
+    for token in stream_response:
+        pass
+    print()
