@@ -521,9 +521,11 @@ class OpenAIModel(ApiModel):
         flatten_messages_as_text: bool = False,
         agent_name: str | None = None,  # ← accept here too
         enable_thinking: bool = False,
+        seed: int | None = None,
         **kwargs,
     ):
         self.enable_thinking = enable_thinking
+        self.seed = seed
         self.client_kwargs = {
             **(client_kwargs or {}),
             "api_key": api_key,
@@ -576,30 +578,9 @@ class OpenAIModel(ApiModel):
             live_print=True,
         )
 
-        # ========== DEBUG LOGS START ==========
-        logger.warning(f"[DEBUG generate] content repr: {repr(content)}")
-        logger.warning(f"[DEBUG generate] content type: {type(content)}")
-        logger.warning(
-            f"[DEBUG generate] content length: {len(content) if content else 0}"
-        )
-        logger.warning(f"[DEBUG generate] tool_call_parts: {tool_call_parts}")
-        logger.warning(f"[DEBUG generate] usage: {usage}")
-        logger.warning(f"[DEBUG generate] len(deltas): {len(deltas)}")
-        if deltas:
-            logger.warning(f"[DEBUG generate] first delta: {deltas[0]}")
-            logger.warning(f"[DEBUG generate] last delta: {deltas[-1]}")
-        # ========== DEBUG LOGS END ==========
-
         message = self._build_final_message(
             content, tool_call_parts, usage, stop_sequences
         )
-
-        # ========== DEBUG LOGS START ==========
-        logger.warning(
-            f"[DEBUG generate] message.content repr: {repr(message.content)}"
-        )
-        logger.warning(f"[DEBUG generate] message.role: {message.role}")
-        # ========== DEBUG LOGS END ==========
 
         self._save_stream_log(call_num, deltas, usage)
         return message
@@ -666,6 +647,9 @@ class OpenAIModel(ApiModel):
         completion_kwargs["extra_body"]["chat_template_kwargs"]["enable_thinking"] = (
             self.enable_thinking
         )
+        # Inject seed for reproducible outputs (OpenAI-compatible)
+        if self.seed is not None:
+            completion_kwargs["seed"] = self.seed
 
         call_num = None
         input_tokens = None
@@ -737,22 +721,6 @@ class OpenAIModel(ApiModel):
 
         for chunk in stream:
             chunk_count += 1
-
-            # ========== DEBUG LOGS START (only first 3 chunks) ==========
-            if chunk_count <= 3:
-                logger.warning(f"[DEBUG stream] === CHUNK #{chunk_count} ===")
-                if chunk.choices:
-                    choice = chunk.choices[0]
-                    delta = choice.delta
-                    if delta is not None:
-                        # Check for reasoning_content (not in __dict__ keys for some reason)
-                        reasoning = getattr(delta, "reasoning_content", None)
-                        logger.warning(f"  delta.content: {repr(delta.content)}")
-                        logger.warning(f"  delta.reasoning_content: {repr(reasoning)}")
-                        logger.warning(
-                            f"  delta.role: {repr(getattr(delta, 'role', None))}"
-                        )
-            # ========== DEBUG LOGS END ==========
 
             if chunk.usage:
                 final_usage = chunk.usage
@@ -839,13 +807,6 @@ class OpenAIModel(ApiModel):
                 output_tokens=final_usage.completion_tokens,
             )
 
-        # ========== DEBUG LOGS START ==========
-        logger.warning(f"[DEBUG stream] === STREAM END ===")
-        logger.warning(f"  Total chunks: {chunk_count}")
-        logger.warning(f"  accumulated_content length: {len(accumulated_content)}")
-        logger.warning(f"  accumulated_content repr: {repr(accumulated_content[:500])}")
-        # ========== DEBUG LOGS END ==========
-
         return accumulated_content, tool_call_parts, usage, deltas
 
     def _build_final_message(
@@ -855,16 +816,6 @@ class OpenAIModel(ApiModel):
         usage: TokenUsage | None,
         stop_sequences: list[str] | None = None,
     ) -> ChatMessage:
-        # ========== DEBUG LOGS START ==========
-        logger.warning(
-            f"[DEBUG _build_final_message] input content repr: {repr(content)}"
-        )
-        logger.warning(
-            f"[DEBUG _build_final_message] input content type: {type(content)}"
-        )
-        logger.warning(f"[DEBUG _build_final_message] stop_sequences: {stop_sequences}")
-        # ========== DEBUG LOGS END ==========
-
         if stop_sequences and not self.supports_stop_parameter:
             content = remove_content_after_stop_sequences(content, stop_sequences)
 
@@ -883,13 +834,6 @@ class OpenAIModel(ApiModel):
                         ),
                     )
                 )
-
-        # ========== DEBUG LOGS START ==========
-        logger.warning(f"[DEBUG _build_final_message] final content: {repr(content)}")
-        logger.warning(
-            f"[DEBUG _build_final_message] content or None: {repr(content or None)}"
-        )
-        # ========== DEBUG LOGS END ==========
 
         return ChatMessage(
             role=MessageRole.ASSISTANT,

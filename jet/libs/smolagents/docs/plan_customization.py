@@ -10,7 +10,10 @@ from jet.adapters.smolagents.factory import create_code_agent, create_llm_model
 from smolagents import (
     CodeAgent,
     DuckDuckGoSearchTool,
+    FinalAnswerStep,
     PlanningStep,
+    SystemPromptStep,
+    TaskStep,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -24,7 +27,7 @@ def create_plan_interrupt_callback(
 ) -> Callable:
     """
     Factory that returns a step callback for PlanningStep.
-    Pauses execution, shows the plan (line by line), lets user approve/edit/cancel.
+    Pauses execution, shows the plan, lets user approve/edit/cancel.
     """
 
     def interrupt_after_plan(step: PlanningStep, agent: CodeAgent) -> None:
@@ -43,18 +46,12 @@ def create_plan_interrupt_callback(
         print("\nProposed plan:")
         print("-" * 60)
 
-        # Fix 1: split into lines instead of characters
         plan_lines = step.plan.splitlines()
         if not plan_lines:
             print("  (empty plan)")
         else:
-            for i, line in enumerate(plan_lines, 1):
-                # Optional: skip completely empty lines or show as-is
-                stripped = line.strip()
-                if stripped:
-                    print(f"{i:2d}. {stripped}")
-                else:
-                    print(f"{i:2d}. (empty line)")
+            for line in plan_lines:
+                print(line)
 
         print("-" * 60)
 
@@ -75,13 +72,12 @@ def create_plan_interrupt_callback(
                 print("End input with empty line + Enter.\n")
                 new_plan_lines = []
                 while True:
-                    line = input("> ").rstrip()  # preserve indentation if any
-                    if not line.strip():  # empty or whitespace-only line ends input
+                    line = input("> ").rstrip()
+                    if not line.strip():
                         break
                     new_plan_lines.append(line)
 
                 if new_plan_lines:
-                    # Fix 2: join back to single string (preserve newlines)
                     step.plan = "\n".join(new_plan_lines).strip()
                     print("\n→ Plan updated.")
                 else:
@@ -244,10 +240,26 @@ def demo_hitl_4_inspect_memory():
         print("\nLast 3 steps:")
         for step in agent.memory.steps[-3:]:
             step_type = type(step).__name__
-            if hasattr(step, "plan"):
+            if isinstance(step, PlanningStep):
                 print(f"  {step_type} – plan length: {len(step.plan)}")
-            elif hasattr(step, "action"):
-                print(f"  {step_type} – action: {step.action[:70]}...")
+            elif isinstance(step, ActionStep):
+                if step.code_action:
+                    action_preview = str(step.code_action)[:70]
+                    print(f"  {step_type} – code: {action_preview}...")
+                elif step.model_output:
+                    output_preview = str(step.model_output)[:70]
+                    print(f"  {step_type} – output: {output_preview}...")
+                else:
+                    print(f"  {step_type}")
+            elif isinstance(step, TaskStep):
+                task_preview = step.task[:70]
+                print(f"  {step_type} – task: {task_preview}...")
+            elif isinstance(step, SystemPromptStep):
+                prompt_preview = step.system_prompt[:70]
+                print(f"  {step_type} – prompt: {prompt_preview}...")
+            elif isinstance(step, FinalAnswerStep):
+                output_preview = str(step.output)[:70]
+                print(f"  {step_type} – output: {output_preview}...")
             else:
                 print(f"  {step_type}")
 
