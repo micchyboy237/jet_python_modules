@@ -20,7 +20,7 @@ def create_llm_model(
     agent_name: str | None = None,
     logs_dir: str | Path | None = None,
     enable_thinking: bool = False,
-    seed: int | None = None,
+    seed: int | None = 42,
 ) -> OpenAIModel:
     """Factory for creating consistently configured local llama.cpp model."""
     return OpenAIModel(

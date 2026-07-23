@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from jet.adapters.smolagents.factory import create_code_agent, create_llm_model
 from smolagents import (
+    ActionStep,
     CodeAgent,
     DuckDuckGoSearchTool,
     FinalAnswerStep,
