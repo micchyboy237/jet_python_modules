@@ -18,6 +18,7 @@ from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS, SearchResultType
 from jet.adapters.llama_cpp.vector_search import VectorSearch
 from jet.logger import CustomLogger
 from rank_bm25 import BM25Okapi
+from jet.adapters.llama_cpp.config import EMBED_BASE_URL, EMBED_MODEL
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Category configuration (flexible & reusable)
@@ -198,7 +199,7 @@ class HybridSearch:
 
     documents: list[str]
     ids: list[str] | None = None
-    embedding_model: LlamacppEmbedding | str = "nomic-embed-text"
+    embedding_model: LlamacppEmbedding | str = EMBED_MODEL
     bm25: BM25Okapi | None = None
     vector_search: VectorSearch | None = None
 
@@ -234,7 +235,7 @@ class HybridSearch:
         cls,
         documents: list[str],
         ids: list[str] | None = None,
-        model: LLAMACPP_EMBED_KEYS | LlamacppEmbedding = "nomic-embed-text",
+        model: LLAMACPP_EMBED_KEYS | LlamacppEmbedding = EMBED_MODEL,
         **kwargs: Any,
     ) -> "HybridSearch":
         if ids is not None and len(ids) != len(documents):
@@ -410,7 +411,7 @@ if __name__ == "__main__":
     OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
-    model: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
+    model: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 
     # docs_data = [
     #     {
