@@ -329,13 +329,28 @@ class SafeMem0Memory(Mem0Memory):
             preserved (if any existed already in primary_memory), plus
             memory context folded into the trailing USER message.
         """
+        import time
+
+        t0 = time.time()
+        logger.info("[SafeMem0Memory.get] fetching primary_memory history...")
         messages = self.primary_memory.get(input=input, **kwargs)
+        logger.info(
+            f"[SafeMem0Memory.get] primary_memory.get done in {time.time() - t0:.2f}s "
+            f"({len(messages)} messages)"
+        )
 
         search_input = convert_messages_to_string(
             messages, input, limit=self.search_msg_limit
         )
         flt = self.context.build_filter()
+
+        t1 = time.time()
+        logger.info(f"[SafeMem0Memory.get] calling mem0 search(filters={flt})...")
         result = self.search(query=search_input, filters=flt)
+        logger.info(
+            f"[SafeMem0Memory.get] mem0 search() done in {time.time() - t1:.2f}s "
+            f"(first call may take longer — lazy model loads)"
+        )
         search_results = result.get("results", [])
 
         logger.info(
