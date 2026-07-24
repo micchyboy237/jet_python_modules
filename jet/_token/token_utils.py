@@ -1044,9 +1044,7 @@ def get_model_by_max_predict(
     )
 
 
-def get_last_n_tokens_and_decode(
-    text: str, tokenizer: AutoTokenizer, n: int = 10
-) -> str:
+def get_last_n_tokens_and_decode(text: str, n: int = 10) -> str:
     """
     Encodes text into tokens, extracts the last n tokens, and decodes them back to text.
 

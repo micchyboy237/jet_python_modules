@@ -2,12 +2,18 @@ import re
 import uuid
 from typing import TypedDict
 
+from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
+
 # from jet.vectors.document_types import HeaderDocument, HeaderMetadata
-from jet._token.token_utils import (
-    get_last_n_tokens_and_decode,
-    get_model_max_tokens,
-    get_tokenizer,
-    get_tokenizer_fn,
+# from jet._token.token_utils import (
+#     get_last_n_tokens_and_decode,
+#     get_model_max_tokens,
+#     get_tokenizer,
+#     get_tokenizer_fn,
+# )
+from jet.adapters.llama_cpp.token_utils import (
+    detokenize,
+    tokenize,
 )
 from jet.logger import logger
 from jet.wordnet.sentence import (
@@ -20,6 +26,79 @@ from jet.wordnet.utils import sliding_window
 from jet.wordnet.words import get_words
 from nltk.tokenize import sent_tokenize
 from tqdm import tqdm
+
+# ---- Helpers replacing deprecated jet._token.token_utils functions ----
+
+
+def _tokenize_for_size(text, model: str | None = None):
+    """Tokenize and return token IDs list for size counting."""
+    if model is None:
+        return get_words(text)
+    result = tokenize(text, model=model)
+    tokens = result["tokens"]
+    if tokens and isinstance(tokens[0], dict):
+        return [t["id"] for t in tokens]
+    return tokens
+
+
+def _get_size_fn(model: str | None = None):
+    """Return a callable size_fn compatible with existing chunk_texts logic.
+
+    Replaces get_tokenizer_fn() from jet._token.token_utils.
+    """
+    if model is None:
+        return get_words
+    return lambda text, show_progress=False: _tokenize_for_size(text, model)
+
+
+def _decode_tokens(tokens: list[int], model: str | None = None) -> str:
+    """Decode token IDs back to text. Replaces tokenizer.decode() calls."""
+    if model is None:
+        return " ".join(str(t) for t in tokens)
+    result = detokenize(tokens, model=model)
+    return result["content"]
+
+
+def _encode_text(
+    text: str, model: str | None = None, add_special: bool = False
+) -> list[int]:
+    """Encode text to token IDs. Replaces tokenizer.encode() calls."""
+    if model is None:
+        return get_words(text)
+    result = tokenize(text, model=model, add_special=add_special)
+    tokens = result["tokens"]
+    if tokens and isinstance(tokens[0], dict):
+        return [t["id"] for t in tokens]
+    return tokens
+
+
+def _get_last_n_tokens_and_decode(text: str, n: int, model: str | None = None) -> str:
+    """Get the last n tokens from text and decode them back to string.
+
+    Replaces get_last_n_tokens_and_decode() from jet._token.token_utils.
+    """
+    if model is None:
+        words = get_words(text)
+        return " ".join(words[-n:]) if n > 0 else ""
+    token_ids = _encode_text(text, model)
+    last_n = token_ids[-n:] if len(token_ids) >= n else token_ids
+    return _decode_tokens(last_n, model)
+
+
+def _get_model_max_tokens(model: str, base_url: str | None = None) -> int:
+    """Get max context size for a model.
+
+    Replaces get_model_max_tokens() from jet._token.token_utils.
+    Uses get_model_ctx_embd_size from jet.adapters.llama_cpp.model_utils.
+    """
+    try:
+        ctx_info = get_model_ctx_embd_size(model, base_url=base_url)
+        return ctx_info["ctx"]
+    except Exception as e:
+        logger.warning(
+            f"Could not get context size for {model}, using default 2048: {e}"
+        )
+        return 2048
 
 
 def build_chunk(sentences: list[str], separators: list[str]) -> str:
@@ -162,36 +241,27 @@ def chunk_texts(
     show_progress: bool = False,
 ) -> list[str]:
     """Optimized version of chunk_texts with O(n) time complexity per text."""
-
     if min_chunk_size > chunk_size:
         min_chunk_size = chunk_size
     if isinstance(texts, str):
         texts = [texts]
-
     chunked_texts = []
-    size_fn = get_tokenizer_fn(model) if model else get_words
-    tokenizer = get_tokenizer(model) if model else None
+    size_fn = _get_size_fn(model) if model else get_words
     effective_chunk_size = chunk_size - buffer
     step = max(1, chunk_size - chunk_overlap - buffer)
-
     text_iter = tqdm(
         texts, desc="Chunking texts", unit="text", disable=not show_progress
     )
-
     for text in text_iter:
-        # Fast split: use regex instead of tokenizer.find
         sentences = split_sentences(text)
         if not sentences:
             continue
-
-        # Fast path: if model is used and not strict → chunk by tokens directly
         if not strict_sentences and model:
             tokens = size_fn(text)
             total_len = len(tokens)
             if not tokens:
                 continue
             for i in range(0, total_len, step):
-                # Binary search to find the largest slice <= chunk_size
                 left, right = i, min(i + effective_chunk_size, total_len)
                 chunk_tokens = []
                 chunk_content = ""
@@ -201,32 +271,29 @@ def chunk_texts(
                     mid = (left + right) // 2
                     temp_tokens = tokens[i:mid]
                     if temp_tokens:
-                        temp_content = tokenizer.decode(temp_tokens).strip()
+                        temp_content = _decode_tokens(temp_tokens, model).strip()
                         temp_size = len(size_fn(temp_content))
                         if temp_size <= chunk_size:
-                            # Keep track of the best valid slice
                             if temp_size > best_size:
                                 chunk_tokens = temp_tokens
                                 chunk_content = temp_content
                                 chunk_size_tokens = temp_size
                                 best_size = temp_size
-                            left = mid + 1  # Try a larger slice
+                            left = mid + 1
                         else:
-                            right = mid - 1  # Try a smaller slice
+                            right = mid - 1
                     else:
                         break
                 if not chunk_tokens:
                     continue
-                # Handle last chunk: include remaining tokens if needed
                 is_last_chunk = i + effective_chunk_size >= total_len
                 if is_last_chunk and not chunk_tokens:
                     chunk_tokens = tokens[i:right]
                     if chunk_tokens:
-                        chunk_content = tokenizer.decode(chunk_tokens).strip()
+                        chunk_content = _decode_tokens(chunk_tokens, model).strip()
                         chunk_size_tokens = len(size_fn(chunk_content))
                 if not chunk_tokens:
                     continue
-                # Skip chunks smaller than min_chunk_size if not the last chunk
                 if (
                     chunk_size_tokens < min_chunk_size
                     and not is_last_chunk
@@ -234,7 +301,6 @@ def chunk_texts(
                 ):
                     continue
                 chunked_texts.append(chunk_content)
-            # Merge last small chunk
             if (
                 len(chunked_texts) > 1
                 and len(size_fn(chunked_texts[-1])) < min_chunk_size
@@ -242,23 +308,19 @@ def chunk_texts(
             ):
                 last_chunk = chunked_texts.pop()
                 prev_chunk = chunked_texts[-1]
-                prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(
-                    prev_chunk, tokenizer, len(size_fn(last_chunk))
+                prev_chunk_last_n_tokens_string = _get_last_n_tokens_and_decode(
+                    prev_chunk, len(size_fn(last_chunk)), model
                 )
                 is_covered_by_prev_chunk = last_chunk == prev_chunk_last_n_tokens_string
                 if not is_covered_by_prev_chunk:
                     chunked_texts[-1] = prev_chunk + " " + last_chunk
             continue
-
-        # Sentence-based chunking (faster with precomputed sizes)
         sent_sizes = [len(size_fn(s)) for s in sentences]
         i, n = 0, len(sentences)
         current_chunk, current_size = [], 0
-
         while i < n:
             s = sentences[i]
             s_size = sent_sizes[i]
-
             if s_size > effective_chunk_size:
                 sub_sentences = split_large_sentence(s, effective_chunk_size, size_fn)
                 for sub in sub_sentences:
@@ -272,7 +334,6 @@ def chunk_texts(
             else:
                 if current_size + s_size > effective_chunk_size:
                     chunked_texts.append(" ".join(current_chunk))
-                    # Apply overlap
                     if chunk_overlap > 0 and len(current_chunk) > 1:
                         overlap_tokens = []
                         overlap_len = 0
@@ -288,14 +349,12 @@ def chunk_texts(
                 current_chunk.append(s)
                 current_size += s_size
             i += 1
-
         if current_chunk:
             last_chunk = " ".join(current_chunk)
             if len(size_fn(last_chunk)) >= min_chunk_size or not chunked_texts:
                 chunked_texts.append(last_chunk)
             else:
                 chunked_texts[-1] = chunked_texts[-1] + " " + last_chunk
-
     return chunked_texts
 
 
@@ -313,33 +372,25 @@ def chunk_texts_with_data(
     """Optimized version: removed binary search + repeated decoding in token path."""
     if min_chunk_size > chunk_size:
         min_chunk_size = chunk_size
-
     if isinstance(texts, str):
         texts = [texts]
         doc_indices = [0]
     else:
         doc_indices = list(range(len(texts)))
-
     chunks: list[ChunkResult] = []
     effective_chunk_size = chunk_size - buffer
-    size_fn = get_tokenizer_fn(model) if model else get_words
-    tokenizer = get_tokenizer(model) if model else None
-
-    # Batch tokenize once (big win when many documents)
+    size_fn = _get_size_fn(model) if model else get_words
     batch_tokens = (
         size_fn(texts, show_progress=show_progress) if model else size_fn(texts)
     )
     token_counts = [len(tokens) for tokens in batch_tokens]
-
     step = max(1, chunk_size - chunk_overlap - buffer)
-
     logger.debug(
         f"chunk_texts_with_data vars: effective={effective_chunk_size}, "
         f"min_chunk={min_chunk_size}, step={step}, "
         f"chunk_size={chunk_size}, overlap={chunk_overlap}, buffer={buffer}, "
         f"docs={len(texts)}, avg_tokens={sum(token_counts) / len(token_counts):.0f}"
     )
-
     for i, (doc_index, text) in enumerate(
         tqdm(
             zip(doc_indices, texts),
@@ -350,35 +401,22 @@ def chunk_texts_with_data(
     ):
         if not text.strip():
             continue
-
         doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
-
-        # ────────────────────────────────────────────────
-        # Fast token-based path (most documents use this)
-        # ────────────────────────────────────────────────
-        if not strict_sentences and model and tokenizer:
+        if not strict_sentences and model:
             tokens = batch_tokens[i]
             if not tokens:
                 continue
-
             total_len = len(tokens)
             chunk_index = 0
-
             j = 0
             while j < total_len:
-                # Greedy: take up to effective_chunk_size tokens
                 end = min(j + effective_chunk_size, total_len)
                 chunk_tokens = tokens[j:end]
-
                 if not chunk_tokens:
                     break
-
-                chunk_content = tokenizer.decode(chunk_tokens).strip()
+                chunk_content = _decode_tokens(chunk_tokens, model).strip()
                 chunk_size_tokens = len(size_fn(chunk_content))
-
                 is_last_chunk = end == total_len
-
-                # Skip very small chunks (except possibly last one)
                 if (
                     chunk_size_tokens < min_chunk_size
                     and not is_last_chunk
@@ -386,8 +424,6 @@ def chunk_texts_with_data(
                 ):
                     j += step
                     continue
-
-                # Overlap calculation
                 overlap_start_idx = overlap_end_idx = None
                 if chunk_overlap > 0 and end < total_len:
                     overlap_start = max(j, end - chunk_overlap)
@@ -395,7 +431,6 @@ def chunk_texts_with_data(
                     if overlap_tokens:
                         overlap_start_idx = overlap_start
                         overlap_end_idx = end
-
                 chunks.append(
                     {
                         "id": str(uuid.uuid4()),
@@ -405,18 +440,14 @@ def chunk_texts_with_data(
                         "num_tokens": chunk_size_tokens,
                         "content": chunk_content,
                         "start_idx": j,
-                        "end_idx": j + len(chunk_content),  # char-based, approximate
+                        "end_idx": j + len(chunk_content),
                         "line_idx": 0,
                         "overlap_start_idx": overlap_start_idx,
                         "overlap_end_idx": overlap_end_idx,
                     }
                 )
                 chunk_index += 1
-
-                # Advance with step (overlap-aware)
                 j += step
-
-            # Optional: merge very small last chunk into previous (same as before)
             if (
                 len(chunks) > 1
                 and chunks[-1]["num_tokens"] < min_chunk_size
@@ -424,29 +455,21 @@ def chunk_texts_with_data(
             ):
                 last = chunks.pop()
                 prev = chunks[-1]
-                # Warning: this still re-tokenizes → could be optimized later
-                prev_last_n = get_last_n_tokens_and_decode(
-                    prev["content"], tokenizer, last["num_tokens"]
+                prev_last_n = _get_last_n_tokens_and_decode(
+                    prev["content"], last["num_tokens"], model
                 )
                 if last["content"] != prev_last_n.strip():
                     prev["content"] += " " + last["content"]
                     prev["num_tokens"] = len(size_fn(prev["content"]))
                     prev["end_idx"] = last["end_idx"]
-
-            continue  # skip sentence path
-
-        # ────────────────────────────────────────────────
-        # Sentence-based fallback (when strict_sentences=True or no model)
-        # ────────────────────────────────────────────────
+            continue
         sentences = split_sentences(text)
         if not sentences:
             continue
-
         sent_sizes = [len(size_fn(s)) for s in sentences]
         current_chunk: list[str] = []
         current_size = 0
         chunk_index = 0
-
         for s, s_size in zip(sentences, sent_sizes):
             if s_size > effective_chunk_size:
                 sub_sents = split_large_sentence(s, effective_chunk_size, size_fn)
@@ -499,8 +522,6 @@ def chunk_texts_with_data(
                     current_chunk, current_size = [], 0
                 current_chunk.append(s)
                 current_size += s_size
-
-        # Final chunk
         if current_chunk:
             chunk_content = " ".join(current_chunk)
             num_tokens = len(size_fn(chunk_content))
@@ -524,7 +545,6 @@ def chunk_texts_with_data(
                         "overlap_end_idx": None,
                     }
                 )
-
     return chunks
 
 
@@ -539,7 +559,6 @@ def chunk_texts_sliding_window(
 ) -> list[ChunkResult]:
     """
     Chunk texts using a sliding window approach, returning detailed chunk results.
-
     Args:
         texts: Single string or list of strings to chunk.
         chunk_size: Number of tokens per chunk.
@@ -548,10 +567,8 @@ def chunk_texts_sliding_window(
         ids: Optional list of document IDs.
         buffer: Buffer size to reserve in each chunk.
         min_chunk_size: Minimum number of tokens for a chunk to be valid.
-
     Returns:
         List of ChunkResult dictionaries containing chunk metadata.
-
     Raises:
         ValueError: If step_size <= 0 or step_size >= chunk_size.
     """
@@ -564,31 +581,26 @@ def chunk_texts_sliding_window(
         doc_indices = [0] * len(texts)
     else:
         doc_indices = list(range(len(texts)))
-
     chunks: list[ChunkResult] = []
-    size_fn = get_tokenizer_fn(model) if model else get_words
-    tokenizer = get_tokenizer(model) if model else None
+    size_fn = _get_size_fn(model) if model else get_words
     step = step_size
-
     for i, (doc_index, text) in enumerate(zip(doc_indices, texts)):
         tokens = size_fn(text)
         if not tokens:
             continue
         doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
         windows = sliding_window(tokens, chunk_size - buffer, step_size)
-
         for chunk_index, window in enumerate(windows):
             chunk_content = (
-                tokenizer.decode(window).strip() if model else " ".join(window).strip()
+                _decode_tokens(window, model).strip()
+                if model
+                else " ".join(window).strip()
             )
             chunk_size_tokens = len(size_fn(chunk_content))
-
             if chunk_size_tokens < min_chunk_size:
                 continue
-
             start_idx = chunk_index * step_size
             end_idx = start_idx + len(chunk_content)
-
             chunks.append(
                 {
                     "id": str(uuid.uuid4()),
@@ -604,13 +616,11 @@ def chunk_texts_sliding_window(
                     "overlap_end_idx": None,
                 }
             )
-
-    # Merge small last chunk with previous if necessary
     if len(chunks) > 1 and chunks[-1]["num_tokens"] < min_chunk_size:
         last_chunk = chunks.pop()
         prev_chunk = chunks[-1]
-        prev_chunk_last_n_tokens_string = get_last_n_tokens_and_decode(
-            prev_chunk["content"], tokenizer, last_chunk["num_tokens"]
+        prev_chunk_last_n_tokens_string = _get_last_n_tokens_and_decode(
+            prev_chunk["content"], last_chunk["num_tokens"], model
         )
         is_covered_by_prev_chunk = (
             last_chunk["content"] == prev_chunk_last_n_tokens_string
@@ -619,7 +629,6 @@ def chunk_texts_sliding_window(
             prev_chunk["content"] += " " + last_chunk["content"]
             prev_chunk["num_tokens"] = len(size_fn(prev_chunk["content"]))
             prev_chunk["end_idx"] = last_chunk["end_idx"]
-
     return chunks
 
 
@@ -643,12 +652,9 @@ def chunk_texts_sliding_window_fast(
         doc_indices = [0]
     else:
         doc_indices = list(range(len(texts)))
-
     chunks: list[ChunkResult] = []
-    size_fn = get_tokenizer_fn(model) if model else get_words
-    tokenizer = get_tokenizer(model) if model else None
+    size_fn = _get_size_fn(model) if model else get_words
     effective_size = chunk_size - buffer
-
     for i, (doc_index, text) in enumerate(
         tqdm(
             zip(doc_indices, texts),
@@ -661,11 +667,12 @@ def chunk_texts_sliding_window_fast(
         if not tokens:
             continue
         doc_id = ids[i] if ids and i < len(ids) else str(uuid.uuid4())
-
         for chunk_index in range(0, len(tokens) - effective_size + 1, step_size):
             window = tokens[chunk_index : chunk_index + effective_size]
             chunk_content = (
-                tokenizer.decode(window).strip() if model else " ".join(window).strip()
+                _decode_tokens(window, model).strip()
+                if model
+                else " ".join(window).strip()
             )
             num_tokens = len(window)
             if num_tokens < min_chunk_size:
@@ -685,15 +692,12 @@ def chunk_texts_sliding_window_fast(
                     "overlap_end_idx": None,
                 }
             )
-
-    # Merge small tail
     if len(chunks) > 1 and chunks[-1]["num_tokens"] < min_chunk_size:
         last = chunks.pop()
         prev = chunks[-1]
         prev["content"] += " " + last["content"]
         prev["num_tokens"] = len(size_fn(prev["content"]))
         prev["end_idx"] = last["end_idx"]
-
     return chunks
 
 
@@ -703,17 +707,15 @@ def truncate_texts(
     max_tokens: int | None = None,
     strict_sentences: bool = False,
 ) -> list[str]:
-    tokenizer = get_tokenizer(model)
     if not max_tokens:
-        max_tokens = get_model_max_tokens(model)
+        max_tokens = _get_model_max_tokens(model)
     if isinstance(texts, str):
         texts = [texts]
     truncated_texts = []
     for text in texts:
         if not strict_sentences:
-            # Truncate based on tokens without sentence boundaries
-            tokens = tokenizer.encode(text, add_special_tokens=False)[:max_tokens]
-            truncated_texts.append(tokenizer.decode(tokens).strip())
+            tokens = _encode_text(text, model, add_special=False)[:max_tokens]
+            truncated_texts.append(_decode_tokens(tokens, model).strip())
             continue
         sentences = split_sentences(text)
         if not sentences:
@@ -759,7 +761,7 @@ def truncate_texts(
         current_separators = []
         current_tokens = 0
         for sentence, separator in sentence_pairs:
-            sentence_tokens = len(tokenizer.encode(sentence, add_special_tokens=False))
+            sentence_tokens = len(_encode_text(sentence, model, add_special=False))
             if current_tokens + sentence_tokens <= max_tokens:
                 current_chunk.append(sentence)
                 current_separators.append(separator)
@@ -782,39 +784,32 @@ def truncate_texts_fast(
     show_progress: bool = False,
 ) -> list[str]:
     """Optimized version of truncate_texts (up to 10× faster) with optional progress bar."""
-    tokenizer = get_tokenizer(model)
     if not max_tokens:
-        max_tokens = get_model_max_tokens(model)
+        max_tokens = _get_model_max_tokens(model)
     if isinstance(texts, str):
         texts = [texts]
-
     iterator = (
         tqdm(texts, desc="Truncating texts", unit="doc") if show_progress else texts
     )
     results = []
-
     for text in iterator:
         if not strict_sentences:
-            tokens = tokenizer.encode(text, add_special_tokens=False)[:max_tokens]
-            results.append(tokenizer.decode(tokens).strip())
+            tokens = _encode_text(text, model, add_special=False)[:max_tokens]
+            results.append(_decode_tokens(tokens, model).strip())
             continue
-
         sentences = split_sentences_with_separators(text)
         if not sentences:
             results.append("")
             continue
-
         current_tokens = 0
         kept_sentences = []
         for s in sentences:
-            s_len = len(tokenizer.encode(s, add_special_tokens=False))
+            s_len = len(_encode_text(s, model, add_special=False))
             if current_tokens + s_len > max_tokens:
                 break
             kept_sentences.append(s)
             current_tokens += s_len
-
         results.append("".join(kept_sentences).strip())
-
     results = [r for r in results if r]
     return results
 
@@ -826,7 +821,6 @@ def chunk_sentences(
     model: str | None = None,
 ) -> list[str]:
     """Chunk texts by sentences with sentence overlap, using tokens if model is provided, preserving original separators.
-
     Args:
         texts: Single string or list of strings to chunk.
         chunk_size: Number of sentences (non-model) or tokens (model) per chunk.
@@ -836,17 +830,14 @@ def chunk_sentences(
     if isinstance(texts, str):
         texts = [texts]
     chunked_texts = []
-
     if model:
-        tokenize_fn = get_tokenizer_fn(model)
+        tokenize_fn = _get_size_fn(model)
         for text in texts:
             sentence_pairs = split_sentences_with_separator_tuples(text)
             sentences = [s for s, _ in sentence_pairs]
             separators = [sep for _, sep in sentence_pairs]
             if not sentences:
-                # logger.debug(f"No sentences found for text: {text}")
                 continue
-            # Check total tokens against chunk_size
             total_tokens = sum(len(tokenize_fn(s)) for s in sentences)
             logger.debug(f"Total tokens: {total_tokens}, chunk_size: {chunk_size}")
             if total_tokens <= chunk_size:
@@ -862,7 +853,6 @@ def chunk_sentences(
                     f"Sentence {i}: '{sentence}', tokens: {sentence_tokens}, current_tokens: {current_tokens}"
                 )
                 if current_tokens + sentence_tokens > chunk_size and current_chunk:
-                    # Reconstruct chunk with original separators
                     chunk = ""
                     for j in range(len(current_chunk)):
                         chunk += current_chunk[j]
@@ -879,7 +869,6 @@ def chunk_sentences(
                     current_chunk = []
                     current_separators = []
                     current_tokens = 0
-                    # Handle overlap (in sentences, not tokens)
                     overlap_start = max(0, i - chunk_overlap)
                     logger.debug(f"Overlap start: {overlap_start}, current index: {i}")
                     current_chunk = sentences[overlap_start:i]
@@ -896,7 +885,6 @@ def chunk_sentences(
                 current_separators.append(separators[i] if i < len(separators) else " ")
                 current_tokens += sentence_tokens
             if current_chunk:
-                # Reconstruct final chunk with original separators
                 chunk = ""
                 for j in range(len(current_chunk)):
                     chunk += current_chunk[j]
@@ -924,13 +912,10 @@ def chunk_sentences(
                 ):
                     start_idx = max(0, i)
                     end_idx = min(len(sentences), i + chunk_size)
-                    # Reconstruct chunk with original separators
                     chunk = ""
                     for j in range(start_idx, end_idx):
                         chunk += sentences[j]
-                        if (
-                            j < end_idx - 1
-                        ):  # Add separator except for the last sentence
+                        if j < end_idx - 1:
                             chunk += separators[j] if j < len(separators) else " "
                     chunked_texts.append(chunk)
             else:
@@ -948,31 +933,25 @@ def chunk_sentences_optimized(
     """Fast, memory-efficient sentence chunking with optional progress bar."""
     if isinstance(texts, str):
         texts = [texts]
-
     chunked_texts = []
     iterator = (
         tqdm(texts, desc="Chunking sentences", unit="doc") if show_progress else texts
     )
-
     if model:
-        tokenize_fn = get_tokenizer_fn(model)
+        tokenize_fn = _get_size_fn(model)
         encode_cache = {}
-
         for text in iterator:
             sentence_pairs = split_sentences_with_separator_tuples(text)
             if not sentence_pairs:
                 continue
-
             sentences, separators = zip(*sentence_pairs)
             token_lengths = [
                 encode_cache.setdefault(s, len(tokenize_fn(s))) for s in sentences
             ]
             total_tokens = sum(token_lengths)
-
             if total_tokens <= chunk_size:
                 chunked_texts.append(text)
                 continue
-
             start = 0
             while start < len(sentences):
                 current_tokens, end = 0, start
@@ -984,13 +963,11 @@ def chunk_sentences_optimized(
                     end += 1
                 if end == start:
                     end += 1
-
                 chunk = "".join(
                     s + (separators[i] if i < len(separators) else " ")
                     for i, s in enumerate(sentences[start:end])
                 ).strip()
                 chunked_texts.append(chunk)
-
                 if end >= len(sentences):
                     break
                 start = max(0, end - chunk_overlap)
@@ -999,17 +976,14 @@ def chunk_sentences_optimized(
             sentence_pairs = split_sentences_with_separator_tuples(text)
             if not sentence_pairs:
                 continue
-
             sentences, separators = zip(*sentence_pairs)
             sentences = [s.strip() for s in sentences if s.strip()]
             if not sentences:
                 continue
-
             n = len(sentences)
             if n <= chunk_size:
                 chunked_texts.append(text)
                 continue
-
             step = chunk_size - chunk_overlap
             for i in range(0, n, step):
                 end = min(i + chunk_size, n)
@@ -1018,7 +992,6 @@ def chunk_sentences_optimized(
                     for j, s in enumerate(sentences[i:end])
                 ).strip()
                 chunked_texts.append(chunk)
-
     return chunked_texts
 
 
@@ -1029,7 +1002,6 @@ def chunk_sentences_with_indices(
     model: str | None = None,
 ) -> tuple[list[str], list[int]]:
     """Chunk texts by sentences with sentence overlap and track original document indices, using tokens if model is provided.
-
     Args:
         texts: Single string or list of strings to chunk.
         chunk_size: Number of sentences or tokens per chunk.
@@ -1038,13 +1010,11 @@ def chunk_sentences_with_indices(
     """
     if isinstance(texts, str):
         texts = [texts]
-
     chunked_texts = []
     doc_indices = []
     sentence_splitter = re.compile(r"(?<=[.!?])\s+(?=\w)")
-
     if model:
-        tokenize_fn = get_tokenizer_fn(model)
+        tokenize_fn = _get_size_fn(model)
         for doc_idx, text in enumerate(texts):
             sentences = split_sentences(text.strip())
             current_chunk = []
@@ -1056,7 +1026,6 @@ def chunk_sentences_with_indices(
                     doc_indices.append(doc_idx)
                     current_chunk = []
                     current_tokens = 0
-                    # Handle overlap
                     overlap_start = max(0, i - chunk_overlap)
                     current_chunk = sentences[overlap_start:i]
                     current_tokens = sum(len(tokenize_fn(s)) for s in current_chunk)
@@ -1093,7 +1062,6 @@ def chunk_sentences_with_indices_optimized(
     """Optimized sentence chunking with document index tracking and optional progress bar."""
     if isinstance(texts, str):
         texts = [texts]
-
     chunked_texts, doc_indices = [], []
     iterator = (
         tqdm(
@@ -1102,23 +1070,19 @@ def chunk_sentences_with_indices_optimized(
         if show_progress
         else enumerate(texts)
     )
-
     if model:
-        tokenize_fn = get_tokenizer_fn(model)
+        tokenize_fn = _get_size_fn(model)
         encode_cache = {}
-
         for doc_idx, text in iterator:
             sentences = split_sentences(text.strip())
             if not sentences:
                 continue
-
             token_lengths = [
                 encode_cache.setdefault(s, len(tokenize_fn(s))) for s in sentences
             ]
             n = len(sentences)
             step = max(1, chunk_size - chunk_overlap)
             i = 0
-
             while i < n:
                 current_tokens, end = 0, i
                 while end < n and current_tokens + token_lengths[end] <= chunk_size:
@@ -1126,10 +1090,8 @@ def chunk_sentences_with_indices_optimized(
                     end += 1
                 if end == i:
                     end += 1
-
                 chunked_texts.append(" ".join(sentences[i:end]).strip())
                 doc_indices.append(doc_idx)
-
                 if end >= n:
                     break
                 i = max(0, end - chunk_overlap)
@@ -1141,19 +1103,16 @@ def chunk_sentences_with_indices_optimized(
             ]
             if not sentences:
                 continue
-
             n = len(sentences)
             if n <= chunk_size:
                 chunked_texts.append(text)
                 doc_indices.append(doc_idx)
                 continue
-
             step = chunk_size - chunk_overlap
             for i in range(0, n, step):
                 end = min(i + chunk_size, n)
                 chunked_texts.append(" ".join(sentences[i:end]))
                 doc_indices.append(doc_idx)
-
     return chunked_texts, doc_indices
 
 
