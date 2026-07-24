@@ -247,9 +247,9 @@ def chunk_texts(
     chunk_overlap: int = 0,
     model: str | None = None,
     buffer: int = 0,
-    strict_sentences: bool = False,
+    strict_sentences: bool = True,
     min_chunk_size: int = 32,
-    show_progress: bool = False,
+    show_progress: bool = True,
 ) -> list[str]:
     """Optimized version of chunk_texts with O(n) time complexity per text."""
     if min_chunk_size > chunk_size:
@@ -376,9 +376,9 @@ def chunk_texts_with_data(
     model: str | None = None,
     ids: list[str] | None = None,
     buffer: int = 0,
-    strict_sentences: bool = False,
+    strict_sentences: bool = True,
     min_chunk_size: int = 32,
-    show_progress: bool = False,
+    show_progress: bool = True,
 ) -> list[ChunkResult]:
     """Optimized version: removed binary search + repeated decoding in token path."""
     if min_chunk_size > chunk_size:
@@ -651,7 +651,7 @@ def chunk_texts_sliding_window_fast(
     ids: list[str] | None = None,
     buffer: int = 0,
     min_chunk_size: int = 32,
-    show_progress: bool = False,
+    show_progress: bool = True,
 ) -> list[ChunkResult]:
     """Optimized sliding-window chunking with minimal recomputation."""
     if step_size <= 0 or step_size >= chunk_size:
@@ -716,7 +716,7 @@ def truncate_texts(
     texts: str | list[str],
     model: str,
     max_tokens: int | None = None,
-    strict_sentences: bool = False,
+    strict_sentences: bool = True,
 ) -> list[str]:
     if not max_tokens:
         max_tokens = _get_model_max_tokens(model)
@@ -791,8 +791,8 @@ def truncate_texts_fast(
     texts: str | list[str],
     model: str,
     max_tokens: int | None = None,
-    strict_sentences: bool = False,
-    show_progress: bool = False,
+    strict_sentences: bool = True,
+    show_progress: bool = True,
 ) -> list[str]:
     """Optimized version of truncate_texts (up to 10× faster) with optional progress bar."""
     if not max_tokens:
@@ -939,7 +939,7 @@ def chunk_sentences_optimized(
     chunk_size: int = 5,
     chunk_overlap: int = 0,
     model: str | None = None,
-    show_progress: bool = False,
+    show_progress: bool = True,
 ) -> list[str]:
     """Fast, memory-efficient sentence chunking with optional progress bar."""
     if isinstance(texts, str):
@@ -1068,7 +1068,7 @@ def chunk_sentences_with_indices_optimized(
     chunk_size: int = 5,
     chunk_overlap: int = 0,
     model: str | None = None,
-    show_progress: bool = False,
+    show_progress: bool = True,
 ) -> tuple[list[str], list[int]]:
     """Optimized sentence chunking with document index tracking and optional progress bar."""
     if isinstance(texts, str):
