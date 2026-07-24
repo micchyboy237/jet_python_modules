@@ -4,21 +4,43 @@ Demo: chunk_sentences & chunk_sentences_optimized
 - Optimized variant with caching + progress bar
 """
 
+import logging
+
 from jet.wordnet.examples.text_chunker.demo_utils import apply_mocks, print_section
 
+# Suppress noisy debug logs during demo
+logging.getLogger("jet").setLevel(logging.WARNING)
+
 tc = apply_mocks()
+
+# Pre-warm NLTK sentence tokenizer (downloads punkt if needed, only once)
+import nltk
+
+try:
+    nltk.data.find("tokenizers/punkt_tab")
+except LookupError:
+    nltk.download("punkt_tab", quiet=True)
 
 
 def demo_basic():
     print_section("1. By Sentence Count")
-    text = "S1. S2. S3. S4. S5."
+    text = "First sentence is here. Second one follows. Third sentence now. Fourth is next. Fifth final one."
     for i, c in enumerate(tc.chunk_sentences(text, chunk_size=2, model=None)):
         print(f"  Chunk {i}: {c}")
 
 
 def demo_overlap():
     print_section("2. With Overlap")
-    text = "A. B. C. D. E. F. G. H."
+    text = (
+        "Alpha is the first sentence. "
+        "Beta comes in as second. "
+        "Charlie is the third one. "
+        "Delta follows as fourth. "
+        "Echo is the fifth sentence. "
+        "Foxtrot comes in sixth. "
+        "Golf is number seven. "
+        "Hotel is the eighth sentence."
+    )
     chunks = tc.chunk_sentences(text, chunk_size=3, chunk_overlap=1, model=None)
     print(f"  {len(chunks)} chunks")
     for i, c in enumerate(chunks):
@@ -45,7 +67,7 @@ def demo_model_overlap():
 
 def demo_optimized():
     print_section("5. Optimized (with caching)")
-    text = "S1. S2. S3. S4. S5."
+    text = "First sentence. Second sentence. Third sentence. Fourth sentence. Fifth sentence."
     for i, c in enumerate(
         tc.chunk_sentences_optimized(
             text, chunk_size=2, chunk_overlap=1, model="llama-3.2:3b"
@@ -56,14 +78,17 @@ def demo_optimized():
 
 def demo_short():
     print_section("6. Short Text (fits one chunk)")
-    text = "Just two. That's all."
+    text = "Just two sentences. That's all."
     chunks = tc.chunk_sentences(text, chunk_size=10, model=None)
     print(f"  {len(chunks)} chunk: {chunks[0]}")
 
 
 def demo_batch():
     print_section("7. Batch + Progress Bar")
-    texts = [f"Doc {i}. Has text. Multiple sentences." for i in range(5)]
+    texts = [
+        f"Doc {i} first sentence. Second sentence here. Third one too."
+        for i in range(5)
+    ]
     print("  (Progress bar below)")
     chunks = tc.chunk_sentences_optimized(
         texts, chunk_size=3, model=None, show_progress=True
@@ -81,5 +106,6 @@ if __name__ == "__main__":
         demo_short,
         demo_batch,
     ]:
+        print(f"\n  >>> Running {fn.__name__}...", flush=True)
         fn()
     print_section("Done — chunk_sentences")

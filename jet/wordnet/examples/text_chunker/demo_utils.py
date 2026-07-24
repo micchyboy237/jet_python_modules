@@ -8,29 +8,50 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
-# Ensure jet package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 mock_tokenize = MagicMock()
 mock_detokenize = MagicMock()
 mock_get_model_ctx_embd_size = MagicMock()
 
+# Simple word ↔ ID mappings for realistic decode output
+_word_to_id = {}
+_id_to_word = {}
+_counter = 0
+
+
+def _get_word_id(word: str) -> int:
+    global _counter
+    if word not in _word_to_id:
+        _counter += 1
+        _word_to_id[word] = _counter
+        _id_to_word[_counter] = word
+    return _word_to_id[word]
+
 
 def _setup_mocks():
-    """Configure mock responses for tokenize and detokenize (called once)."""
+    """Configure mock responses (idempotent)."""
     if mock_tokenize.side_effect is not None:
-        return  # Already set up
+        return
 
     def tokenize_side_effect(content, model=None, add_special=False, **kwargs):
+        # Handle both single string and list of strings
+        if isinstance(content, list):
+            # Batch: return list of token lists
+            return [
+                tokenize_side_effect(c, model, add_special)["tokens"] for c in content
+            ]
         words = content.split()
-        tokens = [{"id": (i % 100) + 1, "piece": word} for i, word in enumerate(words)]
+        tokens = [{"id": _get_word_id(word), "piece": word} for word in words]
         return {"tokens": tokens}
 
     def detokenize_side_effect(tokens, model=None, **kwargs):
+        if not tokens:
+            return {"content": ""}
         if isinstance(tokens[0], dict):
             pieces = [t.get("piece", "") for t in tokens]
         else:
-            pieces = [f"w{t}" for t in tokens]
+            pieces = [_id_to_word.get(t, f"w{t}") for t in tokens]
         return {"content": " ".join(pieces)}
 
     mock_tokenize.side_effect = tokenize_side_effect
@@ -43,19 +64,13 @@ def _setup_mocks():
 
 
 def apply_mocks():
-    """Apply mocks and return the text_chunker module ready to use."""
+    """Apply mocks and return the text_chunker module."""
     _setup_mocks()
     patch_path = "jet.wordnet.text_chunker"
-    patcher1 = patch(f"{patch_path}.tokenize", mock_tokenize)
-    patcher2 = patch(f"{patch_path}.detokenize", mock_detokenize)
-    patcher3 = patch(
-        f"{patch_path}.get_model_ctx_embd_size", mock_get_model_ctx_embd_size
-    )
-    patcher1.start()
-    patcher2.start()
-    patcher3.start()
+    patch(f"{patch_path}.tokenize", mock_tokenize).start()
+    patch(f"{patch_path}.detokenize", mock_detokenize).start()
+    patch(f"{patch_path}.get_model_ctx_embd_size", mock_get_model_ctx_embd_size).start()
 
-    # Import after patches are active
     import jet.wordnet.text_chunker as tc
 
     return tc

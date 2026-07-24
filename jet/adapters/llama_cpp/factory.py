@@ -19,7 +19,7 @@ def get_embedding_client() -> OpenAI:
     return OpenAI(
         base_url=EMBED_BASE_URL,
         api_key="not-needed",
-        timeout=30.0,
+        timeout=120.0,
         max_retries=0,
     )
 

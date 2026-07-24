@@ -47,7 +47,7 @@ def tokenize(
         "parse_special": parse_special,
         "with_pieces": with_pieces,
     }
-    logger.debug(f"Tokenizing: {content[:50]}...")
+    # logger.debug(f"Tokenizing: {content[:50]}...")
     response = requests.post(url, json=payload, timeout=30.0)
     response.raise_for_status()
     return response.json()
@@ -69,7 +69,7 @@ def detokenize(
         "model": model,
         "tokens": tokens,
     }
-    logger.debug(f"Detokenizing {len(tokens)} tokens...")
+    # logger.debug(f"Detokenizing {len(tokens)} tokens...")
     response = requests.post(url, json=payload, timeout=30.0)
     response.raise_for_status()
     return response.json()
@@ -221,13 +221,13 @@ def count_chat_tokens(
     if tools:
         payload["tools"] = tools
 
-    logger.debug(
-        f"Counting chat tokens with {len(messages)} messages, {len(tools or [])} tools"
-    )
+    # logger.debug(
+    #     f"Counting chat tokens with {len(messages)} messages, {len(tools or [])} tools"
+    # )
     response = requests.post(url, json=payload, timeout=30.0)
     response.raise_for_status()
     result = response.json()
-    logger.info(f"Chat token count response: {result['input_tokens']} input tokens")
+    # logger.info(f"Chat token count response: {result['input_tokens']} input tokens")
     return result
 
 
@@ -265,11 +265,11 @@ def count_raw_tokens(
 
     payload: Dict[str, Any] = {"model": model, "input": input_text, **kwargs}
 
-    logger.debug(f"Counting raw tokens for: {input_text[:50]}...")
+    # logger.debug(f"Counting raw tokens for: {input_text[:50]}...")
     response = requests.post(url, json=payload, timeout=30.0)
     response.raise_for_status()
     result = response.json()
-    logger.info(f"Raw token count response: {result['input_tokens']} input tokens")
+    # logger.info(f"Raw token count response: {result['input_tokens']} input tokens")
     return result
 
 

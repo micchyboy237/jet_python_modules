@@ -8,6 +8,7 @@ import nbformat
 import numpy as np
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
+from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
 from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS, LLAMACPP_EMBED_TYPES
 from jet.code.markdown_utils._preprocessors import remove_markdown_links
@@ -60,10 +61,38 @@ DEFAULT_WEIGHTS: Weights = {
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     """Calculate cosine similarity between two vectors."""
+    # Check for empty vectors
+    if vec1.size == 0 or vec2.size == 0:
+        return 0.0
+    if vec1.shape[0] != vec2.shape[0]:
+        logger.warning(f"Vector dimension mismatch: {vec1.shape} vs {vec2.shape}")
+        return 0.0
+
     dot_product = np.dot(vec1, vec2)
     norm_a = np.linalg.norm(vec1)
     norm_b = np.linalg.norm(vec2)
     return float(dot_product / (norm_a * norm_b)) if norm_a * norm_b != 0 else 0.0
+
+
+def get_max_context_size(model_name: str) -> int:
+    """
+    Get the maximum context size for the embedding model.
+    Uses existing get_model_ctx_embd_size utility.
+
+    Args:
+        model_name: Name of the embedding model
+
+    Returns:
+        Maximum context size in tokens (n_ctx from model metadata)
+    """
+    try:
+        model_info = get_model_ctx_embd_size(model_name)
+        return model_info["ctx"]
+    except Exception as e:
+        logger.warning(
+            f"Failed to get context size for {model_name}: {e}. Using default 512."
+        )
+        return 512
 
 
 def get_matched_files(
@@ -265,10 +294,22 @@ def collect_file_chunks(
     )
 
     def default_tokenizer(text):
-        """Use llama_cpp tokenizer endpoint for accurate token counting."""
+        """Use llama_cpp count_tokens for accurate token counting."""
         return count_tokens(text)
 
     tokenizer = tokenizer or default_tokenizer
+
+    # Get max context size for the model
+    max_context_size = get_max_context_size(embed_model)
+    logger.info(f"Model {embed_model} max context size: {max_context_size} tokens")
+
+    # Adjust chunk_size if it exceeds model context
+    if chunk_size > max_context_size:
+        logger.warning(
+            f"Chunk size {chunk_size} exceeds model context {max_context_size}. "
+            f"Adjusting to {max_context_size}"
+        )
+        chunk_size = max_context_size - chunk_overlap
 
     contents_with_indices = []
 
@@ -282,15 +323,30 @@ def collect_file_chunks(
         show_progress=show_progress,
     )
 
+    skipped_chunks = 0
     for chunk in chunks:
+        # Pre-check chunk size
+        num_tokens = tokenizer(chunk["content"])
+        if num_tokens > max_context_size:
+            logger.warning(
+                f"Skipping chunk with {num_tokens} tokens (exceeds max context {max_context_size})"
+            )
+            skipped_chunks += 1
+            continue
+
         contents_with_indices.append(
             (
                 chunk["doc_id"],
                 chunk["content"],
                 chunk["start_idx"],
                 chunk["end_idx"],
-                chunk["num_tokens"],
+                num_tokens,
             )
+        )
+
+    if skipped_chunks > 0:
+        logger.warning(
+            f"Skipped {skipped_chunks} chunks that exceeded context size limit"
         )
 
     return all_file_paths, all_file_names, all_parent_dirs, contents_with_indices
@@ -351,7 +407,7 @@ def merge_results(
         return []
 
     def default_tokenizer(text):
-        """Use llama_cpp tokenizer endpoint for accurate token counting."""
+        """Use llama_cpp count_tokens for accurate token counting."""
         return count_tokens(text)
 
     tokenizer = tokenizer or default_tokenizer
@@ -478,32 +534,9 @@ def search_files(
     Yields up to top_k results iteratively that meet the threshold, or all results if top_k is None.
 
     Uses llama_cpp server for both embedding generation and token counting.
-
-    Args:
-        paths: Single path or list of paths to search
-        query: Search query string
-        extensions: List of file extensions to include
-        top_k: Maximum number of results to yield, or None to yield all results
-        embed_model: llama_cpp embedding model name (LLAMACPP_EMBED_TYPES)
-        chunk_size: Size of content chunks
-        chunk_overlap: Overlap between chunks
-        threshold: Minimum similarity score for results
-        tokenizer: Optional callable to count tokens in text. Uses llama_cpp count_tokens by default.
-        split_chunks: If True, return individual chunks; if False, merge adjacent chunks
-        includes: List of glob patterns to include
-        excludes: List of glob patterns to exclude
-        preprocess: Optional callback to preprocess texts before embedding
-        weights: Optional dictionary specifying weights for name, dir, and content similarities
-        batch_size: Batch size to use when generating embeddings
-        show_progress: Display progress bars during embedding generation
-        use_cache: Not used with llama_cpp embed_utils (kept for API compatibility)
-
-    Returns:
-        Iterator of FileSearchResult dictionaries (ranked by similarity)
     """
 
     def default_tokenizer(text):
-        """Use llama_cpp tokenizer endpoint for accurate token counting."""
         return count_tokens(text)
 
     tokenizer = tokenizer or default_tokenizer
@@ -534,22 +567,13 @@ def search_files(
     dir_texts = [Path(p).parent.name or "root" for p in unique_files]
     chunk_texts = [chunk for _, chunk, _, _, _ in chunk_data]
 
-    # Embed query using llama_cpp
+    # ── Embed query (single, no batching needed) ────────────────
     query_processed = preprocess(query) if preprocess else query
     logger.info(f"Embedding query: {query_processed[:100]}...")
-    query_embedding_result = embed(
-        query_processed,
-        model=embed_model,
-        return_format="numpy",
-    )
-    query_vector = (
-        query_embedding_result
-        if isinstance(query_embedding_result, np.ndarray)
-        else query_embedding_result
-    )
+    query_vector = embed(query_processed, model=embed_model, return_format="numpy")
     logger.debug(f"Query vector shape: {query_vector.shape}")
 
-    # Embed file names and directory names using llama_cpp
+    # ── Embed names/dirs (deduplicated, batched internally) ────
     processed_name_texts = [
         preprocess(name) if preprocess else name for name in name_texts
     ]
@@ -560,12 +584,13 @@ def search_files(
 
     if name_dir_texts:
         logger.info(f"Embedding {len(name_dir_texts)} name/dir texts...")
-        name_dir_vectors: np.ndarray = embed(
+        name_dir_vectors = embed(
             name_dir_texts,
             model=embed_model,
             return_format="numpy",
             batch_size=min(128, len(name_dir_texts)),
             show_progress=True,
+            progress_description="Embedding names/dirs",
         )
         name_vectors = name_dir_vectors[: len(processed_name_texts)]
         dir_vectors = name_dir_vectors[len(processed_name_texts) :]
@@ -575,89 +600,84 @@ def search_files(
         name_vectors = np.array([])
         dir_vectors = np.array([])
 
-    # Embed chunks in batches using llama_cpp
+    # ── Embed ALL chunks at once (deduplicated, parallel, batched) ──
     processed_chunk_texts = [preprocess(c) if preprocess else c for c in chunk_texts]
-    logger.info(
-        f"Embedding {len(processed_chunk_texts)} chunks in batches of {batch_size}..."
-    )
+    logger.info(f"Embedding {len(processed_chunk_texts)} chunks...")
 
+    try:
+        chunk_vectors = embed(
+            processed_chunk_texts,
+            model=embed_model,
+            return_format="numpy",
+            batch_size=batch_size,
+            max_workers=6,
+            show_progress=True,
+            progress_description="Embedding chunks",
+        )
+
+        if chunk_vectors.size == 0:
+            logger.warning("No chunk vectors were embedded. Returning empty results.")
+            return
+
+        logger.debug(f"Chunk vectors shape: {chunk_vectors.shape}")
+
+    except Exception as e:
+        logger.error(f"Failed to embed chunks: {e}")
+        return
+
+    # ── Compute similarities and yield results ─────────────────
     results: list[FileSearchResult] = []
     chunk_counts = {}
     yielded = 0
 
-    for batch_start in range(0, len(chunk_data), batch_size):
-        batch_end = min(batch_start + batch_size, len(chunk_data))
-        batch_chunk_texts = processed_chunk_texts[batch_start:batch_end]
+    for global_i, content_vector in enumerate(chunk_vectors):
+        if global_i >= len(chunk_data):
+            break
 
-        logger.debug(
-            f"Embedding batch {batch_start // batch_size + 1} — "
-            f"{len(batch_chunk_texts)} vectors (indices {batch_start}-{batch_end - 1})"
+        file_path, chunk, start_idx, end_idx, num_tokens = chunk_data[global_i]
+        file_index = unique_files.index(file_path)
+
+        weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
+            query_vector,
+            name_vectors[file_index],
+            dir_vectors[file_index],
+            content_vector,
+            weights,
         )
 
-        batch_vectors = embed(
-            batch_chunk_texts,
-            model=embed_model,
-            return_format="numpy",
-            batch_size=min(batch_size, len(batch_chunk_texts)),
-            show_progress=True,
-        )
+        if weighted_sim >= threshold:
+            chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
+            result: FileSearchResult = {
+                "rank": 0,
+                "score": float(weighted_sim),
+                "metadata": {
+                    "file_path": file_path,
+                    "start_idx": start_idx,
+                    "end_idx": end_idx,
+                    "chunk_idx": chunk_counts[file_path],
+                    "name_similarity": float(name_sim),
+                    "dir_similarity": float(dir_sim),
+                    "content_similarity": float(content_sim),
+                    "num_tokens": num_tokens,
+                },
+                "text": chunk,
+            }
+            results.append(result)
+            yielded += 1
 
-        # Handle case where single vector is returned as 1D array
-        if batch_vectors.ndim == 1:
-            batch_vectors = batch_vectors.reshape(1, -1)
+            if top_k is None or yielded <= top_k:
+                yield result
 
-        logger.debug(f"Batch vectors shape: {batch_vectors.shape}")
+            if top_k is not None and yielded >= top_k:
+                logger.info(f"Reached top_k limit ({top_k}). Stopping search.")
+                return
 
-        for local_i, content_vector in enumerate(batch_vectors):
-            global_i = batch_start + local_i
-            if global_i >= len(chunk_data):
-                break
-
-            file_path, chunk, start_idx, end_idx, num_tokens = chunk_data[global_i]
-            file_index = unique_files.index(file_path)
-
-            weighted_sim, name_sim, dir_sim, content_sim = compute_weighted_similarity(
-                query_vector,
-                name_vectors[file_index],
-                dir_vectors[file_index],
-                content_vector,
-                weights,
-            )
-
-            if weighted_sim >= threshold:
-                chunk_counts[file_path] = chunk_counts.get(file_path, -1) + 1
-                result: FileSearchResult = {
-                    "rank": 0,
-                    "score": float(weighted_sim),
-                    "metadata": {
-                        "file_path": file_path,
-                        "start_idx": start_idx,
-                        "end_idx": end_idx,
-                        "chunk_idx": chunk_counts[file_path],
-                        "name_similarity": float(name_sim),
-                        "dir_similarity": float(dir_sim),
-                        "content_similarity": float(content_sim),
-                        "num_tokens": num_tokens,
-                    },
-                    "text": chunk,
-                }
-                results.append(result)
-                yielded += 1
-
-                if top_k is None or yielded <= top_k:
-                    yield result
-
-                if top_k is not None and yielded >= top_k:
-                    logger.info(f"Reached top_k limit ({top_k}). Stopping search.")
-                    return
-
-    # Assign ranks based on scores
+    # ── Rank and optionally merge ───────────────────────────────
     results.sort(key=lambda x: x["score"], reverse=True)
     for i, r in enumerate(results, 1):
         r["rank"] = i
 
-    # Merge chunks if requested
-    if not split_chunks:
+    if not split_chunks and results:
         logger.info(f"Merging {len(results)} results...")
         merged_results = merge_results(results, tokenizer)
         logger.info(f"Merged into {len(merged_results)} results")

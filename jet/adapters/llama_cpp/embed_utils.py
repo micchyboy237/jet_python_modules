@@ -5,8 +5,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Literal, Union, overload
 
 import numpy as np
+from jet.adapters.llama_cpp.factory import get_embedding_client
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
-from openai import OpenAI
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TextColumn
 
@@ -16,10 +16,7 @@ console = Console()
 SERVER_URL = os.getenv("LLAMA_CPP_EMBED_URL")
 MODEL_NAME: LLAMACPP_EMBED_KEYS = os.getenv("LLAMA_CPP_EMBED_MODEL")
 
-client = OpenAI(
-    base_url=SERVER_URL,
-    api_key="not-needed-for-local",  # llama.cpp ignores this
-)
+client = get_embedding_client()
 
 
 @overload

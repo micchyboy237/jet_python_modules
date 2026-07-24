@@ -45,10 +45,21 @@ def _get_size_fn(model: str | None = None):
     """Return a callable size_fn compatible with existing chunk_texts logic.
 
     Replaces get_tokenizer_fn() from jet._token.token_utils.
+    Handles both single strings (returns list of token IDs) and
+    lists of strings (returns list of list of token IDs).
     """
     if model is None:
         return get_words
-    return lambda text, show_progress=False: _tokenize_for_size(text, model)
+
+    def _fn(text, show_progress=False):
+        if isinstance(text, list):
+            # Batch mode: return list of token ID lists
+            return [_tokenize_for_size(t, model) for t in text]
+        else:
+            # Single string mode: return single list of token IDs
+            return _tokenize_for_size(text, model)
+
+    return _fn
 
 
 def _decode_tokens(tokens: list[int], model: str | None = None) -> str:
