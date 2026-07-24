@@ -6,6 +6,7 @@ from typing import TypedDict
 
 import nbformat
 import numpy as np
+from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
@@ -15,7 +16,6 @@ from jet.code.markdown_utils._preprocessors import remove_markdown_links
 from jet.logger import logger
 from jet.transformers.formatters import format_json
 from jet.utils.url_utils import remove_links
-from jet.wordnet.text_chunker import chunk_texts_with_data
 from tqdm import tqdm
 
 

@@ -425,3 +425,9 @@ def chunk_texts_with_data(
                     }
                 )
     return chunks
+
+
+if __name__ == "__main__":
+    from jet.adapters.llama_cpp.main._main_chunking_utils import main
+
+    main()
