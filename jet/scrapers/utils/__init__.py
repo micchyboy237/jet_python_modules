@@ -42,6 +42,7 @@ from .base import (
     scrape_title,
     search_data,
     split_text,
+    validate_headers,
 )
 from .filter_links import filter_links
 from .scrape_links import scrape_links

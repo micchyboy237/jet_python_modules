@@ -52,7 +52,7 @@ async def async_example(urls: List[str]) -> None:
         use_cache=False,
     ):
         if result["status"] == "completed" and result["html"]:
-            all_links = scrape_links(result["html"], base_url=result["url"])
+            all_links = scrape_links(result["html"], base=result["url"])
             safe_filename = format_sub_dir(result["url"])
 
             if result["screenshot"]:
@@ -103,7 +103,7 @@ def sync_example(urls: List[str]) -> None:
 
     for result in results:
         if result["status"] == "completed" and result["html"]:
-            all_links = scrape_links(result["html"], base_url=result["url"])
+            all_links = scrape_links(result["html"], base=result["url"])
             safe_filename = format_sub_dir(result["url"])
 
             if result["screenshot"]:

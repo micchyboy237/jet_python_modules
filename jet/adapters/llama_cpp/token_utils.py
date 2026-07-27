@@ -317,7 +317,7 @@ def count_tokens(
         model = LLM_MODEL
 
     # Server path (opt-in)
-    if use_server:
+    if use_server or not isinstance(content, str):
         if isinstance(content, str):
             try:
                 result = count_tokens_raw(
