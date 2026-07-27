@@ -679,7 +679,11 @@ class OpenAIModel(ApiModel):
                     {"role": role, "content": content_for_tokenizer}
                 )
 
-            input_tokens = count_tokens(formatted_messages, model=self.model_id)
+            input_tokens = count_tokens(
+                formatted_messages,
+                model=self.model_id,
+                use_server=True,
+            )
 
             request_data = {
                 "model": completion_kwargs.get("model"),

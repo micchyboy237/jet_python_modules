@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
+from jet.adapters.llama_cpp.config import LLM_MODEL
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
@@ -63,8 +64,8 @@ def get_args() -> argparse.Namespace:
         "-m",
         "--model",
         type=str,
-        default=None,
-        help="Tokenizer model path/name for token-aware splitting (default: None = word-based)",
+        default=LLM_MODEL,
+        help=f"Tokenizer model path/name for token-aware splitting (default: {LLM_MODEL!r} from config, or None = tiktoken)",
     )
     parser.add_argument(
         "-i",

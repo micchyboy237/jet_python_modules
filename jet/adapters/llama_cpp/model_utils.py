@@ -1,6 +1,13 @@
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from jet.adapters.llama_cpp.config import LLM_BASE_URL
+from jet.adapters.llama_cpp.models import (
+    LLAMACPP_KEYS,
+    LLAMACPP_LLM_MODELS,
+    LLAMACPP_MODELS,
+    LLAMACPP_VALUES,
+)
+from jet.logger import logger
 
 # Define ModelType as a Literal
 ModelType = Literal["llm", "embed", "rerank"]
@@ -73,6 +80,37 @@ def get_llama_cpp_base_url(override: Optional[str] = None) -> str:
     if base.endswith("/v1"):
         base = base[:-3].rstrip("/")
     return base
+
+
+def get_model_hf_id(model_key: LLAMACPP_KEYS) -> LLAMACPP_VALUES:
+    """
+    Convert a llama.cpp model key to its HuggingFace model ID.
+
+    Args:
+        model_key: Model key like "llama-3.2:3b" or "nomic-embed:1.5"
+
+    Returns:
+        HuggingFace model ID like "meta-llama/Llama-3.2-3B-Instruct"
+
+    Raises:
+        ValueError: If model_key is not found in any model mapping
+    """
+    logger.debug(f"Resolving HF ID for model key: {model_key}")
+
+    # Check LLM models first
+    if model_key in LLAMACPP_LLM_MODELS:
+        hf_id = LLAMACPP_LLM_MODELS[model_key]
+        logger.debug(f"Found in LLM models: {hf_id}")
+        return hf_id
+
+    # Check all models (embed, rerank, vision)
+    if model_key in LLAMACPP_MODELS:
+        hf_id = LLAMACPP_MODELS[model_key]
+        logger.debug(f"Found in combined models: {hf_id}")
+        return hf_id
+
+    logger.error(f"Model key '{model_key}' not found in any model mapping")
+    raise ValueError(f"Model key '{model_key}' not found in LLAMACPP_MODELS")
 
 
 def determine_model_type(model: Dict[str, Any]) -> ModelType:

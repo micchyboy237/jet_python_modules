@@ -7,7 +7,11 @@ from typing import TypedDict
 import nbformat
 import numpy as np
 from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
-from jet.adapters.llama_cpp.config import EMBED_MODEL
+from jet.adapters.llama_cpp.config import (
+    EMBED_DOC_PREFIX,
+    EMBED_MODEL,
+    EMBED_QUERY_PREFIX,
+)
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
 from jet.adapters.llama_cpp.token_utils import count_tokens
@@ -50,6 +54,8 @@ class Weights(TypedDict):
 
 
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
+DEFAULT_QUERY_PREFIX = EMBED_QUERY_PREFIX
+DEFAULT_DOC_PREFIX = EMBED_DOC_PREFIX
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
 DEFAULT_WEIGHTS: Weights = {
@@ -61,13 +67,11 @@ DEFAULT_WEIGHTS: Weights = {
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     """Calculate cosine similarity between two vectors."""
-    # Check for empty vectors
     if vec1.size == 0 or vec2.size == 0:
         return 0.0
     if vec1.shape[0] != vec2.shape[0]:
         logger.warning(f"Vector dimension mismatch: {vec1.shape} vs {vec2.shape}")
         return 0.0
-
     dot_product = np.dot(vec1, vec2)
     norm_a = np.linalg.norm(vec1)
     norm_b = np.linalg.norm(vec2)
@@ -77,6 +81,7 @@ def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
 def get_max_context_size(model_name: str) -> int:
     """
     Get the maximum context size for the embedding model.
+
     Uses existing get_model_ctx_embd_size utility.
 
     Args:
@@ -185,6 +190,7 @@ def collect_file_contents(
             if suffix == ".ipynb":
                 with open(file_path, encoding="utf-8") as f:
                     nb = nbformat.read(f, as_version=4)
+
                 parts = []
                 for cell in nb.cells:
                     source = cell.get("source", "")
@@ -194,10 +200,13 @@ def collect_file_contents(
                         parts.append(source.rstrip())
                     elif cell.cell_type == "code":
                         parts.append("```python\n" + source.rstrip() + "\n```")
+
                 if not parts:
                     skipped_files += 1
                     continue
+
                 full_content = "\n\n".join(parts)
+
             elif suffix in {
                 ".txt",
                 ".py",
@@ -208,7 +217,6 @@ def collect_file_contents(
                 ".json",
                 ".csv",
             }:
-                # Try UTF-8 first, then fallback to latin-1, then with error replacement
                 try:
                     with open(file_path, encoding="utf-8") as f:
                         full_content = f.read()
@@ -226,8 +234,8 @@ def collect_file_contents(
                         with open(file_path, encoding="utf-8", errors="replace") as f:
                             full_content = f.read()
                         encoding_errors += 1
+
             elif suffix == ".pdf":
-                # Skip PDF files - can't read as text
                 skipped_files += 1
                 logger.debug(f"Skipping PDF file: {file_path}")
                 continue
@@ -299,11 +307,9 @@ def collect_file_chunks(
 
     tokenizer = tokenizer or default_tokenizer
 
-    # Get max context size for the model
     max_context_size = get_max_context_size(embed_model)
     logger.info(f"Model {embed_model} max context size: {max_context_size} tokens")
 
-    # Adjust chunk_size if it exceeds model context
     if chunk_size > max_context_size:
         logger.warning(
             f"Chunk size {chunk_size} exceeds model context {max_context_size}. "
@@ -325,7 +331,6 @@ def collect_file_chunks(
 
     skipped_chunks = 0
     for chunk in chunks:
-        # Pre-check chunk size
         num_tokens = tokenizer(chunk["content"])
         if num_tokens > max_context_size:
             logger.warning(
@@ -333,7 +338,6 @@ def collect_file_chunks(
             )
             skipped_chunks += 1
             continue
-
         contents_with_indices.append(
             (
                 chunk["doc_id"],
@@ -423,8 +427,8 @@ def merge_results(
 
     for file_path, chunks in grouped.items():
         chunks.sort(key=lambda x: x["metadata"]["start_idx"])
-        current_chunk = chunks[0]
 
+        current_chunk = chunks[0]
         merged_text = current_chunk["text"]
         start_idx = current_chunk["metadata"]["start_idx"]
         end_idx = current_chunk["metadata"]["end_idx"]
@@ -441,7 +445,6 @@ def merge_results(
             next_text = next_chunk["text"]
 
             if next_start <= end_idx:
-                # Overlapping chunks - merge them
                 new_end = max(end_idx, next_end)
                 overlap = end_idx - next_start
                 additional_content = next_text[overlap:] if overlap > 0 else next_text
@@ -452,7 +455,6 @@ def merge_results(
                 chunk_count += 1
                 tokens = tokenizer(merged_text)
             else:
-                # Non-adjacent - save current and start new
                 avg_content_sim = sum(content_sims) / chunk_count
                 merged_results.append(
                     {
@@ -483,7 +485,6 @@ def merge_results(
                 chunk_count = 1
                 tokens = tokenizer(merged_text)
 
-        # Save the last chunk group
         avg_content_sim = sum(content_sims) / chunk_count
         merged_results.append(
             {
@@ -528,12 +529,18 @@ def search_files(
     batch_size: int = 64,
     show_progress: bool = True,
     use_cache: bool = False,
+    query_prefix: str = DEFAULT_QUERY_PREFIX,
+    doc_prefix: str = DEFAULT_DOC_PREFIX,
 ) -> Iterator[FileSearchResult]:
     """
     Search files using vector similarity on chunked contents + file metadata.
-    Yields up to top_k results iteratively that meet the threshold, or all results if top_k is None.
 
+    Yields up to top_k results iteratively that meet the threshold, or all results if top_k is None.
     Uses llama_cpp server for both embedding generation and token counting.
+
+    Query text is embedded with EMBED_QUERY_PREFIX and file name/dir/content
+    text is embedded with EMBED_DOC_PREFIX (both from jet.adapters.llama_cpp.config),
+    matching the asymmetric prefix convention expected by nomic-embed-style models.
     """
 
     def default_tokenizer(text):
@@ -541,7 +548,6 @@ def search_files(
 
     tokenizer = tokenizer or default_tokenizer
 
-    # Collect and chunk files
     file_paths, file_names, parent_dirs, chunk_data = collect_file_chunks(
         paths,
         extensions,
@@ -567,13 +573,16 @@ def search_files(
     dir_texts = [Path(p).parent.name or "root" for p in unique_files]
     chunk_texts = [chunk for _, chunk, _, _, _ in chunk_data]
 
-    # ── Embed query (single, no batching needed) ────────────────
     query_processed = preprocess(query) if preprocess else query
     logger.info(f"Embedding query: {query_processed[:100]}...")
-    query_vector = embed(query_processed, model=embed_model, return_format="numpy")
+    query_vector = embed(
+        query_processed,
+        model=embed_model,
+        return_format="numpy",
+        prefix=query_prefix,
+    )
     logger.debug(f"Query vector shape: {query_vector.shape}")
 
-    # ── Embed names/dirs (deduplicated, batched internally) ────
     processed_name_texts = [
         preprocess(name) if preprocess else name for name in name_texts
     ]
@@ -591,6 +600,7 @@ def search_files(
             batch_size=min(128, len(name_dir_texts)),
             show_progress=True,
             progress_description="Embedding names/dirs",
+            prefix=doc_prefix,
         )
         name_vectors = name_dir_vectors[: len(processed_name_texts)]
         dir_vectors = name_dir_vectors[len(processed_name_texts) :]
@@ -600,10 +610,8 @@ def search_files(
         name_vectors = np.array([])
         dir_vectors = np.array([])
 
-    # ── Embed ALL chunks at once (deduplicated, parallel, batched) ──
     processed_chunk_texts = [preprocess(c) if preprocess else c for c in chunk_texts]
     logger.info(f"Embedding {len(processed_chunk_texts)} chunks...")
-
     try:
         chunk_vectors = embed(
             processed_chunk_texts,
@@ -613,19 +621,16 @@ def search_files(
             max_workers=6,
             show_progress=True,
             progress_description="Embedding chunks",
+            prefix=doc_prefix,
         )
-
         if chunk_vectors.size == 0:
             logger.warning("No chunk vectors were embedded. Returning empty results.")
             return
-
         logger.debug(f"Chunk vectors shape: {chunk_vectors.shape}")
-
     except Exception as e:
         logger.error(f"Failed to embed chunks: {e}")
         return
 
-    # ── Compute similarities and yield results ─────────────────
     results: list[FileSearchResult] = []
     chunk_counts = {}
     yielded = 0
@@ -672,7 +677,6 @@ def search_files(
                 logger.info(f"Reached top_k limit ({top_k}). Stopping search.")
                 return
 
-    # ── Rank and optionally merge ───────────────────────────────
     results.sort(key=lambda x: x["score"], reverse=True)
     for i, r in enumerate(results, 1):
         r["rank"] = i
