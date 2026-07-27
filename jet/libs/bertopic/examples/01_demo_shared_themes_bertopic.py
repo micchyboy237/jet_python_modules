@@ -12,8 +12,6 @@ from jet.logger import logger
 from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 
-# ... (rest of your existing file content remains exactly the same)
-
 # 1. Mock Dataset (Simulating a larger collection)
 documents = DOCS_LG
 

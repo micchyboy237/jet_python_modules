@@ -11,7 +11,7 @@ def get_llm_client() -> OpenAI:
         base_url=LLM_BASE_URL,
         api_key="not-needed",
         timeout=120.0,
-        max_retries=0,
+        max_retries=3,
     )
 
 
@@ -20,7 +20,7 @@ def get_embedding_client() -> OpenAI:
         base_url=EMBED_BASE_URL,
         api_key="not-needed",
         timeout=120.0,
-        max_retries=0,
+        max_retries=3,
     )
 
 
