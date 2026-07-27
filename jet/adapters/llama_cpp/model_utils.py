@@ -139,6 +139,31 @@ def get_loaded_models(base_url: Optional[str] = None) -> ModelsResponse:
     return loaded_models
 
 
+def get_all_models_ctx_embd_sizes(
+    base_url: Optional[str] = None,
+) -> List[ModelContextEmbeddingSize]:
+    """
+    Get context and embedding dimensions for all loaded models.
+    Args:
+        base_url: Direct URL override (highest priority)
+    Returns:
+        List[ModelContextEmbeddingSize]: List of dicts with ctx, ctx_train, and embd_dims
+    """
+    models = get_models(base_url)
+    results = []
+    for model in models["data"]:
+        meta = model.get("meta")
+        if meta:
+            results.append(
+                ModelContextEmbeddingSize(
+                    ctx=meta.get("n_ctx", 0),
+                    ctx_train=meta.get("n_ctx_train", 0),
+                    embd_dims=meta.get("n_embd", 0),
+                )
+            )
+    return results
+
+
 def get_model_ctx_embd_size(
     alias: str, base_url: Optional[str] = None
 ) -> ModelContextEmbeddingSize:
