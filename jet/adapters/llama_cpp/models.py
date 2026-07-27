@@ -42,8 +42,8 @@ LLAMACPP_LLM_MODELS: dict[LLAMACPP_LLM_KEYS, LLAMACPP_LLM_VALUES] = {
     "impish-llama:4b": "SicariusSicariiStuff/Impish_LLAMA_4B",
     "wizardlm-uncensored:7b": "ehartford/WizardLM-7B-Uncensored",
     "gemma3-uncensored:1b": "SicariusSicariiStuff/Gemma3-UNCENSORED-1B",
-    "qwen3.5-uncensored:2b": "HauhauCS/Qwen3.5-2B-Uncensored-HauhauCS-Aggressive",
-    "qwen3.5-uncensored:4b": "HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive",
+    "qwen3.5-uncensored:2b": "Qwen/Qwen3.5-2B",
+    "qwen3.5-uncensored:4b": "Qwen/Qwen3.5-4B",
 }
 
 LLAMACPP_EMBED_MODELS: dict[LLAMACPP_EMBED_KEYS, LLAMACPP_EMBED_VALUES] = {
