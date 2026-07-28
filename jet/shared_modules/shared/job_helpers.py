@@ -224,7 +224,7 @@ def save_job_to_db(
     metadata = {
         key: _serialize_for_jsonb(value)
         for key, value in job.items()
-        if key not in ["title", "details"]
+        if key not in ["title", "details", "meta"]
     }
 
     row = {
@@ -486,7 +486,8 @@ def save_job_embeddings(
         metadata = {
             key: _serialize_for_jsonb(value)
             for key, value in job.items()
-            if key not in ["title", "details"]
+            if key
+            not in ["title", "details", "meta"]  # Exclude meta — stored at row level
         }
         metadata["content_hash"] = job_hash
 
