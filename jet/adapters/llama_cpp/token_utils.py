@@ -1,4 +1,14 @@
-from typing import Any, Callable, Dict, List, Optional, TypedDict, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    TypedDict,
+    Union,
+    overload,
+)
 
 import requests
 from jet.adapters.llama_cpp.config import LLM_MODEL
@@ -285,6 +295,7 @@ def detokenize(
     return DetokenizeResponse(content=content)
 
 
+@overload
 def count_tokens(
     content: Union[str, List[Union[int, str, List[int], Dict[str, str]]]],
     add_special: bool = False,
@@ -292,32 +303,56 @@ def count_tokens(
     model: Optional[str] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
     use_server: bool = False,
+    prevent_total: Literal[False] = False,
     **kwargs,
-) -> int:
+) -> int: ...
+
+
+@overload
+def count_tokens(
+    content: Union[str, List[Union[int, str, List[int], Dict[str, str]]]],
+    add_special: bool = False,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    use_server: bool = False,
+    prevent_total: Literal[True] = True,
+    **kwargs,
+) -> List[int]: ...
+
+
+def count_tokens(
+    content: Union[str, List[Union[int, str, List[int], Dict[str, str]]]],
+    add_special: bool = False,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    use_server: bool = False,
+    prevent_total: bool = False,
+    **kwargs,
+) -> Union[int, List[int]]:
     """
     Count tokens using local tokenizer by default, with intelligent detection of input type.
-
     - If content is a string: direct tokenization
     - If content is a list of message dicts: applies chat template
-    - If content is a list of tokens: returns len(content)
-
+    - If content is a list of strings: tokenizes each string individually
+    - If content is a list of tokens (ints): returns len(content)
     Args:
-        content: String, list of message dicts, or list of tokens.
+        content: String, list of message dicts, list of strings, or list of tokens.
         add_special: Whether to add special tokens (string input only).
         base_url: Base URL override (server only).
         model: Model name (uses LLM_MODEL if None).
         tools: Optional list of tool definitions (for message dicts).
         use_server: If True, use llama.cpp server endpoints instead of local tokenizer.
+        prevent_total: If True, returns list of individual token counts instead of sum.
         **kwargs: Additional parameters to pass to the endpoint (server only).
-
     Returns:
-        int: Number of tokens.
+        int or List[int]: Number of tokens, or list of token counts per item.
     """
     if model is None:
         model = LLM_MODEL
 
-    # Server path (opt-in)
-    if use_server or not isinstance(content, str):
+    if use_server:
         if isinstance(content, str):
             try:
                 result = count_tokens_raw(
@@ -337,8 +372,9 @@ def count_tokens(
                     use_server=True,
                 )
                 return len(result["tokens"])
-
         if isinstance(content, list):
+            if not content:
+                return [] if prevent_total else 0
             if content and all(
                 isinstance(item, dict) and "role" in item and "content" in item
                 for item in content
@@ -366,42 +402,67 @@ def count_tokens(
                         use_server=True,
                     )
                     return len(result["tokens"])
+            elif content and all(isinstance(item, str) for item in content):
+                token_counts = []
+                for text in content:
+                    try:
+                        result = count_tokens_raw(
+                            text,
+                            model=model,
+                            base_url=base_url,
+                            **kwargs,
+                        )
+                        token_counts.append(result)
+                    except Exception as e:
+                        logger.warning(
+                            f"Raw token count failed for string, falling back: {e}"
+                        )
+                        result = tokenize(
+                            text,
+                            add_special=add_special,
+                            base_url=base_url,
+                            model=model,
+                            use_server=True,
+                        )
+                        token_counts.append(len(result["tokens"]))
+                return token_counts if prevent_total else sum(token_counts)
             else:
                 return len(content)
-
         logger.warning(f"Unsupported content type: {type(content)}")
         return 0
 
-    # Local path (default)
     tokenizer = get_tokenizer(model)
-
     if isinstance(content, str):
         return len(tokenizer.encode(content, add_special_tokens=add_special))
-
     if isinstance(content, list):
+        if not content:
+            return [] if prevent_total else 0
         if content and all(
             isinstance(item, dict) and "role" in item and "content" in item
             for item in content
         ):
-            # Apply chat template for accurate count
             try:
-                token_ids = tokenizer.apply_chat_template(
+                token_res = tokenizer.apply_chat_template(
                     content,
                     tools=tools,
                     tokenize=True,
                     add_generation_prompt=False,
                 )
-                return len(token_ids)
+                return len(token_res["input_ids"])
             except Exception as e:
                 logger.warning(
                     f"Chat template failed, falling back to concatenation: {e}"
                 )
                 combined = " ".join(msg.get("content", "") for msg in content)
                 return len(tokenizer.encode(combined, add_special_tokens=add_special))
+        elif content and all(isinstance(item, str) for item in content):
+            token_counts = [
+                len(tokenizer.encode(text, add_special_tokens=add_special))
+                for text in content
+            ]
+            return token_counts if prevent_total else sum(token_counts)
         else:
-            # Token list
             return len(content)
-
     logger.warning(f"Unsupported content type: {type(content)}")
     return 0
 
@@ -585,10 +646,9 @@ def count_tokens_raw(
 
 
 # ---------------------------------------------------------------------------
-# Main (updated for use_server opt-in)
+# Demo
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Test local tokenizer functions
     print("=== Testing get_tokenizer ===")
     try:
         tokenizer = get_tokenizer("llama-3.2:3b", verbose=True)
@@ -612,66 +672,122 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"get_detokenizer_fn failed: {e}")
 
-    # Local tokenization (default)
     print("\n=== Local tokenization (default) ===")
     try:
         local_tokens = tokenize("Hello world!", with_pieces=True)
         print("Local tokens:", local_tokens["tokens"][:5], "...")
-
         local_text = detokenize([123, 456, 789])
         print("Local detokenized:", local_text["content"])
-
         local_count = count_tokens("This is a test prompt.")
         print("Local token count:", local_count)
     except Exception as e:
         print(f"Local operations failed: {e}")
 
-    # Server tokenization (opt-in)
     print("\n=== Server tokenization (use_server=True) ===")
     try:
         server_tokens = tokenize(
             "Hello world!", add_special=True, with_pieces=True, use_server=True
         )
         print("Server tokens:", server_tokens["tokens"][:5], "...")
-
         server_text = detokenize([123, 456, 789], use_server=True)
         print("Server detokenized:", server_text["content"])
-
         server_count = count_tokens("This is a test prompt.", use_server=True)
         print("Server token count:", server_count)
     except Exception as e:
         print(f"Server operations failed (is server running?): {e}")
 
-    # Message-based tests
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "Hello, how are you?"},
     ]
 
+    messages_with_tools = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What's the weather like in Paris?"},
+    ]
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the current weather for a location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "The city and state, e.g. San Francisco, CA",
+                        },
+                        "unit": {
+                            "type": "string",
+                            "enum": ["celsius", "fahrenheit"],
+                            "description": "The unit of temperature",
+                        },
+                    },
+                    "required": ["location"],
+                },
+            },
+        }
+    ]
+
     print("\n=== Local chat tokens (default) ===")
     try:
         chat_result_local = count_chat_tokens(messages)
-        print(f"Local chat tokens: {chat_result_local['input_tokens']}")
+        print(f"Local chat tokens (without tools): {chat_result_local['input_tokens']}")
+        chat_result_local_with_tools = count_chat_tokens(
+            messages_with_tools, tools=tools
+        )
+        print(
+            f"Local chat tokens (with tools): {chat_result_local_with_tools['input_tokens']}"
+        )
     except Exception as e:
         print(f"Local chat count failed: {e}")
 
     print("\n=== Server chat tokens (use_server=True) ===")
     try:
         chat_result_server = count_chat_tokens(messages, use_server=True)
-        print(f"Server chat tokens: {chat_result_server['input_tokens']}")
+        print(
+            f"Server chat tokens (without tools): {chat_result_server['input_tokens']}"
+        )
+        chat_result_server_with_tools = count_chat_tokens(
+            messages_with_tools, tools=tools, use_server=True
+        )
+        print(
+            f"Server chat tokens (with tools): {chat_result_server_with_tools['input_tokens']}"
+        )
     except Exception as e:
         print(f"Server chat count failed: {e}")
 
-    # Auto-detection tests
     print("\n=== Testing count_tokens with auto-detection ===")
     result = count_tokens("Hello, how are you?")
     print(f"String input (local): {result} tokens")
-
     result = count_tokens("Hello, how are you?", use_server=True)
     print(f"String input (server): {result} tokens")
-
     result = count_tokens(messages)
-    print(f"Message dicts (local): {result} tokens")
-
+    print(f"Message dicts without tools (local): {result} tokens")
+    result = count_tokens(messages_with_tools, tools=tools)
+    print(f"Message dicts with tools (local): {result} tokens")
+    result = count_tokens(messages, use_server=True)
+    print(f"Message dicts without tools (server): {result} tokens")
+    result = count_tokens(messages_with_tools, tools=tools, use_server=True)
+    print(f"Message dicts with tools (server): {result} tokens")
     result = count_tokens([123, 456, 789])
     print(f"Token list input: {result} tokens")
+
+    print("\n=== Testing list of strings ===")
+    string_list = ["Hello world!", "How are you?", "I am doing great today!"]
+    result = count_tokens(string_list)
+    print(f"List of strings (local, total): {result} tokens")
+    result = count_tokens(string_list, prevent_total=True)
+    print(f"List of strings (local, individual): {result} tokens")
+    result = count_tokens(string_list, use_server=True)
+    print(f"List of strings (server, total): {result} tokens")
+
+    print("\n=== Testing empty inputs ===")
+    result = count_tokens("")
+    print(f"Empty string: {result} tokens")
+    result = count_tokens([])
+    print(f"Empty list: {result} tokens")
+    result = count_tokens([], prevent_total=True)
+    print(f"Empty list (individual): {result} tokens")
