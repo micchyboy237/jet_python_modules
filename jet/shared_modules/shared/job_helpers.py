@@ -142,19 +142,17 @@ def compute_text_hash(text: str) -> str:
 
 def table_row_to_jobdata(row: TableJobRow) -> JobData:
     """
-    Convert a database row (from get_row or create_or_update_row) back into a JobData object.
-
-    Handles the known mapping between stored DB column names and JobData attributes.
-    Uses safe .get() access with defaults to avoid KeyError on partial rows.
+    Convert a database row back into a JobData object.
     """
+    chunk_meta = row.get("chunk_meta") or {}
     metadata = row.get("metadata") or {}
 
     return {
-        "id": row.get("id", ""),
+        "id": metadata.get("id", row.get("id", "")),
         "link": metadata.get("link", ""),
         "title": row.get("header", ""),
-        "company": row.get("parent_header", ""),
-        "posted_date": row.get("posted_date"),
+        "company": metadata.get("company", row.get("parent_header", "")),
+        "posted_date": metadata.get("posted_date") or row.get("posted_date"),
         "keywords": metadata.get("keywords", []),
         "details": row.get("content", ""),
         "entities": metadata.get("entities"),
@@ -164,11 +162,11 @@ def table_row_to_jobdata(row: TableJobRow) -> JobData:
         "hours_per_week": metadata.get("hours_per_week"),
         "tags": metadata.get("tags"),
         "meta": {
-            "doc_id": row.get("doc_id", ""),
-            "chunk_index": row.get("chunk_index", ""),
-            "start_idx": row.get("start_idx", ""),
-            "end_idx": row.get("end_idx", ""),
-            "num_tokens": row.get("num_tokens", ""),
+            "job_id": metadata.get("id", ""),
+            "chunk_index": chunk_meta.get("chunk_index", 0),
+            "start_idx": chunk_meta.get("start_idx", 0),
+            "end_idx": chunk_meta.get("end_idx", 0),
+            "num_tokens": chunk_meta.get("num_tokens", 0),
         },
     }
 
@@ -195,57 +193,63 @@ def save_job_to_db(
     ctx_embd_size = get_model_ctx_embd_size(embed_model)
     embedding_dimension = ctx_embd_size["embd_dims"]
 
-    # Prepare data similar to save_job_embeddings
     job_id = job["id"]
     job_hash = compute_job_hash(job)
 
-    # Optional: check if already exists and unchanged
+    # Check if already exists and unchanged
     try:
         with db_client:
             existing = db_client.get_row(DEFAULT_TABLE_DATA, job_id)
-            if existing and existing.get("content_hash") == job_hash:
-                logger.debug(f"Job {job_id} unchanged → skipping DB update")
-                return table_row_to_jobdata(existing)
+            if existing:
+                existing_chunk_meta = existing.get("chunk_meta") or {}
+                if existing_chunk_meta.get("content_hash") == job_hash:
+                    logger.debug(f"Job {job_id} unchanged → skipping DB update")
+                    return table_row_to_jobdata(existing)
     except Exception as e:
         logger.warning(f"Error checking existing job in DB: {e}")
 
-    # Build embedding text (same logic as in save_job_embeddings)
     text = f"{job['title'].strip()}\n{job['details'].strip()}".strip()
 
-    # Generate embedding if requested, else store as None
     embedding_array = None
     if generate_embedding:
         embedding_array = generate_embeddings([text], embed_model=embed_model)[0]
 
     num_tokens = count_tokens(text, model=embed_model)
-
     company = job.get("company", "").strip()
 
-    metadata = {
-        key: _serialize_for_jsonb(value)
-        for key, value in job.items()
-        if key not in ["title", "details", "meta"]
-    }
-
-    row = {
-        "id": job_id,
+    # Chunk-specific metadata
+    chunk_meta = {
         "doc_id": job_id,
         "header_doc_id": generate_key(job["title"]),
         "parent_id": generate_key(company) if company else None,
         "doc_index": 0,
         "chunk_index": 0,
         "num_tokens": num_tokens,
-        "header": job["title"],
-        "parent_header": company,
-        "content": job["details"],
         "level": 1,
         "parent_level": 0,
         "start_idx": 0,
         "end_idx": 0,
         "content_hash": job_hash,
         "text_hash": compute_text_hash(text),
+    }
+
+    chunk_meta_keys = set(chunk_meta.keys())
+
+    # Job-level metadata (excludes chunk-specific and display fields)
+    job_metadata = {
+        key: _serialize_for_jsonb(value)
+        for key, value in job.items()
+        if key not in ["title", "details", "meta"] and key not in chunk_meta_keys
+    }
+
+    row = {
+        "id": job_id,
+        "header": job["title"],
+        "parent_header": company,
+        "content": job["details"],
         "posted_date": job.get("posted_date"),
-        "metadata": metadata,
+        "chunk_meta": chunk_meta,
+        "metadata": job_metadata,
         "embedding": embedding_array.tolist() if embedding_array is not None else None,
     }
 
@@ -255,7 +259,7 @@ def save_job_to_db(
             row_data=row,
             dimension=embedding_dimension,
         )
-        db_client.commit()  # explicit — makes row visible immediately
+        db_client.commit()
 
         logger.success(f"Saved/updated job {job_id} in DB (tokens: {num_tokens})")
         return table_row_to_jobdata(saved_row)
@@ -278,47 +282,41 @@ def save_job_embeddings(
     embedding_dimension = ctx_embd_size["embd_dims"]
 
     with db_client:
+        # Create table with new schema (chunk_meta + metadata JSONB)
         metadata_table_query = f"""
         CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
             id              TEXT PRIMARY KEY,
-            doc_id          TEXT,
-            header_doc_id   TEXT,
-            parent_id       TEXT,
-            doc_index       INTEGER DEFAULT 0,
-            chunk_index     INTEGER DEFAULT 0,
-            num_tokens      INTEGER,
             header          TEXT,
             parent_header   TEXT,
             content         TEXT,
-            level           INTEGER DEFAULT 1,
-            parent_level    INTEGER DEFAULT 0,
-            start_idx       INTEGER DEFAULT 0,
-            end_idx         INTEGER DEFAULT 0,
-            content_hash    TEXT,
-            text_hash       TEXT,
             posted_date     TIMESTAMPTZ,
+            chunk_meta      JSONB,
             metadata        JSONB,
-            embedding       vector({embedding_dimension})
+            embedding       vector({embedding_dimension}),
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            updated_at      TIMESTAMPTZ DEFAULT NOW()
         );
         """
         with db_client.conn.cursor() as cur:
             cur.execute(metadata_table_query)
-            logger.debug(
-                f"Created or verified '{DEFAULT_TABLE_DATA}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
-            )
-        existing_jobs = db_client.get_rows(
-            DEFAULT_TABLE_DATA,
-            ids=[compute_job_hash(job) for job in jobs],
-            id_column="content_hash",
-        )
-        existing_job_hashes = {
-            row["doc_id"]: row.get("content_hash") for row in existing_jobs
-        }
-        existing_text_hashes = {
-            row["id"]: row.get("text_hash") for row in existing_jobs
-        }
-        logger.debug(f"Existing text hashes: {existing_text_hashes}")
+            logger.debug(f"Created or verified '{DEFAULT_TABLE_DATA}' table.")
 
+        # Load existing jobs to detect changes
+        existing_jobs = db_client.get_rows(DEFAULT_TABLE_DATA)
+
+        existing_job_hashes = {}
+        existing_text_hashes = {}
+        for row in existing_jobs:
+            chunk_meta = row.get("chunk_meta") or {}
+            doc_id = chunk_meta.get("doc_id")
+            if doc_id:
+                existing_job_hashes[doc_id] = chunk_meta.get("content_hash")
+            existing_text_hashes[row["id"]] = chunk_meta.get("text_hash")
+
+        logger.debug(f"Existing job hashes: {len(existing_job_hashes)}")
+        logger.debug(f"Existing text hashes: {len(existing_text_hashes)}")
+
+    # Determine which jobs need processing
     jobs_to_process: list[tuple[JobData, str]] = []
     for job in jobs:
         job_hash = compute_job_hash(job)
@@ -348,6 +346,7 @@ def save_job_embeddings(
             },
         }
 
+    # Build job texts for chunking
     job_headers = []
     job_texts = []
     job_by_id = {}
@@ -375,6 +374,7 @@ def save_job_embeddings(
         max(job_header_token_counts) if job_header_token_counts else 0
     )
 
+    # Chunk texts
     chunks_with_data = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
@@ -389,7 +389,8 @@ def save_job_embeddings(
             chunk["doc_id"], chunk["chunk_index"], chunk["doc_index"]
         )
         logger.debug(
-            f"Generated chunk ID: {chunk['id']} for doc_id: {chunk['doc_id']}, chunk_index: {chunk['chunk_index']}, doc_index: {chunk['doc_index']}"
+            f"Generated chunk ID: {chunk['id']} for doc_id: {chunk['doc_id']}, "
+            f"chunk_index: {chunk['chunk_index']}, doc_index: {chunk['doc_index']}"
         )
 
     all_num_tokens = [chunk["num_tokens"] for chunk in chunks_with_data]
@@ -405,6 +406,7 @@ def save_job_embeddings(
     logger.log("ave_token:", ave_token, colors=["GRAY", "SUCCESS"])
     logger.log("max_token:", max_token, colors=["GRAY", "SUCCESS"])
 
+    # Determine which chunks need new embeddings
     chunks_to_embed = []
     embedding_texts = []
     existing_embeddings = {}
@@ -422,7 +424,8 @@ def save_job_embeddings(
 
         existing_text_hash = existing_text_hashes.get(chunk["id"])
         logger.debug(
-            f"Chunk ID: {chunk['id']}, Computed text_hash: {text_hash}, Existing text_hash: {existing_text_hash}"
+            f"Chunk ID: {chunk['id']}, Computed text_hash: {text_hash}, "
+            f"Existing text_hash: {existing_text_hash}"
         )
 
         if existing_text_hash is None or existing_text_hash != text_hash:
@@ -434,7 +437,7 @@ def save_job_embeddings(
         else:
             with db_client:
                 embedding = db_client.get_embedding_by_id(
-                    DEFAULT_TABLE_EMBEDDINGS, chunk["id"]
+                    DEFAULT_TABLE_DATA, chunk["id"]
                 )
                 if embedding is not None:
                     existing_embeddings[chunk["id"]] = embedding
@@ -442,13 +445,13 @@ def save_job_embeddings(
                         f"Reusing existing embedding for chunk {chunk['id']} from database"
                     )
                 else:
-                    logger.error(
-                        f"No embedding found for unchanged chunk {chunk['id']}"
+                    logger.warning(
+                        f"No embedding found for unchanged chunk {chunk['id']}, will regenerate"
                     )
-                    raise ValueError(
-                        f"No embedding found for unchanged chunk {chunk['id']}"
-                    )
+                    chunks_to_embed.append(chunk)
+                    embedding_texts.append(text)
 
+    # Generate new embeddings
     new_embeddings = (
         generate_embeddings(embedding_texts, embed_model)
         if embedding_texts
@@ -457,9 +460,11 @@ def save_job_embeddings(
 
     if len(chunks_to_embed) != len(new_embeddings):
         raise ValueError(
-            f"Mismatch between chunks_to_embed ({len(chunks_to_embed)}) and new_embeddings ({len(new_embeddings)})"
+            f"Mismatch between chunks_to_embed ({len(chunks_to_embed)}) "
+            f"and new_embeddings ({len(new_embeddings)})"
         )
 
+    # Build final embedding list (new + reused)
     embeddings = []
     chunk_embedding_map = {
         chunk["id"]: emb for chunk, emb in zip(chunks_to_embed, new_embeddings)
@@ -475,6 +480,7 @@ def save_job_embeddings(
 
     embeddings = np.array(embeddings)
 
+    # Build rows with chunk_meta and metadata separation
     rows_data = []
     metadata_rows = []
 
@@ -483,98 +489,62 @@ def save_job_embeddings(
             (j, h) for j, h in jobs_to_process if j["id"] == chunk["doc_id"]
         )
 
-        metadata = {
-            key: _serialize_for_jsonb(value)
-            for key, value in job.items()
-            if key
-            not in ["title", "details", "meta"]  # Exclude meta — stored at row level
-        }
-        metadata["content_hash"] = job_hash
-
-        row = {
-            "id": chunk["id"],
-            "metadata": metadata,
-            "text": f"{job['title']}\n{chunk['content']}",
-            "embedding": embedding,
-            "content_hash": job_hash,
-            "text_hash": chunk["text_hash"],
-        }
-        rows_data.append(row)
-
-        required_keys = [
-            "id",
-            "doc_id",
-            "doc_index",
-            "chunk_index",
-            "num_tokens",
-            "content",
-            "start_idx",
-            "end_idx",
-        ]
-        missing_keys = [key for key in required_keys if key not in chunk]
-        if missing_keys:
-            logger.error(f"Missing keys in chunk: {missing_keys}")
-            raise ValueError(f"Chunk missing required keys: {missing_keys}")
-
-        header = job["title"]
-        parent_header = job["company"]
-        parent_id = generate_key(job["company"])
-        header_doc_id = generate_key(job["title"])
-
-        metadata_row = {
-            "id": chunk["id"],
+        # Chunk-specific metadata
+        chunk_meta = {
             "doc_id": chunk["doc_id"],
-            "header_doc_id": header_doc_id,
-            "parent_id": parent_id,
+            "header_doc_id": generate_key(job["title"]),
+            "parent_id": generate_key(job["company"]),
             "doc_index": chunk["doc_index"],
             "chunk_index": chunk["chunk_index"],
             "num_tokens": chunk["num_tokens"],
-            "header": header,
-            "parent_header": parent_header,
-            "content": chunk["content"],
             "level": 1,
             "parent_level": 0,
             "start_idx": chunk["start_idx"],
             "end_idx": chunk["end_idx"],
             "content_hash": job_hash,
             "text_hash": chunk["text_hash"],
+        }
+
+        chunk_meta_keys = set(chunk_meta.keys())
+
+        # Job-level metadata
+        job_metadata = {
+            key: _serialize_for_jsonb(value)
+            for key, value in job.items()
+            if key not in ["title", "details", "meta"] and key not in chunk_meta_keys
+        }
+
+        header = job["title"]
+        parent_header = job["company"]
+
+        metadata_row = {
+            "id": chunk["id"],
+            "header": header,
+            "parent_header": parent_header,
+            "content": chunk["content"],
             "posted_date": job["posted_date"],
-            "metadata": metadata,
+            "chunk_meta": chunk_meta,
+            "metadata": job_metadata,
             "embedding": embedding.tolist(),
         }
         metadata_rows.append(metadata_row)
 
+        # Build row data for return value
+        rows_data.append(
+            {
+                "id": chunk["id"],
+                "metadata": job_metadata,
+                "text": f"{header}\n{chunk['content']}",
+                "embedding": embedding,
+                "content_hash": job_hash,
+                "text_hash": chunk["text_hash"],
+            }
+        )
+
+    # Save to database
     with db_client:
         try:
-            metadata_table_query = f"""
-            CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
-                id              TEXT PRIMARY KEY,
-                doc_id          TEXT,
-                header_doc_id   TEXT,
-                parent_id       TEXT,
-                doc_index       INTEGER DEFAULT 0,
-                chunk_index     INTEGER DEFAULT 0,
-                num_tokens      INTEGER,
-                header          TEXT,
-                parent_header   TEXT,
-                content         TEXT,
-                level           INTEGER DEFAULT 1,
-                parent_level    INTEGER DEFAULT 0,
-                start_idx       INTEGER DEFAULT 0,
-                end_idx         INTEGER DEFAULT 0,
-                content_hash    TEXT,
-                text_hash       TEXT,
-                posted_date     TIMESTAMPTZ,
-                metadata        JSONB,
-                embedding       vector({embedding_dimension})
-            );
-            """
-            with db_client.conn.cursor() as cur:
-                cur.execute(metadata_table_query)
-                logger.debug(
-                    f"Created or verified '{DEFAULT_TABLE_DATA}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
-                )
-
+            # Get existing IDs to determine create vs update
             with db_client.conn.cursor() as cur:
                 cur.execute(
                     sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
@@ -598,7 +568,6 @@ def save_job_embeddings(
                     f"Updating {metadata_update_count} existing rows in '{DEFAULT_TABLE_DATA}' table"
                 )
 
-            logger.debug(f"Metadata rows to save: {len(metadata_rows)}")
             for idx, row in enumerate(metadata_rows):
                 if "id" not in row:
                     logger.error(f"Row {idx} missing id: {row}")
@@ -702,10 +671,19 @@ def hybrid_search_jobs(
     )
 
     ids = [result["id"] for result in raw_results]
-    documents = [
-        f"Title: {result['header']}\n{result['content']}" for result in raw_results
+    documents = [f"{result['content']}" for result in raw_results]
+    metadatas = [
+        {
+            "parent_id": result["chunk_meta"].get("parent_id"),
+            "doc_id": result["chunk_meta"].get("doc_id"),
+            "chunk_index": result["chunk_meta"].get("chunk_index"),
+            "start_idx": result["chunk_meta"].get("start_idx"),
+            "end_idx": result["chunk_meta"].get("end_idx"),
+            "num_tokens": result["chunk_meta"].get("num_tokens"),
+        }
+        for result in raw_results
     ]
-    query_candidates, reranked_results = rerank_bm25(query, documents, ids)
+    query_candidates, reranked_results = rerank_bm25(query, documents, ids, metadatas)
 
     filtered_results = [
         result for result in reranked_results if is_valid_score(result.get("score"))
