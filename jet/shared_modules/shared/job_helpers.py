@@ -2,24 +2,36 @@ import math
 from datetime import datetime
 
 import numpy as np
+from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
-from jet.adapters.llama_cpp.utils import get_embedding_size
 from jet.data.utils import generate_hash, generate_key
 from jet.db.postgres.pgvector import PgVectorClient
 from jet.logger import logger
-from jet.models.tokenizer.base import count_tokens
-from jet.wordnet.text_chunker import chunk_texts_with_data
 from numpy.typing import NDArray
 from psycopg import sql
 from shared.data_types.job import JobData, JobSearchResult, TableJobRow
 
-DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = "nomic-embed-text-v2-moe"
-DEFAULT_EMBEDDING_DIM = get_embedding_size(DEFAULT_EMBED_MODEL)
+DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
+_ctx_embd_size = get_model_ctx_embd_size(DEFAULT_EMBED_MODEL)
+DEFAULT_EMBEDDING_DIM = _ctx_embd_size["embd_dims"]
 DEFAULT_JOBS_DB_NAME = "jobs_db1"
 DEFAULT_TABLE_DATA = "jobs"
-DEFAULT_CHUNK_SIZE = 500
+DEFAULT_BUFFER = 32
+DEFAULT_CHUNK_SIZE = _ctx_embd_size["ctx"] - DEFAULT_BUFFER
 DEFAULT_CHUNK_OVERLAP = 100
+
+
+def _serialize_for_jsonb(value):
+    """Convert Pydantic models and other non-serializable objects to JSON-safe dicts."""
+    if hasattr(value, "model_dump"):  # Pydantic v2
+        return value.model_dump()
+    if hasattr(value, "dict"):  # Pydantic v1 fallback
+        return value.dict()
+    return value
 
 
 def get_jobs_db_summary(db_client: PgVectorClient | None = None):
@@ -180,7 +192,8 @@ def save_job_to_db(
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
-    embedding_dimension = get_embedding_size(embed_model)
+    ctx_embd_size = get_model_ctx_embd_size(embed_model)
+    embedding_dimension = ctx_embd_size["embd_dims"]
 
     # Prepare data similar to save_job_embeddings
     job_id = job["id"]
@@ -204,12 +217,14 @@ def save_job_to_db(
     if generate_embedding:
         embedding_array = generate_embeddings([text], embed_model=embed_model)[0]
 
-    num_tokens = count_tokens(embed_model, [text], prevent_total=True)[0]
+    num_tokens = count_tokens(text, model=embed_model)
 
     company = job.get("company", "").strip()
 
     metadata = {
-        key: value for key, value in job.items() if key not in ["title", "details"]
+        key: _serialize_for_jsonb(value)
+        for key, value in job.items()
+        if key not in ["title", "details"]
     }
 
     row = {
@@ -254,17 +269,15 @@ def save_job_embeddings(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> dict:
-    # Initialize database client if not provided
     if not db_client:
         db_client = PgVectorClient(
             dbname=DEFAULT_JOBS_DB_NAME, overwrite_db=overwrite_db
         )
 
-    embedding_dimension = get_embedding_size(embed_model)
+    ctx_embd_size = get_model_ctx_embd_size(embed_model)
+    embedding_dimension = ctx_embd_size["embd_dims"]
 
-    # Ensure both metadata and embeddings tables exist before fetching rows
     with db_client:
-        # Create or verify metadata table
         metadata_table_query = f"""
         CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
             id              TEXT PRIMARY KEY,
@@ -293,8 +306,6 @@ def save_job_embeddings(
             logger.debug(
                 f"Created or verified '{DEFAULT_TABLE_DATA}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
             )
-
-        # Fetch existing job metadata with hashes, filtering by doc_id
         existing_jobs = db_client.get_rows(
             DEFAULT_TABLE_DATA,
             ids=[compute_job_hash(job) for job in jobs],
@@ -308,7 +319,6 @@ def save_job_embeddings(
         }
         logger.debug(f"Existing text hashes: {existing_text_hashes}")
 
-    # Filter jobs that are new or have changed
     jobs_to_process: list[tuple[JobData, str]] = []
     for job in jobs:
         job_hash = compute_job_hash(job)
@@ -318,7 +328,6 @@ def save_job_embeddings(
         else:
             logger.debug(f"Skipping job {job['id']} - no changes detected.")
 
-    # Sort jobs by posted_date (newest first)
     jobs_to_process.sort(
         key=lambda x: datetime.fromisoformat(x[0]["posted_date"]), reverse=True
     )
@@ -339,7 +348,6 @@ def save_job_embeddings(
             },
         }
 
-    # Process only new or changed jobs
     job_headers = []
     job_texts = []
     job_by_id = {}
@@ -358,25 +366,15 @@ def save_job_embeddings(
             text += f"Salary: {job['salary']}\n"
         if job.get("hours_per_week"):
             text += f"Hours per Week: {job['hours_per_week']}\n"
-        # if job.get("entities"):
-        #     entities = job["entities"]
-        #     if entities.get("role"):
-        #         text += f"Role: {', '.join(entities['role'])}\n"
-        #     if entities.get("technology_stack"):
-        #         text += f"Technology Stack: {', '.join(entities['technology_stack'])}\n"
-        #     if entities.get("qualifications"):
-        #         text += f"Qualifications: {', '.join(entities['qualifications'])}\n"
-        #     if entities.get("application"):
-        #         text += f"Application: {', '.join(entities['application'])}\n"
         job_texts.append(text)
 
-    # Rest of the original logic for chunking
     job_header_token_counts: list[int] = count_tokens(
-        embed_model, job_headers, prevent_total=True
+        job_headers, model=embed_model, prevent_total=True
     )
     max_job_header_token = (
         max(job_header_token_counts) if job_header_token_counts else 0
     )
+
     chunks_with_data = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
@@ -385,6 +383,7 @@ def save_job_embeddings(
         buffer=max_job_header_token,
         model=embed_model,
     )
+
     for chunk in chunks_with_data:
         chunk["id"] = generate_key(
             chunk["doc_id"], chunk["chunk_index"], chunk["doc_index"]
@@ -400,28 +399,32 @@ def save_job_embeddings(
         math.ceil(sum(all_num_tokens) / len(all_num_tokens)) if all_num_tokens else 0
     )
     max_token = max(all_num_tokens) if all_num_tokens else 0
+
     logger.log("count:", count, colors=["GRAY", "INFO"])
     logger.log("min_token:", min_token, colors=["GRAY", "SUCCESS"])
     logger.log("ave_token:", ave_token, colors=["GRAY", "SUCCESS"])
     logger.log("max_token:", max_token, colors=["GRAY", "SUCCESS"])
 
-    # Filter chunks that need new embeddings
     chunks_to_embed = []
     embedding_texts = []
     existing_embeddings = {}
+
     for chunk in chunks_with_data:
         job = job_by_id.get(chunk["doc_id"])
         if not job:
             logger.error(f"No job found for doc_id: {chunk['doc_id']}")
             raise ValueError(f"No job found for doc_id: {chunk['doc_id']}")
+
         header = f"{job['title']}"
         text = f"{header}\n{chunk['content']}"
         text_hash = compute_text_hash(text)
         chunk["text_hash"] = text_hash
+
         existing_text_hash = existing_text_hashes.get(chunk["id"])
         logger.debug(
             f"Chunk ID: {chunk['id']}, Computed text_hash: {text_hash}, Existing text_hash: {existing_text_hash}"
         )
+
         if existing_text_hash is None or existing_text_hash != text_hash:
             chunks_to_embed.append(chunk)
             embedding_texts.append(text)
@@ -429,7 +432,6 @@ def save_job_embeddings(
                 f"Generating new embedding for chunk {chunk['id']} (new or changed content)"
             )
         else:
-            # Retrieve existing embedding
             with db_client:
                 embedding = db_client.get_embedding_by_id(
                     DEFAULT_TABLE_EMBEDDINGS, chunk["id"]
@@ -447,18 +449,17 @@ def save_job_embeddings(
                         f"No embedding found for unchanged chunk {chunk['id']}"
                     )
 
-    # Generate embeddings only for new or changed chunks
     new_embeddings = (
         generate_embeddings(embedding_texts, embed_model)
         if embedding_texts
         else np.array([])
     )
+
     if len(chunks_to_embed) != len(new_embeddings):
         raise ValueError(
             f"Mismatch between chunks_to_embed ({len(chunks_to_embed)}) and new_embeddings ({len(new_embeddings)})"
         )
 
-    # Combine new and existing embeddings
     embeddings = []
     chunk_embedding_map = {
         chunk["id"]: emb for chunk, emb in zip(chunks_to_embed, new_embeddings)
@@ -471,18 +472,24 @@ def save_job_embeddings(
         else:
             logger.error(f"No embedding found for chunk {chunk['id']}")
             raise ValueError(f"No embedding found for chunk {chunk['id']}")
+
     embeddings = np.array(embeddings)
 
     rows_data = []
     metadata_rows = []
+
     for chunk, embedding in zip(chunks_with_data, embeddings):
         job, job_hash = next(
             (j, h) for j, h in jobs_to_process if j["id"] == chunk["doc_id"]
         )
+
         metadata = {
-            key: value for key, value in job.items() if key not in ["title", "details"]
+            key: _serialize_for_jsonb(value)
+            for key, value in job.items()
+            if key not in ["title", "details"]
         }
         metadata["content_hash"] = job_hash
+
         row = {
             "id": chunk["id"],
             "metadata": metadata,
@@ -492,6 +499,7 @@ def save_job_embeddings(
             "text_hash": chunk["text_hash"],
         }
         rows_data.append(row)
+
         required_keys = [
             "id",
             "doc_id",
@@ -506,10 +514,12 @@ def save_job_embeddings(
         if missing_keys:
             logger.error(f"Missing keys in chunk: {missing_keys}")
             raise ValueError(f"Chunk missing required keys: {missing_keys}")
+
         header = job["title"]
         parent_header = job["company"]
         parent_id = generate_key(job["company"])
         header_doc_id = generate_key(job["title"])
+
         metadata_row = {
             "id": chunk["id"],
             "doc_id": chunk["doc_id"],
@@ -535,7 +545,6 @@ def save_job_embeddings(
 
     with db_client:
         try:
-            # Ensure metadata table includes content_hash, text_hash, and posted_date columns
             metadata_table_query = f"""
             CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
                 id              TEXT PRIMARY KEY,
@@ -565,7 +574,6 @@ def save_job_embeddings(
                     f"Created or verified '{DEFAULT_TABLE_DATA}' table with 'content_hash', 'text_hash', and 'posted_date' columns."
                 )
 
-            # Log whether rows are created or updated for metadata table
             with db_client.conn.cursor() as cur:
                 cur.execute(
                     sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
@@ -574,10 +582,12 @@ def save_job_embeddings(
                     ([row["id"] for row in metadata_rows],),
                 )
                 existing_metadata_ids = {row["id"] for row in cur.fetchall()}
+
             metadata_create_count = sum(
                 1 for row in metadata_rows if row["id"] not in existing_metadata_ids
             )
             metadata_update_count = len(metadata_rows) - metadata_create_count
+
             if metadata_create_count > 0:
                 logger.info(
                     f"Creating {metadata_create_count} new rows in '{DEFAULT_TABLE_DATA}' table"
@@ -592,14 +602,15 @@ def save_job_embeddings(
                 if "id" not in row:
                     logger.error(f"Row {idx} missing id: {row}")
                     raise ValueError(f"Row {idx} missing id")
+
             metadata_results = db_client.create_or_update_rows(
                 DEFAULT_TABLE_DATA, metadata_rows
             )
             db_client.commit()
-
             logger.success(
                 f"Saved {len(metadata_results)} metadata records to '{DEFAULT_TABLE_DATA}' table."
             )
+
         except Exception as e:
             logger.error(f"Failed to save data: {str(e)}")
             db_client.conn.rollback()
@@ -618,6 +629,17 @@ def save_job_embeddings(
             "max_token": max_token,
         },
     }
+
+
+def is_valid_score(score) -> bool:
+    """Check if score is a valid positive number (not NaN, None, or zero)."""
+    if score is None:
+        return False
+    if not isinstance(score, (int, float)):
+        return False
+    if math.isnan(score) or math.isinf(score):
+        return False
+    return score > 0
 
 
 def search_jobs(
@@ -652,7 +674,13 @@ def search_jobs(
             threshold=threshold,
         )
 
-        return results
+    filtered_results = [result for result in results if is_valid_score(result["score"])]
+
+    removed_count = len(results) - len(filtered_results)
+    if removed_count > 0:
+        logger.debug(f"Filtered out {removed_count} results with invalid scores")
+
+    return filtered_results
 
 
 def hybrid_search_jobs(
@@ -673,7 +701,19 @@ def hybrid_search_jobs(
     )
 
     ids = [result["id"] for result in raw_results]
-    documents = [result["text"] for result in raw_results]
+    documents = [
+        f"Title: {result['header']}\n{result['content']}" for result in raw_results
+    ]
     query_candidates, reranked_results = rerank_bm25(query, documents, ids)
 
-    return reranked_results
+    filtered_results = [
+        result for result in reranked_results if is_valid_score(result.get("score"))
+    ]
+
+    removed_count = len(reranked_results) - len(filtered_results)
+    if removed_count > 0:
+        logger.debug(
+            f"Filtered out {removed_count} reranked results with invalid scores"
+        )
+
+    return filtered_results
