@@ -1,6 +1,13 @@
 from typing import Any, Dict, List, Literal, Optional, TypedDict
 
-from jet.adapters.llama_cpp.config import LLM_BASE_URL
+from jet.adapters.llama_cpp.config import (
+    EMBED_BASE_HOST,
+    EMBED_BASE_URL,
+    LLM_BASE_HOST,
+    LLM_BASE_URL,
+    RERANK_BASE_HOST,
+    RERANK_BASE_URL,
+)
 from jet.adapters.llama_cpp.models import (
     LLAMACPP_KEYS,
     LLAMACPP_LLM_MODELS,
@@ -82,6 +89,44 @@ def get_llama_cpp_base_url(override: Optional[str] = None) -> str:
     return base
 
 
+def get_llama_cpp_candidate_urls() -> List[str]:
+    """
+    Build the list of base URLs to query, sourced from the LLM, embed,
+    and rerank host/url config. Prefers *_URL over *_HOST when both are set.
+    Deduplicates identical hosts (e.g. all 3 pointing at the same server).
+
+    Returns:
+        List[str]: Ordered, deduplicated list of base URLs (no trailing /v1).
+                    Falls back to the default localhost URL if none are configured.
+    """
+    raw_candidates = [
+        LLM_BASE_URL or LLM_BASE_HOST,
+        EMBED_BASE_URL or EMBED_BASE_HOST,
+        RERANK_BASE_URL or RERANK_BASE_HOST,
+    ]
+
+    seen: set[str] = set()
+    urls: List[str] = []
+    for candidate in raw_candidates:
+        if not candidate:
+            continue
+        normalized = get_llama_cpp_base_url(override=candidate)
+        if normalized not in seen:
+            seen.add(normalized)
+            urls.append(normalized)
+            logger.debug(f"Added candidate host: {normalized}")
+        else:
+            logger.debug(f"Skipped duplicate host: {normalized}")
+
+    if not urls:
+        default_url = get_llama_cpp_base_url()
+        logger.debug(f"No hosts configured, falling back to default: {default_url}")
+        urls.append(default_url)
+
+    logger.info(f"Resolved {len(urls)} candidate host(s): {urls}")
+    return urls
+
+
 def get_model_hf_id(model_key: LLAMACPP_KEYS) -> LLAMACPP_VALUES:
     """
     Convert a llama.cpp model key to its HuggingFace model ID.
@@ -130,32 +175,66 @@ def determine_model_type(model: Dict[str, Any]) -> ModelType:
         return "llm"
 
 
-def get_models(base_url: Optional[str] = None) -> ModelsResponse:
+def _fetch_models_from_host(url: str) -> List[Dict[str, Any]]:
     """
-    Get all models via OpenAI-compatible /v1/models.
+    Fetch models from a single host and tag each with model_type.
+    Returns an empty list (and logs a warning) if the host is unreachable,
+    so one dead host doesn't break the aggregate fetch across all 3.
+
     Args:
-        base_url: Direct URL override (highest priority)
+        url: Base URL of the host (no trailing /v1)
+    Returns:
+        List[Dict[str, Any]]: Raw model dicts with model_type added
     """
-    from jet.logger import logger
     from openai import OpenAI
 
-    url = get_llama_cpp_base_url(override=base_url)
     client = OpenAI(base_url=f"{url}/v1", api_key="not-needed")
     logger.info(f"Fetching models from {url}")
-    models = client.models.list()
-    logger.debug(f"Retrieved {len(models.data)} model(s)")
+    try:
+        models = client.models.list()
+    except Exception as e:
+        logger.warning(f"Skipping host {url}, failed to fetch models: {e}")
+        return []
 
-    # Add model_type to each model
     models_data = models.model_dump()["data"]
-    updated_models_data = []
+    logger.debug(f"Retrieved {len(models_data)} model(s) from {url}")
+
+    result = []
     for model in models_data:
         model_type = determine_model_type(model)
-        updated_model = {**model, "model_type": model_type}
-        updated_models_data.append(updated_model)
+        result.append({**model, "model_type": model_type})
+    return result
 
+
+def get_models(base_url: Optional[str] = None) -> ModelsResponse:
+    """
+    Get all models across all configured hosts (LLM, embed, rerank),
+    deduplicated by host and by model id.
+
+    Args:
+        base_url: Direct URL override (highest priority). When given,
+                  only this single host is queried, matching prior behavior
+                  for callers that already know exactly which host to hit.
+    """
+    urls = (
+        [get_llama_cpp_base_url(override=base_url)]
+        if base_url
+        else get_llama_cpp_candidate_urls()
+    )
+
+    merged: Dict[str, Dict[str, Any]] = {}
+    for url in urls:
+        for model in _fetch_models_from_host(url):
+            model_id = model["id"]
+            if model_id in merged:
+                logger.debug(f"Duplicate model id '{model_id}' from {url} skipped")
+                continue
+            merged[model_id] = model
+
+    logger.info(f"Aggregated {len(merged)} unique model(s) across {len(urls)} host(s)")
     return {
-        "object": models.model_dump()["object"],
-        "data": updated_models_data,
+        "object": "list",
+        "data": list(merged.values()),
     }
 
 
