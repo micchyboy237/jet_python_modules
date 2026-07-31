@@ -30,6 +30,7 @@ from jet.adapters.llama_cpp.token_utils import (
 )
 from numpy.typing import NDArray
 from openai import OpenAI
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 from bertopic import BERTopic
 from bertopic.backend import BaseEmbedder
@@ -296,6 +297,7 @@ def create_topic_model(
     min_topic_size: int = 10,
     top_n_words: int = 5,
     verbose: bool = False,
+    use_tfidf: bool = True,  # Add this parameter
     **kwargs,
 ) -> BERTopic:
     """
@@ -306,6 +308,8 @@ def create_topic_model(
         min_topic_size: Minimum documents per topic
         top_n_words: Number of keywords per topic
         verbose: Enable BERTopic verbose output
+        use_tfidf: Use TfidfVectorizer instead of CountVectorizer for better
+                  topic word discrimination (recommended for most use cases)
         **kwargs: Additional BERTopic configuration
 
     Returns:
@@ -318,8 +322,21 @@ def create_topic_model(
     if embedder is None:
         embedder = create_bertopic_embedder()
 
+    # Configure vectorizer - TfidfVectorizer generally gives cleaner topics
+    vectorizer_model = None
+    if use_tfidf:
+        vectorizer_model = TfidfVectorizer(
+            stop_words="english",  # Remove common English words
+            ngram_range=(1, 2),  # Include unigrams and bigrams
+            max_features=10000,  # Limit vocabulary size
+            sublinear_tf=True,  # Use 1+log(tf) scaling
+            min_df=2,  # Ignore terms that appear in < 2 docs
+            max_df=0.85,  # Ignore terms that appear in > 85% of docs
+        )
+
     return BERTopic(
         embedding_model=embedder,
+        vectorizer_model=vectorizer_model,
         min_topic_size=min_topic_size,
         top_n_words=top_n_words,
         verbose=verbose,

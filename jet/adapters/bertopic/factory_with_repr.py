@@ -37,7 +37,7 @@ from jet.adapters.llama_cpp.token_utils import (
 )
 from numpy.typing import NDArray
 from openai import OpenAI
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
 from bertopic import BERTopic
 from bertopic.backend import BaseEmbedder
@@ -307,39 +307,29 @@ def create_topic_model(
     top_n_words: int = 5,
     remove_stop_words: bool = True,
     use_keybert: bool = True,
+    use_tfidf: bool = True,  # New parameter
     verbose: bool = False,
     **kwargs,
 ) -> BERTopic:
-    """
-    Create a configured BERTopic model with improved defaults.
-
-    Args:
-        embedder: Embedding backend (auto-created if not provided)
-        min_topic_size: Minimum documents per topic
-        top_n_words: Number of keywords per topic
-        remove_stop_words: Remove English stop words for cleaner keywords
-        use_keybert: Use KeyBERT-inspired representation for better topic names
-        verbose: Enable BERTopic verbose output
-        **kwargs: Additional BERTopic configuration
-
-    Returns:
-        Configured BERTopic model instance
-
-    Example:
-        topic_model = create_topic_model(min_topic_size=15)
-        topics, embeddings = topic_model.fit_transform(documents)
-    """
     if embedder is None:
         embedder = create_bertopic_embedder()
 
-    # Improved vectorizer with stop word removal
+    # Choose vectorizer based on parameter
     vectorizer_model = None
     if remove_stop_words:
-        vectorizer_model = CountVectorizer(
-            stop_words="english",
-            ngram_range=(1, 2),
-            max_features=10000,
-        )
+        if use_tfidf:
+            vectorizer_model = TfidfVectorizer(
+                stop_words="english",
+                ngram_range=(1, 2),
+                max_features=10000,
+                sublinear_tf=True,  # Apply 1+log(tf) scaling for better distribution
+            )
+        else:
+            vectorizer_model = CountVectorizer(
+                stop_words="english",
+                ngram_range=(1, 2),
+                max_features=10000,
+            )
 
     # Better topic representation using KeyBERT
     representation_model = None

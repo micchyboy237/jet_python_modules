@@ -9,7 +9,7 @@ from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.libs.bertopic.examples.doc_samples import DOCS_LG
 from jet.logger import logger
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from umap import UMAP
 
 # 1. Mock Dataset (Simulating a larger collection)
@@ -42,8 +42,15 @@ hdbscan_model = HDBSCAN(
     prediction_data=True,
 )
 
-# Step 2c: Fine-tune tokenization (Removes baseline noise/stop words)
-vectorizer_model = CountVectorizer(stop_words="english", ngram_range=(1, 2))
+# Step 2c: Fine-tune tokenization with TF-IDF for cleaner keywords
+vectorizer_model = TfidfVectorizer(
+    stop_words="english",
+    ngram_range=(1, 2),
+    max_features=10000,
+    sublinear_tf=True,
+    min_df=1,  # Since you have a small doc set
+    max_df=0.9,  # Filter near-ubiquitous terms
+)
 
 
 print("\n--- Step 3: Fitting Topic Model ---")
