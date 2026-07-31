@@ -1,22 +1,8 @@
-from typing import Literal, Union, Dict, List, Optional, TypedDict, Any, get_args
-from enum import Enum
-from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
+from typing import Any, Dict, Literal, Optional, TypedDict
+
 from jet.models.model_types import (
-    ChatRole,
-    LLMModelType,
-    MLXTokenizer,
     Message,
-    Delta,
-    Tool,
-    RoleMapping,
-    Logprobs,
-    Choice,
-    Usage,
-    ModelInfo,
-    ModelsResponse,
-    CompletionResponse,
 )
-from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 
 class DBMessage(Message):
@@ -44,6 +30,7 @@ class ChatTemplateArgs(TypedDict, total=False):
         include_system_prompt: Controls whether system messages are included in the prompt.
         tool_choice: Specifies whether to automatically select a tool ("auto") or disable tool usage ("none").
     """
+
     add_generation_prompt: bool
     enable_thinking: bool
     tokenize: bool

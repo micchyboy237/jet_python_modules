@@ -1,0 +1,41 @@
+# web_researcher/config.yaml
+# Configuration for the web researcher agent system
+
+model:
+  # Llama.cpp server configuration
+  llm_model: "qwen3.5-uncensored:2b" # Use a small model for low context
+  base_url: "http://localhost:8080"
+  max_context_length: 4096 # Limit context window
+  temperature: 0.7
+  max_tokens: 512
+
+agents:
+  search:
+    max_steps: 5
+    max_tokens_per_step: 256
+
+  extract:
+    max_steps: 3
+    max_tokens_per_step: 512
+
+  synthesize:
+    max_steps: 2
+    max_tokens_per_step: 512
+
+  manager:
+    max_steps: 10
+
+tools:
+  web_search:
+    max_results: 5
+
+  visit_webpage:
+    max_content_length: 2000
+    extract_links: false
+
+  summarize:
+    max_length: 300
+
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

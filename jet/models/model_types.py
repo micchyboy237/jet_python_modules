@@ -1,7 +1,9 @@
-from typing import Literal, Union, Dict, List, Optional, TypedDict, Any, get_args
 from enum import Enum
-from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
+from typing import Any, Dict, List, Literal, Optional, TypedDict, Union, get_args
+
+from jet.wordnet.detect_repetition import NgramRepeat
 from transformers import PreTrainedTokenizer
+
 # from mlx_lm.tokenizer_utils import TokenizerWrapper
 
 # Type definitions
@@ -283,8 +285,9 @@ ModelType = Union[LLMModelType, EmbedModelType, RerankModelType]
 
 
 # Extract Enum classes from the union
-enum_types_in_model_type = [t for t in get_args(
-    ModelType) if isinstance(t, type) and issubclass(t, Enum)]
+enum_types_in_model_type = [
+    t for t in get_args(ModelType) if isinstance(t, type) and issubclass(t, Enum)
+]
 
 
 def get_model_keys() -> List[str]:

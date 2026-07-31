@@ -33,9 +33,9 @@ def embed(
     text: list[str],
     model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
     return_format: Literal["numpy", "list"] = "numpy",
-    max_workers: int = 6,
+    max_workers: int = 2,
     show_progress: bool = True,
-    batch_size: int | None = 32,
+    batch_size: int | None = 16,
     progress_description: str = "Embedding texts",
     prefix: str | None = None,
 ) -> Union[list[list[float]], np.ndarray]: ...
@@ -45,9 +45,9 @@ def embed(
     text: Union[str, list[str]],
     model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
     return_format: Literal["numpy", "list"] = "numpy",
-    max_workers: int = 6,
+    max_workers: int = 2,
     show_progress: bool = True,
-    batch_size: int | None = 32,
+    batch_size: int | None = 16,
     progress_description: str = "Embedding texts",
     prefix: str | None = None,
 ) -> Union[list[float], list[list[float]], np.ndarray]:
@@ -58,6 +58,11 @@ def embed(
     - list[str] input → uses embed_batch
 
     Keeps API ergonomic while reusing existing implementations.
+
+    VRAM Optimization Notes:
+    - Default max_workers=2 (reduced from 6) to limit concurrent GPU requests
+    - Default batch_size=16 (reduced from 32) to reduce per-request memory
+    - For large datasets, consider max_workers=1 with larger batch_size
     """
     if isinstance(text, str):
         if prefix:
@@ -122,15 +127,33 @@ def embed_chunk(
 def embed_batch(
     texts: list[str],
     model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
-    max_workers: int = 6,
+    max_workers: int = 2,
     show_progress: bool = True,
     return_format: Literal["numpy", "list"] = "numpy",
-    batch_size: int | None = 32,  # sensible default
+    batch_size: int | None = 16,
     progress_description: str = "Embedding texts",
 ) -> Union[list[list[float]], np.ndarray]:
     """
     Embed multiple texts in parallel using ThreadPoolExecutor + batching.
     Deduplicates input texts for efficiency, reconstructs output list in original order.
+
+    VRAM Optimization:
+    - Reduced default max_workers from 6 to 2 to limit concurrent GPU requests
+    - Reduced default batch_size from 32 to 16 to reduce per-request memory footprint
+    - For GTX 1660 (6GB VRAM), this prevents OOM errors during parallel processing
+    - For larger VRAM GPUs, you can increase these values
+
+    Args:
+        texts: List of text strings to embed
+        model: Model identifier
+        max_workers: Number of concurrent threads (default: 2, reduced from 6)
+        show_progress: Whether to show progress bar
+        return_format: "numpy" or "list"
+        batch_size: Number of texts per batch (default: 16, reduced from 32)
+        progress_description: Description for progress bar
+
+    Returns:
+        Embeddings as numpy array or list of lists
     """
     if not texts:
         return np.array([]) if return_format == "numpy" else []
@@ -181,7 +204,16 @@ def embed_batch(
         for i in range(0, total_unique, batch_size)
     ]
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    # VRAM Safety: Limit concurrent workers to prevent GPU memory exhaustion
+    # GTX 1660 has 6GB VRAM - each concurrent request allocates KV cache + activations
+    actual_workers = min(max_workers, 4)  # Hard cap at 4 for safety
+    if actual_workers < max_workers:
+        console.print(
+            f"[yellow]Limiting workers to {actual_workers} (requested {max_workers}) "
+            f"to prevent VRAM overflow[/yellow]"
+        )
+
+    with ThreadPoolExecutor(max_workers=actual_workers) as executor:
         future_to_info = {
             executor.submit(embed_chunk, batch_texts, model): (
                 start_idx,

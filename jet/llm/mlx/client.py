@@ -1,39 +1,44 @@
 import argparse
-import uuid
 import json
 import time
-
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
-from pydantic.json_schema import JsonSchemaValue
-from jet.llm.mlx.helpers.detect_repetition import NgramRepeat
+from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Union
+
+import mlx.core as mx
+from huggingface_hub import scan_cache_dir
+from jet.llm.logger_utils import ChatLogger
+from jet.llm.mlx.config import DEFAULT_LOG_DIR, DEFAULT_MODEL
 from jet.llm.mlx.mlx_types import ChatTemplateArgs
 from jet.llm.mlx.mlx_utils import process_response_format
-from typing import Dict, List, Optional, Tuple, Union, Literal, Any, Iterator
-from dataclasses import dataclass, field
-from huggingface_hub import scan_cache_dir
-from jet.llm.mlx.config import DEFAULT_LOG_DIR, DEFAULT_MODEL
-from jet.logger import logger
-from jet.transformers.formatters import format_json
-import mlx.core as mx
-from mlx_lm.server import ModelProvider, get_system_fingerprint, convert_chat, process_message_content
-from mlx_lm.generate import stream_generate
-from mlx_lm.models.cache import KVCache, make_prompt_cache
-from mlx_lm.sample_utils import make_sampler, make_logits_processors
 from jet.llm.mlx.utils.logit_bias import convert_logit_bias
-from jet.llm.logger_utils import ChatLogger
+from jet.logger import logger
 from jet.models.model_types import (
-    MLXTokenizer,
-    Message,
-    Tool,
-    RoleMapping,
     CompletionResponse,
-    ModelsResponse,
-    ModelInfo,
-    LLMModelType,
     LLMModelKey,
+    LLMModelType,
     LLMModelValue,
+    Message,
+    MLXTokenizer,
+    ModelInfo,
+    ModelsResponse,
+    RoleMapping,
+    Tool,
 )
 from jet.models.utils import resolve_model_value
+from jet.transformers.formatters import format_json
+from jet.wordnet.detect_repetition import NgramRepeat
+from mlx_lm.generate import stream_generate
+from mlx_lm.models.cache import KVCache, make_prompt_cache
+from mlx_lm.sample_utils import make_logits_processors, make_sampler
+from mlx_lm.server import (
+    ModelProvider,
+    convert_chat,
+    get_system_fingerprint,
+    process_message_content,
+)
+from pydantic.json_schema import JsonSchemaValue
 
 DEFAULT_CHAT_TEMPLATE_ARGS: ChatTemplateArgs = {
     "add_generation_prompt": True,
@@ -63,8 +68,9 @@ class Config:
     repetition_context_size: int = 20
     xtc_probability: float = 0.0
     xtc_threshold: float = 0.0
-    logit_bias: Optional[Union[Dict[int, float],
-                               Dict[str, float], str, List[str]]] = None
+    logit_bias: Optional[Union[Dict[int, float], Dict[str, float], str, List[str]]] = (
+        None
+    )
     logprobs: int = -1
     stop: Optional[Union[str, List[str]]] = None
     response_format: Union[Literal["text", "json"], JsonSchemaValue] = "text"
@@ -77,8 +83,11 @@ class MLXLMClient:
     @staticmethod
     def get_models() -> ModelsResponse:
         """List available local models."""
-        files: List[str] = ["config.json",
-                            "model.safetensors.index.json", "tokenizer_config.json"]
+        files: List[str] = [
+            "config.json",
+            "model.safetensors.index.json",
+            "tokenizer_config.json",
+        ]
 
         def probably_mlx_lm(repo: Any) -> bool:
             if repo.repo_type != "model":
@@ -99,7 +108,9 @@ class MLXLMClient:
             {
                 "id": repo.repo_id,
                 "object": "model",
-                "created": int(repo.repo_path.stat().st_ctime) if isinstance(repo.repo_path, Path) else None,
+                "created": int(repo.repo_path.stat().st_ctime)
+                if isinstance(repo.repo_path, Path)
+                else None,
                 "modified": int(repo.last_modified),
             }
             for repo in downloaded_models
@@ -126,23 +137,24 @@ class MLXLMClient:
         repetition_context_size: int = 20,
         xtc_probability: float = 0.0,
         xtc_threshold: float = 0.0,
-        logit_bias: Optional[Union[Dict[int, float],
-                                   Dict[str, float], str, List[str]]] = None,
+        logit_bias: Optional[
+            Union[Dict[int, float], Dict[str, float], str, List[str]]
+        ] = None,
         logprobs: int = -1,
         stop: Optional[Union[str, List[str]]] = None,
-        response_format: Union[Literal["text", "json"],
-                               JsonSchemaValue] = "text",
+        response_format: Union[Literal["text", "json"], JsonSchemaValue] = "text",
         verbose: bool = False,
         seed: Optional[int] = None,
         log_dir: Optional[str] = None,
         device: Optional[Literal["cpu", "mps"]] = "mps",
-        prompt_cache: Optional[List[Any]] = None
+        prompt_cache: Optional[List[Any]] = None,
     ) -> None:
         """Initialize the client with configuration, generation parameters, response format, and verbosity."""
         if device and device not in ["cpu", "mps"]:
             logger.error(f"Unsupported device {device} for MLX model {model}")
             raise ValueError(
-                f"Device {device} is not supported for MLX (use 'cpu' or 'mps')")
+                f"Device {device} is not supported for MLX (use 'cpu' or 'mps')"
+            )
         if device == "cpu":
             mx.set_default_device(mx.cpu)
         else:
@@ -150,15 +162,23 @@ class MLXLMClient:
         if seed:
             mx.random.seed(seed)
         model_value = resolve_model_value(model) if model else None
-        draft_model_value = resolve_model_value(
-            draft_model) if draft_model else None
+        draft_model_value = resolve_model_value(draft_model) if draft_model else None
         merged_chat_template_args = DEFAULT_CHAT_TEMPLATE_ARGS.copy()
         if chat_template_args is not None:
             merged_chat_template_args.update(chat_template_args)
         self._validate_parameters(
-            max_tokens, temperature, top_p, repetition_penalty,
-            repetition_context_size, xtc_probability, xtc_threshold,
-            logit_bias, logprobs, model_value, adapter_path, response_format
+            max_tokens,
+            temperature,
+            top_p,
+            repetition_penalty,
+            repetition_context_size,
+            xtc_probability,
+            xtc_threshold,
+            logit_bias,
+            logprobs,
+            model_value,
+            adapter_path,
+            response_format,
         )
         config = Config(
             model=model_value,
@@ -182,7 +202,7 @@ class MLXLMClient:
             logprobs=logprobs,
             stop=stop,
             response_format=response_format,
-            verbose=verbose
+            verbose=verbose,
         )
         self.cli_args: argparse.Namespace = argparse.Namespace(
             model=config.model,
@@ -206,11 +226,10 @@ class MLXLMClient:
             logprobs=config.logprobs,
             stop=config.stop,
             response_format=config.response_format,
-            verbose=config.verbose
+            verbose=config.verbose,
         )
         self.model_provider: ModelProvider = ModelProvider(self.cli_args)
-        self.prompt_cache: List[Any] = prompt_cache if prompt_cache is not None else [
-        ]
+        self.prompt_cache: List[Any] = prompt_cache if prompt_cache is not None else []
         self.system_fingerprint: str = get_system_fingerprint()
         self.created: int = int(time.time())
         self.log_dir = log_dir or DEFAULT_LOG_DIR
@@ -268,8 +287,9 @@ class MLXLMClient:
         repetition_context_size: Optional[int] = None,
         xtc_probability: Optional[float] = None,
         xtc_threshold: Optional[float] = None,
-        logit_bias: Optional[Union[Dict[int, float],
-                                   Dict[str, float], str, List[str]]] = None,
+        logit_bias: Optional[
+            Union[Dict[int, float], Dict[str, float], str, List[str]]
+        ] = None,
         logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
@@ -278,34 +298,46 @@ class MLXLMClient:
         verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
         prompt_cache: Optional[List[Any]] = None,
-        response_format: Optional[Union[Literal["text",
-                                                "json"], JsonSchemaValue]] = None
+        response_format: Optional[
+            Union[Literal["text", "json"], JsonSchemaValue]
+        ] = None,
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a chat completion."""
         model_value = resolve_model_value(model)
-        draft_model_value = resolve_model_value(
-            draft_model) if draft_model else None
-        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        draft_model_value = resolve_model_value(draft_model) if draft_model else None
+        active_response_format = (
+            response_format
+            if response_format is not None
+            else self.cli_args.response_format
+        )
         active_verbose = verbose if verbose is not None else self.cli_args.verbose
         self._validate_parameters(
             max_tokens if max_tokens is not None else self.cli_args.max_tokens,
             temperature if temperature is not None else self.cli_args.temperature,
             top_p if top_p is not None else self.cli_args.top_p,
-            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            repetition_penalty
+            if repetition_penalty is not None
+            else self.cli_args.repetition_penalty,
+            repetition_context_size
+            if repetition_context_size is not None
+            else self.cli_args.repetition_context_size,
+            xtc_probability
+            if xtc_probability is not None
+            else self.cli_args.xtc_probability,
             xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
             logit_bias if logit_bias is not None else self.cli_args.logit_bias,
             logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter, active_response_format
+            model_value,
+            adapter,
+            active_response_format,
         )
         model_obj, tokenizer = self.model_provider.load(
-            model_value, adapter, draft_model_value)
+            model_value, adapter, draft_model_value
+        )
         if tokenizer is None:
             raise ValueError("Failed to load tokenizer")
         stop_words: List[str] = (
-            [stop] if isinstance(
-                stop, str) else stop or self.cli_args.stop or []
+            [stop] if isinstance(stop, str) else stop or self.cli_args.stop or []
         )
         stop_id_sequences: List[List[int]] = [
             tokenizer.encode(stop_word, add_special_tokens=False)
@@ -321,34 +353,50 @@ class MLXLMClient:
             process_message_content(modified_messages)
             chat_template_settings: ChatTemplateArgs = {
                 **(self._chat_template_args or {}),
-                **(chat_template_args or {})
+                **(chat_template_args or {}),
             }
             if active_verbose:
                 logger.newline()
                 logger.info("Chat Template Args:")
                 logger.debug(format_json(chat_template_settings))
             prompt: List[int] = tokenizer.apply_chat_template(
-                modified_messages,
-                tools,
-                **chat_template_settings
+                modified_messages, tools, **chat_template_settings
             )
-        active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
+        active_prompt_cache = (
+            prompt_cache if prompt_cache is not None else self.prompt_cache
+        )
         response = self._generate_completion(
             prompt=prompt,
             model_obj=model_obj,
             tokenizer=tokenizer,
             stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            max_tokens=max_tokens
+            if max_tokens is not None
+            else self.cli_args.max_tokens,
+            temperature=temperature
+            if temperature is not None
+            else self.cli_args.temperature,
             top_p=top_p if top_p is not None else self.cli_args.top_p,
             min_p=min_p if min_p is not None else self.cli_args.min_p,
-            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            min_tokens_to_keep=min_tokens_to_keep
+            if min_tokens_to_keep is not None
+            else self.cli_args.min_tokens_to_keep,
             top_k=top_k if top_k is not None else self.cli_args.top_k,
-            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
-            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            repetition_penalty=repetition_penalty
+            if repetition_penalty is not None
+            else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size
+            if repetition_context_size is not None
+            else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability
+            if xtc_probability is not None
+            else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold
+            if xtc_threshold is not None
+            else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias
+            if logit_bias is not None
+            else self.cli_args.logit_bias,
             logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             request_id=request_id,
             object_type=object_type,
@@ -356,7 +404,7 @@ class MLXLMClient:
             num_draft_tokens=3,
             verbose=active_verbose,
             prompt_cache=active_prompt_cache,
-            response_format=active_response_format
+            response_format=active_response_format,
         )
         log_dir = log_dir or self.log_dir
         if log_dir:
@@ -365,13 +413,25 @@ class MLXLMClient:
                 response,
                 model=model,
                 tools=tools,
-                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                max_tokens=max_tokens
+                if max_tokens is not None
+                else self.cli_args.max_tokens,
+                temperature=temperature
+                if temperature is not None
+                else self.cli_args.temperature,
                 top_p=top_p if top_p is not None else self.cli_args.top_p,
-                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                repetition_penalty=repetition_penalty
+                if repetition_penalty is not None
+                else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size
+                if repetition_context_size is not None
+                else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability
+                if xtc_probability is not None
+                else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold
+                if xtc_threshold is not None
+                else self.cli_args.xtc_threshold,
                 logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
         return response
@@ -392,8 +452,9 @@ class MLXLMClient:
         repetition_context_size: Optional[int] = None,
         xtc_probability: Optional[float] = None,
         xtc_threshold: Optional[float] = None,
-        logit_bias: Optional[Union[Dict[int, float],
-                                   Dict[str, float], str, List[str]]] = None,
+        logit_bias: Optional[
+            Union[Dict[int, float], Dict[str, float], str, List[str]]
+        ] = None,
         logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         role_mapping: Optional[RoleMapping] = None,
@@ -402,34 +463,46 @@ class MLXLMClient:
         verbose: Optional[bool] = None,
         chat_template_args: Optional[ChatTemplateArgs] = None,
         prompt_cache: Optional[List[Any]] = None,
-        response_format: Optional[Union[Literal["text",
-                                                "json"], JsonSchemaValue]] = None
+        response_format: Optional[
+            Union[Literal["text", "json"], JsonSchemaValue]
+        ] = None,
     ) -> Iterator[CompletionResponse]:
         """Stream chat completions as they are generated."""
         model_value = resolve_model_value(model)
-        draft_model_value = resolve_model_value(
-            draft_model) if draft_model else None
-        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        draft_model_value = resolve_model_value(draft_model) if draft_model else None
+        active_response_format = (
+            response_format
+            if response_format is not None
+            else self.cli_args.response_format
+        )
         active_verbose = verbose if verbose is not None else self.cli_args.verbose
         self._validate_parameters(
             max_tokens if max_tokens is not None else self.cli_args.max_tokens,
             temperature if temperature is not None else self.cli_args.temperature,
             top_p if top_p is not None else self.cli_args.top_p,
-            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            repetition_penalty
+            if repetition_penalty is not None
+            else self.cli_args.repetition_penalty,
+            repetition_context_size
+            if repetition_context_size is not None
+            else self.cli_args.repetition_context_size,
+            xtc_probability
+            if xtc_probability is not None
+            else self.cli_args.xtc_probability,
             xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
             logit_bias if logit_bias is not None else self.cli_args.logit_bias,
             logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter, active_response_format
+            model_value,
+            adapter,
+            active_response_format,
         )
         model_obj, tokenizer = self.model_provider.load(
-            model_value, adapter, draft_model_value)
+            model_value, adapter, draft_model_value
+        )
         if tokenizer is None:
             raise ValueError("Failed to load tokenizer")
         stop_words: List[str] = (
-            [stop] if isinstance(
-                stop, str) else stop or self.cli_args.stop or []
+            [stop] if isinstance(stop, str) else stop or self.cli_args.stop or []
         )
         stop_id_sequences: List[List[int]] = [
             tokenizer.encode(stop_word, add_special_tokens=False)
@@ -445,34 +518,50 @@ class MLXLMClient:
             process_message_content(modified_messages)
             chat_template_settings: ChatTemplateArgs = {
                 **(self._chat_template_args or {}),
-                **(chat_template_args or {})
+                **(chat_template_args or {}),
             }
             if active_verbose:
                 logger.newline()
                 logger.info("Chat Template Args:")
                 logger.debug(format_json(chat_template_settings))
             prompt: List[int] = tokenizer.apply_chat_template(
-                modified_messages,
-                tools,
-                **chat_template_settings
+                modified_messages, tools, **chat_template_settings
             )
-        active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
+        active_prompt_cache = (
+            prompt_cache if prompt_cache is not None else self.prompt_cache
+        )
         for response in self._stream_generate_completion(
             prompt=prompt,
             model_obj=model_obj,
             tokenizer=tokenizer,
             stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            max_tokens=max_tokens
+            if max_tokens is not None
+            else self.cli_args.max_tokens,
+            temperature=temperature
+            if temperature is not None
+            else self.cli_args.temperature,
             top_p=top_p if top_p is not None else self.cli_args.top_p,
             min_p=min_p if min_p is not None else self.cli_args.min_p,
-            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            min_tokens_to_keep=min_tokens_to_keep
+            if min_tokens_to_keep is not None
+            else self.cli_args.min_tokens_to_keep,
             top_k=top_k if top_k is not None else self.cli_args.top_k,
-            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
-            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            repetition_penalty=repetition_penalty
+            if repetition_penalty is not None
+            else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size
+            if repetition_context_size is not None
+            else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability
+            if xtc_probability is not None
+            else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold
+            if xtc_threshold is not None
+            else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias
+            if logit_bias is not None
+            else self.cli_args.logit_bias,
             logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             request_id=request_id,
             object_type=object_type,
@@ -480,7 +569,7 @@ class MLXLMClient:
             num_draft_tokens=3,
             verbose=active_verbose,
             prompt_cache=active_prompt_cache,
-            response_format=active_response_format
+            response_format=active_response_format,
         ):
             yield response
         log_dir = log_dir or self.log_dir
@@ -490,13 +579,25 @@ class MLXLMClient:
                 response,
                 model=model,
                 tools=tools,
-                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                max_tokens=max_tokens
+                if max_tokens is not None
+                else self.cli_args.max_tokens,
+                temperature=temperature
+                if temperature is not None
+                else self.cli_args.temperature,
                 top_p=top_p if top_p is not None else self.cli_args.top_p,
-                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                repetition_penalty=repetition_penalty
+                if repetition_penalty is not None
+                else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size
+                if repetition_context_size is not None
+                else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability
+                if xtc_probability is not None
+                else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold
+                if xtc_threshold is not None
+                else self.cli_args.xtc_threshold,
                 logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
 
@@ -516,41 +617,54 @@ class MLXLMClient:
         repetition_context_size: Optional[int] = None,
         xtc_probability: Optional[float] = None,
         xtc_threshold: Optional[float] = None,
-        logit_bias: Optional[Union[Dict[int, float],
-                                   Dict[str, float], str, List[str]]] = None,
+        logit_bias: Optional[
+            Union[Dict[int, float], Dict[str, float], str, List[str]]
+        ] = None,
         logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
         prompt_cache: Optional[List[Any]] = None,
-        response_format: Optional[Union[Literal["text",
-                                                "json"], JsonSchemaValue]] = None
+        response_format: Optional[
+            Union[Literal["text", "json"], JsonSchemaValue]
+        ] = None,
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Generate a text completion."""
         model_value = resolve_model_value(model)
-        draft_model_value = resolve_model_value(
-            draft_model) if draft_model else None
-        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        draft_model_value = resolve_model_value(draft_model) if draft_model else None
+        active_response_format = (
+            response_format
+            if response_format is not None
+            else self.cli_args.response_format
+        )
         active_verbose = verbose if verbose is not None else self.cli_args.verbose
         self._validate_parameters(
             max_tokens if max_tokens is not None else self.cli_args.max_tokens,
             temperature if temperature is not None else self.cli_args.temperature,
             top_p if top_p is not None else self.cli_args.top_p,
-            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            repetition_penalty
+            if repetition_penalty is not None
+            else self.cli_args.repetition_penalty,
+            repetition_context_size
+            if repetition_context_size is not None
+            else self.cli_args.repetition_context_size,
+            xtc_probability
+            if xtc_probability is not None
+            else self.cli_args.xtc_probability,
             xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
             logit_bias if logit_bias is not None else self.cli_args.logit_bias,
             logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter, active_response_format
+            model_value,
+            adapter,
+            active_response_format,
         )
         model_obj, tokenizer = self.model_provider.load(
-            model_value, adapter, draft_model_value)
+            model_value, adapter, draft_model_value
+        )
         if tokenizer is None:
             raise ValueError("Failed to load tokenizer")
         stop_words: List[str] = (
-            [stop] if isinstance(
-                stop, str) else stop or self.cli_args.stop or []
+            [stop] if isinstance(stop, str) else stop or self.cli_args.stop or []
         )
         stop_id_sequences: List[List[int]] = [
             tokenizer.encode(stop_word, add_special_tokens=False)
@@ -565,17 +679,33 @@ class MLXLMClient:
             model_obj=model_obj,
             tokenizer=tokenizer,
             stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            max_tokens=max_tokens
+            if max_tokens is not None
+            else self.cli_args.max_tokens,
+            temperature=temperature
+            if temperature is not None
+            else self.cli_args.temperature,
             top_p=top_p if top_p is not None else self.cli_args.top_p,
             min_p=min_p if min_p is not None else self.cli_args.min_p,
-            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            min_tokens_to_keep=min_tokens_to_keep
+            if min_tokens_to_keep is not None
+            else self.cli_args.min_tokens_to_keep,
             top_k=top_k if top_k is not None else self.cli_args.top_k,
-            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
-            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            repetition_penalty=repetition_penalty
+            if repetition_penalty is not None
+            else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size
+            if repetition_context_size is not None
+            else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability
+            if xtc_probability is not None
+            else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold
+            if xtc_threshold is not None
+            else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias
+            if logit_bias is not None
+            else self.cli_args.logit_bias,
             logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             request_id=request_id,
             object_type=object_type,
@@ -583,7 +713,7 @@ class MLXLMClient:
             num_draft_tokens=3,
             verbose=active_verbose,
             prompt_cache=prompt_cache,
-            response_format=active_response_format
+            response_format=active_response_format,
         )
         log_dir = log_dir or self.log_dir
         if log_dir:
@@ -591,13 +721,25 @@ class MLXLMClient:
                 modified_prompt,
                 response,
                 model=model,
-                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                max_tokens=max_tokens
+                if max_tokens is not None
+                else self.cli_args.max_tokens,
+                temperature=temperature
+                if temperature is not None
+                else self.cli_args.temperature,
                 top_p=top_p if top_p is not None else self.cli_args.top_p,
-                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                repetition_penalty=repetition_penalty
+                if repetition_penalty is not None
+                else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size
+                if repetition_context_size is not None
+                else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability
+                if xtc_probability is not None
+                else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold
+                if xtc_threshold is not None
+                else self.cli_args.xtc_threshold,
                 logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
         return response
@@ -618,41 +760,54 @@ class MLXLMClient:
         repetition_context_size: Optional[int] = None,
         xtc_probability: Optional[float] = None,
         xtc_threshold: Optional[float] = None,
-        logit_bias: Optional[Union[Dict[int, float],
-                                   Dict[str, float], str, List[str]]] = None,
+        logit_bias: Optional[
+            Union[Dict[int, float], Dict[str, float], str, List[str]]
+        ] = None,
         logprobs: Optional[int] = None,
         stop: Optional[Union[str, List[str]]] = None,
         log_dir: Optional[str] = None,
         verbose: Optional[bool] = None,
         prompt_cache: Optional[List[Any]] = None,
-        response_format: Optional[Union[Literal["text",
-                                                "json"], JsonSchemaValue]] = None
+        response_format: Optional[
+            Union[Literal["text", "json"], JsonSchemaValue]
+        ] = None,
     ) -> Iterator[CompletionResponse]:
         """Stream text completions as they are generated."""
         model_value = resolve_model_value(model)
-        draft_model_value = resolve_model_value(
-            draft_model) if draft_model else None
-        active_response_format = response_format if response_format is not None else self.cli_args.response_format
+        draft_model_value = resolve_model_value(draft_model) if draft_model else None
+        active_response_format = (
+            response_format
+            if response_format is not None
+            else self.cli_args.response_format
+        )
         active_verbose = verbose if verbose is not None else self.cli_args.verbose
         self._validate_parameters(
             max_tokens if max_tokens is not None else self.cli_args.max_tokens,
             temperature if temperature is not None else self.cli_args.temperature,
             top_p if top_p is not None else self.cli_args.top_p,
-            repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
+            repetition_penalty
+            if repetition_penalty is not None
+            else self.cli_args.repetition_penalty,
+            repetition_context_size
+            if repetition_context_size is not None
+            else self.cli_args.repetition_context_size,
+            xtc_probability
+            if xtc_probability is not None
+            else self.cli_args.xtc_probability,
             xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
             logit_bias if logit_bias is not None else self.cli_args.logit_bias,
             logprobs if logprobs is not None else self.cli_args.logprobs,
-            model_value, adapter, active_response_format
+            model_value,
+            adapter,
+            active_response_format,
         )
         model_obj, tokenizer = self.model_provider.load(
-            model_value, adapter, draft_model_value)
+            model_value, adapter, draft_model_value
+        )
         if tokenizer is None:
             raise ValueError("Failed to load tokenizer")
         stop_words: List[str] = (
-            [stop] if isinstance(
-                stop, str) else stop or self.cli_args.stop or []
+            [stop] if isinstance(stop, str) else stop or self.cli_args.stop or []
         )
         stop_id_sequences: List[List[int]] = [
             tokenizer.encode(stop_word, add_special_tokens=False)
@@ -667,17 +822,33 @@ class MLXLMClient:
             model_obj=model_obj,
             tokenizer=tokenizer,
             stop_id_sequences=stop_id_sequences,
-            max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-            temperature=temperature if temperature is not None else self.cli_args.temperature,
+            max_tokens=max_tokens
+            if max_tokens is not None
+            else self.cli_args.max_tokens,
+            temperature=temperature
+            if temperature is not None
+            else self.cli_args.temperature,
             top_p=top_p if top_p is not None else self.cli_args.top_p,
             min_p=min_p if min_p is not None else self.cli_args.min_p,
-            min_tokens_to_keep=min_tokens_to_keep if min_tokens_to_keep is not None else self.cli_args.min_tokens_to_keep,
+            min_tokens_to_keep=min_tokens_to_keep
+            if min_tokens_to_keep is not None
+            else self.cli_args.min_tokens_to_keep,
             top_k=top_k if top_k is not None else self.cli_args.top_k,
-            repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-            repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-            xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-            xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
-            logit_bias=logit_bias if logit_bias is not None else self.cli_args.logit_bias,
+            repetition_penalty=repetition_penalty
+            if repetition_penalty is not None
+            else self.cli_args.repetition_penalty,
+            repetition_context_size=repetition_context_size
+            if repetition_context_size is not None
+            else self.cli_args.repetition_context_size,
+            xtc_probability=xtc_probability
+            if xtc_probability is not None
+            else self.cli_args.xtc_probability,
+            xtc_threshold=xtc_threshold
+            if xtc_threshold is not None
+            else self.cli_args.xtc_threshold,
+            logit_bias=logit_bias
+            if logit_bias is not None
+            else self.cli_args.logit_bias,
             logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             request_id=request_id,
             object_type=object_type,
@@ -685,7 +856,7 @@ class MLXLMClient:
             num_draft_tokens=3,
             verbose=active_verbose,
             prompt_cache=prompt_cache,
-            response_format=active_response_format
+            response_format=active_response_format,
         ):
             yield response
         log_dir = log_dir or self.log_dir
@@ -694,13 +865,25 @@ class MLXLMClient:
                 modified_prompt,
                 response,
                 model=model,
-                max_tokens=max_tokens if max_tokens is not None else self.cli_args.max_tokens,
-                temperature=temperature if temperature is not None else self.cli_args.temperature,
+                max_tokens=max_tokens
+                if max_tokens is not None
+                else self.cli_args.max_tokens,
+                temperature=temperature
+                if temperature is not None
+                else self.cli_args.temperature,
                 top_p=top_p if top_p is not None else self.cli_args.top_p,
-                repetition_penalty=repetition_penalty if repetition_penalty is not None else self.cli_args.repetition_penalty,
-                repetition_context_size=repetition_context_size if repetition_context_size is not None else self.cli_args.repetition_context_size,
-                xtc_probability=xtc_probability if xtc_probability is not None else self.cli_args.xtc_probability,
-                xtc_threshold=xtc_threshold if xtc_threshold is not None else self.cli_args.xtc_threshold,
+                repetition_penalty=repetition_penalty
+                if repetition_penalty is not None
+                else self.cli_args.repetition_penalty,
+                repetition_context_size=repetition_context_size
+                if repetition_context_size is not None
+                else self.cli_args.repetition_context_size,
+                xtc_probability=xtc_probability
+                if xtc_probability is not None
+                else self.cli_args.xtc_probability,
+                xtc_threshold=xtc_threshold
+                if xtc_threshold is not None
+                else self.cli_args.xtc_threshold,
                 logprobs=logprobs if logprobs is not None else self.cli_args.logprobs,
             )
 
@@ -717,32 +900,31 @@ class MLXLMClient:
         logprobs: int,
         model: LLMModelType,
         adapter: Optional[str],
-        response_format: Union[Literal["text", "json"], JsonSchemaValue]
+        response_format: Union[Literal["text", "json"], JsonSchemaValue],
     ) -> None:
         """Validate model parameters."""
         if not isinstance(max_tokens, int) or max_tokens < -1:
             raise ValueError(
-                "max_tokens must be '-1' (context length) or a positive integer")
+                "max_tokens must be '-1' (context length) or a positive integer"
+            )
         if not isinstance(temperature, (float, int)) or temperature < 0:
             raise ValueError("temperature must be a non-negative float")
         if not isinstance(top_p, (float, int)) or top_p < 0 or top_p > 1:
             raise ValueError("top_p must be a float between 0 and 1")
         if repetition_penalty is not None:
-            if not isinstance(repetition_penalty, (float, int)) or repetition_penalty < 0:
-                raise ValueError(
-                    "repetition_penalty must be a non-negative float")
+            if (
+                not isinstance(repetition_penalty, (float, int))
+                or repetition_penalty < 0
+            ):
+                raise ValueError("repetition_penalty must be a non-negative float")
         if logprobs != -1 and not (0 < logprobs <= 10):
-            raise ValueError(
-                f"logprobs must be between 1 and 10 but got {logprobs}")
+            raise ValueError(f"logprobs must be between 1 and 10 but got {logprobs}")
         if not isinstance(repetition_context_size, int) or repetition_context_size < 0:
-            raise ValueError(
-                "repetition_context_size must be a non-negative integer")
+            raise ValueError("repetition_context_size must be a non-negative integer")
         if not isinstance(xtc_probability, float) or not 0.0 <= xtc_probability <= 1.0:
-            raise ValueError(
-                "xtc_probability must be a float between 0.0 and 1.0")
+            raise ValueError("xtc_probability must be a float between 0.0 and 1.0")
         if not isinstance(xtc_threshold, float) or not 0.0 <= xtc_threshold <= 0.5:
-            raise ValueError(
-                "xtc_threshold must be a float between 0.0 and 0.5")
+            raise ValueError("xtc_threshold must be a float between 0.0 and 0.5")
         if not isinstance(model, (str, LLMModelKey, LLMModelValue)):
             raise ValueError("model must be a string or valid model type")
         if adapter is not None and not isinstance(adapter, str):
@@ -750,10 +932,12 @@ class MLXLMClient:
         if logit_bias is not None:
             if not isinstance(logit_bias, (dict, str, list)):
                 raise ValueError(
-                    "logit_bias must be a dict of int to float, str or list[str]")
+                    "logit_bias must be a dict of int to float, str or list[str]"
+                )
         if not isinstance(response_format, (str, dict)):
             raise ValueError(
-                "response_format must be 'text', 'json', or a JsonSchemaValue dict")
+                "response_format must be 'text', 'json', or a JsonSchemaValue dict"
+            )
         if isinstance(response_format, str) and response_format not in ["text", "json"]:
             raise ValueError("response_format string must be 'text' or 'json'")
 
@@ -774,8 +958,7 @@ class MLXLMClient:
         top_tokens: Optional[List[Dict[int, float]]] = None,
         tokens: Optional[List[int]] = None,
         repetitions: Optional[List[NgramRepeat]] = None,
-        response_format: Union[Literal["text", "json"],
-                               JsonSchemaValue] = "text"
+        response_format: Union[Literal["text", "json"], JsonSchemaValue] = "text",
     ) -> CompletionResponse:
         """Generate a response packet in OpenAI-compatible format."""
         token_logprobs = token_logprobs or []
@@ -783,7 +966,9 @@ class MLXLMClient:
         tokens = tokens or []
         active_response_format = response_format
         # Handle JSON or JsonSchemaValue response format
-        if isinstance(response_format, (str, dict)) and (response_format == "json" or isinstance(response_format, dict)):
+        if isinstance(response_format, (str, dict)) and (
+            response_format == "json" or isinstance(response_format, dict)
+        ):
             try:
                 # Attempt to parse and re-encode to ensure valid JSON
                 parsed = json.loads(text) if text else {}
@@ -792,8 +977,11 @@ class MLXLMClient:
                     # In a real implementation, use pydantic for schema validation
                     pass
                 text = json.dumps(parsed, ensure_ascii=False)
-                segment = json.dumps(json.loads(segment),
-                                     ensure_ascii=False) if segment else None
+                segment = (
+                    json.dumps(json.loads(segment), ensure_ascii=False)
+                    if segment
+                    else None
+                )
             except json.JSONDecodeError:
                 active_response_format = "text"
         response: CompletionResponse = {
@@ -816,13 +1004,15 @@ class MLXLMClient:
                     "finish_reason": finish_reason,
                     "message": None,
                     "delta": None,
-                    "text": None
+                    "text": None,
                 }
             ],
         }
-        if not (isinstance(prompt_token_count, int) and isinstance(completion_token_count, int)):
-            raise ValueError(
-                "Response type is complete, but token counts not provided")
+        if not (
+            isinstance(prompt_token_count, int)
+            and isinstance(completion_token_count, int)
+        ):
+            raise ValueError("Response type is complete, but token counts not provided")
         response["usage"] = {
             "prompt_tokens": prompt_token_count,
             "prompt_tps": prompt_tps,
@@ -834,17 +1024,23 @@ class MLXLMClient:
         choice = response["choices"][0]
         if "chat.completion" in object_type:
             choice["message"] = {
-                "role": "assistant", "content": segment if segment is not None else text}
+                "role": "assistant",
+                "content": segment if segment is not None else text,
+            }
         elif "text.completion" in object_type:
             choice["text"] = segment if segment is not None else text
         else:
             raise ValueError(f"Unsupported response type: {object_type}")
         return response
 
-    def _get_prompt_cache(self, prompt: List[int], prompt_cache: Optional[List[Any]] = None) -> List[int]:
+    def _get_prompt_cache(
+        self, prompt: List[int], prompt_cache: Optional[List[Any]] = None
+    ) -> List[int]:
         """Manage prompt caching."""
         # Use provided prompt_cache or instance-level prompt_cache
-        active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
+        active_prompt_cache = (
+            prompt_cache if prompt_cache is not None else self.prompt_cache
+        )
 
         # Debug logging to inspect inputs
         logger.debug(f"Type of prompt_cache: {type(prompt_cache)}")
@@ -853,24 +1049,27 @@ class MLXLMClient:
         # Validate that active_prompt_cache is a list
         if not isinstance(active_prompt_cache, list):
             logger.error(
-                f"Expected list for prompt_cache, got {type(active_prompt_cache).__name__}")
+                f"Expected list for prompt_cache, got {type(active_prompt_cache).__name__}"
+            )
             raise TypeError(
-                f"prompt_cache must be a list, got {type(active_prompt_cache).__name__}")
+                f"prompt_cache must be a list, got {type(active_prompt_cache).__name__}"
+            )
 
         # If cache is empty or model has changed, initialize new cache
-        if not active_prompt_cache or self.model_provider.model_key != getattr(self, '_last_model_key', None):
+        if not active_prompt_cache or self.model_provider.model_key != getattr(
+            self, "_last_model_key", None
+        ):
             logger.debug("Initializing new prompt cache")
             active_prompt_cache.clear()
-            active_prompt_cache.extend(
-                make_prompt_cache(self.model_provider.model))
+            active_prompt_cache.extend(make_prompt_cache(self.model_provider.model))
             if self.model_provider.draft_model is not None:
                 active_prompt_cache.extend(
-                    make_prompt_cache(self.model_provider.draft_model))
-            setattr(self, '_last_model_key', self.model_provider.model_key)
+                    make_prompt_cache(self.model_provider.draft_model)
+                )
+            setattr(self, "_last_model_key", self.model_provider.model_key)
 
         # Return full prompt (simplified, as list-based cache is managed by stream_generate)
-        logger.debug(
-            "Returning full prompt as cache is managed by stream_generate")
+        logger.debug("Returning full prompt as cache is managed by stream_generate")
         return prompt
 
     def _generate_completion(
@@ -897,11 +1096,12 @@ class MLXLMClient:
         num_draft_tokens: int,
         verbose: bool = False,
         prompt_cache: Optional[List[Any]] = None,
-        response_format: Union[Literal["text", "json"],
-                               JsonSchemaValue] = "text"
+        response_format: Union[Literal["text", "json"], JsonSchemaValue] = "text",
     ) -> Union[CompletionResponse, List[CompletionResponse]]:
         """Core method to generate non-streaming completions."""
-        active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
+        active_prompt_cache = (
+            prompt_cache if prompt_cache is not None else self.prompt_cache
+        )
         logit_bias = convert_logit_bias(logit_bias, tokenizer)
         if verbose:
             logger.newline()
@@ -912,15 +1112,19 @@ class MLXLMClient:
                 logger.orange(format_json(logit_bias))
                 for token in logit_bias.keys():
                     choice = tokenizer.decode(token)
-                    logger.log("Token for", f"'{choice}'", ":", token, colors=[
-                               "GRAY", "ORANGE", "GRAY", "ORANGE"])
+                    logger.log(
+                        "Token for",
+                        f"'{choice}'",
+                        ":",
+                        token,
+                        colors=["GRAY", "ORANGE", "GRAY", "ORANGE"],
+                    )
         tokens: List[int] = []
         token_logprobs: List[float] = []
         top_tokens: List[Dict[int, float]] = []
         text: str = ""
         finish_reason: Literal["length", "stop"] = "length"
-        cached_prompt = self._get_prompt_cache(
-            prompt, prompt_cache=active_prompt_cache)
+        cached_prompt = self._get_prompt_cache(prompt, prompt_cache=active_prompt_cache)
         sampler = make_sampler(
             temperature,
             top_p=top_p,
@@ -929,11 +1133,11 @@ class MLXLMClient:
             min_tokens_to_keep=min_tokens_to_keep,
             xtc_probability=xtc_probability,
             xtc_threshold=xtc_threshold,
-            xtc_special_tokens=[
-                tokenizer.eos_token_id, tokenizer.encode("\n")],
+            xtc_special_tokens=[tokenizer.eos_token_id, tokenizer.encode("\n")],
         )
         logits_processors = make_logits_processors(
-            logit_bias, repetition_penalty, repetition_context_size)
+            logit_bias, repetition_penalty, repetition_context_size
+        )
         stop_texts = tokenizer.batch_decode(stop_id_sequences)
         all_repetitions = []
         for gen_response in stream_generate(
@@ -957,18 +1161,18 @@ class MLXLMClient:
                 logger.log(segment, flush=True, colors=["TEAL"])
             if logprobs > 0:
                 sorted_indices: mx.array = mx.argpartition(
-                    -logprobs_data, kth=logprobs - 1)
+                    -logprobs_data, kth=logprobs - 1
+                )
                 top_indices: mx.array = sorted_indices[:logprobs]
                 top_logprobs: mx.array = logprobs_data[top_indices]
-                top_token_info = zip(top_indices.tolist(),
-                                     top_logprobs.tolist())
+                top_token_info = zip(top_indices.tolist(), top_logprobs.tolist())
                 top_tokens.append(dict(top_token_info))
             token_logprobs.append(logprobs_data[token].item())
             for stop_text in stop_texts:
                 if stop_text in text:
                     finish_reason = "stop"
-                    text = text[:text.index(stop_text)]
-                    segment = segment[:segment.index(stop_text)]
+                    text = text[: text.index(stop_text)]
+                    segment = segment[: segment.index(stop_text)]
                     break
             if finish_reason:
                 logger.newline()
@@ -988,7 +1192,7 @@ class MLXLMClient:
             top_tokens=top_tokens,
             tokens=tokens,
             repetitions=all_repetitions,
-            response_format=response_format
+            response_format=response_format,
         )
 
     def _stream_generate_completion(
@@ -1015,11 +1219,12 @@ class MLXLMClient:
         num_draft_tokens: int,
         verbose: bool = False,
         prompt_cache: Optional[List[Any]] = None,
-        response_format: Union[Literal["text", "json"],
-                               JsonSchemaValue] = "text"
+        response_format: Union[Literal["text", "json"], JsonSchemaValue] = "text",
     ) -> Iterator[CompletionResponse]:
         """Generate streaming completions."""
-        active_prompt_cache = prompt_cache if prompt_cache is not None else self.prompt_cache
+        active_prompt_cache = (
+            prompt_cache if prompt_cache is not None else self.prompt_cache
+        )
         logit_bias = convert_logit_bias(logit_bias, tokenizer)
         if verbose:
             logger.newline()
@@ -1030,15 +1235,19 @@ class MLXLMClient:
                 logger.orange(format_json(logit_bias))
                 for token in logit_bias.keys():
                     choice = tokenizer.decode(token)
-                    logger.log("Token for", f"'{choice}'", ":", token, colors=[
-                               "GRAY", "ORANGE", "GRAY", "ORANGE"])
+                    logger.log(
+                        "Token for",
+                        f"'{choice}'",
+                        ":",
+                        token,
+                        colors=["GRAY", "ORANGE", "GRAY", "ORANGE"],
+                    )
         tokens: List[int] = []
         token_logprobs: List[float] = []
         top_tokens: List[Dict[int, float]] = []
         text: str = ""
         finish_reason: Optional[Literal["length", "stop"]] = None
-        cached_prompt = self._get_prompt_cache(
-            prompt, prompt_cache=active_prompt_cache)
+        cached_prompt = self._get_prompt_cache(prompt, prompt_cache=active_prompt_cache)
         sampler = make_sampler(
             temperature,
             top_p=top_p,
@@ -1047,11 +1256,11 @@ class MLXLMClient:
             min_tokens_to_keep=min_tokens_to_keep,
             xtc_probability=xtc_probability,
             xtc_threshold=xtc_threshold,
-            xtc_special_tokens=[
-                tokenizer.eos_token_id, tokenizer.encode("\n")],
+            xtc_special_tokens=[tokenizer.eos_token_id, tokenizer.encode("\n")],
         )
         logits_processors = make_logits_processors(
-            logit_bias, repetition_penalty, repetition_context_size)
+            logit_bias, repetition_penalty, repetition_context_size
+        )
         stop_texts = tokenizer.batch_decode(stop_id_sequences)
         all_repetitions = []
         for gen_response in stream_generate(
@@ -1075,18 +1284,18 @@ class MLXLMClient:
                 logger.log(segment, flush=True, colors=["TEAL"])
             if logprobs > 0:
                 sorted_indices: mx.array = mx.argpartition(
-                    -logprobs_data, kth=logprobs - 1)
+                    -logprobs_data, kth=logprobs - 1
+                )
                 top_indices: mx.array = sorted_indices[:logprobs]
                 top_logprobs: mx.array = logprobs_data[top_indices]
-                top_token_info = zip(top_indices.tolist(),
-                                     top_logprobs.tolist())
+                top_token_info = zip(top_indices.tolist(), top_logprobs.tolist())
                 top_tokens.append(dict(top_token_info))
             token_logprobs.append(logprobs_data[token].item())
             for stop_text in stop_texts:
                 if stop_text in text:
                     finish_reason = "stop"
-                    text = text[:text.index(stop_text)]
-                    segment = segment[:segment.index(stop_text)]
+                    text = text[: text.index(stop_text)]
+                    segment = segment[: segment.index(stop_text)]
                     break
             yield self._generate_response(
                 text=text,
@@ -1104,7 +1313,7 @@ class MLXLMClient:
                 top_tokens=top_tokens,
                 tokens=tokens,
                 repetitions=all_repetitions,
-                response_format=response_format
+                response_format=response_format,
             )
             if finish_reason:
                 logger.newline()
@@ -1114,12 +1323,11 @@ class MLXLMClient:
         """Reset the model and clear associated caches."""
         logger.debug("\nResetting model and clearing caches")
         try:
-            if hasattr(self, 'prompt_cache') and self.prompt_cache:
+            if hasattr(self, "prompt_cache") and self.prompt_cache:
                 # Clear the prompt cache
                 self.prompt_cache.clear()
         except AttributeError:
-            logger.warning(
-                "prompt_cache attribute not found, skipping cache clear")
+            logger.warning("prompt_cache attribute not found, skipping cache clear")
         self.model_provider = ModelProvider(self.cli_args)
         self.model = self.model_provider.model
         self.tokenizer = self.model_provider.tokenizer
@@ -1143,24 +1351,42 @@ class MLXLMClient:
             elif isinstance(cache_entry, KVCache):
                 logger.info(f"    Offset: {cache_entry.offset}")
                 logger.info(f"    Step: {cache_entry.step}")
-                keys_shape = cache_entry.keys.shape if cache_entry.keys is not None else None
-                values_shape = cache_entry.values.shape if cache_entry.values is not None else None
+                keys_shape = (
+                    cache_entry.keys.shape if cache_entry.keys is not None else None
+                )
+                values_shape = (
+                    cache_entry.values.shape if cache_entry.values is not None else None
+                )
                 logger.info(f"    Keys shape: {keys_shape or 'None'}")
                 logger.info(f"    Values shape: {values_shape or 'None'}")
                 if keys_shape and values_shape:
-                    keys_memory = keys_shape[0] * keys_shape[1] * \
-                        keys_shape[2] * keys_shape[3] * 4 / 1024 / 1024
-                    values_memory = values_shape[0] * values_shape[1] * \
-                        values_shape[2] * values_shape[3] * 4 / 1024 / 1024
+                    keys_memory = (
+                        keys_shape[0]
+                        * keys_shape[1]
+                        * keys_shape[2]
+                        * keys_shape[3]
+                        * 4
+                        / 1024
+                        / 1024
+                    )
+                    values_memory = (
+                        values_shape[0]
+                        * values_shape[1]
+                        * values_shape[2]
+                        * values_shape[3]
+                        * 4
+                        / 1024
+                        / 1024
+                    )
                     logger.info(
-                        f"    Memory usage: {keys_memory + values_memory:.2f} MB")
+                        f"    Memory usage: {keys_memory + values_memory:.2f} MB"
+                    )
                     total_memory += keys_memory + values_memory
-            elif hasattr(cache_entry, 'max_size'):
-                logger.info(
-                    f"    Max size: {getattr(cache_entry, 'max_size', 'N/A')}")
-                logger.info(
-                    f"    Keep: {getattr(cache_entry, 'keep', 'N/A')}")
+            elif hasattr(cache_entry, "max_size"):
+                logger.info(f"    Max size: {getattr(cache_entry, 'max_size', 'N/A')}")
+                logger.info(f"    Keep: {getattr(cache_entry, 'keep', 'N/A')}")
             else:
                 logger.info(
-                    "    Contents: (Non-list/tuple cache, details not displayed)")
+                    "    Contents: (Non-list/tuple cache, details not displayed)"
+                )
         logger.info(f"  Total memory usage: {total_memory:.2f} MB")

@@ -1,7 +1,10 @@
-from typing import Dict, List
-from jet.models.tokenizer.helpers.char_tokenizer import CharTokenizer
 import pytest
-from jet.llm.mlx.helpers.detect_repetition import clean_repeated_ngrams, find_repeated_consecutive_ngrams, NgramRepeat
+from jet.models.tokenizer.helpers.char_tokenizer import CharTokenizer
+from jet.wordnet.detect_repetition import (
+    NgramRepeat,
+    clean_repeated_ngrams,
+    find_repeated_consecutive_ngrams,
+)
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
 
@@ -108,7 +111,9 @@ class TestFindRepeatedConsecutiveNgrams:
             ),
         ],
     )
-    def test_find_repeated_consecutive_ngrams(self, sample, min_words, max_words, min_repeat, expected):
+    def test_find_repeated_consecutive_ngrams(
+        self, sample, min_words, max_words, min_repeat, expected
+    ):
         result = find_repeated_consecutive_ngrams(
             sample, min_words=min_words, max_words=max_words, min_repeat=min_repeat
         )
@@ -158,8 +163,7 @@ class TestFindRepeatedCaseSensitive:
         ],
     )
     def test_find_repeated_case_sensitive(self, sample, case_sensitive, expected):
-        result = find_repeated_consecutive_ngrams(
-            sample, case_sensitive=case_sensitive)
+        result = find_repeated_consecutive_ngrams(sample, case_sensitive=case_sensitive)
         assert result == expected
 
 
@@ -201,7 +205,9 @@ class TestFindRepeatedWithTokenizer:
             ),
         ],
     )
-    def test_find_repeated_with_tokenizer(self, sample, min_words, min_repeat, expected, tokenizer):
+    def test_find_repeated_with_tokenizer(
+        self, sample, min_words, min_repeat, expected, tokenizer
+    ):
         result = find_repeated_consecutive_ngrams(
             sample, min_words=min_words, min_repeat=min_repeat, tokenizer=tokenizer
         )
@@ -226,13 +232,15 @@ class TestFindRepeatedConcatenatedTokens:
                         start_index=1,
                         end_index=2,
                         full_end_index=7,
-                        num_of_repeats=6
+                        num_of_repeats=6,
                     )
                 ],
             ),
         ],
     )
-    def test_find_repeated_concatenated_tokens(self, sample, min_words, min_repeat, expected, tokenizer):
+    def test_find_repeated_concatenated_tokens(
+        self, sample, min_words, min_repeat, expected, tokenizer
+    ):
         result = find_repeated_consecutive_ngrams(
             sample, min_words=min_words, min_repeat=min_repeat, tokenizer=tokenizer
         )
@@ -287,7 +295,9 @@ class TestCleanRepeatedNgrams:
             ),
         ],
     )
-    def test_clean_repeated_ngrams(self, sample: str, min_words: int, min_repeat: int, expected: str) -> None:
+    def test_clean_repeated_ngrams(
+        self, sample: str, min_words: int, min_repeat: int, expected: str
+    ) -> None:
         # Given: A text sample with potential repeated n-grams
         # When: Cleaning repeated n-grams using the function
         result: str = clean_repeated_ngrams(
@@ -321,12 +331,12 @@ class TestCleanRepeatedNgrams:
             ),
         ],
     )
-    def test_clean_repeated_case_sensitive(self, sample: str, case_sensitive: bool, expected: str) -> None:
+    def test_clean_repeated_case_sensitive(
+        self, sample: str, case_sensitive: bool, expected: str
+    ) -> None:
         # Given: A text sample with case-sensitive considerations
         # When: Cleaning repeated n-grams with case sensitivity
-        result: str = clean_repeated_ngrams(
-            sample, case_sensitive=case_sensitive
-        )
+        result: str = clean_repeated_ngrams(sample, case_sensitive=case_sensitive)
         # Then: The result should match the expected cleaned text
         assert result == expected
 
@@ -352,7 +362,12 @@ class TestCleanRepeatedNgrams:
         ],
     )
     def test_clean_repeated_with_tokenizer(
-        self, sample: str, min_words: int, min_repeat: int, expected: str, tokenizer: PreTrainedTokenizer
+        self,
+        sample: str,
+        min_words: int,
+        min_repeat: int,
+        expected: str,
+        tokenizer: PreTrainedTokenizer,
     ) -> None:
         # Given: A text sample and a tokenizer
         # When: Cleaning repeated n-grams using the tokenizer
@@ -378,7 +393,12 @@ class TestCleanRepeatedNgrams:
         ],
     )
     def test_clean_repeated_concatenated_tokens(
-        self, sample: str, min_words: int, min_repeat: int, expected: str, char_tokenizer: PreTrainedTokenizer
+        self,
+        sample: str,
+        min_words: int,
+        min_repeat: int,
+        expected: str,
+        char_tokenizer: PreTrainedTokenizer,
     ) -> None:
         # Given: A text sample with concatenated tokens and a char tokenizer
         # When: Cleaning repeated n-grams using the char tokenizer

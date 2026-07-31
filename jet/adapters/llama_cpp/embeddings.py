@@ -6,8 +6,9 @@ from typing import (
 )
 
 import numpy as np
-from jet._token.token_utils import token_counter
 from jet.adapters.llama_cpp.embed_utils import embed_batch, embed_single
+from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.adapters.llama_cpp.types import (
     LLAMACPP_EMBED_KEYS,
     GenerateEmbeddingsReturnType,
@@ -16,7 +17,6 @@ from jet.adapters.llama_cpp.utils import resolve_model_key
 from jet.logger import CustomLogger
 from jet.models.embeddings.cache import EmbeddingCache
 from jet.models.embeddings.utils import calculate_dynamic_batch_size
-from jet.models.utils import get_context_size, get_embedding_size
 from openai import OpenAI
 from rich.console import Console
 from tqdm import tqdm
@@ -248,13 +248,14 @@ class LlamacppEmbedding:
                 "inputs must be a non-empty string or list of non-empty strings"
             )
 
-        embedding_size = get_embedding_size(self.model)
-        context_size = get_context_size(self.model)
+        ctx_embd_size = get_model_ctx_embd_size(self.model)
+        context_size = ctx_embd_size["ctx"]
+        embedding_size = ctx_embd_size["embd_dims"]
         max_length = max_input_length if max_input_length is not None else context_size
         if max_length <= 0:
             max_length = 512
 
-        token_counts = token_counter(valid_inputs, self.model, prevent_total=True)
+        token_counts = count_tokens(valid_inputs, model=self.model, prevent_total=True)
         long_inputs = [idx for idx, cnt in enumerate(token_counts) if cnt > max_length]
         if long_inputs:
             raise InputTooLargeError(long_inputs, max_length)
