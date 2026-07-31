@@ -1,5 +1,11 @@
 from typing import Literal, TypedDict
 
+from jet.adapters.llama_cpp.chunking_utils import (
+    ChunkResult,
+    chunk_texts,
+    chunk_texts_with_data,
+)
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.code.html_utils import convert_dl_blocks_to_md, preprocess_html
 
 # from jet.code.extraction.sentence_extraction import extract_sentences
@@ -11,15 +17,8 @@ from jet.code.markdown_utils._converters import (
 )
 from jet.file.utils import load_file
 from jet.logger import logger
-from jet.wordnet.text_chunker import (
-    ChunkResult,
-    chunk_texts,
-    chunk_texts_with_data,
-    truncate_texts,
-)
+from jet.wordnet.text_chunker import truncate_texts
 from sklearn.datasets import fetch_20newsgroups
-
-EMBED_MODEL = "embeddinggemma"
 
 _sample_data_cache = None
 
@@ -321,28 +320,7 @@ def load_sample_jobs(
     data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/saved/jobs.json"
     data: list[JobData] = load_file(data_file)
 
-    sentences = [
-        "\n".join(
-            [
-                f"## {item['title']}\n",
-                item["details"],
-                "\n\nTechnology Stack:\n",
-                "\n".join(
-                    [
-                        f"- {tech}"
-                        for tech in sorted(
-                            item["entities"]["technology_stack"], key=str.lower
-                        )
-                    ]
-                ),
-                "\n\nTags:\n",
-                "\n".join(
-                    [f"- {tech}" for tech in sorted(item["tags"], key=str.lower)]
-                ),
-            ]
-        )
-        for item in data
-    ]
+    sentences = ["\n".join([f"{item['title']}\n", item["details"]]) for item in data]
     logger.info(f"Number of sentences: {len(sentences)}")
 
     # texts = [token['content'] for sentence in sentences for token in base_parse_markdown(sentence)]

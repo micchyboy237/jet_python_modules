@@ -147,12 +147,15 @@ def main():
                 return [v]
             return v
 
-    # Load first job from JSON
+    # Load first job from JSON where "entities" is null, if all have entities, use first job
     json_path = Path(
         "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/saved/jobs.json"
     )
     with open(json_path, "r") as f:
-        first_job = json.load(f)[0]
+        jobs = json.load(f)
+        first_job = next((job for job in jobs if job.get("entities") is None), None)
+        if first_job is None:
+            first_job = jobs[0]
 
     # Format text with title and details
     text = f"Title: {first_job.get('title', '')}\nOverview:\n{first_job.get('details', '')}"

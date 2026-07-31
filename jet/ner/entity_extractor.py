@@ -15,8 +15,10 @@ T = TypeVar("T", bound=BaseModel)
 def extract_entities_from_text(
     text: str,
     model_class: Type[T],
-    temperature: float = 0.2,
-    max_tokens: int = 1000,
+    temperature: float = 0.3,
+    top_p: float = 0.95,
+    presence_penalty: float = 1.5,
+    max_tokens: int = 2000,
     timeout: float = 30.0,
 ) -> T:
     """
@@ -92,6 +94,8 @@ JSON Schema:
                 {"role": "user", "content": user_message},
             ],
             temperature=temperature,
+            top_p=top_p,
+            presence_penalty=presence_penalty,
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
             stream=True,
