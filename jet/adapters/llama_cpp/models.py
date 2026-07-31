@@ -143,11 +143,11 @@ LLAMACPP_MODEL_CONTEXTS: dict[LLAMACPP_KEYS, int] = {
     "embedding-gemma:300m": 512,
     "qwen3-embed:4b-q5_0": 128,
     "qwen3-embed:0.6b": 512,
-    # Reranker models (from models.rerankers.ini - based on ubatch-size)
-    "bge-rerank:v2-m3": 64,
-    "bge-rerank:large": 32,
-    "qwen3-rerank:4b": 16,
-    "qwen3-rerank:0.6b": 64,
+    # Reranker models (from models.rerankers.ini)
+    "bge-rerank:v2-m3": 1024,
+    "bge-rerank:large": 512,
+    "qwen3-rerank:4b": 2048,
+    "qwen3-rerank:0.6b": 2048,
     # Vision models (from models.llm.ini - context window `c`)
     "gemma-3-vision:4b": 4096,
     "qwen2.5-vl:7b": 4096,
