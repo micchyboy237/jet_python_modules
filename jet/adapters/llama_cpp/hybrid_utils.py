@@ -1,64 +1,135 @@
+"""
+Hybrid Search Utilities
+Combines fast vector search (cosine similarity) with precise cross-encoder
+reranking for high-quality retrieval. The two-stage pipeline:
+  1. Vector search retrieves top_k candidates (k > final_n)
+  2. Reranker scores and reorders candidates, returning top_n
+
+Environment Variables:
+  EMBED_QUERY_PREFIX  - Prefix added to queries before embedding (optional)
+  EMBED_DOC_PREFIX    - Prefix added to documents before embedding (optional)
+"""
+
 import os
 from typing import TypedDict
 
 import numpy as np
 from jet.adapters.llama_cpp.embed_utils import embed
+from jet.adapters.llama_cpp.rerank_utils import rerank
 from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
 from jet.logger import logger
-from jet.vectors.reranker.bm25 import get_bm25_similarities
 
 
 class HybridSearchResult(TypedDict):
-    """Result from hybrid search combining vector + BM25 reranking."""
+    """A single result from hybrid_search."""
 
     rank: int
     index: int
-    score: float  # Final BM25 score
-    vector_score: float  # Original cosine similarity score
+    score: float  # Normalized score (0–1) for interpretability
     text: str
+    vector_score: float  # Original vector similarity score
+    rerank_score_raw: float  # Raw reranker score (for debugging)
+
+
+def _sigmoid_normalize_scores(
+    scores: list[float],
+    temperature: float = 1.0,
+) -> list[float]:
+    """
+    Apply sigmoid normalization to convert raw scores to 0–1 range.
+
+    Uses sigmoid function: normalized = 1 / (1 + exp(-score / temperature))
+
+    Args:
+        scores: List of raw scores (can be negative or positive).
+        temperature: Controls the steepness of the sigmoid curve.
+                     Lower = more extreme (closer to 0 or 1).
+                     Higher = more moderate (closer to 0.5).
+                     Default 1.0 works well for most cross-encoders.
+
+    Returns:
+        List of normalized scores in range (0, 1).
+    """
+    if not scores:
+        return []
+
+    normalized = []
+    for score in scores:
+        # Apply sigmoid with temperature scaling
+        norm_score = 1.0 / (1.0 + np.exp(-score / temperature))
+        normalized.append(float(norm_score))
+
+    return normalized
 
 
 def hybrid_search(
     query: str,
     documents: list[str],
     top_n: int = 5,
-    vector_top_k: int = 20,
-    return_embeddings: bool = False,
+    vector_k: int | None = None,
     query_prefix: str | None = None,
     document_prefix: str | None = None,
-) -> list[HybridSearchResult] | tuple[list[HybridSearchResult], np.ndarray, np.ndarray]:
+    normalize_scores: bool = True,
+    sigmoid_temperature: float = 1.0,
+) -> list[HybridSearchResult]:
     """
-    Hybrid search: vector search (cosine similarity) → BM25 reranking.
+    Two-stage hybrid search: vector retrieval → cross-encoder reranking.
 
-    Flow:
-    1. Embed query and all documents
-    2. Rank by cosine similarity, keep top vector_top_k candidates
-    3. Rerank those candidates using BM25
-    4. Return top_n results with both vector and BM25 scores
+    Stage 1 (Vector Search):
+      Embeds query and documents, computes cosine similarity, and selects
+      the top vector_k candidates. This is fast but less precise.
+
+    Stage 2 (Reranking):
+      Passes only the vector_k candidates through a cross-encoder reranker
+      model for precise relevance scoring. Returns top_n final results.
+
+      Scores are normalized to 0–1 range using sigmoid by default for better
+      interpretability.
 
     Args:
-        query: The search query string.
+        query: Search query string.
         documents: List of document strings to search over.
         top_n: Number of final results to return (default: 5).
-        vector_top_k: Number of candidates from vector search to pass to BM25 (default: 20).
-        return_embeddings: If True, also returns (query_emb, doc_embs).
-        query_prefix: Optional prefix for query embedding.
-        document_prefix: Optional prefix for document embedding.
+        vector_k: Number of candidates from vector search to pass to reranker.
+                  Defaults to max(top_n * 3, 10), capped at len(documents).
+                  A larger value improves recall at the cost of reranking time.
+        query_prefix: Optional prefix for query embedding (e.g., "search_query: ").
+                      Falls back to EMBED_QUERY_PREFIX env var.
+        document_prefix: Optional prefix for document embeddings (e.g., "search_document: ").
+                         Falls back to EMBED_DOC_PREFIX env var.
+        normalize_scores: If True (default), apply sigmoid normalization to rerank scores.
+        sigmoid_temperature: Controls sigmoid steepness (default: 1.0).
+                            Lower = more extreme, Higher = more moderate.
 
     Returns:
-        List of HybridSearchResult dicts (rank, index, score, vector_score, text),
-        or if return_embeddings=True, a tuple of (results, query_emb, doc_embs).
+        List of HybridSearchResult dicts sorted by reranker score (descending).
+        Each result includes:
+          - rank: Final rank after reranking
+          - index: Original index in documents list
+          - score: Normalized reranker score (0–1, higher = more relevant)
+          - text: Document text
+          - vector_score: Original vector similarity score (for comparison)
+          - rerank_score_raw: Raw reranker score before normalization
+
+    Example:
+        >>> results = hybrid_search("What is a panda?", docs, top_n=3)
+        >>> for r in results:
+        ...     print(f"#{r['rank']} (vector={r['vector_score']:.4f}, score={r['score']:.4f}): {r['text']}")
     """
     if not documents:
-        logger.warning("No documents provided for hybrid search")
-        return [] if not return_embeddings else ([], np.array([]), np.array([]))
+        logger.warning("hybrid_search: empty documents list, returning []")
+        return []
+
+    n_docs = len(documents)
+    if vector_k is None:
+        vector_k = max(top_n * 3, 10)
+    vector_k = min(vector_k, n_docs)
 
     logger.info(
-        f"Hybrid search: query='{query[:80]}...', docs={len(documents)}, "
-        f"top_n={top_n}, vector_top_k={vector_top_k}"
+        f"hybrid_search: query='{query[:80]}...', "
+        f"n_docs={n_docs}, top_n={top_n}, vector_k={vector_k}"
     )
 
-    # Resolve prefixes
     resolved_query_prefix = (
         query_prefix
         if query_prefix is not None
@@ -70,65 +141,123 @@ def hybrid_search(
         else os.getenv("EMBED_DOC_PREFIX") or None
     )
 
-    # Step 1: Embed query and documents
-    logger.debug("Step 1: Computing embeddings...")
-    query_embedding = embed(query, prefix=resolved_query_prefix)
-    doc_embeddings = embed(documents, prefix=resolved_doc_prefix)
+    # Stage 1: Vector search
+    logger.info("Stage 1/2: Vector search (embedding + cosine similarity)")
+    query_emb = embed(query, prefix=resolved_query_prefix)
+    doc_embs = embed(documents, prefix=resolved_doc_prefix)
 
-    # Step 2: Vector search - compute cosine similarities
-    logger.debug("Step 2: Vector search (cosine similarity)...")
-    similarities = [
-        cosine_similarity(query_embedding, doc_emb) for doc_emb in doc_embeddings
-    ]
+    similarities = np.array(
+        [cosine_similarity(query_emb, doc_emb) for doc_emb in doc_embs]
+    )
 
-    # Sort by similarity score, keep top vector_top_k
-    scored = sorted(enumerate(similarities), key=lambda x: x[1], reverse=True)
-    top_candidates = scored[: min(vector_top_k, len(scored))]
+    # Get all indices sorted by vector score (descending)
+    all_sorted_indices = np.argsort(similarities)[::-1].tolist()
 
+    # Select top vector_k candidates
+    if vector_k >= n_docs:
+        candidate_indices = list(range(n_docs))
+    else:
+        candidate_indices = all_sorted_indices[:vector_k]
+
+    candidates = [documents[i] for i in candidate_indices]
+    candidate_vector_scores = [float(similarities[i]) for i in candidate_indices]
+
+    logger.info(
+        f"Vector search complete: {len(candidates)} candidates selected from {n_docs} documents"
+    )
     logger.debug(
-        f"Vector search returned {len(top_candidates)} candidates "
-        f"(top score: {top_candidates[0][1]:.4f})"
+        "Vector search results (before reranking): "
+        + ", ".join(
+            [
+                f"idx={idx}(vec={score:.4f})"
+                for idx, score in zip(candidate_indices, candidate_vector_scores)
+            ]
+        )
+    )
+    logger.debug(
+        f"Vector score stats: min={min(candidate_vector_scores):.4f}, "
+        f"max={max(candidate_vector_scores):.4f}, "
+        f"mean={np.mean(candidate_vector_scores):.4f}"
     )
 
-    # Step 3: BM25 reranking on candidates
-    logger.debug("Step 3: BM25 reranking candidates...")
-    candidate_indices = [idx for idx, _ in top_candidates]
-    candidate_docs = [documents[idx] for idx in candidate_indices]
+    # Stage 2: Reranking
+    logger.info("Stage 2/2: Cross-encoder reranking")
+    rerank_results = rerank(query, candidates, top_n=min(top_n, len(candidates)))
 
-    # BM25 expects query as a list of query terms (extracted internally)
-    # We pass the original query; extract_query_candidates handles tokenization
-    from jet.vectors.reranker.bm25 import extract_query_candidates
+    # Extract raw rerank scores for normalization
+    raw_rerank_scores = [rr["score"] for rr in rerank_results]
 
-    query_candidates = extract_query_candidates(query)
+    # Normalize scores if requested
+    if normalize_scores and raw_rerank_scores:
+        normalized_scores = _sigmoid_normalize_scores(
+            raw_rerank_scores,
+            temperature=sigmoid_temperature,
+        )
+        logger.info(
+            f"Score normalization applied (sigmoid, temperature={sigmoid_temperature})"
+        )
+        logger.debug(
+            f"Raw scores: [{', '.join(f'{s:.4f}' for s in raw_rerank_scores)}]"
+        )
+        logger.debug(
+            f"Normalized scores: [{', '.join(f'{s:.4f}' for s in normalized_scores)}]"
+        )
+    else:
+        # If no normalization, use raw scores as-is
+        normalized_scores = raw_rerank_scores
+        if raw_rerank_scores:
+            logger.info("Score normalization disabled, using raw scores")
 
-    bm25_results = get_bm25_similarities(
-        query_candidates,
-        candidate_docs,
-        ids=[str(idx) for idx in candidate_indices],
-    )
+    # Build final results with both vector and rerank scores
+    final_results: list[HybridSearchResult] = []
+    for rank_pos, rr in enumerate(rerank_results, start=1):
+        # rr["index"] is the index into the candidates list
+        candidate_local_idx = rr["index"]
+        original_idx = candidate_indices[candidate_local_idx]
+        vector_score = candidate_vector_scores[candidate_local_idx]
 
-    # Step 4: Build final results with both scores
-    # Map vector scores by original document index
-    vector_score_map = {idx: float(score) for idx, score in top_candidates}
+        # Use the score directly from rerank_results (already in correct order)
+        raw_score = rr["score"]
 
-    results: list[HybridSearchResult] = []
-    for rank, bm25_result in enumerate(bm25_results[:top_n], start=1):
-        original_idx = int(bm25_result["id"])
-        results.append(
+        # Find the corresponding normalized score by matching position in rerank_results
+        norm_score = normalized_scores[rank_pos - 1]
+
+        final_results.append(
             {
-                "rank": rank,
+                "rank": rank_pos,
                 "index": original_idx,
-                "score": bm25_result["score"],
-                "vector_score": vector_score_map.get(original_idx, 0.0),
-                "text": bm25_result["text"],
+                "score": norm_score,
+                "text": documents[original_idx],
+                "vector_score": vector_score,
+                "rerank_score_raw": raw_score,
             }
         )
 
-    logger.info(f"Hybrid search complete: {len(results)} results returned")
+    # Log rerank score statistics for interpretability
+    logger.info(f"Reranking complete: {len(final_results)} final results returned")
+    logger.debug(
+        "Normalized score interpretation: "
+        "0.5 = neutral, >0.7 = high relevance, <0.3 = low relevance. "
+        "Relative ordering matters more than absolute values."
+    )
+    logger.debug(
+        f"Normalized score stats: min={min(normalized_scores):.4f}, "
+        f"max={max(normalized_scores):.4f}, "
+        f"mean={np.mean(normalized_scores):.4f}"
+    )
 
-    if return_embeddings:
-        return results, query_embedding, doc_embeddings
-    return results
+    # Log comparison between vector and rerank ordering
+    logger.debug(
+        "Score comparison (vector → rerank normalized): "
+        + ", ".join(
+            [
+                f"#{r['rank']} idx={r['index']} (vec={r['vector_score']:.4f} → score={r['score']:.4f})"
+                for r in final_results
+            ]
+        )
+    )
+
+    return final_results
 
 
 if __name__ == "__main__":
@@ -139,26 +268,20 @@ if __name__ == "__main__":
         "Bears are carnivoran mammals of the family Ursidae.",
         "Machine learning is a subset of artificial intelligence.",
         "Pandas eat bamboo and live in mountainous regions.",
-        "The panda's diet is 99% bamboo.",
-        "Giant pandas are native to south central China.",
-        "Data science combines statistics and programming.",
-        "Ursidae includes pandas, polar bears, and brown bears.",
-        "Deep learning revolutionized computer vision tasks.",
     ]
 
-    print("Hybrid Search Results:")
-    print("=" * 80)
-    results, query_emb, doc_embs = hybrid_search(
-        query, docs, return_embeddings=True, top_n=5, vector_top_k=8
-    )
+    print("=" * 60)
+    print("HYBRID SEARCH RESULTS (CLEAN)")
+    print("=" * 60)
+    results = hybrid_search(query, docs, top_n=3, normalize_scores=True)
 
-    print(f"Query embedding shape: {query_emb.shape}")
-    print(f"Document embeddings shape: {doc_embs.shape}")
     print(f"\nQuery: {query}\n")
-    print(f"{'Rank':<6} {'Idx':<5} {'BM25':<8} {'Vector':<8} Text")
-    print("-" * 80)
+    print("Final ranked results (after reranking):")
+    print("Format: #rank  idx  score(0-1)  vector  raw  text")
+    print("-" * 60)
     for r in results:
         print(
-            f"#{r['rank']:<5} {r['index']:<5} {r['score']:<8.4f} "
-            f"{r['vector_score']:<8.4f} {r['text']}"
+            f"  #{r['rank']}  idx={r['index']}  "
+            f"score={r['score']:.4f}  vector={r['vector_score']:.4f}  raw={r['rerank_score_raw']:.4f}  "
+            f"{r['text']}"
         )
