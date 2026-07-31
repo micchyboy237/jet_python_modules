@@ -2,7 +2,7 @@ import uuid
 from jet.code.html_utils import is_html
 from jet.code.markdown_utils._markdown_parser import base_parse_markdown
 from jet.code.markdown_utils._preprocessors import extract_markdown_links
-from jet.llm.mlx.helpers.detect_repetition import clean_repeated_ngrams
+from jet.wordnet.detect_repetition import clean_repeated_ngrams
 from jet.code.markdown_utils import convert_html_to_markdown
 from typing import Any, List, Optional, Tuple
 import re

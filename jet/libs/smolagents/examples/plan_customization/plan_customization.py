@@ -173,7 +173,7 @@ def parseargs():
         "task",
         type=str,
         nargs="?",
-        default="Search for top romance and isekai anime this year. Include the plots for each. Include source for each.",
+        default="Search for top 10 romance and isekai anime this year (2026). Include the plots for each. Include source for each.",
         help="Task prompt for the agent to solve.",
     )
     parser.add_argument(
@@ -262,16 +262,16 @@ def main():
     agent = create_code_agent(
         model=model,
         tools=[
-            # get_current_datetime,  # dynamic date/time tool
+            get_current_datetime,  # dynamic date/time tool
             SearXNGSearchTool(max_results=10),
-            VisitWebpageTool(
-                max_output_length=3500, chunk_target_tokens=500, top_k=None
-            ),
+            VisitWebpageTool(max_output_length=10000),
         ],
         planning_interval=args.planning_interval,
         step_callbacks={
-            PlanningStep: interrupt_after_plan,  # specific callback for plan review
             # You can add more specific callbacks here if needed
+            # PlanningStep: [interrupt_after_plan, compress_memory_callback],
+            # Removed compress_memory_callback due to context loss issues
+            PlanningStep: [interrupt_after_plan],
         },
         max_steps=args.max_steps,
         verbosity_level=args.verbosity_level,

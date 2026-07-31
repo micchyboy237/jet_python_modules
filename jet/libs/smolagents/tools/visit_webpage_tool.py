@@ -5,20 +5,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
 from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.hybrid_search import (
     RELATIVE_CATEGORY_CONFIG,
     HybridSearch,
     HybridSearchResult,
 )
-from jet.adapters.llama_cpp.models import LLAMACPP_MODEL_CONTEXTS
-from jet.adapters.llama_cpp.tokens import count_tokens
+from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from jet.code.splitter_markdown_utils import get_md_header_contents
 from jet.libs.smolagents.utils.debug_saver import DebugSaver
 from jet.transformers.object import make_serializable
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
-from jet.wordnet.text_chunker import chunk_texts_with_data
 from smolagents.tools import Tool
 
 logger = logging.getLogger(__name__)
@@ -131,10 +131,8 @@ If you really need near-complete content, use a very broad or generic query."""
         super().__init__()
         self.embed_model = embed_model
 
-        _max_model_context = LLAMACPP_MODEL_CONTEXTS.get(
-            self.embed_model, max_output_length
-        )
-        self.max_output_tokens = min(max_output_length, _max_model_context)
+        ctx_embd_size = get_model_ctx_embd_size(self.embed_model)
+        self.max_output_tokens = min(max_output_length, ctx_embd_size["ctx_train"])
 
         self.top_k = top_k
         self.chunk_target_tokens = chunk_target_tokens
@@ -213,22 +211,18 @@ If you really need near-complete content, use a very broad or generic query."""
                 return error_text
 
             self.debug_saver.save("page.html", fetch_result.html)
-            logger.info("Saved page.html")
 
             headings = extract_markdown_section_texts(
                 fetch_result.html, ignore_links=True
             )
             self.debug_saver.save_json("headings.json", headings)
-            logger.info("Saved headings.json")
 
             result = self._process_smart_excerpts(headings, query, url=url)
             self.debug_saver.save("full_results.md", result)
-            logger.info("Saved result at full_results.md")
 
             # Final safety net: enforce token limit
             result = self._trim_to_token_limit(result)
             self.debug_saver.save("trimmed_results.md", result)
-            logger.info("Saved result at trimmed_results.md")
 
             self.debug_saver.save_json(
                 "response.json",

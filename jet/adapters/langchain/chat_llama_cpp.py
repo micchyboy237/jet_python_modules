@@ -1,26 +1,29 @@
 import os
-from typing import List, Any, Optional, Iterator, AsyncIterator
+from typing import Any, AsyncIterator, Iterator, List, Optional
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, AIMessageChunk
-from langchain_core.outputs import ChatResult, ChatGenerationChunk
-from langchain_core.callbacks import CallbackManagerForLLMRun, AsyncCallbackManagerForLLMRun
-
+from jet.adapters.llama_cpp.config import LLM_BASE_URL, LLM_MODEL
 from jet.llm.config import DEFAULT_LOG_DIR
 from jet.llm.logger_utils import ChatLogger
 from jet.logger import CustomLogger
 from jet.logger.config import DEFAULT_LOGGER
 from jet.transformers.formatters import format_json
 from jet.utils.text import format_sub_dir
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForLLMRun,
+    CallbackManagerForLLMRun,
+)
+from langchain_core.messages import AIMessageChunk, BaseMessage
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
+from langchain_openai import ChatOpenAI
 
 
 class ChatLlamaCpp(ChatOpenAI):
     def __init__(
         self,
         *args,
-        model: str = "qwen3-instruct-2507:4b",
+        model: str = LLM_MODEL,
         temperature: float = 0.0,
-        base_url: str = "http://shawn-pc.local:8080/v1",
+        base_url: str = LLM_BASE_URL,
         verbosity: str = "high",
         verbose: bool = True,
         agent_name: Optional[str] = None,
@@ -44,17 +47,24 @@ class ChatLlamaCpp(ChatOpenAI):
         self._log_dir: str = log_dir
         self._verbose: bool = verbose
 
-        self._logger = logger or CustomLogger(DEFAULT_LOGGER, filename=f"{log_dir}/main.log")
+        self._logger = logger or CustomLogger(
+            DEFAULT_LOGGER, filename=f"{log_dir}/main.log"
+        )
         self._chat_logger: Optional[ChatLogger] = (
             ChatLogger(log_dir=self._log_dir) if self._verbose else None
         )
 
         # Log each init argument
-        self._log("Initialized ChatLlamaCpp:\n%s", format_json({
-            "model": model,
-            "temperature": temperature,
-            "agent_name": agent_name,
-        }))
+        self._log(
+            "Initialized ChatLlamaCpp:\n%s",
+            format_json(
+                {
+                    "model": model,
+                    "temperature": temperature,
+                    "agent_name": agent_name,
+                }
+            ),
+        )
         if kwargs:
             self._log("additional kwargs: %s", kwargs)
 
@@ -80,7 +90,7 @@ class ChatLlamaCpp(ChatOpenAI):
         self._logger.info("Starting _generate")
         self._logger.gray(f"\nMessages ({len(messages)}):")
         self._logger.debug(format_json(messages))
-        
+
         if kwargs.get("tools"):
             self._logger.gray("\nTools:")
             self._logger.debug(format_json(kwargs["tools"]))
@@ -120,7 +130,9 @@ class ChatLlamaCpp(ChatOpenAI):
 
         if not chunks:
             self._log("No chunks from _stream, falling back to super()._generate")
-            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            return super()._generate(
+                messages, stop=stop, run_manager=run_manager, **kwargs
+            )
 
         # === Fix: Propagate first tool_call_chunk's id/name to all others ===
         if tool_call_chunks:
@@ -135,15 +147,12 @@ class ChatLlamaCpp(ChatOpenAI):
                     chunk["name"] = first_name
 
         # Build final message: content is always str (empty if no text)
-        final_message_kwargs = {
-            "content": "" if tool_call_chunks else text_content
-        }
+        final_message_kwargs = {"content": "" if tool_call_chunks else text_content}
 
         if tool_call_chunks:
-            final_message_kwargs["tool_call_chunks"] = [{
-                **tool_call_chunks[0],
-                "args": text_content
-            }]
+            final_message_kwargs["tool_call_chunks"] = [
+                {**tool_call_chunks[0], "args": text_content}
+            ]
 
         if invalid_tool_calls:
             final_message_kwargs["invalid_tool_calls"] = invalid_tool_calls
@@ -155,9 +164,7 @@ class ChatLlamaCpp(ChatOpenAI):
 
         final_message = AIMessageChunk(**final_message_kwargs)
 
-        result = ChatResult(
-            generations=[ChatGenerationChunk(message=final_message)]
-        )
+        result = ChatResult(generations=[ChatGenerationChunk(message=final_message)])
 
         # ---- single log_interaction call -------------------------------- #
         if self._verbose and self._chat_logger is not None:
@@ -191,7 +198,7 @@ class ChatLlamaCpp(ChatOpenAI):
         self._logger.info("Starting _agenerate")
         self._logger.gray(f"\nMessages ({len(messages)}):")
         self._logger.debug(format_json(messages))
-        
+
         if kwargs.get("tools"):
             self._logger.gray("\nTools:")
             self._logger.debug(format_json(kwargs["tools"]))
@@ -248,15 +255,12 @@ class ChatLlamaCpp(ChatOpenAI):
                     chunk["name"] = first_name
 
         # Build final message: content is always str (empty if no text)
-        final_message_kwargs = {
-            "content": "" if tool_call_chunks else text_content
-        }
+        final_message_kwargs = {"content": "" if tool_call_chunks else text_content}
 
         if tool_call_chunks:
-            final_message_kwargs["tool_call_chunks"] = [{
-                **tool_call_chunks[0],
-                "args": text_content
-            }]
+            final_message_kwargs["tool_call_chunks"] = [
+                {**tool_call_chunks[0], "args": text_content}
+            ]
 
         if invalid_tool_calls:
             final_message_kwargs["invalid_tool_calls"] = invalid_tool_calls
@@ -268,9 +272,7 @@ class ChatLlamaCpp(ChatOpenAI):
 
         final_message = AIMessageChunk(**final_message_kwargs)
 
-        result = ChatResult(
-            generations=[ChatGenerationChunk(message=final_message)]
-        )
+        result = ChatResult(generations=[ChatGenerationChunk(message=final_message)])
 
         # ---- single log_interaction call -------------------------------- #
         if self._verbose and self._chat_logger is not None:
@@ -282,7 +284,11 @@ class ChatLlamaCpp(ChatOpenAI):
                 "method": "achat",
                 "invocation": invocation_params,
             }
-            if run_manager and hasattr(run_manager, "get_sync") and callable(run_manager.get_sync):
+            if (
+                run_manager
+                and hasattr(run_manager, "get_sync")
+                and callable(run_manager.get_sync)
+            ):
                 run_manager.get_sync()(
                     self._chat_logger.log_interaction,
                     messages,
@@ -331,7 +337,9 @@ class ChatLlamaCpp(ChatOpenAI):
                         elif block_type == "invalid_tool_call":
                             name = block.get("name", "unknown")
                             error = block.get("error", "unknown error")
-                            self._logger.teal(f"[Invalid Tool Call] {name}: {error}", flush=True)
+                            self._logger.teal(
+                                f"[Invalid Tool Call] {name}: {error}", flush=True
+                            )
                 elif chunk.message.content:
                     self._logger.teal(chunk.message.content, flush=True)
             yield chunk
@@ -371,7 +379,9 @@ class ChatLlamaCpp(ChatOpenAI):
                         elif block_type == "invalid_tool_call":
                             name = block.get("name", "unknown")
                             error = block.get("error", "unknown error")
-                            self._logger.teal(f"[Invalid Tool Call] {name}: {error}", flush=True)
+                            self._logger.teal(
+                                f"[Invalid Tool Call] {name}: {error}", flush=True
+                            )
                 elif chunk.message.content:
                     self._logger.teal(chunk.message.content, flush=True)
             yield chunk
