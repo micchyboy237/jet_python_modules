@@ -1,18 +1,20 @@
 # jet/libs/bertopic/rag_bertopic.py
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 from jet.adapters.bertopic import BERTopic
-from sklearn.feature_extraction.text import CountVectorizer
-from umap import UMAP
-
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
+from sklearn.feature_extraction.text import TfidfVectorizer  # Changed import
+from umap import UMAP
 
 logger = logging.getLogger(__name__)
 
 try:
     import faiss
+
     _HAS_FAISS = True
 except ImportError:
     _HAS_FAISS = False
@@ -33,11 +35,56 @@ class TopicIndex:
 
 
 class TopicRAG:
-    def __init__(self, model_name: str = "embeddinggemma", verbose: bool = False):
+    def __init__(self, model_name: str = EMBED_MODEL, verbose: bool = False):
         self.verbose = verbose
         self.model = None
         self.topic_indexes: Dict[int, TopicIndex] = {}
         self.embedder = LlamacppEmbedding(model=model_name)
+
+    def _create_vectorizer(self, n_docs: int) -> TfidfVectorizer:
+        """
+        Create a TfidfVectorizer with parameters optimized for dataset size.
+
+        Args:
+            n_docs: Number of documents in the corpus
+
+        Returns:
+            Configured TfidfVectorizer instance
+        """
+        # Adjust parameters based on corpus size
+        if n_docs <= 10:
+            # Tiny corpus - be more permissive
+            return TfidfVectorizer(
+                stop_words="english",
+                ngram_range=(1, 2),
+                max_features=5000,
+                sublinear_tf=True,
+                min_df=1,  # Keep all terms for tiny datasets
+                max_df=0.95,  # Only filter extremely common terms
+                norm="l2",
+            )
+        elif n_docs <= 100:
+            # Small corpus
+            return TfidfVectorizer(
+                stop_words="english",
+                ngram_range=(1, 2),
+                max_features=10000,
+                sublinear_tf=True,
+                min_df=2,  # Filter terms appearing only once
+                max_df=0.85,  # Filter terms in >85% of docs
+                norm="l2",
+            )
+        else:
+            # Medium to large corpus
+            return TfidfVectorizer(
+                stop_words="english",
+                ngram_range=(1, 2),
+                max_features=10000,
+                sublinear_tf=True,
+                min_df=3,  # More aggressive filtering
+                max_df=0.8,  # Filter terms in >80% of docs
+                norm="l2",
+            )
 
     def _log(self, msg: str, level: int = logging.INFO):
         if self.verbose:
@@ -112,25 +159,39 @@ class TopicRAG:
             init=init,
         )
 
-    def fit_topics(self, docs: List[str], nr_topics: Any = "auto", min_topic_size: int = 2):
+    def fit_topics(
+        self, docs: List[str], nr_topics: Any = "auto", min_topic_size: int = 2
+    ):
         if not docs:
             raise ValueError("No documents provided for topic fitting.")
 
         docs = self._preprocess_and_filter(docs)
-        self._log(f"Starting topic fitting on {len(docs)} docs")
+        n_docs = len(docs)
+        self._log(f"Starting topic fitting on {n_docs} docs")
+
+        # Create vectorizer optimized for corpus size
+        vectorizer_model = self._create_vectorizer(n_docs)
+        self._log(
+            f"Using TfidfVectorizer (min_df={vectorizer_model.min_df}, "
+            f"max_df={vectorizer_model.max_df}, sublinear_tf=True)",
+            logging.DEBUG,
+        )
 
         # Embeddings
         embeddings = self.embedder(docs, show_progress=True)
 
         umap_model = self._safe_umap(docs)
         if umap_model is None:
-            self._log("Falling back to BERTopic without UMAP (document-level clustering only).", logging.WARNING)
+            self._log(
+                "Falling back to BERTopic without UMAP (document-level clustering only).",
+                logging.WARNING,
+            )
             self.model = BERTopic(
                 embedding_model=None,
                 calculate_probabilities=True,
                 nr_topics=nr_topics,
                 min_topic_size=min_topic_size,
-                vectorizer_model=CountVectorizer(stop_words="english"),
+                vectorizer_model=vectorizer_model,  # Use TF-IDF vectorizer
                 umap_model=None,
             )
         else:
@@ -139,7 +200,7 @@ class TopicRAG:
                 calculate_probabilities=True,
                 nr_topics=nr_topics,
                 min_topic_size=min_topic_size,
-                vectorizer_model=CountVectorizer(stop_words="english"),
+                vectorizer_model=vectorizer_model,  # Use TF-IDF vectorizer
                 umap_model=umap_model,
             )
 
@@ -156,7 +217,7 @@ class TopicRAG:
             self.model = BERTopic(
                 embedding_model=None,
                 calculate_probabilities=False,
-                vectorizer_model=CountVectorizer(stop_words="english"),
+                vectorizer_model=vectorizer_model,  # Use TF-IDF vectorizer
                 umap_model=None,
             )
             self._build_indexes(docs, embeddings, topics)
@@ -174,7 +235,10 @@ class TopicRAG:
                     random_state=42,
                     low_memory=True,
                 )
-                self.model = BERTopic(umap_model=safe_umap)
+                self.model = BERTopic(
+                    umap_model=safe_umap,
+                    vectorizer_model=vectorizer_model,  # Use TF-IDF vectorizer
+                )
                 topics, _ = self.model.fit_transform(docs, embeddings)
             else:
                 raise
@@ -187,7 +251,9 @@ class TopicRAG:
         max_doc_length = 100  # Characters
         if not topic_info.empty:
             # Select key columns and limit rows
-            limited_topic_info = topic_info[["Topic", "Count", "Name"]].head(max_topics_to_log)
+            limited_topic_info = topic_info[["Topic", "Count", "Name"]].head(
+                max_topics_to_log
+            )
             self._log(
                 f"Topic summary (top {max_topics_to_log}):\n{limited_topic_info.to_string(index=False)}",
                 logging.DEBUG,
@@ -217,7 +283,9 @@ class TopicRAG:
 
         self._build_indexes(docs, embeddings, topics)
 
-    def _build_indexes(self, docs: List[str], embeddings: np.ndarray, topics: List[int]):
+    def _build_indexes(
+        self, docs: List[str], embeddings: np.ndarray, topics: List[int]
+    ):
         topic_docs: Dict[int, List[str]] = {}
         topic_vecs: Dict[int, List[np.ndarray]] = {}
 
@@ -229,14 +297,18 @@ class TopicRAG:
 
         for tid, vecs in topic_vecs.items():
             self.topic_indexes[tid] = TopicIndex(
-                topic_id=tid,
-                embeddings=np.vstack(vecs),
-                texts=topic_docs[tid]
+                topic_id=tid, embeddings=np.vstack(vecs), texts=topic_docs[tid]
             )
 
         self._log(f"Built {len(self.topic_indexes)} topic partitions")
 
-    def retrieve_for_query(self, query: str, top_topics: int = 1, top_k: int = 3, unique_by: Optional[str] = None) -> List[Dict[str, Any]]:
+    def retrieve_for_query(
+        self,
+        query: str,
+        top_topics: int = 1,
+        top_k: int = 3,
+        unique_by: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         if not self.model or not self.topic_indexes:
             raise RuntimeError("TopicRAG not yet fitted.")
 
@@ -245,16 +317,20 @@ class TopicRAG:
         # --- replaced old find_topics() call ---
         # topic_scores, _ = self.model.find_topics(query, top_n=top_topics)
         topic_centroids = {
-            tid: np.mean(ti.embeddings, axis=0) for tid, ti in self.topic_indexes.items()
+            tid: np.mean(ti.embeddings, axis=0)
+            for tid, ti in self.topic_indexes.items()
         }
         centroid_norms = {
             tid: v / np.linalg.norm(v) for tid, v in topic_centroids.items()
         }
         q_norm = qvec / np.linalg.norm(qvec)
         similarities = {
-            tid: float(np.dot(v, q_norm.T).squeeze()) for tid, v in centroid_norms.items()
+            tid: float(np.dot(v, q_norm.T).squeeze())
+            for tid, v in centroid_norms.items()
         }
-        sorted_topics = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[:top_topics]
+        sorted_topics = sorted(similarities.items(), key=lambda x: x[1], reverse=True)[
+            :top_topics
+        ]
         # --- end replacement ---
 
         results = []
@@ -268,11 +344,13 @@ class TopicRAG:
                 if unique_by == "text" and text in seen:
                     continue
                 seen.add(text)
-                results.append({
-                    "topic": topic,
-                    "text": text,
-                    "score": float(score),
-                })
+                results.append(
+                    {
+                        "topic": topic,
+                        "text": text,
+                        "score": float(score),
+                    }
+                )
 
         results.sort(key=lambda r: r["score"], reverse=True)
         return results
@@ -282,7 +360,9 @@ class TopicRAG:
             scores, idxs = topic_index.index.search(qvec, top_k)
             return [(int(i), float(s)) for i, s in zip(idxs[0], scores[0])]
 
-        emb_norm = topic_index.embeddings / np.linalg.norm(topic_index.embeddings, axis=1, keepdims=True)
+        emb_norm = topic_index.embeddings / np.linalg.norm(
+            topic_index.embeddings, axis=1, keepdims=True
+        )
         q_norm = qvec / np.linalg.norm(qvec)
         scores = np.dot(emb_norm, q_norm.T).squeeze()
         top_idx = np.argsort(scores)[::-1][:top_k]
