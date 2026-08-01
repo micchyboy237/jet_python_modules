@@ -23,18 +23,26 @@ def extract_header_hierarchy(
     source: str,
     includes: List[str] = [],
     excludes: List[str] = ["nav", "footer", "script", "style"],
-    timeout_ms: int = 10000
+    timeout_ms: int = 10000,
+    ignore_links: bool = False,
 ) -> List[HtmlHeaderDoc]:
     """
     Extracts a list of HtmlHeaderDoc objects from HTML content, organizing text by header hierarchy.
+
     Ignores content before the first header.
     :param source: The HTML string or URL to parse.
     :param excludes: A list of tag names to exclude (e.g., ["nav", "footer", "script", "style"]).
     :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
+    :param ignore_links: If True, removes markdown link syntax from text content, keeping link labels.
     :return: A list of HtmlHeaderDoc objects representing header-based sections.
     """
     header_tags = {f'h{i}': i for i in range(1, 7)}
-    nodes = extract_text_nodes(source, excludes, timeout_ms)
+    nodes = extract_text_nodes(
+        source,
+        excludes=excludes,  # FIXED: was missing `excludes=`
+        timeout_ms=timeout_ms,
+        # ignore_links=ignore_links,
+    )
 
     if includes:
         # Filter only nodes with tags in includes
