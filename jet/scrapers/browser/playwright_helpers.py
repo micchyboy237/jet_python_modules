@@ -142,11 +142,14 @@ def fetch_page_content_sync(
     wait_for_css: Optional[List[str]],
     max_wait_timeout: int = 10000,
     headless: bool = True,
+    use_cache: bool = False,  # <-- New parameter
 ) -> PageContent:
     """Fetches page content synchronously, including screenshot and HTML."""
     cache = RedisCache(config=REDIS_CONFIG)
     cache_key = url
-    cached_result = cache.get(cache_key)
+    cached_result = (
+        cache.get(cache_key) if use_cache else None
+    )  # <-- Skip cache if use_cache=False
 
     browser_page = setup_browser_page(headless=headless)
 
@@ -177,7 +180,8 @@ def fetch_page_content_sync(
         "html": browser_page.content(),
     }
 
-    cache.set(cache_key, result)
+    if use_cache:  # <-- Only cache if use_cache=True
+        cache.set(cache_key, result)
 
     return result
 
@@ -188,18 +192,24 @@ async def fetch_page_content_async(
     page: Optional[AsyncPage] = None,
     max_wait_timeout: int = 10000,
     headless: bool = True,
+    use_cache: bool = False,  # <-- New parameter
 ) -> PageContent:
     """Fetches page content asynchronously, including screenshot and HTML."""
     cache = RedisCache(config=REDIS_CONFIG)
     cache_key = url
-    cached_result = cache.get(cache_key)
+    cached_result = (
+        cache.get(cache_key) if use_cache else None
+    )  # <-- Skip cache if use_cache=False
+
     browser_page = page or await asetup_browser_page(headless=headless)
+
     try:
         if cached_result:
             logger.log(
                 "scrape_url: Cache hit for", cache_key, colors=["LOG", "BRIGHT_SUCCESS"]
             )
             return cached_result
+
         if wait_for_css:
             logger.log(
                 "Waiting for elements css:", wait_for_css, colors=["GRAY", "DEBUG"]
@@ -208,44 +218,59 @@ async def fetch_page_content_async(
                 await browser_page.wait_for_selector(
                     css_selector, timeout=max_wait_timeout
                 )
+
         screenshot_path = f"{GENERATED_DIR}/example.png"
         await browser_page.screenshot(path=screenshot_path)
+
         dimensions: PageDimensions = await browser_page.evaluate("""() => ({
             width: document.documentElement.clientWidth,
             height: document.documentElement.clientHeight,
             deviceScaleFactor: window.devicePixelRatio
         })""")
+
         result: PageContent = {
             "url": url,
             "dimensions": dimensions,
             "screenshot": os.path.realpath(screenshot_path),
             "html": await browser_page.content(),
         }
-        cache.set(cache_key, result)
+
+        if use_cache:  # <-- Only cache if use_cache=True
+            cache.set(cache_key, result)
+
         return result
     finally:
-        if not page:  # Only close the page if we created it
+        if not page:
             await browser_page.close()
 
 
 def scrape_sync(
-    url: str, wait_for_css: Optional[List[str]] = None, headless: bool = True
+    url: str,
+    wait_for_css: Optional[List[str]] = None,
+    headless: bool = True,
+    use_cache: bool = False,  # <-- New parameter
 ) -> PageContent:
     """Scrapes a webpage synchronously."""
     browser_page = setup_browser_page(headless=headless)
-    # ✅ Use domcontentloaded instead of load for faster initial render
     browser_page.goto(url, wait_until="domcontentloaded")
-    return fetch_page_content_sync(url, wait_for_css)
+    return fetch_page_content_sync(
+        url, wait_for_css, use_cache=use_cache
+    )  # <-- Pass use_cache
 
 
 async def scrape_async(
-    url: str, wait_for_css: Optional[List[str]] = None, headless: bool = True
+    url: str,
+    wait_for_css: Optional[List[str]] = None,
+    headless: bool = True,
+    use_cache: bool = False,  # <-- New parameter
 ) -> PageContent:
     """Scrapes a webpage asynchronously."""
     browser_page = await asetup_browser_page(headless=headless)
     try:
         await browser_page.goto(url)
-        return await fetch_page_content_async(url, wait_for_css, page=browser_page)
+        return await fetch_page_content_async(
+            url, wait_for_css, page=browser_page, use_cache=use_cache
+        )  # <-- Pass use_cache
     finally:
         await browser_page.close()
 
