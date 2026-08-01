@@ -722,27 +722,21 @@ class PgVectorClient:
         return updated_rows
 
     def get_row(self, table_name: str, row_id: str) -> TableRow | None:
-        """Retrieve a single row by ID from the specified table, excluding embedding column.
-
-        Args:
-            table_name: Name of the table to query
-            row_id: ID of the row to retrieve
-
-        Returns:
-            Dictionary containing all columns except embedding for the row, or None if not found
-        """
+        """Retrieve a single row by ID from the specified table, excluding embedding column."""
         with self.conn.cursor() as cur:
-            # Get all column names except embedding
+            # Get column types first
             cur.execute(
-                "SELECT column_name FROM information_schema.columns "
+                "SELECT column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema = 'public' AND table_name = %s;",
                 (table_name,),
             )
-            columns = [row["column_name"] for row in cur.fetchall()]
+            column_info = {
+                row["column_name"]: row["data_type"] for row in cur.fetchall()
+            }
+
+            columns = list(column_info.keys())
             if not columns:
-                raise ValueError(
-                    f"No columns found for table {table_name} (excluding embedding)"
-                )
+                raise ValueError(f"No columns found for table {table_name}")
 
             # Build query with dynamic columns
             query = sql.SQL("SELECT {} FROM {} WHERE id = %s").format(
@@ -753,14 +747,25 @@ class PgVectorClient:
             result = cur.fetchone()
             if not result:
                 return None
-            return {
-                col: result[col]
-                if not (col == "details" and isinstance(result[col], str))
-                else json.loads(result[col])
-                if result[col]
-                else None
-                for col in columns
-            }
+
+            # Parse based on actual column type, not hardcoded name
+            parsed = {}
+            for col in columns:
+                value = result[col]
+                if value is None:
+                    parsed[col] = None
+                elif column_info.get(col) == "jsonb" and isinstance(value, str):
+                    try:
+                        parsed[col] = json.loads(value)
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            f"Failed to parse JSONB column '{col}': {value[:100]}"
+                        )
+                        parsed[col] = value
+                else:
+                    parsed[col] = value
+
+            return parsed
 
     def get_rows(
         self,
