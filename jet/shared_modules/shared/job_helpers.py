@@ -13,13 +13,20 @@ from jet.db.postgres.pgvector import PgVectorClient
 from jet.logger import logger
 from numpy.typing import NDArray
 from psycopg import sql
-from shared.data_types.job import JobData, JobSearchResult, TableJobRow
+from shared.data_types.job import (
+    JobData,
+    JobSearchResult,
+    TableJobMetadata,
+    TableJobRow,
+)
 
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 _ctx_embd_size = get_model_ctx_embd_size(DEFAULT_EMBED_MODEL)
 DEFAULT_EMBEDDING_DIM = _ctx_embd_size["embd_dims"]
-DEFAULT_JOBS_DB_NAME = "jobs_db1"
+# DEFAULT_JOBS_DB_NAME = "jobs_db1"
+DEFAULT_JOBS_DB_NAME = "jobs_db2"
 DEFAULT_TABLE_DATA = "jobs"
+DEFAULT_TABLE_METADATA = "jobs_meta"
 DEFAULT_BUFFER = 32
 DEFAULT_CHUNK_SIZE = _ctx_embd_size["ctx"] - DEFAULT_BUFFER
 DEFAULT_CHUNK_OVERLAP = 100
@@ -27,11 +34,84 @@ DEFAULT_CHUNK_OVERLAP = 100
 
 def _serialize_for_jsonb(value):
     """Convert Pydantic models and other non-serializable objects to JSON-safe dicts."""
-    if hasattr(value, "model_dump"):  # Pydantic v2
+    if hasattr(value, "model_dump"):
         return value.model_dump()
-    if hasattr(value, "dict"):  # Pydantic v1 fallback
+    if hasattr(value, "dict"):
         return value.dict()
     return value
+
+
+def _ensure_metadata_table(
+    db_client: PgVectorClient, table_name: str = DEFAULT_TABLE_METADATA
+) -> None:
+    """
+    Ensure the metadata table exists with a flat column structure.
+    Columns are created dynamically when rows are inserted, but we ensure
+    the base table exists with id, created_at, and updated_at.
+    """
+    query = sql.SQL("""
+        CREATE TABLE IF NOT EXISTS {} (
+            id              TEXT PRIMARY KEY,
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            updated_at      TIMESTAMPTZ DEFAULT NOW()
+        );
+    """).format(sql.Identifier(table_name))
+    with db_client.conn.cursor() as cur:
+        cur.execute(query)
+        logger.debug(f"Ensured metadata table '{table_name}' exists.")
+
+
+def _save_metadata_to_table(
+    db_client: PgVectorClient,
+    job_id: str,
+    metadata: dict,
+    table_name: str = DEFAULT_TABLE_METADATA,
+) -> None:
+    """
+    Save job metadata as a flat row in the metadata table.
+    Each key in metadata becomes a column.
+    """
+    _ensure_metadata_table(db_client, table_name)
+
+    # Serialize any complex values
+    flat_metadata = {}
+    for key, value in metadata.items():
+        if isinstance(value, (dict, list)):
+            flat_metadata[key] = _serialize_for_jsonb(value)
+        else:
+            flat_metadata[key] = value
+
+    row_data = {"id": job_id, **flat_metadata}
+
+    # Use create_or_update_row which handles dynamic column creation
+    db_client.create_or_update_row(table_name, row_data)
+    logger.debug(f"Saved metadata for job {job_id} to '{table_name}' table.")
+
+
+def _load_metadata_from_table(
+    db_client: PgVectorClient,
+    job_id: str,
+    table_name: str = DEFAULT_TABLE_METADATA,
+) -> dict:
+    """
+    Load job metadata from the metadata table.
+    Returns empty dict if not found.
+    """
+    try:
+        row = db_client.get_row(table_name, job_id)
+        if row:
+            # Remove system columns
+            row.pop("id", None)
+            row.pop("created_at", None)
+            row.pop("updated_at", None)
+            logger.debug(f"Loaded metadata for job {job_id} from '{table_name}' table.")
+            return row
+        else:
+            logger.debug(f"No metadata found for job {job_id} in '{table_name}' table.")
+            return {}
+    except Exception as e:
+        logger.warning(f"Failed to load metadata for job {job_id}: {e}")
+        return {}
 
 
 def get_jobs_db_summary(db_client: PgVectorClient | None = None):
@@ -46,20 +126,16 @@ def load_jobs(
 ) -> list[JobData]:
     """
     Load job job for given chunk IDs or all job if no IDs provided.
-
     Args:
         chunk_ids: Optional list of chunk IDs to retrieve job for
         db_client: Optional PgVectorClient instance
-
     Returns:
         List of JobData dictionaries containing job job
     """
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-
     with db_client:
         jobs: list[JobData] = db_client.get_rows(DEFAULT_TABLE_DATA, ids=chunk_ids)
-
     return jobs
 
 
@@ -69,34 +145,27 @@ def load_jobs_list(
 ) -> list[JobData]:
     """
     Load all existing jobs from the PostgreSQL vector database.
-
     Returns:
         List[JobData]: List of validated JobData objects
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-
     try:
         with db_client:
             rows = db_client.get_rows(
                 table_name=table_name,
-                # Optional: can add order_by=("posted_date", "DESC") later
-                # limit=5000,  # safety limit — remove or increase later
             )
-
         jobs: list[JobData] = []
         for row in rows:
             try:
-                job = table_row_to_jobdata(row)
+                job = table_row_to_jobdata(row, db_client=db_client)
                 jobs.append(job)
             except (KeyError, TypeError, ValueError) as e:
                 logger.warning(
                     f"Skipping invalid DB row (id={row.get('id', 'unknown')}): {e}"
                 )
-
         logger.info(f"Loaded {len(jobs)} jobs from database table '{table_name}'")
         return jobs
-
     except Exception as e:
         logger.warning(f"Failed to load jobs from database: {e}")
         return []
@@ -140,15 +209,20 @@ def compute_text_hash(text: str) -> str:
     return generate_hash(text)
 
 
-def table_row_to_jobdata(row: TableJobRow) -> JobData:
+def table_row_to_jobdata(
+    row: TableJobRow, db_client: PgVectorClient | None = None
+) -> JobData:
     """
     Convert a database row back into a JobData object.
+    Optionally joins with DEFAULT_TABLE_METADATA to load additional metadata.
     """
     chunk_meta = row.get("chunk_meta") or {}
     metadata = row.get("metadata") or {}
 
-    return {
-        "id": metadata.get("id", row.get("id", "")),
+    job_id = metadata.get("id", row.get("id", ""))
+
+    job_data: JobData = {
+        "id": job_id,
         "link": metadata.get("link", ""),
         "title": row.get("header", ""),
         "company": metadata.get("company", row.get("parent_header", "")),
@@ -161,14 +235,21 @@ def table_row_to_jobdata(row: TableJobRow) -> JobData:
         "job_type": metadata.get("job_type"),
         "hours_per_week": metadata.get("hours_per_week"),
         "tags": metadata.get("tags"),
-        "meta": {
-            "job_id": metadata.get("id", ""),
-            "chunk_index": chunk_meta.get("chunk_index", 0),
-            "start_idx": chunk_meta.get("start_idx", 0),
-            "end_idx": chunk_meta.get("end_idx", 0),
-            "num_tokens": chunk_meta.get("num_tokens", 0),
-        },
     }
+
+    return job_data
+
+
+def load_job_metadata(
+    job_id: str,
+    db_client: PgVectorClient | None = None,
+) -> TableJobMetadata:
+    """
+    Load metadata for a specific job from the metadata table.
+    """
+    if db_client is None:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+    return _load_metadata_from_table(db_client, job_id)
 
 
 def save_job_to_db(
@@ -181,6 +262,9 @@ def save_job_to_db(
     Upsert one job into the vector database, optionally generating embedding if requested.
     Always returns the JobData as it exists in the database after the operation.
 
+    Metadata (all fields except title, details, and chunk_meta) is saved to
+    DEFAULT_TABLE_METADATA as a flat row.
+
     Args:
         job: The JobData object to save.
         db_client: (Optional) PgVectorClient for DB access.
@@ -192,11 +276,9 @@ def save_job_to_db(
 
     ctx_embd_size = get_model_ctx_embd_size(embed_model)
     embedding_dimension = ctx_embd_size["embd_dims"]
-
     job_id = job["id"]
     job_hash = compute_job_hash(job)
 
-    # Check if already exists and unchanged
     try:
         with db_client:
             existing = db_client.get_row(DEFAULT_TABLE_DATA, job_id)
@@ -204,12 +286,11 @@ def save_job_to_db(
                 existing_chunk_meta = existing.get("chunk_meta") or {}
                 if existing_chunk_meta.get("content_hash") == job_hash:
                     logger.debug(f"Job {job_id} unchanged → skipping DB update")
-                    return table_row_to_jobdata(existing)
+                    return table_row_to_jobdata(existing, db_client=db_client)
     except Exception as e:
         logger.warning(f"Error checking existing job in DB: {e}")
 
     text = f"{job['title'].strip()}\n{job['details'].strip()}".strip()
-
     embedding_array = None
     if generate_embedding:
         embedding_array = generate_embeddings([text], embed_model=embed_model)[0]
@@ -217,7 +298,6 @@ def save_job_to_db(
     num_tokens = count_tokens(text, model=embed_model)
     company = job.get("company", "").strip()
 
-    # Chunk-specific metadata
     chunk_meta = {
         "doc_id": job_id,
         "header_doc_id": generate_key(job["title"]),
@@ -235,11 +315,18 @@ def save_job_to_db(
 
     chunk_meta_keys = set(chunk_meta.keys())
 
-    # Job-level metadata (excludes chunk-specific and display fields)
+    # Job metadata for DEFAULT_TABLE_DATA (excludes title, details)
     job_metadata = {
         key: _serialize_for_jsonb(value)
         for key, value in job.items()
-        if key not in ["title", "details", "meta"] and key not in chunk_meta_keys
+        if key not in ["title", "details"] and key not in chunk_meta_keys
+    }
+
+    # Flat metadata for DEFAULT_TABLE_METADATA (all fields except title, details)
+    flat_metadata = {
+        key: _serialize_for_jsonb(value)
+        for key, value in job.items()
+        if key not in ["title", "details"]
     }
 
     row = {
@@ -259,10 +346,17 @@ def save_job_to_db(
             row_data=row,
             dimension=embedding_dimension,
         )
-        db_client.commit()
 
+        # Save flat metadata to DEFAULT_TABLE_METADATA
+        _save_metadata_to_table(db_client, job_id, flat_metadata)
+
+        db_client.commit()
         logger.success(f"Saved/updated job {job_id} in DB (tokens: {num_tokens})")
-        return table_row_to_jobdata(saved_row)
+        logger.info(
+            f"Saved metadata for job {job_id} to '{DEFAULT_TABLE_METADATA}' table"
+        )
+
+        return table_row_to_jobdata(saved_row, db_client=db_client)
 
 
 def save_job_embeddings(
@@ -282,7 +376,7 @@ def save_job_embeddings(
     embedding_dimension = ctx_embd_size["embd_dims"]
 
     with db_client:
-        # Create table with new schema (chunk_meta + metadata JSONB)
+        # Ensure main data table exists
         metadata_table_query = f"""
         CREATE TABLE IF NOT EXISTS {DEFAULT_TABLE_DATA} (
             id              TEXT PRIMARY KEY,
@@ -301,9 +395,10 @@ def save_job_embeddings(
             cur.execute(metadata_table_query)
             logger.debug(f"Created or verified '{DEFAULT_TABLE_DATA}' table.")
 
-        # Load existing jobs to detect changes
-        existing_jobs = db_client.get_rows(DEFAULT_TABLE_DATA)
+        # Ensure metadata table exists
+        _ensure_metadata_table(db_client)
 
+        existing_jobs = db_client.get_rows(DEFAULT_TABLE_DATA)
         existing_job_hashes = {}
         existing_text_hashes = {}
         for row in existing_jobs:
@@ -316,7 +411,6 @@ def save_job_embeddings(
         logger.debug(f"Existing job hashes: {len(existing_job_hashes)}")
         logger.debug(f"Existing text hashes: {len(existing_text_hashes)}")
 
-    # Determine which jobs need processing
     jobs_to_process: list[tuple[JobData, str]] = []
     for job in jobs:
         job_hash = compute_job_hash(job)
@@ -346,7 +440,6 @@ def save_job_embeddings(
             },
         }
 
-    # Build job texts for chunking
     job_headers = []
     job_texts = []
     job_by_id = {}
@@ -374,7 +467,6 @@ def save_job_embeddings(
         max(job_header_token_counts) if job_header_token_counts else 0
     )
 
-    # Chunk texts
     chunks_with_data = chunk_texts_with_data(
         job_texts,
         chunk_size=chunk_size,
@@ -406,7 +498,6 @@ def save_job_embeddings(
     logger.log("ave_token:", ave_token, colors=["GRAY", "SUCCESS"])
     logger.log("max_token:", max_token, colors=["GRAY", "SUCCESS"])
 
-    # Determine which chunks need new embeddings
     chunks_to_embed = []
     embedding_texts = []
     existing_embeddings = {}
@@ -451,7 +542,6 @@ def save_job_embeddings(
                     chunks_to_embed.append(chunk)
                     embedding_texts.append(text)
 
-    # Generate new embeddings
     new_embeddings = (
         generate_embeddings(embedding_texts, embed_model)
         if embedding_texts
@@ -464,11 +554,11 @@ def save_job_embeddings(
             f"and new_embeddings ({len(new_embeddings)})"
         )
 
-    # Build final embedding list (new + reused)
     embeddings = []
     chunk_embedding_map = {
         chunk["id"]: emb for chunk, emb in zip(chunks_to_embed, new_embeddings)
     }
+
     for chunk in chunks_with_data:
         if chunk["id"] in chunk_embedding_map:
             embeddings.append(chunk_embedding_map[chunk["id"]])
@@ -480,7 +570,6 @@ def save_job_embeddings(
 
     embeddings = np.array(embeddings)
 
-    # Build rows with chunk_meta and metadata separation
     rows_data = []
     metadata_rows = []
 
@@ -489,7 +578,6 @@ def save_job_embeddings(
             (j, h) for j, h in jobs_to_process if j["id"] == chunk["doc_id"]
         )
 
-        # Chunk-specific metadata
         chunk_meta = {
             "doc_id": chunk["doc_id"],
             "header_doc_id": generate_key(job["title"]),
@@ -506,12 +594,10 @@ def save_job_embeddings(
         }
 
         chunk_meta_keys = set(chunk_meta.keys())
-
-        # Job-level metadata
         job_metadata = {
             key: _serialize_for_jsonb(value)
             for key, value in job.items()
-            if key not in ["title", "details", "meta"] and key not in chunk_meta_keys
+            if key not in ["title", "details"] and key not in chunk_meta_keys
         }
 
         header = job["title"]
@@ -529,7 +615,6 @@ def save_job_embeddings(
         }
         metadata_rows.append(metadata_row)
 
-        # Build row data for return value
         rows_data.append(
             {
                 "id": chunk["id"],
@@ -541,10 +626,8 @@ def save_job_embeddings(
             }
         )
 
-    # Save to database
     with db_client:
         try:
-            # Get existing IDs to determine create vs update
             with db_client.conn.cursor() as cur:
                 cur.execute(
                     sql.SQL("SELECT id FROM {} WHERE id = ANY(%s)").format(
@@ -576,11 +659,34 @@ def save_job_embeddings(
             metadata_results = db_client.create_or_update_rows(
                 DEFAULT_TABLE_DATA, metadata_rows
             )
+
+            # Save flat metadata for each job to DEFAULT_TABLE_METADATA
+            jobs_saved_metadata = set()
+            for chunk, job, _ in zip(
+                chunks_with_data,
+                [job_by_id[chunk["doc_id"]] for chunk in chunks_with_data],
+                [job_hash for _, job_hash in jobs_to_process],
+            ):
+                job_id = job["id"]
+                if job_id not in jobs_saved_metadata:
+                    flat_metadata = {
+                        key: _serialize_for_jsonb(value)
+                        for key, value in job.items()
+                        if key not in ["title", "details"]
+                    }
+                    _save_metadata_to_table(db_client, job_id, flat_metadata)
+                    jobs_saved_metadata.add(job_id)
+                    logger.info(
+                        f"Saved metadata for job {job_id} to '{DEFAULT_TABLE_METADATA}' table"
+                    )
+
             db_client.commit()
             logger.success(
                 f"Saved {len(metadata_results)} metadata records to '{DEFAULT_TABLE_DATA}' table."
             )
-
+            logger.success(
+                f"Saved metadata for {len(jobs_saved_metadata)} jobs to '{DEFAULT_TABLE_METADATA}' table."
+            )
         except Exception as e:
             logger.error(f"Failed to save data: {str(e)}")
             db_client.conn.rollback()
@@ -621,21 +727,17 @@ def search_jobs(
 ) -> list[JobSearchResult]:
     """
     Search for jobs based on a query string and return ranked results with data.
-
     Args:
         query: Search query string
         top_k: Number of top results to return
         embed_model: Embedding model to use
         db_client: Optional PgVectorClient instance
-
     Returns:
         List of JobSearchResult dictionaries containing rank, score, and job data
     """
     query_embedding = generate_embeddings([query], embed_model)[0]
-
     if not db_client:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
-
     with db_client:
         results = db_client.search(
             table_name=DEFAULT_TABLE_DATA,
@@ -643,13 +745,10 @@ def search_jobs(
             top_k=top_k,
             threshold=threshold,
         )
-
     filtered_results = [result for result in results if is_valid_score(result["score"])]
-
     removed_count = len(results) - len(filtered_results)
     if removed_count > 0:
         logger.debug(f"Filtered out {removed_count} results with invalid scores")
-
     return filtered_results
 
 
@@ -683,16 +782,14 @@ def hybrid_search_jobs(
         }
         for result in raw_results
     ]
-    query_candidates, reranked_results = rerank_bm25(query, documents, ids, metadatas)
 
+    query_candidates, reranked_results = rerank_bm25(query, documents, ids, metadatas)
     filtered_results = [
         result for result in reranked_results if is_valid_score(result.get("score"))
     ]
-
     removed_count = len(reranked_results) - len(filtered_results)
     if removed_count > 0:
         logger.debug(
             f"Filtered out {removed_count} reranked results with invalid scores"
         )
-
     return filtered_results

@@ -1,23 +1,31 @@
-import random
-from jet.cache.redis.types import RedisConfigParams
-from jet.cache.redis.utils import RedisCache
-from jet.scrapers.browser.config import EXTRA_HTTP_HEADERS, PLAYWRIGHT_CHROMIUM_EXECUTABLE, USER_AGENT_CONFIGS
-from tqdm.asyncio import tqdm
 import asyncio
 import os
+import random
+from typing import List, Optional, TypedDict
 
-from typing import TypedDict, List, Optional
-from playwright.sync_api import sync_playwright, Browser as SyncBrowser, Page as SyncPage
-from playwright.async_api import async_playwright, Browser as AsyncBrowser, Page as AsyncPage
+from jet.cache.redis.types import RedisConfigParams
+from jet.cache.redis.utils import RedisCache
 from jet.logger import logger
+from jet.scrapers.browser.config import (
+    EXTRA_HTTP_HEADERS,
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+    USER_AGENT_CONFIGS,
+)
 from jet.utils.inspect_utils import get_entry_file_dir
+from playwright.async_api import Browser as AsyncBrowser
+from playwright.async_api import Page as AsyncPage
+from playwright.async_api import async_playwright
+from playwright.sync_api import Browser as SyncBrowser
+from playwright.sync_api import Page as SyncPage
+from playwright.sync_api import sync_playwright
+from tqdm.asyncio import tqdm
 
-GENERATED_DIR = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/generated"
+GENERATED_DIR = (
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/generated"
+)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
-REDIS_CONFIG = RedisConfigParams(
-    port=6379
-)
+REDIS_CONFIG = RedisConfigParams(port=6379)
 
 browser_page = None
 
@@ -79,8 +87,8 @@ def setup_sync_browser_session(*, headless: bool = True) -> SyncBrowser:
             "Sec-Ch-Ua-Platform-Version": config["sec_ch_ua_platform_version"],
             "Sec-Ch-Ua-Arch": '"arm"',
             "Sec-Ch-Ua-Bitness": '"64"',
-            "Sec-Ch-Ua-Mobile": "?0"
-        }
+            "Sec-Ch-Ua-Mobile": "?0",
+        },
     )
     return context
 
@@ -111,8 +119,8 @@ async def setup_async_browser_session(*, headless: bool = True) -> AsyncBrowser:
             "Sec-Ch-Ua-Platform-Version": config["sec_ch_ua_platform_version"],
             "Sec-Ch-Ua-Arch": '"arm"',
             "Sec-Ch-Ua-Bitness": '"64"',
-            "Sec-Ch-Ua-Mobile": "?0"
-        }
+            "Sec-Ch-Ua-Mobile": "?0",
+        },
     )
     return context
 
@@ -129,7 +137,12 @@ async def setup_async_browser_page(*, headless: bool = False) -> AsyncPage:
     return await browser.new_page()
 
 
-def fetch_page_content_sync(url: str, wait_for_css: Optional[List[str]], max_wait_timeout: int = 10000, headless: bool = True) -> PageContent:
+def fetch_page_content_sync(
+    url: str,
+    wait_for_css: Optional[List[str]],
+    max_wait_timeout: int = 10000,
+    headless: bool = True,
+) -> PageContent:
     """Fetches page content synchronously, including screenshot and HTML."""
     cache = RedisCache(config=REDIS_CONFIG)
     cache_key = url
@@ -138,31 +151,30 @@ def fetch_page_content_sync(url: str, wait_for_css: Optional[List[str]], max_wai
     browser_page = setup_browser_page(headless=headless)
 
     if cached_result:
-        logger.log("scrape_url: Cache hit for", cache_key,
-                   colors=["LOG", "BRIGHT_SUCCESS"])
+        logger.log(
+            "scrape_url: Cache hit for", cache_key, colors=["LOG", "BRIGHT_SUCCESS"]
+        )
         return cached_result
 
     if wait_for_css:
-        logger.log("Waiting for elements css:",
-                   wait_for_css, colors=["GRAY", "DEBUG"])
+        logger.log("Waiting for elements css:", wait_for_css, colors=["GRAY", "DEBUG"])
         for css_selector in wait_for_css:
-            browser_page.wait_for_selector(
-                css_selector, timeout=max_wait_timeout)
+            browser_page.wait_for_selector(css_selector, timeout=max_wait_timeout)
 
-    screenshot_path = f'{GENERATED_DIR}/example.png'
+    screenshot_path = f"{GENERATED_DIR}/example.png"
     browser_page.screenshot(path=screenshot_path)
 
-    dimensions: PageDimensions = browser_page.evaluate('''() => ({
+    dimensions: PageDimensions = browser_page.evaluate("""() => ({
         width: document.documentElement.clientWidth,
         height: document.documentElement.clientHeight,
         deviceScaleFactor: window.devicePixelRatio
-    })''')
+    })""")
 
     result: PageContent = {
         "url": url,
         "dimensions": dimensions,
         "screenshot": os.path.realpath(screenshot_path),
-        "html": browser_page.content()
+        "html": browser_page.content(),
     }
 
     cache.set(cache_key, result)
@@ -170,7 +182,13 @@ def fetch_page_content_sync(url: str, wait_for_css: Optional[List[str]], max_wai
     return result
 
 
-async def fetch_page_content_async(url: str, wait_for_css: Optional[List[str]], page: Optional[AsyncPage] = None, max_wait_timeout: int = 10000, headless: bool = True) -> PageContent:
+async def fetch_page_content_async(
+    url: str,
+    wait_for_css: Optional[List[str]],
+    page: Optional[AsyncPage] = None,
+    max_wait_timeout: int = 10000,
+    headless: bool = True,
+) -> PageContent:
     """Fetches page content asynchronously, including screenshot and HTML."""
     cache = RedisCache(config=REDIS_CONFIG)
     cache_key = url
@@ -178,26 +196,30 @@ async def fetch_page_content_async(url: str, wait_for_css: Optional[List[str]], 
     browser_page = page or await asetup_browser_page(headless=headless)
     try:
         if cached_result:
-            logger.log("scrape_url: Cache hit for", cache_key,
-                       colors=["LOG", "BRIGHT_SUCCESS"])
+            logger.log(
+                "scrape_url: Cache hit for", cache_key, colors=["LOG", "BRIGHT_SUCCESS"]
+            )
             return cached_result
         if wait_for_css:
-            logger.log("Waiting for elements css:",
-                       wait_for_css, colors=["GRAY", "DEBUG"])
+            logger.log(
+                "Waiting for elements css:", wait_for_css, colors=["GRAY", "DEBUG"]
+            )
             for css_selector in wait_for_css:
-                await browser_page.wait_for_selector(css_selector, timeout=max_wait_timeout)
-        screenshot_path = f'{GENERATED_DIR}/example.png'
+                await browser_page.wait_for_selector(
+                    css_selector, timeout=max_wait_timeout
+                )
+        screenshot_path = f"{GENERATED_DIR}/example.png"
         await browser_page.screenshot(path=screenshot_path)
-        dimensions: PageDimensions = await browser_page.evaluate('''() => ({
+        dimensions: PageDimensions = await browser_page.evaluate("""() => ({
             width: document.documentElement.clientWidth,
             height: document.documentElement.clientHeight,
             deviceScaleFactor: window.devicePixelRatio
-        })''')
+        })""")
         result: PageContent = {
             "url": url,
             "dimensions": dimensions,
             "screenshot": os.path.realpath(screenshot_path),
-            "html": await browser_page.content()
+            "html": await browser_page.content(),
         }
         cache.set(cache_key, result)
         return result
@@ -206,14 +228,19 @@ async def fetch_page_content_async(url: str, wait_for_css: Optional[List[str]], 
             await browser_page.close()
 
 
-def scrape_sync(url: str, wait_for_css: Optional[List[str]] = None, headless: bool = True) -> PageContent:
+def scrape_sync(
+    url: str, wait_for_css: Optional[List[str]] = None, headless: bool = True
+) -> PageContent:
     """Scrapes a webpage synchronously."""
     browser_page = setup_browser_page(headless=headless)
-    browser_page.goto(url)
+    # ✅ Use domcontentloaded instead of load for faster initial render
+    browser_page.goto(url, wait_until="domcontentloaded")
     return fetch_page_content_sync(url, wait_for_css)
 
 
-async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None, headless: bool = True) -> PageContent:
+async def scrape_async(
+    url: str, wait_for_css: Optional[List[str]] = None, headless: bool = True
+) -> PageContent:
     """Scrapes a webpage asynchronously."""
     browser_page = await asetup_browser_page(headless=headless)
     try:
@@ -223,13 +250,17 @@ async def scrape_async(url: str, wait_for_css: Optional[List[str]] = None, headl
         await browser_page.close()
 
 
-async def setup_browser_pool(max_pages: int = 2, headless: bool = False) -> List[AsyncPage]:
+async def setup_browser_pool(
+    max_pages: int = 2, headless: bool = False
+) -> List[AsyncPage]:
     """Creates a pool of browser pages to be shared among tasks."""
     browser = await setup_async_browser_session(headless=headless)
     return [await browser.new_page() for _ in range(max_pages)]
 
 
-async def scrape_async_limited(urls: List[str], max_concurrent_tasks: int = 2, headless: bool = False) -> List[PageContent]:
+async def scrape_async_limited(
+    urls: List[str], max_concurrent_tasks: int = 2, headless: bool = False
+) -> List[PageContent]:
     """Scrapes multiple URLs asynchronously, limiting concurrent tasks while sharing browser pages."""
 
     pages = await setup_browser_pool(max_concurrent_tasks, headless)
@@ -269,17 +300,20 @@ async def scrape_async_limited(urls: List[str], max_concurrent_tasks: int = 2, h
     progress_bar.close()  # Close tqdm progress bar
     return results
 
+
 # Example Usage
 if __name__ == "__main__":
     urls_to_scrape = [
         "https://example.com",
         "https://example.org",
         "https://example.net",
-        "https://example.info"
+        "https://example.info",
     ]
 
-    asyncio.run(scrape_async_limited(
-        urls=urls_to_scrape,
-        max_concurrent_tasks=2,  # More concurrent tasks
-        headless=True
-    ))
+    asyncio.run(
+        scrape_async_limited(
+            urls=urls_to_scrape,
+            max_concurrent_tasks=2,  # More concurrent tasks
+            headless=True,
+        )
+    )

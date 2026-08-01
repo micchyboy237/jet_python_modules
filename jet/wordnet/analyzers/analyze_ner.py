@@ -1,15 +1,15 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, TypedDict, cast
 
 import spacy
+import torch
 from jet.logger import logger
 from jet.wordnet.sentence import split_sentences
 from pydantic import BaseModel
 from spacy import displacy
 from spacy.tokens import Doc, Span, SpanGroup
 from span_marker import SpanMarkerModel
-
-# SpanMarkerWord with label
+from tqdm import tqdm
 
 
 class SpanMarkerWord(BaseModel):
@@ -30,12 +30,13 @@ class DocSentence:
     start_char: int
     end_char: int
     token_count: int
+    doc_idx: int = 0
 
 
 @dataclass
 class DocEntity:
     text: str
-    lemma: str  # Added lemma field
+    lemma: str
     label: str
     start_char: int
     end_char: int
@@ -55,6 +56,68 @@ class DocNounChunk:
 class DocSettings:
     lang: str
     direction: str
+
+
+# ── Return Type TypedDicts ──────────────────────────────────────────
+
+
+class EntityDict(TypedDict):
+    text: str
+    lemma: str
+    label: str
+    start_char: int
+    end_char: int
+    score: float
+    vector_norm: float | None
+
+
+class DependencyDict(TypedDict):
+    text: str
+    root_text: str
+    root_dep: str
+    root_head_text: str
+
+
+class SentenceDict(TypedDict):
+    text: str
+    start_char: int
+    end_char: int
+    token_count: int
+    doc_idx: int
+
+
+class SettingsDict(TypedDict):
+    lang: str
+    direction: str
+
+
+class SpanDict(TypedDict):
+    start: int
+    end: int
+    start_token: int
+    end_token: int
+    label: str
+    kb_id: str
+    kb_url: str
+
+
+class SpansResultDict(TypedDict):
+    text: str
+    spans: list[SpanDict]
+    title: str | None
+    settings: SettingsDict
+    tokens: list[str]
+
+
+class AnalyzeNERResult(TypedDict):
+    entities: list[EntityDict]
+    dependencies: list[DependencyDict]
+    sentences: list[SentenceDict]
+    settings: SettingsDict
+    spans: SpansResultDict
+
+
+# ── Processing Functions ────────────────────────────────────────────
 
 
 def process_text(
@@ -123,7 +186,7 @@ def parse_entities(doc: Doc, predictions: List[SpanMarkerWord]) -> List[DocEntit
     return [
         DocEntity(
             text=entity.text,
-            lemma=entity.lemma,  # Include lemma
+            lemma=entity.lemma,
             label=entity.label,
             start_char=entity.start_idx,
             end_char=entity.end_idx,
@@ -151,7 +214,7 @@ def parse_dependencies(doc: Doc) -> List[DocNounChunk]:
     ]
 
 
-def parse_sentences(doc: Doc) -> List[DocSentence]:
+def parse_sentences(doc: Doc, doc_idx: int = 0) -> List[DocSentence]:
     """Parse a spaCy Doc into a list of DocSentence objects containing sentence details."""
     return [
         DocSentence(
@@ -159,6 +222,7 @@ def parse_sentences(doc: Doc) -> List[DocSentence]:
             start_char=sent.start_char,
             end_char=sent.end_char,
             token_count=len(sent),
+            doc_idx=doc_idx,
         )
         for sent in doc.sents
     ]
@@ -221,47 +285,116 @@ def create_span_group(doc: Doc, predictions: List[SpanMarkerWord]) -> SpanGroup:
     return SpanGroup(doc, name="entities", spans=spans)
 
 
-def analyze_ner(texts: str | list[str]):
-    # from wtpsplit import SaT
+def analyze_ner(texts: str | list[str]) -> AnalyzeNERResult:
+    """Analyze named entities across multiple sentences with progress tracking."""
 
-    # sat = SaT("sat-3l-sm")
+    # Force CPU to avoid MPS/Metal issues on M1 that cause Bus Errors
+    device = "cpu"
+    if torch.backends.mps.is_available():
+        # Optional: Try MPS if you want speed, but CPU is more stable for debugging
+        # device = "mps"
+        pass
 
-    # Load spaCy model
     nlp = spacy.load("en_core_web_sm")
+
+    # Load model and explicitly move to CPU
     model = SpanMarkerModel.from_pretrained(
         "tomaarsen/span-marker-bert-base-fewnerd-fine-super"
-    ).to("cpu")
+    )
+    model = model.to(device)
+    model.eval()  # Set to evaluation mode to disable dropout/etc
 
-    # Input text
-    # text = """Cleopatra VII, also known as Cleopatra the Great, was the last active ruler of the
-    # Ptolemaic Kingdom of Egypt. She was born in 69 BCE and ruled Egypt from 51 BCE until her
-    # death in 30 BCE."""
-    chunk = texts[0]
-    sentences = split_sentences(chunk, num_sentence=2)
-    # sentences = sat.split(chunk)
-    text = sentences[0]
+    if isinstance(texts, str):
+        texts = [texts]
 
-    # Process text
-    doc, predictions = process_text(text, nlp, model)
+    sentences = [
+        sent for text in texts for sent in split_sentences(text, num_sentence=3)
+    ]
 
-    # Log entities, noun chunks, and sentences
-    log_entities(predictions)
-    log_noun_chunks(doc)
-    log_sentences(doc)
+    # Initialize accumulators with typed dicts
+    all_entities: list[EntityDict] = []
+    all_dependencies: list[DependencyDict] = []
+    all_sentences_data: list[SentenceDict] = []
+    all_spans_tokens: list[str] = []
+    all_spans_span_list: list[SpanDict] = []
+    settings_data: SettingsDict = {"lang": "", "direction": ""}
+    spans_text: str = ""
+    spans_title: Optional[str] = None
+    spans_settings: SettingsDict = {"lang": "", "direction": ""}
 
-    # Create span group for visualization
-    doc.spans["entities"] = create_span_group(doc, predictions)
+    for idx, text in enumerate(
+        tqdm(sentences, desc="Processing sentences", unit="sent")
+    ):
+        doc, predictions = process_text(text, nlp, model)
+        doc.spans["entities"] = create_span_group(doc, predictions)
 
-    entities = [e.__dict__ for e in parse_entities(doc, predictions)]
-    dependencies = [d.__dict__ for d in parse_dependencies(doc)]
-    sentences_data = [s.__dict__ for s in parse_sentences(doc)]
-    settings_data = parse_settings(doc).__dict__
-    spans = displacy.parse_spans(doc, options={"spans_key": "entities"})
+        # Accumulate entities
+        all_entities.extend(
+            [cast(EntityDict, e.__dict__) for e in parse_entities(doc, predictions)]
+        )
 
-    return {
-        "entities": entities,
-        "dependencies": dependencies,
-        "sentences": sentences_data,
-        "settings": settings_data,
-        "spans": spans,
+        # Accumulate dependencies
+        all_dependencies.extend(
+            [cast(DependencyDict, d.__dict__) for d in parse_dependencies(doc)]
+        )
+
+        # Accumulate sentences with doc_idx
+        sentence_dicts: list[SentenceDict] = [
+            cast(SentenceDict, {**s.__dict__, "doc_idx": idx})
+            for s in parse_sentences(doc, doc_idx=idx)
+        ]
+        all_sentences_data.extend(sentence_dicts)
+
+        # Accumulate spans
+        spans = displacy.parse_spans(doc, options={"spans_key": "entities"})
+        if idx == 0:
+            # Initialize with first doc's full structure
+            all_spans_tokens = cast(list[str], spans.get("tokens", []))
+            all_spans_span_list = cast(list[SpanDict], spans.get("spans", []))
+            settings_data = cast(SettingsDict, parse_settings(doc).__dict__)
+            spans_text = cast(str, spans.get("text", ""))
+            spans_title = spans.get("title")
+            spans_settings = cast(SettingsDict, spans.get("settings", {}))
+        else:
+            # Append tokens and adjust span positions for subsequent docs
+            token_offset = len(all_spans_tokens)
+            all_spans_tokens.extend(cast(list[str], spans.get("tokens", [])))
+            for span in cast(list[SpanDict], spans.get("spans", [])):
+                adjusted_span = SpanDict(
+                    start=span["start"] + token_offset,
+                    end=span["end"] + token_offset,
+                    start_token=span["start_token"] + token_offset,
+                    end_token=span["end_token"] + token_offset,
+                    label=span["label"],
+                    kb_id=span["kb_id"],
+                    kb_url=span["kb_url"],
+                )
+                all_spans_span_list.append(adjusted_span)
+            # Append text with space
+            spans_text += " " + cast(str, spans.get("text", ""))
+
+    # Build final spans dict
+    spans_result: SpansResultDict = {
+        "text": spans_text,
+        "spans": all_spans_span_list,
+        "title": spans_title,
+        "settings": spans_settings,
+        "tokens": all_spans_tokens,
     }
+
+    logger.newline()
+    logger.success(
+        f"Processing complete: "
+        f"{len(all_entities)} entities, "
+        f"{len(all_dependencies)} dependencies, "
+        f"{len(all_sentences_data)} sentences"
+    )
+
+    result: AnalyzeNERResult = {
+        "entities": all_entities,
+        "dependencies": all_dependencies,
+        "sentences": all_sentences_data,
+        "settings": settings_data,
+        "spans": spans_result,
+    }
+    return result

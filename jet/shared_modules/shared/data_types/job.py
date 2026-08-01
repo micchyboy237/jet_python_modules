@@ -1,4 +1,4 @@
-from typing import Any, List, Optional, TypedDict, Union
+from typing import List, Optional, TypedDict, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -10,13 +10,10 @@ class Entity(TypedDict):
 
 
 class JobEntities(BaseModel):
-    # Core fields that will always exist
     job_title: str = Field(description="Official job title/position name")
     key_responsibilities: List[str] = Field(
         description="Main duties and responsibilities of the role"
     )
-
-    # Company Information
     company_name: Optional[str] = Field(None, description="Name of the hiring company")
     company_summary: Optional[str] = Field(
         None, description="Brief overview of what the company does"
@@ -29,16 +26,12 @@ class JobEntities(BaseModel):
         None,
         description="Approximate company size, e.g., 'Startup', '50-200 employees', 'Enterprise'",
     )
-
-    # Job Overview
     department: Optional[str] = Field(
         None, description="Department or team within the company"
     )
     job_description_summary: Optional[str] = Field(
         None, description="2-3 sentence overview of the role and its purpose"
     )
-
-    # Location & Work Arrangement
     job_location: Optional[str] = Field(
         None, description="Primary work location - city, state/country"
     )
@@ -46,14 +39,10 @@ class JobEntities(BaseModel):
         None,
         description="e.g., 'Fully Remote', 'Hybrid (2 days/week in office)', 'On-site'",
     )
-
-    # Compensation
     salary_range: Optional[str] = Field(
         None,
         description="Salary range or compensation information, e.g., '$80K-$120K', 'Competitive'",
     )
-
-    # Classification
     employment_type: Optional[str] = Field(
         None,
         description="e.g., 'Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'",
@@ -66,8 +55,6 @@ class JobEntities(BaseModel):
         None,
         description="e.g., 'Flexible hours', '9-to-5', 'Shift work', 'Weekend availability'",
     )
-
-    # Technical Requirements (lists that should be lists)
     required_skills: Optional[List[str]] = Field(
         None, description="Must-have technical and soft skills"
     )
@@ -77,8 +64,6 @@ class JobEntities(BaseModel):
     technology_stack: Optional[List[str]] = Field(
         None, description="Specific technologies, tools, frameworks mentioned"
     )
-
-    # These fields might come back as strings or lists from the LLM
     years_of_experience: Optional[str] = Field(
         None,
         description="Required years of experience, e.g., '3+ years', '5-7 years'",
@@ -96,13 +81,9 @@ class JobEntities(BaseModel):
         None,
         description="Combined qualifications, experience, and competency requirements",
     )
-
-    # Benefits
     employee_benefits: Optional[Union[str, List[str]]] = Field(
         None, description="Benefits, perks, and compensation extras offered"
     )
-
-    # Application Process
     application_instructions: Optional[str] = Field(
         None,
         description="How to apply, including any links, emails, or special instructions",
@@ -125,7 +106,6 @@ class JobEntities(BaseModel):
         if v is None:
             return None
         if isinstance(v, str):
-            # Handle "None specified", "Not mentioned", etc.
             if v.lower() in [
                 "none specified",
                 "not mentioned",
@@ -134,7 +114,6 @@ class JobEntities(BaseModel):
                 "not specified",
             ]:
                 return None
-            # Convert single string to list
             return [v]
         return v
 
@@ -156,26 +135,22 @@ class JobData(TypedDict):
     salary: str | None
     job_type: str | None
     hours_per_week: int | None
-    meta: "JobMetadata"
-
-
-class JobMetadata(TypedDict):
-    job_id: str
-    chunk_index: int
-    start_idx: int
-    end_idx: int
-    num_tokens: int
-    # line_idx: int
-    # overlap_start_idx: int | None
-    # overlap_end_idx: int | None
 
 
 class JobChunk(TypedDict):
     id: str
     header: str
     content: str
-    metadata: JobMetadata
+    metadata: "JobChunkMetadata"
     embedding: list[float] | None
+
+
+class JobChunkMetadata(TypedDict):
+    job_id: str
+    chunk_index: int
+    start_idx: int
+    end_idx: int
+    num_tokens: int
 
 
 class JobSearchResultData(JobData):
@@ -188,9 +163,6 @@ class JobSearchResult(JobData):
     id: str
     text: str
     metadata: JobSearchResultData
-
-
-# Database row representations for jobs.json
 
 
 class TableJobRow(TypedDict, total=False):
@@ -220,7 +192,6 @@ class TableJobRow(TypedDict, total=False):
 class TableJobMetadata(TypedDict, total=False):
     id: str
     link: str
-    meta: dict[str, Any]
     tags: list[str]
     domain: str
     salary: str | None
@@ -230,6 +201,3 @@ class TableJobMetadata(TypedDict, total=False):
     keywords: list[str]
     posted_date: str
     hours_per_week: int | None
-
-    # These match the nested layout seen in the sample
-    # of jobs.json under the "metadata" field
