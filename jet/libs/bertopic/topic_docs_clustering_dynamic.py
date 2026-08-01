@@ -4,10 +4,18 @@ BERTopic Pipeline with Local Embeddings
 Provides a reusable function for running BERTopic with pre-computed local embeddings,
 configurable UMAP, HDBSCAN, and TfidfVectorizer parameters.
 
+Features:
+- Dynamic parameter scaling based on corpus size
+- Probabilistic outlier threshold to filter low-confidence assignments
+- Topic size floor to dissolve meaningless micro-clusters
+- Topic quality scoring (coherence + keyword diversity)
+- Adaptive vectorizer parameters optimized per corpus size
+
 Usage:
-    python -m jet.libs.bertopic.bertopic_pipeline
+    python -m jet.libs.bertopic.topic_docs_clustering_dynamic
 """
 
+from collections import Counter
 from typing import List, Optional, Tuple, TypedDict, Union
 
 import numpy as np
@@ -36,6 +44,7 @@ class UMAPParams(TypedDict, total=False):
     Dynamic defaults (when None):
         - n_neighbors: min(15, n_docs - 1), minimum 2
         - n_components: min(5, n_docs - 1), minimum 1
+        - init: 'random' for n_docs ≤ 30, 'spectral' for larger
     """
 
     n_neighbors: Optional[int]
@@ -52,7 +61,7 @@ class HDBSCANParams(TypedDict, total=False):
 
     Dynamic defaults (when None):
         - min_cluster_size: scales from 2 to 10 based on n_docs
-        - min_samples: min_cluster_size (HDBSCAN default behavior)
+        - min_samples: equals min_cluster_size
     """
 
     min_cluster_size: Optional[int]
@@ -67,9 +76,9 @@ class TfidfVectorizerParams(TypedDict, total=False):
     """Parameters for TfidfVectorizer keyword extraction.
 
     Dynamic defaults (when None):
-        - max_features: scales from 1000 to 10000 based on n_docs
-        - min_df: scales from 1 to 3 based on n_docs
-        - max_df: scales from 0.95 to 0.8 based on n_docs
+        - max_features: scales from 3000 to 20000 based on n_docs
+        - min_df: scales from 1 to 2 based on n_docs
+        - max_df: scales from 0.9 to 0.8 based on n_docs
     """
 
     stop_words: Union[str, List[str]]
@@ -82,16 +91,34 @@ class TfidfVectorizerParams(TypedDict, total=False):
 
 
 class BERTopicParams(TypedDict, total=False):
-    """Parameters for BERTopic model."""
+    """Parameters for BERTopic model.
+
+    Extended parameters:
+        outlier_threshold: Minimum topic probability to retain assignment.
+            Documents below this threshold are reassigned to outliers (-1).
+            Requires calculate_probabilities=True. Default: None (disabled).
+        min_topic_floor: Minimum number of documents for a topic to be retained.
+            Topics smaller than this are dissolved into outliers (-1).
+            Default: None (disabled).
+    """
 
     calculate_probabilities: bool
     min_topic_size: int
     top_n_words: int
     nr_topics: Union[int, str]
+    outlier_threshold: Optional[float]
+    min_topic_floor: Optional[int]
 
 
 class TopicResult(TypedDict):
-    """Structured topic results from the pipeline."""
+    """Structured topic results from the pipeline.
+
+    Quality metrics:
+        coherence_score: Mean c-TF-IDF score of top keywords (higher = more coherent).
+            None for outliers.
+        keyword_diversity: Ratio of unique keywords to total (higher = less redundant).
+            None for outliers.
+    """
 
     topic_id: int
     name: str
@@ -99,6 +126,8 @@ class TopicResult(TypedDict):
     size: int
     documents: List[str]
     keyword_scores: List[Tuple[str, float]]
+    coherence_score: Optional[float]
+    keyword_diversity: Optional[float]
 
 
 class BERTopicPipelineResult(TypedDict):
@@ -136,7 +165,7 @@ DEFAULT_HDBSCAN_PARAMS: HDBSCANParams = {
 DEFAULT_VECTORIZER_PARAMS: TfidfVectorizerParams = {
     "stop_words": "english",  # Remove common English stop words
     "ngram_range": (1, 2),  # Unigrams and bigrams
-    "max_features": None,  # Dynamic: scales with vocabulary
+    "max_features": None,  # Dynamic: scales with n_docs
     "sublinear_tf": True,  # 1 + log(tf) reduces high-freq dominance
     "min_df": None,  # Dynamic: filters rare terms
     "max_df": None,  # Dynamic: filters ubiquitous terms
@@ -144,7 +173,9 @@ DEFAULT_VECTORIZER_PARAMS: TfidfVectorizerParams = {
 }
 
 DEFAULT_BERTOPIC_PARAMS: BERTopicParams = {
-    "calculate_probabilities": False,  # False for speed, True for doc-topic probabilities
+    "calculate_probabilities": True,  # Enabled to support outlier threshold
+    "outlier_threshold": None,  # None = no probability filtering
+    "min_topic_floor": None,  # None = keep all topic sizes
 }
 
 
@@ -188,13 +219,14 @@ def _calculate_umap_params(n_docs: int, user_params: UMAPParams) -> UMAPParams:
 
 
 def _calculate_hdbscan_params(n_docs: int, user_params: HDBSCANParams) -> HDBSCANParams:
+    """Calculate HDBSCAN parameters based on dataset size."""
     params = {**DEFAULT_HDBSCAN_PARAMS, **user_params}
 
     if params["min_cluster_size"] is None:
         if n_docs <= 30:
-            params["min_cluster_size"] = 2  # Small corpora need small clusters
+            params["min_cluster_size"] = 2
         elif n_docs <= 100:
-            params["min_cluster_size"] = 2  # Changed from 3 - too large
+            params["min_cluster_size"] = 2
         elif n_docs <= 500:
             params["min_cluster_size"] = 3
         elif n_docs <= 1000:
@@ -202,6 +234,7 @@ def _calculate_hdbscan_params(n_docs: int, user_params: HDBSCANParams) -> HDBSCA
         else:
             params["min_cluster_size"] = 10
 
+    # HDBSCAN default: min_samples = min_cluster_size if not specified
     if params["min_samples"] is None:
         params["min_samples"] = params["min_cluster_size"]
 
@@ -211,11 +244,12 @@ def _calculate_hdbscan_params(n_docs: int, user_params: HDBSCANParams) -> HDBSCA
 def _calculate_vectorizer_params(
     n_docs: int, user_params: TfidfVectorizerParams
 ) -> TfidfVectorizerParams:
+    """Calculate TfidfVectorizer parameters based on dataset size."""
     params = {**DEFAULT_VECTORIZER_PARAMS, **user_params}
 
     if params["max_features"] is None:
         if n_docs <= 50:
-            params["max_features"] = 3000  # Lower for very small corpora
+            params["max_features"] = 3000
         elif n_docs <= 100:
             params["max_features"] = 5000
         elif n_docs <= 1000:
@@ -225,23 +259,152 @@ def _calculate_vectorizer_params(
 
     if params["min_df"] is None:
         if n_docs <= 30:
-            params["min_df"] = 1  # Keep all terms for small corpora
+            params["min_df"] = 1  # Keep all terms for tiny corpora
         elif n_docs <= 100:
-            params["min_df"] = 1  # Changed from 2 - too aggressive
+            params["min_df"] = 1  # Small corpora need rare terms
         else:
-            params["min_df"] = 2  # Only filter for larger corpora
+            params["min_df"] = 2  # Filter singletons for larger corpora
 
     if params["max_df"] is None:
         if n_docs <= 30:
-            params["max_df"] = 1.0  # Don't filter at all
+            params["max_df"] = 0.9  # Stricter for small corpora (fewer expected topics)
         elif n_docs <= 100:
-            params["max_df"] = 0.95  # Changed from 0.85 - too strict
+            params["max_df"] = 0.9  # Cleaner clusters for small-medium corpora
+        elif n_docs <= 500:
+            params["max_df"] = 0.85  # More aggressive for medium corpora
         elif n_docs <= 1000:
-            params["max_df"] = 0.9
-        else:
             params["max_df"] = 0.85
+        else:
+            params["max_df"] = 0.8  # Most aggressive for large corpora
 
     return params
+
+
+# ---------------------------------------------------------------------------
+# Post-Processing Functions
+# ---------------------------------------------------------------------------
+
+
+def _filter_low_confidence_assignments(
+    topics: List[int],
+    probs: Optional[np.ndarray],
+    threshold: Optional[float],
+) -> Tuple[List[int], int]:
+    """
+    Reassign low-confidence topic assignments to outliers (-1).
+
+    Documents whose maximum topic probability falls below the threshold
+    are moved to the outlier category. This helps prevent off-topic
+    documents from being force-classified into the nearest cluster.
+
+    Args:
+        topics: Original topic assignments from BERTopic
+        probs: Topic probability matrix of shape (n_docs, n_topics) or
+               (n_docs,) for single-topic probabilities
+        threshold: Minimum probability to retain a topic assignment.
+                   If None, no filtering is applied.
+
+    Returns:
+        Tuple of (filtered_topics, n_reassigned)
+    """
+    if threshold is None or probs is None:
+        return topics, 0
+
+    # Get max probability per document
+    if probs.ndim > 1:
+        max_probs = probs.max(axis=1)
+    else:
+        max_probs = probs
+
+    filtered = [t if p >= threshold else -1 for t, p in zip(topics, max_probs)]
+
+    n_reassigned = sum(1 for a, b in zip(topics, filtered) if a != b)
+    if n_reassigned > 0:
+        logger.info(
+            "Outlier threshold (%.2f): reassigned %d/%d documents to outliers",
+            threshold,
+            n_reassigned,
+            len(topics),
+        )
+
+    return filtered, n_reassigned
+
+
+def _reassign_tiny_topics(
+    topics: List[int],
+    min_floor: Optional[int],
+) -> Tuple[List[int], int]:
+    """
+    Reassign documents in topics smaller than min_floor to outliers (-1).
+
+    Micro-clusters with very few documents are often noise or over-fragmentation
+    artifacts. Dissolving them into outliers improves topic interpretability.
+
+    Args:
+        topics: Original topic assignments
+        min_floor: Topics with fewer documents than this are dissolved.
+                   If None, no reassignment is performed.
+
+    Returns:
+        Tuple of (filtered_topics, n_topics_dissolved)
+    """
+    if min_floor is None:
+        return topics, 0
+
+    topic_counts = Counter(t for t in topics if t != -1)
+    small_topics = {t for t, c in topic_counts.items() if c < min_floor}
+
+    if not small_topics:
+        return topics, 0
+
+    filtered = [-1 if t in small_topics else t for t in topics]
+
+    n_docs_moved = sum(1 for a, b in zip(topics, filtered) if a != b)
+    logger.info(
+        "Topic size floor (%d): dissolved %d topic(s) with < %d docs "
+        "(%d documents moved to outliers)",
+        min_floor,
+        len(small_topics),
+        min_floor,
+        n_docs_moved,
+    )
+
+    return filtered, len(small_topics)
+
+
+def _calculate_topic_quality(
+    topic_id: int,
+    keywords: List[str],
+    keyword_scores: List[Tuple[str, float]],
+    documents: List[str],
+) -> Tuple[Optional[float], Optional[float]]:
+    """
+    Calculate quality metrics for a topic.
+
+    Args:
+        topic_id: Topic identifier (-1 for outliers)
+        keywords: List of top keywords
+        keyword_scores: List of (keyword, c-TF-IDF score) tuples
+        documents: Documents assigned to this topic
+
+    Returns:
+        Tuple of (coherence_score, keyword_diversity).
+        Returns (None, None) for outliers.
+    """
+    if topic_id == -1 or not keywords or not keyword_scores:
+        return None, None
+
+    # Coherence: mean of top-N keyword c-TF-IDF scores
+    # Higher scores indicate more internally consistent topics
+    scores = [s for _, s in keyword_scores[:10]]
+    coherence = float(np.mean(scores)) if scores else 0.0
+
+    # Diversity: ratio of unique keyword stems to total keywords
+    # Higher values indicate less redundant keyword lists
+    unique_keywords = set(k.lower().strip() for k in keywords if k.strip())
+    diversity = len(unique_keywords) / max(len(keywords), 1)
+
+    return round(coherence, 6), round(diversity, 4)
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +428,17 @@ def run_bertopic_pipeline(
     All parameters with None defaults are dynamically calculated based on the number
     of documents to ensure optimal performance across dataset sizes (from 2 to 100K+ docs).
 
+    This function handles the complete topic modeling workflow:
+    1. Calculate dynamic parameters based on corpus size
+    2. Generate embeddings using llama.cpp
+    3. Configure UMAP dimensionality reduction
+    4. Configure HDBSCAN clustering
+    5. Configure TF-IDF vectorization for keyword extraction
+    6. Fit BERTopic model
+    7. Apply post-processing (outlier threshold, topic size floor)
+    8. Calculate topic quality metrics
+    9. Extract and structure results
+
     Args:
         documents: List of text documents to analyze
         embedding_model: Name of the embedding model (defaults to EMBED_MODEL config)
@@ -273,18 +447,20 @@ def run_bertopic_pipeline(
             - n_components: min(5, max(1, n_docs-1))
             - init: 'random' for n_docs≤30, 'spectral' for larger
         hdbscan_params: HDBSCAN configuration. Dynamic params (None by default):
-            - min_cluster_size: 2 for n_docs≤20, scales to 10 for n_docs>1000
+            - min_cluster_size: 2 for n_docs≤100, scales to 10 for n_docs>1000
             - min_samples: equals min_cluster_size
         vectorizer_params: TfidfVectorizer configuration. Dynamic params (None by default):
-            - max_features: 1000 for n_docs≤10, scales to 20000 for n_docs>1000
-            - min_df: 1 for n_docs≤10, scales to 3 for n_docs>100
-            - max_df: 0.95 for n_docs≤10, scales to 0.7 for n_docs>1000
-        bertopic_params: BERTopic configuration parameters
+            - max_features: 3000 for n_docs≤50, scales to 20000 for n_docs>1000
+            - min_df: 1 for n_docs≤100, scales to 2 for larger
+            - max_df: 0.9 for n_docs≤100, scales to 0.8 for n_docs>1000
+        bertopic_params: BERTopic configuration parameters including:
+            - outlier_threshold: Min probability to stay in a topic (default: None)
+            - min_topic_floor: Min docs for a topic to be retained (default: None)
         show_progress: Show progress bar during embedding
         verbose: Print detailed progress and results
 
     Returns:
-        BERTopicPipelineResult with topics, model, and structured results
+        BERTopicPipelineResult with topics, model, quality scores, and structured results
 
     Raises:
         ValueError: If documents list is empty
@@ -292,18 +468,20 @@ def run_bertopic_pipeline(
     Example:
         >>> # Minimal usage - all params dynamically scaled
         >>> result = run_bertopic_pipeline(docs)
-
+        >>>
         >>> # Custom UMAP only - HDBSCAN and vectorizer still dynamic
         >>> result = run_bertopic_pipeline(
         ...     docs,
         ...     umap_params={"n_neighbors": 20, "n_components": 10}
         ... )
-
-        >>> # Override dynamic behavior
+        >>>
+        >>> # With outlier threshold and topic floor
         >>> result = run_bertopic_pipeline(
         ...     docs,
-        ...     hdbscan_params={"min_cluster_size": 5},  # Force fixed value
-        ...     vectorizer_params={"min_df": 2, "max_df": 0.9}  # Force fixed values
+        ...     bertopic_params={
+        ...         "outlier_threshold": 0.3,
+        ...         "min_topic_floor": 3,
+        ...     }
         ... )
     """
     if not documents:
@@ -318,6 +496,10 @@ def run_bertopic_pipeline(
         n_docs, vectorizer_params or {}
     )
     final_bertopic_params = {**DEFAULT_BERTOPIC_PARAMS, **(bertopic_params or {})}
+
+    # Extract post-processing params before passing to BERTopic
+    outlier_threshold = final_bertopic_params.pop("outlier_threshold", None)
+    min_topic_floor = final_bertopic_params.pop("min_topic_floor", None)
 
     # Get embedding model
     target_model = embedding_model or EMBED_MODEL
@@ -341,6 +523,10 @@ def run_bertopic_pipeline(
             f"min_df={final_vectorizer_params['min_df']}, "
             f"max_df={final_vectorizer_params['max_df']}"
         )
+        if outlier_threshold is not None:
+            print(f"  Post-processing: outlier_threshold={outlier_threshold}")
+        if min_topic_floor is not None:
+            print(f"  Post-processing: min_topic_floor={min_topic_floor}")
 
     # -----------------------------------------------------------------------
     # Step 1: Generate Local Embeddings
@@ -360,12 +546,12 @@ def run_bertopic_pipeline(
         print(f"Generated embedding matrix shape: {embeddings.shape}")
 
     # -----------------------------------------------------------------------
-    # Step 2: Configure Models
+    # Step 2: Configure BERTopic Pipeline
     # -----------------------------------------------------------------------
     if verbose:
         print("\n--- Step 2: Configuring BERTopic Pipeline ---")
 
-    # Remove None values and typed_dict-specific keys before model init
+    # Remove None values before model init
     umap_init_params = {
         k: v
         for k, v in final_umap_params.items()
@@ -410,6 +596,35 @@ def run_bertopic_pipeline(
         )
 
     # -----------------------------------------------------------------------
+    # Step 3b: Post-Processing
+    # -----------------------------------------------------------------------
+    n_topics_dissolved = 0
+    n_docs_reassigned = 0
+
+    # Apply outlier probability threshold
+    if outlier_threshold is not None:
+        if verbose:
+            print(f"\n--- Post-Processing: Outlier Threshold = {outlier_threshold} ---")
+        topics, n_reassigned = _filter_low_confidence_assignments(
+            topics, probs, outlier_threshold
+        )
+        n_docs_reassigned += n_reassigned
+
+    # Apply topic size floor
+    if min_topic_floor is not None:
+        if verbose:
+            print(f"\n--- Post-Processing: Topic Size Floor = {min_topic_floor} ---")
+        topics, n_dissolved = _reassign_tiny_topics(topics, min_topic_floor)
+        n_topics_dissolved += n_dissolved
+
+    if verbose and (n_docs_reassigned > 0 or n_topics_dissolved > 0):
+        new_topic_count = len(set(topics))
+        print(
+            f"Post-processing complete: {new_topic_count} topics remain "
+            f"({n_docs_reassigned} docs reassigned, {n_topics_dissolved} topics dissolved)"
+        )
+
+    # -----------------------------------------------------------------------
     # Step 4: Extract Topic Info
     # -----------------------------------------------------------------------
     if verbose:
@@ -441,6 +656,11 @@ def run_bertopic_pipeline(
         # Get documents for this topic
         cluster_docs = [doc for doc, t in zip(documents, topics) if t == topic_id]
 
+        # Calculate quality metrics
+        coherence, diversity = _calculate_topic_quality(
+            topic_id, keywords, keyword_scores, cluster_docs
+        )
+
         # Get topic name from topic_info
         if topic_id == -1:
             name = "Outliers"
@@ -458,6 +678,8 @@ def run_bertopic_pipeline(
                 "size": len(cluster_docs),
                 "documents": cluster_docs,
                 "keyword_scores": keyword_scores,
+                "coherence_score": coherence,
+                "keyword_diversity": diversity,
             }
         )
 
@@ -475,8 +697,15 @@ def run_bertopic_pipeline(
             if topic["topic_id"] == -1:
                 print(f"\n❌ Outliers / Unclustered Docs ({topic['size']} docs):")
             else:
+                quality_str = ""
+                if topic["coherence_score"] is not None:
+                    quality_str = (
+                        f" | coherence={topic['coherence_score']:.4f}, "
+                        f"diversity={topic['keyword_diversity']:.2f}"
+                    )
                 print(
-                    f"\n⚡ {topic['name']} (Topic {topic['topic_id']}, {topic['size']} docs):"
+                    f"\n⚡ {topic['name']} (Topic {topic['topic_id']}, "
+                    f"{topic['size']} docs{quality_str}):"
                 )
             print(f"   Keywords: {', '.join(topic['keywords'][:10])}")
             for doc in topic["documents"][:3]:
@@ -501,11 +730,11 @@ def run_bertopic_pipeline(
 if __name__ == "__main__":
     """
     Demo: Run BERTopic pipeline with sample documents.
-    
+
     Demonstrates:
-    1. Default dynamic scaling
-    2. Custom parameter overrides
-    3. Mixed dynamic/custom configurations
+    1. Default dynamic scaling with quality metrics
+    2. Custom UMAP with dynamic HDBSCAN and vectorizer
+    3. Override dynamic with fixed values + outlier threshold + topic floor
     """
     from jet.libs.bertopic.examples.doc_samples import DOCS_LG
 
@@ -513,7 +742,7 @@ if __name__ == "__main__":
     print("BERTopic Pipeline Demo with Dynamic Parameter Scaling")
     print("=" * 70)
 
-    # Example 1: Fully dynamic (all None defaults)
+    # Example 1: Fully dynamic parameters
     print("\n" + "=" * 70)
     print("Example 1: Fully Dynamic Parameters")
     print("=" * 70)
@@ -524,8 +753,16 @@ if __name__ == "__main__":
     )
 
     print(f"\nFully dynamic pipeline found {len(result['topic_results'])} topics")
+    print("\nQuality Summary:")
+    for topic in result["topic_results"]:
+        if topic["topic_id"] != -1:
+            print(
+                f"  {topic['name']}: "
+                f"coherence={topic['coherence_score']:.4f}, "
+                f"diversity={topic['keyword_diversity']:.2f}"
+            )
 
-    # Example 2: Custom UMAP, dynamic HDBSCAN and vectorizer
+    # Example 2: Custom UMAP, Dynamic HDBSCAN & Vectorizer
     print("\n" + "=" * 70)
     print("Example 2: Custom UMAP, Dynamic HDBSCAN & Vectorizer")
     print("=" * 70)
@@ -536,30 +773,41 @@ if __name__ == "__main__":
             "n_neighbors": 10,
             "n_components": 3,
         },
-        # HDBSCAN and vectorizer will be dynamically calculated
         verbose=True,
     )
 
     print(f"\nCustom UMAP pipeline found {len(custom_result['topic_results'])} topics")
 
-    # Example 3: Override dynamic behavior with fixed values
+    # Example 3: Override Dynamic with Fixed Values + Post-Processing
     print("\n" + "=" * 70)
-    print("Example 3: Override Dynamic with Fixed Values")
+    print("Example 3: Fixed Values + Outlier Threshold + Topic Floor")
     print("=" * 70)
 
     fixed_result = run_bertopic_pipeline(
         documents=DOCS_LG,
         hdbscan_params={
-            "min_cluster_size": 5,  # Force fixed cluster size
+            "min_cluster_size": 5,
         },
         vectorizer_params={
-            "min_df": 2,  # Force fixed min_df
-            "max_df": 0.85,  # Force fixed max_df
+            "min_df": 2,
+            "max_df": 0.85,
         },
         bertopic_params={
             "calculate_probabilities": True,
+            "outlier_threshold": 0.3,
+            "min_topic_floor": 3,
         },
         verbose=True,
     )
 
     print(f"\nFixed params pipeline found {len(fixed_result['topic_results'])} topics")
+    print("\nQuality Summary:")
+    for topic in fixed_result["topic_results"]:
+        status = "OUTLIER" if topic["topic_id"] == -1 else f"Topic {topic['topic_id']}"
+        if topic["coherence_score"] is not None:
+            print(
+                f"  {status} '{topic['name']}': "
+                f"coherence={topic['coherence_score']:.4f}, "
+                f"diversity={topic['keyword_diversity']:.2f}, "
+                f"size={topic['size']}"
+            )
