@@ -264,5 +264,4 @@ def analyze_ner(texts: str | list[str]):
         "sentences": sentences_data,
         "settings": settings_data,
         "spans": spans,
-        "predictions": predictions,
     }
