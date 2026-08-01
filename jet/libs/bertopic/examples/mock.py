@@ -329,6 +329,28 @@ def load_sample_jobs(
     return texts
 
 
+def load_sample_jobs_ai_llm_python(
+    model: str = EMBED_MODEL,
+    chunk_size: int = 128,
+    chunk_overlap: int = 0,
+    truncate: bool = False,
+    convert_plain_text: bool = False,
+    includes: list[str] = [],
+) -> list[str]:
+    """Load sample jobs from local for topic modeling."""
+
+    data_file = "/Users/jethroestrada/Desktop/External_Projects/Jet_Apps/my-jobs/generated/run_search_jobs_hybrid/ai_llm_python/hybrid_search_results.json"
+    data: list[dict] = load_file(data_file)["results"]
+
+    sentences = [item["text"] for item in data]
+    logger.info(f"Number of sentences: {len(sentences)}")
+
+    # texts = [token['content'] for sentence in sentences for token in base_parse_markdown(sentence)]
+    texts = sentences
+
+    return texts
+
+
 def load_sample_text() -> str:
     """Load sample dataset from local for topic modeling."""
     html = load_file(
