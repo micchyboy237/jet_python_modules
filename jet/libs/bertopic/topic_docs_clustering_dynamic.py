@@ -454,17 +454,168 @@ def _calculate_topic_quality(
 
 
 # ---------------------------------------------------------------------------
+# Query Filtering Function
+# ---------------------------------------------------------------------------
+
+
+def filter_documents_by_query(
+    documents: List[str],
+    query: str,
+    embedding_model: Optional[str] = None,
+    query_threshold: float = 0.5,
+    show_progress: bool = True,
+    verbose: bool = True,
+) -> Tuple[List[str], NDArray[np.float32], dict]:
+    """
+    Filter documents based on cosine similarity to a query embedding.
+
+    This function generates embeddings for all documents and the query,
+    then filters documents whose similarity score meets or exceeds the threshold.
+
+    Args:
+        documents: List of text documents to filter
+        query: Search query string used for filtering
+        embedding_model: Name of the embedding model (defaults to EMBED_MODEL config)
+        query_threshold: Minimum cosine similarity (0.0-1.0) for document retention.
+                        Higher values return more relevant but fewer documents.
+                        Default: 0.5
+        show_progress: Show progress bar during document embedding
+        verbose: Print filtering statistics and details
+
+    Returns:
+        Tuple containing:
+        - filtered_documents: List of documents that passed the filter
+        - doc_embeddings: Embeddings for all original documents (for reuse)
+        - query_metadata: Dictionary with filtering statistics and metadata
+
+    Raises:
+        ValueError: If no documents match the query with the given threshold
+
+    Example:
+        >>> filtered_docs, embeddings, metadata = filter_documents_by_query(
+        ...     documents=all_docs,
+        ...     query="machine learning applications",
+        ...     query_threshold=0.6
+        ... )
+        >>> print(f"Kept {len(filtered_docs)} out of {metadata['original_count']} docs")
+    """
+    if not documents:
+        raise ValueError("No documents provided for query filtering.")
+
+    if not query or not query.strip():
+        raise ValueError("Query string cannot be empty.")
+
+    target_model = embedding_model or EMBED_MODEL
+    original_count = len(documents)
+
+    if verbose:
+        print(f"\n{'=' * 70}")
+        print(f"Query-based Document Filtering")
+        print(f"{'=' * 70}")
+        print(f"Query: '{query}'")
+        print(f"Similarity threshold: {query_threshold}")
+        print(f"Original document count: {original_count}")
+
+    # Generate embeddings for all documents
+    if verbose:
+        logger.info(f"Encoding {original_count} documents for query filtering...")
+
+    doc_embeddings = embed(
+        text=documents,
+        model=target_model,
+        return_format="numpy",
+        show_progress=show_progress,
+    )
+
+    # Generate embedding for the query
+    if verbose:
+        logger.info("Encoding query...")
+
+    query_embedding = embed(
+        text=[query],
+        model=target_model,
+        return_format="numpy",
+        show_progress=False,
+    )
+
+    # Calculate cosine similarity between query and all documents
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    similarities = cosine_similarity(query_embedding, doc_embeddings)[0]
+
+    # Get indices of documents above threshold
+    filtered_indices = np.where(similarities >= query_threshold)[0]
+    filtered_count = len(filtered_indices)
+
+    if verbose:
+        print(f"\nFiltering Results:")
+        print(f"  Documents above threshold: {filtered_count}")
+        print(f"  Documents filtered out: {original_count - filtered_count}")
+        print(f"  Retention rate: {filtered_count / original_count * 100:.1f}%")
+        print(
+            f"  Similarity range: {similarities.min():.4f} - {similarities.max():.4f}"
+        )
+        print(f"  Mean similarity: {similarities.mean():.4f}")
+
+        # Show top 5 most similar documents for verification
+        top_indices = np.argsort(similarities)[-5:][::-1]
+        print(f"\nTop 5 most similar documents:")
+        for i, idx in enumerate(top_indices, 1):
+            if similarities[idx] >= query_threshold:
+                status = "✓"
+            else:
+                status = "✗"
+            print(
+                f"  {status} Doc {idx}: similarity={similarities[idx]:.4f} | "
+                f"{documents[idx][:100]}{'...' if len(documents[idx]) > 100 else ''}"
+            )
+
+    if filtered_count == 0:
+        max_sim_idx = np.argmax(similarities)
+        raise ValueError(
+            f"No documents matched query '{query}' with threshold {query_threshold}. "
+            f"Try lowering the threshold (current: {query_threshold}). "
+            f"Max similarity found: {similarities[max_sim_idx]:.4f} "
+            f"in document: '{documents[max_sim_idx][:100]}...'"
+        )
+
+    # Filter documents based on query relevance
+    filtered_documents = [documents[i] for i in filtered_indices]
+
+    # Build metadata dictionary
+    query_metadata = {
+        "query": query,
+        "query_threshold": query_threshold,
+        "original_count": original_count,
+        "filtered_count": filtered_count,
+        "filtered_indices": filtered_indices.tolist(),
+        "similarity_scores": similarities[filtered_indices].tolist(),
+        "all_similarity_scores": similarities.tolist(),  # Full similarity array for analysis
+        "embedding_model": target_model,
+    }
+
+    if verbose:
+        print(
+            f"\n✓ Query filtering complete: {filtered_count}/{original_count} documents retained"
+        )
+
+    return filtered_documents, doc_embeddings, query_metadata
+
+
+# ---------------------------------------------------------------------------
 # Reusable Pipeline Function
 # ---------------------------------------------------------------------------
 
 
 def run_bertopic_pipeline(
     documents: List[str],
+    query: Optional[str] = None,
     embedding_model: Optional[str] = None,
     umap_params: Optional[UMAPParams] = None,
     hdbscan_params: Optional[HDBSCANParams] = None,
     vectorizer_params: Optional[TfidfVectorizerParams] = None,
     bertopic_params: Optional[BERTopicParams] = None,
+    query_threshold: float = 0.3,
     show_progress: bool = True,
     verbose: bool = True,
 ) -> BERTopicPipelineResult:
@@ -475,18 +626,22 @@ def run_bertopic_pipeline(
     of documents to ensure optimal performance across dataset sizes (from 2 to 100K+ docs).
 
     This function handles the complete topic modeling workflow:
-    1. Calculate dynamic parameters based on corpus size
-    2. Generate embeddings using llama.cpp
-    3. Configure UMAP dimensionality reduction
-    4. Configure HDBSCAN clustering
-    5. Configure TF-IDF vectorization for keyword extraction
-    6. Fit BERTopic model
-    7. Apply post-processing (outlier threshold, topic size floor)
-    8. Calculate topic quality metrics
-    9. Extract and structure results
+    1. (Optional) Filter documents by query relevance using filter_documents_by_query()
+    2. Calculate dynamic parameters based on corpus size
+    3. Generate embeddings using llama.cpp
+    4. Configure UMAP dimensionality reduction
+    5. Configure HDBSCAN clustering
+    6. Configure TF-IDF vectorization for keyword extraction
+    7. Fit BERTopic model
+    8. Apply post-processing (outlier threshold, topic size floor)
+    9. Calculate topic quality metrics
+    10. Extract and structure results
 
     Args:
         documents: List of text documents to analyze
+        query: Optional search query to pre-filter documents. When provided,
+               delegates to filter_documents_by_query() for relevance-based
+               filtering before topic modeling.
         embedding_model: Name of the embedding model (defaults to EMBED_MODEL config)
         umap_params: UMAP configuration. Dynamic params (None by default):
             - n_neighbors: min(15, max(2, n_docs-1))
@@ -502,18 +657,30 @@ def run_bertopic_pipeline(
         bertopic_params: BERTopic configuration parameters including:
             - outlier_threshold: Min probability to stay in a topic (default: None)
             - min_topic_floor: Min docs for a topic to be retained (default: None)
+        query_threshold: Minimum cosine similarity (0.0-1.0) for query-based
+                        document filtering. Only used when query is provided.
+                        Higher values return more relevant but fewer documents.
+                        Default: 0.5
         show_progress: Show progress bar during embedding
         verbose: Print detailed progress and results
 
     Returns:
-        BERTopicPipelineResult with topics, model, quality scores, and structured results
+        BERTopicPipelineResult with topics, model, quality scores, and structured results.
+        If query is provided, result includes query metadata from filter_documents_by_query().
 
     Raises:
-        ValueError: If documents list is empty
+        ValueError: If documents list is empty or no documents match the query
 
     Example:
         >>> # Minimal usage - all params dynamically scaled
         >>> result = run_bertopic_pipeline(docs)
+        >>>
+        >>> # Filter documents by query before topic modeling
+        >>> result = run_bertopic_pipeline(
+        ...     docs,
+        ...     query="machine learning applications",
+        ...     query_threshold=0.6
+        ... )
         >>>
         >>> # Custom UMAP only - HDBSCAN and vectorizer still dynamic
         >>> result = run_bertopic_pipeline(
@@ -533,6 +700,23 @@ def run_bertopic_pipeline(
     if not documents:
         raise ValueError("No documents provided for topic modeling.")
 
+    target_model = embedding_model or EMBED_MODEL
+    query_metadata = {}
+    precomputed_embeddings = None
+
+    # -----------------------------------------------------------------------
+    # Step 0: Query-based Document Filtering (Optional)
+    # -----------------------------------------------------------------------
+    if query:
+        documents, precomputed_embeddings, query_metadata = filter_documents_by_query(
+            documents=documents,
+            query=query,
+            embedding_model=target_model,
+            query_threshold=query_threshold,
+            show_progress=show_progress,
+            verbose=verbose,
+        )
+
     n_docs = len(documents)
 
     # Calculate dynamic parameters
@@ -547,12 +731,13 @@ def run_bertopic_pipeline(
     outlier_threshold = final_bertopic_params.pop("outlier_threshold", None)
     min_topic_floor = final_bertopic_params.pop("min_topic_floor", None)
 
-    # Get embedding model
-    target_model = embedding_model or EMBED_MODEL
-
     if verbose:
         print(f"\n{'=' * 70}")
         print(f"BERTopic Pipeline: {n_docs} documents")
+        if query_metadata:
+            print(
+                f"(Filtered from {query_metadata['original_count']} original documents)"
+            )
         print(f"{'=' * 70}")
         print(f"\nDynamic Parameters (scaled for {n_docs} docs):")
         print(
@@ -575,21 +760,39 @@ def run_bertopic_pipeline(
             print(f"  Post-processing: min_topic_floor={min_topic_floor}")
 
     # -----------------------------------------------------------------------
-    # Step 1: Generate Local Embeddings
+    # Step 1: Generate or Reuse Local Embeddings
     # -----------------------------------------------------------------------
     if verbose:
         print("\n--- Step 1: Generating Local Embeddings ---")
-        logger.info(f"Encoding {n_docs} documents using model: {target_model}")
 
-    embeddings = embed(
-        text=documents,
-        model=target_model,
-        return_format="numpy",
-        show_progress=show_progress,
-    )
+    if precomputed_embeddings is not None and query_metadata:
+        # Reuse embeddings from query filtering step
+        if verbose:
+            logger.info(f"Reusing embeddings from query filtering step")
 
-    if verbose:
-        print(f"Generated embedding matrix shape: {embeddings.shape}")
+        # Extract only the embeddings for filtered documents
+        filtered_indices = query_metadata["filtered_indices"]
+        embeddings = precomputed_embeddings[filtered_indices]
+
+        if verbose:
+            print(
+                f"Extracted embeddings for {len(filtered_indices)} filtered documents"
+            )
+            print(f"Embedding matrix shape: {embeddings.shape}")
+    else:
+        # Generate fresh embeddings
+        if verbose:
+            logger.info(f"Encoding {n_docs} documents using model: {target_model}")
+
+        embeddings = embed(
+            text=documents,
+            model=target_model,
+            return_format="numpy",
+            show_progress=show_progress,
+        )
+
+        if verbose:
+            print(f"Generated embedding matrix shape: {embeddings.shape}")
 
     # -----------------------------------------------------------------------
     # Step 2: Configure BERTopic Pipeline
@@ -739,6 +942,18 @@ def run_bertopic_pipeline(
     topic_results = regular_topics + outliers
 
     if verbose:
+        if query_metadata:
+            print(f"\n{'=' * 70}")
+            print(f"Query Filtering Summary:")
+            print(f"  Query: '{query_metadata['query']}'")
+            print(f"  Threshold: {query_metadata['query_threshold']}")
+            print(f"  Original documents: {query_metadata['original_count']}")
+            print(f"  Filtered documents: {n_docs}")
+            print(
+                f"  Retention rate: {n_docs / query_metadata['original_count'] * 100:.1f}%"
+            )
+            print(f"{'=' * 70}")
+
         for topic in topic_results:
             if topic["topic_id"] == -1:
                 print(f"\n❌ Outliers / Unclustered Docs ({topic['size']} docs):")
@@ -759,7 +974,8 @@ def run_bertopic_pipeline(
             if len(topic["documents"]) > 3:
                 print(f"   ... and {len(topic['documents']) - 3} more documents")
 
-    return {
+    # Build result dictionary
+    result = {
         "topic_model": topic_model,
         "topics": [int(t) for t in topics],
         "probabilities": probs,
@@ -767,6 +983,12 @@ def run_bertopic_pipeline(
         "topic_results": topic_results,
         "embeddings": embeddings,
     }
+
+    # Add query metadata if query was used
+    if query_metadata:
+        result.update(query_metadata)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
