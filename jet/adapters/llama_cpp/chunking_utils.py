@@ -7,9 +7,7 @@ from jet.adapters.llama_cpp.token_utils import (
 )
 from jet.adapters.llama_cpp.types import LLAMACPP_KEYS
 from jet.logger import logger
-from jet.wordnet.sentence import (
-    split_sentences,
-)
+from jet.wordnet.sentence import split_sentences
 from tqdm import tqdm
 
 LOCAL_BATCH_SIZE = 64  # Optimal batch size for local tokenizer operations

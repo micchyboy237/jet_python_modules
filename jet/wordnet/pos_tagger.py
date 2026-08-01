@@ -264,6 +264,52 @@ class POSTagger:
 
         return " ".join(filtered_words)
 
+    def filter_docs_by_pos_tags(
+        self,
+        docs: list[str],
+        required_tags: str | list[str],
+        match_all: bool = True
+    ) -> list[str]:
+        """
+        Filter documents to only those containing specified POS tags.
+
+        Args:
+            docs: List of document strings to filter
+            required_tags: POS tag(s) that must be present (single string or list)
+            match_all: If True (AND), doc must contain ALL tags.
+                      If False (OR), doc must contain AT LEAST ONE tag.
+
+        Returns:
+            List of documents matching the criteria
+
+        Example:
+            tagger = POSTagger()
+            docs = ["The cat runs fast.", "Beautiful sky.", "She eats food."]
+            result = tagger.filter_docs_by_pos_tags(docs, ["NOUN", "VERB"])
+            # Returns: ["The cat runs fast.", "She eats food."]
+        """
+        # Normalize input: single string → list, all uppercase
+        if isinstance(required_tags, str):
+            required_tags = [required_tags]
+        required_tags = [tag.upper() for tag in required_tags]
+
+        filtered = []
+        for doc in docs:
+            pos_results = self.process_and_tag(doc)
+            found_tags = {item['pos'].upper() for item in pos_results}
+
+            if match_all:
+                # AND: all required tags must be present
+                matches = all(tag in found_tags for tag in required_tags)
+            else:
+                # OR: at least one required tag must be present
+                matches = any(tag in found_tags for tag in required_tags)
+
+            if matches:
+                filtered.append(doc)
+
+        return filtered
+
 
 if __name__ == '__main__':
     tagger = POSTagger()
