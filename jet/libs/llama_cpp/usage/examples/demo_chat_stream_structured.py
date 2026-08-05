@@ -17,7 +17,7 @@ import logging
 import re
 from pathlib import Path
 
-from jet.libs.llama_cpp.usage.chat_stream_vl_observability import (
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
     get_client,
     run_chat_stream,

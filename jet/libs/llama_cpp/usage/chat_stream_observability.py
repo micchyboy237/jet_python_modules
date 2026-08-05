@@ -99,7 +99,9 @@ def setup_observability(
     )
     OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
 
-    logger.info(f"🔭 Observability enabled → [link={phoenix_url}]{phoenix_url}[/link]")
+    console.print(
+        f"🔭 Observability enabled → [link={phoenix_url}]{phoenix_url}[/link]"
+    )
     logger.info(f"📁 Phoenix project name: {project_name}")
     return tracer_provider
 
@@ -374,7 +376,7 @@ def run_chat_stream(
             logger.info(f"🔧 Tools        : {tool_names} (choice={tool_choice})")
         if response_format:
             logger.info(f"📐 Response fmt : {response_format}")
-        logger.info(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
+        console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
         # ── Build messages ─────────────────────────────────────────────
         if messages is not None:
@@ -608,7 +610,7 @@ def run_chat_stream(
             if finish_reason:
                 logger.info(f"   Finish reason      : {finish_reason}")
 
-            logger.info(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
+            console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
             logger.info("─" * 60)
             span.set_status(Status(StatusCode.OK))
 
