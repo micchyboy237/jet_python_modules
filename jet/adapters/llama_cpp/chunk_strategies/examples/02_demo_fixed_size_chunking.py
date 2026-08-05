@@ -1,12 +1,10 @@
-# /Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/adapters/llama_cpp/examples/chunk_strategies/02_demo_fixed_size_chunking.py
-"""Demo: TokenAwareFixedSizeChunker for code/structured content.
+# jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/examples/02_demo_fixed_size_chunking.py
+"""Demo: TokenAwareFixedSizeChunker with overlap verification.
 
-This input is a Python function with no meaningful sentence boundaries.
-Sentence-aware chunking would produce degenerate results here since the
-entire block is one "sentence" to NLTK. The fixed-size strategy slides
-a token-exact window across the raw token stream, producing uniform chunks
-that preserve syntactic structure through consistent boundary placement
-and efficient batch decoding.
+Demonstrates token-level sliding window chunking on Python code where
+sentence boundaries are meaningless. Verifies that consecutive chunks
+share exactly the configured number of overlap tokens through direct
+token ID comparison.
 """
 
 from jet.adapters.llama_cpp.chunk_strategies import get_chunker
@@ -44,39 +42,72 @@ class MultiHeadAttention(nn.Module):
         return self.dropout(self.w_o(attn_output))
 """
 
+CHUNK_SIZE = 80
+CHUNK_OVERLAP = 16
+MIN_CHUNK_SIZE = 20
+BUFFER = 4
+
 
 def main() -> None:
     chunker = get_chunker("fixed", model="qwen3.5:2b")
 
     chunks = chunker.chunk(
         text=CODE_TEXT,
-        chunk_size=80,
-        chunk_overlap=16,
-        min_chunk_size=20,
-        buffer=4,
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        min_chunk_size=MIN_CHUNK_SIZE,
+        buffer=BUFFER,
     )
 
+    effective = CHUNK_SIZE - BUFFER
+    step = CHUNK_SIZE - CHUNK_OVERLAP - BUFFER
+
     print(f"Strategy: TokenAwareFixedSizeChunker")
+    print(
+        f"Config: chunk_size={CHUNK_SIZE}, overlap={CHUNK_OVERLAP}, "
+        f"min={MIN_CHUNK_SIZE}, buffer={BUFFER} → effective={effective}, step={step}"
+    )
     print(f"Input length: {len(CODE_TEXT)} chars")
     print(f"Output chunks: {len(chunks)}")
-    print("-" * 60)
+    print("=" * 60)
+
+    # Pre-tokenize all chunks for overlap verification
+    chunk_token_lists = [chunker.size_fn(c) for c in chunks]
 
     for i, chunk in enumerate(chunks):
-        token_count = len(chunker.size_fn(chunk))
-        print(f"\n[Chunk {i}] ({token_count} tokens)")
+        tok_count = len(chunk_token_lists[i])
+        print(f"\n[Chunk {i}] ({tok_count} tokens)")
         print(chunk)
 
-    # Verify uniformity: all non-tail chunks should be near-effective size
-    effective = 80 - 4
-    sizes = [len(chunker.size_fn(c)) for c in chunks]
-    print("\n" + "-" * 60)
+        # Verify overlap via direct token ID comparison
+        if i < len(chunks) - 1:
+            curr_tokens = chunk_token_lists[i]
+            next_tokens = chunk_token_lists[i + 1]
+
+            # Expected: tail of curr matches head of next
+            actual_overlap = 0
+            max_check = min(len(curr_tokens), len(next_tokens))
+            for length in range(max_check, 0, -1):
+                if curr_tokens[-length:] == next_tokens[:length]:
+                    actual_overlap = length
+                    break
+
+            status = "✅" if actual_overlap == CHUNK_OVERLAP else "⚠️"
+            print(
+                f"  ↕ Overlap with Chunk {i + 1}: {actual_overlap} tokens "
+                f"(expected {CHUNK_OVERLAP}) {status}"
+            )
+
+    # Summary statistics
+    sizes = [len(t) for t in chunk_token_lists]
+    print("\n" + "=" * 60)
     print(f"Chunk token sizes: {sizes}")
     print(f"Effective budget: {effective} tokens")
     non_tail = sizes[:-1] if len(sizes) > 1 else sizes
     if non_tail and all(s >= effective - 2 for s in non_tail):
-        print("Non-tail chunks are uniformly packed near budget.")
+        print("✅ Non-tail chunks are uniformly packed near budget.")
     else:
-        print("Note: Some non-tail chunks are below expected fill level.")
+        print("⚠️  Note: Some non-tail chunks are below expected fill level.")
 
 
 if __name__ == "__main__":
