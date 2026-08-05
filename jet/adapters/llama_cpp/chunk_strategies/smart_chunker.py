@@ -1,11 +1,12 @@
-"""Smart chunker that adapts strategy based on document structure.
+"""Smart chunker that adapts to document structure.
 
-Delegates to existing proven strategies rather than reimplementing chunking logic.
-Structure detection uses multiple signals with confidence scoring.
+Supports two input modes:
+1. Raw text: Uses heuristic structure detection (fast, no dependencies)
+2. Unstructured elements: Uses semantic element types for accurate routing
 """
 
 import logging
-from typing import List
+from typing import Any, Dict, List, Optional, Set
 
 from jet.adapters.llama_cpp.chunk_strategies.fixed_size_chunker import (
     TokenAwareFixedSizeChunker,
@@ -18,21 +19,31 @@ from jet.adapters.llama_cpp.types import LLAMACPP_KEYS
 
 logger = logging.getLogger(__name__)
 
+# Element type sets mirrored from document_parser for decoupled operation
+_ATOMIC_TYPES: Set[str] = {"Table", "CodeSnippet", "Formula"}
+_SECTION_TYPES: Set[str] = {"Title", "Header"}
+_NARRATIVE_TYPES: Set[str] = {
+    "NarrativeText",
+    "Text",
+    "UncategorizedText",
+    "Paragraph",
+    "ListItem",
+    "BulletedText",
+    "FigureCaption",
+}
+
 _STRUCTURE_HEADERS_THRESHOLD = 3
-_STRUCTURE_MIN_LINES = 15
+_STRUCTURE_MIN_LINES = 10
 _CODE_INDICATORS = ("```", "def ", "class ", "import ", "function ")
 _TABLE_INDICATOR = "|"
 
 
 class SmartChunker:
-    """Structure-aware chunking that delegates to optimal sub-strategies.
+    """Structure-aware chunking with optional unstructured element support.
 
-    Detects document structure and routes to:
-    - TokenAwareSentenceChunker for narrative prose
-    - TokenAwareFixedSizeChunker for code/structured data
-    - Hybrid approach for mixed documents
-
-    Satisfies ChunkStrategy protocol for drop-in compatibility.
+    When elements are provided, uses semantic type classification for
+    deterministic strategy selection. Falls back to text heuristics
+    when only raw text is available.
     """
 
     def __init__(self, model: str | LLAMACPP_KEYS) -> None:
@@ -53,26 +64,26 @@ class SmartChunker:
         chunk_overlap: int = 0,
         min_chunk_size: int = 32,
         buffer: int = 0,
+        elements: Optional[List[Dict[str, Any]]] = None,
     ) -> List[str]:
-        """Adaptively chunk text based on detected document structure.
+        """Adaptively chunk text based on document structure.
 
-        Args match ChunkStrategy protocol exactly for polymorphic compatibility.
+        Args:
+            text: Raw text to chunk.
+            chunk_size: Max tokens per chunk (0 or None → auto from model).
+            chunk_overlap: Overlapping tokens between consecutive chunks.
+            min_chunk_size: Minimum tokens for a chunk to be kept.
+            buffer: Extra token margin reserved to avoid exceeding chunk_size.
+            elements: Optional unstructured element dicts from partition().
+                      When provided, enables semantic structure detection.
+
+        Returns:
+            List of chunk strings.
         """
         if not text.strip():
             return []
 
         effective_chunk_size = chunk_size or self.default_chunk_size
-        structure = self._detect_structure(text)
-
-        logger.info(
-            "SmartChunker: detected '%s' structure, chunk_size=%d, overlap=%d, "
-            "min=%d, buffer=%d",
-            structure,
-            effective_chunk_size,
-            chunk_overlap,
-            min_chunk_size,
-            buffer,
-        )
 
         common_kwargs = dict(
             chunk_size=effective_chunk_size,
@@ -81,45 +92,103 @@ class SmartChunker:
             buffer=buffer,
         )
 
+        # Route based on available structure signal
+        if elements:
+            structure = self._classify_from_elements(elements)
+            logger.info(
+                "SmartChunker: element-based structure='%s' (%d elements), "
+                "chunk_size=%d",
+                structure,
+                len(elements),
+                effective_chunk_size,
+            )
+            return self._chunk_by_structure(text, structure, common_kwargs)
+        else:
+            structure = self._detect_structure_from_text(text)
+            logger.info(
+                "SmartChunker: text-heuristic structure='%s', chunk_size=%d",
+                structure,
+                effective_chunk_size,
+            )
+            return self._chunk_by_structure(text, structure, common_kwargs)
+
+    def _chunk_by_structure(
+        self,
+        text: str,
+        structure: str,
+        kwargs: dict,
+    ) -> List[str]:
+        """Dispatch to appropriate sub-strategy based on structure label."""
         if structure == "code_heavy":
             logger.debug("Routing to TokenAwareFixedSizeChunker")
-            return self._fixed_chunker.chunk(text=text, **common_kwargs)
+            return self._fixed_chunker.chunk(text=text, **kwargs)
         elif structure == "structured":
-            logger.debug(
-                "Routing structured doc to sentence chunker with reduced overlap"
-            )
-            # Structured docs benefit from less overlap to avoid repeating headers
-            adjusted = {**common_kwargs, "chunk_overlap": max(0, chunk_overlap // 2)}
+            logger.debug("Routing to sentence chunker with reduced overlap")
+            adjusted = {**kwargs, "chunk_overlap": max(0, kwargs["chunk_overlap"] // 2)}
             return self._sentence_chunker.chunk(text=text, **adjusted)
-        else:  # flat_narrative or mixed
+        elif structure == "atomic_flat":
+            # Atomic elements (tables/code) mixed with narrative:
+            # Use fixed-size to preserve atomic boundaries
+            logger.debug("Routing atomic_flat to TokenAwareFixedSizeChunker")
+            return self._fixed_chunker.chunk(text=text, **kwargs)
+        else:  # flat_narrative, monolithic, mixed
             logger.debug("Routing to TokenAwareSentenceChunker")
-            return self._sentence_chunker.chunk(text=text, **common_kwargs)
+            return self._sentence_chunker.chunk(text=text, **kwargs)
 
-    def _detect_structure(self, text: str) -> str:
-        """Detect document structure using multi-signal heuristic.
+    # ── Element-based classification (deterministic) ──────────────────
 
-        Returns one of: 'code_heavy', 'structured', 'flat_narrative'.
+    def _classify_from_elements(self, elements: List[Dict[str, Any]]) -> str:
+        """Classify structure from unstructured element types.
+
+        Mirrors classify_structure() from document_parser but returns
+        labels compatible with _chunk_by_structure dispatch.
         """
+        if not elements:
+            return "flat_narrative"
+
+        types = [e.get("type", "") for e in elements]
+        has_sections = any(t in _SECTION_TYPES for t in types)
+        has_atomic = any(t in _ATOMIC_TYPES for t in types)
+        narrative_count = sum(1 for t in types if t in _NARRATIVE_TYPES)
+        total = len(types)
+
+        if has_sections and total > 3:
+            return "structured"
+        elif has_atomic and not has_sections:
+            return "atomic_flat"
+        elif narrative_count == total and total > 0:
+            return "flat_narrative"
+        elif total <= 2:
+            return "flat_narrative"  # monolithic → treat as narrative
+        else:
+            return "structured"  # mixed → lean toward structured
+
+    # ── Text-only heuristic classification (fallback) ─────────────────
+
+    def _detect_structure_from_text(self, text: str) -> str:
+        """Heuristic structure detection for raw text without elements."""
         lines = text.split("\n")
         non_empty_lines = [l for l in lines if l.strip()]
         total_lines = len(non_empty_lines)
 
-        # Signal 1: Code density
         code_line_count = sum(
             1
             for l in non_empty_lines
             if any(indicator in l for indicator in _CODE_INDICATORS)
         )
         code_ratio = code_line_count / max(total_lines, 1)
+        has_code_fence = any("```" in l for l in lines)
 
-        # Signal 2: Markdown headers
         header_count = sum(1 for l in non_empty_lines if l.strip().startswith("#"))
-
-        # Signal 3: Table presence
         has_tables = any(_TABLE_INDICATOR in l for l in non_empty_lines)
 
-        # Decision logic
-        if code_ratio > 0.3:
+        is_code = (
+            code_ratio > 0.15
+            or has_code_fence
+            or (code_line_count >= 3 and total_lines <= 50)
+        )
+
+        if is_code:
             result = "code_heavy"
         elif (
             header_count >= _STRUCTURE_HEADERS_THRESHOLD
@@ -127,16 +196,18 @@ class SmartChunker:
         ):
             result = "structured"
         elif has_tables and code_ratio > 0.1:
-            result = "code_heavy"  # Tables + code → treat as structured data
+            result = "atomic_flat"
         else:
             result = "flat_narrative"
 
         logger.debug(
-            "Structure detection: code_ratio=%.2f, headers=%d, lines=%d, "
-            "has_tables=%s → %s",
+            "Text heuristic: code_ratio=%.2f, code_lines=%d/%d, fence=%s, "
+            "headers=%d, tables=%s → %s",
             code_ratio,
-            header_count,
+            code_line_count,
             total_lines,
+            has_code_fence,
+            header_count,
             has_tables,
             result,
         )
