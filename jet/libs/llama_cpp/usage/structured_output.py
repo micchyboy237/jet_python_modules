@@ -4,25 +4,21 @@
 Provides encapsulated, reusable functions for response formats that
 actually work with llama.cpp:
 
-  - text_output()              → Plain text (always works)
-  - json_object_output()       → Best-effort JSON via response_format
-  - function_call_output()     → Structured output via function calling
-  - custom_tool_grammar_output() → Structured output via official custom tool grammar
-  - auto_structured()          → Smart auto-selection based on requirements
+  - json_object_output()     → Best-effort JSON via response_format
+  - auto_structured()        → Smart auto-selection based on requirements
 
 Pydantic Integration:
-  - pydantic_output()          → Extract Pydantic model via json_object + fallback
-  - pydantic_list_output()     → Extract list of Pydantic models
-  - parsed_completion()        → OpenAI-compatible interface (result.parsed)
-  - pydantic_to_json_schema()  → Convert Pydantic model → JSON Schema
+  - pydantic_output()        → Extract Pydantic model via json_object mode
+  - pydantic_list_output()   → Extract list of Pydantic models
+  - parsed_completion()      → OpenAI-compatible interface (result.parsed)
+  - pydantic_to_json_schema() → Convert Pydantic model → JSON Schema
 
 Design principles:
   - Each function returns a typed dataclass, not raw dict/str
-  - Built-in JSON extraction handles common llama.cpp quirks
-  - Uses only official OpenAI API patterns (no llama.cpp-specific extensions)
+  - Built-in JSON extraction handles common llama.cpp quirks (markdown fences, etc.)
   - Comprehensive logging at every step
-  - Pydantic models work via json_object mode with enhanced prompting (95%+ reliable)
-  - OpenAI's pydantic_function_tool() pattern is fully replicated via parsed_completion()
+  - Pydantic models work via json_object mode with schema-enhanced prompting
+  - OpenAI's pydantic_function_tool() pattern is replicated via parsed_completion()
 """
 
 from __future__ import annotations
@@ -65,10 +61,7 @@ T = TypeVar("T", bound=BaseModel)
 class OutputFormat(Enum):
     """Supported output formats for llama.cpp."""
 
-    TEXT = "text"
     JSON_OBJECT = "json_object"
-    FUNCTION_CALL = "function_call"
-    CUSTOM_TOOL_GRAMMAR = "custom_tool_grammar"
 
 
 @dataclass
@@ -80,7 +73,6 @@ class StructuredResult:
         success: Whether valid structured output was obtained
         content: Raw text content from the model
         parsed: Parsed JSON (if applicable)
-        tool_calls: Parsed tool calls (if applicable)
         usage: Token usage stats
         finish_reason: Why model stopped generating
         duration_ms: Total round-trip time in milliseconds
@@ -91,7 +83,6 @@ class StructuredResult:
     success: bool
     content: str
     parsed: dict | list | None = None
-    tool_calls: list[dict[str, Any]] | None = None
     usage: dict[str, int] | None = None
     finish_reason: str | None = None
     duration_ms: float = 0.0
@@ -105,7 +96,6 @@ class StructuredResult:
             "success": self.success,
             "content": self.content,
             "parsed": self.parsed,
-            "tool_calls": self.tool_calls,
             "usage": self.usage,
             "finish_reason": self.finish_reason,
             "duration_ms": self.duration_ms,
@@ -279,59 +269,7 @@ def build_schema_prompt(schema: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-# ─── Core Output Functions ────────────────────────────────────────────────
-
-
-def text_output(
-    client: OpenAI,
-    prompt: str,
-    *,
-    model: str = DEFAULT_MODEL,
-    temperature: float = 0.0,
-    max_tokens: int = 1024,
-    **kwargs: Any,
-) -> StructuredResult:
-    """Get plain text output (always works, no structure).
-
-    Args:
-        client: OpenAI client pointing to llama.cpp server
-        prompt: User prompt
-        model: Model name
-        temperature: Sampling temperature (0.0 for deterministic)
-        max_tokens: Max output tokens
-        **kwargs: Passed to run_chat_stream
-
-    Returns:
-        StructuredResult with format_used=TEXT, success=True
-    """
-    t0 = time.perf_counter()
-
-    logger.debug(f"📝 [text_output] Starting with prompt: {prompt[:80]}...")
-
-    result = run_chat_stream(
-        client,
-        prompt=prompt,
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        **kwargs,
-    )
-
-    duration_ms = (time.perf_counter() - t0) * 1000
-
-    logger.debug(
-        f"✅ [text_output] Complete in {duration_ms:.0f}ms, "
-        f"{len(result.content)} chars, finish={result.finish_reason}"
-    )
-
-    return StructuredResult(
-        format_used=OutputFormat.TEXT,
-        success=True,
-        content=result.content,
-        usage=result.usage,
-        finish_reason=result.finish_reason,
-        duration_ms=duration_ms,
-    )
+# ─── Core Output Function ─────────────────────────────────────────────────
 
 
 def json_object_output(
@@ -397,284 +335,6 @@ def json_object_output(
         finish_reason=result.finish_reason,
         duration_ms=duration_ms,
         error=None if success else "Failed to extract valid JSON from response",
-    )
-
-
-def function_call_output(
-    client: OpenAI,
-    prompt: str,
-    tools: list[dict[str, Any]],
-    *,
-    model: str = DEFAULT_MODEL,
-    temperature: float = 0.0,
-    max_tokens: int = 1024,
-    tool_choice: str | dict[str, Any] = "auto",
-    **kwargs: Any,
-) -> StructuredResult:
-    """Get structured output via function calling.
-
-    The model is given function definitions and can choose to call them.
-    This provides structured argument extraction in a validated format.
-
-    Args:
-        client: OpenAI client
-        prompt: User prompt
-        tools: List of tool definitions (OpenAI format)
-        model: Model name
-        temperature: Low temperature for reliable tool calling
-        max_tokens: Max output tokens
-        tool_choice: "auto", "required", "none", or specific tool dict
-        **kwargs: Passed to run_chat_stream
-
-    Returns:
-        StructuredResult with tool_calls containing parsed arguments
-    """
-    t0 = time.perf_counter()
-
-    tool_names = [t.get("function", {}).get("name", "?") for t in tools]
-    logger.debug(
-        f"🔧 [function_call_output] Tools: {tool_names}, prompt: {prompt[:80]}..."
-    )
-
-    result = run_chat_stream(
-        client,
-        prompt=prompt,
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        tools=tools,
-        tool_choice=tool_choice,
-        **kwargs,
-    )
-
-    duration_ms = (time.perf_counter() - t0) * 1000
-    success = result.has_tool_calls
-
-    tool_calls_dict = None
-    if success:
-        tool_calls_dict = [
-            {
-                "id": tc.id,
-                "name": tc.name,
-                "arguments": tc.arguments,
-            }
-            for tc in result.tool_calls
-        ]
-        logger.debug(
-            f"✅ [function_call_output] {len(result.tool_calls)} tool call(s) "
-            f"in {duration_ms:.0f}ms"
-        )
-    else:
-        logger.warning(
-            f"⚠️ [function_call_output] No tool calls generated. "
-            f"Content: {result.content[:100]}..."
-        )
-
-    return StructuredResult(
-        format_used=OutputFormat.FUNCTION_CALL,
-        success=success,
-        content=result.content,
-        parsed=result.tool_calls[0].arguments if result.tool_calls else None,
-        tool_calls=tool_calls_dict,
-        usage=result.usage,
-        finish_reason=result.finish_reason,
-        duration_ms=duration_ms,
-        error=None if success else "Model did not call any tool",
-    )
-
-
-def custom_tool_grammar_output(
-    client: OpenAI,
-    prompt: str,
-    grammar_definition: str,
-    *,
-    tool_name: str = "generate_output",
-    tool_description: str = "Generate structured output in the required format",
-    grammar_syntax: str = "regex",
-    model: str = DEFAULT_MODEL,
-    temperature: float = 0.0,
-    max_tokens: int = 1024,
-    extractor: Callable[[str], dict | list | None] = extract_json,
-    **kwargs: Any,
-) -> StructuredResult:
-    """Get structured output using OpenAI's official CustomFormatGrammar tool.
-
-    This uses the standard OpenAI custom tool pattern with grammar format,
-    which is defined in the official OpenAI Python types:
-    ChatCompletionCustomToolParam → Custom → CustomFormatGrammar
-
-    Args:
-        client: OpenAI client
-        prompt: User prompt
-        grammar_definition: The grammar definition string (regex or lark syntax)
-        tool_name: Name for the custom tool
-        tool_description: Description of what the tool does
-        grammar_syntax: "regex" or "lark" (OpenAI official values)
-        model: Model name
-        temperature: Low temperature for deterministic output
-        max_tokens: Max output tokens
-        extractor: JSON extraction function
-        **kwargs: Additional arguments
-
-    Returns:
-        StructuredResult with parsed output if successful
-    """
-    t0 = time.perf_counter()
-
-    logger.debug(
-        f"🔧 [custom_tool_grammar_output] Tool='{tool_name}', "
-        f"syntax={grammar_syntax}, prompt: {prompt[:80]}..."
-    )
-
-    # Build the official OpenAI custom tool with grammar format
-    tools = [
-        {
-            "type": "custom",
-            "custom": {
-                "name": tool_name,
-                "description": tool_description,
-                "format": {
-                    "type": "grammar",
-                    "grammar": {
-                        "syntax": grammar_syntax,
-                        "definition": grammar_definition,
-                    },
-                },
-            },
-        }
-    ]
-
-    result = run_chat_stream(
-        client,
-        prompt=prompt,
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        tools=tools,
-        tool_choice="required",
-        **kwargs,
-    )
-
-    duration_ms = (time.perf_counter() - t0) * 1000
-
-    if result.has_tool_calls and result.tool_calls:
-        # Extract the input from the custom tool call
-        tool_call = result.tool_calls[0]
-        # For custom tools, the output is in the arguments/input
-        raw_input = tool_call.raw_arguments
-        parsed = extractor(raw_input)
-
-        success = parsed is not None
-        logger.debug(
-            f"{'✅' if success else '⚠️'} [custom_tool_grammar_output] "
-            f"Complete in {duration_ms:.0f}ms"
-        )
-
-        return StructuredResult(
-            format_used=OutputFormat.CUSTOM_TOOL_GRAMMAR,
-            success=success,
-            content=raw_input,
-            parsed=parsed,
-            tool_calls=[
-                {
-                    "id": tool_call.id,
-                    "name": tool_call.name,
-                    "arguments": tool_call.arguments,
-                }
-            ],
-            usage=result.usage,
-            finish_reason=result.finish_reason,
-            duration_ms=duration_ms,
-            error=None if success else "Could not parse custom tool output as JSON",
-        )
-    else:
-        logger.warning(
-            f"⚠️ [custom_tool_grammar_output] No custom tool call generated. "
-            f"Content: {result.content[:100]}..."
-        )
-
-        return StructuredResult(
-            format_used=OutputFormat.CUSTOM_TOOL_GRAMMAR,
-            success=False,
-            content=result.content,
-            usage=result.usage,
-            finish_reason=result.finish_reason,
-            duration_ms=duration_ms,
-            error="Model did not call the custom grammar tool",
-        )
-
-
-def auto_structured(
-    client: OpenAI,
-    prompt: str,
-    *,
-    json_schema: dict[str, Any] | None = None,
-    tools: list[dict[str, Any]] | None = None,
-    model: str = DEFAULT_MODEL,
-    temperature: float = 0.0,
-    max_tokens: int = 1024,
-    **kwargs: Any,
-) -> StructuredResult:
-    """Smart auto-selection of the best structured output method.
-
-    Priority:
-    1. If tools are provided → use function_call_output
-    2. If json_schema is provided → use json_object_output with enhanced prompt
-    3. Otherwise → use json_object_output
-
-    Args:
-        client: OpenAI client
-        prompt: User prompt
-        json_schema: Optional JSON Schema for structured output
-        tools: Optional tool definitions for function calling
-        model: Model name
-        temperature: Sampling temperature
-        max_tokens: Max output tokens
-        **kwargs: Additional arguments
-
-    Returns:
-        StructuredResult from the best available method
-    """
-    logger.debug(
-        f"🤖 [auto_structured] Selecting best format for prompt: {prompt[:80]}..."
-    )
-
-    # Priority 1: Function calling
-    if tools:
-        logger.debug("   → Using function_call_output (tools provided)")
-        return function_call_output(
-            client,
-            prompt,
-            tools,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs,
-        )
-
-    # Priority 2: JSON Schema → enhanced json_object prompt
-    if json_schema:
-        schema_prompt = build_schema_prompt(json_schema)
-        enhanced_prompt = f"{prompt}\n\n{schema_prompt}"
-        logger.debug("   → Using json_object_output (with schema-enhanced prompt)")
-        return json_object_output(
-            client,
-            enhanced_prompt,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **kwargs,
-        )
-
-    # Priority 3: JSON object mode (default)
-    logger.debug("   → Using json_object_output (default)")
-    return json_object_output(
-        client,
-        prompt,
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        **kwargs,
     )
 
 
@@ -942,37 +602,4 @@ def parsed_completion(
         finish_reason=pydantic_result.raw_result.finish_reason
         if pydantic_result.raw_result
         else None,
-    )
-
-
-# ─── Convenience Functions ─────────────────────────────────────────────────
-
-
-def extract_person(client: OpenAI, text: str) -> StructuredResult:
-    """Extract person info (name, age, city) from text."""
-    return json_object_output(
-        client,
-        f"Extract person info as JSON:\n{text}\n\n"
-        'Return: {{"name": "...", "age": ..., "city": "..."}}',
-        temperature=0.0,
-    )
-
-
-def extract_list(client: OpenAI, text: str) -> StructuredResult:
-    """Extract a list of items from text."""
-    return json_object_output(
-        client,
-        f"Extract items as a JSON array from:\n{text}\n\n"
-        'Return: ["item1", "item2", ...]',
-        temperature=0.0,
-    )
-
-
-def extract_sentiment(client: OpenAI, text: str) -> StructuredResult:
-    """Extract sentiment (positive/negative/neutral) with confidence."""
-    return json_object_output(
-        client,
-        f"Analyze sentiment as JSON:\n{text}\n\n"
-        'Return: {{"sentiment": "positive|negative|neutral", "confidence": 0.0-1.0}}',
-        temperature=0.0,
     )

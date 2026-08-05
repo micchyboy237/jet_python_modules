@@ -1,4 +1,4 @@
-"""Demo 05: List of Pydantic models from a single prompt.
+"""Demo 03: List of Pydantic models from a single prompt.
 
 Demonstrates extracting multiple entities into a typed list.
 Useful for batch extraction from paragraphs containing multiple items.
@@ -59,7 +59,7 @@ class City(BaseModel):
 def main():
     console.print(
         Panel.fit(
-            "📋 [bold]Demo 05: Pydantic List Extraction[/bold]\n"
+            "📋 [bold]Demo 03: Pydantic List Extraction[/bold]\n"
             "Extract multiple entities into a typed list.\n"
             "Iterate with: for city in result.model: print(city.name)",
             style="blue",

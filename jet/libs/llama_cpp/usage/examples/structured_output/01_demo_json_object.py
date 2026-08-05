@@ -1,4 +1,4 @@
-"""Demo 02: JSON object output via response_format.
+"""Demo 01: JSON object output via response_format.
 
 Demonstrates best-effort JSON mode on llama.cpp.
 The model is hinted to return JSON but may wrap it in ``` fences.
@@ -42,7 +42,7 @@ logger = logging.getLogger(Path(__file__).stem)
 def main():
     console.print(
         Panel.fit(
-            "🏗️ [bold]Demo 02: JSON Object Output[/bold]\n"
+            "🏗️ [bold]Demo 01: JSON Object Output[/bold]\n"
             "Best-effort JSON via response_format={'type': 'json_object'}.\n"
             "Handles markdown fences automatically.",
             style="blue",

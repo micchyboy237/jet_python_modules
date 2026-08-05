@@ -1,4 +1,4 @@
-"""Demo 04: Pydantic model extraction with automatic validation.
+"""Demo 02: Pydantic model extraction with automatic validation.
 
 Demonstrates extracting a single Pydantic model instance from text.
 Uses json_object mode with schema-enhanced prompting.
@@ -66,7 +66,7 @@ class ProgrammingLanguage(BaseModel):
 def main():
     console.print(
         Panel.fit(
-            "🔒 [bold]Demo 04: Pydantic Model Extraction[/bold]\n"
+            "🔒 [bold]Demo 02: Pydantic Model Extraction[/bold]\n"
             "Single Pydantic model with automatic validation.\n"
             "Type-safe access: result.model.name, result.model.year_created, etc.",
             style="blue",

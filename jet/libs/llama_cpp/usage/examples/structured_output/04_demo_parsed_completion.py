@@ -1,4 +1,4 @@
-"""Demo 07: OpenAI-compatible parsed completion pattern.
+"""Demo 04: OpenAI-compatible parsed completion pattern.
 
 Demonstrates parsed_completion() which mimics the OpenAI SDK's
 pydantic_function_tool() pattern. The interface is the same:
@@ -64,7 +64,7 @@ class Conference(BaseModel):
 def main():
     console.print(
         Panel.fit(
-            "🔄 [bold]Demo 07: OpenAI-Compatible parsed_completion()[/bold]\n"
+            "🔄 [bold]Demo 04: OpenAI-Compatible parsed_completion()[/bold]\n"
             "Mimics OpenAI's pydantic_function_tool() interface.\n"
             "Access with: result.parsed.field_name",
             style="blue",
