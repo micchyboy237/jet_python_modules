@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Any, Callable
 
 import requests
 from openai import OpenAI, Stream
@@ -32,6 +33,11 @@ LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1
 DEFAULT_MODEL = "qwen3.5-uncensored:2b"
 MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
 PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Observability Setup
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 def setup_observability(
@@ -70,7 +76,12 @@ def format_trace_id(trace_id: int) -> str:
 
 def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
     """Direct link to view this specific trace in the Phoenix UI."""
-    return f"{phoenix_url.rstrip('/')}/traces/{format_trace_id(trace_id)}"
+    return f"{phoenix_url.rstrip('/')}/redirects/traces/{format_trace_id(trace_id)}"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Client & Image Helpers
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 def get_client(base_url: str = LLAMA_CPP_BASE_URL, timeout: float = 120.0) -> OpenAI:
@@ -142,7 +153,61 @@ def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
     return base64_data, mime
 
 
-def run_chat_stream(
+# ──────────────────────────────────────────────────────────────────────────────
+# Tool Execution with Observability
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def execute_tool_with_span(
+    tool_name: str,
+    tool_arguments: dict[str, Any],
+    executor: Callable[..., Any],
+) -> dict[str, Any]:
+    """Execute a tool function within its own observability span.
+
+    Records tool name, arguments, result, duration, and any exceptions.
+    Automatically links to the active parent chat span for end-to-end
+    trace visibility in Phoenix.
+    """
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span(
+        f"tool_execution.{tool_name}",
+        attributes={
+            "tool.name": tool_name,
+            "tool.arguments": json.dumps(tool_arguments, default=str),
+        },
+    ) as span:
+        t0 = time.perf_counter()
+        logger.info(
+            f"🔧 Executing tool: {tool_name}"
+            f"({json.dumps(tool_arguments, default=str)[:120]})"
+        )
+        try:
+            result = executor(**tool_arguments)
+            duration = time.perf_counter() - t0
+            span.set_attribute("tool.result", json.dumps(result, default=str))
+            span.set_attribute("tool.duration_s", round(duration, 4))
+            span.set_status(Status(StatusCode.OK))
+            logger.info(
+                f"   ✅ {tool_name} completed in {duration:.3f}s → "
+                f"{json.dumps(result, default=str)[:150]}"
+            )
+            return result
+        except Exception as exc:
+            duration = time.perf_counter() - t0
+            span.record_exception(exc)
+            span.set_attribute("tool.duration_s", round(duration, 4))
+            span.set_status(Status(StatusCode.ERROR))
+            logger.exception(f"   ❌ {tool_name} failed after {duration:.3f}s")
+            raise
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Core Streaming Chat Completion
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def run_chat_stream_vl(
     client: OpenAI,
     image_source: str | None = None,
     prompt: str = "What is OpenTelemetry in one sentence?",
@@ -160,20 +225,51 @@ def run_chat_stream(
     logit_bias: dict[str, int] | None = None,
     seed: int | None = None,
     stop: list[str] | None = None,
-    # NEW: Tools & Structured Output params
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
     response_format: dict[str, Any] | None = None,
+    messages: list[dict[str, Any]] | None = None,
     phoenix_url: str = PHOENIX_URL,
 ) -> str:
-    """Stream a chat completion with support for vision, tools, and structured output."""
+    """Stream a chat completion with full tool + structured output observability.
+
+    Supports vision, function calling, JSON mode, grammar-constrained output,
+    and all llama.cpp-compatible sampling parameters.
+
+    If `messages` is provided, it takes precedence over `prompt`/`image_source`.
+    This enables multi-turn agent loops where tool results are appended and
+    the function is called again with the updated conversation history.
+
+    Wrapped in its own span so we can capture the trace_id and build a
+    direct Phoenix UI link — OpenAIInstrumentor's auto-created span
+    becomes a child of this one and shares the same trace_id.
+    """
     tracer = trace.get_tracer(__name__)
+
     with tracer.start_as_current_span("vision_chat_stream") as span:
         trace_id = span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
 
-        # ... existing attribute setting ...
+        # ── Record all parameters on span for observability ────────────
         span.set_attribute("llm.model", model)
+        span.set_attribute(
+            "llm.image_source", str(image_source) if image_source else "none"
+        )
+        span.set_attribute("llm.sampling.temperature", temperature)
+        span.set_attribute("llm.sampling.top_p", top_p)
+        span.set_attribute("llm.sampling.top_k", top_k)
+        span.set_attribute("llm.sampling.min_p", min_p)
+        span.set_attribute("llm.sampling.repeat_penalty", repeat_penalty)
+        span.set_attribute("llm.sampling.presence_penalty", presence_penalty)
+        span.set_attribute("llm.sampling.frequency_penalty", frequency_penalty)
+        span.set_attribute("llm.sampling.max_tokens", max_tokens)
+        span.set_attribute("llm.sampling.enable_thinking", enable_thinking)
+        if seed is not None:
+            span.set_attribute("llm.sampling.seed", seed)
+        if logit_bias:
+            span.set_attribute("llm.sampling.logit_bias", json.dumps(logit_bias))
+        if stop:
+            span.set_attribute("llm.sampling.stop_sequences", json.dumps(stop))
         if tools:
             span.set_attribute("llm.tools.count", len(tools))
             span.set_attribute(
@@ -182,32 +278,55 @@ def run_chat_stream(
             )
         if response_format:
             span.set_attribute(
-                "llm.response_format.type", response_format.get("type", "unknown")
+                "llm.response_format.type",
+                response_format.get("type", "unknown"),
             )
 
-        # ... existing logging and image encoding unchanged ...
+        # ── Startup logs ───────────────────────────────────────────────
+        logger.info("─" * 60)
+        logger.info(f"🖼️  Image source : {image_source or '(none — text-only)'}")
+        logger.info(f"🤖 Model        : {model}")
+        logger.info(
+            f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k} "
+            f"min_p={min_p} rep_pen={repeat_penalty}"
+        )
+        logger.info(
+            f"   freq_pen={frequency_penalty} pres_pen={presence_penalty} "
+            f"seed={seed} stop={stop}"
+        )
+        if logit_bias:
+            logger.info(f"   logit_bias={logit_bias}")
+        if tools:
+            tool_names = [t.get("function", {}).get("name", "?") for t in tools]
+            logger.info(f"🔧 Tools        : {tool_names} (choice={tool_choice})")
+        if response_format:
+            logger.info(f"📐 Response fmt : {response_format}")
         logger.info(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
-        # Build messages (unchanged from previous version)
-        if image_source:
+        # ── Build messages ─────────────────────────────────────────────
+        if messages is not None:
+            logger.info(
+                f"📨 Using pre-built message history ({len(messages)} messages)"
+            )
+        elif image_source:
             t0 = time.perf_counter()
             base64_img, mime_type = encode_image_to_base64(image_source)
             logger.info(
                 f"📦 Image encoded in {time.perf_counter() - t0:.2f}s ({mime_type})"
             )
-            content = [
+            content: Any = [
                 {"type": "text", "text": prompt},
                 {
                     "type": "image_url",
                     "image_url": {"url": f"data:{mime_type};base64,{base64_img}"},
                 },
             ]
+            messages = [{"role": "user", "content": content}]
         else:
-            content = prompt
-        messages = [{"role": "user", "content": content}]
+            messages = [{"role": "user", "content": prompt}]
 
-        # Build extra_body for llama.cpp-specific params
-        extra_body_params: dict = {
+        # ── Build extra_body for llama.cpp-specific params ─────────────
+        extra_body_params: dict[str, Any] = {
             "top_k": top_k,
             "chat_template_kwargs": {"enable_thinking": enable_thinking},
         }
@@ -216,7 +335,7 @@ def run_chat_stream(
         if repeat_penalty != 1.1:
             extra_body_params["repeat_penalty"] = repeat_penalty
 
-        # Prepare API kwargs
+        # ── Build API kwargs ───────────────────────────────────────────
         api_kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -234,18 +353,18 @@ def run_chat_stream(
         }
         if tools:
             api_kwargs["tools"] = tools
-        if tool_choice:
+        if tool_choice is not None:
             api_kwargs["tool_choice"] = tool_choice
         if response_format:
             api_kwargs["response_format"] = response_format
 
         logger.info(
-            f"➡️  Sending request (thinking={enable_thinking}, tools={bool(tools)}, format={response_format})"
+            f"➡️  Sending request (thinking={enable_thinking}, "
+            f"tools={bool(tools)}, format={response_format})"
         )
         t_request_start = time.perf_counter()
 
         collected_content: list[str] = []
-        # Accumulator for streamed tool calls
         tool_calls_acc: dict[int, dict[str, Any]] = {}
         usage = None
 
@@ -256,6 +375,7 @@ def run_chat_stream(
 
             in_think_block = False
             first_token_at: float | None = None
+
             console.print("[bold cyan]Response:[/bold cyan] ", end="")
 
             for chunk in stream:
@@ -300,7 +420,7 @@ def run_chat_stream(
                     )
                     collected_content.append(delta.content)
 
-                # Handle streamed tool call deltas
+                # Handle streamed tool call deltas (accumulate across chunks)
                 if hasattr(delta, "tool_calls") and delta.tool_calls:
                     for tc_delta in delta.tool_calls:
                         idx = tc_delta.index
@@ -346,8 +466,11 @@ def run_chat_stream(
                     if len(fn["arguments"]) > 120:
                         args_preview += "..."
                     logger.info(f"   → {fn['name']}({args_preview})")
-                span.set_attribute("llm.tool_calls", json.dumps(final_tool_calls))
+                span.set_attribute(
+                    "llm.tool_calls", json.dumps(final_tool_calls, default=str)
+                )
 
+            # ── Completion summary ─────────────────────────────────────
             logger.info("─" * 60)
             logger.info("📊 Completion summary")
             if usage:
@@ -365,18 +488,25 @@ def run_chat_stream(
             if ttft is not None:
                 logger.info(f"   Time to first token: {ttft:.2f}s")
             logger.info(f"   Total duration     : {total_secs:.2f}s")
-            # NEW: Distinguish between content responses and tool-call-only responses
+
+            # Distinguish between content responses and tool-call-only responses
             if tool_calls_acc:
                 logger.info(
                     f"   Response type      : tool_calls ({len(tool_calls_acc)} call(s))"
                 )
             else:
                 logger.info(f"   Response length    : {len(full_response)} chars")
+
             logger.info(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
             logger.info("─" * 60)
             span.set_status(Status(StatusCode.OK))
 
         return full_response
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CLI
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 def get_args() -> argparse.Namespace:
@@ -438,22 +568,10 @@ def get_args() -> argparse.Namespace:
         action="store_true",
         help="Enable the model's reasoning/thinking output.",
     )
+    # ── Standard OpenAI sampling params (supported by llama.cpp) ──────
     parser.add_argument("--max-tokens", type=int, default=32768)
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.8)
-    parser.add_argument("--top-k", type=int, default=20)
-    parser.add_argument(
-        "--min-p",
-        type=float,
-        default=0.0,
-        help="Minimum probability threshold (llama.cpp specific).",
-    )
-    parser.add_argument(
-        "--repeat-penalty",
-        type=float,
-        default=1.1,
-        help="Repetition penalty (llama.cpp native parameter).",
-    )
     parser.add_argument("--presence-penalty", type=float, default=1.5)
     parser.add_argument(
         "--frequency-penalty",
@@ -468,7 +586,11 @@ def get_args() -> argparse.Namespace:
         help="Random seed for reproducible generation.",
     )
     parser.add_argument(
-        "--stop", type=str, nargs="+", default=None, help="Stop sequences (up to 4)."
+        "--stop",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Stop sequences (up to 4).",
     )
     parser.add_argument(
         "--logit-bias",
@@ -476,13 +598,46 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="JSON dict of token_id:bias pairs, e.g. '{\"1234\": -100}'",
     )
+    # ── llama.cpp-specific params (via extra_body) ────────────────────
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument(
+        "--min-p",
+        type=float,
+        default=0.0,
+        help="Minimum probability threshold (llama.cpp specific).",
+    )
+    parser.add_argument(
+        "--repeat-penalty",
+        type=float,
+        default=1.1,
+        help="Repetition penalty (llama.cpp native parameter).",
+    )
+    # ── Tools & Structured Output ─────────────────────────────────────
+    parser.add_argument(
+        "--tools-json",
+        type=str,
+        default=None,
+        help="JSON array of tool definitions for function calling.",
+    )
+    parser.add_argument(
+        "--tool-choice",
+        type=str,
+        default=None,
+        help='Tool choice: "auto", "none", "required", or JSON object.',
+    )
+    parser.add_argument(
+        "--response-format",
+        type=str,
+        default=None,
+        help='JSON response format, e.g. \'{"type": "json_object"}\'.',
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = get_args()
 
-    # Parse logit_bias JSON string from CLI
+    # ── Parse JSON CLI arguments ───────────────────────────────────────
     parsed_logit_bias: dict[str, int] | None = None
     if args.logit_bias:
         try:
@@ -492,6 +647,32 @@ if __name__ == "__main__":
             logger.error(f"❌ Invalid logit_bias JSON: {e}")
             raise SystemExit(1)
 
+    parsed_tools: list[dict[str, Any]] | None = None
+    if args.tools_json:
+        try:
+            parsed_tools = json.loads(args.tools_json)
+            logger.info(f"🔧 Loaded {len(parsed_tools)} tool definition(s)")
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Invalid tools JSON: {e}")
+            raise SystemExit(1)
+
+    parsed_tool_choice: str | dict[str, Any] | None = args.tool_choice
+    if parsed_tool_choice and parsed_tool_choice.startswith("{"):
+        try:
+            parsed_tool_choice = json.loads(parsed_tool_choice)
+        except json.JSONDecodeError:
+            pass  # Keep as string literal ("auto", "none", "required")
+
+    parsed_response_format: dict[str, Any] | None = None
+    if args.response_format:
+        try:
+            parsed_response_format = json.loads(args.response_format)
+            logger.info(f"📐 Response format: {parsed_response_format}")
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Invalid response_format JSON: {e}")
+            raise SystemExit(1)
+
+    # ── Startup config ─────────────────────────────────────────────────
     logger.info("🚀 Startup config")
     logger.info(f"   Base URL     : {args.base_url}")
     logger.info(f"   Model        : {args.model}")
@@ -506,7 +687,7 @@ if __name__ == "__main__":
 
     client = get_client(base_url=args.base_url, timeout=args.timeout)
 
-    run_chat_stream(
+    run_chat_stream_vl(
         client,
         image_source=args.image_source,
         prompt=args.prompt,
@@ -523,5 +704,8 @@ if __name__ == "__main__":
         logit_bias=parsed_logit_bias,
         seed=args.seed,
         stop=args.stop,
+        tools=parsed_tools,
+        tool_choice=parsed_tool_choice,
+        response_format=parsed_response_format,
         phoenix_url=args.phoenix_url,
     )

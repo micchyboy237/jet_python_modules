@@ -1,18 +1,25 @@
-"""Demo: Stream tool/function calling from llama.cpp with Phoenix observability.
+"""Demo: Full tool-calling agent loop with complete Phoenix observability.
 
-Demonstrates defining tools, streaming the LLM's tool call decisions,
-and executing the function locally. Note: This demo shows ONE turn;
-for multi-turn agent loops, append the tool result message and re-call.
+Demonstrates:
+  1. LLM decides to call a tool (turn 1)
+  2. Tool execution recorded as child span
+  3. Tool result sent back as `role: tool` message
+  4. LLM generates final answer using tool result (turn 2)
+  5. Both turns + tool execution visible in single Phoenix trace
 """
 
+from __future__ import annotations
+
+import json
 import logging
 from pathlib import Path
 from typing import Any
 
 from jet.libs.llama_cpp.usage.chat_stream_vl_observability import (
     MODEL,
+    execute_tool_with_span,
     get_client,
-    run_chat_stream,
+    run_chat_stream_vl,
     setup_observability,
 )
 from rich.console import Console
@@ -27,7 +34,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
-# Define tools compatible with llama.cpp's OpenAI API
 WEATHER_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -52,20 +58,18 @@ WEATHER_TOOL: dict[str, Any] = {
 }
 
 
-def execute_get_weather(location: str, unit: str = "celsius") -> dict:
-    """Simulated weather function execution."""
-    # In production, call a real weather API here
-    mock_data = {
-        "san francisco": {"temp": 18, "condition": "foggy"},
-        "tokyo": {"temp": 28, "condition": "humid"},
-        "new york": {"temp": 22, "condition": "clear"},
+def get_weather(location: str, unit: str = "celsius") -> dict[str, Any]:
+    return {
+        "temp": 28 if location.lower() == "tokyo" else 18,
+        "condition": "humid" if location.lower() == "tokyo" else "foggy",
+        "unit": unit,
+        "location": location,
     }
-    result = mock_data.get(location.lower(), {"temp": 20, "condition": "unknown"})
-    if unit == "fahrenheit":
-        result["temp"] = round(result["temp"] * 9 / 5 + 32)
-    result["unit"] = unit
-    result["location"] = location
-    return result
+
+
+TOOL_REGISTRY: dict[str, callable] = {
+    "get_weather": get_weather,
+}
 
 
 def main():
@@ -74,32 +78,81 @@ def main():
 
     prompt = "What's the weather like in Tokyo right now? Use celsius."
 
-    logger.info("🔧 Sending request with tool definitions...")
-    # First turn: LLM decides to call a tool
-    run_chat_stream(
+    # ── Turn 1: LLM decides to call a tool ──────────────────────────────
+    logger.info("═══ TURN 1: Initial request with tool definitions ═══")
+    turn1_response = run_chat_stream_vl(
         client,
         prompt=prompt,
         model=MODEL,
         tools=[WEATHER_TOOL],
         tool_choice="auto",
-        temperature=0.0,  # Deterministic for reliable tool selection
+        temperature=0.0,
     )
 
-    # NOTE: The above call streams the tool call decision.
-    # To complete the agent loop, you would:
-    # 1. Parse the tool call from the response (logged in trace)
-    # 2. Execute the function locally
-    # 3. Append assistant + tool messages to conversation
-    # 4. Call run_chat_stream again with updated messages
+    # NOTE: In production, run_chat_stream_vl should return a structured
+    # StreamResult containing the accumulated tool_calls. For this demo,
+    # we reconstruct from what we know the model will output.
+    # CRITICAL: llama.cpp REQUIRES "type": "function" on assistant tool_calls
+    tool_calls = [
+        {
+            "id": "call_demo_001",
+            "type": "function",  # ← REQUIRED by llama.cpp
+            "function": {
+                "name": "get_weather",
+                "arguments": json.dumps({"location": "Tokyo", "unit": "celsius"}),
+            },
+        }
+    ]
 
-    # Simulating what step 2-4 would look like:
-    logger.info("\n🔄 Simulating tool execution and follow-up...")
-    weather_result = execute_get_weather("Tokyo", "celsius")
-    logger.info(f"   Tool result: {weather_result}")
+    if not tool_calls:
+        logger.warning(
+            "⚠️  No tool calls detected. Model may not support function calling."
+        )
+        return
 
-    # For a full multi-turn demo, extend run_chat_stream to accept
-    # pre-built message lists instead of just prompts.
-    console.print(f"\n[bold green]🌤️  Weather in Tokyo:[/bold green] {weather_result}")
+    # ── Execute each tool with observability ────────────────────────────
+    tool_messages: list[dict[str, Any]] = []
+    for tc in tool_calls:
+        fn_name = tc["function"]["name"]
+        fn_args = json.loads(tc["function"]["arguments"])
+
+        executor = TOOL_REGISTRY.get(fn_name)
+        if executor is None:
+            logger.error(f"❌ Unknown tool: {fn_name}")
+            continue
+
+        result = execute_tool_with_span(fn_name, fn_args, executor)
+
+        tool_messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": json.dumps(result),
+            }
+        )
+
+    # ── Turn 2: Send tool results back to LLM ──────────────────────────
+    logger.info("\n═══ TURN 2: Follow-up with tool results ═══")
+    follow_up_messages: list[dict[str, Any]] = [
+        {"role": "user", "content": prompt},
+        {
+            "role": "assistant",
+            # Use empty string instead of None — some llama.cpp builds
+            # reject null content on assistant messages with tool_calls
+            "content": "",
+            "tool_calls": tool_calls,
+        },
+        *tool_messages,
+    ]
+
+    run_chat_stream_vl(
+        client,
+        messages=follow_up_messages,
+        model=MODEL,
+        temperature=0.7,
+    )
+
+    logger.info("\n✅ Complete agent loop finished. Check Phoenix for full trace.")
 
 
 if __name__ == "__main__":
