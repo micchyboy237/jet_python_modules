@@ -162,8 +162,8 @@ def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
 # ────────────────────────────────────────────────
 def run_chat_stream_vl(
     client: OpenAI,
-    image_source: str,
-    prompt: str = "Describe this image in detail, including colors, objects, text, and overall scene.",
+    image_source: str | None = None,
+    prompt: str = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
     enable_thinking: bool = False,
@@ -175,7 +175,11 @@ def run_chat_stream_vl(
     phoenix_url: str = PHOENIX_URL,
 ) -> str:
     """
-    Stream image analysis from a vision-capable llama.cpp/vLLM server.
+    Stream a chat completion, optionally analyzing an image.
+    If `image_source` is None, sends a plain text-only chat request —
+    useful for testing the pipeline or non-vision prompts against the
+    same vision-capable server.
+
     Wrapped in its own span so we can capture the trace_id and build a
     direct Phoenix UI link — OpenAIInstrumentor's auto-created span
     becomes a child of this one and shares the same trace_id.
@@ -185,33 +189,34 @@ def run_chat_stream_vl(
     with tracer.start_as_current_span("vision_chat_stream") as span:
         trace_id = span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
-        span.set_attribute("llm.image_source", str(image_source))
+        span.set_attribute(
+            "llm.image_source", str(image_source) if image_source else "none"
+        )
         span.set_attribute("llm.model", model)
 
         logger.info("─" * 60)
-        logger.info(f"🖼️  Image source : {image_source}")
+        logger.info(f"🖼️  Image source : {image_source or '(none — text-only)'}")
         logger.info(f"🤖 Model        : {model}")
         logger.info(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
-        t0 = time.perf_counter()
-        base64_img, mime_type = encode_image_to_base64(image_source)
-        logger.info(
-            f"📦 Image encoded in {time.perf_counter() - t0:.2f}s ({mime_type})"
-        )
+        if image_source:
+            t0 = time.perf_counter()
+            base64_img, mime_type = encode_image_to_base64(image_source)
+            logger.info(
+                f"📦 Image encoded in {time.perf_counter() - t0:.2f}s ({mime_type})"
+            )
 
-        image_content = {
-            "type": "image_url",
-            "image_url": {"url": f"data:{mime_type};base64,{base64_img}"},
-        }
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    image_content,
-                ],
-            }
-        ]
+            content = [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{base64_img}"},
+                },
+            ]
+        else:
+            content = prompt  # plain string content for text-only chat
+
+        messages = [{"role": "user", "content": content}]
 
         logger.info(f"➡️  Sending request (thinking={enable_thinking})")
         t_request_start = time.perf_counter()
@@ -326,18 +331,18 @@ def get_args() -> argparse.Namespace:
         description="Stream vision-model chat completions with Phoenix observability."
     )
     parser.add_argument(
-        "image_source",
+        "prompt",
         type=str,
         nargs="?",
-        default="https://picsum.photos/800/600",
-        help="Path or URL to the image to analyze.",
+        default="What is OpenTelemetry in one sentence?",
+        help="Prompt for the chat/image analysis.",
     )
     parser.add_argument(
-        "-p",
-        "--prompt",
+        "-i",
+        "--image-source",
         type=str,
-        default="Describe this image in detail: mention the main subjects, and any interesting details you notice.",
-        help="Prompt for image analysis.",
+        default=None,
+        help="Path or URL to an image to analyze. Omit for a text-only chat request.",
     )
 
     # Observability
