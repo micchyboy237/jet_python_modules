@@ -26,7 +26,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Type, TypeVar
 
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL as DEFAULT_MODEL,
@@ -35,6 +35,16 @@ from jet.libs.llama_cpp.usage.chat_stream_observability import (
     run_chat_stream,
 )
 from openai import OpenAI
+
+try:
+    from pydantic import BaseModel, Field
+
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    PYDANTIC_AVAILABLE = False
+    BaseModel = object  # type: ignore
+
+T = TypeVar("T", bound=BaseModel)
 
 logger = logging.getLogger(Path(__file__).stem)
 
@@ -691,4 +701,373 @@ def extract_list(client: OpenAI, text: str) -> StructuredResult:
         grammar=GRAMMAR_TEMPLATES["list_of_strings"].grammar,
         grammar_name="list_of_strings",
         temperature=0.0,
+    )
+
+
+# ─── Pydantic Schema → GBNF Grammar Converter ──────────────────────────────
+
+
+def pydantic_to_json_schema(model: Type[BaseModel]) -> dict[str, Any]:
+    """Convert a Pydantic model to JSON Schema.
+
+    Args:
+        model: Pydantic BaseModel subclass
+
+    Returns:
+        JSON Schema dict
+    """
+    if not PYDANTIC_AVAILABLE:
+        raise ImportError("pydantic is required. Install with: pip install pydantic")
+
+    schema = model.model_json_schema()
+    logger.debug(
+        f"📋 Generated JSON Schema for {model.__name__}: {json.dumps(schema, indent=2)[:200]}..."
+    )
+    return schema
+
+
+def pydantic_to_grammar(model: Type[BaseModel]) -> str:
+    """Convert a Pydantic model directly to GBNF grammar.
+
+    This provides the most reliable structured output for llama.cpp
+    when using Pydantic models.
+
+    Args:
+        model: Pydantic BaseModel subclass
+
+    Returns:
+        GBNF grammar string that enforces the model's structure
+    """
+    if not PYDANTIC_AVAILABLE:
+        raise ImportError("pydantic is required. Install with: pip install pydantic")
+
+    schema = pydantic_to_json_schema(model)
+    return grammar_from_json_schema(schema)
+
+
+# ─── Pydantic-Aware Output Functions ──────────────────────────────────────
+
+
+@dataclass
+class PydanticResult(Generic[T]):
+    """Structured result containing a parsed Pydantic model instance.
+
+    Type Parameters:
+        T: The Pydantic model type
+
+    Attributes:
+        success: Whether a valid model instance was produced
+        model: The parsed Pydantic model instance (None if failed)
+        raw_result: The underlying StructuredResult for debugging
+        validation_errors: Pydantic validation errors if parsing failed
+    """
+
+    success: bool
+    model: T | None = None
+    raw_result: StructuredResult | None = None
+    validation_errors: list[str] = field(default_factory=list)
+
+    @property
+    def content(self) -> str:
+        """Raw text from the model."""
+        return self.raw_result.content if self.raw_result else ""
+
+    @property
+    def usage(self) -> dict[str, int] | None:
+        """Token usage if available."""
+        return self.raw_result.usage if self.raw_result else None
+
+
+def pydantic_output(
+    client: OpenAI,
+    prompt: str,
+    model_type: Type[T],
+    *,
+    model: str = DEFAULT_MODEL,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    use_grammar: bool = True,
+    **kwargs: Any,
+) -> PydanticResult[T]:
+    """Get output validated against a Pydantic model.
+
+    This is the recommended method for structured output with Pydantic models
+    on llama.cpp. It uses GBNF grammar by default for maximum reliability.
+
+    Args:
+        client: OpenAI client pointing to llama.cpp server
+        prompt: User prompt describing what to extract/generate
+        model_type: Pydantic BaseModel subclass defining the expected structure
+        model: llama.cpp model name
+        temperature: Low temperature for deterministic output (0.0-0.3)
+        max_tokens: Maximum output tokens
+        use_grammar: If True (default), converts model to GBNF grammar for
+                     strict enforcement. If False, uses json_object mode instead.
+        **kwargs: Additional arguments passed to the underlying method
+
+    Returns:
+        PydanticResult with the validated model instance
+
+    Example:
+        >>> class Person(BaseModel):
+        ...     name: str
+        ...     age: int
+        ...     city: str
+        ...
+        >>> result = pydantic_output(client, "Extract: John, 42, SF", Person)
+        >>> if result.success:
+        ...     print(result.model.name)  # "John"
+        ...     print(result.model.age)   # 42
+    """
+    if not PYDANTIC_AVAILABLE:
+        raise ImportError("pydantic is required. Install with: pip install pydantic")
+
+    schema = pydantic_to_json_schema(model_type)
+    model_fields = ", ".join(
+        f'"{name}" ({prop.get("type", "any")})'
+        for name, prop in schema.get("properties", {}).items()
+    )
+
+    logger.debug(
+        f"🏗️ [pydantic_output] Model={model_type.__name__}, "
+        f"fields=({model_fields}), method={'grammar' if use_grammar else 'json_object'}"
+    )
+
+    if use_grammar:
+        # Most reliable: convert model to GBNF grammar
+        grammar = pydantic_to_grammar(model_type)
+        raw = grammar_output(
+            client,
+            prompt,
+            grammar,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            grammar_name=f"pydantic_{model_type.__name__}",
+            **kwargs,
+        )
+    else:
+        # Fallback: json_object mode with schema description in prompt
+        enhanced_prompt = (
+            f"{prompt}\n\n"
+            f"Return a JSON object with these exact fields:\n"
+            f"{json.dumps(schema.get('properties', {}), indent=2)}\n\n"
+            f"Required fields: {json.dumps(schema.get('required', []))}\n"
+            f"Return ONLY the JSON object, no markdown, no explanation."
+        )
+        raw = json_object_output(
+            client,
+            enhanced_prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+
+    # Validate against Pydantic model
+    if raw.success and raw.parsed:
+        try:
+            instance = model_type.model_validate(raw.parsed)
+            logger.debug(f"✅ [pydantic_output] Validated as {model_type.__name__}")
+            return PydanticResult(
+                success=True,
+                model=instance,
+                raw_result=raw,
+            )
+        except Exception as e:
+            logger.warning(
+                f"⚠️ [pydantic_output] Validation failed: {e}\n"
+                f"   Parsed: {json.dumps(raw.parsed)[:200]}"
+            )
+            return PydanticResult(
+                success=False,
+                raw_result=raw,
+                validation_errors=[str(e)],
+            )
+    else:
+        return PydanticResult(
+            success=False,
+            raw_result=raw,
+            validation_errors=["No valid JSON parsed from response"],
+        )
+
+
+def pydantic_list_output(
+    client: OpenAI,
+    prompt: str,
+    item_type: Type[T],
+    *,
+    model: str = DEFAULT_MODEL,
+    temperature: float = 0.0,
+    max_tokens: int = 2048,
+    **kwargs: Any,
+) -> PydanticResult[list[T]]:
+    """Get a list of Pydantic model instances from the output.
+
+    Useful for extracting multiple entities from text.
+
+    Args:
+        client: OpenAI client
+        prompt: User prompt asking for a list
+        item_type: Pydantic model for each list item
+        model: Model name
+        temperature: Sampling temperature
+        max_tokens: Max output tokens
+        **kwargs: Additional arguments
+
+    Returns:
+        PydanticResult containing list of validated model instances
+
+    Example:
+        >>> class Person(BaseModel):
+        ...     name: str
+        ...     age: int
+        ...
+        >>> result = pydantic_list_output(
+        ...     client, "List all people mentioned", Person
+        ... )
+        >>> for person in result.model:
+        ...     print(person.name)
+    """
+    if not PYDANTIC_AVAILABLE:
+        raise ImportError("pydantic is required")
+
+    schema = pydantic_to_json_schema(item_type)
+
+    # Build list grammar
+    item_grammar = pydantic_to_grammar(item_type)
+    # Wrap in array
+    list_grammar = item_grammar.replace("root   ::= object", "root   ::= array")
+    list_grammar = list_grammar.replace("object ::=", "array-item ::=")
+    # Add array wrapper
+    list_grammar += "\narray  ::= '[' ws (array-item (ws ',' ws array-item)*)? ws ']'\n"
+
+    logger.debug(f"📋 [pydantic_list_output] List of {item_type.__name__}")
+
+    raw = grammar_output(
+        client,
+        prompt,
+        list_grammar,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        grammar_name=f"list_of_{item_type.__name__}",
+        **kwargs,
+    )
+
+    if raw.success and raw.parsed:
+        if isinstance(raw.parsed, dict):
+            # Single item returned as dict, wrap in list
+            items_to_validate = [raw.parsed]
+        elif isinstance(raw.parsed, list):
+            items_to_validate = raw.parsed
+        else:
+            items_to_validate = []
+
+        validated = []
+        errors = []
+        for i, item in enumerate(items_to_validate):
+            try:
+                validated.append(item_type.model_validate(item))
+            except Exception as e:
+                errors.append(f"Item {i}: {e}")
+
+        success = len(validated) > 0
+        return PydanticResult(
+            success=success,
+            model=validated if success else None,
+            raw_result=raw,
+            validation_errors=errors,
+        )
+    else:
+        return PydanticResult(
+            success=False,
+            raw_result=raw,
+            validation_errors=["No valid JSON array parsed"],
+        )
+
+
+# ─── OpenAI-Style Parsed Completion (for compatibility) ───────────────────
+
+
+class ParsedOutput(Generic[T]):
+    """Mimics OpenAI's ParsedChatCompletion pattern.
+
+    Provides a familiar interface if you're used to the OpenAI SDK's
+    parse parameter with pydantic_function_tool().
+
+    Usage:
+        result = parsed_completion(client, prompt, MyModel)
+        print(result.parsed.name)  # Direct model access
+    """
+
+    content: str
+    parsed: T | None
+    usage: dict[str, int] | None
+    finish_reason: str | None
+
+    def __init__(
+        self,
+        content: str,
+        parsed: T | None,
+        usage: dict[str, int] | None = None,
+        finish_reason: str | None = None,
+    ):
+        self.content = content
+        self.parsed = parsed
+        self.usage = usage
+        self.finish_reason = finish_reason
+
+    def __repr__(self) -> str:
+        return f"ParsedOutput(parsed={type(self.parsed).__name__ if self.parsed else None})"
+
+
+def parsed_completion(
+    client: OpenAI,
+    prompt: str,
+    response_model: Type[T],
+    *,
+    model: str = DEFAULT_MODEL,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    **kwargs: Any,
+) -> ParsedOutput[T]:
+    """OpenAI-compatible parsed completion for llama.cpp.
+
+    Mimics the pattern:
+        client.chat.completions.create(
+            ...,
+            response_format=pydantic_function_tool(MyModel),
+        )
+    →  result.choices[0].message.parsed  # MyModel instance
+
+    But works with llama.cpp using GBNF grammar internally.
+
+    Args:
+        client: OpenAI client
+        prompt: User prompt
+        response_model: Pydantic model class
+        model: Model name
+        temperature: Sampling temperature
+        max_tokens: Max output tokens
+        **kwargs: Additional arguments
+
+    Returns:
+        ParsedOutput with .parsed attribute containing model instance
+    """
+    result = pydantic_output(
+        client,
+        prompt,
+        response_model,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        **kwargs,
+    )
+
+    return ParsedOutput(
+        content=result.content,
+        parsed=result.model,
+        usage=result.usage,
+        finish_reason=result.raw_result.finish_reason if result.raw_result else None,
     )
