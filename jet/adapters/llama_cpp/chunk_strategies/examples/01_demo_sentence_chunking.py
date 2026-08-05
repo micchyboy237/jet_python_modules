@@ -7,7 +7,7 @@ list-like structures. Overlap regions between consecutive chunks are
 highlighted to verify semantic continuity at boundaries.
 """
 
-from jet.adapters.llama_cpp.chunk_strategies import get_chunker
+from jet.adapters.llama_cpp.chunk_strategies import detect_text_overlap, get_chunker
 
 TEXT = (
     "Retrieval-augmented generation combines external knowledge with language models. "
@@ -26,54 +26,6 @@ CHUNK_SIZE = 64
 CHUNK_OVERLAP = 12
 MIN_CHUNK_SIZE = 16
 BUFFER = 4
-
-
-def _find_sentence_overlap(
-    prev_text: str, curr_text: str, size_fn
-) -> tuple[str | None, int]:
-    """Find overlapping text between consecutive sentence-based chunks.
-
-    Sentence chunker overlap produces exact text duplicates (full sentences
-    carried forward). We find the longest suffix of prev that appears as a
-    substring at the start of curr, then report its token count.
-    """
-    if not prev_text.strip() or not curr_text.strip():
-        return None, 0
-
-    # Try progressively shorter suffixes of prev_text
-    # Since overlap is sentence-aligned, check if curr starts with any
-    # trailing portion of prev
-    prev_stripped = prev_text.rstrip()
-    curr_stripped = curr_text.lstrip()
-
-    # Check if entire curr is contained at end of prev (full-chunk overlap)
-    if prev_stripped.endswith(curr_stripped):
-        tok_count = len(size_fn(curr_stripped))
-        return curr_stripped, tok_count
-
-    # Check if curr starts with a suffix of prev (partial overlap)
-    # Walk through sentence-like boundaries in curr
-    words = curr_stripped.split()
-    for start_idx in range(len(words)):
-        candidate = " ".join(words[start_idx:])
-        # Also try without leading word to catch mid-sentence overlaps
-        for trim in range(len(candidate)):
-            sub = candidate[trim:]
-            if sub and prev_stripped.endswith(sub):
-                tok_count = len(size_fn(sub))
-                return sub, tok_count
-
-    # Fallback: check if any sentence from curr appears at end of prev
-    from jet.wordnet.sentence import split_sentences
-
-    curr_sents = split_sentences(curr_stripped)
-    for sent in curr_sents:
-        sent_clean = sent.strip()
-        if sent_clean and prev_stripped.endswith(sent_clean):
-            tok_count = len(size_fn(sent_clean))
-            return sent_clean, tok_count
-
-    return None, 0
 
 
 def main() -> None:
@@ -105,7 +57,7 @@ def main() -> None:
 
         # Show overlap with next chunk
         if i < len(chunks) - 1:
-            overlap_text, overlap_tokens = _find_sentence_overlap(
+            overlap_text, overlap_tokens = detect_text_overlap(
                 chunk, chunks[i + 1], chunker.size_fn
             )
             if overlap_text and overlap_tokens > 0:

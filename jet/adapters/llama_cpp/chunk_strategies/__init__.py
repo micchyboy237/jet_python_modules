@@ -6,9 +6,15 @@ Public API (stable, re-exported for backward compatibility):
     - TokenAwareSentenceChunker: Sentence-first hierarchical chunking
     - TokenAwareFixedSizeChunker: Token-level sliding window chunking
     - get_chunker: Factory function to retrieve a strategy by name
+    - detect_token_overlap: Token ID-based overlap detection (fixed-size)
+    - detect_text_overlap: String-based overlap detection (sentence)
 """
 
-from jet.adapters.llama_cpp.chunk_strategies._common import ChunkStrategy
+from jet.adapters.llama_cpp.chunk_strategies._common import (
+    ChunkStrategy,
+    detect_text_overlap,
+    detect_token_overlap,
+)
 from jet.adapters.llama_cpp.chunk_strategies.fixed_size_chunker import (
     TokenAwareFixedSizeChunker,
 )
@@ -54,4 +60,6 @@ __all__ = [
     "TokenAwareSentenceChunker",
     "TokenAwareFixedSizeChunker",
     "get_chunker",
+    "detect_token_overlap",
+    "detect_text_overlap",
 ]

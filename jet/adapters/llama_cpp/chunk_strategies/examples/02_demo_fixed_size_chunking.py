@@ -7,7 +7,7 @@ share exactly the configured number of overlap tokens through direct
 token ID comparison.
 """
 
-from jet.adapters.llama_cpp.chunk_strategies import get_chunker
+from jet.adapters.llama_cpp.chunk_strategies import detect_token_overlap, get_chunker
 
 CODE_TEXT = """\
 def compute_attention_scores(query, key, value, mask=None):
@@ -81,17 +81,9 @@ def main() -> None:
 
         # Verify overlap via direct token ID comparison
         if i < len(chunks) - 1:
-            curr_tokens = chunk_token_lists[i]
-            next_tokens = chunk_token_lists[i + 1]
-
-            # Expected: tail of curr matches head of next
-            actual_overlap = 0
-            max_check = min(len(curr_tokens), len(next_tokens))
-            for length in range(max_check, 0, -1):
-                if curr_tokens[-length:] == next_tokens[:length]:
-                    actual_overlap = length
-                    break
-
+            actual_overlap = detect_token_overlap(
+                chunk_token_lists[i], chunk_token_lists[i + 1]
+            )
             status = "✅" if actual_overlap == CHUNK_OVERLAP else "⚠️"
             print(
                 f"  ↕ Overlap with Chunk {i + 1}: {actual_overlap} tokens "
