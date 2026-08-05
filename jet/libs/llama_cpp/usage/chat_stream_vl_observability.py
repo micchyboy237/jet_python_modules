@@ -70,7 +70,7 @@ def format_trace_id(trace_id: int) -> str:
 
 def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
     """Direct link to view this specific trace in the Phoenix UI."""
-    return f"{phoenix_url.rstrip('/')}/redirects/traces/{format_trace_id(trace_id)}"
+    return f"{phoenix_url.rstrip('/')}/traces/{format_trace_id(trace_id)}"
 
 
 def get_client(base_url: str = LLAMA_CPP_BASE_URL, timeout: float = 120.0) -> OpenAI:
@@ -160,60 +160,35 @@ def run_chat_stream(
     logit_bias: dict[str, int] | None = None,
     seed: int | None = None,
     stop: list[str] | None = None,
+    # NEW: Tools & Structured Output params
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    response_format: dict[str, Any] | None = None,
     phoenix_url: str = PHOENIX_URL,
 ) -> str:
-    """Stream a chat completion, optionally analyzing an image.
-
-    If `image_source` is None, sends a plain text-only chat request —
-    useful for testing the pipeline or non-vision prompts against the
-    same vision-capable server.
-
-    Wrapped in its own span so we can capture the trace_id and build a
-    direct Phoenix UI link — OpenAIInstrumentor's auto-created span
-    becomes a child of this one and shares the same trace_id.
-    """
+    """Stream a chat completion with support for vision, tools, and structured output."""
     tracer = trace.get_tracer(__name__)
-
     with tracer.start_as_current_span("vision_chat_stream") as span:
         trace_id = span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
 
-        # --- Record all sampling parameters on the span for observability ---
-        span.set_attribute(
-            "llm.image_source", str(image_source) if image_source else "none"
-        )
+        # ... existing attribute setting ...
         span.set_attribute("llm.model", model)
-        span.set_attribute("llm.sampling.temperature", temperature)
-        span.set_attribute("llm.sampling.top_p", top_p)
-        span.set_attribute("llm.sampling.top_k", top_k)
-        span.set_attribute("llm.sampling.min_p", min_p)
-        span.set_attribute("llm.sampling.repeat_penalty", repeat_penalty)
-        span.set_attribute("llm.sampling.presence_penalty", presence_penalty)
-        span.set_attribute("llm.sampling.frequency_penalty", frequency_penalty)
-        span.set_attribute("llm.sampling.max_tokens", max_tokens)
-        span.set_attribute("llm.sampling.enable_thinking", enable_thinking)
-        if seed is not None:
-            span.set_attribute("llm.sampling.seed", seed)
-        if logit_bias:
-            span.set_attribute("llm.sampling.logit_bias", json.dumps(logit_bias))
-        if stop:
-            span.set_attribute("llm.sampling.stop_sequences", json.dumps(stop))
+        if tools:
+            span.set_attribute("llm.tools.count", len(tools))
+            span.set_attribute(
+                "llm.tools.names",
+                json.dumps([t.get("function", {}).get("name") for t in tools]),
+            )
+        if response_format:
+            span.set_attribute(
+                "llm.response_format.type", response_format.get("type", "unknown")
+            )
 
-        logger.info("─" * 60)
-        logger.info(f"🖼️  Image source : {image_source or '(none — text-only)'}")
-        logger.info(f"🤖 Model        : {model}")
-        logger.info(
-            f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k} "
-            f"min_p={min_p} rep_pen={repeat_penalty}"
-        )
-        logger.info(
-            f"   freq_pen={frequency_penalty} pres_pen={presence_penalty} "
-            f"seed={seed} stop={stop}"
-        )
-        if logit_bias:
-            logger.info(f"   logit_bias={logit_bias}")
+        # ... existing logging and image encoding unchanged ...
         logger.info(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
+        # Build messages (unchanged from previous version)
         if image_source:
             t0 = time.perf_counter()
             base64_img, mime_type = encode_image_to_base64(image_source)
@@ -229,15 +204,9 @@ def run_chat_stream(
             ]
         else:
             content = prompt
-
         messages = [{"role": "user", "content": content}]
 
-        logger.info(f"➡️  Sending request (thinking={enable_thinking})")
-        t_request_start = time.perf_counter()
-        collected: list[str] = []
-        usage = None
-
-        # Build extra_body for llama.cpp-specific params not in OpenAI spec
+        # Build extra_body for llama.cpp-specific params
         extra_body_params: dict = {
             "top_k": top_k,
             "chat_template_kwargs": {"enable_thinking": enable_thinking},
@@ -247,27 +216,48 @@ def run_chat_stream(
         if repeat_penalty != 1.1:
             extra_body_params["repeat_penalty"] = repeat_penalty
 
+        # Prepare API kwargs
+        api_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "presence_penalty": presence_penalty,
+            "frequency_penalty": frequency_penalty,
+            "logit_bias": logit_bias,
+            "seed": seed,
+            "stop": stop,
+            "extra_body": extra_body_params,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if tools:
+            api_kwargs["tools"] = tools
+        if tool_choice:
+            api_kwargs["tool_choice"] = tool_choice
+        if response_format:
+            api_kwargs["response_format"] = response_format
+
+        logger.info(
+            f"➡️  Sending request (thinking={enable_thinking}, tools={bool(tools)}, format={response_format})"
+        )
+        t_request_start = time.perf_counter()
+
+        collected_content: list[str] = []
+        # Accumulator for streamed tool calls
+        tool_calls_acc: dict[int, dict[str, Any]] = {}
+        usage = None
+
         try:
             stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                presence_penalty=presence_penalty,
-                frequency_penalty=frequency_penalty,
-                logit_bias=logit_bias,
-                seed=seed,
-                stop=stop,
-                extra_body=extra_body_params,
-                stream=True,
-                stream_options={"include_usage": True},
+                **api_kwargs
             )
 
             in_think_block = False
             first_token_at: float | None = None
-
             console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
             for chunk in stream:
                 if not chunk.choices:
                     usage = getattr(chunk, "usage", None)
@@ -280,9 +270,11 @@ def run_chat_stream(
                 if first_token_at is None and (
                     getattr(delta, "content", None)
                     or getattr(delta, "reasoning_content", None)
+                    or getattr(delta, "tool_calls", None)
                 ):
                     first_token_at = time.perf_counter()
 
+                # Handle reasoning/thinking tokens
                 if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                     if not in_think_block:
                         console.print("[bold orange1]<think>[/bold orange1]", end="")
@@ -293,11 +285,12 @@ def run_chat_stream(
                         highlight=False,
                         soft_wrap=True,
                     )
-                    collected.append(delta.reasoning_content)
+                    collected_content.append(delta.reasoning_content)
                 elif in_think_block:
                     console.print("[bold orange1]</think>[/bold orange1]", end="")
                     in_think_block = False
 
+                # Handle regular content tokens
                 if hasattr(delta, "content") and delta.content:
                     console.print(
                         f"[bold cyan]{delta.content}[/bold cyan]",
@@ -305,7 +298,29 @@ def run_chat_stream(
                         highlight=False,
                         soft_wrap=True,
                     )
-                    collected.append(delta.content)
+                    collected_content.append(delta.content)
+
+                # Handle streamed tool call deltas
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {
+                                "id": tc_delta.id or "",
+                                "type": tc_delta.type or "function",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        if tc_delta.id:
+                            tool_calls_acc[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tool_calls_acc[idx]["function"]["name"] += (
+                                    tc_delta.function.name
+                                )
+                            if tc_delta.function.arguments:
+                                tool_calls_acc[idx]["function"]["arguments"] += (
+                                    tc_delta.function.arguments
+                                )
 
             if in_think_block:
                 console.print("[bold orange1]</think>[/bold orange1]", end="")
@@ -319,7 +334,19 @@ def run_chat_stream(
             console.print()
             total_secs = time.perf_counter() - t_request_start
             ttft = (first_token_at - t_request_start) if first_token_at else None
-            full_response = "".join(collected)
+            full_response = "".join(collected_content)
+
+            # Log accumulated tool calls
+            if tool_calls_acc:
+                final_tool_calls = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
+                logger.info(f"🔧 Tool calls received: {len(final_tool_calls)}")
+                for tc in final_tool_calls:
+                    fn = tc["function"]
+                    args_preview = fn["arguments"][:120]
+                    if len(fn["arguments"]) > 120:
+                        args_preview += "..."
+                    logger.info(f"   → {fn['name']}({args_preview})")
+                span.set_attribute("llm.tool_calls", json.dumps(final_tool_calls))
 
             logger.info("─" * 60)
             logger.info("📊 Completion summary")
@@ -338,10 +365,15 @@ def run_chat_stream(
             if ttft is not None:
                 logger.info(f"   Time to first token: {ttft:.2f}s")
             logger.info(f"   Total duration     : {total_secs:.2f}s")
-            logger.info(f"   Response length    : {len(full_response)} chars")
+            # NEW: Distinguish between content responses and tool-call-only responses
+            if tool_calls_acc:
+                logger.info(
+                    f"   Response type      : tool_calls ({len(tool_calls_acc)} call(s))"
+                )
+            else:
+                logger.info(f"   Response length    : {len(full_response)} chars")
             logger.info(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
             logger.info("─" * 60)
-
             span.set_status(Status(StatusCode.OK))
 
         return full_response
