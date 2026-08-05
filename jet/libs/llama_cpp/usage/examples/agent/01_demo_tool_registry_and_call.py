@@ -70,7 +70,7 @@ class VerboseAgent(Agent):
 
 
 def main():
-    setup_observability(project_name="agent-class-demo")
+    setup_observability(project_name="tool-registry-and-call-demo")
     client = get_client()
 
     # Instantiate the custom agent

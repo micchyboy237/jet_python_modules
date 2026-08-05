@@ -1,0 +1,188 @@
+"""
+Demo: Human-in-the-Loop Agent with Tool Approval.
+Demonstrates:
+  1. Enabling interactive approval for tool calls.
+  2. Using a custom approval callback for automated decisions.
+  3. Overriding the Agent class to add custom approval logic.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from jet.libs.llama_cpp.usage.agent import Agent
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    MODEL,
+    get_client,
+    setup_observability,
+)
+from rich.console import Console
+from rich.logging import RichHandler
+
+console = Console()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
+)
+logger = logging.getLogger(Path(__file__).stem)
+
+# Define a tool for the agent to use
+WEATHER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get current weather for a given location.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {"type": "string"},
+                "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]},
+            },
+            "required": ["location"],
+        },
+    },
+}
+
+
+def get_weather(location: str, unit: str = "celsius") -> dict[str, Any]:
+    """Mock weather function."""
+    return {
+        "temp": 28 if location.lower() == "tokyo" else 18,
+        "condition": "humid" if location.lower() == "tokyo" else "foggy",
+        "unit": unit,
+    }
+
+
+# Custom approval callback
+def custom_approval_callback(tool_name: str, arguments: dict[str, Any]) -> bool:
+    """Custom logic for approving/rejecting tool calls."""
+    console.print(
+        f"\n[bold yellow]🔍 Custom Approval Callback:[/bold yellow] {tool_name}({arguments})"
+    )
+
+    # Auto-approve all tools except 'delete_file'
+    if tool_name == "delete_file":
+        console.print("[bold red]❌ Rejected:[/bold red] 'delete_file' is not allowed.")
+        return False
+
+    # Auto-approve weather tools for known locations
+    if tool_name == "get_weather":
+        allowed_locations = ["tokyo", "new york", "london"]
+        location = arguments.get("location", "").lower()
+        if location in allowed_locations:
+            console.print(
+                f"[bold green]✅ Auto-approved:[/bold green] {tool_name} for {location}"
+            )
+            return True
+        else:
+            console.print(
+                f"[bold red]❌ Rejected:[/bold red] Unknown location: {location}"
+            )
+            return False
+
+    # Default: approve
+    console.print(f"[bold green]✅ Auto-approved:[/bold green] {tool_name}")
+    return True
+
+
+class InteractiveAgent(Agent):
+    """Agent with interactive approval for all tool calls."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, require_approval=True, **kwargs)
+
+
+def demo_interactive_approval():
+    """Demo: Interactive approval for tool calls."""
+    console.print("\n" + "=" * 60)
+    console.print("[bold blue]🎯 Demo 1: Interactive Approval[/bold blue]")
+    console.print("=" * 60)
+
+    setup_observability(project_name="human-in-the-loop-interactive")
+    client = get_client()
+
+    agent = InteractiveAgent(
+        client=client,
+        model=MODEL,
+        max_turns=3,
+        system_prompt="You are a helpful assistant. Use tools to fetch data.",
+    )
+    agent.register_tool(WEATHER_TOOL, get_weather)
+
+    console.print(
+        "\n[bold cyan]🚀 Running agent with interactive approval...[/bold cyan]"
+    )
+    console.print("[dim]Type 'y' to approve tool calls or 'n' to reject.[/dim]\n")
+
+    result = agent.run(prompt="What's the weather like in Tokyo? Use celsius.")
+    console.print(f"\n[bold green]✅ Result:[/bold green] {result.content}")
+
+
+def demo_custom_approval_callback():
+    """Demo: Custom approval callback for automated decisions."""
+    console.print("\n" + "=" * 60)
+    console.print("[bold blue]🎯 Demo 2: Custom Approval Callback[/bold blue]")
+    console.print("=" * 60)
+
+    setup_observability(project_name="human-in-the-loop-custom-callback")
+    client = get_client()
+
+    agent = Agent(
+        client=client,
+        model=MODEL,
+        max_turns=3,
+        system_prompt="You are a helpful assistant. Use tools to fetch data.",
+        require_approval=True,
+        approval_callback=custom_approval_callback,
+    )
+    agent.register_tool(WEATHER_TOOL, get_weather)
+
+    console.print(
+        "\n[bold cyan]🚀 Running agent with custom approval callback...[/bold cyan]\n"
+    )
+
+    # Test with allowed location
+    result = agent.run(prompt="What's the weather like in Tokyo? Use celsius.")
+    console.print(f"\n[bold green]✅ Result (Tokyo):[/bold green] {result.content}")
+
+    # Test with disallowed location
+    result = agent.run(prompt="What's the weather like in Mars? Use celsius.")
+    console.print(f"\n[bold green]✅ Result (Mars):[/bold green] {result.content}")
+
+
+def demo_no_approval():
+    """Demo: Agent without approval (default behavior)."""
+    console.print("\n" + "=" * 60)
+    console.print("[bold blue]🎯 Demo 3: No Approval (Default)[/bold blue]")
+    console.print("=" * 60)
+
+    setup_observability(project_name="human-in-the-loop-no-approval")
+    client = get_client()
+
+    agent = Agent(
+        client=client,
+        model=MODEL,
+        max_turns=3,
+        system_prompt="You are a helpful assistant. Use tools to fetch data.",
+    )
+    agent.register_tool(WEATHER_TOOL, get_weather)
+
+    console.print("\n[bold cyan]🚀 Running agent without approval...[/bold cyan]\n")
+
+    result = agent.run(prompt="What's the weather like in Tokyo? Use celsius.")
+    console.print(f"\n[bold green]✅ Result:[/bold green] {result.content}")
+
+
+def main():
+    """Run all demos."""
+    demo_interactive_approval()
+    demo_custom_approval_callback()
+    demo_no_approval()
+
+
+if __name__ == "__main__":
+    main()

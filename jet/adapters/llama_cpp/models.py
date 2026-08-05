@@ -134,7 +134,7 @@ LLAMACPP_MODEL_CONTEXTS: dict[LLAMACPP_KEYS, int] = {
     "impish-llama:4b": 4096,
     "wizardlm-uncensored:7b": 4096,
     "gemma3-uncensored:1b": 4096,
-    "qwen3.5-uncensored:2b": 10000,
+    "qwen3.5-uncensored:2b": 16384,
     "qwen3.5-uncensored:4b": 10000,
     # Embedding models (from models.embedders.ini - based on ubatch-size)
     "nomic-embed:1.5": 1024,

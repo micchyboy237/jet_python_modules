@@ -321,7 +321,7 @@ def run_chat_stream(
     """
     tracer = trace.get_tracer(__name__)
 
-    with tracer.start_as_current_span("vision_chat_stream") as span:
+    with tracer.start_as_current_span("chat_stream") as span:
         trace_id = span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
 

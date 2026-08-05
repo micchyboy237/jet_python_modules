@@ -7,6 +7,8 @@ from jet.adapters.llama_cpp.config import (
     LLM_BASE_URL,
     RERANK_BASE_HOST,
     RERANK_BASE_URL,
+    VISION_BASE_HOST,
+    VISION_BASE_URL,
 )
 from jet.adapters.llama_cpp.models import (
     LLAMACPP_KEYS,
@@ -92,19 +94,15 @@ def get_llama_cpp_base_url(override: Optional[str] = None) -> str:
 def get_llama_cpp_candidate_urls() -> List[str]:
     """
     Build the list of base URLs to query, sourced from the LLM, embed,
-    and rerank host/url config. Prefers *_URL over *_HOST when both are set.
-    Deduplicates identical hosts (e.g. all 3 pointing at the same server).
-
-    Returns:
-        List[str]: Ordered, deduplicated list of base URLs (no trailing /v1).
-                    Falls back to the default localhost URL if none are configured.
+    rerank, and vision host/url config. Prefers *_URL over *_HOST when both are set.
+    Deduplicates identical hosts (e.g., all 4 pointing at the same server).
     """
     raw_candidates = [
         LLM_BASE_URL or LLM_BASE_HOST,
         EMBED_BASE_URL or EMBED_BASE_HOST,
         RERANK_BASE_URL or RERANK_BASE_HOST,
+        VISION_BASE_URL or VISION_BASE_HOST,
     ]
-
     seen: set[str] = set()
     urls: List[str] = []
     for candidate in raw_candidates:
@@ -117,12 +115,10 @@ def get_llama_cpp_candidate_urls() -> List[str]:
             logger.debug(f"Added candidate host: {normalized}")
         else:
             logger.debug(f"Skipped duplicate host: {normalized}")
-
     if not urls:
         default_url = get_llama_cpp_base_url()
         logger.debug(f"No hosts configured, falling back to default: {default_url}")
         urls.append(default_url)
-
     logger.info(f"Resolved {len(urls)} candidate host(s): {urls}")
     return urls
 
@@ -160,26 +156,42 @@ def get_model_hf_id(model_key: LLAMACPP_KEYS) -> LLAMACPP_VALUES:
 
 def determine_model_type(model: Dict[str, Any]) -> ModelType:
     """
-    Determine if a model is LLM, Embed, or Rerank based on its status.args.
+    Determine if a model is LLM, Embed, or Rerank based on its status.args or capabilities.
+
+    Priority:
+    1. Check status.args for --embeddings/--reranking flags
+    2. Check model_config capabilities for multimodal (still LLM but with vision)
+
     Args:
-        model: Model dictionary
+        model: Model dictionary (normalized or raw)
     Returns:
         ModelType: "llm", "embed", or "rerank"
     """
+    # Check status args (works for both old and normalized formats)
     args = model.get("status", {}).get("args", [])
     if "--embeddings" in args:
         return "embed"
     elif "--reranking" in args:
         return "rerank"
-    else:
-        return "llm"
+
+    # Check capabilities for multimodal models (still LLM type)
+    capabilities = model.get("status", {}).get("args", [])
+    if "--multimodal" in capabilities or "multimodal" in capabilities:
+        return "llm"  # Multimodal models are still LLMs
+
+    # Default to LLM
+    return "llm"
 
 
 def _fetch_models_from_host(url: str) -> List[Dict[str, Any]]:
     """
     Fetch models from a single host and tag each with model_type.
-    Returns an empty list (and logs a warning) if the host is unreachable,
-    so one dead host doesn't break the aggregate fetch across all 3.
+    Handles both old format ({data: [...]}) and new format ({models: [...], data: [...]}).
+
+    New format priority:
+    - The 'data' array contains the loaded model regardless of alias
+    - 'meta' in data items provides runtime info (n_ctx, n_embd, etc.)
+    - 'models' array provides static model configuration
 
     Args:
         url: Base URL of the host (no trailing /v1)
@@ -190,20 +202,138 @@ def _fetch_models_from_host(url: str) -> List[Dict[str, Any]]:
 
     client = OpenAI(base_url=f"{url}/v1", api_key="not-needed")
     logger.info(f"Fetching models from {url}")
+
     try:
-        models = client.models.list()
+        response = client.models.list()
     except Exception as e:
         logger.warning(f"Skipping host {url}, failed to fetch models: {e}")
         return []
 
-    models_data = models.model_dump()["data"]
+    # Handle both old and new response formats
+    try:
+        models_dict = response.model_dump()
+    except AttributeError:
+        # Fallback for dict responses
+        models_dict = response if isinstance(response, dict) else response.model_dump()
+
+    # New format has 'models' array (static config) and 'data' array (loaded instances)
+    if "data" in models_dict and isinstance(models_dict["data"], list):
+        models_data = models_dict["data"]
+        logger.debug(f"Using 'data' array format with {len(models_data)} model(s)")
+    # Old format fallback
+    elif "models" in models_dict and isinstance(models_dict["models"], list):
+        models_data = models_dict["models"]
+        logger.debug(f"Using 'models' array format with {len(models_data)} model(s)")
+    else:
+        logger.warning(
+            f"Unknown response format from {url}: {list(models_dict.keys())}"
+        )
+        return []
+
     logger.debug(f"Retrieved {len(models_data)} model(s) from {url}")
 
     result = []
     for model in models_data:
-        model_type = determine_model_type(model)
-        result.append({**model, "model_type": model_type})
+        # Normalize model dict based on format
+        normalized_model = _normalize_model_dict(model, models_dict)
+
+        # Determine model type from status.args if available
+        model_type = determine_model_type(normalized_model)
+        normalized_model["model_type"] = model_type
+
+        result.append(normalized_model)
+
     return result
+
+
+def _normalize_model_dict(
+    model: Dict[str, Any], full_response: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Normalize model dict from new format to match expected ModelInfo structure.
+
+    New format model from 'data' array:
+    {
+        "id": "path/to/model.gguf",
+        "aliases": ["path/to/model.gguf"],
+        "tags": [],
+        "object": "model",
+        "created": 1785935721,
+        "owned_by": "llamacpp",
+        "meta": {
+            "vocab_type": 2,
+            "n_vocab": 248320,
+            "n_ctx": 4096,
+            "n_ctx_train": 262144,
+            "n_embd": 2048,
+            "n_params": 1881825088,
+            "size": 1259846912,
+            "ftype": "Q4_K - Medium"
+        }
+    }
+    """
+    # If model already has 'status' key, it's in the old format
+    if "status" in model:
+        logger.debug(f"Model already in old format: {model.get('id', 'unknown')}")
+        return model
+
+    # Model from new format 'data' array
+    model_id = model.get("id", "")
+    logger.debug(f"Normalizing new format model: {model_id}")
+
+    # Find matching model config from 'models' array if available
+    model_config = {}
+    if "models" in full_response:
+        for config_model in full_response["models"]:
+            if (
+                config_model.get("name") == model_id
+                or config_model.get("model") == model_id
+            ):
+                model_config = config_model
+                logger.debug(f"Found matching model config for {model_id}")
+                break
+
+    # Build status from capabilities and configuration
+    capabilities = model_config.get("capabilities", [])
+    status_value = "loaded"  # Models in 'data' array are loaded
+
+    # Determine status args from capabilities
+    status_args = []
+    if "completion" in capabilities:
+        status_args.extend(["--completion"])
+    if "multimodal" in capabilities:
+        status_args.extend(["--multimodal"])
+
+    # Build the normalized model dict
+    normalized = {
+        "id": model_id,
+        "aliases": model.get("aliases", [model_id]),
+        "tags": model.get("tags", []),
+        "object": model.get("object", "model"),
+        "owned_by": model.get("owned_by", "llamacpp"),
+        "created": model.get("created", 0),
+        "status": {
+            "value": status_value,
+            "args": status_args,
+            "preset": model_config.get("details", {}).get("format", ""),
+        },
+        "architecture": {
+            "input_modalities": ["text"]
+            + (["image"] if "multimodal" in capabilities else []),
+            "output_modalities": ["text"],
+        },
+        "source": model_config.get("type", "model"),
+        "can_remove": False,
+        "meta": model.get("meta", {}),
+        # Preserve original format info for debugging
+        "_format": "new",
+        "_model_config": model_config if model_config else None,
+    }
+
+    logger.debug(
+        f"Normalized model {model_id}: type=llm, ctx={normalized['meta'].get('n_ctx', 'N/A')}"
+    )
+    return normalized
 
 
 def get_models(base_url: Optional[str] = None) -> ModelsResponse:
@@ -286,25 +416,44 @@ def get_model_ctx_embd_size(
 ) -> ModelContextEmbeddingSize:
     """
     Get context and embedding dimensions for a model by alias.
+
+    Handles both old and new model formats where:
+    - Old format: meta in model.meta
+    - New format: meta in data[].meta with runtime values
+
     Args:
         alias: Model alias or ID
         base_url: Direct URL override (highest priority)
     Returns:
         ModelContextEmbeddingSize: Dict with ctx, ctx_train, and embd_dims
     Raises:
-        ValueError: If model is not found
+        ValueError: If model is not found or no meta data available
     """
     models = get_models(base_url)
+
     for model in models["data"]:
+        # Check both id and aliases
         if alias in model.get("aliases", []) or alias == model["id"]:
             meta = model.get("meta", {})
+
             if not meta:
+                logger.warning(f"No meta data found for model: {alias}")
                 raise ValueError(f"No meta data found for model: {alias}")
-            return ModelContextEmbeddingSize(
-                ctx=meta.get("n_ctx", 0),
-                ctx_train=meta.get("n_ctx_train", 0),
-                embd_dims=meta.get("n_embd", 0),
+
+            ctx = meta.get("n_ctx", 0)
+            ctx_train = meta.get("n_ctx_train", 0)
+            embd_dims = meta.get("n_embd", 0)
+
+            logger.debug(
+                f"Model {alias}: ctx={ctx}, ctx_train={ctx_train}, embd_dims={embd_dims}"
             )
+
+            return ModelContextEmbeddingSize(
+                ctx=ctx,
+                ctx_train=ctx_train,
+                embd_dims=embd_dims,
+            )
+
     raise ValueError(f"Model not found: {alias}")
 
 

@@ -45,3 +45,10 @@ RERANK_BASE_URL = os.getenv("LLAMA_CPP_RERANK_URL")
 
 # e.g. 1024
 RERANK_DIMS = int(os.getenv("LLAMA_CPP_RERANK_DIMS", "1024"))
+
+
+# Vision Model
+VISION_MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", "qwen3.5-uncensored:2b")
+VISION_HF_MODEL = os.getenv("LLAMA_CPP_VISION_HF_MODEL", "Qwen/Qwen3.5-2B")
+VISION_BASE_HOST = os.getenv("LLAMA_CPP_VISION_HOST")
+VISION_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL")
