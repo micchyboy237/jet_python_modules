@@ -8,11 +8,13 @@ from pathlib import Path
 import requests
 from openai import OpenAI, Stream
 from openai.types.chat import ChatCompletionChunk
+from openinference.semconv.resource import ResourceAttributes
 
 # Observability imports
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from requests.exceptions import RequestException
@@ -43,20 +45,21 @@ PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 # ────────────────────────────────────────────────
 # Observability Setup
 # ────────────────────────────────────────────────
-def setup_observability():
+def setup_observability(project_name: str = "vision-stream-obs"):
     """Configure OpenTelemetry to export traces to remote Phoenix server."""
     endpoint = f"{PHOENIX_URL}/v1/traces"
+    resource = Resource.create(
+        {
+            ResourceAttributes.PROJECT_NAME: project_name,  # ← was "service.name"
+        }
+    )
     exporter = OTLPSpanExporter(endpoint=endpoint)
-    provider = TracerProvider()
-    # SimpleSpanProcessor ensures spans flush before script exit
+    provider = TracerProvider(resource=resource)
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
-
-    # MUST instrument before creating any OpenAI client instances
-    # disable_content_capture prevents serializing large base64 images into span
-    # attributes, which was causing the severe latency vs non-instrumented code
     OpenAIInstrumentor().instrument(disable_content_capture=True)
     logger.info(f"🔭 Observability enabled → [link={PHOENIX_URL}]{PHOENIX_URL}[/link]")
+    logger.info(f"📁 Phoenix project name: {project_name}")
 
 
 # ────────────────────────────────────────────────
