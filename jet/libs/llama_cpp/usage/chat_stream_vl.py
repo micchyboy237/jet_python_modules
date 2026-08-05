@@ -27,9 +27,9 @@ logger = logging.getLogger("vision-stream")
 # ────────────────────────────────────────────────
 # Config
 # ────────────────────────────────────────────────
-LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_LLM_URL", "http://localhost:11434/v1")
+LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1")
 DEFAULT_MODEL = "Qwen/Qwen3.5-2B"
-MODEL = os.getenv("LLAMA_CPP_LLM_MODEL", DEFAULT_MODEL)
+MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
 
 
 def get_client() -> OpenAI:
@@ -219,7 +219,7 @@ if __name__ == "__main__":
         "-p",
         "--prompt",
         type=str,
-        default="Describe this image in detail: mention the main subjects, colors, lighting, composition, and any interesting details you notice.",
+        default="Describe this image in detail: mention the main subjects, and any interesting details you notice.",
         help="Prompt to send to the LLM describing how to analyze the image.",
     )
     args = parser.parse_args()
