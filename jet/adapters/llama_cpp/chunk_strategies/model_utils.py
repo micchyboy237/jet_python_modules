@@ -1,5 +1,4 @@
 # jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/model_utils.py
-
 """Model-aware utilities for chunking."""
 
 import logging
@@ -12,11 +11,12 @@ from jet.adapters.llama_cpp.types import LLAMACPP_KEYS
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CHUNK_SIZE = 512
+_DEFAULT_CTX_PERCENTAGE = 0.08  # ~328 tokens for 4096 ctx; lands in 256-400 sweet spot
 
 
 def get_optimal_chunk_size(
     model: str | LLAMACPP_KEYS,
-    ctx_percentage: float = 0.1,
+    ctx_percentage: float = _DEFAULT_CTX_PERCENTAGE,
     min_size: int = 128,
     max_size: int = 1024,
 ) -> int:
@@ -26,6 +26,9 @@ def get_optimal_chunk_size(
     1. Static LLAMACPP_MODEL_CONTEXTS dict (instant, no network)
     2. Live server query via get_model_ctx_embd_size (fallback)
     3. Hardcoded default if both fail
+
+    Default ctx_percentage=0.08 targets 256-400 tokens for typical small-context
+    models (4096 ctx → 328 tokens), matching mid-2026 RAG best practices.
 
     Args:
         model: Model identifier, short alias, or LLAMACPP_KEYS enum.
@@ -38,19 +41,18 @@ def get_optimal_chunk_size(
     """
     if not 0.0 < ctx_percentage <= 1.0:
         logger.warning(
-            "ctx_percentage %.2f out of range (0,1]; clamping to 0.1",
+            "ctx_percentage %.2f out of range (0,1]; clamping to %.2f",
             ctx_percentage,
+            _DEFAULT_CTX_PERCENTAGE,
         )
-        ctx_percentage = 0.1
+        ctx_percentage = _DEFAULT_CTX_PERCENTAGE
 
     ctx = 0
 
-    # 1. Try static dict first — covers all known models with zero latency
     if model in LLAMACPP_MODEL_CONTEXTS:
         ctx = LLAMACPP_MODEL_CONTEXTS[model]
         logger.debug("Static context for %s: %d tokens", model, ctx)
     else:
-        # 2. Fall back to live server query for unknown/custom models
         try:
             info = get_model_ctx_embd_size(model)
             ctx = info.get("ctx", 0)

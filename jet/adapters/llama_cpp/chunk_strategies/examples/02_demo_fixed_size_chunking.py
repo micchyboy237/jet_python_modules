@@ -8,6 +8,7 @@ token ID comparison.
 """
 
 from jet.adapters.llama_cpp.chunk_strategies import detect_token_overlap, get_chunker
+from jet.adapters.llama_cpp.config import LLM_MODEL
 
 CODE_TEXT = """\
 def compute_attention_scores(query, key, value, mask=None):
@@ -49,7 +50,7 @@ BUFFER = 4
 
 
 def main() -> None:
-    chunker = get_chunker("fixed", model="qwen3.5:2b")
+    chunker = get_chunker("fixed", model=LLM_MODEL)
 
     chunks = chunker.chunk(
         text=CODE_TEXT,

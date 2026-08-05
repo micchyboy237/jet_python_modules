@@ -1,4 +1,4 @@
-# jet/adapters/llama_cpp/chunk_strategies/__init__.py
+# jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/__init__.py
 """Reusable RAG chunking strategies for token-constrained local LLMs.
 
 Public API (stable, re-exported for backward compatibility):
@@ -55,10 +55,8 @@ def get_chunker(
             - "fixed": TokenAwareFixedSizeChunker (best for code/structured data)
             - "smart": SmartChunker (auto-detects structure)
         model: llama.cpp model key or HF ID for tokenizer resolution.
-
     Returns:
         ChunkStrategy instance ready for use.
-
     Raises:
         ValueError: If strategy name is unrecognized.
     """

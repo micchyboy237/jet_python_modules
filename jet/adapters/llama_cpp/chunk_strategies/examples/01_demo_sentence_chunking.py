@@ -8,6 +8,7 @@ highlighted to verify semantic continuity at boundaries.
 """
 
 from jet.adapters.llama_cpp.chunk_strategies import detect_text_overlap, get_chunker
+from jet.adapters.llama_cpp.config import LLM_MODEL
 
 TEXT = (
     "Retrieval-augmented generation combines external knowledge with language models. "
@@ -29,7 +30,7 @@ BUFFER = 4
 
 
 def main() -> None:
-    chunker = get_chunker("sentence", model="qwen3.5:2b")
+    chunker = get_chunker("sentence", model=LLM_MODEL)
 
     chunks = chunker.chunk(
         text=TEXT,
