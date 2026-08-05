@@ -38,16 +38,30 @@ except ImportError as e:
     logger.critical("   Fix: pip install 'unstructured[all-docs]'")
     sys.exit(1)
 
-# High-value element types for RAG context
+# Low to high value element types for RAG context
 RAG_CONTEXT_TYPES: Set[str] = {
+    # Core Narrative
     "NarrativeText",
-    "ListItem",
+    "Text",
+    "UncategorizedText",
+    "Paragraph",
+    # Structure
     "Title",
     "Header",
+    "ListItem",
+    "BulletedText",
+    # Data & Media
     "Table",
     "FigureCaption",
+    "Image",
+    # Code & Math
     "CodeSnippet",
     "Formula",
+    # PII & Forms
+    "EmailAddress",
+    "Address",
+    "FormKeysValues",
+    "Form",
 }
 
 # Atomic types that must never be split mid-element
@@ -205,7 +219,7 @@ def chunk_rag_context(
     overlap_tokens: int = 50,
 ) -> List[Dict[str, Any]]:
     """
-    Hierarchical, token-aware chunking of parsed document elements.
+    Hierarchical, token-aware chunking of parsed document elements with metadata preservation.
 
     Automatically selects strategy based on document structure:
       - structured: section → paragraph → sentence hierarchy
@@ -215,23 +229,27 @@ def chunk_rag_context(
       - mixed: anchored sections + flat fallback for unanchored runs
 
     Args:
-        elements: List of element dicts from extract_rag_context pipeline
+        elements: List of element dicts from partition().to_dict()
         max_tokens: Target max tokens per chunk (256-400 for small-context LLMs)
         overlap_tokens: Overlap between consecutive chunks (0 for sparse retrieval)
 
     Returns:
-        List of chunk dicts with 'text', 'token_count', and 'strategy' keys.
+        List of chunk dicts with 'text', 'token_count', 'strategy', and 'metadata' keys.
     """
     if not elements:
         return []
 
-    # Filter to RAG-relevant types only
+    # ✅ EXPANDED: Include UncategorizedText, EmailAddress, Address, FormKeysValues, Text, etc.
     rag_elements = [
         e
         for e in elements
         if e.get("type") in RAG_CONTEXT_TYPES and e.get("text", "").strip()
     ]
+
     if not rag_elements:
+        logger.warning(
+            "chunk_rag_context | No valid RAG elements found after filtering"
+        )
         return []
 
     structure = classify_structure(rag_elements)
@@ -239,10 +257,30 @@ def chunk_rag_context(
         f"chunk_rag_context | structure={structure} | elements={len(rag_elements)} | max_tokens={max_tokens}"
     )
 
+    def _build_chunk(
+        text: str, token_count: int, strategy: str, source_elems: List[Dict]
+    ) -> Dict[str, Any]:
+        """Build a chunk dict with aggregated metadata from source elements."""
+        # Aggregate metadata: prefer first element's page/filename, collect all element_ids
+        primary_meta = source_elems[0].get("metadata", {}) if source_elems else {}
+        element_ids = [e.get("element_id") for e in source_elems if e.get("element_id")]
+
+        return {
+            "text": text,
+            "token_count": token_count,
+            "strategy": strategy,
+            "metadata": {
+                "filename": primary_meta.get("filename"),
+                "page_number": primary_meta.get("page_number"),
+                "languages": primary_meta.get("languages"),
+                "element_ids": element_ids,
+                "parent_id": primary_meta.get("parent_id"),
+            },
+        }
+
     chunks: List[Dict[str, Any]] = []
 
     if structure == "structured":
-        # Group by section boundaries
         sections: List[List[Dict]] = [[]]
         for elem in rag_elements:
             if elem.get("type") in SECTION_TYPES and sections[-1]:
@@ -252,158 +290,252 @@ def chunk_rag_context(
         for section_elems in sections:
             if not section_elems:
                 continue
-            # Atomic elements become standalone chunks
             narrative_parts: List[str] = []
+            narrative_sources: List[Dict] = []
+
             for elem in section_elems:
                 etype = elem.get("type", "")
                 text = elem.get("text", "").strip()
+
                 if etype in ATOMIC_TYPES:
-                    # Flush accumulated narrative first
+                    # Flush accumulated narrative before atomic element
                     if narrative_parts:
-                        chunks.extend(
-                            _merge_up_to_budget(
-                                narrative_parts, max_tokens, overlap_tokens
-                            )
+                        merged_chunks = _merge_up_to_budget(
+                            narrative_parts, max_tokens, overlap_tokens
                         )
+                        for mc in merged_chunks:
+                            chunks.append(
+                                _build_chunk(
+                                    mc["text"],
+                                    mc["token_count"],
+                                    "structured",
+                                    narrative_sources,
+                                )
+                            )
                         narrative_parts = []
-                    # Atomic = own chunk (never split)
+                        narrative_sources = []
+
                     tok = estimate_tokens(text)
-                    chunks.append(
-                        {"text": text, "token_count": tok, "strategy": "atomic"}
-                    )
+                    chunks.append(_build_chunk(text, tok, "atomic", [elem]))
                 else:
                     narrative_parts.append(text)
+                    narrative_sources.append(elem)
+
             # Flush remaining narrative in section
             if narrative_parts:
-                chunks.extend(
-                    _merge_up_to_budget(narrative_parts, max_tokens, overlap_tokens)
+                merged_chunks = _merge_up_to_budget(
+                    narrative_parts, max_tokens, overlap_tokens
                 )
+                for mc in merged_chunks:
+                    chunks.append(
+                        _build_chunk(
+                            mc["text"],
+                            mc["token_count"],
+                            "structured",
+                            narrative_sources,
+                        )
+                    )
 
     elif structure == "atomic_flat":
         narrative_parts: List[str] = []
+        narrative_sources: List[Dict] = []
+
         for elem in rag_elements:
             etype = elem.get("type", "")
             text = elem.get("text", "").strip()
+
             if etype in ATOMIC_TYPES:
                 if narrative_parts:
-                    chunks.extend(
-                        _merge_up_to_budget(narrative_parts, max_tokens, overlap_tokens)
+                    merged_chunks = _merge_up_to_budget(
+                        narrative_parts, max_tokens, overlap_tokens
                     )
+                    for mc in merged_chunks:
+                        chunks.append(
+                            _build_chunk(
+                                mc["text"],
+                                mc["token_count"],
+                                "atomic_flat",
+                                narrative_sources,
+                            )
+                        )
                     narrative_parts = []
+                    narrative_sources = []
+
                 chunks.append(
-                    {
-                        "text": text,
-                        "token_count": estimate_tokens(text),
-                        "strategy": "atomic",
-                    }
+                    _build_chunk(text, estimate_tokens(text), "atomic", [elem])
                 )
             else:
                 narrative_parts.append(text)
+                narrative_sources.append(elem)
+
         if narrative_parts:
-            chunks.extend(
-                _merge_up_to_budget(narrative_parts, max_tokens, overlap_tokens)
+            merged_chunks = _merge_up_to_budget(
+                narrative_parts, max_tokens, overlap_tokens
             )
+            for mc in merged_chunks:
+                chunks.append(
+                    _build_chunk(
+                        mc["text"], mc["token_count"], "atomic_flat", narrative_sources
+                    )
+                )
 
     elif structure == "flat_narrative":
-        # Synthetic paragraph grouping: every 3-5 sequential elements
         GROUP_SIZE = 4
-        groups: List[List[str]] = []
         texts = [e.get("text", "").strip() for e in rag_elements]
+        sources = rag_elements  # Keep parallel reference
+
         for i in range(0, len(texts), GROUP_SIZE):
-            groups.append(texts[i : i + GROUP_SIZE])
-        for group in groups:
-            merged = "\n\n".join(group)
+            group_texts = texts[i : i + GROUP_SIZE]
+            group_sources = sources[i : i + GROUP_SIZE]
+            merged = "\n\n".join(group_texts)
+
             if estimate_tokens(merged) <= max_tokens:
                 chunks.append(
-                    {
-                        "text": merged,
-                        "token_count": estimate_tokens(merged),
-                        "strategy": "synthetic_para",
-                    }
+                    _build_chunk(
+                        merged, estimate_tokens(merged), "synthetic_para", group_sources
+                    )
                 )
             else:
-                # Split within group at sentence boundaries
                 sentences: List[str] = []
-                for t in group:
-                    sentences.extend(split_sentences(t))
-                chunks.extend(
-                    _merge_up_to_budget(sentences, max_tokens, overlap_tokens)
+                sent_sources: List[Dict] = []
+                for t, src in zip(group_texts, group_sources):
+                    sents = split_sentences(t)
+                    sentences.extend(sents)
+                    sent_sources.extend([src] * len(sents))
+
+                merged_chunks = _merge_up_to_budget(
+                    sentences, max_tokens, overlap_tokens
                 )
+                # Map merged chunks back to source elements approximately
+                for mc in merged_chunks:
+                    chunks.append(
+                        _build_chunk(
+                            mc["text"],
+                            mc["token_count"],
+                            "flat_narrative_split",
+                            group_sources,
+                        )
+                    )
 
     elif structure == "monolithic":
         text = rag_elements[0].get("text", "").strip()
         sentences = split_sentences(text)
+
         if len(sentences) == 1 and estimate_tokens(text) <= max_tokens:
             chunks.append(
-                {
-                    "text": text,
-                    "token_count": estimate_tokens(text),
-                    "strategy": "monolithic",
-                }
+                _build_chunk(
+                    text, estimate_tokens(text), "monolithic", [rag_elements[0]]
+                )
             )
         else:
-            chunks.extend(_merge_up_to_budget(sentences, max_tokens, overlap_tokens))
-            for c in chunks:
-                c["strategy"] = "monolithic_split"
+            merged_chunks = _merge_up_to_budget(sentences, max_tokens, overlap_tokens)
+            for mc in merged_chunks:
+                chunks.append(
+                    _build_chunk(
+                        mc["text"],
+                        mc["token_count"],
+                        "monolithic_split",
+                        [rag_elements[0]],
+                    )
+                )
 
     else:  # mixed
-        # Use available Titles as anchors; unanchored content gets flat treatment
         anchored_run: List[Dict] = []
         flat_run: List[str] = []
+        flat_sources: List[Dict] = []
+
         for elem in rag_elements:
             if elem.get("type") in SECTION_TYPES:
-                # Flush flat run
+                # Flush flat run before new section
                 if flat_run:
-                    chunks.extend(
-                        _merge_up_to_budget(flat_run, max_tokens, overlap_tokens)
+                    merged_chunks = _merge_up_to_budget(
+                        flat_run, max_tokens, overlap_tokens
                     )
+                    for mc in merged_chunks:
+                        chunks.append(
+                            _build_chunk(
+                                mc["text"],
+                                mc["token_count"],
+                                "mixed_flat",
+                                flat_sources,
+                            )
+                        )
                     flat_run = []
+                    flat_sources = []
                 anchored_run = [elem]
             elif anchored_run:
                 anchored_run.append(elem)
             else:
                 flat_run.append(elem.get("text", "").strip())
+                flat_sources.append(elem)
 
-        # Process final anchored run as structured
+        # Process anchored run
         if anchored_run:
             narrative_parts: List[str] = []
+            narrative_sources: List[Dict] = []
+
             for elem in anchored_run:
                 etype = elem.get("type", "")
                 text = elem.get("text", "").strip()
+
                 if etype in ATOMIC_TYPES:
                     if narrative_parts:
-                        chunks.extend(
-                            _merge_up_to_budget(
-                                narrative_parts, max_tokens, overlap_tokens
-                            )
+                        merged_chunks = _merge_up_to_budget(
+                            narrative_parts, max_tokens, overlap_tokens
                         )
+                        for mc in merged_chunks:
+                            chunks.append(
+                                _build_chunk(
+                                    mc["text"],
+                                    mc["token_count"],
+                                    "mixed_anchored",
+                                    narrative_sources,
+                                )
+                            )
                         narrative_parts = []
+                        narrative_sources = []
                     chunks.append(
-                        {
-                            "text": text,
-                            "token_count": estimate_tokens(text),
-                            "strategy": "atomic",
-                        }
+                        _build_chunk(text, estimate_tokens(text), "atomic", [elem])
                     )
                 else:
                     narrative_parts.append(text)
-            if narrative_parts:
-                chunks.extend(
-                    _merge_up_to_budget(narrative_parts, max_tokens, overlap_tokens)
-                )
-        # Flush trailing flat run
-        if flat_run:
-            chunks.extend(_merge_up_to_budget(flat_run, max_tokens, overlap_tokens))
+                    narrative_sources.append(elem)
 
-    # Tag all chunks with strategy if not already set
+            if narrative_parts:
+                merged_chunks = _merge_up_to_budget(
+                    narrative_parts, max_tokens, overlap_tokens
+                )
+                for mc in merged_chunks:
+                    chunks.append(
+                        _build_chunk(
+                            mc["text"],
+                            mc["token_count"],
+                            "mixed_anchored",
+                            narrative_sources,
+                        )
+                    )
+
+        # Flush remaining flat run
+        if flat_run:
+            merged_chunks = _merge_up_to_budget(flat_run, max_tokens, overlap_tokens)
+            for mc in merged_chunks:
+                chunks.append(
+                    _build_chunk(
+                        mc["text"], mc["token_count"], "mixed_flat", flat_sources
+                    )
+                )
+
+    # Ensure every chunk has a strategy label
     for c in chunks:
         c.setdefault("strategy", structure)
 
+    total_tokens = sum(c["token_count"] for c in chunks)
+    strategies_used = sorted({c["strategy"] for c in chunks})
     logger.info(
         f"chunk_rag_context | produced {len(chunks)} chunks | "
-        f"total_tokens={sum(c['token_count'] for c in chunks)} | "
-        f"strategies={sorted({c['strategy'] for c in chunks})}"
+        f"total_tokens={total_tokens} | strategies={strategies_used}"
     )
+
     return chunks
 
 
