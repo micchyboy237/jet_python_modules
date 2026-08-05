@@ -289,7 +289,7 @@ def run_chat_stream(
     model: str = MODEL,
     *,
     enable_thinking: bool = False,
-    max_tokens: int = 32768,
+    max_tokens: int = 16384,
     temperature: float = 0.7,
     top_p: float = 0.8,
     top_k: int = 20,
@@ -693,7 +693,7 @@ def get_args() -> argparse.Namespace:
         help="Enable the model's reasoning/thinking output.",
     )
     # ── Standard OpenAI sampling params (supported by llama.cpp) ──────
-    parser.add_argument("--max-tokens", type=int, default=32768)
+    parser.add_argument("--max-tokens", type=int, default=16384)
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.8)
     parser.add_argument("--presence-penalty", type=float, default=1.5)
