@@ -8,7 +8,7 @@ without breaking mid-phrase, and applies token-exact overlap so context
 continuity is maintained across chunk boundaries.
 """
 
-from jet.adapters.llama_cpp.chunk_strategy_utils import get_chunker
+from jet.adapters.llama_cpp.chunk_strategies import get_chunker
 
 TEXT = (
     "Retrieval-augmented generation combines external knowledge with language models. "

@@ -1,4 +1,4 @@
-# jet/adapters/llama_cpp/chunk_strategy_utils/_common.py
+# jet/adapters/llama_cpp/chunk_strategies/_common.py
 """Shared types, protocols, and helpers for chunking strategies."""
 
 from typing import List, Protocol

@@ -9,7 +9,7 @@ that preserve syntactic structure through consistent boundary placement
 and efficient batch decoding.
 """
 
-from jet.adapters.llama_cpp.chunk_strategy_utils import get_chunker
+from jet.adapters.llama_cpp.chunk_strategies import get_chunker
 
 CODE_TEXT = """\
 def compute_attention_scores(query, key, value, mask=None):

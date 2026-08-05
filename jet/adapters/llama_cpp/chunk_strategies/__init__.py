@@ -1,4 +1,4 @@
-# jet/adapters/llama_cpp/chunk_strategy_utils/__init__.py
+# jet/adapters/llama_cpp/chunk_strategies/__init__.py
 """Reusable RAG chunking strategies for token-constrained local LLMs.
 
 Public API (stable, re-exported for backward compatibility):
@@ -8,11 +8,11 @@ Public API (stable, re-exported for backward compatibility):
     - get_chunker: Factory function to retrieve a strategy by name
 """
 
-from jet.adapters.llama_cpp.chunk_strategy_utils._common import ChunkStrategy
-from jet.adapters.llama_cpp.chunk_strategy_utils.fixed_size_chunker import (
+from jet.adapters.llama_cpp.chunk_strategies._common import ChunkStrategy
+from jet.adapters.llama_cpp.chunk_strategies.fixed_size_chunker import (
     TokenAwareFixedSizeChunker,
 )
-from jet.adapters.llama_cpp.chunk_strategy_utils.sentence_chunker import (
+from jet.adapters.llama_cpp.chunk_strategies.sentence_chunker import (
     TokenAwareSentenceChunker,
 )
 

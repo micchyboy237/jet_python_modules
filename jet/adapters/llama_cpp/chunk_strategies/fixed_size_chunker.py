@@ -1,9 +1,9 @@
-# jet/adapters/llama_cpp/chunk_strategy_utils/fixed_size_chunker.py
+# jet/adapters/llama_cpp/chunk_strategies/fixed_size_chunker.py
 """Token-aware fixed-size sliding window chunking strategy."""
 
 from typing import List
 
-from jet.adapters.llama_cpp.chunk_strategy_utils._common import (
+from jet.adapters.llama_cpp.chunk_strategies._common import (
     TokenSizeFn,
     effective_size,
     merge_small_tail,
