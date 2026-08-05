@@ -37,28 +37,28 @@ PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 
 
 # ────────────────────────────────────────────────
-# Observability setup — uses register(), which sets the
-# correct `openinference.project.name` resource attribute
-# automatically (this is what v2's manual setup got wrong).
+# Observability setup — uses register(), which sets the correct
+# `openinference.project.name` resource attribute automatically.
 # ────────────────────────────────────────────────
 def setup_observability(
-    project_name: str = "vision-stream-obs", capture_content: bool = True
+    project_name: str = "vision-stream-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
 ):
     """Configure OpenTelemetry to export traces to a remote Phoenix server."""
     if capture_content:
-        # Valid enum values: NO_CONTENT, SPAN_ONLY, EVENT_ONLY, SPAN_AND_EVENT
         os.environ.setdefault(
             "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_AND_EVENT"
         )
 
     tracer_provider = register(
         project_name=project_name,
-        endpoint=f"{PHOENIX_URL}/v1/traces",
-        batch=False,  # SimpleSpanProcessor equivalent — flushes immediately for short scripts
+        endpoint=f"{phoenix_url}/v1/traces",
+        batch=False,
     )
     OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
 
-    logger.info(f"🔭 Observability enabled → [link={PHOENIX_URL}]{PHOENIX_URL}[/link]")
+    logger.info(f"🔭 Observability enabled → [link={phoenix_url}]{phoenix_url}[/link]")
     logger.info(f"📁 Phoenix project name: {project_name}")
     return tracer_provider
 
@@ -66,11 +66,11 @@ def setup_observability(
 # ────────────────────────────────────────────────
 # Client
 # ────────────────────────────────────────────────
-def get_client() -> OpenAI:
+def get_client(base_url: str = LLAMA_CPP_BASE_URL, timeout: float = 120.0) -> OpenAI:
     return OpenAI(
-        base_url=LLAMA_CPP_BASE_URL,
+        base_url=base_url,
         api_key="sk-1234",  # dummy — llama.cpp/vLLM ignores it
-        timeout=120.0,
+        timeout=timeout,
     )
 
 
