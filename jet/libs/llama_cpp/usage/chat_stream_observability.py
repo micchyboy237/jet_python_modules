@@ -160,16 +160,37 @@ def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
     if isinstance(image_source, (str, Path)):
         source = str(image_source)
         if source.startswith(("http://", "https://")):
-            img_bytes = fetch_remote_image_bytes(source)
-            mime = "image/jpeg"
-            lower = source.lower()
-            if lower.endswith(".png"):
-                mime = "image/png"
-            elif lower.endswith((".jpg", ".jpeg")):
-                mime = "image/jpeg"
-            elif lower.endswith(".webp"):
-                mime = "image/webp"
+            # Fetch with headers to get actual content-type
+            default_headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            }
+            try:
+                response = requests.get(source, headers=default_headers, timeout=30)
+                response.raise_for_status()
+                img_bytes = response.content
+
+                # ✅ FIX: Prefer Content-Type header over URL extension
+                content_type = (
+                    response.headers.get("Content-Type", "")
+                    .split(";")[0]
+                    .strip()
+                    .lower()
+                )
+                valid_mimes = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+                mime = content_type if content_type in valid_mimes else "image/jpeg"
+
+                logger.debug(
+                    f"🌐 Remote image detected as {mime} (header: {content_type})"
+                )
+            except RequestException as exc:
+                raise ValueError(f"Failed to fetch image from {source}: {exc}") from exc
         else:
+            # Local file handling remains unchanged
             path = Path(source).expanduser()
             img_bytes = path.read_bytes()
             suffix = path.suffix.lower()
