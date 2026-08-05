@@ -15,11 +15,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from jet.libs.llama_cpp.usage.chat_stream_vl_observability import (
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
     execute_tool_with_span,
     get_client,
-    run_chat_stream_vl,
+    run_chat_stream,
     setup_observability,
 )
 from rich.console import Console
@@ -80,7 +80,7 @@ def main():
 
     # ── Turn 1: LLM decides to call a tool ──────────────────────────────
     logger.info("═══ TURN 1: Initial request with tool definitions ═══")
-    turn1_response = run_chat_stream_vl(
+    turn1_response = run_chat_stream(
         client,
         prompt=prompt,
         model=MODEL,
@@ -89,7 +89,7 @@ def main():
         temperature=0.0,
     )
 
-    # NOTE: In production, run_chat_stream_vl should return a structured
+    # NOTE: In production, run_chat_stream should return a structured
     # StreamResult containing the accumulated tool_calls. For this demo,
     # we reconstruct from what we know the model will output.
     # CRITICAL: llama.cpp REQUIRES "type": "function" on assistant tool_calls
@@ -145,7 +145,7 @@ def main():
         *tool_messages,
     ]
 
-    run_chat_stream_vl(
+    run_chat_stream(
         client,
         messages=follow_up_messages,
         model=MODEL,
