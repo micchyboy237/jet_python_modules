@@ -4,19 +4,22 @@ import argparse
 import base64
 import logging
 import os
+import time
 from pathlib import Path
 
 import requests
 from openai import OpenAI, Stream
 from openai.types.chat import ChatCompletionChunk
+from opentelemetry import trace
 from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+from opentelemetry.trace import Status, StatusCode
 from phoenix.otel import register
 from requests.exceptions import RequestException
 from rich.console import Console
 from rich.logging import RichHandler
 
 # ────────────────────────────────────────────────
-# Logging (rich-formatted, matches v2 style)
+# Logging (rich-formatted)
 # ────────────────────────────────────────────────
 console = Console()
 logging.basicConfig(
@@ -28,7 +31,7 @@ logging.basicConfig(
 logger = logging.getLogger("vision-stream-merged")
 
 # ────────────────────────────────────────────────
-# Config (env vars, same names as your working scripts)
+# Config (env vars, existing defaults preserved)
 # ────────────────────────────────────────────────
 LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1")
 DEFAULT_MODEL = "qwen3.5-uncensored:2b"
@@ -37,16 +40,22 @@ PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 
 
 # ────────────────────────────────────────────────
-# Observability setup — uses register(), which sets the correct
-# `openinference.project.name` resource attribute automatically.
+# Observability setup
 # ────────────────────────────────────────────────
 def setup_observability(
     project_name: str = "vision-stream-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
 ):
-    """Configure OpenTelemetry to export traces to a remote Phoenix server."""
+    """Configure OpenTelemetry to export traces to a remote Phoenix server.
+
+    Uses phoenix.otel.register(), which sets the correct
+    `openinference.project.name` resource attribute automatically —
+    building the Resource by hand (e.g. with `service.name`) causes
+    traces to silently land in the "default" project instead.
+    """
     if capture_content:
+        # Valid enum values: NO_CONTENT, SPAN_ONLY, EVENT_ONLY, SPAN_AND_EVENT
         os.environ.setdefault(
             "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_AND_EVENT"
         )
@@ -54,13 +63,23 @@ def setup_observability(
     tracer_provider = register(
         project_name=project_name,
         endpoint=f"{phoenix_url}/v1/traces",
-        batch=False,
+        batch=False,  # flush immediately — good for short-lived scripts
     )
     OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
 
     logger.info(f"🔭 Observability enabled → [link={phoenix_url}]{phoenix_url}[/link]")
     logger.info(f"📁 Phoenix project name: {project_name}")
     return tracer_provider
+
+
+def format_trace_id(trace_id: int) -> str:
+    """Format an OTel trace id int as the 32-char hex string Phoenix expects."""
+    return format(trace_id, "032x")
+
+
+def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
+    """Direct link to view this specific trace in the Phoenix UI."""
+    return f"{phoenix_url.rstrip('/')}/redirects/traces/{format_trace_id(trace_id)}"
 
 
 # ────────────────────────────────────────────────
@@ -153,100 +172,150 @@ def run_chat_stream_vl(
     top_p: float = 0.8,
     top_k: int = 20,
     presence_penalty: float = 1.5,
+    phoenix_url: str = PHOENIX_URL,
 ) -> str:
     """
     Stream image analysis from a vision-capable llama.cpp/vLLM server.
-    Every call is auto-traced and shipped to Phoenix by the instrumentor.
+    Wrapped in its own span so we can capture the trace_id and build a
+    direct Phoenix UI link — OpenAIInstrumentor's auto-created span
+    becomes a child of this one and shares the same trace_id.
     """
-    base64_img, mime_type = encode_image_to_base64(image_source)
-    image_content = {
-        "type": "image_url",
-        "image_url": {"url": f"data:{mime_type};base64,{base64_img}"},
-    }
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                image_content,
-            ],
+    tracer = trace.get_tracer(__name__)
+
+    with tracer.start_as_current_span("vision_chat_stream") as span:
+        trace_id = span.get_span_context().trace_id
+        trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+        span.set_attribute("llm.image_source", str(image_source))
+        span.set_attribute("llm.model", model)
+
+        logger.info("─" * 60)
+        logger.info(f"🖼️  Image source : {image_source}")
+        logger.info(f"🤖 Model        : {model}")
+        logger.info(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
+
+        t0 = time.perf_counter()
+        base64_img, mime_type = encode_image_to_base64(image_source)
+        logger.info(
+            f"📦 Image encoded in {time.perf_counter() - t0:.2f}s ({mime_type})"
+        )
+
+        image_content = {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{base64_img}"},
         }
-    ]
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    image_content,
+                ],
+            }
+        ]
 
-    logger.info("Sending request to model=%s (thinking=%s)", model, enable_thinking)
+        logger.info(f"➡️  Sending request (thinking={enable_thinking})")
+        t_request_start = time.perf_counter()
 
-    stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
-        model=model,
-        messages=messages,  # type: ignore
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        presence_penalty=presence_penalty,
-        extra_body={
-            "top_k": top_k,
-            "chat_template_kwargs": {"enable_thinking": enable_thinking},
-        },
-        stream=True,
-        stream_options={"include_usage": True},
-    )
+        collected: list[str] = []
+        usage = None
 
-    collected = []
-    in_think_block = False
+        try:
+            stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                presence_penalty=presence_penalty,
+                extra_body={
+                    "top_k": top_k,
+                    "chat_template_kwargs": {"enable_thinking": enable_thinking},
+                },
+                stream=True,
+                stream_options={"include_usage": True},
+            )
 
-    console.print(f"[bold cyan]Streaming response from {model}:[/bold cyan] ", end="")
+            in_think_block = False
+            first_token_at: float | None = None
 
-    try:
-        for chunk in stream:
-            if not chunk.choices:
-                # Final usage-only chunk
-                usage = getattr(chunk, "usage", None)
-                if usage is not None:
-                    logger.info("=== Completion Details ===")
-                    logger.info(f"Prompt tokens     : {usage.prompt_tokens}")
-                    logger.info(f"Completion tokens : {usage.completion_tokens}")
-                    logger.info(f"Total tokens      : {usage.total_tokens}")
-                continue
+            console.print("[bold cyan]Response:[/bold cyan] ", end="")
 
-            delta = chunk.choices[0].delta
-            if not delta:
-                continue
+            for chunk in stream:
+                if not chunk.choices:
+                    # Final usage-only chunk
+                    usage = getattr(chunk, "usage", None)
+                    continue
 
-            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                if not in_think_block:
-                    console.print("[bold orange1]<think>[/bold orange1]", end="")
-                    in_think_block = True
-                console.print(
-                    f"[bold orange1]{delta.reasoning_content}[/bold orange1]",
-                    end="",
-                    highlight=False,
-                    soft_wrap=True,
-                )
-                collected.append(delta.reasoning_content)
-            elif in_think_block:
+                delta = chunk.choices[0].delta
+                if not delta:
+                    continue
+
+                if first_token_at is None and (
+                    getattr(delta, "content", None)
+                    or getattr(delta, "reasoning_content", None)
+                ):
+                    first_token_at = time.perf_counter()
+
+                if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                    if not in_think_block:
+                        console.print("[bold orange1]<think>[/bold orange1]", end="")
+                        in_think_block = True
+                    console.print(
+                        f"[bold orange1]{delta.reasoning_content}[/bold orange1]",
+                        end="",
+                        highlight=False,
+                        soft_wrap=True,
+                    )
+                    collected.append(delta.reasoning_content)
+                elif in_think_block:
+                    console.print("[bold orange1]</think>[/bold orange1]", end="")
+                    in_think_block = False
+
+                if hasattr(delta, "content") and delta.content:
+                    console.print(
+                        f"[bold cyan]{delta.content}[/bold cyan]",
+                        end="",
+                        highlight=False,
+                        soft_wrap=True,
+                    )
+                    collected.append(delta.content)
+
+            if in_think_block:
                 console.print("[bold orange1]</think>[/bold orange1]", end="")
-                in_think_block = False
 
-            if hasattr(delta, "content") and delta.content:
-                console.print(
-                    f"[bold cyan]{delta.content}[/bold cyan]",
-                    end="",
-                    highlight=False,
-                    soft_wrap=True,
-                )
-                collected.append(delta.content)
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR))
+            logger.exception("❌ Streaming failed")
+            raise
+        finally:
+            console.print()
 
-        if in_think_block:
-            console.print("[bold orange1]</think>[/bold orange1]", end="")
+        total_secs = time.perf_counter() - t_request_start
+        ttft = (first_token_at - t_request_start) if first_token_at else None
+        full_response = "".join(collected)
 
-    except Exception:
-        logger.exception("Streaming failed")
-        raise
-    finally:
-        console.print()
+        logger.info("─" * 60)
+        logger.info("📊 Completion summary")
+        if usage:
+            tok_per_sec = (
+                usage.completion_tokens / total_secs if total_secs > 0 else 0.0
+            )
+            logger.info(f"   Prompt tokens      : {usage.prompt_tokens}")
+            logger.info(f"   Completion tokens  : {usage.completion_tokens}")
+            logger.info(f"   Total tokens       : {usage.total_tokens}")
+            logger.info(f"   Throughput         : {tok_per_sec:.1f} tok/s")
+            span.set_attribute("llm.usage.prompt_tokens", usage.prompt_tokens)
+            span.set_attribute("llm.usage.completion_tokens", usage.completion_tokens)
+        if ttft is not None:
+            logger.info(f"   Time to first token: {ttft:.2f}s")
+        logger.info(f"   Total duration     : {total_secs:.2f}s")
+        logger.info(f"   Response length    : {len(full_response)} chars")
+        logger.info(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
+        logger.info("─" * 60)
 
-    full_response = "".join(collected)
-    logger.info("[Stream complete] Full response length: %d chars", len(full_response))
-    return full_response
+        span.set_status(Status(StatusCode.OK))
+        return full_response
 
 
 # ────────────────────────────────────────────────
@@ -329,7 +398,17 @@ def get_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = get_args()
 
-    setup_observability(project_name=args.project, capture_content=args.capture_content)
+    logger.info("🚀 Startup config")
+    logger.info(f"   Base URL     : {args.base_url}")
+    logger.info(f"   Model        : {args.model}")
+    logger.info(f"   Phoenix URL  : {args.phoenix_url}")
+    logger.info(f"   Project      : {args.project}")
+
+    setup_observability(
+        project_name=args.project,
+        capture_content=args.capture_content,
+        phoenix_url=args.phoenix_url,
+    )
     client = get_client(base_url=args.base_url, timeout=args.timeout)
     run_chat_stream_vl(
         client,
@@ -342,4 +421,5 @@ if __name__ == "__main__":
         top_p=args.top_p,
         top_k=args.top_k,
         presence_penalty=args.presence_penalty,
+        phoenix_url=args.phoenix_url,
     )
