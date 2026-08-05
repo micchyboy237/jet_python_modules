@@ -1,11 +1,10 @@
-# jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/__init__.py
 """Reusable RAG chunking strategies for token-constrained local LLMs.
-
 Public API (stable, re-exported for backward compatibility):
     - ChunkStrategy: Protocol that all strategies implement
     - TokenAwareSentenceChunker: Sentence-first hierarchical chunking
     - TokenAwareFixedSizeChunker: Token-level sliding window chunking
     - SmartChunker: Automatic strategy selection based on document structure
+    - ParentDocumentChunker: Parent-document retrieval with linked child-parent pairs
     - get_chunker: Factory function to retrieve a strategy by name
     - detect_token_overlap: Token ID-based overlap detection (fixed-size)
     - detect_text_overlap: String-based overlap detection (sentence)
@@ -27,6 +26,9 @@ from jet.adapters.llama_cpp.chunk_strategies.model_utils import (
     estimate_tokens_safe,
     get_optimal_chunk_size,
 )
+from jet.adapters.llama_cpp.chunk_strategies.parent_document_chunker import (
+    ParentDocumentChunker,
+)
 from jet.adapters.llama_cpp.chunk_strategies.rag_formatter import (
     detect_content_type,
     format_chunks_for_rag,
@@ -40,6 +42,7 @@ _STRATEGY_REGISTRY: dict[str, type[ChunkStrategy]] = {
     "sentence": TokenAwareSentenceChunker,
     "fixed": TokenAwareFixedSizeChunker,
     "smart": SmartChunker,
+    "pdr": ParentDocumentChunker,
 }
 
 
@@ -54,9 +57,12 @@ def get_chunker(
             - "sentence": TokenAwareSentenceChunker (recommended for prose)
             - "fixed": TokenAwareFixedSizeChunker (best for code/structured data)
             - "smart": SmartChunker (auto-detects structure)
+            - "pdr": ParentDocumentChunker (parent-document retrieval pairs)
         model: llama.cpp model key or HF ID for tokenizer resolution.
+
     Returns:
         ChunkStrategy instance ready for use.
+
     Raises:
         ValueError: If strategy name is unrecognized.
     """
@@ -74,6 +80,7 @@ __all__ = [
     "TokenAwareSentenceChunker",
     "TokenAwareFixedSizeChunker",
     "SmartChunker",
+    "ParentDocumentChunker",
     "get_chunker",
     "detect_token_overlap",
     "detect_text_overlap",
