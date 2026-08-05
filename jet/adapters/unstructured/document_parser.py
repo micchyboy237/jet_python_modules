@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
 os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
@@ -38,53 +38,104 @@ except ImportError as e:
     logger.critical("   Fix: pip install 'unstructured[all-docs]'")
     sys.exit(1)
 
-# Low to high value element types for RAG context
+# ✅ NEW: Import accurate token counting and model context utilities
+try:
+    from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
+    from jet.adapters.llama_cpp.token_utils import count_tokens
+
+    logger.info("✅ llama_cpp token_utils and model_utils imported successfully")
+    _HAS_LLAMA_CPP_UTILS = True
+except ImportError as e:
+    logger.warning(
+        f"⚠️ llama_cpp utils not available ({e}). "
+        "Falling back to heuristic token estimation."
+    )
+    _HAS_LLAMA_CPP_UTILS = False
+
 RAG_CONTEXT_TYPES: Set[str] = {
-    # Core Narrative
     "NarrativeText",
     "Text",
     "UncategorizedText",
     "Paragraph",
-    # Structure
     "Title",
     "Header",
     "ListItem",
     "BulletedText",
-    # Data & Media
     "Table",
     "FigureCaption",
     "Image",
-    # Code & Math
     "CodeSnippet",
     "Formula",
-    # PII & Forms
     "EmailAddress",
     "Address",
     "FormKeysValues",
     "Form",
 }
-
-# Atomic types that must never be split mid-element
 ATOMIC_TYPES: Set[str] = {"Table", "CodeSnippet", "Formula"}
-
-# Section boundary types
 SECTION_TYPES: Set[str] = {"Title", "Header"}
 
 
-# ---------------------------------------------------------------------------
-# Token estimation (lightweight, no external deps required)
-# Replace with tiktoken or llama-cpp tokenizer for production accuracy
-# ---------------------------------------------------------------------------
-def estimate_tokens(text: str) -> int:
-    """Estimate token count. ~4 chars/token for English; override for production."""
+def estimate_tokens(text: str, model: Optional[str] = None) -> int:
+    """
+    Count tokens accurately using the LLM tokenizer when available,
+    falling back to ~4 chars/token heuristic otherwise.
+
+    Args:
+        text: Text to count tokens for.
+        model: Optional llama.cpp model key. Uses default LLM_MODEL if None.
+
+    Returns:
+        Token count (always >= 1 for non-empty text).
+    """
     if not text:
         return 0
+    if _HAS_LLAMA_CPP_UTILS:
+        try:
+            return count_tokens(text, add_special=False, model=model)
+        except Exception as e:
+            logger.debug(f"count_tokens failed, falling back to heuristic: {e}")
     return max(1, len(text) // 4)
 
 
-# ---------------------------------------------------------------------------
-# Structure classification
-# ---------------------------------------------------------------------------
+def auto_chunk_size(model_key: Optional[str] = None) -> int:
+    """
+    Derive optimal chunk size from model context window.
+
+    Uses ~10% of context as max chunk size, clamped to [128, 1024].
+    Falls back to 400 if model info is unavailable.
+
+    Args:
+        model_key: llama.cpp model key (e.g., "qwen3.5:2b").
+                   Uses default LLM_MODEL from config if None.
+
+    Returns:
+        Recommended max_tokens per chunk.
+    """
+    if not _HAS_LLAMA_CPP_UTILS:
+        return 400
+    try:
+        info = get_model_ctx_embd_size(model_key)
+        ctx = info.get("ctx", 0)
+        if ctx <= 0:
+            logger.warning(
+                f"auto_chunk_size | model '{model_key}' reports ctx={ctx}, "
+                "falling back to default 400"
+            )
+            return 400
+        derived = min(max(ctx // 10, 128), 1024)
+        logger.info(
+            f"auto_chunk_size | model='{model_key}' ctx={ctx} → "
+            f"recommended max_tokens={derived}"
+        )
+        return derived
+    except ValueError as e:
+        logger.warning(
+            f"auto_chunk_size | could not resolve model '{model_key}': {e}. "
+            "Falling back to default 400"
+        )
+        return 400
+
+
 def classify_structure(elements: List[Dict[str, Any]]) -> str:
     """Classify document structure to select chunking strategy."""
     if not elements:
@@ -94,7 +145,6 @@ def classify_structure(elements: List[Dict[str, Any]]) -> str:
     has_atomic = any(t in ATOMIC_TYPES for t in types)
     narrative_count = sum(1 for t in types if t == "NarrativeText")
     total = len(types)
-
     if has_sections and total > 3:
         return "structured"
     elif has_atomic and not has_sections:
@@ -107,9 +157,6 @@ def classify_structure(elements: List[Dict[str, Any]]) -> str:
         return "mixed"
 
 
-# ---------------------------------------------------------------------------
-# Sentence splitting helper
-# ---------------------------------------------------------------------------
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 
@@ -119,11 +166,11 @@ def split_sentences(text: str) -> List[str]:
     return [p.strip() for p in parts if p.strip()] or [text.strip()]
 
 
-# ---------------------------------------------------------------------------
-# Core chunking engine
-# ---------------------------------------------------------------------------
 def _merge_up_to_budget(
-    texts: List[str], max_tokens: int, overlap_tokens: int
+    texts: List[str],
+    max_tokens: int,
+    overlap_tokens: int,
+    model: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Merge sequential text fragments into chunks respecting token budget."""
     chunks: List[Dict[str, Any]] = []
@@ -131,10 +178,10 @@ def _merge_up_to_budget(
     current_tokens = 0
 
     for text in texts:
-        text_tokens = estimate_tokens(text)
-        # If single fragment exceeds budget, force-split it
+        text_tokens = estimate_tokens(text, model=model)
+
         if text_tokens > max_tokens:
-            # Flush current buffer first
+            # Flush accumulated parts before handling oversized text
             if current_parts:
                 chunks.append(
                     {
@@ -144,12 +191,14 @@ def _merge_up_to_budget(
                 )
                 current_parts = []
                 current_tokens = 0
-            # Hard-split oversized fragment at word boundaries
+
+            # Split oversized text by words
             words = text.split()
             sub_parts: List[str] = []
             sub_tokens = 0
+
             for word in words:
-                w_tok = estimate_tokens(word)
+                w_tok = estimate_tokens(word, model=model)
                 if sub_tokens + w_tok > max_tokens and sub_parts:
                     chunks.append(
                         {
@@ -157,16 +206,16 @@ def _merge_up_to_budget(
                             "token_count": sub_tokens,
                         }
                     )
-                    # Overlap: carry tail of previous chunk
                     if overlap_tokens > 0:
-                        overlap_text = " ".join(sub_parts[-3:])  # approx overlap
+                        overlap_text = " ".join(sub_parts[-3:])
                         sub_parts = [overlap_text]
-                        sub_tokens = estimate_tokens(overlap_text)
+                        sub_tokens = estimate_tokens(overlap_text, model=model)
                     else:
                         sub_parts = []
                         sub_tokens = 0
                 sub_parts.append(word)
                 sub_tokens += w_tok
+
             if sub_parts:
                 chunks.append(
                     {
@@ -176,7 +225,6 @@ def _merge_up_to_budget(
                 )
             continue
 
-        # Normal case: fits within budget
         if current_tokens + text_tokens > max_tokens and current_parts:
             chunks.append(
                 {
@@ -184,12 +232,11 @@ def _merge_up_to_budget(
                     "token_count": current_tokens,
                 }
             )
-            # Overlap: carry last fragment(s) into next chunk
             if overlap_tokens > 0:
                 overlap_parts: List[str] = []
                 overlap_tok = 0
                 for part in reversed(current_parts):
-                    pt = estimate_tokens(part)
+                    pt = estimate_tokens(part, model=model)
                     if overlap_tok + pt > overlap_tokens:
                         break
                     overlap_parts.insert(0, part)
@@ -210,6 +257,7 @@ def _merge_up_to_budget(
                 "token_count": current_tokens,
             }
         )
+
     return chunks
 
 
@@ -217,6 +265,7 @@ def chunk_rag_context(
     elements: List[Dict[str, Any]],
     max_tokens: int = 400,
     overlap_tokens: int = 50,
+    model: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Hierarchical, token-aware chunking of parsed document elements with metadata preservation.
@@ -230,8 +279,10 @@ def chunk_rag_context(
 
     Args:
         elements: List of element dicts from partition().to_dict()
-        max_tokens: Target max tokens per chunk (256-400 for small-context LLMs)
+        max_tokens: Target max tokens per chunk. Pass None to auto-derive from model.
         overlap_tokens: Overlap between consecutive chunks (0 for sparse retrieval)
+        model: Optional llama.cpp model key for accurate token counting and
+               auto chunk sizing. Uses default LLM_MODEL if None and max_tokens is None.
 
     Returns:
         List of chunk dicts with 'text', 'token_count', 'strategy', and 'metadata' keys.
@@ -239,7 +290,13 @@ def chunk_rag_context(
     if not elements:
         return []
 
-    # ✅ EXPANDED: Include UncategorizedText, EmailAddress, Address, FormKeysValues, Text, etc.
+    # ✅ Auto-derive chunk size from model context if not explicitly set
+    if max_tokens is None:
+        max_tokens = auto_chunk_size(model)
+        logger.info(
+            f"chunk_rag_context | auto-derived max_tokens={max_tokens} from model='{model}'"
+        )
+
     rag_elements = [
         e
         for e in elements
@@ -261,10 +318,8 @@ def chunk_rag_context(
         text: str, token_count: int, strategy: str, source_elems: List[Dict]
     ) -> Dict[str, Any]:
         """Build a chunk dict with aggregated metadata from source elements."""
-        # Aggregate metadata: prefer first element's page/filename, collect all element_ids
         primary_meta = source_elems[0].get("metadata", {}) if source_elems else {}
         element_ids = [e.get("element_id") for e in source_elems if e.get("element_id")]
-
         return {
             "text": text,
             "token_count": token_count,
@@ -298,10 +353,9 @@ def chunk_rag_context(
                 text = elem.get("text", "").strip()
 
                 if etype in ATOMIC_TYPES:
-                    # Flush accumulated narrative before atomic element
                     if narrative_parts:
                         merged_chunks = _merge_up_to_budget(
-                            narrative_parts, max_tokens, overlap_tokens
+                            narrative_parts, max_tokens, overlap_tokens, model=model
                         )
                         for mc in merged_chunks:
                             chunks.append(
@@ -315,16 +369,15 @@ def chunk_rag_context(
                         narrative_parts = []
                         narrative_sources = []
 
-                    tok = estimate_tokens(text)
+                    tok = estimate_tokens(text, model=model)
                     chunks.append(_build_chunk(text, tok, "atomic", [elem]))
                 else:
                     narrative_parts.append(text)
                     narrative_sources.append(elem)
 
-            # Flush remaining narrative in section
             if narrative_parts:
                 merged_chunks = _merge_up_to_budget(
-                    narrative_parts, max_tokens, overlap_tokens
+                    narrative_parts, max_tokens, overlap_tokens, model=model
                 )
                 for mc in merged_chunks:
                     chunks.append(
@@ -347,7 +400,7 @@ def chunk_rag_context(
             if etype in ATOMIC_TYPES:
                 if narrative_parts:
                     merged_chunks = _merge_up_to_budget(
-                        narrative_parts, max_tokens, overlap_tokens
+                        narrative_parts, max_tokens, overlap_tokens, model=model
                     )
                     for mc in merged_chunks:
                         chunks.append(
@@ -362,7 +415,9 @@ def chunk_rag_context(
                     narrative_sources = []
 
                 chunks.append(
-                    _build_chunk(text, estimate_tokens(text), "atomic", [elem])
+                    _build_chunk(
+                        text, estimate_tokens(text, model=model), "atomic", [elem]
+                    )
                 )
             else:
                 narrative_parts.append(text)
@@ -370,7 +425,7 @@ def chunk_rag_context(
 
         if narrative_parts:
             merged_chunks = _merge_up_to_budget(
-                narrative_parts, max_tokens, overlap_tokens
+                narrative_parts, max_tokens, overlap_tokens, model=model
             )
             for mc in merged_chunks:
                 chunks.append(
@@ -382,17 +437,20 @@ def chunk_rag_context(
     elif structure == "flat_narrative":
         GROUP_SIZE = 4
         texts = [e.get("text", "").strip() for e in rag_elements]
-        sources = rag_elements  # Keep parallel reference
+        sources = rag_elements
 
         for i in range(0, len(texts), GROUP_SIZE):
             group_texts = texts[i : i + GROUP_SIZE]
             group_sources = sources[i : i + GROUP_SIZE]
             merged = "\n\n".join(group_texts)
 
-            if estimate_tokens(merged) <= max_tokens:
+            if estimate_tokens(merged, model=model) <= max_tokens:
                 chunks.append(
                     _build_chunk(
-                        merged, estimate_tokens(merged), "synthetic_para", group_sources
+                        merged,
+                        estimate_tokens(merged, model=model),
+                        "synthetic_para",
+                        group_sources,
                     )
                 )
             else:
@@ -404,9 +462,8 @@ def chunk_rag_context(
                     sent_sources.extend([src] * len(sents))
 
                 merged_chunks = _merge_up_to_budget(
-                    sentences, max_tokens, overlap_tokens
+                    sentences, max_tokens, overlap_tokens, model=model
                 )
-                # Map merged chunks back to source elements approximately
                 for mc in merged_chunks:
                     chunks.append(
                         _build_chunk(
@@ -421,14 +478,19 @@ def chunk_rag_context(
         text = rag_elements[0].get("text", "").strip()
         sentences = split_sentences(text)
 
-        if len(sentences) == 1 and estimate_tokens(text) <= max_tokens:
+        if len(sentences) == 1 and estimate_tokens(text, model=model) <= max_tokens:
             chunks.append(
                 _build_chunk(
-                    text, estimate_tokens(text), "monolithic", [rag_elements[0]]
+                    text,
+                    estimate_tokens(text, model=model),
+                    "monolithic",
+                    [rag_elements[0]],
                 )
             )
         else:
-            merged_chunks = _merge_up_to_budget(sentences, max_tokens, overlap_tokens)
+            merged_chunks = _merge_up_to_budget(
+                sentences, max_tokens, overlap_tokens, model=model
+            )
             for mc in merged_chunks:
                 chunks.append(
                     _build_chunk(
@@ -446,10 +508,9 @@ def chunk_rag_context(
 
         for elem in rag_elements:
             if elem.get("type") in SECTION_TYPES:
-                # Flush flat run before new section
                 if flat_run:
                     merged_chunks = _merge_up_to_budget(
-                        flat_run, max_tokens, overlap_tokens
+                        flat_run, max_tokens, overlap_tokens, model=model
                     )
                     for mc in merged_chunks:
                         chunks.append(
@@ -469,7 +530,6 @@ def chunk_rag_context(
                 flat_run.append(elem.get("text", "").strip())
                 flat_sources.append(elem)
 
-        # Process anchored run
         if anchored_run:
             narrative_parts: List[str] = []
             narrative_sources: List[Dict] = []
@@ -481,7 +541,7 @@ def chunk_rag_context(
                 if etype in ATOMIC_TYPES:
                     if narrative_parts:
                         merged_chunks = _merge_up_to_budget(
-                            narrative_parts, max_tokens, overlap_tokens
+                            narrative_parts, max_tokens, overlap_tokens, model=model
                         )
                         for mc in merged_chunks:
                             chunks.append(
@@ -494,8 +554,11 @@ def chunk_rag_context(
                             )
                         narrative_parts = []
                         narrative_sources = []
+
                     chunks.append(
-                        _build_chunk(text, estimate_tokens(text), "atomic", [elem])
+                        _build_chunk(
+                            text, estimate_tokens(text, model=model), "atomic", [elem]
+                        )
                     )
                 else:
                     narrative_parts.append(text)
@@ -503,7 +566,7 @@ def chunk_rag_context(
 
             if narrative_parts:
                 merged_chunks = _merge_up_to_budget(
-                    narrative_parts, max_tokens, overlap_tokens
+                    narrative_parts, max_tokens, overlap_tokens, model=model
                 )
                 for mc in merged_chunks:
                     chunks.append(
@@ -515,9 +578,10 @@ def chunk_rag_context(
                         )
                     )
 
-        # Flush remaining flat run
         if flat_run:
-            merged_chunks = _merge_up_to_budget(flat_run, max_tokens, overlap_tokens)
+            merged_chunks = _merge_up_to_budget(
+                flat_run, max_tokens, overlap_tokens, model=model
+            )
             for mc in merged_chunks:
                 chunks.append(
                     _build_chunk(
@@ -525,7 +589,6 @@ def chunk_rag_context(
                     )
                 )
 
-    # Ensure every chunk has a strategy label
     for c in chunks:
         c.setdefault("strategy", structure)
 
@@ -539,9 +602,6 @@ def chunk_rag_context(
     return chunks
 
 
-# ---------------------------------------------------------------------------
-# Notebook parser (unchanged)
-# ---------------------------------------------------------------------------
 def _parse_notebook(path: str) -> List[Dict[str, Any]]:
     """Parse .ipynb natively into unstructured-compatible element dicts."""
     try:
@@ -561,6 +621,7 @@ def _parse_notebook(path: str) -> List[Dict[str, Any]]:
         text = "".join(source_lines).strip()
         if not text:
             continue
+
         if cell_type == "markdown":
             for line in text.split("\n"):
                 stripped = line.strip()
@@ -599,17 +660,16 @@ def _parse_notebook(path: str) -> List[Dict[str, Any]]:
     return elements
 
 
-# ---------------------------------------------------------------------------
-# RAG context extraction (unchanged)
-# ---------------------------------------------------------------------------
 def extract_rag_context(elements: List[Dict[str, Any]]) -> str:
     """Extract clean RAG-ready text from parsed elements."""
     if not elements:
         return ""
+
     rag_parts: List[str] = []
     for elem in elements:
         elem_type = elem.get("type", "")
         text = elem.get("text", "").strip()
+
         if elem_type in RAG_CONTEXT_TYPES and text:
             if elem_type == "Table":
                 rag_parts.append(f"[TABLE]\n{text}\n[/TABLE]")
@@ -621,6 +681,7 @@ def extract_rag_context(elements: List[Dict[str, Any]]) -> str:
                 rag_parts.append(f"[FORMULA]{text}[/FORMULA]")
             else:
                 rag_parts.append(text)
+
     context = "\n\n".join(rag_parts)
     logger.info(
         f"extract_rag_context | kept={len(rag_parts)} elements | "
@@ -630,19 +691,27 @@ def extract_rag_context(elements: List[Dict[str, Any]]) -> str:
     return context
 
 
-# ---------------------------------------------------------------------------
-# Document parser (now includes chunking)
-# ---------------------------------------------------------------------------
 def parse_document(
     path: str,
-    chunk_max_tokens: int = 400,
+    chunk_max_tokens: Optional[int] = None,
     chunk_overlap_tokens: int = 50,
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Parse any document and produce RAG-ready chunks.
+
     Handles local files, URLs, notebooks, and unsupported types gracefully.
+
+    Args:
+        path: File path or URL to parse.
+        chunk_max_tokens: Max tokens per chunk. Pass None to auto-derive from
+                          the target model's context window (recommended).
+                          Explicit values override auto-sizing.
+        chunk_overlap_tokens: Overlap tokens between consecutive chunks.
+        model: llama.cpp model key (e.g., "qwen3.5:2b") for accurate token
+               counting and auto chunk sizing. Uses default LLM_MODEL if None.
     """
-    logger.info(f"parse_document | START | path={path}")
+    logger.info(f"parse_document | START | path={path} | model={model}")
     try:
         if path.endswith(".ipynb"):
             element_dicts = _parse_notebook(path)
@@ -655,6 +724,7 @@ def parse_document(
                 elements = partition(url=path)
             else:
                 elements = partition(filename=path)
+
             categories = [getattr(e, "category", "Unknown") for e in elements]
             full_text = " ".join(str(e) for e in elements)
             word_count = len(full_text.split())
@@ -668,7 +738,10 @@ def parse_document(
 
         rag_context = extract_rag_context(element_dicts)
         chunks = chunk_rag_context(
-            element_dicts, chunk_max_tokens, chunk_overlap_tokens
+            element_dicts,
+            max_tokens=chunk_max_tokens,
+            overlap_tokens=chunk_overlap_tokens,
+            model=model,
         )
 
         result = {
@@ -688,6 +761,7 @@ def parse_document(
             f"chunks={len(chunks)} | categories={result['categories']}"
         )
         return result
+
     except Exception as e:
         logger.error(
             f"parse_document | FAILED | path={path} | error={e}", exc_info=True
