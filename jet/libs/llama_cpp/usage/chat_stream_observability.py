@@ -76,7 +76,7 @@ class StreamCompletionResult:
 
 
 def setup_observability(
-    project_name: str = "vision-stream-obs",
+    project_name: str = "chat-stream-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
 ):
@@ -654,7 +654,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--project",
         type=str,
-        default="vision-stream-obs",
+        default="chat-stream-obs",
         help="Phoenix project name to log traces under.",
     )
     parser.add_argument(
