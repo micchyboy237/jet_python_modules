@@ -45,7 +45,7 @@ def main():
         prompt=prompt,
         model=MODEL,
         temperature=0.7,
-        max_tokens=32768,
+        max_tokens=16384,
     )
 
     # Log results
