@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import logging
 import os
 import time
@@ -18,9 +19,6 @@ from requests.exceptions import RequestException
 from rich.console import Console
 from rich.logging import RichHandler
 
-# ────────────────────────────────────────────────
-# Logging (rich-formatted)
-# ────────────────────────────────────────────────
 console = Console()
 logging.basicConfig(
     level=logging.INFO,
@@ -30,18 +28,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("vision-stream-merged")
 
-# ────────────────────────────────────────────────
-# Config (env vars, existing defaults preserved)
-# ────────────────────────────────────────────────
 LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1")
 DEFAULT_MODEL = "qwen3.5-uncensored:2b"
 MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
 PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 
 
-# ────────────────────────────────────────────────
-# Observability setup
-# ────────────────────────────────────────────────
 def setup_observability(
     project_name: str = "vision-stream-obs",
     capture_content: bool = True,
@@ -55,7 +47,6 @@ def setup_observability(
     traces to silently land in the "default" project instead.
     """
     if capture_content:
-        # Valid enum values: NO_CONTENT, SPAN_ONLY, EVENT_ONLY, SPAN_AND_EVENT
         os.environ.setdefault(
             "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_AND_EVENT"
         )
@@ -63,7 +54,7 @@ def setup_observability(
     tracer_provider = register(
         project_name=project_name,
         endpoint=f"{phoenix_url}/v1/traces",
-        batch=False,  # flush immediately — good for short-lived scripts
+        batch=False,
     )
     OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
 
@@ -82,20 +73,14 @@ def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
     return f"{phoenix_url.rstrip('/')}/redirects/traces/{format_trace_id(trace_id)}"
 
 
-# ────────────────────────────────────────────────
-# Client
-# ────────────────────────────────────────────────
 def get_client(base_url: str = LLAMA_CPP_BASE_URL, timeout: float = 120.0) -> OpenAI:
     return OpenAI(
         base_url=base_url,
-        api_key="sk-1234",  # dummy — llama.cpp/vLLM ignores it
+        api_key="sk-1234",
         timeout=timeout,
     )
 
 
-# ────────────────────────────────────────────────
-# Image handling (local path or remote URL)
-# ────────────────────────────────────────────────
 def fetch_remote_image_bytes(url: str, headers: dict | None = None) -> bytes:
     """Fetch image bytes from a remote URL with browser-like headers."""
     default_headers = {
@@ -157,9 +142,6 @@ def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
     return base64_data, mime
 
 
-# ────────────────────────────────────────────────
-# Core streaming call
-# ────────────────────────────────────────────────
 def run_chat_stream_vl(
     client: OpenAI,
     image_source: str | None = None,
@@ -171,11 +153,17 @@ def run_chat_stream_vl(
     temperature: float = 0.7,
     top_p: float = 0.8,
     top_k: int = 20,
+    min_p: float = 0.0,
+    repeat_penalty: float = 1.1,
     presence_penalty: float = 1.5,
+    frequency_penalty: float = 0.0,
+    logit_bias: dict[str, int] | None = None,
+    seed: int | None = None,
+    stop: list[str] | None = None,
     phoenix_url: str = PHOENIX_URL,
 ) -> str:
-    """
-    Stream a chat completion, optionally analyzing an image.
+    """Stream a chat completion, optionally analyzing an image.
+
     If `image_source` is None, sends a plain text-only chat request —
     useful for testing the pipeline or non-vision prompts against the
     same vision-capable server.
@@ -189,14 +177,41 @@ def run_chat_stream_vl(
     with tracer.start_as_current_span("vision_chat_stream") as span:
         trace_id = span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+
+        # --- Record all sampling parameters on the span for observability ---
         span.set_attribute(
             "llm.image_source", str(image_source) if image_source else "none"
         )
         span.set_attribute("llm.model", model)
+        span.set_attribute("llm.sampling.temperature", temperature)
+        span.set_attribute("llm.sampling.top_p", top_p)
+        span.set_attribute("llm.sampling.top_k", top_k)
+        span.set_attribute("llm.sampling.min_p", min_p)
+        span.set_attribute("llm.sampling.repeat_penalty", repeat_penalty)
+        span.set_attribute("llm.sampling.presence_penalty", presence_penalty)
+        span.set_attribute("llm.sampling.frequency_penalty", frequency_penalty)
+        span.set_attribute("llm.sampling.max_tokens", max_tokens)
+        span.set_attribute("llm.sampling.enable_thinking", enable_thinking)
+        if seed is not None:
+            span.set_attribute("llm.sampling.seed", seed)
+        if logit_bias:
+            span.set_attribute("llm.sampling.logit_bias", json.dumps(logit_bias))
+        if stop:
+            span.set_attribute("llm.sampling.stop_sequences", json.dumps(stop))
 
         logger.info("─" * 60)
         logger.info(f"🖼️  Image source : {image_source or '(none — text-only)'}")
         logger.info(f"🤖 Model        : {model}")
+        logger.info(
+            f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k} "
+            f"min_p={min_p} rep_pen={repeat_penalty}"
+        )
+        logger.info(
+            f"   freq_pen={frequency_penalty} pres_pen={presence_penalty} "
+            f"seed={seed} stop={stop}"
+        )
+        if logit_bias:
+            logger.info(f"   logit_bias={logit_bias}")
         logger.info(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
         if image_source:
@@ -205,7 +220,6 @@ def run_chat_stream_vl(
             logger.info(
                 f"📦 Image encoded in {time.perf_counter() - t0:.2f}s ({mime_type})"
             )
-
             content = [
                 {"type": "text", "text": prompt},
                 {
@@ -214,28 +228,38 @@ def run_chat_stream_vl(
                 },
             ]
         else:
-            content = prompt  # plain string content for text-only chat
+            content = prompt
 
         messages = [{"role": "user", "content": content}]
 
         logger.info(f"➡️  Sending request (thinking={enable_thinking})")
         t_request_start = time.perf_counter()
-
         collected: list[str] = []
         usage = None
+
+        # Build extra_body for llama.cpp-specific params not in OpenAI spec
+        extra_body_params: dict = {
+            "top_k": top_k,
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
+        }
+        if min_p > 0.0:
+            extra_body_params["min_p"] = min_p
+        if repeat_penalty != 1.1:
+            extra_body_params["repeat_penalty"] = repeat_penalty
 
         try:
             stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
                 model=model,
-                messages=messages,  # type: ignore
+                messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 top_p=top_p,
                 presence_penalty=presence_penalty,
-                extra_body={
-                    "top_k": top_k,
-                    "chat_template_kwargs": {"enable_thinking": enable_thinking},
-                },
+                frequency_penalty=frequency_penalty,
+                logit_bias=logit_bias,
+                seed=seed,
+                stop=stop,
+                extra_body=extra_body_params,
                 stream=True,
                 stream_options={"include_usage": True},
             )
@@ -244,10 +268,8 @@ def run_chat_stream_vl(
             first_token_at: float | None = None
 
             console.print("[bold cyan]Response:[/bold cyan] ", end="")
-
             for chunk in stream:
                 if not chunk.choices:
-                    # Final usage-only chunk
                     usage = getattr(chunk, "usage", None)
                     continue
 
@@ -295,37 +317,36 @@ def run_chat_stream_vl(
             raise
         finally:
             console.print()
+            total_secs = time.perf_counter() - t_request_start
+            ttft = (first_token_at - t_request_start) if first_token_at else None
+            full_response = "".join(collected)
 
-        total_secs = time.perf_counter() - t_request_start
-        ttft = (first_token_at - t_request_start) if first_token_at else None
-        full_response = "".join(collected)
+            logger.info("─" * 60)
+            logger.info("📊 Completion summary")
+            if usage:
+                tok_per_sec = (
+                    usage.completion_tokens / total_secs if total_secs > 0 else 0.0
+                )
+                logger.info(f"   Prompt tokens      : {usage.prompt_tokens}")
+                logger.info(f"   Completion tokens  : {usage.completion_tokens}")
+                logger.info(f"   Total tokens       : {usage.total_tokens}")
+                logger.info(f"   Throughput         : {tok_per_sec:.1f} tok/s")
+                span.set_attribute("llm.usage.prompt_tokens", usage.prompt_tokens)
+                span.set_attribute(
+                    "llm.usage.completion_tokens", usage.completion_tokens
+                )
+            if ttft is not None:
+                logger.info(f"   Time to first token: {ttft:.2f}s")
+            logger.info(f"   Total duration     : {total_secs:.2f}s")
+            logger.info(f"   Response length    : {len(full_response)} chars")
+            logger.info(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
+            logger.info("─" * 60)
 
-        logger.info("─" * 60)
-        logger.info("📊 Completion summary")
-        if usage:
-            tok_per_sec = (
-                usage.completion_tokens / total_secs if total_secs > 0 else 0.0
-            )
-            logger.info(f"   Prompt tokens      : {usage.prompt_tokens}")
-            logger.info(f"   Completion tokens  : {usage.completion_tokens}")
-            logger.info(f"   Total tokens       : {usage.total_tokens}")
-            logger.info(f"   Throughput         : {tok_per_sec:.1f} tok/s")
-            span.set_attribute("llm.usage.prompt_tokens", usage.prompt_tokens)
-            span.set_attribute("llm.usage.completion_tokens", usage.completion_tokens)
-        if ttft is not None:
-            logger.info(f"   Time to first token: {ttft:.2f}s")
-        logger.info(f"   Total duration     : {total_secs:.2f}s")
-        logger.info(f"   Response length    : {len(full_response)} chars")
-        logger.info(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
-        logger.info("─" * 60)
+            span.set_status(Status(StatusCode.OK))
 
-        span.set_status(Status(StatusCode.OK))
         return full_response
 
 
-# ────────────────────────────────────────────────
-# CLI args
-# ────────────────────────────────────────────────
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Stream vision-model chat completions with Phoenix observability."
@@ -344,8 +365,6 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="Path or URL to an image to analyze. Omit for a text-only chat request.",
     )
-
-    # Observability
     parser.add_argument(
         "--project",
         type=str,
@@ -364,8 +383,6 @@ def get_args() -> argparse.Namespace:
         dest="capture_content",
         help="Disable capturing prompt/response text in traces (metadata only).",
     )
-
-    # Model / server
     parser.add_argument(
         "--base-url",
         type=str,
@@ -384,8 +401,6 @@ def get_args() -> argparse.Namespace:
         default=120.0,
         help="Client request timeout in seconds.",
     )
-
-    # Generation params
     parser.add_argument(
         "--enable-thinking",
         action="store_true",
@@ -395,13 +410,55 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.8)
     parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument(
+        "--min-p",
+        type=float,
+        default=0.0,
+        help="Minimum probability threshold (llama.cpp specific).",
+    )
+    parser.add_argument(
+        "--repeat-penalty",
+        type=float,
+        default=1.1,
+        help="Repetition penalty (llama.cpp native parameter).",
+    )
     parser.add_argument("--presence-penalty", type=float, default=1.5)
-
+    parser.add_argument(
+        "--frequency-penalty",
+        type=float,
+        default=0.0,
+        help="Penalize tokens based on frequency (-2.0 to 2.0).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible generation.",
+    )
+    parser.add_argument(
+        "--stop", type=str, nargs="+", default=None, help="Stop sequences (up to 4)."
+    )
+    parser.add_argument(
+        "--logit-bias",
+        type=str,
+        default=None,
+        help="JSON dict of token_id:bias pairs, e.g. '{\"1234\": -100}'",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = get_args()
+
+    # Parse logit_bias JSON string from CLI
+    parsed_logit_bias: dict[str, int] | None = None
+    if args.logit_bias:
+        try:
+            parsed_logit_bias = json.loads(args.logit_bias)
+            logger.info(f"🎯 Logit bias applied: {parsed_logit_bias}")
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Invalid logit_bias JSON: {e}")
+            raise SystemExit(1)
 
     logger.info("🚀 Startup config")
     logger.info(f"   Base URL     : {args.base_url}")
@@ -414,7 +471,9 @@ if __name__ == "__main__":
         capture_content=args.capture_content,
         phoenix_url=args.phoenix_url,
     )
+
     client = get_client(base_url=args.base_url, timeout=args.timeout)
+
     run_chat_stream_vl(
         client,
         image_source=args.image_source,
@@ -425,6 +484,12 @@ if __name__ == "__main__":
         temperature=args.temperature,
         top_p=args.top_p,
         top_k=args.top_k,
+        min_p=args.min_p,
+        repeat_penalty=args.repeat_penalty,
         presence_penalty=args.presence_penalty,
+        frequency_penalty=args.frequency_penalty,
+        logit_bias=parsed_logit_bias,
+        seed=args.seed,
+        stop=args.stop,
         phoenix_url=args.phoenix_url,
     )
