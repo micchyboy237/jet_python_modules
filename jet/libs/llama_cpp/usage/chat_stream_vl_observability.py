@@ -142,7 +142,7 @@ def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
     return base64_data, mime
 
 
-def run_chat_stream_vl(
+def run_chat_stream(
     client: OpenAI,
     image_source: str | None = None,
     prompt: str = "What is OpenTelemetry in one sentence?",
@@ -474,7 +474,7 @@ if __name__ == "__main__":
 
     client = get_client(base_url=args.base_url, timeout=args.timeout)
 
-    run_chat_stream_vl(
+    run_chat_stream(
         client,
         image_source=args.image_source,
         prompt=args.prompt,
