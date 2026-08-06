@@ -3,7 +3,7 @@ Production Supervisor Multi-Agent System
 - Workers iterate internally with self-evaluation until subtask is complete
 - Memory consolidation at worker-supervisor boundary prevents token overflow
 - Full OpenTelemetry/Phoenix observability preserved from original codebase
-- Safe message rendering and role-boundary enforcement for small models
+- Safe message rendering, role-boundary enforcement, and alternating-turn guarantee
 """
 
 import os
@@ -83,15 +83,18 @@ Output ONLY the compressed summary in bullet points. Max 300 words."""
 consolidation_llm = get_llm(temperature=0)
 
 
+def _safe_role(msg: BaseMessage) -> str:
+    """Extract role name safely from any message type."""
+    return getattr(msg, "name", None) or getattr(msg, "type", None) or "unknown"
+
+
 def consolidate_messages(messages: list[BaseMessage], max_raw_messages: int = 8) -> str:
     """Summarize older messages to prevent token overflow. Keeps recent messages verbatim."""
     if len(messages) <= max_raw_messages:
         return ""
     older = messages[:-max_raw_messages]
     formatted = "\n".join(
-        f"[{getattr(m, 'name', None) or getattr(m, 'type', None) or 'unknown'}]: {str(m.content)[:500]}"
-        for m in older
-        if m.content
+        f"[{_safe_role(m)}]: {str(m.content)[:500]}" for m in older if m.content
     )
     response = consolidation_llm.invoke(
         [
@@ -100,6 +103,34 @@ def consolidate_messages(messages: list[BaseMessage], max_raw_messages: int = 8)
         ]
     )
     return response.content.strip()
+
+
+# ─── Alternating-Turn Enforcement ────────────────────────────────────────────
+def _ensure_alternating_turns(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Guarantee no two consecutive AI messages reach the LLM.
+
+    When multiple workers respond before the supervisor routes again,
+    the message list can end with [AI(researcher), AI(coder)].
+    Most LLM APIs reject this. We merge consecutive AI messages into one
+    by concatenating their content, preserving all information.
+    """
+    if not messages:
+        return messages
+
+    merged: list[BaseMessage] = [messages[0]]
+    for msg in messages[1:]:
+        prev = merged[-1]
+        both_ai = isinstance(prev, AIMessage) and isinstance(msg, AIMessage)
+        if both_ai:
+            # Merge into previous AI message
+            combined_content = f"{prev.content}\n\n---\n\n{msg.content}"
+            merged[-1] = AIMessage(
+                content=combined_content,
+                name=getattr(prev, "name", None) or getattr(msg, "name", None),
+            )
+        else:
+            merged.append(msg)
+    return merged
 
 
 # ─── Worker Agents with Role-Boundary Enforcement ────────────────────────────
@@ -139,7 +170,7 @@ def _worker_node(state: SupervisorState, agent_name: str, agent_graph) -> dict:
     with tracer.start_as_current_span(
         f"worker.{agent_name}", attributes={"user_id": state["user_id"]}
     ) as span:
-        augmented_messages = []
+        augmented_messages: list[BaseMessage] = []
         if state.get("consolidated_context"):
             augmented_messages.append(
                 SystemMessage(
@@ -147,6 +178,10 @@ def _worker_node(state: SupervisorState, agent_name: str, agent_graph) -> dict:
                 )
             )
         augmented_messages.extend(state["messages"])
+
+        # CRITICAL: Workers also receive multi-agent message history that can contain
+        # consecutive AI messages. Apply the same alternating-turn enforcement.
+        augmented_messages = _ensure_alternating_turns(augmented_messages)
 
         t0 = time.perf_counter()
         result = agent_graph.invoke({"messages": augmented_messages})
@@ -191,7 +226,6 @@ Respond with ONLY: 'researcher', 'coder', or 'FINISH'."""
 
 supervisor_llm = get_llm(temperature=0)
 
-# Simple heuristic to detect when researcher oversteps into coding territory
 _CODE_INDICATORS = [
     "```python",
     "```javascript",
@@ -214,28 +248,42 @@ def supervisor_node(state: SupervisorState) -> dict:
     ) as span:
         consolidated = consolidate_messages(state["messages"])
 
-        messages_for_routing = []
+        # Build routing messages with alternating-turn guarantee
+        messages_for_routing: list[BaseMessage] = [
+            SystemMessage(content=SUPERVISOR_PROMPT)
+        ]
         if consolidated:
             messages_for_routing.append(
                 SystemMessage(content=f"## Consolidated History\n{consolidated}")
             )
         messages_for_routing.extend(state["messages"][-4:])
-        messages_for_routing.insert(0, SystemMessage(content=SUPERVISOR_PROMPT))
+
+        # CRITICAL: Ensure no two consecutive AI messages before sending to LLM
+        messages_for_routing = _ensure_alternating_turns(messages_for_routing)
 
         response = supervisor_llm.invoke(messages_for_routing)
         next_agent = response.content.strip().lower()
         if next_agent not in ("researcher", "coder", "finish"):
             next_agent = "finish"
 
-        # Guardrail: if researcher produced code and original request had coding subtask,
-        # force re-route to coder instead of finishing prematurely
+        # Guardrail: only check raw researcher messages, not merged ones
         if next_agent == "finish" and state["messages"]:
-            last_ai_msgs = [
-                m
-                for m in reversed(state["messages"])
-                if isinstance(m, AIMessage) and getattr(m, "name", None) == "researcher"
-            ]
-            if last_ai_msgs and _researcher_produced_code(str(last_ai_msgs[0].content)):
+            last_raw_researcher = None
+            for m in reversed(state["messages"]):
+                if (
+                    isinstance(m, AIMessage)
+                    and getattr(m, "name", None) == "researcher"
+                ):
+                    last_raw_researcher = m
+                    break
+                # Stop searching if we hit a coder message — researcher output
+                # before coder already ran is stale
+                if isinstance(m, AIMessage) and getattr(m, "name", None) == "coder":
+                    break
+
+            if last_raw_researcher and _researcher_produced_code(
+                str(last_raw_researcher.content)
+            ):
                 original_query = (
                     str(state["messages"][0].content).lower()
                     if state["messages"]
@@ -250,7 +298,17 @@ def supervisor_node(state: SupervisorState) -> dict:
                     "script",
                     "function",
                 }
-                if any(kw in original_query for kw in coding_keywords):
+                # Only re-route if coder hasn't already responded after this researcher output
+                coder_responded_after = any(
+                    isinstance(m, AIMessage) and getattr(m, "name", None) == "coder"
+                    for m in state["messages"][
+                        state["messages"].index(last_raw_researcher) :
+                    ]
+                )
+                if (
+                    any(kw in original_query for kw in coding_keywords)
+                    and not coder_responded_after
+                ):
                     logger.warning(
                         "⚠️ Researcher produced code despite role boundary. "
                         "Re-routing to coder instead of finishing."
@@ -318,11 +376,10 @@ if __name__ == "__main__":
     console.print("\n" + "=" * 70)
     console.print("[bold green]✅ Final Conversation:[/bold green]")
     for msg in result["messages"]:
-        # Safe role extraction: handles messages where both .name and .type are None
-        role = getattr(msg, "name", None) or getattr(msg, "type", None) or "unknown"
+        role = _safe_role(msg).upper()
         content = str(msg.content)[:600] + (
             "..." if len(str(msg.content)) > 600 else ""
         )
-        console.print(f"\n[bold cyan][{role.upper()}][/bold cyan]\n{content}")
+        console.print(f"\n[bold cyan][{role}][/bold cyan]\n{content}")
 
     console.print(f"\n🔭 View full traces: [link={PHOENIX_URL}]{PHOENIX_URL}[/link]")
