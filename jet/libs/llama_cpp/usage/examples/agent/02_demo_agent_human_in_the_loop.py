@@ -1,9 +1,9 @@
-"""
-Demo: Human-in-the-Loop Agent with Tool Approval.
+"""Demo: Human-in-the-Loop Agent with Tool Approval.
+
 Demonstrates:
-  1. Enabling interactive approval for tool calls.
-  2. Using a custom approval callback for automated decisions.
-  3. Overriding the Agent class to add custom approval logic.
+  1. InteractiveApproval for terminal-based approval.
+  2. CallbackApproval for automated decisions via callback.
+  3. AutoApproval for no human involvement (default).
 """
 
 from __future__ import annotations
@@ -18,6 +18,11 @@ from jet.libs.llama_cpp.usage.chat_stream_observability import (
     get_client,
     setup_observability,
 )
+from jet.libs.llama_cpp.usage.human_in_the_loop import (
+    AutoApproval,
+    CallbackApproval,
+    InteractiveApproval,
+)
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -30,7 +35,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
-# Define a tool for the agent to use
 WEATHER_TOOL = {
     "type": "function",
     "function": {
@@ -57,19 +61,14 @@ def get_weather(location: str, unit: str = "celsius") -> dict[str, Any]:
     }
 
 
-# Custom approval callback
 def custom_approval_callback(tool_name: str, arguments: dict[str, Any]) -> bool:
     """Custom logic for approving/rejecting tool calls."""
     console.print(
         f"\n[bold yellow]🔍 Custom Approval Callback:[/bold yellow] {tool_name}({arguments})"
     )
-
-    # Auto-approve all tools except 'delete_file'
     if tool_name == "delete_file":
         console.print("[bold red]❌ Rejected:[/bold red] 'delete_file' is not allowed.")
         return False
-
-    # Auto-approve weather tools for known locations
     if tool_name == "get_weather":
         allowed_locations = ["tokyo", "new york", "london"]
         location = arguments.get("location", "").lower()
@@ -83,17 +82,8 @@ def custom_approval_callback(tool_name: str, arguments: dict[str, Any]) -> bool:
                 f"[bold red]❌ Rejected:[/bold red] Unknown location: {location}"
             )
             return False
-
-    # Default: approve
     console.print(f"[bold green]✅ Auto-approved:[/bold green] {tool_name}")
     return True
-
-
-class InteractiveAgent(Agent):
-    """Agent with interactive approval for all tool calls."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, require_approval=True, **kwargs)
 
 
 def demo_interactive_approval():
@@ -101,23 +91,22 @@ def demo_interactive_approval():
     console.print("\n" + "=" * 60)
     console.print("[bold blue]🎯 Demo 1: Interactive Approval[/bold blue]")
     console.print("=" * 60)
-
     setup_observability(project_name="human-in-the-loop-interactive")
     client = get_client()
 
-    agent = InteractiveAgent(
+    # Use InteractiveApproval strategy
+    agent = Agent(
         client=client,
         model=MODEL,
         max_turns=3,
         system_prompt="You are a helpful assistant. Use tools to fetch data.",
+        approval=InteractiveApproval(),
     )
     agent.register_tool(WEATHER_TOOL, get_weather)
-
     console.print(
         "\n[bold cyan]🚀 Running agent with interactive approval...[/bold cyan]"
     )
     console.print("[dim]Type 'y' to approve tool calls or 'n' to reject.[/dim]\n")
-
     result = agent.run(prompt="What's the weather like in Tokyo? Use celsius.")
     console.print(f"\n[bold green]✅ Result:[/bold green] {result.content}")
 
@@ -127,29 +116,23 @@ def demo_custom_approval_callback():
     console.print("\n" + "=" * 60)
     console.print("[bold blue]🎯 Demo 2: Custom Approval Callback[/bold blue]")
     console.print("=" * 60)
-
     setup_observability(project_name="human-in-the-loop-custom-callback")
     client = get_client()
 
+    # Use CallbackApproval strategy with custom logic
     agent = Agent(
         client=client,
         model=MODEL,
         max_turns=3,
         system_prompt="You are a helpful assistant. Use tools to fetch data.",
-        require_approval=True,
-        approval_callback=custom_approval_callback,
+        approval=CallbackApproval(custom_approval_callback),
     )
     agent.register_tool(WEATHER_TOOL, get_weather)
-
     console.print(
         "\n[bold cyan]🚀 Running agent with custom approval callback...[/bold cyan]\n"
     )
-
-    # Test with allowed location
     result = agent.run(prompt="What's the weather like in Tokyo? Use celsius.")
     console.print(f"\n[bold green]✅ Result (Tokyo):[/bold green] {result.content}")
-
-    # Test with disallowed location
     result = agent.run(prompt="What's the weather like in Mars? Use celsius.")
     console.print(f"\n[bold green]✅ Result (Mars):[/bold green] {result.content}")
 
@@ -159,20 +142,19 @@ def demo_no_approval():
     console.print("\n" + "=" * 60)
     console.print("[bold blue]🎯 Demo 3: No Approval (Default)[/bold blue]")
     console.print("=" * 60)
-
     setup_observability(project_name="human-in-the-loop-no-approval")
     client = get_client()
 
+    # Use AutoApproval strategy (explicit, or omit for default)
     agent = Agent(
         client=client,
         model=MODEL,
         max_turns=3,
         system_prompt="You are a helpful assistant. Use tools to fetch data.",
+        approval=AutoApproval(),
     )
     agent.register_tool(WEATHER_TOOL, get_weather)
-
     console.print("\n[bold cyan]🚀 Running agent without approval...[/bold cyan]\n")
-
     result = agent.run(prompt="What's the weather like in Tokyo? Use celsius.")
     console.print(f"\n[bold green]✅ Result:[/bold green] {result.content}")
 

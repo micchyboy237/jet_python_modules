@@ -1,4 +1,3 @@
-# jet_python_modules/jet/libs/llama_cpp/usage/agent.py
 from __future__ import annotations
 
 import json
@@ -14,6 +13,10 @@ from jet.libs.llama_cpp.usage.chat_stream_observability import (
     run_chat_stream,
 )
 from jet.libs.llama_cpp.usage.context_window import ContextWindow
+from jet.libs.llama_cpp.usage.human_in_the_loop import (
+    AutoApproval,
+    HumanInTheLoop,
+)
 from openai import OpenAI
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -32,8 +35,7 @@ class Agent:
         model: str = MODEL,
         max_turns: int = 5,
         system_prompt: str | None = None,
-        require_approval: bool = False,
-        approval_callback: Optional[Callable[[str, dict[str, Any]], bool]] = None,
+        approval: HumanInTheLoop | None = None,
         max_retries: int = 3,
         retry_delay: float = 1.0,
         max_context_tokens: int = 16384,
@@ -46,15 +48,16 @@ class Agent:
         self._tools_schema: list[dict[str, Any]] = []
         self._tool_registry: dict[str, Callable[..., Any]] = {}
         self.tracer = trace.get_tracer(self.__class__.__name__)
-        self.require_approval = require_approval
-        self.approval_callback = approval_callback
+
+        # Human-in-the-loop: pluggable strategy
+        # Defaults to AutoApproval (always approve — no human intervention)
+        self._approval: HumanInTheLoop = approval or AutoApproval()
+
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.max_context_tokens = max_context_tokens
 
-        # Extract base_url from client to ensure token counting uses the same server
         base_url = str(client.base_url) if hasattr(client, "base_url") else None
-
         self._context = ContextWindow(
             max_tokens=max_context_tokens,
             model=model,
@@ -62,6 +65,11 @@ class Agent:
         )
         if system_prompt:
             self._context.append({"role": "system", "content": system_prompt})
+
+        logger.debug(
+            f"🤖 Agent initialized | model={model} | max_turns={max_turns} | "
+            f"approval={self._approval.__class__.__name__}"
+        )
 
     @property
     def history(self) -> list[dict[str, Any]]:
@@ -84,23 +92,23 @@ class Agent:
     def on_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """Hook executed when the LLM requests a tool.
 
-        Override this in subclasses to add human-in-the-loop approvals,
-        custom logging, or mock responses.
+        The approval decision is delegated to the configured
+        HumanInTheLoop strategy. Override this in subclasses to add
+        custom logging, mock responses, or additional pre/post processing.
+
+        Args:
+            tool_name: Name of the tool requested by the LLM.
+            arguments: Parsed arguments for the tool call.
+
+        Returns:
+            Tool execution result or error dict if rejected/failed.
         """
-        if self.require_approval:
-            if self.approval_callback:
-                approved = self.approval_callback(tool_name, arguments)
-            else:
-                user_input = input(
-                    f"🛑 Approve tool call '{tool_name}' with arguments "
-                    f"{json.dumps(arguments)}? (y/n): "
-                )
-                approved = user_input.lower() == "y"
+        # --- Phase 1: Approval ---
+        if not self._approval.approve(tool_name, arguments):
+            logger.warning(f"❌ Tool call '{tool_name}' rejected by approval strategy.")
+            return self._approval.on_rejected(tool_name, arguments)
 
-            if not approved:
-                logger.warning(f"❌ Tool call '{tool_name}' rejected by user/callback.")
-                return {"error": f"Tool call '{tool_name}' was rejected."}
-
+        # --- Phase 2: Execution with retries ---
         executor = self._tool_registry.get(tool_name)
         if executor is None:
             logger.error(f"❌ Tool '{tool_name}' not found in registry!")
@@ -149,9 +157,7 @@ class Agent:
             span.set_attribute("agent.tools.count", len(self._tools_schema))
             span.set_attribute("agent.context.tokens", self._context.total_tokens())
             span.set_attribute("agent.context.messages", self._context.message_count)
-
             self._context.truncate_if_needed()
-
             if prompt or image_source:
                 if image_source:
                     base64_img, mime_type = encode_image_to_base64(image_source)
@@ -159,11 +165,9 @@ class Agent:
                 else:
                     self._context.append({"role": "user", "content": prompt})
                     logger.info(f"💬 Added prompt to context: {prompt[:50]}...")
-
             final_result = None
             for turn in range(1, self.max_turns + 1):
                 logger.info(f"🔁 Agent Run: Turn {turn}/{self.max_turns}")
-
                 result = run_chat_stream(
                     self.client,
                     messages=self._context.get_messages(),
@@ -173,7 +177,6 @@ class Agent:
                     **self.llm_kwargs,
                 )
                 final_result = result
-
                 assistant_msg: dict[str, Any] = {
                     "role": "assistant",
                     "content": result.content or "",
@@ -190,13 +193,10 @@ class Agent:
                         }
                         for tc in result.tool_calls
                     ]
-
                 self._context.append(assistant_msg)
-
                 if not result.has_tool_calls:
                     logger.info("✅ Agent loop complete. No more tool calls.")
                     break
-
                 for tc in result.tool_calls:
                     tool_result = self.on_tool_call(tc.name, tc.arguments)
                     self._context.append(
@@ -208,6 +208,5 @@ class Agent:
                     )
             else:
                 logger.warning(f"⚠️ Agent run hit max_turns limit ({self.max_turns}).")
-
             span.set_status(Status(StatusCode.OK))
             return final_result
