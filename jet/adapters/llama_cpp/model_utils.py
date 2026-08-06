@@ -156,30 +156,52 @@ def get_model_hf_id(model_key: LLAMACPP_KEYS) -> LLAMACPP_VALUES:
 
 def determine_model_type(model: Dict[str, Any]) -> ModelType:
     """
-    Determine if a model is LLM, Embed, or Rerank based on its status.args or capabilities.
+    Determine if a model is LLM, Embed, or Rerank based on its tags.
 
     Priority:
-    1. Check status.args for --embeddings/--reranking flags
-    2. Check model_config capabilities for multimodal (still LLM but with vision)
+    1. Check model tags for "llm", "embed", or "rerank" (new format)
+    2. Fall back to checking status.args for --embeddings/--reranking flags (old format)
 
     Args:
         model: Model dictionary (normalized or raw)
+
     Returns:
         ModelType: "llm", "embed", or "rerank"
+
+    Examples:
+        >>> determine_model_type({"tags": ["llm"]})
+        'llm'
+        >>> determine_model_type({"tags": ["rerank"]})
+        'rerank'
+        >>> determine_model_type({"tags": ["embed"]})
+        'embed'
+        >>> # Fallback to old format
+        >>> determine_model_type({"status": {"args": ["--embeddings"]}})
+        'embed'
     """
-    # Check status args (works for both old and normalized formats)
+    # New format: Check tags first
+    tags = model.get("tags", [])
+    if "embed" in tags:
+        logger.debug("Model type determined from tags: embed")
+        return "embed"
+    elif "rerank" in tags:
+        logger.debug("Model type determined from tags: rerank")
+        return "rerank"
+    elif "llm" in tags:
+        logger.debug("Model type determined from tags: llm")
+        return "llm"
+
+    # Fallback: Old format - check status.args for flags
     args = model.get("status", {}).get("args", [])
     if "--embeddings" in args:
+        logger.debug("Model type determined from args (fallback): embed")
         return "embed"
     elif "--reranking" in args:
+        logger.debug("Model type determined from args (fallback): rerank")
         return "rerank"
 
-    # Check capabilities for multimodal models (still LLM type)
-    capabilities = model.get("status", {}).get("args", [])
-    if "--multimodal" in capabilities or "multimodal" in capabilities:
-        return "llm"  # Multimodal models are still LLMs
-
-    # Default to LLM
+    # Default to LLM if no type indicators found
+    logger.debug(f"No type indicator found in tags {tags} or args, defaulting to llm")
     return "llm"
 
 
@@ -483,6 +505,7 @@ if __name__ == "__main__":
             table.add_column("ID", style="cyan")
             table.add_column("Type", style="green")
             table.add_column("Context Size", style="blue")
+            table.add_column("Train Context", style="blue")
             table.add_column("Embedding Size", style="blue")
             table.add_column("Owned By", style="white")
 
@@ -495,15 +518,24 @@ if __name__ == "__main__":
                 try:
                     ctx_embd_size = get_model_ctx_embd_size(model_id)
                     n_ctx = ctx_embd_size["ctx"]
+                    n_ctx_train = ctx_embd_size["ctx_train"]
                     n_embd = ctx_embd_size["embd_dims"]
                 except ValueError as e:
                     console.print(
                         f"  [red]❌ Failed to get context/embedding size for {model_id}: {e}[/red]"
                     )
                     n_ctx = "N/A"
+                    n_ctx_train = "N/A"
                     n_embd = "N/A"
 
-                table.add_row(model_id, model_type, str(n_ctx), str(n_embd), owned_by)
+                table.add_row(
+                    model_id,
+                    model_type,
+                    str(n_ctx),
+                    str(n_ctx_train),
+                    str(n_embd),
+                    owned_by,
+                )
 
             console.print(table)
 

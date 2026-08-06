@@ -4,6 +4,7 @@ import os
 
 DEFAULT_LLM_MODEL = "qwen3.5-uncensored:2b"
 DEFAULT_EMBED_MODEL = "nomic-embed:2-moe"
+DEFAULT_EMBED_LG_MODEL = "nomic-embed:1.5"
 
 # e.g. "http://192.168.68.150:8080"
 LLM_BASE_HOST = os.getenv("LLAMA_CPP_LLM_HOST")
@@ -32,6 +33,14 @@ EMBED_QUERY_PREFIX = os.getenv("EMBED_QUERY_PREFIX", "")
 
 # e.g. "search_document: "
 EMBED_DOC_PREFIX = os.getenv("EMBED_DOC_PREFIX", "")
+
+
+EMBED_LG_MODEL = os.getenv("LLAMA_CPP_EMBED_LG_MODEL", DEFAULT_EMBED_LG_MODEL)
+EMBED_LG_BASE_HOST = os.getenv("LLAMA_CPP_EMBED_LG_HOST")
+EMBED_LG_BASE_URL = os.getenv("LLAMA_CPP_EMBED_LG_URL")
+EMBED_LG_DIMS = int(os.getenv("LLAMA_CPP_EMBED_LG_DIMS", "768"))
+EMBED_LG_QUERY_PREFIX = os.getenv("EMBED_LG_QUERY_PREFIX", "")
+EMBED_LG_DOC_PREFIX = os.getenv("EMBED_LG_DOC_PREFIX", "")
 
 
 # e.g. "bge-rerank:v2-m3"
