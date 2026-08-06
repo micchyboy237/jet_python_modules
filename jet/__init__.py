@@ -69,5 +69,9 @@ def suppress_logging():
 
     logging.getLogger("chardet").setLevel(logging.WARNING)  # or CRITICAL
 
+    # Catch both standard DeprecationWarnings AND Pydantic's custom UserWarning subclass
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", message=".*json_encoders.*is deprecated.*")
+
 
 suppress_logging()
