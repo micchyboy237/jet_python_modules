@@ -16,13 +16,12 @@ from jet.db.postgres.config import (
 )
 
 info = get_model_ctx_embd_size(EMBED_LG_MODEL)
-DEFAULT_MAX_TOKENS = info["ctx"]
 EMBED_LG_DIMS = info["embd_dims"]
 
 
 def get_memory_config(
     collection_name: str = "memories_v1",
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int = 512,
     temperature: float = 0.4,
     reset: bool = False,
 ) -> Dict[str, Any]:

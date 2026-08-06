@@ -46,7 +46,7 @@ def run_chat_stream(
         model=os.getenv("LLAMA_CPP_LLM_MODEL", "not-needed"),
         messages=messages,
         max_tokens=1024,
-        temperature=1.0,
+        temperature=0.7,
         top_p=0.95,
         presence_penalty=1.5,
         stream_options={"include_usage": True},

@@ -22,7 +22,10 @@ class ChatLlamaCpp(ChatOpenAI):
         self,
         *args,
         model: str = LLM_MODEL,
-        temperature: float = 0.0,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        top_p: float = 0.95,
+        presence_penalty: float = 1.5,
         base_url: str = LLM_BASE_URL,
         verbosity: str = "high",
         verbose: bool = True,
@@ -48,6 +51,9 @@ class ChatLlamaCpp(ChatOpenAI):
             *args,
             model=model,
             temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            presence_penalty=presence_penalty,
             base_url=base_url,
             **kwargs,
         )
@@ -56,6 +62,9 @@ class ChatLlamaCpp(ChatOpenAI):
             log_dir = os.path.join(log_dir, format_sub_dir(agent_name))
 
         self._model: str = model
+        self._max_tokens: int = max_tokens
+        self._top_p: float = top_p
+        self._presence_penalty: float = presence_penalty
         self._agent_name: Optional[str] = agent_name
         self._log_dir: str = log_dir
         self._verbose: bool = verbose
@@ -73,6 +82,9 @@ class ChatLlamaCpp(ChatOpenAI):
                 {
                     "model": model,
                     "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "top_p": top_p,
+                    "presence_penalty": presence_penalty,
                     "agent_name": agent_name,
                     "enable_thinking": enable_thinking,
                 }
