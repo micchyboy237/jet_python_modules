@@ -3,18 +3,19 @@ import os
 import time
 from datetime import datetime
 from typing import TypedDict
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import requests
 
 from jet.cache.redis import RedisCache, RedisConfigParams
 from jet.data.utils import generate_key
 from jet.logger import logger
+from jet.search.filters import deduplicate_results, filter_relevant, sort_by_score
+from jet.search.formatters import decode_encoded_characters
 
-from .filters import deduplicate_results, filter_relevant, sort_by_score
-from .formatters import decode_encoded_characters
-
-DEFAULT_REDIS_PORT = 3101
+# DEFAULT_REDIS_PORT = 3101
+DEFAULT_REDIS_PORT = 6379
+DEFAULT_REDIS_DB = 1
 DEFAULT_QUERY_URL = os.getenv("SEARXNG_URL")
 DEFAULT_ENGINES = [
     # "google",
@@ -63,9 +64,43 @@ class NoResultsFoundError(Exception):
 
 
 def build_query_url(base_url: str, params: dict) -> str:
-    """Helper function to construct the full search query URL."""
-    encoded_params = urlencode(params)
-    return f"{base_url.split('?')[0]}?{encoded_params}"
+    """Helper function to construct the full search query URL with deduplicated parameters."""
+    # Parse the base URL to separate the query string
+    parsed_url = urlparse(base_url)
+    query_params = parse_qs(parsed_url.query)
+
+    # Merge the existing query parameters with the new params
+    # If a key exists in both, the value from `params` will overwrite the existing one
+    for key, value in params.items():
+        if isinstance(value, (list, tuple)):
+            query_params[key] = list(value)
+        else:
+            query_params[key] = [value]
+
+    # Convert the query_params back to a string
+    # urlencode expects a dictionary where values are either strings or lists of strings
+    # We need to ensure that single-value keys are not wrapped in a list
+    encoded_params = {}
+    for key, value_list in query_params.items():
+        if len(value_list) == 1:
+            encoded_params[key] = value_list[0]
+        else:
+            encoded_params[key] = value_list
+
+    # Rebuild the URL with the deduplicated and merged parameters
+    new_query = urlencode(encoded_params, doseq=True)
+    new_url = urlunparse(
+        (
+            parsed_url.scheme,
+            parsed_url.netloc,
+            parsed_url.path,
+            parsed_url.params,
+            new_query,
+            parsed_url.fragment,
+        )
+    )
+
+    return new_url
 
 
 def remove_empty_attributes(data):
@@ -150,10 +185,10 @@ def search_searxng(
         }
 
         if "pageno" in kwargs:
-            params["pageno"] = kwargs["pageno"]
+            params["pageno"] = kwargs["pageno"] or 1
 
         if "safesearch" in kwargs:
-            params["safesearch"] = kwargs["safesearch"]
+            params["safesearch"] = kwargs["safesearch"] or 0
 
         if engines:
             params["engines"] = (",".join(engines),)
@@ -172,7 +207,7 @@ def search_searxng(
 
         cached_result = None
 
-        config = {"port": DEFAULT_REDIS_PORT, **config}
+        config = {"port": DEFAULT_REDIS_PORT, "db": DEFAULT_REDIS_DB, **config}
         cache = RedisCache(config=config)
         cache_key = query_url
 
@@ -249,3 +284,98 @@ def search_searxng(
     except (KeyError, TypeError) as e:
         logger.error(f"Error in search_searxng: {e}")
         return []
+
+
+if __name__ == "__main__":
+    import argparse
+    from datetime import datetime
+
+    parser = argparse.ArgumentParser(description="Search using SearXNG")
+    parser.add_argument("query", help="Search query string")
+    parser.add_argument(
+        "--count", type=int, default=None, help="Maximum number of results to return"
+    )
+    parser.add_argument(
+        "--min-score", type=float, default=0.1, help="Minimum relevance score threshold"
+    )
+    parser.add_argument(
+        "--min-date",
+        type=str,
+        default=None,
+        help="Minimum date filter (ISO format: YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--use-cache", action="store_true", default=True, help="Use Redis cache"
+    )
+    parser.add_argument(
+        "--no-cache", action="store_false", dest="use_cache", help="Disable Redis cache"
+    )
+    parser.add_argument(
+        "--engines", nargs="*", default=None, help="Search engines to use"
+    )
+    parser.add_argument(
+        "--include-sites",
+        nargs="*",
+        default=None,
+        help="Limit search to specific sites",
+    )
+    parser.add_argument(
+        "--exclude-sites",
+        nargs="*",
+        default=None,
+        help="Exclude specific sites from search",
+    )
+    parser.add_argument(
+        "--max-retries", type=int, default=3, help="Maximum number of retry attempts"
+    )
+    parser.add_argument("--language", default="en", help="Search language")
+    parser.add_argument(
+        "--categories", nargs="*", default=["general"], help="Search categories"
+    )
+    parser.add_argument("--pageno", type=int, default=1, help="Page number")
+    parser.add_argument(
+        "--safesearch", type=int, default=0, help="Safe search level (0, 1, or 2)"
+    )
+    parser.add_argument(
+        "--years-ago",
+        type=int,
+        default=1,
+        help="Number of years ago for default min_date",
+    )
+    parser.add_argument(
+        "--output", choices=["json", "text"], default="text", help="Output format"
+    )
+
+    args = parser.parse_args()
+
+    # Parse min_date if provided
+    min_date = None
+    if args.min_date:
+        min_date = datetime.fromisoformat(args.min_date)
+
+    results = search_searxng(
+        query=args.query,
+        count=args.count,
+        min_score=args.min_score,
+        min_date=min_date,
+        use_cache=args.use_cache,
+        engines=args.engines,
+        include_sites=args.include_sites,
+        exclude_sites=args.exclude_sites,
+        max_retries=args.max_retries,
+        language=args.language,
+        categories=args.categories,
+        pageno=args.pageno,
+        safesearch=args.safesearch,
+        years_ago=args.years_ago,
+    )
+
+    if args.output == "json":
+        print(json.dumps(results, indent=2))
+    else:
+        for i, result in enumerate(results, 1):
+            print(f"{i}. {result['title']}")
+            print(f"   URL: {result['url']}")
+            print(f"   Score: {result.get('score', 'N/A')}")
+            print(f"   Content: {result.get('content', '')[:200]}...")
+            print()

@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from typing import Any, List, Literal, Optional
 
+from jet.adapters.llama_cpp.config import EMBED_MODEL
+from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from langchain_core.embeddings import Embeddings
 from pydantic import BaseModel, Field
-
-from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 
 
 class EmbedLlamaCpp(BaseModel, Embeddings):
@@ -14,9 +14,10 @@ class EmbedLlamaCpp(BaseModel, Embeddings):
     LangChain embeddings wrapper for LlamacppEmbedding.
     Supports both list and numpy return formats with batch processing and caching.
     """
+
     model_config = {"arbitrary_types_allowed": True}  # Allow LlamacppEmbedding
 
-    model: str = Field(default="embeddinggemma", description="Embedding model name")
+    model: str = Field(default=EMBED_MODEL, description="Embedding model name")
     base_url: str = Field(
         default="http://shawn-pc.local:8081/v1",
         description="Base URL of the llama.cpp embedding server",
@@ -25,13 +26,17 @@ class EmbedLlamaCpp(BaseModel, Embeddings):
     cache_backend: Literal["memory", "file", "sqlite"] = Field(
         default="sqlite", description="Cache storage backend"
     )
-    cache_ttl: Optional[int] = Field(default=None, ge=1, description="Cache TTL in seconds")
+    cache_ttl: Optional[int] = Field(
+        default=None, ge=1, description="Cache TTL in seconds"
+    )
     cache_max_size: int = Field(default=10000, ge=1, description="Maximum cache size")
     use_cache: bool = Field(default=False, description="Enable embedding caching")
     use_dynamic_batch_sizing: bool = Field(
         default=False, description="Dynamically adjust batch size"
     )
-    batch_size: int = Field(default=32, ge=1, description="Batch size for embedding calls")
+    batch_size: int = Field(
+        default=32, ge=1, description="Batch size for embedding calls"
+    )
     return_format: Literal["list", "numpy"] = Field(
         default="numpy", description="Output format: list of lists or numpy array"
     )
@@ -39,12 +44,7 @@ class EmbedLlamaCpp(BaseModel, Embeddings):
     verbose: bool = Field(default=False, description="Enable verbose logging")
     embedder: LlamacppEmbedding = Field(default=None, exclude=True, repr=False)
 
-    def __init__(
-        self,
-        *,
-        verbose: bool = False,
-        **kwargs: Any
-    ) -> None:
+    def __init__(self, *, verbose: bool = False, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.verbose = verbose
         self.embedder = LlamacppEmbedding(

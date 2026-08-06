@@ -3,7 +3,7 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic")
 
 
-from jet.adapters.mem0.agent_memory import (
+from jet.adapters.langgraph.agent_memory import (
     PHOENIX_URL,
     AgentState,
     console,

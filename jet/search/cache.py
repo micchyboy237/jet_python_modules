@@ -1,11 +1,12 @@
-from jet.cache.redis import RedisConfigParams, RedisClient
 import json
+
+from jet.cache.redis import RedisClient, RedisConfigParams
 
 DEFAULT_CONFIG: RedisConfigParams = {
     "host": "localhost",
-    "port": 6380,
+    "port": 6379,
     "db": 0,
-    "max_connections": 100
+    "max_connections": 100,
 }
 
 
@@ -18,7 +19,7 @@ class RedisCache:
         """Retrieve the cached value from Redis."""
         cached_value = self.redis_client.get(key)
         if cached_value:
-            return json.loads(cached_value.decode('utf-8'))
+            return json.loads(cached_value.decode("utf-8"))
         return None
 
     def set(self, key: str, value: dict, ttl: int = 3600):
