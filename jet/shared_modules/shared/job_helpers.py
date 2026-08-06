@@ -901,6 +901,8 @@ def hybrid_search_jobs(
             "start_idx": result["chunk_meta"].get("start_idx"),
             "end_idx": result["chunk_meta"].get("end_idx"),
             "num_tokens": result["chunk_meta"].get("num_tokens"),
+            "parent_header": result["parent_header"],
+            "header": result["header"],
         }
         for result in raw_results
     ]
