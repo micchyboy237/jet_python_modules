@@ -29,7 +29,6 @@ from phoenix.otel import register
 from rich.console import Console
 from rich.logging import RichHandler
 
-# ─── Observability Setup ─────────────────────────────────────────────────────
 console = Console()
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +39,16 @@ logging.basicConfig(
 logger = logging.getLogger("supervisor-multi-agent")
 
 PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
+
+
+def format_trace_id(trace_id: int) -> str:
+    """Format an OTel trace id int as the 32-char hex string Phoenix expects."""
+    return format(trace_id, "032x")
+
+
+def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
+    """Direct link to view this specific trace in the Phoenix UI."""
+    return f"{phoenix_url.rstrip('/')}/redirects/traces/{format_trace_id(trace_id)}"
 
 
 def setup_observability(project_name: str = "supervisor-multi-agent"):
@@ -57,7 +66,6 @@ def setup_observability(project_name: str = "supervisor-multi-agent"):
 tracer_provider = setup_observability()
 tracer = trace.get_tracer(__name__)
 
-# ─── Mem0 + LLM Setup ────────────────────────────────────────────────────────
 MEM0_CONFIG = get_memory_config("supervisor_multi_agent_system_v1")
 memory = Memory.from_config(MEM0_CONFIG)
 
@@ -67,7 +75,6 @@ def get_llm(temperature: float = 0):
     return get_chat_openai(model=LLM_MODEL, temperature=temperature)
 
 
-# ─── State Definition ────────────────────────────────────────────────────────
 class SupervisorState(TypedDict):
     messages: Annotated[list, lambda x, y: x + y]
     next_agent: str
@@ -75,7 +82,6 @@ class SupervisorState(TypedDict):
     consolidated_context: str
 
 
-# ─── Memory Consolidation ────────────────────────────────────────────────────
 CONSOLIDATION_PROMPT = """Compress the following conversation history into a concise factual summary.
 Preserve: key decisions, confirmed facts, completed subtasks, and open questions.
 Discard: intermediate tool calls, verbose reasoning, and redundant confirmations.
@@ -106,17 +112,14 @@ def consolidate_messages(messages: list[BaseMessage], max_raw_messages: int = 8)
     return response.content.strip()
 
 
-# ─── Alternating-Turn Enforcement with Attribution Preservation ──────────────
 def _ensure_alternating_turns(messages: list[BaseMessage]) -> list[BaseMessage]:
     """Insert synthetic user turns between consecutive AI messages.
-
     Preserves agent attribution while satisfying LLM alternating-turn requirements.
     Unlike merging, this keeps each agent's output as a separate AIMessage with
     correct .name for display purposes.
     """
     if not messages:
         return messages
-
     result: list[BaseMessage] = [messages[0]]
     for msg in messages[1:]:
         prev = result[-1]
@@ -132,18 +135,15 @@ def _ensure_alternating_turns(messages: list[BaseMessage]) -> list[BaseMessage]:
     return result
 
 
-# ─── Worker Agents with Role-Boundary Enforcement ────────────────────────────
 RESEARCHER_PROMPT = """You are a research specialist. Your goal is to return a COMPLETE, VERIFIED answer.
 Workflow:
 1. Search for information relevant to the assigned subtask.
 2. Evaluate: Does the result fully answer the subtask? Are sources consistent?
 3. If incomplete or conflicting, refine your query and search again (max 3 iterations).
 4. Only when satisfied, synthesize a final concise answer.
-
 CRITICAL ROLE BOUNDARY: NEVER write code, scripts, or implementation examples.
 If the task requires code, return ONLY the research findings and explicitly state
 that coding is needed. The supervisor will delegate coding to the coder agent.
-
 NEVER return partial results. NEVER ask the supervisor for help — iterate internally."""
 
 CODER_PROMPT = """You are a coding specialist. Your goal is to return WORKING, TESTED code.
@@ -152,27 +152,27 @@ Workflow:
 2. Execute and verify output matches expected behavior.
 3. If errors or incorrect output, debug and re-execute (max 3 iterations).
 4. Only when code runs correctly, return the final solution with brief explanation.
-
 CRITICAL ROLE BOUNDARY: NEVER perform web searches or general research.
 Assume all necessary context has been provided by the supervisor.
 If you lack critical information, state what is missing — do not attempt to research it yourself.
-
 CRITICAL ORIGINALITY: Your output MUST be your own original code. Do NOT copy, repeat,
 or echo any code or text from previous messages. Use prior context as reference only.
 Produce a fresh, improved implementation based on the research findings provided.
-
 NEVER return untested code. NEVER ask the supervisor for debugging help — iterate internally."""
 
 researcher = create_react_agent(get_llm(), tools=[], prompt=RESEARCHER_PROMPT)
 coder = create_react_agent(get_llm(), tools=[], prompt=CODER_PROMPT)
 
 
-# ─── Worker Wrapper Nodes ────────────────────────────────────────────────────
 def _worker_node(state: SupervisorState, agent_name: str, agent_graph) -> dict:
     """Generic worker wrapper: injects consolidated context, runs agent, compresses output."""
     with tracer.start_as_current_span(
         f"worker.{agent_name}", attributes={"user_id": state["user_id"]}
     ) as span:
+        trace_id = span.get_span_context().trace_id
+        trace_url = build_phoenix_trace_url(PHOENIX_URL, trace_id)
+        span.set_attribute("trace.url", trace_url)
+
         augmented_messages: list[BaseMessage] = []
         if state.get("consolidated_context"):
             augmented_messages.append(
@@ -181,9 +181,6 @@ def _worker_node(state: SupervisorState, agent_name: str, agent_graph) -> dict:
                 )
             )
         augmented_messages.extend(state["messages"])
-
-        # CRITICAL: Workers also receive multi-agent message history that can contain
-        # consecutive AI messages. Apply alternating-turn enforcement with bridge messages.
         augmented_messages = _ensure_alternating_turns(augmented_messages)
 
         t0 = time.perf_counter()
@@ -194,9 +191,11 @@ def _worker_node(state: SupervisorState, agent_name: str, agent_graph) -> dict:
         span.set_attribute("worker.duration_s", round(duration, 4))
         span.set_attribute("worker.output_length", len(final_content))
         span.set_status(Status(StatusCode.OK))
+
         logger.info(
             f"🤖 {agent_name}: completed in {duration:.3f}s ({len(final_content)} chars)"
         )
+        console.print(f"   🔗 Trace: [link={trace_url}]{trace_url}[/link]")
 
         return {
             "messages": [
@@ -215,16 +214,13 @@ def coder_node(state: SupervisorState) -> dict:
     return _worker_node(state, "coder", coder)
 
 
-# ─── Supervisor Node with Code-Leak Detection ────────────────────────────────
 SUPERVISOR_PROMPT = """You are a supervisor managing two workers: 'researcher' and 'coder'.
 Your job is to decompose the user request, route subtasks, and synthesize final answers.
-
 Rules:
 - Route ONE subtask at a time. Wait for worker response before routing next.
 - When all subtasks are complete and you have enough information, respond with 'FINISH'.
 - Use the consolidated context to avoid re-asking workers for already-completed work.
 - Never do research or coding yourself. Always delegate.
-
 Respond with ONLY: 'researcher', 'coder', or 'FINISH'."""
 
 supervisor_llm = get_llm(temperature=0)
@@ -249,9 +245,11 @@ def supervisor_node(state: SupervisorState) -> dict:
     with tracer.start_as_current_span(
         "supervisor.route", attributes={"user_id": state["user_id"]}
     ) as span:
-        consolidated = consolidate_messages(state["messages"])
+        trace_id = span.get_span_context().trace_id
+        trace_url = build_phoenix_trace_url(PHOENIX_URL, trace_id)
+        span.set_attribute("trace.url", trace_url)
 
-        # Build routing messages with alternating-turn guarantee
+        consolidated = consolidate_messages(state["messages"])
         messages_for_routing: list[BaseMessage] = [
             SystemMessage(content=SUPERVISOR_PROMPT)
         ]
@@ -260,17 +258,14 @@ def supervisor_node(state: SupervisorState) -> dict:
                 SystemMessage(content=f"## Consolidated History\n{consolidated}")
             )
         messages_for_routing.extend(state["messages"][-4:])
-
-        # CRITICAL: Ensure no two consecutive AI messages before sending to LLM
         messages_for_routing = _ensure_alternating_turns(messages_for_routing)
 
         response = supervisor_llm.invoke(messages_for_routing)
         next_agent = response.content.strip().lower()
+
         if next_agent not in ("researcher", "coder", "finish"):
             next_agent = "finish"
 
-        # Guardrail: only check raw researcher messages, not merged/bridged ones.
-        # Only re-route if coder hasn't already responded after this researcher output.
         if next_agent == "finish" and state["messages"]:
             last_raw_researcher = None
             for m in reversed(state["messages"]):
@@ -318,12 +313,13 @@ def supervisor_node(state: SupervisorState) -> dict:
 
         span.set_attribute("supervisor.decision", next_agent)
         span.set_status(Status(StatusCode.OK))
+
         logger.info(f"🎯 Supervisor → {next_agent}")
+        console.print(f"   🔗 Trace: [link={trace_url}]{trace_url}[/link]")
 
         return {"next_agent": next_agent, "consolidated_context": consolidated}
 
 
-# ─── Routing ─────────────────────────────────────────────────────────────────
 def route_supervisor(
     state: SupervisorState,
 ) -> Literal["researcher", "coder", "__end__"]:
@@ -335,20 +331,16 @@ def route_supervisor(
     return END
 
 
-# ─── Graph Compilation ───────────────────────────────────────────────────────
 graph = StateGraph(SupervisorState)
 graph.add_node("supervisor", supervisor_node)
 graph.add_node("researcher", researcher_node)
 graph.add_node("coder", coder_node)
-
 graph.set_entry_point("supervisor")
 graph.add_conditional_edges("supervisor", route_supervisor)
 graph.add_edge("researcher", "supervisor")
 graph.add_edge("coder", "supervisor")
-
 app = graph.compile()
 
-# ─── Main Execution ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
     console.print("=" * 70)
     console.print(
@@ -364,6 +356,12 @@ if __name__ == "__main__":
     with tracer.start_as_current_span(
         "demo_run", attributes={"user_id": "demo_user"}
     ) as span:
+        trace_id = span.get_span_context().trace_id
+        trace_url = build_phoenix_trace_url(PHOENIX_URL, trace_id)
+        span.set_attribute("trace.url", trace_url)
+
+        console.print(f"\n🔗 Top-level trace: [link={trace_url}]{trace_url}[/link]\n")
+
         result = app.invoke(
             {
                 "messages": [HumanMessage(content=test_query)],
@@ -377,7 +375,6 @@ if __name__ == "__main__":
     console.print("\n" + "=" * 70)
     console.print("[bold green]✅ Final Conversation:[/bold green]")
     for msg in result["messages"]:
-        # Skip synthetic bridge messages in final display
         if getattr(msg, "name", None) == "system_bridge":
             continue
         role = _safe_role(msg).upper()
@@ -386,4 +383,4 @@ if __name__ == "__main__":
         )
         console.print(f"\n[bold cyan][{role}][/bold cyan]\n{content}")
 
-    console.print(f"\n🔭 View full traces: [link={PHOENIX_URL}]{PHOENIX_URL}[/link]")
+    console.print(f"\n🔭 View full trace: [link={trace_url}]{trace_url}[/link]")
