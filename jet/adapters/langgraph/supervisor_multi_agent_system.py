@@ -3,7 +3,8 @@ Production Supervisor Multi-Agent System
 - Workers iterate internally with self-evaluation until subtask is complete
 - Memory consolidation at worker-supervisor boundary prevents token overflow
 - Full OpenTelemetry/Phoenix observability preserved from original codebase
-- Safe message rendering, role-boundary enforcement, and alternating-turn guarantee
+- Safe message rendering, role-boundary enforcement, alternating-turn guarantee,
+  synthetic bridge messages for attribution preservation, and coder originality constraint
 """
 
 import os
@@ -105,32 +106,30 @@ def consolidate_messages(messages: list[BaseMessage], max_raw_messages: int = 8)
     return response.content.strip()
 
 
-# ─── Alternating-Turn Enforcement ────────────────────────────────────────────
+# ─── Alternating-Turn Enforcement with Attribution Preservation ──────────────
 def _ensure_alternating_turns(messages: list[BaseMessage]) -> list[BaseMessage]:
-    """Guarantee no two consecutive AI messages reach the LLM.
+    """Insert synthetic user turns between consecutive AI messages.
 
-    When multiple workers respond before the supervisor routes again,
-    the message list can end with [AI(researcher), AI(coder)].
-    Most LLM APIs reject this. We merge consecutive AI messages into one
-    by concatenating their content, preserving all information.
+    Preserves agent attribution while satisfying LLM alternating-turn requirements.
+    Unlike merging, this keeps each agent's output as a separate AIMessage with
+    correct .name for display purposes.
     """
     if not messages:
         return messages
 
-    merged: list[BaseMessage] = [messages[0]]
+    result: list[BaseMessage] = [messages[0]]
     for msg in messages[1:]:
-        prev = merged[-1]
-        both_ai = isinstance(prev, AIMessage) and isinstance(msg, AIMessage)
-        if both_ai:
-            # Merge into previous AI message
-            combined_content = f"{prev.content}\n\n---\n\n{msg.content}"
-            merged[-1] = AIMessage(
-                content=combined_content,
-                name=getattr(prev, "name", None) or getattr(msg, "name", None),
+        prev = result[-1]
+        if isinstance(prev, AIMessage) and isinstance(msg, AIMessage):
+            prev_name = getattr(prev, "name", None) or "assistant"
+            result.append(
+                HumanMessage(
+                    content=f"[Continuing from {prev_name}]",
+                    name="system_bridge",
+                )
             )
-        else:
-            merged.append(msg)
-    return merged
+        result.append(msg)
+    return result
 
 
 # ─── Worker Agents with Role-Boundary Enforcement ────────────────────────────
@@ -158,6 +157,10 @@ CRITICAL ROLE BOUNDARY: NEVER perform web searches or general research.
 Assume all necessary context has been provided by the supervisor.
 If you lack critical information, state what is missing — do not attempt to research it yourself.
 
+CRITICAL ORIGINALITY: Your output MUST be your own original code. Do NOT copy, repeat,
+or echo any code or text from previous messages. Use prior context as reference only.
+Produce a fresh, improved implementation based on the research findings provided.
+
 NEVER return untested code. NEVER ask the supervisor for debugging help — iterate internally."""
 
 researcher = create_react_agent(get_llm(), tools=[], prompt=RESEARCHER_PROMPT)
@@ -180,7 +183,7 @@ def _worker_node(state: SupervisorState, agent_name: str, agent_graph) -> dict:
         augmented_messages.extend(state["messages"])
 
         # CRITICAL: Workers also receive multi-agent message history that can contain
-        # consecutive AI messages. Apply the same alternating-turn enforcement.
+        # consecutive AI messages. Apply alternating-turn enforcement with bridge messages.
         augmented_messages = _ensure_alternating_turns(augmented_messages)
 
         t0 = time.perf_counter()
@@ -266,7 +269,8 @@ def supervisor_node(state: SupervisorState) -> dict:
         if next_agent not in ("researcher", "coder", "finish"):
             next_agent = "finish"
 
-        # Guardrail: only check raw researcher messages, not merged ones
+        # Guardrail: only check raw researcher messages, not merged/bridged ones.
+        # Only re-route if coder hasn't already responded after this researcher output.
         if next_agent == "finish" and state["messages"]:
             last_raw_researcher = None
             for m in reversed(state["messages"]):
@@ -276,8 +280,6 @@ def supervisor_node(state: SupervisorState) -> dict:
                 ):
                     last_raw_researcher = m
                     break
-                # Stop searching if we hit a coder message — researcher output
-                # before coder already ran is stale
                 if isinstance(m, AIMessage) and getattr(m, "name", None) == "coder":
                     break
 
@@ -298,7 +300,6 @@ def supervisor_node(state: SupervisorState) -> dict:
                     "script",
                     "function",
                 }
-                # Only re-route if coder hasn't already responded after this researcher output
                 coder_responded_after = any(
                     isinstance(m, AIMessage) and getattr(m, "name", None) == "coder"
                     for m in state["messages"][
@@ -376,6 +377,9 @@ if __name__ == "__main__":
     console.print("\n" + "=" * 70)
     console.print("[bold green]✅ Final Conversation:[/bold green]")
     for msg in result["messages"]:
+        # Skip synthetic bridge messages in final display
+        if getattr(msg, "name", None) == "system_bridge":
+            continue
         role = _safe_role(msg).upper()
         content = str(msg.content)[:600] + (
             "..." if len(str(msg.content)) > 600 else ""
