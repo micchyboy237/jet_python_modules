@@ -1,9 +1,9 @@
 # jet_python_modules/jet/adapters/llama_cpp/tasks/evaluate_multiple_contexts_relevance.py
 """Evaluate relevance of multiple contexts against a single query using grammar-constrained generation.
 
-Uses GBNF grammar via extra_body_params to guarantee valid JSON array output
-with per-context relevance scores. Each result includes the context index,
-relevance score (0-2), and validity flag.
+Uses llama.cpp's json_schema_to_grammar via grammar_builder to generate GBNF
+from a dynamically-built JSON Schema with prefixItems (tuple validation).
+Each context gets a per-position schema with const context_index.
 
 NOTE: enable_thinking is FORCED to False because thinking tokens break grammar constraints.
 """
@@ -12,6 +12,10 @@ import json
 from typing import Optional, TypedDict
 
 from jet.adapters.llama_cpp.config import LLM_MODEL
+from jet.adapters.llama_cpp.helpers.grammar_builder import (
+    build_grammar_from_schema,
+    validate_grammar,
+)
 from jet.adapters.llama_cpp.llm_utils import chat
 from jet.logger import logger
 
@@ -39,35 +43,34 @@ Each object must have "context_index" (integer) and "relevance_score" (0, 1, or 
 Do NOT include any other text."""
 
 
-def _build_grammar(num_contexts: int) -> str:
-    """Build a dynamic GBNF grammar for exactly num_contexts relevance results.
+def _build_relevance_schema(num_contexts: int) -> dict:
+    """Build JSON Schema with prefixItems for fixed-length relevance results.
 
-    Generates a JSON array schema where each element has context_index and
-    relevance_score fields. Each context object is defined as a separate named
-    rule to avoid GBNF parsing issues with inline concatenation.
+    Each position has a const context_index matching its array position,
+    ensuring the model cannot produce wrong indices.
     """
     if num_contexts <= 0:
-        raise ValueError("num_contexts must be positive")
+        raise ValueError(f"num_contexts must be >= 1, got {num_contexts}")
 
-    lines: list[str] = []
+    item_schemas = [
+        {
+            "type": "object",
+            "properties": {
+                "context_index": {"const": i},
+                "relevance_score": {"enum": [0, 1, 2]},
+            },
+            "required": ["context_index", "relevance_score"],
+            "additionalProperties": False,
+        }
+        for i in range(num_contexts)
+    ]
 
-    # Define individual item rules: item0 ::= { "context_index": 0, "relevance_score": score }
-    item_refs: list[str] = []
-    for i in range(num_contexts):
-        rule_name = f"item{i}"
-        lines.append(
-            f'{rule_name} ::= "{{" ws "\\"context_index\\"" ws ":" ws {i} ws "," '
-            f'ws "\\"relevance_score\\"" ws ":" ws score ws "}}"'
-        )
-        item_refs.append(rule_name)
-
-    # Root rule references each item with explicit comma+ws separators as terminals
-    items_sequence = ' ws "," ws '.join(item_refs)
-    lines.insert(0, f'root ::= "[" ws {items_sequence} ws "]"')
-    lines.append('score ::= "0" | "1" | "2"')
-    lines.append("ws ::= [ \\t\\n]*")
-
-    return "\n".join(lines)
+    return {
+        "type": "array",
+        "prefixItems": item_schemas,
+        "minItems": num_contexts,
+        "maxItems": num_contexts,
+    }
 
 
 def _build_user_prompt(query: str, contexts: list[str]) -> str:
@@ -87,8 +90,9 @@ def evaluate_multiple_contexts_relevance(
 ) -> list[ContextRelevanceResult]:
     """Evaluate relevance of multiple contexts against a single query.
 
-    Uses grammar-constrained generation to produce a guaranteed-valid JSON array
-    of per-context relevance scores.
+    Generates GBNF grammar from a dynamic JSON Schema using llama.cpp's
+    json_schema_to_grammar converter. Grammar is validated client-side
+    when gbnf.dev is available.
 
     Args:
         query: The user query to evaluate against.
@@ -98,12 +102,10 @@ def evaluate_multiple_contexts_relevance(
         max_tokens: Max tokens for the JSON response.
 
     Returns:
-        List of ContextRelevanceResult dicts, one per input context.
-        If generation fails entirely, returns a list of invalid results.
+        List of ContextRelevanceResult dicts, one per input context, sorted by index.
     """
     resolved_model = model or LLM_MODEL
 
-    # Validate inputs
     if not query.strip():
         logger.error("Query cannot be empty")
         return [
@@ -121,11 +123,15 @@ def evaluate_multiple_contexts_relevance(
         f"{len(contexts)} contexts, query='{query[:60]}...'"
     )
 
-    # Build dynamic grammar and prompt
+    # Build schema → grammar
     try:
-        grammar = _build_grammar(len(contexts))
+        schema = _build_relevance_schema(len(contexts))
+        grammar = build_grammar_from_schema(
+            schema,
+            prop_order={"context_index": 0, "relevance_score": 1},
+        )
     except ValueError as e:
-        logger.error(f"Grammar build failed: {e}")
+        logger.error(f"Grammar generation failed: {e}")
         return [
             ContextRelevanceResult(
                 context_index=i, relevance_score=0, is_valid=False, error=str(e)
@@ -133,15 +139,26 @@ def evaluate_multiple_contexts_relevance(
             for i in range(len(contexts))
         ]
 
-    user_prompt = _build_user_prompt(query, contexts)
+    # Validate client-side
+    validation_error = validate_grammar(grammar)
+    if validation_error:
+        error_msg = f"Grammar validation failed: {validation_error}"
+        logger.error(error_msg)
+        return [
+            ContextRelevanceResult(
+                context_index=i, relevance_score=0, is_valid=False, error=error_msg
+            )
+            for i in range(len(contexts))
+        ]
+
+    logger.debug(f"Grammar OK ({len(grammar)} bytes, {len(contexts)} items)")
+
+    # Call LLM
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
+        {"role": "user", "content": _build_user_prompt(query, contexts)},
     ]
 
-    logger.debug(f"Grammar preview:\n{grammar[:300]}...")
-
-    # Call with grammar constraint; enable_thinking MUST be False
     try:
         result = chat(
             prompt="",
@@ -162,13 +179,13 @@ def evaluate_multiple_contexts_relevance(
         ]
 
     raw_output = result.content.strip()
-    logger.debug(f"Raw grammar output: '{raw_output[:200]}'")
+    logger.debug(f"Raw output ({len(raw_output)} chars): '{raw_output[:300]}'")
 
-    # Parse JSON (guaranteed valid by grammar, but guard against edge cases)
+    # Parse
     try:
         parsed: list[dict] = json.loads(raw_output)
     except json.JSONDecodeError as e:
-        error_msg = f"JSON parse failed despite grammar: {e}"
+        error_msg = f"JSON parse failed despite grammar: {e}. Possible truncation."
         logger.error(error_msg)
         return [
             ContextRelevanceResult(
@@ -177,25 +194,25 @@ def evaluate_multiple_contexts_relevance(
             for i in range(len(contexts))
         ]
 
-    # Validate and normalize results
+    # Normalize
     results: list[ContextRelevanceResult] = []
-    seen_indices: set[int] = set()
+    seen: set[int] = set()
 
     for item in parsed:
         idx = item.get("context_index")
         score = item.get("relevance_score")
 
         if not isinstance(idx, int) or idx < 0 or idx >= len(contexts):
-            logger.warning(f"Invalid context_index in result: {item}")
+            logger.warning(f"Invalid context_index: {item}")
             continue
-        if idx in seen_indices:
-            logger.warning(f"Duplicate context_index {idx}, skipping")
+        if idx in seen:
+            logger.warning(f"Duplicate context_index {idx}")
             continue
         if score not in (0, 1, 2):
-            logger.warning(f"Invalid score {score} for index {idx}, clamping to 0")
+            logger.warning(f"Invalid score {score} for index {idx}, defaulting to 0")
             score = 0
 
-        seen_indices.add(idx)
+        seen.add(idx)
         results.append(
             ContextRelevanceResult(
                 context_index=idx,
@@ -205,24 +222,21 @@ def evaluate_multiple_contexts_relevance(
             )
         )
 
-    # Fill in any missing indices with invalid results
     for i in range(len(contexts)):
-        if i not in seen_indices:
+        if i not in seen:
             logger.warning(f"Missing result for context_index {i}")
             results.append(
                 ContextRelevanceResult(
                     context_index=i,
                     relevance_score=0,
                     is_valid=False,
-                    error=f"No result returned for context {i}",
+                    error=f"No result for context {i}",
                 )
             )
 
-    # Sort by context_index to maintain input order
     results.sort(key=lambda r: r["context_index"])
-
     valid_count = sum(1 for r in results if r["is_valid"])
-    logger.info(f"Evaluation complete: {valid_count}/{len(results)} valid results")
+    logger.info(f"Evaluation complete: {valid_count}/{len(results)} valid")
     return results
 
 
@@ -231,7 +245,6 @@ if __name__ == "__main__":
     from rich.table import Table
 
     console = Console()
-
     test_query = "What is the capital of France?"
     test_contexts = [
         "The theory of relativity was developed by Albert Einstein.",
@@ -268,5 +281,4 @@ if __name__ == "__main__":
             f"[{style}]{r['relevance_score']} ({label})[/{style}]{err}",
             v_str,
         )
-
     console.print(table)
