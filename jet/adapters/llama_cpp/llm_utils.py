@@ -39,12 +39,16 @@ def chat(
     messages: list[dict[str, Any]] | None = None,
     tool_registry: dict[str, Callable[..., Any]] | None = None,
     max_tool_rounds: int = 10,
+    extra_body_params: dict[str, Any] | None = None,
 ) -> StreamCompletionResult:
     return run_chat_stream(
-        client=client,
-        image_source=image_source,
         prompt=prompt,
         model=model,
+        project_name=project_name,
+        capture_content=capture_content,
+        phoenix_url=phoenix_url,
+        image_source=image_source,
+        client=client,
         enable_thinking=enable_thinking,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -63,7 +67,7 @@ def chat(
         messages=messages,
         tool_registry=tool_registry,
         max_tool_rounds=max_tool_rounds,
-        phoenix_url=phoenix_url,
+        extra_body_params=extra_body_params,
     )
 
 
