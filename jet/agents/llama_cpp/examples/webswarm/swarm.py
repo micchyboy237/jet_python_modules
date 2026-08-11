@@ -31,6 +31,7 @@ from config import (
     SEMANTIC_DEDUP_THRESHOLD,
     VECTOR_DB_PATH,
 )
+from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data, truncate_texts
 from jet.adapters.llama_cpp.config import EMBED_LG_MODEL, LLM_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.factory import get_llm_client
@@ -193,54 +194,206 @@ class LocalRetriever:
         )
         return [docs[r["index"]] for r in rerank_results]
 
-    async def store_finding(self, finding: dict):
-        """Store finding with token-aware truncation and error handling."""
+    async def recall_with_chunks(
+        self,
+        query: str,
+        top_k: int = 3,
+        branch_filter: str = None,
+        merge_chunks: bool = True,
+    ) -> list[dict]:
+        """Enhanced recall that handles chunked storage.
 
-        content = finding["content"][:DOC_CHAR_LIMIT]
+        Args:
+            merge_chunks: If True, merge chunks from same finding back together.
+                        If False, return individual chunks.
+        """
+        where = {"branch": branch_filter} if branch_filter else None
+        logger.debug(f"Recall query with chunking support")
 
-        # Check token count before embedding
+        # Get more results since we might have multiple chunks per finding
+        results = self.collection.query(
+            query_texts=[query],
+            n_results=top_k * 3,  # Get extra to account for chunks
+            where=where,
+        )
+
+        if not results["documents"][0]:
+            return []
+
+        if not merge_chunks:
+            return [
+                {
+                    "content": d,
+                    "url": m.get("url", ""),
+                    "score": s,
+                    "chunk_index": m.get("chunk_index"),
+                    "subtask_id": m.get("subtask_id"),
+                }
+                for d, m, s in zip(
+                    results["documents"][0],
+                    results["metadatas"][0],
+                    results["distances"][0],
+                )
+            ]
+
+        # Merge chunks from the same finding
+        findings_map: dict[str, dict] = {}
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+        ):
+            subtask_id = meta.get("subtask_id", "unknown")
+
+            if subtask_id not in findings_map:
+                findings_map[subtask_id] = {
+                    "content": "",
+                    "url": meta.get("url", ""),
+                    "score": dist,
+                    "chunks": [],
+                    "subtask_id": subtask_id,
+                }
+
+            findings_map[subtask_id]["chunks"].append(
+                {
+                    "content": doc,
+                    "score": dist,
+                    "chunk_index": meta.get("chunk_index", 0),
+                }
+            )
+            # Keep best score
+            findings_map[subtask_id]["score"] = min(
+                findings_map[subtask_id]["score"], dist
+            )
+
+        # Sort chunks and merge content
+        merged_findings = []
+        for finding in sorted(findings_map.values(), key=lambda x: x["score"])[:top_k]:
+            finding["chunks"].sort(key=lambda x: x["chunk_index"])
+            finding["content"] = "\n\n".join(c["content"] for c in finding["chunks"])
+            merged_findings.append(
+                {
+                    "content": finding["content"],
+                    "url": finding["url"],
+                    "score": finding["score"],
+                    "subtask_id": finding["subtask_id"],
+                }
+            )
+
+        logger.info(
+            f"Recalled {len(merged_findings)} merged findings from "
+            f"{sum(len(f['chunks']) for f in findings_map.values())} chunks"
+        )
+
+        return merged_findings
+
+
+async def store_finding(self, finding: dict, use_chunking: bool = True):
+    """Store finding with smart chunking for better retrieval.
+
+    Args:
+        finding: Finding dict with content, subtask_id, etc.
+        use_chunking: If True, split content into semantic chunks.
+                     If False, fall back to original behavior.
+    """
+    content = finding["content"]
+    if not content:
+        logger.warning(f"Empty content for subtask '{finding['subtask_id']}', skipping")
+        return
+
+    subtask_id = finding["subtask_id"]
+    metadata_base = {
+        "url": finding.get("url", ""),
+        "branch": finding.get("branch_id", ""),
+        "confidence": finding.get("confidence", "NONE"),
+        "subtask_id": subtask_id,
+    }
+
+    if use_chunking:
+        # Chunk content with sentence awareness and overlap
+        chunks = chunk_texts_with_data(
+            content,
+            chunk_size=256,  # Adjust based on your embedding model's context
+            chunk_overlap=50,  # Overlap for context continuity
+            model=LLM_MODEL,
+            strict_sentences=True,
+            min_chunk_size=64,
+            show_progress=False,
+        )
+
+        if not chunks:
+            logger.warning(f"No chunks generated for subtask '{subtask_id}'")
+            return
+
+        logger.info(
+            f"Chunked finding '{subtask_id}' into {len(chunks)} pieces "
+            f"(avg {sum(c['num_tokens'] for c in chunks) // len(chunks)} tokens/chunk)"
+        )
+
+        # Store each chunk with its metadata
+        for idx, chunk in enumerate(chunks):
+            chunk_id = f"{subtask_id}_chunk_{idx}"
+            try:
+                emb_list = await self.embed_texts([chunk["content"]])
+                if not emb_list:
+                    logger.error(f"Embedding failed for chunk {idx} of '{subtask_id}'")
+                    continue
+
+                self.collection.upsert(
+                    ids=[chunk_id],
+                    embeddings=[emb_list[0]],
+                    documents=[chunk["content"]],
+                    metadatas=[
+                        {
+                            **metadata_base,
+                            "chunk_index": idx,
+                            "total_chunks": len(chunks),
+                            "token_count": chunk["num_tokens"],
+                        }
+                    ],
+                )
+                logger.debug(
+                    f"Stored chunk {idx}/{len(chunks)} of '{subtask_id}' "
+                    f"({chunk['num_tokens']} tokens)"
+                )
+            except Exception as e:
+                logger.error(f"Failed to store chunk {idx} of '{subtask_id}': {e}")
+    else:
+        # Original behavior with token-aware truncation
         token_count = count_tokens(content, model=DEFAULT_EMBED_MODEL)
-        max_embed_tokens = 500  # Safe margin below 512 batch size
+        max_embed_tokens = 500
 
         if token_count > max_embed_tokens:
             logger.warning(
-                f"Content too long for embedding ({token_count} tokens). "
-                f"Truncating to ~{max_embed_tokens} tokens."
+                f"Content too long ({token_count} tokens). Using smart truncation."
             )
-            # Simple truncation: use first N characters proportional to token ratio
-            ratio = max_embed_tokens / max(token_count, 1)
-            content = content[: int(len(content) * ratio)] + "..."
+            content = truncate_texts(
+                content,
+                model=LLM_MODEL,
+                max_tokens=max_embed_tokens,
+                strict_sentences=True,
+                show_progress=False,
+            )
             token_count = count_tokens(content, model=DEFAULT_EMBED_MODEL)
-            logger.info(f"Truncated content to {token_count} tokens")
+            logger.info(f"Truncated to {token_count} tokens")
 
         try:
             emb_list = await self.embed_texts([content])
-
-            if not emb_list or len(emb_list) == 0:
-                logger.error(
-                    f"Embedding failed for subtask '{finding['subtask_id']}'. "
-                    f"Content length: {len(content)} chars, {token_count} tokens. "
-                    f"Skipping storage."
-                )
+            if not emb_list:
+                logger.error(f"Embedding failed for '{subtask_id}'")
                 return
 
             self.collection.upsert(
-                ids=[finding["subtask_id"]],
+                ids=[subtask_id],
                 embeddings=[emb_list[0]],
                 documents=[content],
-                metadatas=[
-                    {
-                        "url": finding.get("url", ""),
-                        "branch": finding.get("branch_id", ""),
-                    }
-                ],
+                metadatas=[{**metadata_base, "token_count": token_count}],
             )
             logger.debug(
-                f"Stored finding '{finding['subtask_id']}' "
-                f"({len(content)} chars, {token_count} tokens)"
+                f"Stored finding '{subtask_id}' ({len(content)} chars, {token_count} tokens)"
             )
         except Exception as e:
-            logger.error(f"Failed to store finding '{finding['subtask_id']}': {e}")
+            logger.error(f"Failed to store finding '{subtask_id}': {e}")
 
     async def recall(
         self, query: str, top_k: int = 3, branch_filter: str = None
@@ -356,21 +509,47 @@ dedup = DedupCache()
 async def _safe_llm_call(
     messages: list[dict], role: str, grammar: str = None
 ) -> dict | str:
-    """Context degradation cascade using exact token counting."""
+    """Context degradation cascade using smart truncation."""
     budget = BUDGETS[role]
     total = count_tokens(messages, model=DEFAULT_LLM_MODEL)
     limit = sum(budget.values())
+
     if total <= limit:
         return await llm.chat(messages, grammar=grammar, max_tokens=budget["output"])
+
     logger.warning(f"[{role}] Context overflow ({total}>{limit}). Trimming docs.")
+
+    # Find the longest user message (usually contains the documents)
     user_msgs = [(i, m) for i, m in enumerate(messages) if m["role"] == "user"]
     user_msgs.sort(key=lambda x: len(x[1].get("content", "")), reverse=True)
+
     if user_msgs:
         idx, msg = user_msgs[0]
-        ratio = limit / max(total, 1)
-        char_limit = int(len(msg["content"]) * ratio)
-        trimmed = msg["content"][:char_limit]
-        messages[idx] = {"role": "user", "content": trimmed + "\n[TRUNCATED]"}
+        content = msg["content"]
+
+        # Calculate how many tokens we need to remove
+        excess = total - limit
+        target_tokens = count_tokens(content, model=DEFAULT_LLM_MODEL) - excess
+
+        # Use smart truncation that preserves sentence boundaries
+        if target_tokens > 0:
+            trimmed = truncate_texts(
+                content,
+                model=LLM_MODEL,
+                max_tokens=target_tokens,
+                strict_sentences=True,
+                show_progress=False,
+            )
+            messages[idx] = {
+                "role": "user",
+                "content": trimmed
+                + "\n\n[Note: Content truncated to fit context window]",
+            }
+            logger.info(
+                f"[{role}] Truncated content from {len(content)} to {len(trimmed)} chars "
+                f"({count_tokens(trimmed, model=DEFAULT_LLM_MODEL)} tokens)"
+            )
+
     return await llm.chat(messages, grammar=grammar, max_tokens=budget["output"])
 
 
@@ -412,9 +591,19 @@ async def searcher_node(state: SwarmState) -> dict:
     task = next((t for t in state["subtasks"] if t["id"] not in answered_ids), None)
     if not task:
         return {}
-    recalled = await retriever.recall(task["question"], top_k=1)
+
+    # Use enhanced recall with chunk merging
+    recalled = await retriever.recall_with_chunks(
+        task["question"],
+        top_k=1,
+        merge_chunks=True,  # Merge chunks from same finding
+    )
+
     if recalled and recalled[0].get("score", 1.0) < (1 - SEMANTIC_DEDUP_THRESHOLD):
-        logger.info(f"Dedup hit for '{task['question'][:60]}'")
+        logger.info(
+            f"Dedup hit for '{task['question'][:60]}' "
+            f"(score: {recalled[0]['score']:.3f})"
+        )
         return {
             "findings": state.get("findings", [])
             + [
@@ -483,10 +672,32 @@ async def synthesizer_node(state: SwarmState) -> dict:
         f"- [{f['subtask_id']}] ({f['confidence']}) {f.get('summary', '')}"
         for f in state.get("findings", [])
     )[: BUDGETS["synthesizer"]["global_index"] * 4]
-    top_findings = await retriever.rerank_docs(
-        state["query"], state.get("findings", []), top_k=5
+
+    # Use recall_with_chunks for semantic retrieval instead of direct finding access
+    recalled_findings = await retriever.recall_with_chunks(
+        state["query"], top_k=5, merge_chunks=True
     )
+
+    # Fall back to reranking if recall returns nothing (e.g., empty collection)
+    if recalled_findings:
+        # Rerank the recalled findings for better ordering
+        top_findings = await retriever.rerank_docs(
+            state["query"], recalled_findings, top_k=5
+        )
+        logger.info(
+            f"Synthesizer using {len(top_findings)} recalled & reranked findings"
+        )
+    else:
+        # Fallback: use findings directly from state
+        top_findings = await retriever.rerank_docs(
+            state["query"], state.get("findings", []), top_k=5
+        )
+        logger.info(
+            f"Synthesizer using {len(top_findings)} findings from state (no recall hits)"
+        )
+
     detailed = "\n---\n".join(f["content"][:2000] for f in top_findings)
+
     messages = [
         {
             "role": "system",
