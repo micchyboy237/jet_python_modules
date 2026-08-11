@@ -88,8 +88,8 @@ def main():
 
     result: PydanticResult[ProgrammingLanguage] = pydantic_output(
         client=client,
-        f"Extract programming language information as JSON from this text:\n{text}",
-        ProgrammingLanguage,
+        prompt=f"Extract programming language information as JSON from this text:\n{text}",
+        model_type=ProgrammingLanguage,
         temperature=0.0,
         max_tokens=300,
     )

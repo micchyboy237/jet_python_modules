@@ -81,8 +81,8 @@ def main():
 
     result: PydanticResult[list[City]] = pydantic_list_output(
         client=client,
-        f"Extract ALL cities mentioned as a JSON array from this text:\n{text}",
-        City,
+        prompt=f"Extract ALL cities mentioned as a JSON array from this text:\n{text}",
+        item_type=City,
         temperature=0.0,
         max_tokens=500,
     )

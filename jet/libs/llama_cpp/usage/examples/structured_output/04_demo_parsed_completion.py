@@ -105,8 +105,8 @@ def main():
 
     result: ParsedOutput[Conference] = parsed_completion(
         client=client,
-        f"Extract conference information as JSON:\n{text}",
-        Conference,
+        prompt=f"Extract conference information as JSON:\n{text}",
+        response_model=Conference,
         temperature=0.0,
         max_tokens=300,
     )
