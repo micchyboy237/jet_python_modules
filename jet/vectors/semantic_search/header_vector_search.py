@@ -3,6 +3,8 @@ import uuid
 from collections.abc import Callable, Iterator
 
 import numpy as np
+from jet.adapters.llama_cpp.chunking_utils import chunk_texts
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embeddings import LlamacppEmbedding
 from jet.adapters.llama_cpp.tokens import get_model_max_tokens, get_tokenizer_fn
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
@@ -11,10 +13,8 @@ from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 # from jet.llm.utils.embeddings import generate_embeddings
 from jet.code.markdown_types.markdown_parsed_types import HeaderDoc, HeaderSearchResult
 from jet.logger import logger
-from jet.wordnet.text_chunker import chunk_texts
 
-DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = "nomic-embed-text"
-MAX_CONTENT_SIZE = 1000
+DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 
 
 # def preprocess_text(
