@@ -14,11 +14,10 @@ def chat(
     prompt: str = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    # --- Observability params (NEW) ---
-    project_name: str = "chat-stream-obs",
+    project_name: str | None = None,
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
-    # --- Existing params ---
+    messages: list[dict[str, Any]] | None = None,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -35,9 +34,8 @@ def chat(
     stop: list[str] | None = None,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
-    response_format: dict[str, Any] | None = None,
-    messages: list[dict[str, Any]] | None = None,
     tool_registry: dict[str, Callable[..., Any]] | None = None,
+    response_format: dict[str, Any] | None = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
 ) -> StreamCompletionResult:
@@ -47,6 +45,7 @@ def chat(
         project_name=project_name,
         capture_content=capture_content,
         phoenix_url=phoenix_url,
+        messages=messages,
         image_source=image_source,
         client=client,
         enable_thinking=enable_thinking,
@@ -63,9 +62,8 @@ def chat(
         stop=stop,
         tools=tools,
         tool_choice=tool_choice,
-        response_format=response_format,
-        messages=messages,
         tool_registry=tool_registry,
+        response_format=response_format,
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
     )

@@ -1,192 +1,228 @@
-"""Evaluate relevance of multiple contexts using embedding-based logistic regression.
+# jet_python_modules/jet/adapters/llama_cpp/tasks/evaluate_multiple_contexts_relevance.py
+"""Evaluate relevance of multiple contexts against a single query using grammar-constrained generation.
 
-Equivalent to jet/llm/mlx/tasks/eval/evaluate_multiple_contexts_relevance.py.
-Uses embed_utils for pair embeddings and sklearn LogisticRegression for classification.
-The classifier is trained locally on CPU — no GPU/server required for classification.
+Uses GBNF grammar via extra_body_params to guarantee valid JSON array output
+with per-context relevance scores. Each result includes the context index,
+relevance score (0-2), and validity flag.
+
+NOTE: enable_thinking is FORCED to False because thinking tokens break grammar constraints.
 """
 
-import os
-from typing import Literal, Optional, TypedDict
+import json
+from typing import Optional, TypedDict
 
-import joblib
-import numpy as np
-from jet.adapters.llama_cpp.config import EMBED_MODEL
-from jet.adapters.llama_cpp.embed_utils import embed
+from jet.adapters.llama_cpp.config import LLM_MODEL
+from jet.adapters.llama_cpp.llm_utils import chat
 from jet.logger import logger
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import LabelEncoder
 
 
 class ContextRelevanceResult(TypedDict):
-    context: str
-    relevance_score: Literal[0, 1, 2]
-    score: float
-    probabilities: list[float]
+    """Single context relevance evaluation result."""
+
+    context_index: int
+    relevance_score: int
     is_valid: bool
     error: Optional[str]
-    priority: Literal["low", "medium", "high"]
 
 
-PRIORITY_MAP = {0: "low", 1: "medium", 2: "high"}
+SYSTEM_PROMPT = """\
+You are a relevance evaluator. Given a query and multiple numbered contexts, \
+evaluate each context's relevance to the query.
 
-DEFAULT_PAIRS = [
-    "Query: What is the capital of France?\nContext: The capital of France is Paris.",
-    "Query: What is the capital of France?\nContext: Paris is a popular tourist destination.",
-    "Query: What is the capital of France?\nContext: Einstein developed the theory of relativity.",
-]
-DEFAULT_LABELS = [2, 1, 0]
+Scoring:
+- 0: Low relevance (unrelated or barely related)
+- 1: Medium relevance (partially addresses the query)
+- 2: High relevance (directly and mostly addresses the query)
 
-
-def _build_pairs(query: str, contexts: list[str]) -> list[str]:
-    return [f"Query: {query}\nContext: {c}" for c in contexts]
-
-
-def train_classifier(
-    example_pairs: Optional[list[str]] = None,
-    labels: Optional[list[int]] = None,
-    model: str | None = None,
-    verbose: bool = True,
-) -> tuple[LogisticRegression, LabelEncoder]:
-    """Train a logistic regression classifier on embedded query-context pairs."""
-    resolved_model = model or EMBED_MODEL
-    pairs = example_pairs or DEFAULT_PAIRS
-    lbls = labels or DEFAULT_LABELS
-
-    if len(pairs) != len(lbls):
-        raise ValueError("Number of example pairs must match number of labels")
-
-    logger.info(f"Training classifier: {len(pairs)} pairs, model={resolved_model}")
-
-    embeddings = embed(
-        pairs, model=resolved_model, return_format="numpy", show_progress=verbose
-    )
-    le = LabelEncoder()
-    encoded = le.fit_transform(lbls)
-
-    clf = LogisticRegression(solver="lbfgs", max_iter=200)
-    clf.fit(embeddings, encoded)
-
-    logger.info("Classifier training complete")
-    return clf, le
+Return ONLY a JSON array with one object per context, in order. \
+Each object must have "context_index" (integer) and "relevance_score" (0, 1, or 2). \
+Do NOT include any other text."""
 
 
-def load_or_train_classifier(
-    save_dir: Optional[str] = None,
-    example_pairs: Optional[list[str]] = None,
-    labels: Optional[list[int]] = None,
-    model: str | None = None,
-    overwrite: bool = False,
-    verbose: bool = True,
-) -> tuple[LogisticRegression, LabelEncoder]:
-    """Load cached classifier or train a new one."""
-    if save_dir and not overwrite:
-        clf_path = os.path.join(save_dir, "classifier.joblib")
-        le_path = os.path.join(save_dir, "label_encoder.joblib")
-        if os.path.isfile(clf_path) and os.path.isfile(le_path):
-            logger.info(f"Loading classifier from {save_dir}")
-            return joblib.load(clf_path), joblib.load(le_path)
+def _build_grammar(num_contexts: int) -> str:
+    """Build a dynamic GBNF grammar for exactly num_contexts relevance results.
 
-    clf, le = train_classifier(example_pairs, labels, model, verbose)
+    Generates a JSON array schema where each element has context_index and
+    relevance_score fields. Each context object is defined as a separate named
+    rule to avoid GBNF parsing issues with inline concatenation.
+    """
+    if num_contexts <= 0:
+        raise ValueError("num_contexts must be positive")
 
-    if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
-        joblib.dump(clf, os.path.join(save_dir, "classifier.joblib"))
-        joblib.dump(le, os.path.join(save_dir, "label_encoder.joblib"))
-        logger.info(f"Classifier saved to {save_dir}")
+    lines: list[str] = []
 
-    return clf, le
+    # Define individual item rules: item0 ::= { "context_index": 0, "relevance_score": score }
+    item_refs: list[str] = []
+    for i in range(num_contexts):
+        rule_name = f"item{i}"
+        lines.append(
+            f'{rule_name} ::= "{{" ws "\\"context_index\\"" ws ":" ws {i} ws "," '
+            f'ws "\\"relevance_score\\"" ws ":" ws score ws "}}"'
+        )
+        item_refs.append(rule_name)
+
+    # Root rule references each item with explicit comma+ws separators as terminals
+    items_sequence = ' ws "," ws '.join(item_refs)
+    lines.insert(0, f'root ::= "[" ws {items_sequence} ws "]"')
+    lines.append('score ::= "0" | "1" | "2"')
+    lines.append("ws ::= [ \\t\\n]*")
+
+    return "\n".join(lines)
+
+
+def _build_user_prompt(query: str, contexts: list[str]) -> str:
+    """Build user prompt with query and indexed contexts."""
+    parts = [f"Query: {query}\n\nContexts:"]
+    for idx, ctx in enumerate(contexts):
+        parts.append(f"[{idx}] {ctx}")
+    return "\n".join(parts)
 
 
 def evaluate_multiple_contexts_relevance(
     query: str,
     contexts: list[str],
     model: str | None = None,
-    save_dir: Optional[str] = None,
-    example_pairs: Optional[list[str]] = None,
-    labels: Optional[list[int]] = None,
-    verbose: bool = True,
+    temperature: float = 0.0,
+    max_tokens: int = 2048,
 ) -> list[ContextRelevanceResult]:
-    """Evaluate relevance of multiple contexts for a query using embedding-based classification.
+    """Evaluate relevance of multiple contexts against a single query.
+
+    Uses grammar-constrained generation to produce a guaranteed-valid JSON array
+    of per-context relevance scores.
 
     Args:
-        query: Search query to evaluate against.
-        contexts: List of context strings to score.
-        model: Embedding model key. Defaults to EMBED_MODEL.
-        save_dir: Directory to cache/load classifier artifacts.
-        example_pairs: Training pairs for classifier (uses defaults if None).
-        labels: Labels for training pairs (uses defaults if None).
-        verbose: Enable progress bars and detailed logging.
+        query: The user query to evaluate against.
+        contexts: List of context strings to assess.
+        model: LLM model key. Defaults to LLM_MODEL.
+        temperature: Sampling temperature (default: 0.0 for deterministic).
+        max_tokens: Max tokens for the JSON response.
 
     Returns:
-        List of ContextRelevanceResult sorted by (relevance_score, score) descending.
+        List of ContextRelevanceResult dicts, one per input context.
+        If generation fails entirely, returns a list of invalid results.
     """
-    resolved_model = model or EMBED_MODEL
+    resolved_model = model or LLM_MODEL
 
+    # Validate inputs
     if not query.strip():
-        raise ValueError("Query cannot be empty.")
+        logger.error("Query cannot be empty")
+        return [
+            ContextRelevanceResult(
+                context_index=i, relevance_score=0, is_valid=False, error="Empty query"
+            )
+            for i in range(len(contexts))
+        ]
     if not contexts:
-        raise ValueError("Contexts list cannot be empty.")
+        logger.error("Contexts list cannot be empty")
+        return []
 
     logger.info(
-        f"evaluate_multiple_contexts_relevance: {len(contexts)} contexts, "
-        f"model={resolved_model}, query='{query[:60]}...'"
+        f"evaluate_multiple_contexts_relevance: model={resolved_model}, "
+        f"{len(contexts)} contexts, query='{query[:60]}...'"
     )
 
-    clf, le = load_or_train_classifier(
-        save_dir=save_dir,
-        example_pairs=example_pairs,
-        labels=labels,
-        model=resolved_model,
-        verbose=verbose,
-    )
+    # Build dynamic grammar and prompt
+    try:
+        grammar = _build_grammar(len(contexts))
+    except ValueError as e:
+        logger.error(f"Grammar build failed: {e}")
+        return [
+            ContextRelevanceResult(
+                context_index=i, relevance_score=0, is_valid=False, error=str(e)
+            )
+            for i in range(len(contexts))
+        ]
 
-    pairs = _build_pairs(query, contexts)
-    embeddings = embed(
-        pairs, model=resolved_model, return_format="numpy", show_progress=verbose
-    )
+    user_prompt = _build_user_prompt(query, contexts)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
 
-    pred_probas = clf.predict_proba(embeddings)
-    pred_indices = np.argmax(pred_probas, axis=1)
-    scores = pred_probas[np.arange(len(pred_indices)), pred_indices]
+    logger.debug(f"Grammar preview:\n{grammar[:300]}...")
 
+    # Call with grammar constraint; enable_thinking MUST be False
+    try:
+        result = chat(
+            prompt="",
+            model=resolved_model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            enable_thinking=False,
+            extra_body_params={"grammar": grammar},
+        )
+    except Exception as e:
+        logger.error(f"Chat completion failed: {e}")
+        return [
+            ContextRelevanceResult(
+                context_index=i, relevance_score=0, is_valid=False, error=str(e)
+            )
+            for i in range(len(contexts))
+        ]
+
+    raw_output = result.content.strip()
+    logger.debug(f"Raw grammar output: '{raw_output[:200]}'")
+
+    # Parse JSON (guaranteed valid by grammar, but guard against edge cases)
+    try:
+        parsed: list[dict] = json.loads(raw_output)
+    except json.JSONDecodeError as e:
+        error_msg = f"JSON parse failed despite grammar: {e}"
+        logger.error(error_msg)
+        return [
+            ContextRelevanceResult(
+                context_index=i, relevance_score=0, is_valid=False, error=error_msg
+            )
+            for i in range(len(contexts))
+        ]
+
+    # Validate and normalize results
     results: list[ContextRelevanceResult] = []
-    for i, context in enumerate(contexts):
-        try:
-            predicted_label = int(le.inverse_transform([pred_indices[i]])[0])
-            is_valid = predicted_label in (0, 1, 2)
-            if not is_valid:
-                logger.warning(
-                    f"Invalid predicted label {predicted_label}, defaulting to 0"
-                )
-                predicted_label = 0
+    seen_indices: set[int] = set()
 
-            results.append(
-                ContextRelevanceResult(
-                    context=context,
-                    relevance_score=predicted_label,
-                    score=float(scores[i]),
-                    probabilities=pred_probas[i].tolist(),
-                    is_valid=is_valid,
-                    error=None if is_valid else f"Invalid label: {predicted_label}",
-                    priority=PRIORITY_MAP[predicted_label],
-                )
+    for item in parsed:
+        idx = item.get("context_index")
+        score = item.get("relevance_score")
+
+        if not isinstance(idx, int) or idx < 0 or idx >= len(contexts):
+            logger.warning(f"Invalid context_index in result: {item}")
+            continue
+        if idx in seen_indices:
+            logger.warning(f"Duplicate context_index {idx}, skipping")
+            continue
+        if score not in (0, 1, 2):
+            logger.warning(f"Invalid score {score} for index {idx}, clamping to 0")
+            score = 0
+
+        seen_indices.add(idx)
+        results.append(
+            ContextRelevanceResult(
+                context_index=idx,
+                relevance_score=score,
+                is_valid=True,
+                error=None,
             )
-        except Exception as e:
-            logger.error(f"Error processing context '{context[:80]}': {e}")
+        )
+
+    # Fill in any missing indices with invalid results
+    for i in range(len(contexts)):
+        if i not in seen_indices:
+            logger.warning(f"Missing result for context_index {i}")
             results.append(
                 ContextRelevanceResult(
-                    context=context,
+                    context_index=i,
                     relevance_score=0,
-                    score=0.0,
-                    probabilities=[0.0, 0.0, 0.0],
                     is_valid=False,
-                    error=str(e),
-                    priority="low",
+                    error=f"No result returned for context {i}",
                 )
             )
 
-    results.sort(key=lambda x: (x["relevance_score"], x["score"]), reverse=True)
-    logger.info(f"Evaluation complete: {len(results)} results returned")
+    # Sort by context_index to maintain input order
+    results.sort(key=lambda r: r["context_index"])
+
+    valid_count = sum(1 for r in results if r["is_valid"])
+    logger.info(f"Evaluation complete: {valid_count}/{len(results)} valid results")
     return results
 
 
@@ -196,43 +232,41 @@ if __name__ == "__main__":
 
     console = Console()
 
-    query = "What is the capital of France?"
-    contexts = [
-        "The capital of France is Paris.",
-        "Paris is a popular tourist destination.",
-        "Einstein developed the theory of relativity.",
+    test_query = "What is the capital of France?"
+    test_contexts = [
+        "The theory of relativity was developed by Albert Einstein.",
+        "Paris hosts many tourists in France and is known for the Eiffel Tower.",
+        "The capital of France is Paris, located in northern Europe.",
+        "Berlin is the capital of Germany, not France.",
     ]
 
-    results = evaluate_multiple_contexts_relevance(query, contexts, verbose=True)
+    results = evaluate_multiple_contexts_relevance(test_query, test_contexts)
+
+    score_styles = {0: "dim red", 1: "yellow", 2: "bold green"}
+    score_labels = {0: "Low", 1: "Medium", 2: "High"}
 
     console.print("\n[bold green]Multiple Contexts Relevance Results[/bold green]")
     table = Table(show_header=True, header_style="bold magenta", show_lines=True)
     table.add_column("#", justify="center", style="dim", width=3)
-    table.add_column("Context", style="white", no_wrap=False, max_width=55)
-    table.add_column("Score", justify="center", width=8)
-    table.add_column("Confidence", justify="right", width=10)
-    table.add_column("P(0)", justify="right", style="dim red", width=7)
-    table.add_column("P(1)", justify="right", style="yellow", width=7)
-    table.add_column("P(2)", justify="right", style="bold green", width=7)
-    table.add_column("Priority", justify="center", width=9)
+    table.add_column("Context", style="white", max_width=50)
+    table.add_column("Score", justify="center", width=12)
+    table.add_column("Valid", justify="center", width=6)
 
-    score_styles = {0: "dim red", 1: "yellow", 2: "bold green"}
-    priority_styles = {"low": "dim red", "medium": "yellow", "high": "bold green"}
-
-    for rank, r in enumerate(results, start=1):
-        s_style = score_styles.get(r["relevance_score"], "dim")
-        p_style = priority_styles.get(r["priority"], "dim")
-        probs = r["probabilities"]
-
+    for r in results:
+        style = score_styles.get(r["relevance_score"], "dim")
+        label = score_labels.get(r["relevance_score"], "?")
+        v_str = (
+            "[bold green]✓[/bold green]" if r["is_valid"] else "[bold red]✗[/bold red]"
+        )
+        err = f"\n[dim red]⚠ {r['error']}[/dim red]" if not r["is_valid"] else ""
+        ctx_text = test_contexts[r["context_index"]][:60]
+        if len(test_contexts[r["context_index"]]) > 60:
+            ctx_text += "..."
         table.add_row(
-            str(rank),
-            r["context"][:80] + ("..." if len(r["context"]) > 80 else ""),
-            f"[{s_style}]{r['relevance_score']}[/{s_style}]",
-            f"{r['score']:.4f}",
-            f"{probs[0]:.3f}" if len(probs) > 0 else "-",
-            f"{probs[1]:.3f}" if len(probs) > 1 else "-",
-            f"{probs[2]:.3f}" if len(probs) > 2 else "-",
-            f"[{p_style}]{r['priority']}[/{p_style}]",
+            str(r["context_index"]),
+            ctx_text,
+            f"[{style}]{r['relevance_score']} ({label})[/{style}]{err}",
+            v_str,
         )
 
     console.print(table)
