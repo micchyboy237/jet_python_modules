@@ -181,7 +181,7 @@ class LocalRetriever:
         try:
             self.chroma.delete_collection("swarm_findings")
             logger.info("Deleted existing 'swarm_findings' collection")
-        except ValueError:
+        except (ValueError, chromadb.errors.NotFoundError):
             pass
 
         self.collection = self.chroma.get_or_create_collection(
