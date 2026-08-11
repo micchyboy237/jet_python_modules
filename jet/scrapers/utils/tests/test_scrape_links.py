@@ -1,20 +1,17 @@
-# test_scrape_links.py
-import unittest
-
 from jet.scrapers.utils import scrape_links
 
 
-class TestScrapeLinks(unittest.TestCase):
+class TestScrapeLinks:
     def test_empty_text(self):
-        self.assertEqual(scrape_links(""), [])
-        self.assertEqual(scrape_links("   \n\t "), [])
+        assert scrape_links("") == []
+        assert scrape_links("   \n\t ") == []
 
     def test_no_links(self):
         text = """
         Hello world this is a test
         without any urls or paths
         """
-        self.assertEqual(scrape_links(text), [])
+        assert scrape_links(text) == []
 
     def test_absolute_http_https_links(self):
         text = """
@@ -28,7 +25,7 @@ class TestScrapeLinks(unittest.TestCase):
             "http://test.org/path?query=123#frag",
             "https://api.github.com/users/octocat/repos",
         ]
-        self.assertEqual(scrape_links(text), expected)
+        assert scrape_links(text) == expected
 
     def test_relative_paths_without_base(self):
         text = """
@@ -43,7 +40,7 @@ class TestScrapeLinks(unittest.TestCase):
             "/assets/style.css",
             "/?ref=footer",
         ]
-        self.assertEqual(scrape_links(text), expected)
+        assert scrape_links(text) == expected
 
     def test_relative_paths_with_base_url(self):
         base = "https://example.com/docs"
@@ -59,13 +56,13 @@ class TestScrapeLinks(unittest.TestCase):
             "https://example.com/api/v1/users/42",
             "https://other.com/external",
         ]
-        self.assertEqual(scrape_links(text, base), expected)
+        assert scrape_links(text, base) == expected
 
     def test_base_url_without_trailing_slash(self):
         base = "https://example.com"
         text = "/contact /team"
         expected = ["https://example.com/contact", "https://example.com/team"]
-        self.assertEqual(scrape_links(text, base), expected)
+        assert scrape_links(text, base) == expected
 
     def test_duplicates_are_removed(self):
         text = """
@@ -76,17 +73,14 @@ class TestScrapeLinks(unittest.TestCase):
         https://shop.com
         """
         expected = ["/products", "https://shop.com", "/products?color=blue"]
-        self.assertEqual(scrape_links(text), expected)
+        assert scrape_links(text) == expected
 
         with_base = scrape_links(text, "https://shop.com")
-        self.assertEqual(
-            with_base,
-            [
-                "https://shop.com/products",
-                "https://shop.com",
-                "https://shop.com/products?color=blue",
-            ],
-        )
+        assert with_base == [
+            "https://shop.com/products",
+            "https://shop.com",
+            "https://shop.com/products?color=blue",
+        ]
 
     def test_ignores_invalid_or_malicious_looking_urls(self):
         text = """
@@ -98,14 +92,14 @@ class TestScrapeLinks(unittest.TestCase):
         https://example.com"><script>alert(1)</script>
         """
         expected = ["https://example.com", "/normal/path"]
-        self.assertEqual(scrape_links(text), expected)
+        assert scrape_links(text) == expected
 
     def test_very_long_path(self):
         long_path = "/".join(["segment" + str(i) for i in range(200)])
         text = f"Link: /{long_path}"
         result = scrape_links(text)
-        self.assertEqual(len(result), 1)
-        self.assertTrue(result[0].startswith("/"))
+        assert len(result) == 1
+        assert result[0].startswith("/")
 
     def test_anchor_and_query_only(self):
         text = """
@@ -115,7 +109,7 @@ class TestScrapeLinks(unittest.TestCase):
         /?sort=asc#results
         """
         expected = ["/page#top", "/?sort=asc#results"]
-        self.assertEqual(scrape_links(text), expected)
+        assert scrape_links(text) == expected
 
     def test_base_url_is_itself_not_included(self):
         base = "https://example.com/"
@@ -126,7 +120,7 @@ class TestScrapeLinks(unittest.TestCase):
         https://example.com/other
         """
         expected = ["https://example.com/dashboard", "https://example.com/other"]
-        self.assertEqual(scrape_links(text, base), expected)
+        assert scrape_links(text, base) == expected
 
     def test_complex_realistic_html_like_text(self):
         text = """
@@ -145,7 +139,7 @@ class TestScrapeLinks(unittest.TestCase):
             "/static/logo.png",
             "/help",
         ]
-        self.assertEqual(scrape_links(text), expected_without_base)
+        assert scrape_links(text) == expected_without_base
 
         base = "https://shop.example.com"
         expected_with_base = [
@@ -155,8 +149,29 @@ class TestScrapeLinks(unittest.TestCase):
             "https://shop.example.com/static/logo.png",
             "https://shop.example.com/help",
         ]
-        self.assertEqual(scrape_links(text, base), expected_with_base)
+        assert scrape_links(text, base) == expected_with_base
 
+    def test_brackets_act_as_stop_characters_for_links(self):
+        """Brackets stop link capture, preventing broken IPv6 parse errors in urljoin.
 
-if __name__ == "__main__":
-    unittest.main()
+        The regex stops capturing at [ and ] characters, so:
+        - Absolute URLs with brackets (https://[::1/path) are excluded entirely
+        - Relative paths with brackets (/path/[brackets]) are truncated to the valid portion
+        """
+        base = "https://example.com"
+        text = """
+        https://[::1/path
+        /valid/path
+        /path/with/[brackets]
+        /another/valid
+        """
+        # https://[::1/path → excluded (no valid domain before [)
+        # /valid/path → captured fully
+        # /path/with/[brackets] → captures /path/with/ (stops at [)
+        # /another/valid → captured fully
+        expected = [
+            "https://example.com/valid/path",
+            "https://example.com/path/with/",
+            "https://example.com/another/valid",
+        ]
+        assert scrape_links(text, base) == expected

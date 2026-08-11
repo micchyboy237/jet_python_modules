@@ -2142,7 +2142,7 @@ def search_data(query: str, use_cache: bool = True, **kwargs) -> list[SearchResu
             query=query,
             filter_sites=filter_sites,
             engines=engines,
-            config={"port": 3101},
+            config={"port": 6379},
             use_cache=use_cache,
             **kwargs,
         )
