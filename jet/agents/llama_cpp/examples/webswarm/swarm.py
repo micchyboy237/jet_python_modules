@@ -15,7 +15,6 @@ from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from config import (
     BUDGETS,
     CACHE_DB,
-    DOC_CHAR_LIMIT,
     GRAMMAR_DIR,
     MAX_DEPTH,
     MAX_ITERATIONS,
@@ -212,17 +211,66 @@ class LocalRetriever:
     async def rerank_docs(
         self, query: str, docs: list[dict], top_k: int = RERANK_TOP_K
     ) -> list[dict]:
-        """Async wrapper around jet rerank() using correct /rerank endpoint."""
+        """Async wrapper around jet rerank() with token-aware truncation.
+
+        The bge-rerank-v2-m3 model has a 1024 token limit. Documents exceeding
+        this cause 500 errors. We use truncate_texts() to safely trim documents
+        to fit within the reranker's context window.
+        """
         if not docs:
+            logger.debug("No documents to rerank")
             return []
 
-        doc_texts = [d.get("text", d.get("content", ""))[:DOC_CHAR_LIMIT] for d in docs]
+        # Reranker model has 1024 token context window
+        # Reserve 32 tokens for query + special tokens
+        MAX_RERANK_TOKENS = 992  # 1024 - 32 buffer
+
+        doc_texts = []
+        for d in docs:
+            text = d.get("text", d.get("content", ""))
+
+            # Count actual tokens in the text
+            token_count = count_tokens(text, model=DEFAULT_LLM_MODEL)
+
+            if token_count > MAX_RERANK_TOKENS:
+                logger.debug(
+                    f"Document too long for reranker ({token_count} > {MAX_RERANK_TOKENS} tokens). "
+                    f"Truncating with sentence awareness."
+                )
+                # Use smart truncation to preserve sentence boundaries
+                text = truncate_texts(
+                    text,
+                    model=LLM_MODEL,
+                    max_tokens=MAX_RERANK_TOKENS,
+                    strict_sentences=True,
+                    show_progress=False,
+                )
+                new_token_count = count_tokens(text, model=DEFAULT_LLM_MODEL)
+                logger.debug(
+                    f"Truncated for reranker: {token_count} → {new_token_count} tokens"
+                )
+
+            doc_texts.append(text)
+
+        # Additional safety: double-check total batch size
+        total_tokens = sum(count_tokens(t, model=DEFAULT_LLM_MODEL) for t in doc_texts)
+        logger.debug(
+            f"Reranking {len(doc_texts)} documents "
+            f"(avg {total_tokens // max(len(doc_texts), 1)} tokens/doc, "
+            f"{total_tokens} total)"
+        )
 
         loop = asyncio.get_running_loop()
-        rerank_results = await loop.run_in_executor(
-            None, lambda: rerank(query, doc_texts, top_n=min(top_k, len(docs)))
-        )
-        return [docs[r["index"]] for r in rerank_results]
+        try:
+            rerank_results = await loop.run_in_executor(
+                None,
+                lambda: rerank(query, doc_texts, top_n=min(top_k, len(docs))),
+            )
+            logger.debug(f"Rerank successful: {len(rerank_results)} results")
+            return [docs[r["index"]] for r in rerank_results]
+        except Exception as e:
+            logger.error(f"Rerank failed despite token-aware truncation: {e}")
+            raise
 
     async def store_finding(self, finding: dict, use_chunking: bool = None):
         """Store finding with smart chunking for better retrieval.
@@ -570,6 +618,7 @@ class LocalRetriever:
         top_k: int = 3,
         branch_filter: str = None,
         merge_chunks: bool = None,
+        max_merged_tokens: int = 3000,  # ADD: limit merged content size
     ) -> list[dict]:
         """Enhanced recall that handles chunked storage.
 
@@ -583,6 +632,7 @@ class LocalRetriever:
             branch_filter: Optional branch ID filter.
             merge_chunks: If True, merge chunks from same finding.
                          If None, uses MERGE_CHUNKS_ON_RECALL config.
+            max_merged_tokens: When merging chunks, limit total content tokens.
 
         Returns:
             List of dicts with content, url, score, subtask_id, and optionally
@@ -605,7 +655,11 @@ class LocalRetriever:
             where=where,
         )
 
-        if not results["documents"][0]:
+        # Defensive: check for missing/empty results
+        docs = results.get("documents", [None])
+        metas = results.get("metadatas", [None])
+        dists = results.get("distances", [None])
+        if not docs or not docs[0]:
             logger.debug("No results found in recall_with_chunks")
             return []
 
@@ -621,11 +675,7 @@ class LocalRetriever:
                     "subtask_id": m.get("subtask_id"),
                     "token_count": m.get("token_count"),
                 }
-                for d, m, s in zip(
-                    results["documents"][0],
-                    results["metadatas"][0],
-                    results["distances"][0],
-                )
+                for d, m, s in zip(docs[0], metas[0], dists[0])
             ]
             logger.debug(
                 f"Returning {len(chunk_results)} individual chunks (no merging)"
@@ -634,13 +684,8 @@ class LocalRetriever:
 
         # Merge chunks from the same finding
         findings_map: dict[str, dict] = {}
-        for doc, meta, dist in zip(
-            results["documents"][0],
-            results["metadatas"][0],
-            results["distances"][0],
-        ):
-            subtask_id = meta.get("subtask_id", "unknown")
-
+        for doc, meta, dist in zip(docs[0], metas[0], dists[0]):
+            subtask_id = str(meta.get("subtask_id", "unknown"))
             if subtask_id not in findings_map:
                 findings_map[subtask_id] = {
                     "url": meta.get("url", ""),
@@ -665,19 +710,31 @@ class LocalRetriever:
                 }
             )
 
-        # Sort chunks by index and merge content
+        # Sort chunks by index and merge content progressively, respecting token limit
         merged_findings = []
         for finding in sorted(findings_map.values(), key=lambda x: x["best_score"])[
             :top_k
         ]:
-            # Sort chunks by their original order
             finding["chunks"].sort(key=lambda x: x["chunk_index"])
 
-            # Merge content with proper spacing
-            merged_content = "\n\n".join(c["content"] for c in finding["chunks"])
+            # Build merged content, respecting max_merged_tokens
+            merged_parts = []
+            current_tokens = 0
+            for chunk in finding["chunks"]:
+                chunk_tokens = chunk.get("token_count", 0)
+                # If adding this chunk would exceed max tokens AND we already have content, break
+                if current_tokens + chunk_tokens > max_merged_tokens and merged_parts:
+                    logger.debug(
+                        f"Stopping chunk merge at {current_tokens}/{max_merged_tokens} tokens "
+                        f"for '{finding['subtask_id']}' ({len(merged_parts)}/{len(finding['chunks'])} chunks)"
+                    )
+                    break
+                merged_parts.append(chunk["content"])
+                current_tokens += chunk_tokens
 
-            # Calculate total tokens
-            total_tokens = sum(c["token_count"] for c in finding["chunks"])
+            # Merge the selected chunks
+            merged_content = "\n\n".join(merged_parts)
+            total_tokens = sum(c.get("token_count", 0) for c in finding["chunks"])
 
             merged_findings.append(
                 {
@@ -685,9 +742,10 @@ class LocalRetriever:
                     "url": finding["url"],
                     "score": finding["best_score"],
                     "subtask_id": finding["subtask_id"],
-                    "num_chunks_merged": len(finding["chunks"]),
+                    "num_chunks_merged": len(merged_parts),
                     "total_chunks": finding["total_chunks"],
                     "total_tokens": total_tokens,
+                    "merged_tokens": current_tokens,  # ADD: actual tokens in merged content
                     "confidence": finding["confidence"],
                 }
             )
