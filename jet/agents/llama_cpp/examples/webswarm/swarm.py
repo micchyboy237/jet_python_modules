@@ -1,18 +1,51 @@
+# jet_python_modules/jet/agents/llama_cpp/examples/webswarm/swarm.py
+
+import os
+import sys
+
+# Add this file's folder to sys.path for module imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import asyncio
 import hashlib
 import json
 import logging
-import os
 import time
 from typing import TypedDict
 
 import chromadb
-import httpx
 import trafilatura
-from config import *
+
+# Swarm-specific config only (no LLM/embed/rerank URLs)
+from config import (
+    BUDGETS,
+    CACHE_DB,
+    DOC_CHAR_LIMIT,
+    GRAMMAR_DIR,
+    MAX_DEPTH,
+    MAX_ITERATIONS,
+    MAX_TOTAL_TOKENS,
+    MAX_WALL_SECONDS,
+    RERANK_TOP_K,
+    SEARXNG_CATEGORIES,
+    SEARXNG_ENGINES,
+    SEARXNG_MAX_RESULTS,
+    SEARXNG_MIN_SCORE,
+    SEARXNG_QUERY_URL,
+    SEARXNG_USE_CACHE,
+    SEMANTIC_DEDUP_THRESHOLD,
+    VECTOR_DB_PATH,
+)
+from jet.adapters.llama_cpp.config import LLM_MODEL
+from jet.adapters.llama_cpp.embed_utils import embed
+
+# Reuse existing jet adapters for all LLM infrastructure
+from jet.adapters.llama_cpp.factory import get_llm_client
+from jet.adapters.llama_cpp.rerank_utils import rerank
+from jet.adapters.llama_cpp.token_utils import count_tokens
+from jet.search.searxng import search_searxng
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
-from openai import AsyncOpenAI
 from playwright.async_api import async_playwright
 
 logging.basicConfig(
@@ -20,54 +53,94 @@ logging.basicConfig(
 )
 logger = logging.getLogger("webswarm")
 
+
 # =============================================================================
 # INFRASTRUCTURE CLIENTS
 # =============================================================================
 
 
 class LocalLLMClient:
-    """Budget-aware wrapper around local llama.cpp server."""
+    """Budget-aware wrapper using jet.adapters.llama_cpp.factory."""
 
     def __init__(self):
-        self.client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key="none")
+        # Sync client from factory; we wrap calls in executor for async compatibility
+        self._client = get_llm_client()
         self.tokens_used = 0
         self._grammars = {}
 
     def _load_grammar(self, name: str) -> str:
         if name not in self._grammars:
             path = os.path.join(GRAMMAR_DIR, f"{name}.gbnf")
+            if not os.path.isfile(path):
+                available = (
+                    os.listdir(GRAMMAR_DIR) if os.path.isdir(GRAMMAR_DIR) else []
+                )
+                raise FileNotFoundError(
+                    f"Grammar file not found: {path}\n"
+                    f"GRAMMAR_DIR={GRAMMAR_DIR}\n"
+                    f"Available files: {available}"
+                )
             self._grammars[name] = open(path).read()
+            logger.debug(f"Loaded grammar '{name}' from {path}")
         return self._grammars[name]
 
     async def chat(
         self, messages: list[dict], grammar: str = None, max_tokens: int = 512
-    ) -> dict:
+    ) -> dict | str:
         kwargs = {
-            "model": LLM_MODEL_NAME,
+            "model": LLM_MODEL,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": 0.1,
         }
+
+        # CRITICAL: Disable thinking for grammar-constrained generation
+        # Qwen3.5 template injects <think> tags that break GBNF parsing
         if grammar:
-            kwargs["extra_body"] = {"grammar": self._load_grammar(grammar)}
+            kwargs["extra_body"] = {
+                "grammar": self._load_grammar(grammar),
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
+            logger.debug(
+                f"Grammar '{grammar}' payload: length={len(kwargs['extra_body']['grammar'])}, "
+                f"rule_count={kwargs['extra_body']['grammar'].count('::=')}, "
+                f"enable_thinking=False"
+            )
+        else:
+            # Enable thinking for free-form responses (synthesizer, etc.)
+            kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
 
-        resp = await self.client.chat.completions.create(**kwargs)
+        loop = asyncio.get_running_loop()
+        resp = await loop.run_in_executor(
+            None, lambda: self._client.chat.completions.create(**kwargs)
+        )
+
         usage = resp.usage
-        self.tokens_used += usage.prompt_tokens + usage.completion_tokens
-        content = resp.choices[0].message.content
+        if usage:
+            self.tokens_used += usage.prompt_tokens + usage.completion_tokens
 
-        # Safety parse for grammar-constrained outputs
+        content = resp.choices[0].message.content or ""
+
+        if grammar and not content.strip():
+            logger.error(
+                f"EMPTY response with grammar '{grammar}'. "
+                f"Prompt tokens: {usage.prompt_tokens if usage else 'unknown'}. "
+                f"Verify enable_thinking=False is reaching the server."
+            )
+            return {"error": "EMPTY_RESPONSE", "raw": ""}
+
         if grammar:
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
                 logger.error(f"Grammar output parse failed: {content[:200]}")
                 return {"error": "PARSE_FAIL", "raw": content}
+
         return content
 
 
 class LocalRetriever:
-    """Embedder + Reranker + Vector Store integration."""
+    """Uses jet.adapters.llama_cpp embed/rerank utils + ChromaDB."""
 
     def __init__(self):
         self.chroma = chromadb.PersistentClient(path=VECTOR_DB_PATH)
@@ -75,38 +148,33 @@ class LocalRetriever:
             "swarm_findings", metadata={"hnsw:space": "cosine"}
         )
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.post(EMBEDDER_URL, json={"texts": texts})
-            return r.json()["embeddings"]
+    async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Async wrapper around jet embed() with batch dedup and VRAM safety."""
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: embed(texts, return_format="list", show_progress=False),
+        )
+        return result
 
-    async def rerank(
+    async def rerank_docs(
         self, query: str, docs: list[dict], top_k: int = RERANK_TOP_K
     ) -> list[dict]:
+        """Async wrapper around jet rerank() using correct /rerank endpoint."""
         if not docs:
             return []
-        async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.post(
-                RERANKER_URL,
-                json={
-                    "query": query,
-                    "documents": [
-                        d.get("text", d.get("content", ""))[:DOC_CHAR_LIMIT]
-                        for d in docs
-                    ],
-                    "top_k": min(top_k, len(docs)),
-                },
-            )
-            results = r.json()["results"]
-            return [
-                docs[i] for i, _ in sorted(results, key=lambda x: x[1], reverse=True)
-            ]
+        doc_texts = [d.get("text", d.get("content", ""))[:DOC_CHAR_LIMIT] for d in docs]
+        loop = asyncio.get_running_loop()
+        rerank_results = await loop.run_in_executor(
+            None, lambda: rerank(query, doc_texts, top_n=min(top_k, len(docs)))
+        )
+        return [docs[r["index"]] for r in rerank_results]
 
     async def store_finding(self, finding: dict):
-        emb = (await self.embed([finding["content"][:DOC_CHAR_LIMIT]]))[0]
+        emb_list = await self.embed_texts([finding["content"][:DOC_CHAR_LIMIT]])
         self.collection.upsert(
             ids=[finding["subtask_id"]],
-            embeddings=[emb],
+            embeddings=[emb_list[0]],
             documents=[finding["content"][:DOC_CHAR_LIMIT]],
             metadatas=[
                 {"url": finding.get("url", ""), "branch": finding.get("branch_id", "")}
@@ -200,6 +268,35 @@ class DedupCache:
 
 
 # =============================================================================
+# SEARCH INTEGRATION
+# =============================================================================
+
+
+async def web_search(query: str) -> list[str]:
+    """Async wrapper around jet.search.searxng.search_searxng."""
+    loop = asyncio.get_running_loop()
+    try:
+        results = await loop.run_in_executor(
+            None,
+            lambda: search_searxng(
+                query=query,
+                query_url=SEARXNG_QUERY_URL,
+                count=SEARXNG_MAX_RESULTS,
+                min_score=SEARXNG_MIN_SCORE,
+                engines=SEARXNG_ENGINES,
+                categories=SEARXNG_CATEGORIES,
+                use_cache=SEARXNG_USE_CACHE,
+            ),
+        )
+        urls = [r["url"] for r in results if r.get("url")]
+        logger.info(f"SearXNG returned {len(urls)} URLs for: {query[:80]}")
+        return urls
+    except Exception as e:
+        logger.error(f"SearXNG search failed for '{query[:80]}': {e}")
+        return []
+
+
+# =============================================================================
 # GRAPH NODES
 # =============================================================================
 
@@ -208,29 +305,26 @@ retriever = LocalRetriever()
 dedup = DedupCache()
 
 
-def _count_tokens_approx(text: str) -> int:
-    """Rough token estimate for budget checks. Replace with llama-tokenize for precision."""
-    return len(text) // 4
-
-
 async def _safe_llm_call(
     messages: list[dict], role: str, grammar: str = None
 ) -> dict | str:
-    """Context degradation cascade."""
+    """Context degradation cascade using exact token counting."""
     budget = BUDGETS[role]
-    total = sum(_count_tokens_approx(m.get("content", "")) for m in messages)
+    # Exact token count via local tokenizer (chat-template aware for message lists)
+    total = count_tokens(messages)
     limit = sum(budget.values())
 
     if total <= limit:
         return await llm.chat(messages, grammar=grammar, max_tokens=budget["output"])
 
-    # Level 1: Trim longest user message (usually docs)
     logger.warning(f"[{role}] Context overflow ({total}>{limit}). Trimming docs.")
     user_msgs = [(i, m) for i, m in enumerate(messages) if m["role"] == "user"]
     user_msgs.sort(key=lambda x: len(x[1].get("content", "")), reverse=True)
     if user_msgs:
         idx, msg = user_msgs[0]
-        trimmed = msg["content"][: int(len(msg["content"]) * limit / total)]
+        ratio = limit / max(total, 1)
+        char_limit = int(len(msg["content"]) * ratio)
+        trimmed = msg["content"][:char_limit]
         messages[idx] = {"role": "user", "content": trimmed + "\n[TRUNCATED]"}
 
     return await llm.chat(messages, grammar=grammar, max_tokens=budget["output"])
@@ -277,7 +371,7 @@ async def searcher_node(state: SwarmState) -> dict:
     if not task:
         return {}
 
-    # Semantic dedup
+    # Semantic dedup via vector recall
     recalled = await retriever.recall(task["question"], top_k=1)
     if recalled and recalled[0].get("score", 1.0) < (1 - SEMANTIC_DEDUP_THRESHOLD):
         logger.info(f"Dedup hit for '{task['question'][:60]}'")
@@ -295,13 +389,11 @@ async def searcher_node(state: SwarmState) -> dict:
             ]
         }
 
-    # Web search + rerank
-    # NOTE: Replace with your actual search API call here
-    # For now, simulating candidate URLs from a search
-    candidates = [{"text": "", "url": u} for u in await _mock_search(task["question"])]
-    ranked = await retriever.rerank(task["question"], candidates)
+    # Real search via SearXNG
+    urls = await web_search(task["question"])
+    candidates = [{"text": "", "url": u} for u in urls]
+    ranked = await retriever.rerank_docs(task["question"], candidates)
 
-    # Browse top result
     finding_content = ""
     finding_url = ""
     if ranked:
@@ -360,7 +452,7 @@ async def synthesizer_node(state: SwarmState) -> dict:
         for f in state.get("findings", [])
     )[: BUDGETS["synthesizer"]["global_index"] * 4]
 
-    top_findings = await retriever.rerank(
+    top_findings = await retriever.rerank_docs(
         state["query"], state.get("findings", []), top_k=5
     )
     detailed = "\n---\n".join(f["content"][:2000] for f in top_findings)
@@ -407,7 +499,7 @@ def should_recurse(state: SwarmState) -> str:
         if max_d < MAX_DEPTH:
             return "search"
     if partial:
-        return "plan"  # Recursive refinement
+        return "plan"
     if not unanswered:
         return "synthesize"
     return "synthesize"
@@ -443,15 +535,7 @@ async def run_swarm(query: str) -> str:
     return result.get("final_answer", "No answer generated.")
 
 
-# Placeholder: Replace with real search API
-async def _mock_search(query: str) -> list[str]:
-    """Replace with SerpAPI, SearXNG, or DuckDuckGo integration."""
-    logger.info(f"[MOCK SEARCH] {query}")
-    return []  # Return list of URLs
-
-
 # === ENTRY POINT ===
-
 if __name__ == "__main__":
     import argparse
 
@@ -463,6 +547,5 @@ if __name__ == "__main__":
         help="The query to run WebSwarm on.",
     )
     args = parser.parse_args()
-
     answer = asyncio.run(run_swarm(args.query))
     print("\n" + "=" * 80 + "\n" + answer)

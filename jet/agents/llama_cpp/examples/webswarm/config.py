@@ -1,10 +1,15 @@
-# === LOCAL SERVER ENDPOINTS ===
-LLM_BASE_URL = "http://localhost:8080/v1"
-EMBEDDER_URL = "http://localhost:8081/embed"
-RERANKER_URL = "http://localhost:8082/rerank"
-LLM_MODEL_NAME = "local-model"  # Placeholder; llama.cpp ignores this
+import os
 
-# === CONTEXT BUDGETS (TOKENS) - TUNE TO YOUR MODEL'S EFFECTIVE CONTEXT ===
+# Resolve paths relative to this config file's location
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+SEARXNG_QUERY_URL = os.getenv("SEARXNG_URL", "http://localhost:8888/search")
+SEARXNG_ENGINES = []
+SEARXNG_CATEGORIES = ["general"]
+SEARXNG_MIN_SCORE = 0.1
+SEARXNG_MAX_RESULTS = 10
+SEARXNG_USE_CACHE = True
+
 BUDGETS = {
     "planner": {"system": 400, "history": 1000, "output": 500},
     "searcher": {"system": 300, "parent_ctx": 300, "docs": 2500, "output": 200},
@@ -17,16 +22,14 @@ BUDGETS = {
     "compressor": {"system": 200, "input": 2000, "output": 300},
 }
 
-# === RECURSION GUARDS ===
 MAX_DEPTH = 4
 MAX_ITERATIONS = 20
 MAX_WALL_SECONDS = 300
-MAX_TOTAL_TOKENS = 60000
+MAX_TOTAL_TOKENS = 16000
 SEMANTIC_DEDUP_THRESHOLD = 0.85
 RERANK_TOP_K = 3
-DOC_CHAR_LIMIT = 4000  # Per-document truncation before embedding
+DOC_CHAR_LIMIT = 4000
 
-# === PATHS ===
-GRAMMAR_DIR = "./grammars"
-CACHE_DB = "./swarm_cache.db"
-VECTOR_DB_PATH = "./chroma_swarm"
+GRAMMAR_DIR = os.path.join(_THIS_DIR, "grammars")
+CACHE_DB = os.path.join(_THIS_DIR, "swarm_cache.db")
+VECTOR_DB_PATH = os.path.join(_THIS_DIR, "chroma_swarm")

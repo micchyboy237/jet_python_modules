@@ -1,5 +1,4 @@
-root ::= "{" ws "\"verdict\"" ws ":" ws verdict ws ","
-           ws "\"rationale\"" ws ":" ws string-rat ws "}"
+root ::= "{" ws "\"verdict\"" ws ":" ws verdict ws "," ws "\"rationale\"" ws ":" ws string-rat ws "}"
 verdict ::= "\"FULL\"" | "\"PARTIAL\"" | "\"NONE\""
-string-rat ::= "\"" [^"\\]{10,120} "\""
+string-rat ::= "\"" ([^"\\] | "\\" .){10,120} "\""
 ws ::= [ \t\n]*
