@@ -18,14 +18,14 @@ SEARXNG_USE_CACHE = True
 
 BUDGETS = {
     "planner": {"system": 400, "history": 1000, "output": 500},
-    "searcher": {"system": 300, "parent_ctx": 300, "docs": 2500, "output": 200},
+    "searcher": {"system": 300, "parent_ctx": 300, "docs": 2500, "output": 300},
     "synthesizer": {
         "system": 400,
         "global_index": 1500,
         "top_findings": 3000,
         "output": 1000,
     },
-    "compressor": {"system": 200, "input": 2000, "output": 300},
+    "compressor": {"system": 200, "input": 2000, "output": 500},
 }
 
 MAX_DEPTH = 4

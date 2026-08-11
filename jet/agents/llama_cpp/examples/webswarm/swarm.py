@@ -1,9 +1,6 @@
-# jet_python_modules/jet/agents/llama_cpp/examples/webswarm/swarm.py
-
 import os
 import sys
 
-# Add this file's folder to sys.path for module imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import asyncio
@@ -15,8 +12,7 @@ from typing import Any, TypedDict
 
 import chromadb
 import trafilatura
-
-# Swarm-specific config only (no LLM/embed/rerank URLs)
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from config import (
     BUDGETS,
     CACHE_DB,
@@ -38,8 +34,6 @@ from config import (
 )
 from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
-
-# Reuse existing jet adapters for all LLM infrastructure
 from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.adapters.llama_cpp.rerank_utils import rerank
 from jet.adapters.llama_cpp.token_utils import count_tokens
@@ -54,16 +48,21 @@ logging.basicConfig(
 logger = logging.getLogger("webswarm")
 
 
-# =============================================================================
-# INFRASTRUCTURE CLIENTS
-# =============================================================================
+class JetEmbeddingFunction(EmbeddingFunction[Documents]):
+    """ChromaDB-compatible wrapper for jet.adapters.llama_cpp.embed."""
+
+    def __call__(self, input: Documents) -> Embeddings:
+        # ChromaDB passes List[str]; embed() returns List[List[float]] with return_format="list"
+        return embed(input, return_format="list", show_progress=True)
+
+    def name(self) -> str:
+        return "jet_llama_cpp_embed"
 
 
 class LocalLLMClient:
     """Budget-aware wrapper using jet.adapters.llama_cpp.factory."""
 
     def __init__(self):
-        # Sync client from factory; we wrap calls in executor for async compatibility
         self._client = get_llm_client()
         self.tokens_used = 0
         self._grammars = {}
@@ -94,7 +93,6 @@ class LocalLLMClient:
             "temperature": 0.1,
             "stream": True,
         }
-
         if grammar:
             grammar_content = self._load_grammar(grammar)
             logger.debug(
@@ -110,7 +108,6 @@ class LocalLLMClient:
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
 
         loop = asyncio.get_running_loop()
-
         stream = await loop.run_in_executor(
             None, lambda: self._client.chat.completions.create(**kwargs)
         )
@@ -118,18 +115,14 @@ class LocalLLMClient:
         content_parts: list[str] = []
         prompt_tokens = 0
         completion_tokens = 0
-
         for chunk in stream:
             if chunk.usage:
                 prompt_tokens = chunk.usage.prompt_tokens or 0
                 completion_tokens = chunk.usage.completion_tokens or 0
-
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:
                 content_parts.append(delta.content)
                 print(delta.content, end="", flush=True)
-
-        # Newline after stream completes so next log/output starts cleanly
         print()
 
         self.tokens_used += prompt_tokens + completion_tokens
@@ -149,7 +142,6 @@ class LocalLLMClient:
             except json.JSONDecodeError:
                 logger.error(f"Grammar output parse failed: {content[:200]}")
                 return {"error": "PARSE_FAIL", "raw": content}
-
         return content
 
 
@@ -158,8 +150,23 @@ class LocalRetriever:
 
     def __init__(self):
         self.chroma = chromadb.PersistentClient(path=VECTOR_DB_PATH)
+
+        # Delete existing collection if it exists
+        try:
+            self.chroma.delete_collection("swarm_findings")
+            logger.info("Deleted existing 'swarm_findings' collection")
+        except ValueError:
+            # Collection doesn't exist, that's fine
+            pass
+
+        # Create new collection with custom embedding function
         self.collection = self.chroma.get_or_create_collection(
-            "swarm_findings", metadata={"hnsw:space": "cosine"}
+            "swarm_findings",
+            metadata={"hnsw:space": "cosine"},
+            embedding_function=JetEmbeddingFunction(),
+        )
+        logger.info(
+            "ChromaDB collection initialized with JetEmbeddingFunction (custom llama.cpp embeddings)"
         )
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
@@ -167,7 +174,7 @@ class LocalRetriever:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: embed(texts, return_format="list", show_progress=False),
+            lambda: embed(texts, return_format="list", show_progress=True),
         )
         return result
 
@@ -199,6 +206,8 @@ class LocalRetriever:
         self, query: str, top_k: int = 3, branch_filter: str = None
     ) -> list[dict]:
         where = {"branch": branch_filter} if branch_filter else None
+        # FIX: query_texts now correctly uses JetEmbeddingFunction registered above
+        logger.debug(f"Recall query using registered custom embedding function")
         results = self.collection.query(
             query_texts=[query], n_results=top_k, where=where
         )
@@ -244,11 +253,6 @@ async def extract_page(url: str) -> dict:
         await page.close()
 
 
-# =============================================================================
-# STATE & DEDUP
-# =============================================================================
-
-
 class SwarmState(TypedDict):
     query: str
     subtasks: list[dict]
@@ -281,11 +285,6 @@ class DedupCache:
         self.conn.commit()
 
 
-# =============================================================================
-# SEARCH INTEGRATION
-# =============================================================================
-
-
 async def web_search(query: str) -> list[str]:
     """Async wrapper around jet.search.searxng.search_searxng."""
     loop = asyncio.get_running_loop()
@@ -310,10 +309,6 @@ async def web_search(query: str) -> list[str]:
         return []
 
 
-# =============================================================================
-# GRAPH NODES
-# =============================================================================
-
 llm = LocalLLMClient()
 retriever = LocalRetriever()
 dedup = DedupCache()
@@ -324,10 +319,8 @@ async def _safe_llm_call(
 ) -> dict | str:
     """Context degradation cascade using exact token counting."""
     budget = BUDGETS[role]
-    # Exact token count via local tokenizer (chat-template aware for message lists)
     total = count_tokens(messages)
     limit = sum(budget.values())
-
     if total <= limit:
         return await llm.chat(messages, grammar=grammar, max_tokens=budget["output"])
 
@@ -340,7 +333,6 @@ async def _safe_llm_call(
         char_limit = int(len(msg["content"]) * ratio)
         trimmed = msg["content"][:char_limit]
         messages[idx] = {"role": "user", "content": trimmed + "\n[TRUNCATED]"}
-
     return await llm.chat(messages, grammar=grammar, max_tokens=budget["output"])
 
 
@@ -362,7 +354,7 @@ async def planner_node(state: SwarmState) -> dict:
         },
         {
             "role": "user",
-            "content": f"Query: {state['query']}\n\nPrior findings:\n{history_summary}",
+            "content": f"Query: {state['query']}\nPrior findings:\n{history_summary}",
         },
     ]
     result = await _safe_llm_call(messages, "planner", grammar="planner")
@@ -385,7 +377,6 @@ async def searcher_node(state: SwarmState) -> dict:
     if not task:
         return {}
 
-    # Semantic dedup via vector recall
     recalled = await retriever.recall(task["question"], top_k=1)
     if recalled and recalled[0].get("score", 1.0) < (1 - SEMANTIC_DEDUP_THRESHOLD):
         logger.info(f"Dedup hit for '{task['question'][:60]}'")
@@ -403,7 +394,6 @@ async def searcher_node(state: SwarmState) -> dict:
             ]
         }
 
-    # Real search via SearXNG
     urls = await web_search(task["question"])
     candidates = [{"text": "", "url": u} for u in urls]
     ranked = await retriever.rerank_docs(task["question"], candidates)
@@ -414,9 +404,9 @@ async def searcher_node(state: SwarmState) -> dict:
         page = await extract_page(ranked[0]["url"])
         finding_content = page["text"]
         finding_url = page["url"]
-        dedup.mark_seen(task["question"], finding_url)
 
-    # Confidence evaluation
+    dedup.mark_seen(task["question"], finding_url)
+
     conf_messages = [
         {
             "role": "system",
@@ -430,7 +420,6 @@ async def searcher_node(state: SwarmState) -> dict:
     conf = await _safe_llm_call(conf_messages, "searcher", grammar="confidence")
     verdict = conf.get("verdict", "NONE") if isinstance(conf, dict) else "NONE"
 
-    # Compress for future children
     comp_messages = [
         {
             "role": "system",
@@ -479,17 +468,12 @@ async def synthesizer_node(state: SwarmState) -> dict:
         },
         {
             "role": "user",
-            "content": f"Original query: {state['query']}\n\n"
-            f"Global index:\n{global_index}\n\nDetailed findings:\n{detailed}",
+            "content": f"Original query: {state['query']}\n"
+            f"Global index:\n{global_index}\nDetailed findings:\n{detailed}",
         },
     ]
     answer = await _safe_llm_call(messages, "synthesizer")
     return {"final_answer": answer if isinstance(answer, str) else str(answer)}
-
-
-# =============================================================================
-# ROUTING & GRAPH COMPILATION
-# =============================================================================
 
 
 def should_recurse(state: SwarmState) -> str:
@@ -532,8 +516,8 @@ async def run_swarm(query: str) -> str:
         {"search": "search", "plan": "plan", "synthesize": "synthesize"},
     )
     graph.add_edge("synthesize", END)
-
     app = graph.compile(checkpointer=MemorySaver())
+
     initial_state = {
         "query": query,
         "subtasks": [],
@@ -549,7 +533,6 @@ async def run_swarm(query: str) -> str:
     return result.get("final_answer", "No answer generated.")
 
 
-# === ENTRY POINT ===
 if __name__ == "__main__":
     import argparse
 
