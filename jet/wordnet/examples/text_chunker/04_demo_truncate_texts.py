@@ -4,15 +4,18 @@ Demo: truncate_texts & truncate_texts_fast
 - Batch, fast variant with progress bar
 """
 
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.wordnet.examples.text_chunker.demo_utils import apply_mocks, print_section
 
 tc = apply_mocks()
+
+DEFAULT_MODEL = EMBED_MODEL
 
 
 def demo_basic():
     print_section("1. Basic Truncation")
     text = "This is a test document with many words that should be truncated."
-    result = tc.truncate_texts(text, model="llama-3.2:3b", max_tokens=5)
+    result = tc.truncate_texts(text, model=DEFAULT_MODEL, max_tokens=5)
     print(f"  Original: {text}")
     print(f"  Truncated (5t): {result[0]}")
 
@@ -20,7 +23,7 @@ def demo_basic():
 def demo_auto():
     print_section("2. Auto Max Tokens (from model context)")
     text = "word " * 10
-    result = tc.truncate_texts(text, model="llama-3.2:3b", max_tokens=None)
+    result = tc.truncate_texts(text, model=DEFAULT_MODEL, max_tokens=None)
     print(f"  Model ctx: 2048 | Text: {len(text.split())} words → fits, returned as-is")
     print(f"  {result[0][:80]}...")
 
@@ -29,7 +32,7 @@ def demo_strict():
     print_section("3. Strict Sentences")
     text = "First sentence. Second sentence goes beyond limit. Third cut off."
     result = tc.truncate_texts(
-        text, model="llama-3.2:3b", max_tokens=6, strict_sentences=True
+        text, model=DEFAULT_MODEL, max_tokens=6, strict_sentences=True
     )
     print(f"  {result[0]}")
 
@@ -38,7 +41,7 @@ def demo_non_strict():
     print_section("4. Non-Strict (Raw Token Cut)")
     text = "Sentence one. Sentence two longer gets cut mid-way maybe."
     result = tc.truncate_texts(
-        text, model="llama-3.2:3b", max_tokens=5, strict_sentences=False
+        text, model=DEFAULT_MODEL, max_tokens=5, strict_sentences=False
     )
     print(f"  {result[0]}")
 
@@ -46,7 +49,7 @@ def demo_non_strict():
 def demo_batch():
     print_section("5. Batch")
     texts = ["Short.", "Medium length text here.", "Tiny."]
-    for i, r in enumerate(tc.truncate_texts(texts, model="llama-3.2:3b", max_tokens=4)):
+    for i, r in enumerate(tc.truncate_texts(texts, model=DEFAULT_MODEL, max_tokens=4)):
         print(f"  Doc {i}: {texts[i][:30]}... → {r}")
 
 
@@ -55,7 +58,7 @@ def demo_fast():
     texts = [f"Doc {i} text to truncate. Another sentence." for i in range(5)]
     print("  (Progress bar below)")
     results = tc.truncate_texts_fast(
-        texts, model="llama-3.2:3b", max_tokens=6, show_progress=True
+        texts, model=DEFAULT_MODEL, max_tokens=6, show_progress=True
     )
     print(f"  {len(results)} results")
 
@@ -64,7 +67,7 @@ def demo_fast_strict():
     print_section("7. Fast + Strict Sentences")
     text = "A here. B is longer might get dropped. C too."
     results = tc.truncate_texts_fast(
-        text, model="llama-3.2:3b", max_tokens=6, strict_sentences=True
+        text, model=DEFAULT_MODEL, max_tokens=6, strict_sentences=True
     )
     print(f"  {results[0] if results else '(empty)'}")
 

@@ -2,7 +2,6 @@ import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 import asyncio
 import hashlib
 import json
@@ -32,7 +31,7 @@ from config import (
     SEMANTIC_DEDUP_THRESHOLD,
     VECTOR_DB_PATH,
 )
-from jet.adapters.llama_cpp.config import LLM_MODEL
+from jet.adapters.llama_cpp.config import EMBED_LG_MODEL, LLM_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.adapters.llama_cpp.rerank_utils import rerank
@@ -48,12 +47,17 @@ logging.basicConfig(
 logger = logging.getLogger("webswarm")
 
 
+DEFAULT_LLM_MODEL = LLM_MODEL
+DEFAULT_EMBED_MODEL = EMBED_LG_MODEL
+
+
 class JetEmbeddingFunction(EmbeddingFunction[Documents]):
     """ChromaDB-compatible wrapper for jet.adapters.llama_cpp.embed."""
 
     def __call__(self, input: Documents) -> Embeddings:
-        # ChromaDB passes List[str]; embed() returns List[List[float]] with return_format="list"
-        return embed(input, return_format="list", show_progress=True)
+        return embed(
+            input, model=DEFAULT_EMBED_MODEL, return_format="list", show_progress=True
+        )
 
     def name(self) -> str:
         return "jet_llama_cpp_embed"
@@ -84,13 +88,16 @@ class LocalLLMClient:
         return self._grammars[name]
 
     async def chat(
-        self, messages: list[dict], grammar: str | None = None, max_tokens: int = 512
+        self, messages: list[dict], grammar: str | None = None, max_tokens: int = 1024
     ) -> dict | str:
         kwargs: dict[str, Any] = {
             "model": LLM_MODEL,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": 0.1,
+            "temperature": 0.3,
+            "top_p": 0.95,
+            "presence_penalty": 1.5,
+            "seed": 42,
             "stream": True,
         }
         if grammar:
@@ -106,12 +113,10 @@ class LocalLLMClient:
             }
         else:
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
-
         loop = asyncio.get_running_loop()
         stream = await loop.run_in_executor(
             None, lambda: self._client.chat.completions.create(**kwargs)
         )
-
         content_parts: list[str] = []
         prompt_tokens = 0
         completion_tokens = 0
@@ -124,10 +129,8 @@ class LocalLLMClient:
                 content_parts.append(delta.content)
                 print(delta.content, end="", flush=True)
         print()
-
         self.tokens_used += prompt_tokens + completion_tokens
         content = "".join(content_parts)
-
         if grammar and not content.strip():
             logger.error(
                 f"EMPTY response with grammar '{grammar}'. "
@@ -135,7 +138,6 @@ class LocalLLMClient:
                 f"Verify enable_thinking=False is reaching the server."
             )
             return {"error": "EMPTY_RESPONSE", "raw": ""}
-
         if grammar:
             try:
                 return json.loads(content)
@@ -150,16 +152,11 @@ class LocalRetriever:
 
     def __init__(self):
         self.chroma = chromadb.PersistentClient(path=VECTOR_DB_PATH)
-
-        # Delete existing collection if it exists
         try:
             self.chroma.delete_collection("swarm_findings")
             logger.info("Deleted existing 'swarm_findings' collection")
         except ValueError:
-            # Collection doesn't exist, that's fine
             pass
-
-        # Create new collection with custom embedding function
         self.collection = self.chroma.get_or_create_collection(
             "swarm_findings",
             metadata={"hnsw:space": "cosine"},
@@ -174,7 +171,12 @@ class LocalRetriever:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
-            lambda: embed(texts, return_format="list", show_progress=True),
+            lambda: embed(
+                texts,
+                model=DEFAULT_EMBED_MODEL,
+                return_format="list",
+                show_progress=True,
+            ),
         )
         return result
 
@@ -192,21 +194,58 @@ class LocalRetriever:
         return [docs[r["index"]] for r in rerank_results]
 
     async def store_finding(self, finding: dict):
-        emb_list = await self.embed_texts([finding["content"][:DOC_CHAR_LIMIT]])
-        self.collection.upsert(
-            ids=[finding["subtask_id"]],
-            embeddings=[emb_list[0]],
-            documents=[finding["content"][:DOC_CHAR_LIMIT]],
-            metadatas=[
-                {"url": finding.get("url", ""), "branch": finding.get("branch_id", "")}
-            ],
-        )
+        """Store finding with token-aware truncation and error handling."""
+
+        content = finding["content"][:DOC_CHAR_LIMIT]
+
+        # Check token count before embedding
+        token_count = count_tokens(content, model=DEFAULT_EMBED_MODEL)
+        max_embed_tokens = 500  # Safe margin below 512 batch size
+
+        if token_count > max_embed_tokens:
+            logger.warning(
+                f"Content too long for embedding ({token_count} tokens). "
+                f"Truncating to ~{max_embed_tokens} tokens."
+            )
+            # Simple truncation: use first N characters proportional to token ratio
+            ratio = max_embed_tokens / max(token_count, 1)
+            content = content[: int(len(content) * ratio)] + "..."
+            token_count = count_tokens(content, model=DEFAULT_EMBED_MODEL)
+            logger.info(f"Truncated content to {token_count} tokens")
+
+        try:
+            emb_list = await self.embed_texts([content])
+
+            if not emb_list or len(emb_list) == 0:
+                logger.error(
+                    f"Embedding failed for subtask '{finding['subtask_id']}'. "
+                    f"Content length: {len(content)} chars, {token_count} tokens. "
+                    f"Skipping storage."
+                )
+                return
+
+            self.collection.upsert(
+                ids=[finding["subtask_id"]],
+                embeddings=[emb_list[0]],
+                documents=[content],
+                metadatas=[
+                    {
+                        "url": finding.get("url", ""),
+                        "branch": finding.get("branch_id", ""),
+                    }
+                ],
+            )
+            logger.debug(
+                f"Stored finding '{finding['subtask_id']}' "
+                f"({len(content)} chars, {token_count} tokens)"
+            )
+        except Exception as e:
+            logger.error(f"Failed to store finding '{finding['subtask_id']}': {e}")
 
     async def recall(
         self, query: str, top_k: int = 3, branch_filter: str = None
     ) -> list[dict]:
         where = {"branch": branch_filter} if branch_filter else None
-        # FIX: query_texts now correctly uses JetEmbeddingFunction registered above
         logger.debug(f"Recall query using registered custom embedding function")
         results = self.collection.query(
             query_texts=[query], n_results=top_k, where=where
@@ -319,11 +358,10 @@ async def _safe_llm_call(
 ) -> dict | str:
     """Context degradation cascade using exact token counting."""
     budget = BUDGETS[role]
-    total = count_tokens(messages)
+    total = count_tokens(messages, model=DEFAULT_LLM_MODEL)
     limit = sum(budget.values())
     if total <= limit:
         return await llm.chat(messages, grammar=grammar, max_tokens=budget["output"])
-
     logger.warning(f"[{role}] Context overflow ({total}>{limit}). Trimming docs.")
     user_msgs = [(i, m) for i, m in enumerate(messages) if m["role"] == "user"]
     user_msgs.sort(key=lambda x: len(x[1].get("content", "")), reverse=True)
@@ -345,7 +383,6 @@ async def planner_node(state: SwarmState) -> dict:
             for f in existing
         ]
         history_summary = "\n".join(lines)[: BUDGETS["planner"]["history"] * 4]
-
     messages = [
         {
             "role": "system",
@@ -361,7 +398,6 @@ async def planner_node(state: SwarmState) -> dict:
     if isinstance(result, dict) and "error" in result:
         logger.error(f"Planner failed: {result}")
         return {"subtasks": state.get("subtasks", [])}
-
     new_tasks = result.get("subtasks", [])
     for t in new_tasks:
         t.setdefault("branch_id", f"branch_{state['iteration']}")
@@ -376,7 +412,6 @@ async def searcher_node(state: SwarmState) -> dict:
     task = next((t for t in state["subtasks"] if t["id"] not in answered_ids), None)
     if not task:
         return {}
-
     recalled = await retriever.recall(task["question"], top_k=1)
     if recalled and recalled[0].get("score", 1.0) < (1 - SEMANTIC_DEDUP_THRESHOLD):
         logger.info(f"Dedup hit for '{task['question'][:60]}'")
@@ -393,20 +428,16 @@ async def searcher_node(state: SwarmState) -> dict:
                 }
             ]
         }
-
     urls = await web_search(task["question"])
     candidates = [{"text": "", "url": u} for u in urls]
     ranked = await retriever.rerank_docs(task["question"], candidates)
-
     finding_content = ""
     finding_url = ""
     if ranked:
         page = await extract_page(ranked[0]["url"])
         finding_content = page["text"]
         finding_url = page["url"]
-
     dedup.mark_seen(task["question"], finding_url)
-
     conf_messages = [
         {
             "role": "system",
@@ -419,7 +450,6 @@ async def searcher_node(state: SwarmState) -> dict:
     ]
     conf = await _safe_llm_call(conf_messages, "searcher", grammar="confidence")
     verdict = conf.get("verdict", "NONE") if isinstance(conf, dict) else "NONE"
-
     comp_messages = [
         {
             "role": "system",
@@ -436,7 +466,6 @@ async def searcher_node(state: SwarmState) -> dict:
         if isinstance(compressed, dict)
         else finding_content[:100]
     )
-
     new_finding = {
         "subtask_id": task["id"],
         "content": finding_content,
@@ -454,12 +483,10 @@ async def synthesizer_node(state: SwarmState) -> dict:
         f"- [{f['subtask_id']}] ({f['confidence']}) {f.get('summary', '')}"
         for f in state.get("findings", [])
     )[: BUDGETS["synthesizer"]["global_index"] * 4]
-
     top_findings = await retriever.rerank_docs(
         state["query"], state.get("findings", []), top_k=5
     )
     detailed = "\n---\n".join(f["content"][:2000] for f in top_findings)
-
     messages = [
         {
             "role": "system",
@@ -487,11 +514,9 @@ def should_recurse(state: SwarmState) -> str:
             f"Budget exhausted. Elapsed={elapsed:.0f}s Tokens={llm.tokens_used} Iter={state.get('iteration')}"
         )
         return "synthesize"
-
     answered = {f["subtask_id"] for f in state.get("findings", [])}
     unanswered = [t for t in state.get("subtasks", []) if t["id"] not in answered]
     partial = [f for f in state.get("findings", []) if f.get("confidence") == "PARTIAL"]
-
     if unanswered:
         max_d = max((t.get("depth", 0) for t in unanswered), default=0)
         if max_d < MAX_DEPTH:
@@ -517,7 +542,6 @@ async def run_swarm(query: str) -> str:
     )
     graph.add_edge("synthesize", END)
     app = graph.compile(checkpointer=MemorySaver())
-
     initial_state = {
         "query": query,
         "subtasks": [],
