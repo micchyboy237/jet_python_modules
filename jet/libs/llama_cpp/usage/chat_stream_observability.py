@@ -268,7 +268,7 @@ def execute_tool_with_span(
 
 
 def run_chat_stream(
-    client: OpenAI,
+    client: OpenAI | None = None,
     image_source: str | None = None,
     prompt: str = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
@@ -313,6 +313,11 @@ def run_chat_stream(
         finish reason — replacing raw str for programmatic consumption.
     """
     tracer = trace.get_tracer(__name__)
+
+    # Lazily create client if not provided
+    if client is None:
+        logger.debug("🔌 No client provided; creating default via get_client()")
+        client = get_client()
 
     # Wrap entire agentic loop in a single parent span for observability
     with tracer.start_as_current_span("tool_execution_loop") as loop_span:
