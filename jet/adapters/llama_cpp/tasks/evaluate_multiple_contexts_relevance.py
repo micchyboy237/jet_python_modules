@@ -1,4 +1,3 @@
-# jet_python_modules/jet/adapters/llama_cpp/tasks/evaluate_multiple_contexts_relevance.py
 """Evaluate whether multiple contexts contain answers to a query using grammar-constrained generation.
 Returns ONLY contexts with non-zero answer scores, minimizing output tokens.
 Absent indices implicitly have answer_score=0.
@@ -14,6 +13,7 @@ from jet.adapters.llama_cpp.helpers.grammar_builder import (
     validate_grammar,
 )
 from jet.adapters.llama_cpp.llm_utils import chat
+from jet.libs.llama_cpp.usage.chat_stream_observability import PHOENIX_URL
 from jet.logger import logger
 
 
@@ -79,16 +79,23 @@ def evaluate_multiple_contexts_relevance(
     model: str | None = None,
     temperature: float = 0.0,
     max_tokens: int = 2048,
+    project_name: str | None = "eval-context-relevance",
+    phoenix_url: str = PHOENIX_URL,
 ) -> list[ContextRelevanceResult]:
     """Evaluate whether multiple contexts contain answers to a single query.
+
     Returns one result per input context. Contexts present in the LLM response
     have answer_score 1 or 2; all others have answer_score 0.
+
     Args:
         query: The user query to evaluate against.
         contexts: List of context strings to assess.
         model: LLM model key. Defaults to LLM_MODEL.
         temperature: Sampling temperature (default: 0.0 for deterministic).
         max_tokens: Max tokens for the JSON response.
+        project_name: Phoenix project name for trace grouping. Set to None to disable tracing.
+        phoenix_url: Phoenix server base URL for trace links.
+
     Returns:
         List of ContextRelevanceResult dicts, one per input context, sorted by index.
     """
@@ -107,16 +114,16 @@ def evaluate_multiple_contexts_relevance(
             )
             for i in range(num_contexts)
         ]
+
     if not contexts:
         logger.error("Contexts list cannot be empty")
         return []
 
     logger.info(
         f"evaluate_multiple_contexts_relevance: model={resolved_model}, "
-        f"{num_contexts} contexts, query='{query[:60]}...'"
+        f"{num_contexts} contexts, query='{query[:60]}...', project={project_name}"
     )
 
-    # --- Build & validate grammar ---
     try:
         schema = _build_containment_schema(num_contexts)
         grammar = build_grammar_from_schema(
@@ -153,11 +160,11 @@ def evaluate_multiple_contexts_relevance(
 
     logger.debug(f"Grammar OK ({len(grammar)} bytes, {num_contexts} contexts)")
 
-    # --- Call LLM ---
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": _build_user_prompt(query, contexts)},
     ]
+
     try:
         result = chat(
             prompt="",
@@ -166,6 +173,8 @@ def evaluate_multiple_contexts_relevance(
             max_tokens=max_tokens,
             temperature=temperature,
             enable_thinking=False,
+            project_name=project_name,
+            phoenix_url=phoenix_url,
             extra_body_params={"grammar": grammar},
         )
     except Exception as e:
@@ -184,7 +193,6 @@ def evaluate_multiple_contexts_relevance(
     raw_output = result.content.strip()
     logger.debug(f"Raw output ({len(raw_output)} chars): '{raw_output[:300]}'")
 
-    # --- Parse response ---
     try:
         parsed: list = json.loads(raw_output)
     except json.JSONDecodeError as e:
@@ -215,7 +223,6 @@ def evaluate_multiple_contexts_relevance(
             for i in range(num_contexts)
         ]
 
-    # Extract valid positive entries
     score_map: dict[int, int] = {}
     for item in parsed:
         if not isinstance(item, dict):
@@ -235,7 +242,6 @@ def evaluate_multiple_contexts_relevance(
         else:
             score_map[idx] = score
 
-    # --- Build full result list (absent = score 0) ---
     results: list[ContextRelevanceResult] = []
     for i in range(num_contexts):
         score = score_map.get(i, 0)
@@ -253,6 +259,7 @@ def evaluate_multiple_contexts_relevance(
     logger.info(
         f"Evaluation complete: {positive_count}/{num_contexts} contexts contain answers"
     )
+
     return results
 
 
@@ -261,6 +268,7 @@ if __name__ == "__main__":
     from rich.table import Table
 
     console = Console()
+
     test_query = "What is the capital of France?"
     test_contexts = [
         "The theory of relativity was developed by Albert Einstein.",
@@ -268,6 +276,7 @@ if __name__ == "__main__":
         "The capital of France is Paris, located in northern Europe.",
         "Berlin is the capital of Germany, not France.",
     ]
+
     results = evaluate_multiple_contexts_relevance(test_query, test_contexts)
 
     score_styles = {0: "dim red", 1: "yellow", 2: "bold green"}
@@ -279,6 +288,7 @@ if __name__ == "__main__":
     table.add_column("Context", style="white", max_width=50)
     table.add_column("Score", justify="center", width=12)
     table.add_column("Valid", justify="center", width=6)
+
     for r in results:
         style = score_styles.get(r["answer_score"], "dim")
         label = score_labels.get(r["answer_score"], "?")
@@ -295,4 +305,5 @@ if __name__ == "__main__":
             f"[{style}]{r['answer_score']} ({label})[/{style}]{err}",
             v_str,
         )
+
     console.print(table)
