@@ -268,11 +268,16 @@ def execute_tool_with_span(
 
 
 def run_chat_stream(
-    client: OpenAI | None = None,
-    image_source: str | None = None,
     prompt: str = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
+    # --- Observability params (NEW) ---
+    project_name: str = "chat-stream-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
+    # --- Existing params ---
+    image_source: str | None = None,
+    client: OpenAI | None = None,
     enable_thinking: bool = False,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -291,7 +296,6 @@ def run_chat_stream(
     messages: list[dict[str, Any]] | None = None,
     tool_registry: dict[str, Callable[..., Any]] | None = None,
     max_tool_rounds: int = 10,
-    phoenix_url: str = PHOENIX_URL,
 ) -> StreamCompletionResult:
     """Stream a chat completion with full tool + structured output observability.
 
@@ -312,6 +316,13 @@ def run_chat_stream(
         StreamCompletionResult with content, parsed tool calls, usage, and
         finish reason — replacing raw str for programmatic consumption.
     """
+    # ✅ Auto-initialize observability before any tracing occurs
+    setup_observability(
+        project_name=project_name,
+        capture_content=capture_content,
+        phoenix_url=phoenix_url,
+    )
+
     tracer = trace.get_tracer(__name__)
 
     # Lazily create client if not provided
@@ -319,14 +330,22 @@ def run_chat_stream(
         logger.debug("🔌 No client provided; creating default via get_client()")
         client = get_client()
 
-    # Wrap entire agentic loop in a single parent span for observability
-    with tracer.start_as_current_span("tool_execution_loop") as loop_span:
+    # ✅ Dynamically name span and set mode attribute based on registry presence
+    is_agentic = tool_registry is not None
+    span_name = "tool_execution_loop" if is_agentic else "chat_completion"
+
+    # Wrap entire execution in a single parent span for observability
+    with tracer.start_as_current_span(span_name) as loop_span:
         trace_id = loop_span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
 
         loop_span.set_attribute("llm.model", model)
-        loop_span.set_attribute("agent.max_tool_rounds", max_tool_rounds)
-        loop_span.set_attribute("agent.has_tool_registry", tool_registry is not None)
+        loop_span.set_attribute(
+            "agent.mode", "agentic" if is_agentic else "single_turn"
+        )
+        loop_span.set_attribute("agent.has_tool_registry", is_agentic)
+        if is_agentic:
+            loop_span.set_attribute("agent.max_tool_rounds", max_tool_rounds)
         if tools:
             loop_span.set_attribute("llm.tools.count", len(tools))
             loop_span.set_attribute(
@@ -670,7 +689,7 @@ def run_chat_stream(
             if not last_result.has_tool_calls:
                 break
 
-            if tool_registry is None:
+            if not is_agentic:
                 logger.info(
                     "⏸️  Tool calls present but no tool_registry provided; "
                     "returning result for caller to handle."
@@ -732,7 +751,7 @@ def run_chat_stream(
             loop_span.set_status(Status(StatusCode.OK))
             console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
             logger.info("─" * 60)
-            logger.info(f"🏁 Agent loop complete after {round_num} round(s)")
+            logger.info(f"🏁 Execution complete after {round_num} round(s)")
 
         return last_result or StreamCompletionResult(
             content="", finish_reason="no_response"
@@ -909,21 +928,19 @@ if __name__ == "__main__":
     logger.info(f"   Phoenix URL  : {args.phoenix_url}")
     logger.info(f"   Project      : {args.project}")
 
-    setup_observability(
+    client = get_client(base_url=args.base_url, timeout=args.timeout)
+
+    # ✅ No more separate setup_observability() call needed
+    result = run_chat_stream(
+        args.prompt,
+        model=args.model,
+        # Observability config passed directly
         project_name=args.project,
         capture_content=args.capture_content,
         phoenix_url=args.phoenix_url,
-    )
-
-    client = get_client(base_url=args.base_url, timeout=args.timeout)
-
-    # NOTE: Pass your tool_registry here when using programmatically.
-    # CLI does not auto-register tools; this demonstrates the integration point.
-    result = run_chat_stream(
-        client,
+        # ... all other existing params unchanged ...
+        client=client,
         image_source=args.image_source,
-        prompt=args.prompt,
-        model=args.model,
         enable_thinking=args.enable_thinking,
         max_tokens=args.max_tokens,
         temperature=args.temperature,
@@ -939,8 +956,7 @@ if __name__ == "__main__":
         tools=parsed_tools,
         tool_choice=parsed_tool_choice,
         response_format=parsed_response_format,
-        tool_registry=None,  # ← Provide dict[str, Callable] for auto-execution
-        phoenix_url=args.phoenix_url,
+        tool_registry=None,
     )
 
     if result.has_tool_calls:
