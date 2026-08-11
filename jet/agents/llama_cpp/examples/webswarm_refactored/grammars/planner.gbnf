@@ -1,0 +1,8 @@
+root ::= "{" ws "\"subtasks\"" ws ":" ws "[" ws task-list? ws "]" ws "}"
+task-list ::= task (ws "," ws task)*
+task ::= "{" ws "\"id\"" ws ":" ws string-id ws "," ws "\"question\"" ws ":" ws string-q ws "," ws "\"depth\"" ws ":" ws number ws "}"
+
+string-id ::= "\"" [a-zA-Z0-9_-]{3,20} "\""
+string-q ::= "\"" ([^"\\] | "\\" .){10,150} "\""
+number ::= [0-4]
+ws ::= [ \t\n]*

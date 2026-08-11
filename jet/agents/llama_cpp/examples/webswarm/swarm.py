@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 import time
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import chromadb
 import trafilatura
@@ -85,46 +85,60 @@ class LocalLLMClient:
         return self._grammars[name]
 
     async def chat(
-        self, messages: list[dict], grammar: str = None, max_tokens: int = 512
+        self, messages: list[dict], grammar: str | None = None, max_tokens: int = 512
     ) -> dict | str:
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model": LLM_MODEL,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": 0.1,
+            "stream": True,
         }
 
-        # CRITICAL: Disable thinking for grammar-constrained generation
-        # Qwen3.5 template injects <think> tags that break GBNF parsing
         if grammar:
-            kwargs["extra_body"] = {
-                "grammar": self._load_grammar(grammar),
-                "chat_template_kwargs": {"enable_thinking": False},
-            }
+            grammar_content = self._load_grammar(grammar)
             logger.debug(
-                f"Grammar '{grammar}' payload: length={len(kwargs['extra_body']['grammar'])}, "
-                f"rule_count={kwargs['extra_body']['grammar'].count('::=')}, "
+                f"Grammar '{grammar}' payload: length={len(grammar_content)}, "
+                f"rule_count={grammar_content.count('::=')}, "
                 f"enable_thinking=False"
             )
+            kwargs["extra_body"] = {
+                "grammar": grammar_content,
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
         else:
-            # Enable thinking for free-form responses (synthesizer, etc.)
             kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
 
         loop = asyncio.get_running_loop()
-        resp = await loop.run_in_executor(
+
+        stream = await loop.run_in_executor(
             None, lambda: self._client.chat.completions.create(**kwargs)
         )
 
-        usage = resp.usage
-        if usage:
-            self.tokens_used += usage.prompt_tokens + usage.completion_tokens
+        content_parts: list[str] = []
+        prompt_tokens = 0
+        completion_tokens = 0
 
-        content = resp.choices[0].message.content or ""
+        for chunk in stream:
+            if chunk.usage:
+                prompt_tokens = chunk.usage.prompt_tokens or 0
+                completion_tokens = chunk.usage.completion_tokens or 0
+
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                content_parts.append(delta.content)
+                print(delta.content, end="", flush=True)
+
+        # Newline after stream completes so next log/output starts cleanly
+        print()
+
+        self.tokens_used += prompt_tokens + completion_tokens
+        content = "".join(content_parts)
 
         if grammar and not content.strip():
             logger.error(
                 f"EMPTY response with grammar '{grammar}'. "
-                f"Prompt tokens: {usage.prompt_tokens if usage else 'unknown'}. "
+                f"Prompt tokens: {prompt_tokens or 'unknown'}. "
                 f"Verify enable_thinking=False is reaching the server."
             )
             return {"error": "EMPTY_RESPONSE", "raw": ""}
