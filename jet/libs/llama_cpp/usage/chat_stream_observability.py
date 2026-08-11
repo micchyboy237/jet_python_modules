@@ -271,11 +271,9 @@ def run_chat_stream(
     prompt: str = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    # --- Observability params (NEW) ---
-    project_name: str = "chat-stream-obs",
+    project_name: str | None = None,
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
-    # --- Existing params ---
     messages: list[dict[str, Any]] | None = None,
     image_source: str | None = None,
     client: OpenAI | None = None,
@@ -296,6 +294,7 @@ def run_chat_stream(
     tool_registry: dict[str, Callable[..., Any]] | None = None,
     response_format: dict[str, Any] | None = None,
     max_tool_rounds: int = 10,
+    extra_body_params: dict[str, Any] | None = None,
 ) -> StreamCompletionResult:
     """Stream a chat completion with full tool + structured output observability.
 
@@ -312,33 +311,59 @@ def run_chat_stream(
     This enables multi-turn agent loops where tool results are appended and
     the function is called again with the updated conversation history.
 
+    Args:
+        prompt: Text prompt for single-turn chat.
+        model: Model name to request from the server.
+        project_name: Phoenix project name for trace grouping.
+        capture_content: Whether to capture prompt/response text in traces.
+        phoenix_url: Phoenix server base URL.
+        messages: Pre-built message list (overrides prompt/image_source).
+        image_source: Path or URL to an image for vision models.
+        client: Pre-configured OpenAI client (created via get_client() if None).
+        enable_thinking: Enable model reasoning/thinking token output.
+        max_tokens: Maximum completion tokens.
+        temperature: Sampling temperature.
+        top_p: Nucleus sampling threshold.
+        top_k: Top-k sampling limit.
+        min_p: Minimum probability threshold (llama.cpp specific).
+        repeat_penalty: Repetition penalty (llama.cpp native parameter).
+        presence_penalty: Penalize tokens based on presence (-2.0 to 2.0).
+        frequency_penalty: Penalize tokens based on frequency (-2.0 to 2.0).
+        logit_bias: Token ID to bias mapping.
+        seed: Random seed for reproducible generation.
+        stop: Stop sequences (up to 4).
+        tools: Tool definitions for function calling.
+        tool_choice: Tool choice strategy ("auto", "none", "required", or dict).
+        tool_registry: Dict of tool_name → callable for automatic execution.
+        response_format: Response format hint (e.g., {"type": "json_object"}).
+        max_tool_rounds: Maximum agentic tool-call loops before stopping.
+        extra_body_params: Additional parameters merged into extra_body.
+            Use this for grammar-constrained output: {"grammar": gbnf_string}.
+            These are merged AFTER internal params, so caller values take
+            precedence for any overlapping keys.
+
     Returns:
         StreamCompletionResult with content, parsed tool calls, usage, and
         finish reason — replacing raw str for programmatic consumption.
     """
-    # ✅ Auto-initialize observability before any tracing occurs
-    setup_observability(
-        project_name=project_name,
-        capture_content=capture_content,
-        phoenix_url=phoenix_url,
-    )
-
+    if project_name:
+        setup_observability(
+            project_name=project_name,
+            capture_content=capture_content,
+            phoenix_url=phoenix_url,
+        )
     tracer = trace.get_tracer(__name__)
 
-    # Lazily create client if not provided
     if client is None:
         logger.debug("🔌 No client provided; creating default via get_client()")
         client = get_client()
 
-    # ✅ Dynamically name span and set mode attribute based on registry presence
     is_agentic = tool_registry is not None
     span_name = "tool_execution_loop" if is_agentic else "chat_completion"
 
-    # Wrap entire execution in a single parent span for observability
     with tracer.start_as_current_span(span_name) as loop_span:
         trace_id = loop_span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
-
         loop_span.set_attribute("llm.model", model)
         loop_span.set_attribute(
             "agent.mode", "agentic" if is_agentic else "single_turn"
@@ -353,7 +378,6 @@ def run_chat_stream(
                 json.dumps([t.get("function", {}).get("name") for t in tools]),
             )
 
-        # Build initial messages once outside the loop
         current_messages: list[dict[str, Any]] | None = messages
         if current_messages is None:
             if image_source:
@@ -379,12 +403,10 @@ def run_chat_stream(
         while round_num < max_tool_rounds:
             round_num += 1
 
-            # ── Per-round chat_stream span ────────────────────────────────
             with tracer.start_as_current_span(
                 "chat_stream",
                 attributes={"agent.round": round_num},
             ) as span:
-                # Record all parameters on span for observability
                 span.set_attribute("llm.model", model)
                 span.set_attribute(
                     "llm.image_source", str(image_source) if image_source else "none"
@@ -418,7 +440,21 @@ def run_chat_stream(
                         response_format.get("type", "unknown"),
                     )
 
-                # Startup logs (only on first round to avoid noise)
+                # Grammar observability attributes
+                grammar_value = (extra_body_params or {}).get("grammar")
+                if grammar_value:
+                    span.set_attribute("llm.grammar.active", True)
+                    span.set_attribute(
+                        "llm.grammar.rule_count",
+                        grammar_value.count("::="),
+                    )
+                    span.set_attribute(
+                        "llm.grammar.preview",
+                        grammar_value[:500],
+                    )
+                else:
+                    span.set_attribute("llm.grammar.active", False)
+
                 if round_num == 1:
                     logger.info("─" * 60)
                     logger.info(
@@ -444,6 +480,13 @@ def run_chat_stream(
                         )
                     if response_format:
                         logger.info(f"📐 Response fmt : {response_format}")
+                    if extra_body_params:
+                        logger.info(
+                            f"🔩 Extra body   : {list(extra_body_params.keys())}"
+                        )
+                    if grammar_value:
+                        rule_count = grammar_value.count("::=")
+                        logger.info(f"📜 Grammar      : active ({rule_count} rules)")
                     console.print(
                         f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]"
                     )
@@ -452,17 +495,21 @@ def run_chat_stream(
                     f"📨 Round {round_num}: {len(current_messages)} message(s) in history"
                 )
 
-                # Build extra_body for llama.cpp-specific params
-                extra_body_params: dict[str, Any] = {
+                extra_body: dict[str, Any] = {
                     "top_k": top_k,
                     "chat_template_kwargs": {"enable_thinking": enable_thinking},
                 }
                 if min_p > 0.0:
-                    extra_body_params["min_p"] = min_p
+                    extra_body["min_p"] = min_p
                 if repeat_penalty != 1.1:
-                    extra_body_params["repeat_penalty"] = repeat_penalty
+                    extra_body["repeat_penalty"] = repeat_penalty
+                # Merge caller-supplied extra_body_params (e.g., grammar)
+                if extra_body_params:
+                    extra_body.update(extra_body_params)
+                    logger.debug(
+                        f"🔧 Merged extra_body_params: {list(extra_body_params.keys())}"
+                    )
 
-                # Build API kwargs
                 api_kwargs: dict[str, Any] = {
                     "model": model,
                     "messages": current_messages,
@@ -474,7 +521,7 @@ def run_chat_stream(
                     "logit_bias": logit_bias,
                     "seed": seed,
                     "stop": stop,
-                    "extra_body": extra_body_params,
+                    "extra_body": extra_body,
                     "stream": True,
                     "stream_options": {"include_usage": True},
                 }
@@ -489,8 +536,8 @@ def run_chat_stream(
                     f"➡️  Sending request (thinking={enable_thinking}, "
                     f"tools={bool(tools)}, format={response_format})"
                 )
-                t_request_start = time.perf_counter()
 
+                t_request_start = time.perf_counter()
                 collected_content: list[str] = []
                 tool_calls_acc: dict[int, dict[str, Any]] = {}
                 usage = None
@@ -501,7 +548,6 @@ def run_chat_stream(
                     stream: Stream[ChatCompletionChunk] = (
                         client.chat.completions.create(**api_kwargs)
                     )
-
                     in_think_block = False
                     console.print("[bold cyan]Response:[/bold cyan] ", end="")
 
@@ -657,7 +703,6 @@ def run_chat_stream(
                     if ttft is not None:
                         logger.info(f"   Time to first token: {ttft:.2f}s")
                     logger.info(f"   Total duration     : {total_secs:.2f}s")
-
                     if parsed_tool_calls:
                         logger.info(
                             f"   Response type      : tool_calls ({len(parsed_tool_calls)} call(s))"
@@ -666,10 +711,8 @@ def run_chat_stream(
                         logger.info(
                             f"   Response length    : {len(full_response)} chars"
                         )
-
                     if finish_reason:
                         logger.info(f"   Finish reason      : {finish_reason}")
-
                     span.set_status(Status(StatusCode.OK))
 
                 last_result = StreamCompletionResult(
@@ -685,7 +728,6 @@ def run_chat_stream(
                     finish_reason=finish_reason,
                 )
 
-            # ── Auto-execute tools if registry provided ───────────────────
             if not last_result.has_tool_calls:
                 break
 
@@ -696,7 +738,6 @@ def run_chat_stream(
                 )
                 break
 
-            # Append assistant message with tool_calls to history
             assistant_tc_message: dict[str, Any] = {
                 "role": "assistant",
                 "content": last_result.content or None,
@@ -714,7 +755,6 @@ def run_chat_stream(
             }
             current_messages.append(assistant_tc_message)
 
-            # Execute each tool and append result messages
             for tc in last_result.tool_calls:
                 executor = tool_registry.get(tc.name)
                 if executor is None:
@@ -733,7 +773,6 @@ def run_chat_stream(
                         executor=executor,
                         strict=False,
                     )
-
                 current_messages.append(
                     {
                         "role": "tool",
@@ -742,7 +781,6 @@ def run_chat_stream(
                     }
                 )
 
-        # Final loop-level summary
         if last_result is not None:
             loop_span.set_attribute("agent.total_rounds", round_num)
             loop_span.set_attribute(
