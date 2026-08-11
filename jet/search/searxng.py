@@ -1,6 +1,5 @@
 import json
 import os
-import time
 from datetime import datetime
 from typing import TypedDict
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -10,6 +9,7 @@ import requests
 from jet.cache.redis import RedisCache, RedisConfigParams
 from jet.data.utils import generate_key
 from jet.logger import logger
+from jet.logger.timer import sleep_countdown
 from jet.search.filters import deduplicate_results, filter_relevant, sort_by_score
 from jet.search.formatters import decode_encoded_characters
 
@@ -127,20 +127,20 @@ def fetch_search_results(
     headers: dict, params: dict, query_url: str = DEFAULT_QUERY_URL
 ) -> QueryResponse:
     """Fetches search results from SearXNG."""
-
     logger.log("Requesting URL: ", query_url, colors=["LOG", "DEBUG"])
     logger.log("Headers:")
     logger.info(json.dumps(headers, indent=2))
-    logger.log("Params:")
+
+    # Log params for debugging but don't pass them separately since they're already in query_url
+    logger.log("Params (already embedded in URL):")
     logger.info(json.dumps(params, indent=2))
-    response = requests.get(query_url, headers=headers, params=params)
+
+    # Fixed: Don't pass params separately to avoid duplication in URL
+    response = requests.get(query_url, headers=headers)
     response.raise_for_status()
     results = response.json()
-
-    # Add id to each result using generate_key based on URL
     for result in results.get("results", []):
         result["id"] = generate_key(result["url"])
-
     return results
 
 
@@ -166,34 +166,26 @@ def search_searxng(
 ) -> list[SearchResult]:
     query = decode_encoded_characters(query)
     try:
-        # Add the include_sites filter if provided
         if include_sites:
             include_query = " OR ".join([f"site:{site}" for site in include_sites])
             query += " " + include_query
-
-        # Add the exclude_sites filter if provided
         if exclude_sites:
             exclude_query = " ".join([f"-site:{site}" for site in exclude_sites])
             query += " " + exclude_query
 
-        # Start building the base query params
         params = {
             "q": query,
             "format": "json",
             "language": kwargs.get("language", "en"),
             "categories": ",".join(kwargs.get("categories", ["general"])),
         }
-
         if "pageno" in kwargs:
             params["pageno"] = kwargs["pageno"] or 1
-
         if "safesearch" in kwargs:
             params["safesearch"] = kwargs["safesearch"] or 0
-
         if engines:
             params["engines"] = (",".join(engines),)
 
-        # Handling min_date (optional)
         if not min_date:
             years_ago = kwargs.get("years_ago", 1)
             current_date = datetime.now()
@@ -201,75 +193,89 @@ def search_searxng(
         min_date = format_min_date(min_date)
         min_date_iso = min_date.isoformat()
 
-        # Prepare the query URL
         query_url = build_query_url(query_url, params)
         headers = {"Accept": "application/json"}
 
         cached_result = None
-
         config = {"port": DEFAULT_REDIS_PORT, "db": DEFAULT_REDIS_DB, **config}
         cache = RedisCache(config=config)
         cache_key = query_url
 
         if use_cache:
             cached_result = cache.get(cache_key)
-
-            if cached_result and cached_result.get("results", []):
-                cached_count = len(cached_result["results"])
-                if count is None or cached_count >= count:
-                    logger.log(
-                        "search_searxng: Cache hit for ",
-                        cache_key,
-                        colors=["SUCCESS", "BRIGHT_SUCCESS"],
-                    )
+            if cached_result:
+                cached_results = cached_result.get("results", [])
+                if cached_results:
+                    cached_count = len(cached_results)
+                    if count is None or cached_count >= count:
+                        logger.log(
+                            "search_searxng: Cache hit for ",
+                            cache_key,
+                            colors=["SUCCESS", "BRIGHT_SUCCESS"],
+                        )
+                        logger.log(
+                            f"search_searxng: Returning {cached_count} cached results",
+                            colors=["SUCCESS", "BRIGHT_SUCCESS"],
+                        )
+                        return cached_results
+                    else:
+                        logger.warning(
+                            f"search_searxng: Cache hit but insufficient results ({cached_count} < {count}) for {cache_key}"
+                        )
+                        cached_result = None
                 else:
+                    # Cache exists but contains empty results - clear it and fetch fresh
                     logger.warning(
-                        f"search_searxng: Cache hit but insufficient results ({cached_count} < {count}) for {cache_key}"
+                        f"search_searxng: Cache hit but contains empty results for {cache_key}. Clearing corrupted cache."
                     )
+                    cache.clear(cache_key)
                     cached_result = None
             else:
-                logger.warning(
-                    f"search_searxng: Cache miss or empty results for {cache_key}"
-                )
+                logger.warning(f"search_searxng: Cache miss for {cache_key}")
 
-        # Fetch search results with retries
         result = cached_result
         retries = 0
         while retries <= max_retries:
             if result and result.get("results", []):
                 break
-
             try:
                 result = fetch_search_results(headers, params, query_url)
                 if not result.get("results", []):
                     if retries < max_retries:
-                        delay = 2**retries  # Exponential backoff: 1s, 2s, 4s
+                        delay = 10 * (2**retries)
                         logger.warning(
                             f"No results found. Retrying {retries + 1}/{max_retries} after {delay}s delay..."
                         )
-                        time.sleep(delay)
+                        sleep_countdown(delay)
                         retries += 1
                         continue
                     else:
                         logger.error("Max retries reached with no results.")
+                        # Don't cache empty results
                         return []
+                else:
+                    # We got results, exit retry loop
+                    break
             except requests.exceptions.RequestException as e:
                 if retries < max_retries:
-                    delay = 2**retries  # Exponential backoff: 1s, 2s, 4s
+                    delay = 10 * (2**retries)
                     logger.warning(
                         f"Request failed: {e}. Retrying {retries + 1}/{max_retries} after {delay}s delay..."
                     )
-                    time.sleep(delay)
+                    sleep_countdown(delay)
                     retries += 1
                     continue
                 else:
                     logger.error(f"Max retries reached. Error: {e}")
                     return []
 
+        # If we got here with no results after all retries, return empty
+        if not result or not result.get("results", []):
+            logger.error("search_searxng: No results after all retries, not caching")
+            return []
+
         result["number_of_results"] = len(result.get("results", []))
         result = remove_empty_attributes(result)
-
-        # Filter and sort results
         results = result.get("results", [])
         results = filter_relevant(results, threshold=min_score)
         results = deduplicate_results(results)
@@ -277,8 +283,20 @@ def search_searxng(
         results = results[:count] if count is not None else results
         result["results"] = results
 
-        # Cache the result
-        cache.set(cache_key, result)
+        # Only cache if we have actual results
+        if results:
+            cache.set(cache_key, result)
+            logger.log(
+                f"search_searxng: Cached {len(results)} results for {cache_key}",
+                colors=["SUCCESS", "BRIGHT_SUCCESS"],
+            )
+        else:
+            logger.warning(
+                f"search_searxng: No valid results after filtering for {cache_key}. Not caching."
+            )
+            # Clear any previously cached empty results for this key
+            cache.clear(cache_key)
+
         return results
 
     except (KeyError, TypeError) as e:

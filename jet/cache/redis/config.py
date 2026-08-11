@@ -3,7 +3,7 @@ from jet.cache.redis import RedisConfigParams
 
 DEFAULT_CONFIG: RedisConfigParams = {
     "host": "localhost",
-    "port": 6380,
+    "port": 6379,
     "db": 0,
     "max_connections": 100
 }
@@ -13,7 +13,7 @@ DEFAULT_TTL_SECONDS = 3 * 60 * 60  # 3 hours
 
 
 class RedisConfig:
-    def __init__(self, host='localhost', port=6380, db=0, max_connections=100, default_ttl=DEFAULT_TTL_SECONDS):
+    def __init__(self, host='localhost', port=6379, db=0, max_connections=100, default_ttl=DEFAULT_TTL_SECONDS):
         self.host = host
         self.port = port
         self.db = db
