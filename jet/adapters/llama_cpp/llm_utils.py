@@ -14,8 +14,13 @@ def chat(
     prompt: str = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    client: OpenAI | None = None,
+    # --- Observability params (NEW) ---
+    project_name: str = "chat-stream-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
+    # --- Existing params ---
     image_source: str | None = None,
+    client: OpenAI | None = None,
     enable_thinking: bool = False,
     max_tokens: int = 16384,
     temperature: float = 0.7,
@@ -34,7 +39,6 @@ def chat(
     messages: list[dict[str, Any]] | None = None,
     tool_registry: dict[str, Callable[..., Any]] | None = None,
     max_tool_rounds: int = 10,
-    phoenix_url: str = PHOENIX_URL,
 ) -> StreamCompletionResult:
     return run_chat_stream(
         client=client,
@@ -90,7 +94,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--project",
         type=str,
-        default="chat-stream-obs",
+        default="chat-llm-utils-obs",
         help="Phoenix project name to log traces under.",
     )
     parser.add_argument(
@@ -107,21 +111,14 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    result = run_chat_stream(
+    result = chat(
         prompt=args.prompt,
         model=args.model,
         image_source=args.image_source,
-        project=args.project,
+        project_name=args.project,
         seed=args.seed,
     )
 
-    if result.has_tool_calls:
-        logger.info(
-            f"📋 Result: {len(result.tool_calls)} tool call(s), "
-            f"finish_reason={result.finish_reason}"
-        )
-    else:
-        logger.info(
-            f"📋 Result: {len(result.content)} chars, "
-            f"finish_reason={result.finish_reason}"
-        )
+    logger.info(
+        f"📋 Result: {len(result.content)} chars, finish_reason={result.finish_reason}"
+    )

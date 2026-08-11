@@ -104,7 +104,7 @@ def main():
     )
 
     result: ParsedOutput[Conference] = parsed_completion(
-        client,
+        client=client,
         f"Extract conference information as JSON:\n{text}",
         Conference,
         temperature=0.0,

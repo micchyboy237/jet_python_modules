@@ -68,7 +68,7 @@ def main():
     )
 
     result: StructuredResult = json_object_output(
-        client,
+        client=client,
         prompt=prompt,
         temperature=0.0,
         max_tokens=300,

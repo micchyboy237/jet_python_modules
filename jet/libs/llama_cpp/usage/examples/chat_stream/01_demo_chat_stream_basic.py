@@ -41,7 +41,7 @@ def main():
 
     # Run the chat stream
     result = run_chat_stream(
-        client,
+        client=client,
         prompt=prompt,
         model=MODEL,
         temperature=0.7,

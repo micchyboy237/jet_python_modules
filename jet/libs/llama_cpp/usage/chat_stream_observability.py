@@ -276,6 +276,7 @@ def run_chat_stream(
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
     # --- Existing params ---
+    messages: list[dict[str, Any]] | None = None,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -292,9 +293,8 @@ def run_chat_stream(
     stop: list[str] | None = None,
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
-    response_format: dict[str, Any] | None = None,
-    messages: list[dict[str, Any]] | None = None,
     tool_registry: dict[str, Callable[..., Any]] | None = None,
+    response_format: dict[str, Any] | None = None,
     max_tool_rounds: int = 10,
 ) -> StreamCompletionResult:
     """Stream a chat completion with full tool + structured output observability.

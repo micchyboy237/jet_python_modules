@@ -44,7 +44,7 @@ def main():
 
     logger.info(f"🌐 Analyzing remote image: {IMAGE_URL}")
     result = run_chat_stream(
-        client,
+        client=client,
         image_source=IMAGE_URL,
         prompt=prompt,
         model=MODEL,

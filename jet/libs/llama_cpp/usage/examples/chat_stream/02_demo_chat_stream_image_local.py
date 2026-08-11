@@ -55,7 +55,7 @@ def main():
     )
 
     result = run_chat_stream(
-        client,
+        client=client,
         image_source=str(image_path),
         prompt=prompt,
         model=MODEL,
