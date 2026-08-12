@@ -13,6 +13,10 @@ from typing import Any, Callable
 import requests
 from openai import OpenAI, Stream
 from openai.types.chat import ChatCompletionChunk
+from openinference.semconv.trace import (
+    OpenInferenceSpanKindValues,
+    SpanAttributes,
+)
 from opentelemetry import trace
 from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 from opentelemetry.trace import Status, StatusCode
@@ -295,73 +299,50 @@ def run_chat_stream(
     response_format: dict[str, Any] | None = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Stream a chat completion with full tool + structured output observability.
-
-    Supports vision, function calling, JSON mode, grammar-constrained output,
-    and all llama.cpp-compatible sampling parameters.
-
-    If `tool_registry` is provided, tool calls returned by the model will be
-    automatically executed and appended to the conversation history. The stream
-    will then be re-invoked until the model produces a final non-tool response
-    or `max_tool_rounds` is reached. Each round is observed as a child span
-    under a shared `tool_execution_loop` parent for end-to-end trace visibility.
-
-    If `messages` is provided, it takes precedence over `prompt`/`image_source`.
-    This enables multi-turn agent loops where tool results are appended and
-    the function is called again with the updated conversation history.
-
-    Args:
-        prompt: Text prompt for single-turn chat.
-        model: Model name to request from the server.
-        project_name: Phoenix project name for trace grouping.
-        capture_content: Whether to capture prompt/response text in traces.
-        phoenix_url: Phoenix server base URL.
-        messages: Pre-built message list (overrides prompt/image_source).
-        image_source: Path or URL to an image for vision models.
-        client: Pre-configured OpenAI client (created via get_client() if None).
-        enable_thinking: Enable model reasoning/thinking token output.
-        max_tokens: Maximum completion tokens.
-        temperature: Sampling temperature.
-        top_p: Nucleus sampling threshold.
-        top_k: Top-k sampling limit.
-        min_p: Minimum probability threshold (llama.cpp specific).
-        repeat_penalty: Repetition penalty (llama.cpp native parameter).
-        presence_penalty: Penalize tokens based on presence (-2.0 to 2.0).
-        frequency_penalty: Penalize tokens based on frequency (-2.0 to 2.0).
-        logit_bias: Token ID to bias mapping.
-        seed: Random seed for reproducible generation.
-        stop: Stop sequences (up to 4).
-        tools: Tool definitions for function calling.
-        tool_choice: Tool choice strategy ("auto", "none", "required", or dict).
-        tool_registry: Dict of tool_name → callable for automatic execution.
-        response_format: Response format hint (e.g., {"type": "json_object"}).
-        max_tool_rounds: Maximum agentic tool-call loops before stopping.
-        extra_body_params: Additional parameters merged into extra_body.
-            Use this for grammar-constrained output: {"grammar": gbnf_string}.
-            These are merged AFTER internal params, so caller values take
-            precedence for any overlapping keys.
-
-    Returns:
-        StreamCompletionResult with content, parsed tool calls, usage, and
-        finish reason — replacing raw str for programmatic consumption.
-    """
+    """Stream a chat completion with full tool + structured output observability."""
     if project_name:
         setup_observability(
             project_name=project_name,
             capture_content=capture_content,
             phoenix_url=phoenix_url,
         )
-    tracer = trace.get_tracer(__name__)
 
+    tracer = trace.get_tracer(__name__)
     if client is None:
         logger.debug("🔌 No client provided; creating default via get_client()")
         client = get_client()
 
     is_agentic = tool_registry is not None
-    span_name = "tool_execution_loop" if is_agentic else "chat_completion"
+    span_name = "agent_workflow" if is_agentic else "chat_completion"
+
+    # Determine Span Kind: AGENT if tools/registry exist, otherwise CHAIN
+    root_span_kind = (
+        OpenInferenceSpanKindValues.AGENT.value
+        if is_agentic
+        else OpenInferenceSpanKindValues.CHAIN.value
+    )
 
     with tracer.start_as_current_span(span_name) as loop_span:
+        # --- SET REQUIRED OPENINFERENCE ATTRIBUTES ---
+        loop_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, root_span_kind)
+
+        # Set Input Value for Phoenix UI "Input" column
+        input_val = prompt
+        if messages and len(messages) > 0:
+            last_msg = messages[-1]
+            content = last_msg.get("content")
+            if isinstance(content, str):
+                input_val = content
+            elif isinstance(content, list):
+                text_parts = [
+                    p.get("text", "") for p in content if p.get("type") == "text"
+                ]
+                input_val = " ".join(text_parts)
+        loop_span.set_attribute(SpanAttributes.INPUT_VALUE, input_val)
+
+        # --- SET CUSTOM ATTRIBUTES ---
         trace_id = loop_span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
         loop_span.set_attribute("llm.model", model)
@@ -369,6 +350,8 @@ def run_chat_stream(
             "agent.mode", "agentic" if is_agentic else "single_turn"
         )
         loop_span.set_attribute("agent.has_tool_registry", is_agentic)
+        if session_id is not None:
+            loop_span.set_attribute("session.id", session_id)
         if is_agentic:
             loop_span.set_attribute("agent.max_tool_rounds", max_tool_rounds)
         if tools:
@@ -403,9 +386,13 @@ def run_chat_stream(
         while round_num < max_tool_rounds:
             round_num += 1
 
+            # Inner span for each turn
             with tracer.start_as_current_span(
-                "chat_stream",
-                attributes={"agent.round": round_num},
+                f"turn_{round_num}",
+                attributes={
+                    SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.CHAIN.value,
+                    "agent.round": round_num,
+                },
             ) as span:
                 span.set_attribute("llm.model", model)
                 span.set_attribute(
@@ -439,8 +426,6 @@ def run_chat_stream(
                         "llm.response_format.type",
                         response_format.get("type", "unknown"),
                     )
-
-                # Grammar observability attributes
                 grammar_value = (extra_body_params or {}).get("grammar")
                 if grammar_value:
                     span.set_attribute("llm.grammar.active", True)
@@ -487,6 +472,8 @@ def run_chat_stream(
                     if grammar_value:
                         rule_count = grammar_value.count("::=")
                         logger.info(f"📜 Grammar      : active ({rule_count} rules)")
+                    if session_id is not None:
+                        logger.info(f"🧵 Session ID   : {session_id}")
                     console.print(
                         f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]"
                     )
@@ -503,7 +490,6 @@ def run_chat_stream(
                     extra_body["min_p"] = min_p
                 if repeat_penalty != 1.1:
                     extra_body["repeat_penalty"] = repeat_penalty
-                # Merge caller-supplied extra_body_params (e.g., grammar)
                 if extra_body_params:
                     extra_body.update(extra_body_params)
                     logger.debug(
@@ -550,26 +536,21 @@ def run_chat_stream(
                     )
                     in_think_block = False
                     console.print("[bold cyan]Response:[/bold cyan] ", end="")
-
                     for chunk in stream:
                         if not chunk.choices:
                             usage = getattr(chunk, "usage", None)
                             continue
-
                         delta = chunk.choices[0].delta
                         if not delta:
                             continue
-
                         if chunk.choices[0].finish_reason:
                             finish_reason = chunk.choices[0].finish_reason
-
                         if first_token_at is None and (
                             getattr(delta, "content", None)
                             or getattr(delta, "reasoning_content", None)
                             or getattr(delta, "tool_calls", None)
                         ):
                             first_token_at = time.perf_counter()
-
                         if (
                             hasattr(delta, "reasoning_content")
                             and delta.reasoning_content
@@ -591,7 +572,6 @@ def run_chat_stream(
                                 "[bold orange1]</think>[/bold orange1]", end=""
                             )
                             in_think_block = False
-
                         if hasattr(delta, "content") and delta.content:
                             console.print(
                                 f"[bold cyan]{delta.content}[/bold cyan]",
@@ -600,7 +580,6 @@ def run_chat_stream(
                                 soft_wrap=True,
                             )
                             collected_content.append(delta.content)
-
                         if hasattr(delta, "tool_calls") and delta.tool_calls:
                             for tc_delta in delta.tool_calls:
                                 idx = tc_delta.index
@@ -621,10 +600,8 @@ def run_chat_stream(
                                         tool_calls_acc[idx]["function"][
                                             "arguments"
                                         ] += tc_delta.function.arguments
-
                     if in_think_block:
                         console.print("[bold orange1]</think>[/bold orange1]", end="")
-
                 except Exception as exc:
                     span.record_exception(exc)
                     span.set_status(Status(StatusCode.ERROR))
@@ -637,6 +614,9 @@ def run_chat_stream(
                         (first_token_at - t_request_start) if first_token_at else None
                     )
                     full_response = "".join(collected_content)
+
+                    # SET OUTPUT VALUE for this turn
+                    span.set_attribute(SpanAttributes.OUTPUT_VALUE, full_response)
 
                     parsed_tool_calls: list[ToolCallResult] = []
                     if tool_calls_acc:
@@ -656,7 +636,6 @@ def run_chat_stream(
                                     raw_arguments=fn.get("arguments", ""),
                                 )
                             )
-
                     if parsed_tool_calls:
                         logger.info(f"🔧 Tool calls received: {len(parsed_tool_calls)}")
                         for tc in parsed_tool_calls:
@@ -679,7 +658,6 @@ def run_chat_stream(
                                 default=str,
                             ),
                         )
-
                     logger.info("─" * 60)
                     logger.info(f"📊 Round {round_num} summary")
                     if usage:
@@ -730,7 +708,6 @@ def run_chat_stream(
 
             if not last_result.has_tool_calls:
                 break
-
             if not is_agentic:
                 logger.info(
                     "⏸️  Tool calls present but no tool_registry provided; "
@@ -754,7 +731,6 @@ def run_chat_stream(
                 ],
             }
             current_messages.append(assistant_tc_message)
-
             for tc in last_result.tool_calls:
                 executor = tool_registry.get(tc.name)
                 if executor is None:
@@ -782,6 +758,8 @@ def run_chat_stream(
                 )
 
         if last_result is not None:
+            # SET FINAL OUTPUT on root span
+            loop_span.set_attribute(SpanAttributes.OUTPUT_VALUE, last_result.content)
             loop_span.set_attribute("agent.total_rounds", round_num)
             loop_span.set_attribute(
                 "agent.final_finish_reason", last_result.finish_reason or "unknown"
@@ -920,6 +898,12 @@ def get_args() -> argparse.Namespace:
         default=None,
         help='JSON response format, e.g. \'{"type": "json_object"}\'.',
     )
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        help="Session ID to group multiple traces as a conversation thread in Phoenix.",
+    )
     return parser.parse_args()
 
 
@@ -995,6 +979,7 @@ if __name__ == "__main__":
         tool_choice=parsed_tool_choice,
         response_format=parsed_response_format,
         tool_registry=None,
+        session_id=args.session_id,
     )
 
     if result.has_tool_calls:

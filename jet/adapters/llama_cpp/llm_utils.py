@@ -38,6 +38,7 @@ def chat(
     response_format: dict[str, Any] | None = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
 ) -> StreamCompletionResult:
     return run_chat_stream(
         prompt=prompt,
@@ -66,6 +67,7 @@ def chat(
         response_format=response_format,
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
+        session_id=session_id,
     )
 
 

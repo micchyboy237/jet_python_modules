@@ -27,6 +27,7 @@ Usage Examples:
 
 import asyncio
 import json
+import uuid
 from typing import Annotated, Literal, Sequence, TypedDict
 from urllib.parse import urljoin, urlparse
 
@@ -44,6 +45,11 @@ from jet.adapters.llama_cpp.rerank_utils import rerank
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
+from openinference.semconv.trace import (
+    OpenInferenceSpanKindValues,
+    SpanAttributes,
+)
+from opentelemetry import trace
 
 MAX_ITERATIONS = 5
 MAX_PAGES_PER_ITER = 3
@@ -55,6 +61,9 @@ MIN_SCORE_FOR_KB = 0.05
 LLM_MAX_TOKENS = 2048
 RERANK_MAX_TOKENS = 1024
 RERANK_QUERY_TOKEN_RESERVE = 200
+
+# Helper to get tracer
+tracer = trace.get_tracer(__name__)
 
 
 class KBEntry(TypedDict):
@@ -186,13 +195,11 @@ def prepare_docs_for_rerank(
     query_reserve: int = RERANK_QUERY_TOKEN_RESERVE,
 ) -> list[KBEntry]:
     """Truncate chunk content to fit within reranker's physical batch size.
-
     Uses the reranker model's own tokenizer via jet's truncate_texts,
     which respects sentence boundaries to avoid cutting mid-thought.
     """
     if not chunks:
         return chunks
-
     effective_max = max(64, max_tokens - query_reserve)
     contents = [c["content"] for c in chunks]
     truncated = truncate_texts(
@@ -202,13 +209,11 @@ def prepare_docs_for_rerank(
         strict_sentences=True,
         show_progress=False,
     )
-
     for chunk, trunc_text in zip(chunks, truncated):
         original_len = len(chunk["content"])
         chunk["content"] = trunc_text
         chunk["original_chars"] = original_len
         chunk["truncated_chars"] = len(trunc_text)
-
     truncated_count = sum(
         1 for c in chunks if c["original_chars"] != c["truncated_chars"]
     )
@@ -217,22 +222,18 @@ def prepare_docs_for_rerank(
             f"[PREP] Truncated {truncated_count}/{len(chunks)} docs to fit "
             f"reranker limit ({effective_max} tokens, model={RERANK_MODEL})"
         )
-
     return chunks
 
 
 def rerank_chunks(query: str, chunks: list[KBEntry]) -> list[KBEntry]:
     """Rerank chunks using jet's rerank_utils.rerank().
-
     Delegates to the shared rerank utility which handles:
     - HTTP request to the reranker endpoint
     - Score normalization via sigmoid (configurable)
     - Typed result sorting by relevance
-
     Args:
         query: Search query string
         chunks: List of KBEntry dicts with 'content' field
-
     Returns:
         Same chunks list sorted by reranker score (descending),
         with 'score' and 'raw_score' fields populated.
@@ -240,21 +241,17 @@ def rerank_chunks(query: str, chunks: list[KBEntry]) -> list[KBEntry]:
     if not chunks:
         print("[RERANK] ⚠️  No chunks to rerank")
         return []
-
     texts = [c["content"] for c in chunks]
     print(
         f"[RERANK] Sending {len(texts)} docs to reranker "
         f"(model={RERANK_MODEL}, normalize={APPLY_SIGMOID_NORMALIZATION})"
     )
-
     results = rerank(
         query=query,
         documents=texts,
         top_n=len(texts),
         normalize_scores=APPLY_SIGMOID_NORMALIZATION,
     )
-
-    # Map results back to original chunks
     score_map = {r["index"]: r for r in results}
     for i, chunk in enumerate(chunks):
         if i in score_map:
@@ -263,9 +260,7 @@ def rerank_chunks(query: str, chunks: list[KBEntry]) -> list[KBEntry]:
         else:
             chunk["score"] = 0.0
             chunk["raw_score"] = 0.0
-
     ranked = sorted(chunks, key=lambda x: x["score"], reverse=True)
-
     if ranked:
         print(
             f"[RERANK] Score distribution "
@@ -282,16 +277,13 @@ def rerank_chunks(query: str, chunks: list[KBEntry]) -> list[KBEntry]:
             )
     else:
         print("[RERANK] ⚠️  No ranked results returned")
-
     return ranked
 
 
 async def fetch_and_parse(url: str) -> tuple[str, list[str], FetchMeta]:
     """Fetch and parse a single URL, extracting text and links.
-
     Args:
         url: The URL to fetch
-
     Returns:
         Tuple of (text_content, discovered_links, fetch_metadata)
     """
@@ -304,27 +296,21 @@ async def fetch_and_parse(url: str) -> tuple[str, list[str], FetchMeta]:
         "links_filtered": 0,
         "error": None,
     }
-
     try:
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": "WebSwarmBot/1.0"})
             resp.raise_for_status()
             meta["status"] = resp.status_code
             meta["final_url"] = str(resp.url)
-
         soup = BeautifulSoup(resp.text, "html.parser")
         for tag in soup(["script", "style", "nav", "footer"]):
             tag.decompose()
-
         text = soup.get_text(separator="\n", strip=True)[:8000]
         meta["text_len"] = len(text)
-
         if meta["final_url"] != url:
             print(f"[FETCH] ↪ Redirect detected: {url} → {meta['final_url']}")
-
         base_domain = urlparse(url).netloc
         final_domain = urlparse(meta["final_url"]).netloc
-
         all_links: list[str] = []
         for a in soup.find_all("a", href=True):
             full_url = urljoin(str(resp.url), a["href"])
@@ -332,7 +318,6 @@ async def fetch_and_parse(url: str) -> tuple[str, list[str], FetchMeta]:
             if parsed.scheme in ("http", "https") and full_url not in all_links:
                 all_links.append(full_url)
         meta["links_found"] = len(all_links)
-
         if FOLLOW_CROSS_DOMAIN_LINKS:
             filtered = [
                 l
@@ -346,14 +331,12 @@ async def fetch_and_parse(url: str) -> tuple[str, list[str], FetchMeta]:
             filtered = [l for l in all_links if urlparse(l).netloc == base_domain]
         meta["links_filtered"] = len(filtered)
         links = filtered[:20]
-
         print(
             f"[FETCH] ✅ {url} | status={meta['status']} | "
             f"text={meta['text_len']} chars | links={meta['links_found']} found, "
             f"{meta['links_filtered']} after filter | final_domain={final_domain}"
         )
         return text, links, meta
-
     except Exception as e:
         meta["error"] = str(e)
         print(f"[FETCH] ❌ {url} | error={e}")
@@ -366,23 +349,24 @@ def llm_completion(
     temperature: float = 0.3,
     response_format: dict | None = None,
     label: str = "LLM",
+    session_id: str | None = None,
 ) -> str:
     """Call LLM via jet's llm_utils.chat() which wraps the full streaming pipeline.
-
     Uses the shared chat utility which provides:
     - Streaming output with real-time token display
     - Phoenix observability (when configured)
     - Configurable sampling parameters
     - Structured output support via response_format
     - Tool calling support (unused here but available)
-
     Args:
         prompt: The prompt text to send
         max_tokens: Maximum completion tokens
         temperature: Sampling temperature (0.0 for deterministic)
         response_format: Optional response format (e.g., {"type": "json_object"})
         label: Label for log output identification
-
+        session_id: Optional session ID for Phoenix trace grouping. All LLM calls
+            within a single run_webswarm execution share the same session_id so
+            they appear grouped as one conversation thread in the Phoenix UI.
     Returns:
         Complete LLM response as string
     """
@@ -392,7 +376,6 @@ def llm_completion(
         f"max_tokens={max_tokens}, temp={temperature})",
         flush=True,
     )
-
     print(f"[{label}] ", end="", flush=True)
     result = chat(
         prompt=prompt,
@@ -404,8 +387,8 @@ def llm_completion(
         response_format=response_format,
         enable_thinking=False,
         project_name="rag_web_crawler_agent",
+        session_id=session_id,
     )
-
     content = result.content
     print(f"[{label}] ", end="", flush=True)
     print(content, flush=True)
@@ -414,219 +397,232 @@ def llm_completion(
         f"finish_reason={result.finish_reason}",
         flush=True,
     )
-
     return content
 
 
 async def retrieve_node(state: WebSwarmState) -> RetrieveNodeOutput:
-    """Fetch and rank pages from pending URLs, adding relevant content to knowledge base.
+    """Fetch and rank pages from pending URLs, adding relevant content to knowledge base."""
 
-    Flow:
-    1. Take up to MAX_PAGES_PER_ITER from pending URLs
-    2. Fetch and parse each page (async)
-    3. Truncate content for reranker token limits
-    4. Rerank all fetched chunks against the query
-    5. Filter by RELEVANCE_THRESHOLD (keep MIN_CHUNKS_TO_KEEP minimum)
-    6. Filter by MIN_SCORE_FOR_KB if KB already has content
-    7. Deduplicate against existing KB entries
-    8. Discover new links for next iteration
-    """
-    pending = state["pending_urls"][:MAX_PAGES_PER_ITER]
-    visited = state["visited_urls"] | set(pending)
+    # START MANUAL SPAN
+    with tracer.start_as_current_span(
+        "retrieve_node",
+        attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.RETRIEVER.value,
+            SpanAttributes.INPUT_VALUE: f"Query: {state['query'][:100]}... | Pending: {len(state['pending_urls'])}",
+        },
+    ) as span:
+        pending = state["pending_urls"][:MAX_PAGES_PER_ITER]
+        visited = state["visited_urls"] | set(pending)
+        print(f"\n{'─' * 60}")
+        print(f"[RETRIEVE] ▶ Iteration {state['iteration'] + 1}/{MAX_ITERATIONS}")
+        print(f"[RETRIEVE] Pending URLs: {pending}")
+        print(f"[RETRIEVE] Already visited: {len(state['visited_urls'])} URLs")
 
-    print(f"\n{'─' * 60}")
-    print(f"[RETRIEVE] ▶ Iteration {state['iteration'] + 1}/{MAX_ITERATIONS}")
-    print(f"[RETRIEVE] Pending URLs: {pending}")
-    print(f"[RETRIEVE] Already visited: {len(state['visited_urls'])} URLs")
+        new_chunks: list[KBEntry] = []
+        all_new_links: list[str] = []
+        fetch_metadata: list[FetchMeta] = []
 
-    new_chunks: list[KBEntry] = []
-    all_new_links: list[str] = []
-    fetch_metadata: list[FetchMeta] = []
+        tasks = [fetch_and_parse(url) for url in pending]
+        results = await asyncio.gather(*tasks)
 
-    tasks = [fetch_and_parse(url) for url in pending]
-    results = await asyncio.gather(*tasks)
+        for url, (text, links, meta) in zip(pending, results):
+            fetch_metadata.append(meta)
+            if text:
+                new_chunks.append(
+                    {
+                        "url": meta.get("final_url") or url,
+                        "content": text,
+                        "score": 0.0,
+                        "raw_score": 0.0,
+                        "original_chars": len(text),
+                        "truncated_chars": len(text),
+                    }
+                )
+                all_new_links.extend([l for l in links if l not in visited])
+            elif meta.get("error"):
+                print(f"[RETRIEVE] ⚠️  Skipping {url}: fetch failed")
+            else:
+                print(
+                    f"[RETRIEVE] ⚠️  Skipping {url}: empty content ({meta['text_len']} chars)"
+                )
 
-    for url, (text, links, meta) in zip(pending, results):
-        fetch_metadata.append(meta)
-        if text:
-            new_chunks.append(
-                {
-                    "url": meta.get("final_url") or url,
-                    "content": text,
-                    "score": 0.0,
-                    "raw_score": 0.0,
-                    "original_chars": len(text),
-                    "truncated_chars": len(text),
-                }
+        print(
+            f"[RETRIEVE] Fetched {len(new_chunks)} pages with content, "
+            f"discovered {len(all_new_links)} new links"
+        )
+
+        new_chunks = prepare_docs_for_rerank(new_chunks)
+        ranked_chunks = rerank_chunks(state["query"], new_chunks)
+
+        above_threshold = [
+            c for c in ranked_chunks if c["score"] >= RELEVANCE_THRESHOLD
+        ]
+        if len(above_threshold) < MIN_CHUNKS_TO_KEEP and ranked_chunks:
+            relevant = ranked_chunks[: max(MIN_CHUNKS_TO_KEEP, len(above_threshold))]
+            print(
+                f"[RETRIEVE] ⚡ Only {len(above_threshold)} chunks above threshold "
+                f"({RELEVANCE_THRESHOLD}), keeping top {len(relevant)} by score"
             )
-            all_new_links.extend([l for l in links if l not in visited])
-        elif meta.get("error"):
-            print(f"[RETRIEVE] ⚠️  Skipping {url}: fetch failed")
         else:
+            relevant = above_threshold
             print(
-                f"[RETRIEVE] ⚠️  Skipping {url}: empty content ({meta['text_len']} chars)"
+                f"[RETRIEVE] ✓ {len(relevant)} chunks above threshold "
+                f"({RELEVANCE_THRESHOLD})"
             )
 
-    print(
-        f"[RETRIEVE] Fetched {len(new_chunks)} pages with content, "
-        f"discovered {len(all_new_links)} new links"
-    )
+        if state["knowledge_base"]:
+            before_filter = len(relevant)
+            relevant = [c for c in relevant if c["score"] >= MIN_SCORE_FOR_KB]
+            dropped = before_filter - len(relevant)
+            if dropped > 0:
+                print(
+                    f"[RETRIEVE] 🗑️  Dropped {dropped} low-score chunks "
+                    f"(below {MIN_SCORE_FOR_KB}) since KB already has content"
+                )
 
-    # Truncate for reranker, then score
-    new_chunks = prepare_docs_for_rerank(new_chunks)
-    ranked_chunks = rerank_chunks(state["query"], new_chunks)
+        existing_urls = {k["url"] for k in state["knowledge_base"]}
+        new_relevant = [c for c in relevant if c["url"] not in existing_urls]
+        merged_kb = state["knowledge_base"] + new_relevant
+        deduped_pending = list(set(all_new_links) - visited)[:10]
 
-    # Filter by relevance threshold, keeping minimum
-    above_threshold = [c for c in ranked_chunks if c["score"] >= RELEVANCE_THRESHOLD]
-    if len(above_threshold) < MIN_CHUNKS_TO_KEEP and ranked_chunks:
-        relevant = ranked_chunks[: max(MIN_CHUNKS_TO_KEEP, len(above_threshold))]
         print(
-            f"[RETRIEVE] ⚡ Only {len(above_threshold)} chunks above threshold "
-            f"({RELEVANCE_THRESHOLD}), keeping top {len(relevant)} by score"
-        )
-    else:
-        relevant = above_threshold
-        print(
-            f"[RETRIEVE] ✓ {len(relevant)} chunks above threshold "
-            f"({RELEVANCE_THRESHOLD})"
+            f"[RETRIEVE] Summary: fetched={len(new_chunks)}, relevant={len(relevant)}, "
+            f"new_to_kb={len(new_relevant)}, kb_total={len(merged_kb)}, "
+            f"next_pending={len(deduped_pending)}"
         )
 
-    # Additional filtering when KB already has content
-    if state["knowledge_base"]:
-        before_filter = len(relevant)
-        relevant = [c for c in relevant if c["score"] >= MIN_SCORE_FOR_KB]
-        dropped = before_filter - len(relevant)
-        if dropped > 0:
+        if not deduped_pending and state["iteration"] == 0:
             print(
-                f"[RETRIEVE] 🗑️  Dropped {dropped} low-score chunks "
-                f"(below {MIN_SCORE_FOR_KB}) since KB already has content"
+                "[RETRIEVE] ⚠️  WARNING: No pending URLs after first iteration! "
+                "Check FOLLOW_CROSS_DOMAIN_LINKS or root URL validity."
             )
 
-    # Deduplicate by URL
-    existing_urls = {k["url"] for k in state["knowledge_base"]}
-    new_relevant = [c for c in relevant if c["url"] not in existing_urls]
-    merged_kb = state["knowledge_base"] + new_relevant
-
-    # Prepare next iteration's pending URLs
-    deduped_pending = list(set(all_new_links) - visited)[:10]
-
-    print(
-        f"[RETRIEVE] Summary: fetched={len(new_chunks)}, relevant={len(relevant)}, "
-        f"new_to_kb={len(new_relevant)}, kb_total={len(merged_kb)}, "
-        f"next_pending={len(deduped_pending)}"
-    )
-
-    if not deduped_pending and state["iteration"] == 0:
-        print(
-            "[RETRIEVE] ⚠️  WARNING: No pending URLs after first iteration! "
-            "Check FOLLOW_CROSS_DOMAIN_LINKS or root URL validity."
+        # SET OUTPUT VALUE
+        span.set_attribute(
+            SpanAttributes.OUTPUT_VALUE,
+            f"Added {len(new_relevant)} chunks. KB size: {len(merged_kb)}. Next pending: {len(deduped_pending)}",
         )
+        span.set_attribute("retrieve.iteration", state["iteration"] + 1)
+        span.set_attribute("retrieve.chunks_added", len(new_relevant))
 
-    return {
-        "knowledge_base": merged_kb,
-        "visited_urls": visited,
-        "pending_urls": deduped_pending,
-        "iteration": state["iteration"] + 1,
-    }
+        return {
+            "knowledge_base": merged_kb,
+            "visited_urls": visited,
+            "pending_urls": deduped_pending,
+            "iteration": state["iteration"] + 1,
+        }
 
 
 async def evaluate_node(state: WebSwarmState) -> EvaluateNodeOutput:
-    """Evaluate if the knowledge base contains sufficient information.
+    """Evaluate if the knowledge base contains sufficient information."""
 
-    Uses the LLM to assess whether retrieved content answers the query,
-    considering remaining iterations and pending URLs.
-    """
-    print(
-        f"\n[EVALUATE] Assessing KB size={len(state['knowledge_base'])} "
-        f"at iteration {state['iteration']}"
-    )
+    # START MANUAL SPAN
+    with tracer.start_as_current_span(
+        "evaluate_node",
+        attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.EVALUATOR.value,
+            SpanAttributes.INPUT_VALUE: f"KB Size: {len(state['knowledge_base'])} | Iteration: {state['iteration']}",
+        },
+    ) as span:
+        print(
+            f"\n[EVALUATE] Assessing KB size={len(state['knowledge_base'])} "
+            f"at iteration {state['iteration']}"
+        )
+        kb_summary = "\n---\n".join(
+            f"[{c['url']}] (score:{c['score']:.4f}, raw:{c.get('raw_score', 'N/A')})\n"
+            f"{c['content'][:500]}"
+            for c in state["knowledge_base"][:10]
+        )
+        has_pending = bool(state.get("pending_urls"))
+        print(
+            f"[EVALUATE] Pending URLs available: {has_pending} "
+            f"({len(state.get('pending_urls', []))} remaining)"
+        )
 
-    kb_summary = "\n---\n".join(
-        f"[{c['url']}] (score:{c['score']:.4f}, raw:{c.get('raw_score', 'N/A')})\n"
-        f"{c['content'][:500]}"
-        for c in state["knowledge_base"][:10]
-    )
-
-    has_pending = bool(state.get("pending_urls"))
-    print(
-        f"[EVALUATE] Pending URLs available: {has_pending} "
-        f"({len(state.get('pending_urls', []))} remaining)"
-    )
-
-    prompt = f"""You are a RAG evaluation agent. Determine if the retrieved context sufficiently answers the query.
-
+        prompt = f"""You are a RAG evaluation agent. Determine if the retrieved context sufficiently answers the query.
 QUERY: {state["query"]}
 ROOT URL: {state["root_url"]}
 ITERATION: {state["iteration"]}/{MAX_ITERATIONS}
 PENDING_URLS_AVAILABLE: {has_pending}
-
 RETRIEVED CONTEXT:
 {kb_summary if kb_summary else "(No relevant context retrieved yet)"}
-
 Respond with ONLY valid JSON:
 {{"evaluation": "sufficient|insufficient|irrelevant", "reasoning": "brief explanation"}}
-
 Rules:
 - "sufficient": Context contains SPECIFIC FACTS, DETAILS, or ENUMERATIONS that directly answer the query. A link or mention that information exists elsewhere is NOT sufficient.
 - "insufficient": Context touches on the topic but lacks specific details, OR only provides links/references to where the answer might be found AND pending_urls remain.
 - "irrelevant": Retrieved content is completely off-topic OR max iterations reached without finding relevant content.
-
 CRITICAL: If the query asks "what are the X options/features/types/steps", the context must LIST or DESCRIBE those specific items. A page titled "Overview" or "Introduction" that says "see documentation for details" does NOT satisfy a question asking for those specific details. The context must contain the actual answer, not just a pointer to it."""
 
-    content = llm_completion(
-        prompt=prompt,
-        temperature=0,
-        response_format={"type": "json_object"},
-        label="EVALUATE",
-    )
+        content = llm_completion(
+            prompt=prompt,
+            temperature=0,
+            response_format={"type": "json_object"},
+            label="EVALUATE",
+            session_id=state.get("session_id"),
+        )
 
-    result: EvalResult = json.loads(content)
-    evaluation = result.get("evaluation", "insufficient")
-    reasoning = result.get("reasoning", "unknown")
+        result: EvalResult = json.loads(content)
+        evaluation = result.get("evaluation", "insufficient")
+        reasoning = result.get("reasoning", "unknown")
 
-    print(f"[EVALUATE] Decision: {evaluation} | Reason: {reasoning}")
-    return {"evaluation": evaluation}
+        print(f"[EVALUATE] Decision: {evaluation} | Reason: {reasoning}")
+
+        # SET OUTPUT VALUE
+        span.set_attribute(
+            SpanAttributes.OUTPUT_VALUE, f"Decision: {evaluation}. Reason: {reasoning}"
+        )
+        span.set_attribute("evaluate.decision", evaluation)
+
+        return {"evaluation": evaluation}
 
 
 async def synthesize_node(state: WebSwarmState) -> SynthesizeNodeOutput:
-    """Generate the final answer from the top-ranked knowledge base entries.
+    """Generate the final answer from the top-ranked knowledge base entries."""
 
-    Uses the LLM to synthesize a comprehensive answer citing sources.
-    """
-    sorted_kb = sorted(state["knowledge_base"], key=lambda x: x["score"], reverse=True)[
-        :8
-    ]
+    # START MANUAL SPAN
+    with tracer.start_as_current_span(
+        "synthesize_node",
+        attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.CHAIN.value,
+            SpanAttributes.INPUT_VALUE: f"Synthesizing answer from {len(state['knowledge_base'])} sources.",
+        },
+    ) as span:
+        sorted_kb = sorted(
+            state["knowledge_base"], key=lambda x: x["score"], reverse=True
+        )[:8]
+        print(f"\n[SYNTHESIZE] Generating answer from {len(sorted_kb)} KB entries")
+        for i, c in enumerate(sorted_kb):
+            print(f"  Source [{i}]: {c['url']} (score={c['score']:.4f})")
 
-    print(f"\n[SYNTHESIZE] Generating answer from {len(sorted_kb)} KB entries")
-    for i, c in enumerate(sorted_kb):
-        print(f"  Source [{i}]: {c['url']} (score={c['score']:.4f})")
+        context = "\n\n===SOURCE===".join(
+            f"URL: {c['url']}\nRelevance: {c['score']:.4f}\n{c['content']}"
+            for c in sorted_kb
+        )
 
-    context = "\n\n===SOURCE===".join(
-        f"URL: {c['url']}\nRelevance: {c['score']:.4f}\n{c['content']}"
-        for c in sorted_kb
-    )
-
-    prompt = f"""Using ONLY the provided context, answer the query comprehensively.
+        prompt = f"""Using ONLY the provided context, answer the query comprehensively.
 Cite sources as [URL]. If context is insufficient, say so explicitly.
 Do NOT use any knowledge outside the provided context.
-
 QUERY: {state["query"]}
-
 CONTEXT:
 {context if context else "(No relevant context was retrieved during the search.)"}"""
 
-    content = llm_completion(
-        prompt=prompt,
-        temperature=0.1,
-        label="SYNTHESIZE",
-    )
+        content = llm_completion(
+            prompt=prompt,
+            temperature=0.1,
+            label="SYNTHESIZE",
+            session_id=state.get("session_id"),
+        )
 
-    return {"final_answer": content}
+        # SET OUTPUT VALUE (truncate for UI safety)
+        output_preview = content[:1000] + "..." if len(content) > 1000 else content
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, output_preview)
+
+        return {"final_answer": content}
 
 
 def should_continue(state: WebSwarmState) -> Literal["retrieve", "synthesize", END]:
     """Decide the next graph step based on evaluation and state.
-
     Routing logic:
     - Sufficient/irrelevant → synthesize
     - Max iterations reached → synthesize
@@ -635,7 +631,6 @@ def should_continue(state: WebSwarmState) -> Literal["retrieve", "synthesize", E
     """
     decision: Literal["retrieve", "synthesize"]
     reason: str
-
     if state["evaluation"] == "sufficient":
         decision = "synthesize"
         reason = "evaluation=sufficient"
@@ -653,7 +648,6 @@ def should_continue(state: WebSwarmState) -> Literal["retrieve", "synthesize", E
         reason = (
             f"evaluation={state['evaluation']}, pending={len(state['pending_urls'])}"
         )
-
     print(f"\n[ROUTE] → {decision.upper()} ({reason})")
     print(f"{'─' * 60}")
     return decision
@@ -661,30 +655,29 @@ def should_continue(state: WebSwarmState) -> Literal["retrieve", "synthesize", E
 
 def build_webswarm_graph() -> CompiledStateGraph[WebSwarmState]:
     """Build the LangGraph workflow for the WebSwarm RAG pipeline.
-
     Graph structure:
         START → retrieve → evaluate → [conditional] → synthesize → END
                                      ├─ continue → retrieve (loop)
                                      └─ stop → synthesize
     """
     workflow = StateGraph(WebSwarmState)
-
     workflow.add_node("retrieve", retrieve_node)
     workflow.add_node("evaluate", evaluate_node)
     workflow.add_node("synthesize", synthesize_node)
-
     workflow.add_edge(START, "retrieve")
     workflow.add_edge("retrieve", "evaluate")
     workflow.add_conditional_edges("evaluate", should_continue)
     workflow.add_edge("synthesize", END)
-
     return workflow.compile()
 
 
 async def run_webswarm(query: str, root_url: str) -> SwarmResult:
-    app = build_webswarm_graph()
+    # Generate a single session ID for this entire swarm execution.
+    # All LLM calls (evaluate + synthesize) will share this session_id
+    # so they appear grouped as one conversation thread in Phoenix.
+    swarm_session_id = str(uuid.uuid4())
 
-    # ─── Config Snapshot ──────────────────────────────────────────────────────
+    app = build_webswarm_graph()
     config_snapshot = {
         "max_iterations": MAX_ITERATIONS,
         "max_pages_per_iter": MAX_PAGES_PER_ITER,
@@ -699,10 +692,10 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         "rerank_model": RERANK_MODEL,
         "rerank_base_url": RERANK_BASE_URL,
     }
-
     print(f"\n{'═' * 60}")
     print(f'[INIT] Query: "{query}"')
     print(f"[INIT] Root URL: {root_url}")
+    print(f"[INIT] Session ID: {swarm_session_id}")
     print(
         f"[INIT] Config: max_iter={MAX_ITERATIONS}, pages/iter={MAX_PAGES_PER_ITER}, "
         f"threshold={RELEVANCE_THRESHOLD}, min_keep={MIN_CHUNKS_TO_KEEP}, "
@@ -713,8 +706,6 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
     print(f"[INIT] LLM: {LLM_MODEL} @ {LLM_BASE_URL}")
     print(f"[INIT] Reranker: {RERANK_MODEL} @ {RERANK_BASE_URL}")
     print(f"{'═' * 60}")
-
-    # ─── Initial State ────────────────────────────────────────────────────────
     initial_state: WebSwarmState = {
         "query": query,
         "root_url": root_url,
@@ -725,19 +716,15 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         "iteration": 0,
         "evaluation": "insufficient",
         "final_answer": None,
+        "session_id": swarm_session_id,
     }
-
     invoke_config = {"recursion_limit": MAX_ITERATIONS * 3 + 5}
-
-    # ─── Trace Collector ──────────────────────────────────────────────────────
     trace: dict = {
         "retrieve_steps": [],
         "evaluate_steps": [],
         "synthesize_step": None,
         "route_decisions": [],
     }
-
-    # ─── Node Wrappers for Tracing ────────────────────────────────────────────
     original_retrieve = retrieve_node
     original_evaluate = evaluate_node
     original_synthesize = synthesize_node
@@ -773,7 +760,6 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         return result
 
     async def traced_evaluate(state: WebSwarmState) -> EvaluateNodeOutput:
-        # Reconstruct the exact prompt that evaluate_node builds internally
         kb_summary = "\n---\n".join(
             f"[{c['url']}] (score:{c['score']:.4f}, raw:{c.get('raw_score', 'N/A')})\n{c['content'][:500]}"
             for c in state["knowledge_base"][:10]
@@ -793,7 +779,6 @@ Rules:
 - "insufficient": Context touches on the topic but lacks specific details, OR only provides links/references to where the answer might be found AND pending_urls remain.
 - "irrelevant": Retrieved content is completely off-topic OR max iterations reached without finding relevant content.
 CRITICAL: If the query asks "what are the X options/features/types/steps", the context must LIST or DESCRIBE those specific items. A page titled "Overview" or "Introduction" that says "see documentation for details" does NOT satisfy a question asking for those specific details. The context must contain the actual answer, not just a pointer to it."""
-
         result = await original_evaluate(state)
         step: EvaluateStep = {
             "iteration": state["iteration"],
@@ -801,14 +786,13 @@ CRITICAL: If the query asks "what are the X options/features/types/steps", the c
             "pending_available": has_pending,
             "pending_count": len(state.get("pending_urls", [])),
             "evaluation": result["evaluation"],
-            "reasoning": "",  # Filled below from printed output side-channel
+            "reasoning": "",
             "prompt": eval_prompt,
         }
         trace["evaluate_steps"].append(step)
         return result
 
     async def traced_synthesize(state: WebSwarmState) -> SynthesizeNodeOutput:
-        # Reconstruct the exact prompt that synthesize_node builds internally
         sorted_kb = sorted(
             state["knowledge_base"], key=lambda x: x["score"], reverse=True
         )[:8]
@@ -822,7 +806,6 @@ Do NOT use any knowledge outside the provided context.
 QUERY: {state["query"]}
 CONTEXT:
 {context if context else "(No relevant context was retrieved during the search.)"}"""
-
         result = await original_synthesize(state)
         step: SynthesizeStep = {
             "kb_entries_used": len(sorted_kb),
@@ -854,20 +837,16 @@ CONTEXT:
         trace["route_decisions"].append(rd)
         return decision
 
-    # ─── Monkey-Patch Nodes for This Invocation ───────────────────────────────
     import jet.agents.llama_cpp.rag_web_crawler_agent as self_module
 
-    self_module.retrieve_node = traced_retrieve  # type: ignore[attr-defined]
-    self_module.evaluate_node = traced_evaluate  # type: ignore[attr-defined]
-    self_module.synthesize_node = traced_synthesize  # type: ignore[attr-defined]
-    self_module.should_continue = traced_route  # type: ignore[attr-defined]
-
-    # ─── Capture Workflow Graph ───────────────────────────────────────────────
+    self_module.retrieve_node = traced_retrieve
+    self_module.evaluate_node = traced_evaluate
+    self_module.synthesize_node = traced_synthesize
+    self_module.should_continue = traced_route
     graph_png_bytes: bytes | None = None
     try:
         from langchain_core.runnables.graph import MermaidDrawMethod
 
-        # Rebuild graph with traced nodes so diagram reflects actual execution
         traced_app = build_webswarm_graph()
         graph_png_bytes = traced_app.get_graph().draw_mermaid_png(
             draw_method=MermaidDrawMethod.API,
@@ -878,34 +857,26 @@ CONTEXT:
     except Exception as e:
         print(f"[INIT] ⚠️  Could not render workflow graph: {e}")
         graph_png_bytes = None
-
-    # ─── Execute Pipeline ─────────────────────────────────────────────────────
     try:
         if graph_png_bytes is not None:
-            # traced_app already built above for graph capture
             final_state = await traced_app.ainvoke(initial_state, config=invoke_config)
         else:
-            # Fallback: rebuild if graph capture failed
             fallback_app = build_webswarm_graph()
             final_state = await fallback_app.ainvoke(
                 initial_state, config=invoke_config
             )
     finally:
-        # Restore original nodes
-        self_module.retrieve_node = original_retrieve  # type: ignore[attr-defined]
-        self_module.evaluate_node = original_evaluate  # type: ignore[attr-defined]
-        self_module.synthesize_node = original_synthesize  # type: ignore[attr-defined]
-        self_module.should_continue = original_route  # type: ignore[attr-defined]
-
-    # ─── Print Summary ────────────────────────────────────────────────────────
+        self_module.retrieve_node = original_retrieve
+        self_module.evaluate_node = original_evaluate
+        self_module.synthesize_node = original_synthesize
+        self_module.should_continue = original_route
     print(f"\n{'═' * 60}")
     print(f"[DONE] Iterations: {final_state['iteration']}")
     print(f"[DONE] Pages visited: {len(final_state['visited_urls'])}")
     print(f"[DONE] KB entries: {len(final_state['knowledge_base'])}")
     print(f"[DONE] Sources: {[k['url'] for k in final_state['knowledge_base']]}")
+    print(f"[DONE] Session ID: {swarm_session_id}")
     print(f"{'═' * 60}")
-
-    # ─── Return Enriched Result ───────────────────────────────────────────────
     return {
         "answer": final_state["final_answer"],
         "sources": [k["url"] for k in final_state["knowledge_base"]],
@@ -938,7 +909,6 @@ if __name__ == "__main__":
         help='Site or page to start crawling from, e.g. "https://langchain-ai.github.io/langgraph/"',
     )
     args = parser.parse_args()
-
     result = asyncio.run(
         run_webswarm(
             query=args.query,
