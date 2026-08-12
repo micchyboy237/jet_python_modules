@@ -1,0 +1,24 @@
+Package                      Version            Editable project location
+---------------------------- ------------------ ----------------------------------------------------------------------------------------------------------------------------------
+audioflux                    0.1.9              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux
+bertopic                     0.17.4             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic
+codependpy                   0.1.1              /Users/jethroestrada/Desktop/External_Projects/Utils/codependpy
+datasketch                   2.0.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/datasketch
+faster-whisper               1.2.1              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/faster-whisper
+googletrans                  4.0.2              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/googletrans
+keybert                      0.9.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/KeyBERT
+langchain-chroma             1.1.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/partners/chroma
+langchain-classic            1.0.8              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/langchain
+langchain-core               1.5.4              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core
+langchain-openai             1.4.3              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/partners/openai
+langchain-text-splitters     1.1.2              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/text-splitters
+langgraph                    1.2.11             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/langgraph
+langgraph-checkpoint         4.2.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/checkpoint
+langgraph-prebuilt           1.1.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/prebuilt
+letta                        0.16.8             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta
+llama-index-llms-openai-like 0.7.2              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/llms/llama-index-llms-openai-like
+nova-vad                     1.0.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/nova-vad
+searxng                      2026.8.4+c63835bd2 /Users/jethroestrada/Desktop/External_Projects/AI/apps/searxng
+semhash                      0.4.1              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/semhash
+unstructured_inference       1.6.13             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured-inference
+wtpsplit                     2.2.1              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/wtpsplit
