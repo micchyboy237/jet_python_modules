@@ -1,5 +1,0 @@
-root ::= "{" ws "\"summary\"" ws ":" ws string-sum ws "," ws "\"key_facts\"" ws ":" ws "[" ws fact-list? ws "]" ws "}"
-fact-list ::= fact (ws "," ws fact)*
-fact ::= "\"" ([^"\\] | "\\" .){10,150} "\""
-string-sum ::= "\"" ([^"\\] | "\\" .){30,300} "\""
-ws ::= [ \t\n]*
