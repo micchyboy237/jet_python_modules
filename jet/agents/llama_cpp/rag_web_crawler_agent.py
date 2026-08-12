@@ -682,17 +682,9 @@ def build_webswarm_graph() -> CompiledStateGraph[WebSwarmState]:
 
 
 async def run_webswarm(query: str, root_url: str) -> SwarmResult:
-    """Execute the WebSwarm RAG pipeline end-to-end.
-
-    Args:
-        query: Research question to answer
-        root_url: Starting URL for crawling
-
-    Returns:
-        SwarmResult with answer, sources, trace data, and configuration
-    """
     app = build_webswarm_graph()
 
+    # ─── Config Snapshot ──────────────────────────────────────────────────────
     config_snapshot = {
         "max_iterations": MAX_ITERATIONS,
         "max_pages_per_iter": MAX_PAGES_PER_ITER,
@@ -722,6 +714,7 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
     print(f"[INIT] Reranker: {RERANK_MODEL} @ {RERANK_BASE_URL}")
     print(f"{'═' * 60}")
 
+    # ─── Initial State ────────────────────────────────────────────────────────
     initial_state: WebSwarmState = {
         "query": query,
         "root_url": root_url,
@@ -736,6 +729,7 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
 
     invoke_config = {"recursion_limit": MAX_ITERATIONS * 3 + 5}
 
+    # ─── Trace Collector ──────────────────────────────────────────────────────
     trace: dict = {
         "retrieve_steps": [],
         "evaluate_steps": [],
@@ -743,7 +737,7 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         "route_decisions": [],
     }
 
-    # === Node tracing wrappers ===
+    # ─── Node Wrappers for Tracing ────────────────────────────────────────────
     original_retrieve = retrieve_node
     original_evaluate = evaluate_node
     original_synthesize = synthesize_node
@@ -751,12 +745,13 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
 
     async def traced_retrieve(state: WebSwarmState) -> RetrieveNodeOutput:
         result = await original_retrieve(state)
+        prev_urls = {k["url"] for k in state["knowledge_base"]}
+        new_chunks = [c for c in result["knowledge_base"] if c["url"] not in prev_urls]
         step: RetrieveStep = {
             "iteration": result["iteration"],
             "pending_urls": list(state["pending_urls"][:MAX_PAGES_PER_ITER]),
             "visited_count": len(state["visited_urls"]),
-            "fetched_pages": len(result["knowledge_base"])
-            - len(state["knowledge_base"]),
+            "fetched_pages": len(new_chunks),
             "discovered_links": len(result["pending_urls"]),
             "reranked_chunks": [
                 {
@@ -765,17 +760,12 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
                     "raw_score": round(c.get("raw_score", 0.0), 4),
                     "truncated_chars": c.get("truncated_chars", 0),
                 }
-                for c in result["knowledge_base"]
-                if c["url"] not in {k["url"] for k in state["knowledge_base"]}
+                for c in new_chunks
             ],
             "chunks_above_threshold": sum(
-                1
-                for c in result["knowledge_base"]
-                if c["score"] >= RELEVANCE_THRESHOLD
-                and c["url"] not in {k["url"] for k in state["knowledge_base"]}
+                1 for c in new_chunks if c["score"] >= RELEVANCE_THRESHOLD
             ),
-            "chunks_added_to_kb": len(result["knowledge_base"])
-            - len(state["knowledge_base"]),
+            "chunks_added_to_kb": len(new_chunks),
             "kb_total_after": len(result["knowledge_base"]),
             "next_pending_count": len(result["pending_urls"]),
         }
@@ -783,35 +773,69 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         return result
 
     async def traced_evaluate(state: WebSwarmState) -> EvaluateNodeOutput:
+        # Reconstruct the exact prompt that evaluate_node builds internally
+        kb_summary = "\n---\n".join(
+            f"[{c['url']}] (score:{c['score']:.4f}, raw:{c.get('raw_score', 'N/A')})\n{c['content'][:500]}"
+            for c in state["knowledge_base"][:10]
+        )
+        has_pending = bool(state.get("pending_urls"))
+        eval_prompt = f"""You are a RAG evaluation agent. Determine if the retrieved context sufficiently answers the query.
+QUERY: {state["query"]}
+ROOT URL: {state["root_url"]}
+ITERATION: {state["iteration"]}/{MAX_ITERATIONS}
+PENDING_URLS_AVAILABLE: {has_pending}
+RETRIEVED CONTEXT:
+{kb_summary if kb_summary else "(No relevant context retrieved yet)"}
+Respond with ONLY valid JSON:
+{{"evaluation": "sufficient|insufficient|irrelevant", "reasoning": "brief explanation"}}
+Rules:
+- "sufficient": Context contains SPECIFIC FACTS, DETAILS, or ENUMERATIONS that directly answer the query. A link or mention that information exists elsewhere is NOT sufficient.
+- "insufficient": Context touches on the topic but lacks specific details, OR only provides links/references to where the answer might be found AND pending_urls remain.
+- "irrelevant": Retrieved content is completely off-topic OR max iterations reached without finding relevant content.
+CRITICAL: If the query asks "what are the X options/features/types/steps", the context must LIST or DESCRIBE those specific items. A page titled "Overview" or "Introduction" that says "see documentation for details" does NOT satisfy a question asking for those specific details. The context must contain the actual answer, not just a pointer to it."""
+
         result = await original_evaluate(state)
         step: EvaluateStep = {
             "iteration": state["iteration"],
             "kb_size": len(state["knowledge_base"]),
-            "pending_available": bool(state.get("pending_urls")),
+            "pending_available": has_pending,
             "pending_count": len(state.get("pending_urls", [])),
             "evaluation": result["evaluation"],
-            "reasoning": "",
+            "reasoning": "",  # Filled below from printed output side-channel
+            "prompt": eval_prompt,
         }
         trace["evaluate_steps"].append(step)
         return result
 
     async def traced_synthesize(state: WebSwarmState) -> SynthesizeNodeOutput:
-        result = await original_synthesize(state)
+        # Reconstruct the exact prompt that synthesize_node builds internally
         sorted_kb = sorted(
             state["knowledge_base"], key=lambda x: x["score"], reverse=True
         )[:8]
+        context = "\n\n===SOURCE===".join(
+            f"URL: {c['url']}\nRelevance: {c['score']:.4f}\n{c['content']}"
+            for c in sorted_kb
+        )
+        synth_prompt = f"""Using ONLY the provided context, answer the query comprehensively.
+Cite sources as [URL]. If context is insufficient, say so explicitly.
+Do NOT use any knowledge outside the provided context.
+QUERY: {state["query"]}
+CONTEXT:
+{context if context else "(No relevant context was retrieved during the search.)"}"""
+
+        result = await original_synthesize(state)
         step: SynthesizeStep = {
             "kb_entries_used": len(sorted_kb),
             "source_urls": [c["url"] for c in sorted_kb],
             "source_scores": [round(c["score"], 4) for c in sorted_kb],
             "answer": result["final_answer"],
+            "prompt": synth_prompt,
         }
         trace["synthesize_step"] = step
         return result
 
     def traced_route(state: WebSwarmState) -> Literal["retrieve", "synthesize", END]:
         decision = original_route(state)
-
         if state["evaluation"] == "sufficient":
             reason = "evaluation=sufficient"
         elif state["evaluation"] == "irrelevant":
@@ -821,11 +845,7 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         elif not state["pending_urls"]:
             reason = "no_pending_urls"
         else:
-            reason = (
-                f"evaluation={state['evaluation']}, "
-                f"pending={len(state['pending_urls'])}"
-            )
-
+            reason = f"evaluation={state['evaluation']}, pending={len(state['pending_urls'])}"
         rd: RouteDecision = {
             "iteration": state["iteration"],
             "decision": decision if decision != END else "synthesize",
@@ -834,23 +854,50 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         trace["route_decisions"].append(rd)
         return decision
 
-    # Monkey-patch for tracing
+    # ─── Monkey-Patch Nodes for This Invocation ───────────────────────────────
     import jet.agents.llama_cpp.rag_web_crawler_agent as self_module
 
-    self_module.retrieve_node = traced_retrieve
-    self_module.evaluate_node = traced_evaluate
-    self_module.synthesize_node = traced_synthesize
-    self_module.should_continue = traced_route
+    self_module.retrieve_node = traced_retrieve  # type: ignore[attr-defined]
+    self_module.evaluate_node = traced_evaluate  # type: ignore[attr-defined]
+    self_module.synthesize_node = traced_synthesize  # type: ignore[attr-defined]
+    self_module.should_continue = traced_route  # type: ignore[attr-defined]
 
+    # ─── Capture Workflow Graph ───────────────────────────────────────────────
+    graph_png_bytes: bytes | None = None
     try:
-        traced_app = build_webswarm_graph()
-        final_state = await traced_app.ainvoke(initial_state, config=invoke_config)
-    finally:
-        self_module.retrieve_node = original_retrieve
-        self_module.evaluate_node = original_evaluate
-        self_module.synthesize_node = original_synthesize
-        self_module.should_continue = original_route
+        from langchain_core.runnables.graph import MermaidDrawMethod
 
+        # Rebuild graph with traced nodes so diagram reflects actual execution
+        traced_app = build_webswarm_graph()
+        graph_png_bytes = traced_app.get_graph().draw_mermaid_png(
+            draw_method=MermaidDrawMethod.API,
+            max_retries=3,
+            retry_delay=2.0,
+        )
+        print(f"[INIT] ✅ Workflow graph captured ({len(graph_png_bytes)} bytes)")
+    except Exception as e:
+        print(f"[INIT] ⚠️  Could not render workflow graph: {e}")
+        graph_png_bytes = None
+
+    # ─── Execute Pipeline ─────────────────────────────────────────────────────
+    try:
+        if graph_png_bytes is not None:
+            # traced_app already built above for graph capture
+            final_state = await traced_app.ainvoke(initial_state, config=invoke_config)
+        else:
+            # Fallback: rebuild if graph capture failed
+            fallback_app = build_webswarm_graph()
+            final_state = await fallback_app.ainvoke(
+                initial_state, config=invoke_config
+            )
+    finally:
+        # Restore original nodes
+        self_module.retrieve_node = original_retrieve  # type: ignore[attr-defined]
+        self_module.evaluate_node = original_evaluate  # type: ignore[attr-defined]
+        self_module.synthesize_node = original_synthesize  # type: ignore[attr-defined]
+        self_module.should_continue = original_route  # type: ignore[attr-defined]
+
+    # ─── Print Summary ────────────────────────────────────────────────────────
     print(f"\n{'═' * 60}")
     print(f"[DONE] Iterations: {final_state['iteration']}")
     print(f"[DONE] Pages visited: {len(final_state['visited_urls'])}")
@@ -858,6 +905,7 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
     print(f"[DONE] Sources: {[k['url'] for k in final_state['knowledge_base']]}")
     print(f"{'═' * 60}")
 
+    # ─── Return Enriched Result ───────────────────────────────────────────────
     return {
         "answer": final_state["final_answer"],
         "sources": [k["url"] for k in final_state["knowledge_base"]],
@@ -869,6 +917,7 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         "evaluate_steps": trace["evaluate_steps"],
         "synthesize_step": trace["synthesize_step"],
         "route_decisions": trace["route_decisions"],
+        "graph_png": graph_png_bytes,
     }
 
 

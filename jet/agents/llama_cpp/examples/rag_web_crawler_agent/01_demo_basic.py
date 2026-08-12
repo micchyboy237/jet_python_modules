@@ -428,7 +428,14 @@ def save_artifacts(result: dict, output_dir: Path) -> list[Path]:
     if workflow_chart_path:
         saved_files.append(workflow_chart_path)
 
-    # 11. Log file
+    # 11. Workflow Graph Diagram
+    graph_bytes = result.get("graph_png")
+    if graph_bytes:
+        graph_path = output_dir / "workflow_graph.png"
+        graph_path.write_bytes(graph_bytes)
+        saved_files.append(graph_path)
+
+    # 12. Log file
     log_path = output_dir / "agent_trace.log"
     saved_files.append(log_path)
 
