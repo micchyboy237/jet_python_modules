@@ -1,6 +1,7 @@
 """Tool for the SearXNG search API using jet.search.searxng core."""
 
 import json
+import os
 from typing import Dict, List, Literal, Optional, Tuple, Type, Union
 
 from jet.logger import logger
@@ -82,7 +83,8 @@ class SearXNGSearchResults(BaseTool):
     default_safesearch: int = Field(default=0)
     default_years_ago: int = Field(default=1)
     query_url: Optional[str] = Field(
-        default=None, description="Custom SearXNG instance URL."
+        default=os.getenv("SEARXNG_URL", "http://localhost:8888"),
+        description="Custom SearXNG instance URL.",
     )
 
     # Output formatting
@@ -161,6 +163,19 @@ class SearXNGSearchResults(BaseTool):
             f"count={effective_count}, engines={effective_engines}, "
             f"categories={effective_categories}"
         )
+
+        logger.debug(f"SearXNGSearchResults._run called with:")
+        logger.debug(f"  query: {query}")
+        logger.debug(f"  count: {effective_count}")
+        logger.debug(
+            f"  engines: {effective_engines} (type: {type(effective_engines).__name__})"
+        )
+        logger.debug(
+            f"  categories: {effective_categories} (type: {type(effective_categories).__name__})"
+        )
+        logger.debug(f"  language: {effective_language}")
+        logger.debug(f"  safesearch: {effective_safesearch}")
+        logger.debug(f"  years_ago: {effective_years_ago}")
 
         try:
             results = search_searxng(

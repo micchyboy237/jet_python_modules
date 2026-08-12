@@ -5,7 +5,7 @@ sys.path.append(
 )
 
 import json
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 from dotenv import load_dotenv
 from evaluation.evalute_rag import *
@@ -17,7 +17,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts.prompt import PromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 load_dotenv()
 
@@ -88,9 +88,17 @@ def retrieval_evaluator(query: str, document: str) -> float:
 class KnowledgeRefinementInput(BaseModel):
     """Key points extracted from a document as bullet points."""
 
-    key_points: str = Field(
+    key_points: Union[str, List[str]] = Field(
         ..., description="The extracted key information formatted as bullet points."
     )
+
+    @field_validator("key_points", mode="before")
+    @classmethod
+    def normalize_key_points(cls, v: Union[str, List[str]]) -> str:
+        """Accept both str and list from LLM; always return a string."""
+        if isinstance(v, list):
+            return "\n".join(str(item) for item in v)
+        return str(v)
 
 
 def knowledge_refinement(document: str) -> List[str]:

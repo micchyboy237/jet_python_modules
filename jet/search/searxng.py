@@ -65,41 +65,76 @@ class NoResultsFoundError(Exception):
 
 def build_query_url(base_url: str, params: dict) -> str:
     """Helper function to construct the full search query URL with deduplicated parameters."""
-    # Parse the base URL to separate the query string
+    # Handle None or empty base_url
+    if not base_url:
+        base_url = os.getenv("SEARXNG_URL", "http://localhost:8888")
+        logger.warning(f"base_url was None/empty, using default: {base_url}")
+
+    logger.debug("=== build_query_url called ===")
+    logger.debug(f"base_url: {base_url}")
+    logger.debug(f"params: {json.dumps(params, default=str)}")
+
     parsed_url = urlparse(base_url)
+
+    # Convert bytes components to strings (urlparse returns bytes for empty values on invalid URLs)
+    scheme = (
+        parsed_url.scheme.decode()
+        if isinstance(parsed_url.scheme, bytes)
+        else parsed_url.scheme or "http"
+    )
+    netloc = (
+        parsed_url.netloc.decode()
+        if isinstance(parsed_url.netloc, bytes)
+        else parsed_url.netloc or "localhost:8888"
+    )
+    path = (
+        parsed_url.path.decode()
+        if isinstance(parsed_url.path, bytes)
+        else parsed_url.path or "/"
+    )
+    params_str = (
+        parsed_url.params.decode()
+        if isinstance(parsed_url.params, bytes)
+        else parsed_url.params or ""
+    )
+    fragment = (
+        parsed_url.fragment.decode()
+        if isinstance(parsed_url.fragment, bytes)
+        else parsed_url.fragment or ""
+    )
+
+    logger.debug(
+        f"parsed_url: scheme={scheme}, netloc={netloc}, path={path}, query={parsed_url.query}"
+    )
+
     query_params = parse_qs(parsed_url.query)
+    logger.debug(f"initial query_params: {json.dumps(query_params, default=str)}")
 
-    # Merge the existing query parameters with the new params
-    # If a key exists in both, the value from `params` will overwrite the existing one
     for key, value in params.items():
+        logger.debug(f"Processing param: {key}={value} (type: {type(value).__name__})")
         if isinstance(value, (list, tuple)):
-            query_params[key] = list(value)
+            converted = [str(v) for v in value]
+            logger.debug(f"  Converted list/tuple to: {converted}")
+            query_params[key] = converted
         else:
-            query_params[key] = [value]
+            logger.debug(f"  Converted single value to: [str(value)]")
+            query_params[key] = [str(value)]
 
-    # Convert the query_params back to a string
-    # urlencode expects a dictionary where values are either strings or lists of strings
-    # We need to ensure that single-value keys are not wrapped in a list
     encoded_params = {}
     for key, value_list in query_params.items():
+        logger.debug(f"Encoding: {key} = {value_list}")
         if len(value_list) == 1:
             encoded_params[key] = value_list[0]
         else:
             encoded_params[key] = value_list
 
-    # Rebuild the URL with the deduplicated and merged parameters
-    new_query = urlencode(encoded_params, doseq=True)
-    new_url = urlunparse(
-        (
-            parsed_url.scheme,
-            parsed_url.netloc,
-            parsed_url.path,
-            parsed_url.params,
-            new_query,
-            parsed_url.fragment,
-        )
-    )
+    logger.debug(f"encoded_params: {json.dumps(encoded_params, default=str)}")
 
+    new_query = urlencode(encoded_params, doseq=True)
+    logger.debug(f"new_query string: {new_query}")
+
+    new_url = urlunparse((scheme, netloc, path, params_str, new_query, fragment))
+    logger.debug(f"Final URL: {new_url}")
     return new_url
 
 
@@ -165,6 +200,22 @@ def search_searxng(
     **kwargs,
 ) -> list[SearchResult]:
     query = decode_encoded_characters(query)
+
+    # ===== DEBUG: Log all input parameters =====
+    logger.debug("=== search_searxng called ===")
+    logger.debug(f"query: {query}")
+    logger.debug(f"query_url: {query_url}")
+    logger.debug(f"count: {count}")
+    logger.debug(f"min_score: {min_score}")
+    logger.debug(f"min_date: {min_date}")
+    logger.debug(
+        f"engines (before processing): {engines} (type: {type(engines).__name__})"
+    )
+    logger.debug(f"include_sites: {include_sites}")
+    logger.debug(f"exclude_sites: {exclude_sites}")
+    logger.debug(f"max_retries: {max_retries}")
+    logger.debug(f"kwargs: {json.dumps(kwargs, default=str)}")
+
     try:
         if include_sites:
             include_query = " OR ".join([f"site:{site}" for site in include_sites])
@@ -184,7 +235,10 @@ def search_searxng(
         if "safesearch" in kwargs:
             params["safesearch"] = kwargs["safesearch"] or 0
         if engines:
-            params["engines"] = (",".join(engines),)
+            params["engines"] = ",".join(engines)
+            logger.debug(
+                f"engines joined: {params['engines']} (type: {type(params['engines']).__name__})"
+            )
 
         if not min_date:
             years_ago = kwargs.get("years_ago", 1)
@@ -193,7 +247,17 @@ def search_searxng(
         min_date = format_min_date(min_date)
         min_date_iso = min_date.isoformat()
 
+        # ===== DEBUG: Log params before build_query_url =====
+        logger.debug("=== Params before build_query_url ===")
+        for key, value in params.items():
+            logger.debug(f"  {key}: {value} (type: {type(value).__name__})")
+
         query_url = build_query_url(query_url, params)
+
+        # ===== DEBUG: Log constructed URL =====
+        logger.debug(f"=== Constructed query_url ===")
+        logger.debug(f"query_url: {query_url}")
+
         headers = {"Accept": "application/json"}
 
         cached_result = None
