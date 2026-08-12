@@ -1,11 +1,21 @@
+import logging
 import os
 import threading
 
 from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 from phoenix.otel import register
 from rich.console import Console
+from rich.logging import RichHandler
 
 console = Console()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
+)
+logger = logging.getLogger(__name__)
 
 PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
 
