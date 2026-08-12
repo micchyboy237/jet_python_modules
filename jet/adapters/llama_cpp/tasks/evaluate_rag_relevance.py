@@ -1,7 +1,8 @@
 """Evaluate whether a full RAG context completely answers a query.
 Designed for long-context evaluation where the final assembled context
 may contain significant noise alongside relevant information.
-Returns structured assessment including completeness flag and missing info description.
+Returns structured assessment with decomposed_queries, completed_info,
+and missing_info as lists of short texts for programmatic consumption.
 Uses grammar-constrained generation for reliable JSON output from local models.
 NOTE: enable_thinking is FORCED to False because thinking tokens break grammar constraints.
 """
@@ -22,9 +23,11 @@ from jet.logger import logger
 class RagRelevanceResult(TypedDict):
     """Evaluation result for full RAG context relevance."""
 
+    decomposed_queries: list[str]
     is_complete: bool
     confidence: float
-    missing_info: str
+    completed_info: list[str]
+    missing_info: list[str]
     is_valid: bool
     error: Optional[str]
 
@@ -33,18 +36,30 @@ SYSTEM_PROMPT = """\
 You are an expert RAG evaluator assessing LONG CONTEXTS. Given a query and a potentially large \
 assembled context, determine if the context COMPLETELY and ACCURATELY answers the query.
 
-Evaluation Criteria:
-- is_complete: true ONLY if ALL aspects of the query are fully answered by the context
-- is_complete: false if ANY part remains unanswered, ambiguous, or requires external knowledge
-- confidence: 0.0-1.0 indicating certainty in your assessment
-- missing_info: If not complete, describe SPECIFICALLY what information is missing. \
-If complete, use empty string ""
+STEP 1 — DECOMPOSE: Break the query into atomic sub-questions. Each sub-question MUST include \
+its full scope (entity, metric, time period). List them in decomposed_queries. \
+Example: "WearableTech segment Q3 2025 net income" is ONE sub-question, NOT separate parts.
 
-Rules for Long Contexts:
-- Ignore irrelevant sections, boilerplate, and tangential information
-- Focus strictly on factual completeness regarding the specific query
-- Partial answers or implied information mean is_complete=false
-- Be precise about WHAT is missing, not just that something is missing
+STEP 2 — EXTRACT: For EACH sub-question, search the context for a value that matches the FULL SCOPE. \
+A company-wide value does NOT satisfy a segment-specific sub-question. Scope must match exactly.
+
+STEP 3 — CLASSIFY: Place each sub-question's result in exactly one list:
+- completed_info: Sub-questions where a scope-matching value was found. Include the exact value.
+- missing_info: Sub-questions where NO scope-matching value exists in the context.
+
+Output Format:
+- decomposed_queries: List of atomic sub-questions derived from the original query
+- is_complete: true ONLY if missing_info is empty
+- confidence: 0.0-1.0 indicating certainty in your assessment
+- completed_info: List of short statements. Each MUST name the full scope AND the exact value found.
+- missing_info: List of short statements. Each MUST name the full scope and state what is absent.
+
+Rules:
+- Every sub-question in decomposed_queries must appear in EXACTLY ONE of completed_info or missing_info
+- SCOPE MATCHING IS STRICT: "WearableTech EPS" ≠ "Company EPS". Never substitute.
+- Keep each list item concise (under 30 words)
+- Extract values from bullets (•), tables, and structured formats accurately
+- Ignore irrelevant context sections
 - Return ONLY valid JSON matching the required schema
 - Do NOT include any text outside the JSON object"""
 
@@ -54,15 +69,32 @@ def _build_relevance_schema() -> dict:
     return {
         "type": "object",
         "properties": {
+            "decomposed_queries": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
             "is_complete": {"type": "boolean"},
             "confidence": {
                 "type": "number",
                 "minimum": 0.0,
                 "maximum": 1.0,
             },
-            "missing_info": {"type": "string"},
+            "completed_info": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "missing_info": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
         },
-        "required": ["is_complete", "confidence", "missing_info"],
+        "required": [
+            "decomposed_queries",
+            "is_complete",
+            "confidence",
+            "completed_info",
+            "missing_info",
+        ],
         "additionalProperties": False,
     }
 
@@ -70,6 +102,23 @@ def _build_relevance_schema() -> dict:
 def _build_user_prompt(query: str, context: str) -> str:
     """Build user prompt with query and full context."""
     return f"Query: {query}\n\nFull Context:\n{context}"
+
+
+def _validate_string_list(raw: object, field_name: str) -> list[str]:
+    """Ensure parsed value is a list of strings, coercing/filtering as needed."""
+    if not isinstance(raw, list):
+        logger.warning(f"{field_name} was {type(raw).__name__}, defaulting to []")
+        return []
+    validated: list[str] = []
+    for i, item in enumerate(raw):
+        if isinstance(item, str):
+            validated.append(item)
+        else:
+            logger.warning(
+                f"{field_name}[{i}] was {type(item).__name__}, coercing to str"
+            )
+            validated.append(str(item))
+    return validated
 
 
 def evaluate_rag_relevance(
@@ -84,20 +133,21 @@ def evaluate_rag_relevance(
     """Evaluate whether a full RAG context completely answers a query.
 
     Designed for long-context evaluation where the assembled context may be large
-    and contain both relevant and irrelevant information. Uses grammar-constrained
-    generation to ensure reliable structured output from small local models.
+    and contain both relevant and irrelevant information. Returns structured
+    decomposed_queries, completed_info, and missing_info as lists of short texts
+    for programmatic consumption.
 
     Args:
         query: The user query to evaluate against.
         context: The full assembled RAG context (concatenated chunks).
         model: LLM model key. Defaults to LLM_MODEL.
         temperature: Sampling temperature (default: 0.0 for deterministic).
-        max_tokens: Max tokens for the JSON response (default: 2048 for long missing_info).
+        max_tokens: Max tokens for the JSON response (default: 2048 for list outputs).
         project_name: Phoenix project name for trace grouping. Set to None to disable tracing.
         phoenix_url: Phoenix server base URL for trace links.
 
     Returns:
-        RagRelevanceResult with completeness assessment and missing info description.
+        RagRelevanceResult with decomposition, completeness assessment, and info lists.
     """
     resolved_model = model or LLM_MODEL
 
@@ -105,9 +155,11 @@ def evaluate_rag_relevance(
     if not query.strip():
         logger.error("evaluate_rag_relevance: Query cannot be empty")
         return RagRelevanceResult(
+            decomposed_queries=[],
             is_complete=False,
             confidence=0.0,
-            missing_info="",
+            completed_info=[],
+            missing_info=[],
             is_valid=False,
             error="Empty query",
         )
@@ -115,9 +167,11 @@ def evaluate_rag_relevance(
     if not context.strip():
         logger.error("evaluate_rag_relevance: Context cannot be empty")
         return RagRelevanceResult(
+            decomposed_queries=[],
             is_complete=False,
             confidence=0.0,
-            missing_info="No context provided",
+            completed_info=[],
+            missing_info=["No context provided"],
             is_valid=False,
             error="Empty context",
         )
@@ -133,15 +187,23 @@ def evaluate_rag_relevance(
         schema = _build_relevance_schema()
         grammar = build_grammar_from_schema(
             schema,
-            prop_order={"is_complete": 0, "confidence": 1, "missing_info": 2},
+            prop_order={
+                "decomposed_queries": 0,
+                "is_complete": 1,
+                "confidence": 2,
+                "completed_info": 3,
+                "missing_info": 4,
+            },
         )
     except ValueError as e:
         error_msg = f"Grammar generation failed: {e}"
         logger.error(error_msg)
         return RagRelevanceResult(
+            decomposed_queries=[],
             is_complete=False,
             confidence=0.0,
-            missing_info="",
+            completed_info=[],
+            missing_info=[],
             is_valid=False,
             error=error_msg,
         )
@@ -152,9 +214,11 @@ def evaluate_rag_relevance(
         error_msg = f"Grammar validation failed: {validation_error}"
         logger.error(error_msg)
         return RagRelevanceResult(
+            decomposed_queries=[],
             is_complete=False,
             confidence=0.0,
-            missing_info="",
+            completed_info=[],
+            missing_info=[],
             is_valid=False,
             error=error_msg,
         )
@@ -184,9 +248,11 @@ def evaluate_rag_relevance(
         error_msg = f"Chat completion failed: {e}"
         logger.error(error_msg)
         return RagRelevanceResult(
+            decomposed_queries=[],
             is_complete=False,
             confidence=0.0,
-            missing_info="",
+            completed_info=[],
+            missing_info=[],
             is_valid=False,
             error=error_msg,
         )
@@ -201,9 +267,11 @@ def evaluate_rag_relevance(
         error_msg = f"JSON parse failed despite grammar: {e}. Possible truncation."
         logger.error(error_msg)
         return RagRelevanceResult(
+            decomposed_queries=[],
             is_complete=False,
             confidence=0.0,
-            missing_info="",
+            completed_info=[],
+            missing_info=[],
             is_valid=False,
             error=error_msg,
         )
@@ -213,19 +281,27 @@ def evaluate_rag_relevance(
         error_msg = f"Expected JSON object, got {type(parsed).__name__}"
         logger.error(error_msg)
         return RagRelevanceResult(
+            decomposed_queries=[],
             is_complete=False,
             confidence=0.0,
-            missing_info="",
+            completed_info=[],
+            missing_info=[],
             is_valid=False,
             error=error_msg,
         )
 
-    # Extract and validate fields
+    # Extract and validate all fields
+    decomposed_queries = _validate_string_list(
+        parsed.get("decomposed_queries"), "decomposed_queries"
+    )
     is_complete = parsed.get("is_complete", False)
     confidence = parsed.get("confidence", 0.0)
-    missing_info = parsed.get("missing_info", "")
+    completed_info = _validate_string_list(
+        parsed.get("completed_info"), "completed_info"
+    )
+    missing_info = _validate_string_list(parsed.get("missing_info"), "missing_info")
 
-    # Type safety checks
+    # Type safety checks for scalar fields
     if not isinstance(is_complete, bool):
         logger.warning(
             f"is_complete was {type(is_complete).__name__}, coercing to bool"
@@ -238,20 +314,18 @@ def evaluate_rag_relevance(
     else:
         confidence = max(0.0, min(1.0, float(confidence)))
 
-    if not isinstance(missing_info, str):
-        logger.warning(
-            f"missing_info was {type(missing_info).__name__}, coercing to str"
-        )
-        missing_info = str(missing_info)
-
     logger.info(
         f"Evaluation complete: is_complete={is_complete}, "
-        f"confidence={confidence:.2f}, missing_info_len={len(missing_info)}"
+        f"confidence={confidence:.2f}, "
+        f"decomposed={len(decomposed_queries)}, "
+        f"completed={len(completed_info)}, missing={len(missing_info)}"
     )
 
     return RagRelevanceResult(
+        decomposed_queries=decomposed_queries,
         is_complete=is_complete,
         confidence=confidence,
+        completed_info=completed_info,
         missing_info=missing_info,
         is_valid=True,
         error=None,
@@ -265,7 +339,8 @@ if __name__ == "__main__":
 
     console = Console()
 
-    # Single comprehensive long-context test case
+    # Long context that PARTIALLY answers the query — demonstrates incomplete RAG evaluation
+    # Contains company-wide financials but lacks segment-specific EPS and net income
     LONG_CONTEXT = """
 SECTION 1: COMPANY HISTORY
 Acme Corp was founded in 1985 by John Smith in Portland, Oregon. Originally a bicycle manufacturer,
@@ -284,13 +359,16 @@ by region and product category. See acme.example.com/terms for full details. Lim
 applies to all consumer products sold after January 1, 2024.
 
 SECTION 4: Q3 2025 FINANCIAL HIGHLIGHTS
-Revenue: $847 million (up 12% YoY)
+Total Company Revenue: $847 million (up 12% YoY)
 Gross Margin: 34.2%
 Operating Expenses: $215 million
-Net Income: $78.3 million
-EPS: $1.42
-SmartHome segment contributed 45% of total revenue. WearableTech grew 28% but remains only 15% of revenue.
-EcoKitchen declined 3% due to supply chain disruptions in Southeast Asia.
+Total Net Income: $78.3 million
+Total EPS: $1.42
+
+Segment Breakdown — Q3 2025:
+• SmartHome: Revenue $381M (45% of total), YoY Revenue Growth +8%
+• WearableTech: Revenue $127M (15% of total), YoY Revenue Growth +28%
+• EcoKitchen: Revenue $339M (40% of total), YoY Revenue Growth -3%
 
 SECTION 5: SUSTAINABILITY REPORT
 Acme achieved carbon neutrality in Scope 1 and 2 emissions in 2024. Water usage reduced by 18%.
@@ -305,18 +383,32 @@ VP Engineering: Carlos Rodriguez
 Board Chair: Elizabeth Thompson
 """
 
-    TEST_QUERY = "What was Acme Corp's Q3 2025 net income, EPS, and year-over-year revenue growth rate for the WearableTech segment specifically?"
+    TEST_QUERY = (
+        "What was Acme Corp's Q3 2025 net income, EPS, and year-over-year "
+        "revenue growth rate for the WearableTech segment specifically?"
+    )
 
     console.print(
-        "\n[bold green]RAG Relevance Evaluation — Long Context Test[/bold green]"
+        "\n[bold green]RAG Relevance Evaluation — Incomplete Context Test[/bold green]"
     )
     console.print(Panel(TEST_QUERY, title="Query", border_style="cyan"))
     console.print(
-        f"[dim]Context length: {len(LONG_CONTEXT)} chars (~{len(LONG_CONTEXT.split())} words)[/dim]\n"
+        f"[dim]Context length: {len(LONG_CONTEXT)} chars "
+        f"(~{len(LONG_CONTEXT.split())} words)[/dim]\n"
     )
 
     result = evaluate_rag_relevance(TEST_QUERY, LONG_CONTEXT)
 
+    # Show decomposed queries first
+    if result["decomposed_queries"]:
+        console.print("[bold cyan]Decomposed Queries:[/bold cyan]")
+        for i, dq in enumerate(result["decomposed_queries"], 1):
+            console.print(f"  {i}. {dq}")
+        console.print()
+    else:
+        console.print("[dim]Decomposed Queries: (none)[/dim]\n")
+
+    # Main result table
     table = Table(show_header=True, header_style="bold magenta", show_lines=True)
     table.add_column("Field", style="bold", width=15)
     table.add_column("Value", style="white")
@@ -334,9 +426,26 @@ Board Chair: Elizabeth Thompson
 
     table.add_row("Status", complete_str)
     table.add_row("Confidence", f"{result['confidence']:.2f}")
-    table.add_row("Missing Info", result["missing_info"] or "[dim](none)[/dim]")
     table.add_row("Valid Output", valid_str)
     if result["error"]:
         table.add_row("Error", f"[red]{result['error']}[/red]")
 
     console.print(table)
+
+    # Completed info list
+    if result["completed_info"]:
+        console.print("\n[bold green]✓ Completed Info:[/bold green]")
+        for i, item in enumerate(result["completed_info"], 1):
+            console.print(f"  {i}. {item}")
+    else:
+        console.print("\n[dim]✓ Completed Info: (none)[/dim]")
+
+    # Missing info list
+    if result["missing_info"]:
+        console.print("\n[bold red]✗ Missing Info:[/bold red]")
+        for i, item in enumerate(result["missing_info"], 1):
+            console.print(f"  {i}. {item}")
+    else:
+        console.print(
+            "\n[bold green]✗ Missing Info: (none — context is complete)[/bold green]"
+        )
