@@ -53,6 +53,8 @@ class CustomOpenAIClient(DeepEvalBaseLLM):
         session_id: str | None = None,
         client: OpenAI | None = None,
         async_client: AsyncOpenAI | None = None,
+        timeout: float = 120.0,
+        max_retries: int = 3,
     ):
         self.model_name = model_name
         self.base_url = base_url or LLM_BASE_URL
@@ -79,9 +81,19 @@ class CustomOpenAIClient(DeepEvalBaseLLM):
         self.extra_body_params = extra_body_params
         self.session_id = session_id
 
-        # Optional injected clients (chat/achat create defaults if None)
-        self._sync_client = client
-        self._async_client = async_client
+        # A: build once (or use injected clients)
+        self._sync_client = client or OpenAI(
+            base_url=self.base_url,
+            api_key="not-needed",
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+        self._async_client = async_client or AsyncOpenAI(
+            base_url=self.base_url,
+            api_key="not-needed",
+            timeout=timeout,
+            max_retries=max_retries,
+        )
 
         logger.info(
             "CustomOpenAIClient init | model=%s project=%s base_url=%s "
@@ -138,8 +150,7 @@ class CustomOpenAIClient(DeepEvalBaseLLM):
         )
         try:
             kwargs = self._common_kwargs(prompt)
-            if self._sync_client is not None:
-                kwargs["client"] = self._sync_client
+            kwargs["client"] = self._sync_client  # always pass wired client
             result = chat(**kwargs)
             content = (result.content or "").strip()
             logger.info(
@@ -163,8 +174,7 @@ class CustomOpenAIClient(DeepEvalBaseLLM):
         )
         try:
             kwargs = self._common_kwargs(prompt)
-            if self._async_client is not None:
-                kwargs["client"] = self._async_client
+            kwargs["client"] = self._async_client  # always pass wired client
             result = await achat(**kwargs)
             content = (result.content or "").strip()
             logger.info(
