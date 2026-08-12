@@ -8,11 +8,14 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 import httpx
+from jet.libs.llama_cpp.usage.chat_stream_types import (
+    StreamCompletionResult,
+    ToolCallResult,
+)
 from openai import AsyncOpenAI, AsyncStream
 from openai.types.chat import ChatCompletionChunk
 from openinference.semconv.trace import (
@@ -39,36 +42,6 @@ LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1
 DEFAULT_MODEL = "qwen3.5-uncensored:2b"
 MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
 PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Structured Result Data Classes
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-@dataclass
-class ToolCallResult:
-    """A fully accumulated tool call from streaming deltas."""
-
-    id: str
-    type: str
-    name: str
-    arguments: dict[str, Any]
-    raw_arguments: str
-
-
-@dataclass
-class StreamCompletionResult:
-    """Structured result from a streamed chat completion."""
-
-    content: str
-    tool_calls: list[ToolCallResult] = field(default_factory=list)
-    usage: dict[str, int] | None = None
-    finish_reason: str | None = None
-
-    @property
-    def has_tool_calls(self) -> bool:
-        return len(self.tool_calls) > 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
