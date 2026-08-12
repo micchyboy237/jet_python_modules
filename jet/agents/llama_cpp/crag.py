@@ -102,11 +102,12 @@ class KnowledgeRefinementInput(BaseModel):
         return str(v)
 
 
-def knowledge_refinement(document: str) -> List[str]:
+def knowledge_refinement(document: str, query: str = "") -> List[str]:
     prompt = PromptTemplate(
-        input_variables=["document"],
+        input_variables=["document", "query"],
         template=(
-            "Extract the key information from the following document in bullet points.\n\n"
+            "Extract the key information from the following document that answers the query.\n\n"
+            "Query: {query}\n"
             "Document: {document}\n\n"
             "Respond ONLY with valid JSON in this EXACT format:\n"
             '{{"key_points": "- point 1\\n- point 2"}}\n'
@@ -116,7 +117,7 @@ def knowledge_refinement(document: str) -> List[str]:
     chain = prompt | llm.with_structured_output(
         KnowledgeRefinementInput, method="json_mode"
     )
-    input_variables = {"document": document}
+    input_variables = {"document": document, "query": query}
     result = chain.invoke(input_variables).key_points
     return [point.strip() for point in result.split("\n") if point.strip()]
 
@@ -235,7 +236,7 @@ def perform_web_search(query: str) -> Tuple[str, List[Tuple[str, str]]]:
     else:
         web_results = result
 
-    web_knowledge_list = knowledge_refinement(web_results)
+    web_knowledge_list = knowledge_refinement(web_results, rewritten_query)
     sources = parse_search_results(web_results)
 
     # Join list to string before returning
@@ -322,7 +323,7 @@ def crag_process(query: str, faiss_index: FAISS) -> str:
         # Ambiguous: Combine both
         logger.info("Action: Ambiguous - Combining retrieved document and web search")
         best_doc = retrieved_docs[eval_scores.index(max_score)]
-        retrieved_knowledge_list = knowledge_refinement(best_doc)
+        retrieved_knowledge_list = knowledge_refinement(best_doc, query)
         web_knowledge, web_sources = perform_web_search(query)
 
         # Join lists to strings
