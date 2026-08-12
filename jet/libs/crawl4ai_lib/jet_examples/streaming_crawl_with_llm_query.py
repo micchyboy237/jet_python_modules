@@ -57,6 +57,14 @@ async def streaming_crawl_with_filters(
         llm_strategy = LLMExtractionStrategy(
             llm_config=get_llm_config(strategy="llm"),
             instruction=query,
+            extra_args={
+                "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+                # You can also pass other LiteLLM params here
+                "max_tokens": 2048,
+                "temperature": 0.3,
+                "top_p": 0.95,
+                "presence_penalty": 1.5,
+            },
         )
 
     config = CrawlerRunConfig(

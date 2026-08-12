@@ -12,10 +12,10 @@ def get_chat_openai(**kwargs) -> ChatOpenAI:
     return llm
 
 
-def get_openai_embeddings() -> OpenAIEmbeddings:
+def get_openai_embeddings(embed_model: EMBED_MODEL) -> OpenAIEmbeddings:
     client = get_embedding_client()
     return OpenAIEmbeddings(
         client=client.embeddings,  # Fix: Use .embeddings sub-client
-        model=EMBED_MODEL,  # Specify model for compatibility
+        model=embed_model,  # Specify model for compatibility
         check_embedding_ctx_length=False,  # Disable token checking for non-OpenAI APIs
     )
