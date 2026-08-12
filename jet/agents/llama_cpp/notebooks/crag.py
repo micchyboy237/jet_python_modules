@@ -148,20 +148,37 @@ def parse_search_results(results_string: str) -> List[Tuple[str, str]]:
 
     Args:
         results_string (str): A JSON-formatted string containing search results.
-
     Returns:
         List[Tuple[str, str]]: A list of tuples, where each tuple contains the title and link of a search result.
                                If parsing fails, an empty list is returned.
     """
     try:
+        # Try parsing as JSON first
         results = json.loads(results_string)
         return [
-            (result.get("title", "Untitled"), result.get("link", ""))
+            (result.get("title", "Untitled"), result.get("url", result.get("link", "")))
             for result in results
         ]
     except json.JSONDecodeError:
-        print("Error parsing search results. Returning empty list.")
-        return []
+        # If not JSON, try parsing the text format with url/title/content keys
+        try:
+            # Split by double newlines to get individual results
+            entries = results_string.strip().split("\n\n")
+            parsed = []
+            for entry in entries:
+                lines = entry.split("\n")
+                entry_dict = {}
+                for line in lines:
+                    if ": " in line:
+                        key, value = line.split(": ", 1)
+                        entry_dict[key] = value
+                title = entry_dict.get("title", "Untitled")
+                url = entry_dict.get("url", "")
+                parsed.append((title, url))
+            return parsed if parsed else []
+        except Exception as e:
+            logger.warning(f"Error parsing search results text: {e}")
+            return []
 
 
 def retrieve_documents(query: str, faiss_index: FAISS, k: int = 3) -> List[str]:
@@ -277,7 +294,12 @@ def crag_process(query: str, faiss_index: FAISS) -> str:
         best_doc = retrieved_docs[eval_scores.index(max_score)]
         retrieved_knowledge = knowledge_refinement(best_doc)
         web_knowledge, web_sources = perform_web_search(query)
-        final_knowledge = "\n".join(retrieved_knowledge + web_knowledge)
+        # In crag_process, join list to string when it's a list:
+        if isinstance(retrieved_knowledge, list):
+            retrieved_knowledge = "\n".join(retrieved_knowledge)
+        if isinstance(web_knowledge, list):
+            web_knowledge = "\n".join(web_knowledge)
+        final_knowledge = "\n".join([retrieved_knowledge, web_knowledge])
         sources = [("Retrieved document", "")] + web_sources
     print("\nFinal knowledge:")
     print(final_knowledge)
