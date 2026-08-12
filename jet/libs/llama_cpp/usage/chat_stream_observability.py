@@ -271,7 +271,7 @@ def run_chat_stream(
     prompt: str = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    project_name: str | None = None,
+    project_name: str = "chat-stream-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
     messages: list[dict[str, Any]] | None = None,

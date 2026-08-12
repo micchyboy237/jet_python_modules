@@ -14,7 +14,7 @@ def chat(
     prompt: str = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
-    project_name: str | None = None,
+    project_name: str = "chat-llm-utils-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
     messages: list[dict[str, Any]] | None = None,
