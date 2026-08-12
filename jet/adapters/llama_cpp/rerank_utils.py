@@ -1,8 +1,8 @@
 import os
 from typing import TypedDict
 
-import numpy as np
 import requests
+from jet.adapters.llama_cpp.scoring_utils import sigmoid_normalize_scores
 
 RERANK_BASE_URL = os.getenv("LLAMA_CPP_RERANK_URL", "http://localhost:8082/v1")
 RERANK_URL = RERANK_BASE_URL + "/rerank"
@@ -17,19 +17,6 @@ class RerankResult(TypedDict):
     score: float  # Normalized 0-1 via sigmoid
     raw_score: float  # Original unbounded cross-encoder score
     text: str
-
-
-def _sigmoid_normalize_scores(
-    scores: list[float],
-    temperature: float = 1.0,
-) -> list[float]:
-    """
-    Apply sigmoid normalization to convert raw scores to 0–1 range.
-    Mirrors hybrid_utils._sigmoid_normalize_scores for consistency.
-    """
-    if not scores:
-        return []
-    return [float(1.0 / (1.0 + np.exp(-s / temperature))) for s in scores]
 
 
 def rerank(
@@ -75,7 +62,7 @@ def rerank(
     # Normalize scores
     raw_scores = [item["raw_score"] for item in ranked_raw]
     if normalize_scores and raw_scores:
-        normalized = _sigmoid_normalize_scores(raw_scores, sigmoid_temperature)
+        normalized = sigmoid_normalize_scores(raw_scores, sigmoid_temperature)
     else:
         normalized = raw_scores
 

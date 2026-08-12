@@ -58,10 +58,20 @@ def rerank_bm25(
     documents: List[str],
     ids: Optional[List[str]] = None,
     metadatas: Optional[List[Dict]] = None,
+    *,
+    k1: float = 1.2,
+    b: float = 0.75,
+    delta: float = 1.0,
 ) -> Tuple[List[str], List[SimilarityResult]]:
     query_candidates = extract_query_candidates(query)
     results = get_bm25_similarities(
-        query_candidates, documents, ids=ids, metadatas=metadatas
+        query_candidates,
+        documents,
+        ids=ids,
+        metadatas=metadatas,
+        k1=k1,
+        b=b,
+        delta=delta,
     )
     return query_candidates, results
 

@@ -16,7 +16,10 @@ from typing import TypedDict
 import numpy as np
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.rerank_utils import rerank
-from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
+from jet.adapters.llama_cpp.scoring_utils import (
+    cosine_similarity,
+    sigmoid_normalize_scores,
+)
 from jet.logger import logger
 
 
@@ -29,37 +32,6 @@ class HybridSearchResult(TypedDict):
     text: str
     vector_score: float  # Original vector similarity score
     rerank_score_raw: float  # Raw reranker score (for debugging)
-
-
-def _sigmoid_normalize_scores(
-    scores: list[float],
-    temperature: float = 1.0,
-) -> list[float]:
-    """
-    Apply sigmoid normalization to convert raw scores to 0–1 range.
-
-    Uses sigmoid function: normalized = 1 / (1 + exp(-score / temperature))
-
-    Args:
-        scores: List of raw scores (can be negative or positive).
-        temperature: Controls the steepness of the sigmoid curve.
-                     Lower = more extreme (closer to 0 or 1).
-                     Higher = more moderate (closer to 0.5).
-                     Default 1.0 works well for most cross-encoders.
-
-    Returns:
-        List of normalized scores in range (0, 1).
-    """
-    if not scores:
-        return []
-
-    normalized = []
-    for score in scores:
-        # Apply sigmoid with temperature scaling
-        norm_score = 1.0 / (1.0 + np.exp(-score / temperature))
-        normalized.append(float(norm_score))
-
-    return normalized
 
 
 def hybrid_search(
@@ -223,7 +195,7 @@ def hybrid_search(
     raw_rerank_scores = [rr["score"] for rr in rerank_results]
 
     if normalize_scores and raw_rerank_scores:
-        normalized_scores = _sigmoid_normalize_scores(
+        normalized_scores = sigmoid_normalize_scores(
             raw_rerank_scores,
             temperature=sigmoid_temperature,
         )
