@@ -4,13 +4,16 @@
 
 _Triggered when a node’s local objective is a narrow, well-defined fact query._
 
-1.  Parent node delegates subtask with `verb="atom"` and local objective $q_v$.
-2.  AtomAgent receives the objective and enters a ReAct loop.
+1.  Parent node delegates subtask with `verb="atom"`, local objective $q_v$, and optional inherited experience $k_v$.
+2.  AtomAgent receives $(q_v, k_v)$ and enters a ReAct loop with step budget $S_{max}$.
 3.  Agent calls `search(query)` → retrieves top-5 snippets via Serper.
-4.  Agent calls `fetch_url(url)` → retrieves summarized page content via Jina.
+4.  Agent calls `fetch_url(url, goal=q_v)` → retrieves **goal-conditioned** summarized page content via Jina.
 5.  Agent reasons over evidence; if insufficient, generates new search query and repeats from step 3.
-6.  When satisfied, agent returns structured result $r_v$ to parent node.
-7.  Parent updates its evidence set $R_v \leftarrow R_v \cup \{r_v\}$ and decides whether to continue or aggregate.
+6.  Upon termination (sufficient evidence OR step budget exhausted), agent produces:
+    - Structured result $r_v = \{\text{answer}, \text{sources}, \text{confidence}, \text{reason}\}$ validated against a Pydantic schema
+    - Full trajectory $\tau_v$ (all messages + tool calls) for downstream experience extraction
+7.  AtomAgent emits $(r_v, \tau_v)$ through a **typed output interface** compatible with parent state schemas.
+8.  Parent updates its evidence set $R_v \leftarrow R_v \cup \{r_v\}$ and stores $\tau_v$ if experience transfer is enabled; then decides whether to continue or aggregate.
 
 #### Flow 2: Deep Iterative Search & Verification (Deep Mode)
 
