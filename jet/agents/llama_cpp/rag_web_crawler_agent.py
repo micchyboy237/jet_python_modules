@@ -628,6 +628,7 @@ async def run_webswarm(query: str, root_url: str) -> SwarmResult:
         "sources": [k["url"] for k in result["knowledge_base"]],
         "iterations": result["iteration"],
         "pages_visited": len(result["visited_urls"]),
+        "knowledge_base": result["knowledge_base"],
     }
 
 
