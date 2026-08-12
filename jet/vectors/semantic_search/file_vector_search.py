@@ -9,7 +9,7 @@ import numpy as np
 from jet.adapters.llama_cpp.chunking_utils import chunk_texts_with_data
 from jet.adapters.llama_cpp.config import (
     EMBED_DOC_PREFIX,
-    EMBED_MODEL,
+    EMBED_MODEL_LG,
     EMBED_QUERY_PREFIX,
 )
 from jet.adapters.llama_cpp.embed_utils import embed
@@ -53,7 +53,7 @@ class Weights(TypedDict):
     content: float
 
 
-DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
+DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL_LG
 DEFAULT_QUERY_PREFIX = EMBED_QUERY_PREFIX
 DEFAULT_DOC_PREFIX = EMBED_DOC_PREFIX
 DEFAULT_CHUNK_SIZE = 500

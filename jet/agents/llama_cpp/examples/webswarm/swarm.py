@@ -34,7 +34,7 @@ from jet.adapters.llama_cpp.chunking_utils import (
     chunk_texts_with_data,
     truncate_texts,
 )
-from jet.adapters.llama_cpp.config import EMBED_LG_MODEL, LLM_MODEL
+from jet.adapters.llama_cpp.config import EMBED_MODEL_LG, LLM_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
@@ -51,7 +51,7 @@ logging.basicConfig(
 logger = logging.getLogger("webswarm")
 
 DEFAULT_LLM_MODEL = LLM_MODEL
-DEFAULT_EMBED_MODEL = EMBED_LG_MODEL
+DEFAULT_EMBED_MODEL = EMBED_MODEL_LG
 
 # Chunking configuration
 CHUNK_SIZE = int(os.getenv("SWARM_CHUNK_SIZE", "256"))

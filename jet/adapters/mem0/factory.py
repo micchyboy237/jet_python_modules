@@ -1,8 +1,8 @@
 from typing import Any, Dict
 
 from jet.adapters.llama_cpp.config import (
-    EMBED_LG_BASE_URL,
-    EMBED_LG_MODEL,
+    EMBED_BASE_URL_LG,
+    EMBED_MODEL_LG,
     LLM_BASE_URL,
     LLM_MODEL,
 )
@@ -18,8 +18,8 @@ from jet.db.postgres.config import (
 llm_info = get_model_ctx_embd_size(LLM_MODEL)
 DEFAULT_MAX_TOKENS = llm_info["ctx"]
 
-embd_info = get_model_ctx_embd_size(EMBED_LG_MODEL)
-EMBED_LG_DIMS = embd_info["embd_dims"]
+embd_info = get_model_ctx_embd_size(EMBED_MODEL_LG)
+EMBED_DIMS_LG = embd_info["embd_dims"]
 
 
 def get_memory_config(
@@ -42,9 +42,9 @@ def get_memory_config(
         "embedder": {
             "provider": "openai",
             "config": {
-                "model": EMBED_LG_MODEL,
-                "embedding_dims": EMBED_LG_DIMS,  # fallback 768 if model not in dict
-                "openai_base_url": EMBED_LG_BASE_URL,
+                "model": EMBED_MODEL_LG,
+                "embedding_dims": EMBED_DIMS_LG,  # fallback 768 if model not in dict
+                "openai_base_url": EMBED_BASE_URL_LG,
                 "api_key": "dummy",
             },
         },
@@ -52,7 +52,7 @@ def get_memory_config(
             "provider": "pgvector",
             "config": {
                 "collection_name": collection_name,
-                "embedding_model_dims": EMBED_LG_DIMS,
+                "embedding_model_dims": EMBED_DIMS_LG,
                 "dbname": DEFAULT_DB,
                 "user": DEFAULT_USER,
                 "password": DEFAULT_PASSWORD,
