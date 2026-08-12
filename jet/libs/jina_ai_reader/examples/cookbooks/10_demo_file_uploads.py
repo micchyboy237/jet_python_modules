@@ -20,6 +20,11 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 BASE_API = os.environ.get("JINA_READER_BASE_URL", "http://localhost:3001").rstrip("/")
 
+# Path to the real PDF used for this demo
+SOURCE_PDF = Path(
+    "/Users/jethroestrada/Desktop/External_Projects/AI/examples/RAG_Techniques/data/Understanding_Climate_Change.pdf"
+)
+
 
 def save_json(path: Path, data: str | dict) -> None:
     """Parse and pretty-print JSON before saving for readability."""
@@ -35,22 +40,19 @@ def save_json(path: Path, data: str | dict) -> None:
 def run_file_upload_demo():
     saved_files = []
 
-    # Create a minimal valid PDF so the demo runs without external assets
-    dummy_pdf = OUTPUT_DIR / "sample.pdf"
-    dummy_pdf.write_bytes(
-        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R>>endobj\n"
-        b"xref\n0 4\n0000000000 65535 f\ntrailer<</Size 4/Root 1 0 R>>\n"
-        b"startxref\n262\n%%EOF"
-    )
+    # Verify the source PDF exists before doing any uploads
+    if not SOURCE_PDF.exists():
+        console.print(f"[bold red]✘ Source PDF not found:[/] {SOURCE_PDF}")
+        return
+
+    console.print(f"[bold cyan]Using PDF:[/] {SOURCE_PDF.name}")
 
     # 1. Full PDF upload with chunking
     console.print("[bold cyan]1. Uploading PDF with s3 chunking...[/]")
-    with open(dummy_pdf, "rb") as f:
+    with open(SOURCE_PDF, "rb") as f:
         resp_full = requests.post(
             f"{BASE_API}/",
-            files={"file": ("sample.pdf", f, "application/pdf")},
+            files={"file": (SOURCE_PDF.name, f, "application/pdf")},
             headers={"Accept": "application/json", "x-markdown-chunking": "s3"},
             timeout=60,
         )
@@ -60,10 +62,10 @@ def run_file_upload_demo():
 
     # 2. Single PDF page extraction
     console.print("[bold cyan]2. Extracting single page from PDF...[/]")
-    with open(dummy_pdf, "rb") as f:
+    with open(SOURCE_PDF, "rb") as f:
         resp_page = requests.post(
             f"{BASE_API}/",
-            files={"file": ("sample.pdf", f, "application/pdf")},
+            files={"file": (SOURCE_PDF.name, f, "application/pdf")},
             data={"page": "1"},
             headers={"Accept": "application/json"},
             timeout=60,
@@ -71,9 +73,6 @@ def run_file_upload_demo():
     out_page = OUTPUT_DIR / "pdf_page_1.json"
     save_json(out_page, resp_page.text)
     saved_files.append(out_page)
-
-    # Clean up dummy file
-    dummy_pdf.unlink(missing_ok=True)
 
     console.print("\n[bold green]✔ Saved results:[/]")
     for f in saved_files:

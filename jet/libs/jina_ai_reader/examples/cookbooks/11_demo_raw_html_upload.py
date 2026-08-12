@@ -44,14 +44,14 @@ def run_raw_html_demo():
     <p>This content was sent directly as HTML, not fetched from a URL.</p>
     <img src="/images/hero.png" alt="Hero image with relative path">
     <a href="/docs/guide">Relative link to guide</a>
-    <a href="https://example.com/absolute">Absolute link</a>
+    <a href="https://jina.ai/reader">Absolute link</a>
   </article>
 </body>
 </html>"""
 
     payload = {
         "html": sample_html,
-        "url": "https://example.com/source",  # Base URL for resolving relative paths
+        "url": "https://jina.ai",  # Base URL for resolving relative paths
     }
 
     console.print(

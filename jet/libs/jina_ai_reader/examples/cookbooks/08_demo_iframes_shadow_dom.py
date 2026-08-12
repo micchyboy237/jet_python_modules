@@ -18,7 +18,7 @@ OUTPUT_DIR = Path(__file__).parent / "generated" / Path(__file__).stem
 shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-TARGET_URL = "https://example.com/docs-page"
+TARGET_URL = "ttps://github.com/jina-ai/reader"
 BASE_API = os.environ.get("JINA_READER_BASE_URL", "http://localhost:3001").rstrip("/")
 
 
