@@ -1,3 +1,34 @@
+"""
+WebSwarm RAG Agent - Autonomous Multi-Page Research Pipeline
+
+Features:
+- Starts from a root URL and crawls linked pages to gather knowledge
+- Embeds and reranks scraped content against the user query
+- Uses an LLM evaluator to determine if enough information has been collected
+- Iteratively fetches, scores, and synthesizes until the answer is sufficient
+- Supports cross-domain crawling, sigmoid score normalization, and token-safe truncation
+- Streams LLM output in real-time with structured JSON evaluation
+
+Use Cases:
+- Researching documentation, product specs, or technical topics across a website
+- Automated FAQ answering from official docs or knowledge bases
+- Competitive research by crawling multiple product pages
+- Summarizing scattered information from a domain into a single coherent answer
+
+Usage Examples:
+    # Run a research query against LangGraph documentation
+    asyncio.run(run_webswarm(
+        query="What are the deployment options for LangGraph Platform?",
+        root_url="https://langchain-ai.github.io/langgraph/"
+    ))
+
+    # Customize behavior via module-level constants:
+    # MAX_ITERATIONS = 10          # increase search depth
+    # RELEVANCE_THRESHOLD = 0.25   # stricter relevance filtering
+    # FOLLOW_CROSS_DOMAIN_LINKS = False  # stay on the same domain
+    # APPLY_SIGMOID_NORMALIZATION = False  # use raw reranker scores
+"""
+
 import asyncio
 import json
 import math
@@ -31,30 +62,92 @@ FOLLOW_CROSS_DOMAIN_LINKS = True
 MIN_SCORE_FOR_KB = 0.05
 
 LLM_MAX_TOKENS = 2048
-# ✅ Must match your models.ini ubatch-size for bge-rerank-v2-m3
 RERANK_MAX_TOKENS = 1024
-# Tokens reserved for query in reranker input format
 RERANK_QUERY_TOKEN_RESERVE = 200
 
 
+# --- Typed Dicts ---
+class KBEntry(TypedDict):
+    """A single knowledge base entry with relevance metadata."""
+
+    url: str
+    content: str
+    score: float
+    raw_score: float
+    original_chars: int
+    truncated_chars: int
+
+
+class FetchMeta(TypedDict):
+    """Metadata from fetching and parsing a single URL."""
+
+    url: str
+    status: int | None
+    final_url: str | None
+    text_len: int
+    links_found: int
+    links_filtered: int
+    error: str | None
+
+
+class EvalResult(TypedDict):
+    """Structured evaluation response from the LLM."""
+
+    evaluation: Literal["sufficient", "insufficient", "irrelevant"]
+    reasoning: str
+
+
 class WebSwarmState(TypedDict):
+    """LangGraph state for the WebSwarm RAG pipeline."""
+
     query: str
     root_url: str
     messages: Annotated[Sequence, add_messages]
     visited_urls: set[str]
     pending_urls: list[str]
-    knowledge_base: list[dict]
+    knowledge_base: list[KBEntry]
     iteration: int
     evaluation: Literal["sufficient", "insufficient", "irrelevant"]
     final_answer: str | None
 
 
+class SwarmResult(TypedDict):
+    """Final output of the WebSwarm pipeline."""
+
+    answer: str | None
+    sources: list[str]
+    iterations: int
+    pages_visited: int
+
+
+# --- Node Return TypedDicts ---
+class RetrieveNodeOutput(TypedDict):
+    """Partial state update returned by retrieve_node."""
+
+    knowledge_base: list[KBEntry]
+    visited_urls: set[str]
+    pending_urls: list[str]
+    iteration: int
+
+
+class EvaluateNodeOutput(TypedDict):
+    """Partial state update returned by evaluate_node."""
+
+    evaluation: Literal["sufficient", "insufficient", "irrelevant"]
+
+
+class SynthesizeNodeOutput(TypedDict):
+    """Partial state update returned by synthesize_node."""
+
+    final_answer: str
+
+
 # --- Helper: Token-safe document preparation ---
 def prepare_docs_for_rerank(
-    chunks: list[dict],
+    chunks: list[KBEntry],
     max_tokens: int = RERANK_MAX_TOKENS,
     query_reserve: int = RERANK_QUERY_TOKEN_RESERVE,
-) -> list[dict]:
+) -> list[KBEntry]:
     """Truncate chunk content to fit within reranker's physical batch size.
 
     Uses the reranker model's own tokenizer via jet's truncate_texts,
@@ -92,7 +185,7 @@ def prepare_docs_for_rerank(
     return chunks
 
 
-# --- Existing helpers (unchanged) ---
+# --- Helpers ---
 async def get_embeddings(texts: list[str]) -> list[list[float]]:
     resp = await EMBED_CLIENT.embeddings.create(model=EMBED_MODEL_LG, input=texts)
     return [d.embedding for d in resp.data]
@@ -106,7 +199,7 @@ def _sigmoid(x: float) -> float:
         return ez / (1.0 + ez)
 
 
-async def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
+async def rerank_chunks(query: str, chunks: list[KBEntry]) -> list[KBEntry]:
     if not chunks:
         print("[RERANK] ⚠️  No chunks to rerank")
         return []
@@ -163,8 +256,8 @@ async def rerank_chunks(query: str, chunks: list[dict]) -> list[dict]:
     return ranked
 
 
-async def fetch_and_parse(url: str) -> tuple[str, list[str], dict]:
-    meta = {
+async def fetch_and_parse(url: str) -> tuple[str, list[str], FetchMeta]:
+    meta: FetchMeta = {
         "url": url,
         "status": None,
         "final_url": None,
@@ -193,7 +286,7 @@ async def fetch_and_parse(url: str) -> tuple[str, list[str], dict]:
         base_domain = urlparse(url).netloc
         final_domain = urlparse(meta["final_url"]).netloc
 
-        all_links = []
+        all_links: list[str] = []
         for a in soup.find_all("a", href=True):
             full_url = urljoin(str(resp.url), a["href"])
             parsed = urlparse(full_url)
@@ -279,7 +372,7 @@ async def stream_llm_completion(
 
 
 # --- Graph Nodes ---
-async def retrieve_node(state: WebSwarmState) -> dict:
+async def retrieve_node(state: WebSwarmState) -> RetrieveNodeOutput:
     pending = state["pending_urls"][:MAX_PAGES_PER_ITER]
     visited = state["visited_urls"] | set(pending)
 
@@ -288,9 +381,9 @@ async def retrieve_node(state: WebSwarmState) -> dict:
     print(f"[RETRIEVE] Pending URLs: {pending}")
     print(f"[RETRIEVE] Already visited: {len(state['visited_urls'])} URLs")
 
-    new_chunks = []
-    all_new_links = []
-    fetch_metadata = []
+    new_chunks: list[KBEntry] = []
+    all_new_links: list[str] = []
+    fetch_metadata: list[FetchMeta] = []
 
     tasks = [fetch_and_parse(url) for url in pending]
     results = await asyncio.gather(*tasks)
@@ -299,7 +392,14 @@ async def retrieve_node(state: WebSwarmState) -> dict:
         fetch_metadata.append(meta)
         if text:
             new_chunks.append(
-                {"url": meta.get("final_url", url), "content": text, "score": 0.0}
+                {
+                    "url": meta.get("final_url") or url,
+                    "content": text,
+                    "score": 0.0,
+                    "raw_score": 0.0,
+                    "original_chars": len(text),
+                    "truncated_chars": len(text),
+                }
             )
             all_new_links.extend([l for l in links if l not in visited])
         elif meta.get("error"):
@@ -313,10 +413,7 @@ async def retrieve_node(state: WebSwarmState) -> dict:
         f"[RETRIEVE] Fetched {len(new_chunks)} pages with content, discovered {len(all_new_links)} new links"
     )
 
-    # ✅ TOKEN-SAFE PREPARATION: Truncate using reranker's own tokenizer
-    # BEFORE sending to server. Prevents 500 errors from oversized inputs.
     new_chunks = prepare_docs_for_rerank(new_chunks)
-
     ranked_chunks = await rerank_chunks(state["query"], new_chunks)
 
     above_threshold = [c for c in ranked_chunks if c["score"] >= RELEVANCE_THRESHOLD]
@@ -367,7 +464,7 @@ async def retrieve_node(state: WebSwarmState) -> dict:
     }
 
 
-async def evaluate_node(state: WebSwarmState) -> dict:
+async def evaluate_node(state: WebSwarmState) -> EvaluateNodeOutput:
     print(
         f"\n[EVALUATE] Assessing KB size={len(state['knowledge_base'])} at iteration {state['iteration']}"
     )
@@ -409,7 +506,7 @@ CRITICAL: If the query asks "what are the X options/features/types/steps", the c
         label="EVALUATE",
     )
 
-    result = json.loads(content)
+    result: EvalResult = json.loads(content)
     evaluation = result.get("evaluation", "insufficient")
     reasoning = result.get("reasoning", "unknown")
     print(f"[EVALUATE] Decision: {evaluation} | Reason: {reasoning}")
@@ -417,7 +514,7 @@ CRITICAL: If the query asks "what are the X options/features/types/steps", the c
     return {"evaluation": evaluation}
 
 
-async def synthesize_node(state: WebSwarmState) -> dict:
+async def synthesize_node(state: WebSwarmState) -> SynthesizeNodeOutput:
     sorted_kb = sorted(state["knowledge_base"], key=lambda x: x["score"], reverse=True)[
         :8
     ]
@@ -449,8 +546,8 @@ CONTEXT:
 
 
 def should_continue(state: WebSwarmState) -> Literal["retrieve", "synthesize", END]:
-    decision = None
-    reason = ""
+    decision: Literal["retrieve", "synthesize"]
+    reason: str
 
     if state["evaluation"] == "sufficient":
         decision = "synthesize"
@@ -487,7 +584,7 @@ def build_webswarm_graph():
     return workflow.compile()
 
 
-async def run_webswarm(query: str, root_url: str):
+async def run_webswarm(query: str, root_url: str) -> SwarmResult:
     app = build_webswarm_graph()
 
     print(f"\n{'═' * 60}")
@@ -504,7 +601,7 @@ async def run_webswarm(query: str, root_url: str):
     print(f"[INIT] Reranker: {RERANK_MODEL} @ {RERANK_BASE_URL}")
     print(f"{'═' * 60}")
 
-    initial_state = {
+    initial_state: WebSwarmState = {
         "query": query,
         "root_url": root_url,
         "messages": [],
