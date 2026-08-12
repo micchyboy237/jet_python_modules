@@ -922,10 +922,27 @@ CONTEXT:
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description='Run the RAG Web Crawler Agent with custom query and root URL. Example: python rag_web_crawler_agent.py "What are the deployment options for LangGraph Platform?" https://langchain-ai.github.io/langgraph/'
+    )
+    parser.add_argument(
+        "query",
+        type=str,
+        help='Web search question, e.g. "What are the deployment options for LangGraph Platform?"',
+    )
+    parser.add_argument(
+        "root_url",
+        type=str,
+        help='Site or page to start crawling from, e.g. "https://langchain-ai.github.io/langgraph/"',
+    )
+    args = parser.parse_args()
+
     result = asyncio.run(
         run_webswarm(
-            query="What are the deployment options for LangGraph Platform?",
-            root_url="https://langchain-ai.github.io/langgraph/",
+            query=args.query,
+            root_url=args.root_url,
         )
     )
     print(f"\nANSWER ({result['iterations']} iters, {result['pages_visited']} pages):")
