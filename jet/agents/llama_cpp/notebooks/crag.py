@@ -13,6 +13,7 @@ from helper_functions import replace_t_with_space
 from jet.adapters.langchain.factory import get_chat_openai, get_openai_embeddings
 from jet.adapters.langchain.tools.searxng_search_tool import SearXNGSearchResults
 from jet.adapters.llama_cpp.config import EMBED_MODEL_LG, LLM_MODEL
+from jet.logger import logger
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts.prompt import PromptTemplate
@@ -144,10 +145,12 @@ def rewrite_query(query: str) -> str:
 
 def parse_search_results(results_string: str) -> List[Tuple[str, str]]:
     """
-    Parse a JSON string of search results into a list of title-link tuples.
+    Parse search results into a list of title-link tuples.
+    Handles both JSON and text-based formats.
 
     Args:
-        results_string (str): A JSON-formatted string containing search results.
+        results_string (str): A JSON-formatted string or text-formatted search results.
+
     Returns:
         List[Tuple[str, str]]: A list of tuples, where each tuple contains the title and link of a search result.
                                If parsing fails, an empty list is returned.
@@ -211,7 +214,7 @@ def evaluate_documents(query: str, documents: List[str]) -> List[float]:
     return [retrieval_evaluator(query, doc) for doc in documents]
 
 
-def perform_web_search(query: str) -> Tuple[List[str], List[Tuple[str, str]]]:
+def perform_web_search(query: str) -> Tuple[str, List[Tuple[str, str]]]:
     """
     Perform a web search based on a query.
 
@@ -219,14 +222,29 @@ def perform_web_search(query: str) -> Tuple[List[str], List[Tuple[str, str]]]:
         query (str): The query string to search for.
 
     Returns:
-        Tuple[List[str], List[Tuple[str, str]]]:
-            - A list of refined knowledge obtained from the web search.
+        Tuple[str, List[Tuple[str, str]]]:
+            - A string of refined knowledge obtained from the web search.
             - A list of tuples containing titles and links of the sources.
     """
     rewritten_query = rewrite_query(query)
-    web_results = search.run(rewritten_query)
-    web_knowledge = knowledge_refinement(web_results)
+
+    # Handle tuple return from search.run() when response_format is "content_and_artifact"
+    result = search.run(rewritten_query)
+    if isinstance(result, tuple):
+        web_results = result[0]  # Get the formatted string
+    else:
+        web_results = result
+
+    web_knowledge_list = knowledge_refinement(web_results)
     sources = parse_search_results(web_results)
+
+    # Join list to string before returning
+    web_knowledge = (
+        "\n".join(web_knowledge_list)
+        if isinstance(web_knowledge_list, list)
+        else web_knowledge_list
+    )
+
     return web_knowledge, sources
 
 
@@ -274,50 +292,81 @@ def crag_process(query: str, faiss_index: FAISS) -> str:
     Returns:
         str: The generated response based on the query.
     """
-    print(f"\nProcessing query: {query}")
+    logger.info(f"Processing query: {query}")
+
+    # Retrieve and evaluate documents
     retrieved_docs = retrieve_documents(query, faiss_index)
     eval_scores = evaluate_documents(query, retrieved_docs)
-    print(f"\nRetrieved {len(retrieved_docs)} documents")
-    print(f"Evaluation scores: {eval_scores}")
+    logger.info(f"Retrieved {len(retrieved_docs)} documents")
+    logger.info(f"Evaluation scores: {eval_scores}")
+
     max_score = max(eval_scores)
     sources = []
+
     if max_score > 0.7:
-        print("\nAction: Correct - Using retrieved document")
+        # Correct: Use retrieved document directly
+        logger.info("Action: Correct - Using retrieved document")
         best_doc = retrieved_docs[eval_scores.index(max_score)]
-        final_knowledge = best_doc
+        final_knowledge = best_doc  # Already a string
         sources.append(("Retrieved document", ""))
+
     elif max_score < 0.3:
-        print("\nAction: Incorrect - Performing web search")
+        # Incorrect: Perform web search
+        logger.info("Action: Incorrect - Performing web search")
         final_knowledge, sources = perform_web_search(query)
+        # Safety check: ensure knowledge is a string
+        if isinstance(final_knowledge, list):
+            final_knowledge = "\n".join(final_knowledge)
+
     else:
-        print("\nAction: Ambiguous - Combining retrieved document and web search")
+        # Ambiguous: Combine both
+        logger.info("Action: Ambiguous - Combining retrieved document and web search")
         best_doc = retrieved_docs[eval_scores.index(max_score)]
-        retrieved_knowledge = knowledge_refinement(best_doc)
+        retrieved_knowledge_list = knowledge_refinement(best_doc)
         web_knowledge, web_sources = perform_web_search(query)
-        # In crag_process, join list to string when it's a list:
-        if isinstance(retrieved_knowledge, list):
-            retrieved_knowledge = "\n".join(retrieved_knowledge)
-        if isinstance(web_knowledge, list):
-            web_knowledge = "\n".join(web_knowledge)
+
+        # Join lists to strings
+        retrieved_knowledge = (
+            "\n".join(retrieved_knowledge_list)
+            if isinstance(retrieved_knowledge_list, list)
+            else retrieved_knowledge_list
+        )
+        web_knowledge = (
+            "\n".join(web_knowledge)
+            if isinstance(web_knowledge, list)
+            else web_knowledge
+        )
+
         final_knowledge = "\n".join([retrieved_knowledge, web_knowledge])
         sources = [("Retrieved document", "")] + web_sources
-    print("\nFinal knowledge:")
-    print(final_knowledge)
-    print("\nSources:")
+
+    # Final safety check: ensure knowledge is always a string
+    if isinstance(final_knowledge, list):
+        final_knowledge = "\n".join(final_knowledge)
+
+    logger.info("Final knowledge:")
+    logger.info(final_knowledge)
+
+    logger.info("Sources:")
     for title, link in sources:
-        print(f"{title}: {link}" if link else title)
-    print("\nGenerating response...")
+        logger.info(f"{title}: {link}" if link else title)
+
+    logger.info("Generating response...")
     response = generate_response(query, final_knowledge, sources)
-    print("\nResponse generated")
+    logger.success("Response generated")
+
     return response
 
 
-query = "What are the main causes of climate change?"
-result = crag_process(query, vectorstore)
-print(f"Query: {query}")
-print(f"Answer: {result}")
+if __name__ == "__main__":
+    query = "What are the main causes of climate change?"
+    result = crag_process(query, vectorstore)
+    print(f"Query: {query}")
+    print(f"Answer: {result}")
 
-query = "how did harry beat quirrell?"
-result = crag_process(query, vectorstore)
-print(f"Query: {query}")
-print(f"Answer: {result}")
+    print("\n" + "=" * 80 + "\n")
+
+    query = "how did harry beat quirrell?"
+    result = crag_process(query, vectorstore)
+    print(f"Query: {query}")
+    print(f"Answer: {result}")
