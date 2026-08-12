@@ -124,9 +124,9 @@ def _validate_string_list(raw: object, field_name: str) -> list[str]:
 def evaluate_rag_relevance(
     query: str,
     context: str,
-    model: str | None = None,
+    model: str = LLM_MODEL,
     temperature: float = 0.0,
-    max_tokens: int = 2048,
+    max_tokens: int = 8192,
     project_name: str | None = "eval-rag-relevance",
     phoenix_url: str = PHOENIX_URL,
 ) -> RagRelevanceResult:
@@ -142,14 +142,13 @@ def evaluate_rag_relevance(
         context: The full assembled RAG context (concatenated chunks).
         model: LLM model key. Defaults to LLM_MODEL.
         temperature: Sampling temperature (default: 0.0 for deterministic).
-        max_tokens: Max tokens for the JSON response (default: 2048 for list outputs).
+        max_tokens: Max tokens for the JSON response (default: 8192 for list outputs).
         project_name: Phoenix project name for trace grouping. Set to None to disable tracing.
         phoenix_url: Phoenix server base URL for trace links.
 
     Returns:
         RagRelevanceResult with decomposition, completeness assessment, and info lists.
     """
-    resolved_model = model or LLM_MODEL
 
     # Input validation
     if not query.strip():
@@ -177,7 +176,7 @@ def evaluate_rag_relevance(
         )
 
     logger.info(
-        f"evaluate_rag_relevance: model={resolved_model}, "
+        f"evaluate_rag_relevance: model={model}, "
         f"query_len={len(query)}, context_len={len(context)}, "
         f"max_tokens={max_tokens}, project={project_name}"
     )
@@ -235,7 +234,7 @@ def evaluate_rag_relevance(
     try:
         result = chat(
             prompt="",
-            model=resolved_model,
+            model=model,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -333,80 +332,77 @@ def evaluate_rag_relevance(
 
 
 if __name__ == "__main__":
+    import argparse
+    import os
+
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
 
     console = Console()
 
-    # Long context that PARTIALLY answers the query — demonstrates incomplete RAG evaluation
-    # Contains company-wide financials but lacks segment-specific EPS and net income
-    LONG_CONTEXT = """
-SECTION 1: COMPANY HISTORY
-Acme Corp was founded in 1985 by John Smith in Portland, Oregon. Originally a bicycle manufacturer,
-the company pivoted to consumer electronics in 2003. Over the decades, Acme has won numerous awards
-for design excellence and sustainability practices. The headquarters moved to Austin, Texas in 2015.
-
-SECTION 2: PRODUCT LINE OVERVIEW
-Acme currently offers three main product lines: SmartHome devices, WearableTech fitness trackers,
-and EcoKitchen appliances. Each line emphasizes energy efficiency and user privacy. The SmartHome
-line includes thermostats, cameras, and lighting systems compatible with major voice assistants.
-
-SECTION 3: LEGAL DISCLAIMERS AND TERMS
-This document contains forward-looking statements subject to risks and uncertainties. Actual results
-may differ materially. All trademarks are property of their respective owners. Warranty periods vary
-by region and product category. See acme.example.com/terms for full details. Limitation of liability
-applies to all consumer products sold after January 1, 2024.
-
-SECTION 4: Q3 2025 FINANCIAL HIGHLIGHTS
-Total Company Revenue: $847 million (up 12% YoY)
-Gross Margin: 34.2%
-Operating Expenses: $215 million
-Total Net Income: $78.3 million
-Total EPS: $1.42
-
-Segment Breakdown — Q3 2025:
-• SmartHome: Revenue $381M (45% of total), YoY Revenue Growth +8%
-• WearableTech: Revenue $127M (15% of total), YoY Revenue Growth +28%
-• EcoKitchen: Revenue $339M (40% of total), YoY Revenue Growth -3%
-
-SECTION 5: SUSTAINABILITY REPORT
-Acme achieved carbon neutrality in Scope 1 and 2 emissions in 2024. Water usage reduced by 18%.
-Recycled packaging now used across 92% of product lines. Employee volunteer hours exceeded 50,000.
-The company partnered with OceanCleanup Initiative donating 1% of EcoKitchen profits.
-
-SECTION 6: LEADERSHIP TEAM
-CEO: Maria Chen (appointed 2022)
-CFO: Robert Williams
-CTO: Dr. Aisha Patel
-VP Engineering: Carlos Rodriguez
-Board Chair: Elizabeth Thompson
-"""
-
-    TEST_QUERY = (
-        "What was Acme Corp's Q3 2025 net income, EPS, and year-over-year "
-        "revenue growth rate for the WearableTech segment specifically?"
+    parser = argparse.ArgumentParser(
+        description="Evaluate whether a RAG context completely answers a query."
+    )
+    parser.add_argument(
+        "query", type=str, help="The query to evaluate against the context."
+    )
+    parser.add_argument(
+        "long_context",
+        type=str,
+        help="The file path to the context, or the context string itself.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="LLM model key (default: depends on config).",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Sampling temperature (default: 0.0).",
+    )
+    parser.add_argument(
+        "--max_tokens",
+        type=int,
+        default=8192,
+        help="Max tokens for the LLM generation (default: 8192).",
+    )
+    parser.add_argument(
+        "--project_name",
+        type=str,
+        default="eval-rag-relevance",
+        help="Project name for the evaluation run (default: 'eval-rag-relevance').",
     )
 
-    console.print(
-        "\n[bold green]RAG Relevance Evaluation — Incomplete Context Test[/bold green]"
-    )
-    console.print(Panel(TEST_QUERY, title="Query", border_style="cyan"))
-    console.print(
-        f"[dim]Context length: {len(LONG_CONTEXT)} chars "
-        f"(~{len(LONG_CONTEXT.split())} words)[/dim]\n"
-    )
+    args = parser.parse_args()
 
-    result = evaluate_rag_relevance(TEST_QUERY, LONG_CONTEXT)
-
-    # Show decomposed queries first
-    if result["decomposed_queries"]:
-        console.print("[bold cyan]Decomposed Queries:[/bold cyan]")
-        for i, dq in enumerate(result["decomposed_queries"], 1):
-            console.print(f"  {i}. {dq}")
-        console.print()
+    # Handle long_context as path to file, else use as direct string
+    if os.path.exists(args.long_context) and os.path.isfile(args.long_context):
+        with open(args.long_context, "r", encoding="utf-8") as f:
+            context_text = f.read()
     else:
-        console.print("[dim]Decomposed Queries: (none)[/dim]\n")
+        context_text = args.long_context
+
+    query_text = args.query
+
+    console.print("\n[bold green]RAG Relevance Evaluation[/bold green]")
+    console.print(Panel(query_text, title="Query", border_style="cyan"))
+    console.print(
+        f"[dim]Context length: {len(context_text)} chars (~{len(context_text.split())} words)[/dim]\n"
+    )
+
+    result = evaluate_rag_relevance(
+        query_text,
+        context_text,
+        model=args.model,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        project_name=args.project_name,
+        # phoenix_url intentionally omitted, uses default in function
+    )
 
     # Main result table
     table = Table(show_header=True, header_style="bold magenta", show_lines=True)
@@ -446,6 +442,4 @@ Board Chair: Elizabeth Thompson
         for i, item in enumerate(result["missing_info"], 1):
             console.print(f"  {i}. {item}")
     else:
-        console.print(
-            "\n[bold green]✗ Missing Info: (none — context is complete)[/bold green]"
-        )
+        console.print("\n[dim]✗ Missing Info: (none)[/dim]")
