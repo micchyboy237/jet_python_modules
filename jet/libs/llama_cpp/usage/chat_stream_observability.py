@@ -14,6 +14,10 @@ from jet.libs.llama_cpp.usage.chat_stream_types import (
     StreamCompletionResult,
     ToolCallResult,
 )
+from jet.libs.llama_cpp.usage.observability_utils import (
+    PHOENIX_URL,
+    setup_observability,
+)
 from openai import OpenAI, Stream
 from openai.types.chat import ChatCompletionChunk
 from openinference.semconv.trace import (
@@ -21,9 +25,7 @@ from openinference.semconv.trace import (
     SpanAttributes,
 )
 from opentelemetry import trace
-from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 from opentelemetry.trace import Status, StatusCode
-from phoenix.otel import register
 from requests.exceptions import RequestException
 from rich.console import Console
 from rich.logging import RichHandler
@@ -40,36 +42,6 @@ logger = logging.getLogger("vision-stream-merged")
 LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1")
 DEFAULT_MODEL = "qwen3.5-uncensored:2b"
 MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
-PHOENIX_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Observability Setup
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def setup_observability(
-    project_name: str = "chat-stream-obs",
-    capture_content: bool = True,
-    phoenix_url: str = PHOENIX_URL,
-):
-    if capture_content:
-        os.environ.setdefault(
-            "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_AND_EVENT"
-        )
-
-    tracer_provider = register(
-        project_name=project_name,
-        endpoint=f"{phoenix_url}/v1/traces",
-        batch=False,
-    )
-    OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
-
-    console.print(
-        f"🔭 Observability enabled → [link={phoenix_url}]{phoenix_url}[/link]"
-    )
-    logger.info(f"📁 Phoenix project name: {project_name}")
-    return tracer_provider
 
 
 def format_trace_id(trace_id: int) -> str:
