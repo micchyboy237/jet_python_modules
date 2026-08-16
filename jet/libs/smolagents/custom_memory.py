@@ -4,7 +4,10 @@ from logging import getLogger
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from jet.adapters.llama_cpp.tokens import count_tokens  # your existing token counter
+from jet.adapters.llama_cpp.config import LLM_MODEL
+from jet.adapters.llama_cpp.token_utils import (
+    count_tokens,
+)
 from jet.file.utils import save_file
 from jet.transformers.object import make_serializable
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
@@ -194,7 +197,7 @@ class AgentMemory:
                 continue  # skip problematic steps
 
         try:
-            return count_tokens(messages, model=None)
+            return count_tokens(messages, model=LLM_MODEL)
         except Exception:
             # Very rough fallback
             return len(str(messages)) // 4
@@ -206,7 +209,7 @@ class AgentMemory:
 
         # Fast path
         try:
-            tokens = count_tokens([{"role": "user", "content": text}], model=None)
+            tokens = count_tokens([{"role": "user", "content": text}], model=LLM_MODEL)
             if tokens <= max_tokens:
                 return text
         except Exception:
@@ -222,7 +225,7 @@ class AgentMemory:
 
             try:
                 tokens = count_tokens(
-                    [{"role": "user", "content": candidate}], model=None
+                    [{"role": "user", "content": candidate}], model=LLM_MODEL
                 )
             except Exception:
                 # fallback to char heuristic
@@ -341,7 +344,7 @@ class AgentMemory:
         model_for_summary = getattr(agent, "model", None) if agent else None
 
         summary_prompt = self.format_summary_prompt(old_steps)
-        input_tokens = count_tokens(summary_prompt, model=None)
+        input_tokens = count_tokens(summary_prompt, model=LLM_MODEL)
 
         request_data = {
             "token_counts": {
@@ -360,7 +363,7 @@ class AgentMemory:
                 summary=summary,
                 original_step_count=len(old_steps),
             )
-            output_tokens = count_tokens(summary, model=None)
+            output_tokens = count_tokens(summary, model=LLM_MODEL)
 
             self.steps = [compressed] + recent
 

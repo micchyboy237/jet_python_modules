@@ -2,12 +2,13 @@ import hashlib
 import logging
 from typing import Any
 
-from jet.adapters.smolagents.factory import create_llm_model
+from jet.adapters.llama_cpp.config import LLM_MODEL
+from jet.adapters.smolagents.factory import create_code_agent, create_llm_model
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
 from selectolax.parser import HTMLParser
-from smolagents import CodeAgent, ToolCallingAgent
+from smolagents import ToolCallingAgent
 
 console = Console()
 logging.basicConfig(
@@ -121,7 +122,7 @@ class ScalableHTMLMultiAgentSummarizer:
 
     def __init__(
         self,
-        model_id: str | None = None,
+        model_id: str | None = LLM_MODEL,
         enable_cache: bool = True,
     ):
         logger.info("[bold cyan]Initializing ScalableHTMLMultiAgentSummarizer[/]")
@@ -155,7 +156,7 @@ class ScalableHTMLMultiAgentSummarizer:
             ),
         )
 
-        self.manager = CodeAgent(
+        self.manager = create_code_agent(
             tools=[],
             model=model,
             managed_agents=[self.subtree_agent, self.merge_agent],

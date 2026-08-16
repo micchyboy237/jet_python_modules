@@ -61,14 +61,13 @@ class CodeAgent(BaseCodeAgent):
         At the end, yields either None if the step is not final, or the final answer.
         """
         memory_messages = self.write_memory_to_messages()
-
         input_messages = memory_messages.copy()
-        ### Generate model output ###
         memory_step.model_input_messages = input_messages
+
         stop_sequences = ["Observation:", "Calling tools:"]
-        # if self.code_block_tags[1] not in self.code_block_tags[0]:
-        # If the closing tag is contained in the opening tag, adding it as a stop sequence would cut short any code generation
-        # stop_sequences.append(self.code_block_tags[1])
+        if self.code_block_tags[1] not in self.code_block_tags[0]:
+            stop_sequences.append(self.code_block_tags[1])
+
         try:
             additional_args: dict[str, Any] = {}
             if self._use_structured_outputs_internally:
@@ -109,24 +108,18 @@ class CodeAgent(BaseCodeAgent):
                     title="Output message of the LLM:",
                     level=LogLevel.DEBUG,
                 )
-
             if not self._use_structured_outputs_internally:
-                # This adds the end code sequence (i.e. the closing code block tag) to the history.
-                # This will nudge subsequent LLM calls to finish with this end code sequence, thus efficiently stopping generation.
                 if output_text and not output_text.strip().endswith(
                     self.code_block_tags[1]
                 ):
                     output_text += self.code_block_tags[1]
                     memory_step.model_output_message.content = output_text
-
             memory_step.token_usage = chat_message.token_usage
             memory_step.model_output = output_text
         except Exception as e:
             raise AgentGenerationError(
                 f"Error in generating model output:\n{e}", self.logger
             ) from e
-
-        ### Parse output ###
         try:
             if self._use_structured_outputs_internally:
                 code_action = json.loads(output_text)["code"]
@@ -143,7 +136,6 @@ class CodeAgent(BaseCodeAgent):
                 f"Error in code parsing:\n{e}\nMake sure to provide correct code blobs."
             )
             raise AgentParsingError(error_msg, self.logger)
-
         tool_call = ToolCall(
             name="python_interpreter",
             arguments=code_action,
@@ -151,8 +143,6 @@ class CodeAgent(BaseCodeAgent):
         )
         yield tool_call
         memory_step.tool_calls = [tool_call]
-
-        ### Execute action ###
         self.logger.log_code(
             title="Executing parsed code:", content=code_action, level=LogLevel.INFO
         )
@@ -187,11 +177,9 @@ class CodeAgent(BaseCodeAgent):
                     level=LogLevel.INFO,
                 )
             raise AgentExecutionError(error_msg, self.logger)
-
         truncated_output = truncate_content(str(code_output.output))
         observation += "Last output from code snippet:\n" + truncated_output
         memory_step.observations = observation
-
         if not code_output.is_final_answer:
             execution_outputs_console += [
                 Text(

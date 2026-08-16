@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from jet.utils.inspect_utils import get_entry_file_dir, get_entry_file_name
+from rich.console import Console
+from rich.text import Text
 
 
 def get_next_call_number(base_dir: Path, prefix: str = "call_") -> int:
@@ -29,6 +31,7 @@ class DebugSaver:
         tool_name: str,
         base_dir: Path | None = None,
         serializer: Callable[[str | dict], dict] | None = None,
+        console: Console | None = None,
     ):
         self.tool_name = tool_name.lower().replace(" ", "_")
         self.base_dir = base_dir or (
@@ -39,6 +42,28 @@ class DebugSaver:
         )
         self.serializer = serializer
         self.current_call_dir: Path | None = None
+        self.console = console or Console()
+
+    def _log_save(self, filepath: Path) -> None:
+        """Log successful save with Rich console and resource link."""
+        # Create relative path for display
+        try:
+            relative_path = filepath.relative_to(Path.cwd())
+        except ValueError:
+            relative_path = filepath
+
+        # Create styled text with resource link
+        text = Text()
+        text.append("✓ Saved: ", style="bold green")
+
+        # Add the path as a clickable resource link using the base name
+        base_name = filepath.name
+        text.append(base_name, style=f"link file://{filepath.absolute()}")
+
+        # Optionally show the full path in dimmed style
+        text.append(f"  ({relative_path})", style="dim")
+
+        self.console.print(text)
 
     @contextmanager
     def new_call(self, request_data: dict | None = None):
@@ -65,6 +90,7 @@ class DebugSaver:
         path = self.current_call_dir / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding=encoding)
+        self._log_save(path)
 
     def save_json(self, filename: str, obj, **json_kwargs):
         json_settings = {"indent": 2, "ensure_ascii": False, **json_kwargs}

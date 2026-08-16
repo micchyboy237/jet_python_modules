@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Type
 
 from jet.adapters.llama_cpp.config import (
     EMBED_BASE_URL,
@@ -26,6 +27,11 @@ from smolagents import (
     PythonExecutor,
     Tool,
 )
+from smolagents.local_python_executor import PythonExecutor
+from smolagents.memory import MemoryStep
+from smolagents.models import Model
+from smolagents.monitoring import AgentLogger, LogLevel
+from smolagents.tools import Tool
 
 
 def create_llm_model(
@@ -62,8 +68,58 @@ def create_code_agent(
     stream_outputs: bool = False,
     use_structured_outputs_internally: bool = False,
     code_block_tags: str | tuple[str, str] | None = ("<code>", "</code>"),
+    # MultiStepAgent parameters
+    instructions: str | None = None,
+    max_steps: int = 20,
+    add_base_tools: bool = False,
+    verbosity_level: LogLevel = LogLevel.INFO,
+    managed_agents: list | None = None,
+    step_callbacks: list[Callable]
+    | dict[Type[MemoryStep], Callable | list[Callable]]
+    | None = None,
+    name: str | None = None,
+    description: str | None = None,
+    provide_run_summary: bool = False,
+    final_answer_checks: list[Callable] | None = None,
+    return_full_result: bool = False,
+    logger: AgentLogger | None = None,
     **kwargs,
-):
+) -> CodeAgent:
+    """
+    Create a CodeAgent instance with the specified configuration.
+
+    Args:
+        tools: List of Tool objects the agent can use.
+        model: Model that will generate the agent's actions.
+        prompt_templates: Optional custom prompt templates.
+        additional_authorized_imports: Additional authorized imports for the agent.
+        planning_interval: Interval at which the agent will run a planning step.
+        executor: Custom Python code executor. If not provided, a default executor will be created.
+        executor_type: Type of code executor to use.
+        executor_kwargs: Additional arguments to pass to initialize the executor.
+        max_print_outputs_length: Maximum length of the print outputs.
+        stream_outputs: Whether to stream outputs during execution.
+        use_structured_outputs_internally: Whether to use structured generation at each action step.
+        code_block_tags: Opening and closing tags for code blocks.
+
+        # MultiStepAgent parameters
+        instructions: Custom instructions for the agent, inserted in the system prompt.
+        max_steps: Maximum number of steps the agent can take to solve the task.
+        add_base_tools: Whether to add the base tools to the agent's tools.
+        verbosity_level: Level of verbosity of the agent's logs.
+        managed_agents: Managed agents that the agent can call.
+        step_callbacks: Callbacks that will be called at each step.
+        name: Name by which this agent can be called (for managed agents).
+        description: Description of this agent (for managed agents).
+        provide_run_summary: Whether to provide a run summary when called as a managed agent.
+        final_answer_checks: List of validation functions to run before accepting a final answer.
+        return_full_result: Whether to return the full RunResult or just the final answer.
+        logger: Custom AgentLogger instance.
+        **kwargs: Additional keyword arguments to pass to CodeAgent.
+
+    Returns:
+        CodeAgent: A configured CodeAgent instance.
+    """
     agent_args = dict(
         tools=tools,
         model=model,
@@ -77,6 +133,19 @@ def create_code_agent(
         stream_outputs=stream_outputs,
         use_structured_outputs_internally=use_structured_outputs_internally,
         code_block_tags=code_block_tags,
+        # MultiStepAgent parameters
+        instructions=instructions,
+        max_steps=max_steps,
+        add_base_tools=add_base_tools,
+        verbosity_level=verbosity_level,
+        managed_agents=managed_agents,
+        step_callbacks=step_callbacks,
+        name=name,
+        description=description,
+        provide_run_summary=provide_run_summary,
+        final_answer_checks=final_answer_checks,
+        return_full_result=return_full_result,
+        logger=logger,
         **kwargs,
     )
     return CodeAgent(**agent_args)
