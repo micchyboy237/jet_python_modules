@@ -1,3 +1,4 @@
+import atexit
 import logging
 import os
 import threading
@@ -61,11 +62,13 @@ def setup_observability(
                 "SPAN_AND_EVENT",
             )
 
+        # batch=True → BatchSpanProcessor with OTel defaults:
+        #   schedule_delay_millis=5000, max_queue_size=2048,
+        #   max_export_batch_size=512, export_timeout_millis=30000
         tracer_provider = register(
             project_name=project_name,
             endpoint=f"{phoenix_url}/v1/traces",
-            batch=False,
-            # First (and only) registration owns the global provider
+            batch=True,
             set_global_tracer_provider=True,
         )
         OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
@@ -73,6 +76,11 @@ def setup_observability(
         _OBS_TRACER_PROVIDER = tracer_provider
         _OBS_PROJECT = project_name
         _OBS_INITIALIZED = True
+
+        # REQUIRED when batch=True: flush buffered spans on exit.
+        # Without this, short-lived scripts lose the final batch silently
+        # because the 5s flush timer may never fire before process termination.
+        atexit.register(tracer_provider.shutdown)
 
         console.print(
             f"🔭 Observability enabled → [link={phoenix_url}]{phoenix_url}[/link]"

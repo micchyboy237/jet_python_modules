@@ -213,13 +213,13 @@ def execute_tool_with_span(
 
 
 def run_chat_stream(
-    prompt: str = "What is OpenTelemetry in one sentence?",
+    prompt_or_messages: str
+    | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
     project_name: str = "chat-stream-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
-    messages: list[dict[str, Any]] | None = None,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -254,6 +254,14 @@ def run_chat_stream(
     if client is None:
         logger.debug("🔌 No client provided; creating default via get_client()")
         client = get_client()
+
+    # Resolve prompt vs messages internally
+    prompt: str | None = None
+    messages: list[dict[str, Any]] | None = None
+    if isinstance(prompt_or_messages, str):
+        prompt = prompt_or_messages
+    else:
+        messages = prompt_or_messages
 
     is_agentic = tool_registry is not None
     span_name = "agent_workflow" if is_agentic else "chat_completion"
@@ -302,6 +310,7 @@ def run_chat_stream(
                 json.dumps([t.get("function", {}).get("name") for t in tools]),
             )
 
+        # Initialize current_messages from resolved inputs
         current_messages: list[dict[str, Any]] | None = messages
         if current_messages is None:
             if image_source:

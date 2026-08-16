@@ -16,13 +16,13 @@ from openai import AsyncOpenAI, OpenAI
 
 
 def chat(
-    prompt: str = "What is OpenTelemetry in one sentence?",
+    prompt_or_messages: str
+    | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
     project_name: str = "chat-llm-utils-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
-    messages: list[dict[str, Any]] | None = None,
     image_source: str | None = None,
     client: OpenAI | None = None,
     enable_thinking: bool = False,
@@ -45,13 +45,14 @@ def chat(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
+    logger.debug(f"💬 chat() called with type={type(prompt_or_messages).__name__}")
+
     return run_chat_stream(
-        prompt=prompt,
+        prompt_or_messages=prompt_or_messages,
         model=model,
         project_name=project_name,
         capture_content=capture_content,
         phoenix_url=phoenix_url,
-        messages=messages,
         image_source=image_source,
         client=client,
         enable_thinking=enable_thinking,
@@ -77,13 +78,13 @@ def chat(
 
 
 async def achat(
-    prompt: str = "What is OpenTelemetry in one sentence?",
+    prompt_or_messages: str
+    | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
     project_name: str = "achat-llm-utils-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
-    messages: list[dict[str, Any]] | None = None,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
     enable_thinking: bool = False,
@@ -106,13 +107,14 @@ async def achat(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
+    logger.debug(f"💬 achat() called with type={type(prompt_or_messages).__name__}")
+
     return await run_chat_stream_async(
-        prompt=prompt,
+        prompt_or_messages=prompt_or_messages,
         model=model,
         project_name=project_name,
         capture_content=capture_content,
         phoenix_url=phoenix_url,
-        messages=messages,
         image_source=image_source,
         client=client,
         enable_thinking=enable_thinking,
@@ -164,7 +166,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--project",
         type=str,
-        default="chat-llm-utils-obs",
+        default="achat-llm-utils-obs",
         help="Phoenix project name to log traces under.",
     )
     parser.add_argument(
@@ -185,7 +187,7 @@ if __name__ == "__main__":
 
     result = asyncio.run(
         achat(
-            prompt=args.prompt,
+            args.prompt,
             model=args.model,
             image_source=args.image_source,
             project_name=args.project,

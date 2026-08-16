@@ -230,13 +230,13 @@ async def execute_tool_with_span_async(
 
 
 async def run_chat_stream_async(
-    prompt: str = "What is OpenTelemetry in one sentence?",
+    prompt_or_messages: str
+    | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
     project_name: str = "achat-stream-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
-    messages: list[dict[str, Any]] | None = None,
     image_source: str | None = None,
     client: AsyncOpenAI | None = None,
     enable_thinking: bool = False,
@@ -272,6 +272,14 @@ async def run_chat_stream_async(
         logger.debug("🔌 No client provided; creating default via get_async_client()")
         client = get_async_client()
 
+    # Resolve prompt vs messages internally
+    prompt: str | None = None
+    messages: list[dict[str, Any]] | None = None
+    if isinstance(prompt_or_messages, str):
+        prompt = prompt_or_messages
+    else:
+        messages = prompt_or_messages
+
     is_agentic = tool_registry is not None
     span_name = "agent_workflow" if is_agentic else "chat_completion"
 
@@ -284,6 +292,7 @@ async def run_chat_stream_async(
     with tracer.start_as_current_span(span_name) as loop_span:
         loop_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, root_span_kind)
 
+        # Set Input Value for Phoenix UI "Input" column
         input_val = prompt
         if messages and len(messages) > 0:
             last_msg = messages[-1]
@@ -315,6 +324,7 @@ async def run_chat_stream_async(
                 json.dumps([t.get("function", {}).get("name") for t in tools]),
             )
 
+        # Initialize current_messages from resolved inputs
         current_messages: list[dict[str, Any]] | None = messages
         if current_messages is None:
             if image_source:
