@@ -18,12 +18,15 @@ logging.basicConfig(
 
 
 def build_registry() -> ToolRegistry:
-    reg = ToolRegistry()
-    # Register search_manager FIRST so model prefers it for factual queries
+    reg = ToolRegistry(blacklist_ttl_seconds=300)
+
+    # Register search_manager FIRST — model prefers it for factual queries
+    # Raw web_search/web_extractor remain available as fallbacks
     reg.register("search_manager", search_manager, SEARCH_MANAGER_SCHEMA)
     reg.register("web_search", web_search, SEARCH_SCHEMA)
     reg.register("web_extractor", web_extractor, EXTRACTOR_SCHEMA)
     reg.register("code_interpreter", code_interpreter, CODE_SCHEMA)
+
     return reg
 
 
@@ -31,8 +34,8 @@ def main():
     registry = build_registry()
     agent = AgenticOrchestrator(registry)
 
-    print("🤖 Qwen Studio Style Agent (Enforced Verification)")
-    print("=" * 50)
+    print("🤖 Qwen Studio Style Agent (Failure-Resilient Verification)")
+    print("=" * 55)
 
     while True:
         try:
@@ -41,6 +44,10 @@ def main():
             break
         if not query or query.lower() in ("quit", "exit"):
             break
+
+        # Optional: clear failure tracking between independent queries
+        # registry.clear_session_failures()
+
         print(f"\n{agent.run(query)}")
 
 
