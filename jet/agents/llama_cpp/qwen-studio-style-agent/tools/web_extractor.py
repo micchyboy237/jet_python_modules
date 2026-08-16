@@ -1,6 +1,6 @@
 import trafilatura
 from agent.config import Config
-from agent.llm_client import LLMClient
+from jet.adapters.llama_cpp.llm_utils import chat
 
 EXTRACTOR_SCHEMA = {
     "type": "function",
@@ -40,9 +40,10 @@ def web_extractor(url: str, goal: str) -> str:
 
     cleaned = cleaned[: Config.EXTRACTOR_MAX_CHARS]
 
-    llm = LLMClient()
-    msg = llm.chat(
-        messages=[
+    # Use Jet's chat() for consistent observability + model routing
+    # No tool_registry here — this is a single-turn extraction, not an agentic call
+    result = chat(
+        prompt_or_messages=[
             {
                 "role": "user",
                 "content": (
@@ -51,6 +52,12 @@ def web_extractor(url: str, goal: str) -> str:
                     f"If irrelevant, say so explicitly."
                 ),
             }
-        ]
+        ],
+        model=Config.LLAMA_MODEL,
+        temperature=0.0,
+        max_tokens=1024,
+        project_name="qwen-studio-extractor",
+        phoenix_url=Config.PHOENIX_URL,
     )
-    return msg.content.strip()
+
+    return result.content.strip()

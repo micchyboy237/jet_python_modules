@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
 import logging
 import os
 import sys
 
-# Add this file's directory to sys.path to enable module imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from agent.orchestrator import AgenticOrchestrator
@@ -13,7 +11,8 @@ from tools.web_extractor import EXTRACTOR_SCHEMA, web_extractor
 from tools.web_search import SEARCH_SCHEMA, web_search
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
 
@@ -29,7 +28,7 @@ def main():
     registry = build_registry()
     agent = AgenticOrchestrator(registry)
 
-    print("🤖 Local Agentic Assistant (Docker-Free)")
+    print("🤖 Qwen Studio Style Agent (Jet-Integrated)")
     print("=" * 50)
 
     while True:

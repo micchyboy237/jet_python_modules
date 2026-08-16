@@ -1,6 +1,5 @@
-openai>=1.30.0
-httpx>=0.27.0
+# Jet framework assumed installed via monorepo
+# Agent-specific deps only
 trafilatura>=1.9.0
-RestrictedPython>=7.4
+pyodide-py>=0.27.0
 python-dotenv>=1.0.1
-tenacity>=8.3.0
