@@ -1,3 +1,83 @@
+"""
+LLM Utilities Adapter for llama.cpp with Built-in Observability.
+
+This module provides a simplified, high-level interface for interacting with
+llama.cpp-compatible servers via the OpenAI API protocol. It serves as the
+primary entry point for LLM operations within the jet framework.
+
+Key Features:
+    - Unified sync/async API for chat completions and raw text generation
+    - Automatic OpenTelemetry tracing and Phoenix observability integration
+    - Native support for agentic tool-use loops with executable registries
+    - Vision/multimodal support via base64 image encoding
+    - Streaming responses with real-time console output and usage metrics
+
+Common Args:
+    These parameters are shared across chat(), achat(), generate(), and agenerate().
+    Not all functions accept every parameter; check each function's signature.
+
+    prompt_or_messages (str | list[dict]): Input prompt string or pre-formatted
+        OpenAI messages list. Defaults to "What is OpenTelemetry in one sentence?".
+    model (str): Model identifier served by the llama.cpp backend.
+        Defaults to MODEL env var or "qwen3.5-uncensored:2b".
+    project_name (str): Phoenix project name for trace grouping. Set to "" to
+        disable observability setup. Defaults to "<func>-llm-utils-obs".
+    capture_content (bool): Whether to record prompt/response text in traces.
+        Set False for PII-sensitive workloads. Defaults to True.
+    phoenix_url (str): Base URL of the Phoenix observability server.
+        Defaults to PHOENIX_URL constant.
+    image_source (str | None): Local path, HTTP(S) URL, or raw bytes of an image
+        to include as vision input. Only applies to chat/achat. Defaults to None.
+    client (OpenAI | AsyncOpenAI | None): Pre-configured client instance.
+        If None, a default client is created via get_client()/get_async_client().
+    enable_thinking (bool): Request model reasoning/thinking tokens in output.
+        Only supported by models with native thinking capability. Defaults to False.
+    max_tokens (int): Maximum completion tokens to generate. Defaults to 16384.
+    temperature (float): Sampling temperature (0.0 = greedy, 2.0 = most random).
+        Defaults to 0.7.
+    top_p (float): Nucleus sampling threshold. Tokens with cumulative probability
+        above this are excluded. Defaults to 0.8.
+    top_k (int): Limit sampling to the k most likely tokens. llama.cpp native
+        parameter passed via extra_body. Defaults to 20.
+    min_p (float): Minimum probability threshold relative to top token.
+        llama.cpp native parameter. Defaults to 0.0 (disabled).
+    repeat_penalty (float): Repetition penalty factor. 1.0 = no penalty.
+        llama.cpp native parameter. Defaults to 1.1.
+    presence_penalty (float): Penalize tokens based on presence in context so far.
+        Range: -2.0 to 2.0. Defaults to 1.5.
+    frequency_penalty (float): Penalize tokens proportional to their frequency.
+        Range: -2.0 to 2.0. Defaults to 0.0.
+    logit_bias (dict[str, int] | None): Token ID → bias mapping to steer
+        generation. E.g. {"1234": -100} suppresses token 1234. Defaults to None.
+    seed (int | None): Random seed for reproducible outputs. None = random.
+    stop (list[str] | None): Up to 4 stop sequences that halt generation.
+    tools (list[dict] | None): OpenAI-format tool/function definitions.
+        Only applies to chat/achat. Defaults to None.
+    tool_choice (str | dict | None): Tool selection strategy: "auto", "none",
+        "required", or a specific function dict. Defaults to None.
+    tool_registry (dict[str, Callable] | None): Mapping of tool names to callable
+        executors. When provided, enables automatic agentic tool-call loops.
+        Without it, raw tool calls are returned for external handling.
+    response_format (dict | None): Structured output format, e.g.
+        {"type": "json_object"}. Defaults to None.
+    max_tool_rounds (int): Maximum agentic loop iterations before forced stop.
+        Only effective when tool_registry is provided. Defaults to 10.
+    extra_body_params (dict | None): Additional key-value pairs merged into the
+        API request's extra_body field for llama.cpp-specific parameters.
+    session_id (str | None): Session identifier to group related traces as a
+        conversation thread in Phoenix. Defaults to None.
+
+Functions:
+    chat(): Synchronous multi-turn chat with optional tool execution.
+    achat(): Async multi-turn chat with optional tool execution.
+    generate(): Synchronous raw text completion (no chat formatting).
+    agenerate(): Async raw text completion (no chat formatting).
+
+Note:
+    All functions automatically configure tracing when project_name is non-empty.
+    See individual function signatures for which Common Args each accepts.
+"""
+
 import argparse
 from typing import Any, Callable
 
