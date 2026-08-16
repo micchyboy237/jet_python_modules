@@ -5,9 +5,11 @@ from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
     PHOENIX_URL,
     run_chat_stream,
+    run_generate_stream,
 )
 from jet.libs.llama_cpp.usage.chat_stream_observability_async import (
     run_chat_stream_async,
+    run_generate_stream_async,
 )
 from jet.libs.llama_cpp.usage.chat_stream_types import (
     StreamCompletionResult,
@@ -134,6 +136,100 @@ async def achat(
         tool_registry=tool_registry,
         response_format=response_format,
         max_tool_rounds=max_tool_rounds,
+        extra_body_params=extra_body_params,
+        session_id=session_id,
+    )
+
+
+def generate(
+    prompt: str,
+    model: str = MODEL,
+    *,
+    project_name: str = "generate-llm-utils-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
+    client: OpenAI | None = None,
+    max_tokens: int = 16384,
+    temperature: float = 0.7,
+    top_p: float = 0.8,
+    top_k: int = 20,
+    min_p: float = 0.0,
+    repeat_penalty: float = 1.1,
+    presence_penalty: float = 1.5,
+    frequency_penalty: float = 0.0,
+    logit_bias: dict[str, int] | None = None,
+    seed: int | None = None,
+    stop: list[str] | None = None,
+    extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
+) -> StreamCompletionResult:
+    """Synchronous raw text generation alternative to chat()."""
+    logger.debug(f"✏️ generate() called with prompt length={len(prompt)}")
+    return run_generate_stream(
+        prompt=prompt,
+        model=model,
+        project_name=project_name,
+        capture_content=capture_content,
+        phoenix_url=phoenix_url,
+        client=client,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        min_p=min_p,
+        repeat_penalty=repeat_penalty,
+        presence_penalty=presence_penalty,
+        frequency_penalty=frequency_penalty,
+        logit_bias=logit_bias,
+        seed=seed,
+        stop=stop,
+        extra_body_params=extra_body_params,
+        session_id=session_id,
+    )
+
+
+async def agenerate(
+    prompt: str,
+    model: str = MODEL,
+    *,
+    project_name: str = "agenerate-llm-utils-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
+    client: AsyncOpenAI | None = None,
+    max_tokens: int = 16384,
+    temperature: float = 0.7,
+    top_p: float = 0.8,
+    top_k: int = 20,
+    min_p: float = 0.0,
+    repeat_penalty: float = 1.1,
+    presence_penalty: float = 1.5,
+    frequency_penalty: float = 0.0,
+    logit_bias: dict[str, int] | None = None,
+    seed: int | None = None,
+    stop: list[str] | None = None,
+    extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
+) -> StreamCompletionResult:
+    """Asynchronous raw text generation alternative to achat()."""
+    logger.debug(f"✏️ agenerate() called with prompt length={len(prompt)}")
+    return await run_generate_stream_async(
+        prompt=prompt,
+        model=model,
+        project_name=project_name,
+        capture_content=capture_content,
+        phoenix_url=phoenix_url,
+        client=client,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        min_p=min_p,
+        repeat_penalty=repeat_penalty,
+        presence_penalty=presence_penalty,
+        frequency_penalty=frequency_penalty,
+        logit_bias=logit_bias,
+        seed=seed,
+        stop=stop,
         extra_body_params=extra_body_params,
         session_id=session_id,
     )

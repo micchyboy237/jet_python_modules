@@ -208,7 +208,7 @@ def execute_tool_with_span(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Core Streaming Chat Completion
+# Core Streaming Completion
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -721,6 +721,169 @@ def run_chat_stream(
 
         return last_result or StreamCompletionResult(
             content="", finish_reason="no_response"
+        )
+
+
+def run_generate_stream(
+    prompt: str,
+    model: str = MODEL,
+    *,
+    project_name: str = "generate-stream-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
+    client: OpenAI | None = None,
+    max_tokens: int = 16384,
+    temperature: float = 0.7,
+    top_p: float = 0.8,
+    top_k: int = 20,
+    min_p: float = 0.0,
+    repeat_penalty: float = 1.1,
+    presence_penalty: float = 1.5,
+    frequency_penalty: float = 0.0,
+    logit_bias: dict[str, int] | None = None,
+    seed: int | None = None,
+    stop: list[str] | None = None,
+    extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
+) -> StreamCompletionResult:
+    """Stream a raw text completion with Phoenix observability (no chat formatting)."""
+    if project_name:
+        setup_observability(
+            project_name=project_name,
+            capture_content=capture_content,
+            phoenix_url=phoenix_url,
+        )
+
+    tracer = trace.get_tracer(__name__)
+    if client is None:
+        logger.debug("🔌 No client provided; creating default via get_client()")
+        client = get_client()
+
+    with tracer.start_as_current_span("text_completion") as span:
+        span.set_attribute(
+            SpanAttributes.OPENINFERENCE_SPAN_KIND,
+            OpenInferenceSpanKindValues.LLM.value,
+        )
+        span.set_attribute(SpanAttributes.INPUT_VALUE, prompt)
+
+        trace_id = span.get_span_context().trace_id
+        trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+
+        span.set_attribute("llm.model", model)
+        span.set_attribute("llm.sampling.temperature", temperature)
+        span.set_attribute("llm.sampling.top_p", top_p)
+        span.set_attribute("llm.sampling.max_tokens", max_tokens)
+        if session_id is not None:
+            span.set_attribute("session.id", session_id)
+
+        logger.info("─" * 60)
+        logger.info(f"📝 Text Completion Mode")
+        logger.info(f"🤖 Model        : {model}")
+        logger.info(f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k}")
+        console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
+
+        extra_body: dict[str, Any] = {"top_k": top_k}
+        if min_p > 0.0:
+            extra_body["min_p"] = min_p
+        if repeat_penalty != 1.1:
+            extra_body["repeat_penalty"] = repeat_penalty
+        if extra_body_params:
+            extra_body.update(extra_body_params)
+
+        api_kwargs: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "presence_penalty": presence_penalty,
+            "frequency_penalty": frequency_penalty,
+            "logit_bias": logit_bias,
+            "seed": seed,
+            "stop": stop,
+            "extra_body": extra_body,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+        t_request_start = time.perf_counter()
+        collected_content: list[str] = []
+        usage = None
+        first_token_at: float | None = None
+        finish_reason: str | None = None
+
+        try:
+            stream = client.completions.create(**api_kwargs)
+            console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
+            for chunk in stream:
+                if not chunk.choices:
+                    usage = getattr(chunk, "usage", None)
+                    continue
+
+                delta = chunk.choices[0].text
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
+
+                if first_token_at is None and delta:
+                    first_token_at = time.perf_counter()
+
+                if delta:
+                    console.print(
+                        f"[bold cyan]{delta}[/bold cyan]",
+                        end="",
+                        highlight=False,
+                        soft_wrap=True,
+                    )
+                    collected_content.append(delta)
+
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR))
+            logger.exception("❌ Text streaming failed")
+            raise
+        finally:
+            console.print()
+            total_secs = time.perf_counter() - t_request_start
+            ttft = (first_token_at - t_request_start) if first_token_at else None
+            full_response = "".join(collected_content)
+
+            span.set_attribute(SpanAttributes.OUTPUT_VALUE, full_response)
+
+            logger.info("─" * 60)
+            logger.info(f"📊 Generation summary")
+            if usage:
+                tok_per_sec = (
+                    usage.completion_tokens / total_secs if total_secs > 0 else 0.0
+                )
+                logger.info(f"   Prompt tokens      : {usage.prompt_tokens}")
+                logger.info(f"   Completion tokens  : {usage.completion_tokens}")
+                logger.info(f"   Throughput         : {tok_per_sec:.1f} tok/s")
+                span.set_attribute("llm.usage.prompt_tokens", usage.prompt_tokens)
+                span.set_attribute(
+                    "llm.usage.completion_tokens", usage.completion_tokens
+                )
+            if ttft is not None:
+                logger.info(f"   Time to first token: {ttft:.2f}s")
+            logger.info(f"   Total duration     : {total_secs:.2f}s")
+            logger.info(f"   Response length    : {len(full_response)} chars")
+            if finish_reason:
+                logger.info(f"   Finish reason      : {finish_reason}")
+
+            span.set_status(Status(StatusCode.OK))
+            console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
+
+        return StreamCompletionResult(
+            content=full_response,
+            tool_calls=[],
+            usage={
+                "prompt_tokens": usage.prompt_tokens,
+                "completion_tokens": usage.completion_tokens,
+                "total_tokens": usage.total_tokens,
+            }
+            if usage
+            else None,
+            finish_reason=finish_reason,
         )
 
 
