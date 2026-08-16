@@ -54,6 +54,8 @@ class CustomLogger:
         | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
         level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
         fmt: str | logging.Formatter = "%(message)s",
+        silent: bool = False,
+        stream: Any | None = None,
     ):
         self.log_file = filename
         if self.log_file:
@@ -61,6 +63,8 @@ class CustomLogger:
             os.makedirs(log_dir, exist_ok=True)
         self.name = name
         self.overwrite = overwrite
+        self.silent = silent
+        self._target_stream = stream
         self.console_level = self._to_numeric_level(console_level)
         self.level = self._to_numeric_level(level)
         formatter = (
@@ -70,9 +74,6 @@ class CustomLogger:
         self.logger = self._initialize_logger(name)
         self._console_handler = None  # Initialize console handler attribute
         self._last_message_flushed = False
-        print(
-            f"DEBUG: Initialized logger with console_level: {self.console_level}\nlog_file: {self.log_file}"
-        )
 
     def __call__(
         self,
@@ -101,17 +102,23 @@ class CustomLogger:
         logger.setLevel(logging.DEBUG)
         logger.handlers.clear()
 
-        # Use sys.stdout for console output
-        self._console_handler = logging.StreamHandler(stream=sys.stdout)
-        self._console_handler.setLevel(self.console_level)  # now int
-        self._console_handler.setFormatter(self.formatter)
-        logger.addHandler(self._console_handler)
+        if not self.silent:
+            # Default to sys.stderr for logs; allow override via stream parameter
+            target_stream = (
+                self._target_stream if self._target_stream is not None else sys.stderr
+            )
+            self._console_handler = logging.StreamHandler(stream=target_stream)
+            self._console_handler.setLevel(self.console_level)
+            self._console_handler.setFormatter(self.formatter)
+            logger.addHandler(self._console_handler)
+        else:
+            self._console_handler = None
 
         if self.log_file:
             if self.overwrite and os.path.exists(self.log_file):
                 os.remove(self.log_file)
             file_handler = logging.FileHandler(self.log_file, mode="a")
-            file_handler.setLevel(self.level)  # now int
+            file_handler.setLevel(self.level)
             file_handler.setFormatter(self.formatter)
             logger.addHandler(file_handler)
         return logger
@@ -125,17 +132,14 @@ class CustomLogger:
             return self._level_map.get(level.upper(), logging.DEBUG)
         return logging.DEBUG  # fallback
 
-    # You can keep get_level() if some code still uses it, but it's no longer needed
-    # for internal use after this change. Optionally deprecate / remove it.
     def get_level(self, level: int | str) -> str:
-        # Optional: keep for backward compatibility, but now mostly unused internally
         if isinstance(level, int):
             name = logging.getLevelName(level)
             return name if isinstance(name, str) else "DEBUG"
         return str(level).upper()
 
     @property
-    def streamHandler(self) -> logging.StreamHandler:
+    def streamHandler(self) -> logging.StreamHandler | None:
         """Get the console StreamHandler for this logger."""
         return self._console_handler
 
@@ -155,10 +159,9 @@ class CustomLogger:
     ) -> None:
         numeric_level = self._to_numeric_level(level)
         self.level = numeric_level
-        self.console_level = numeric_level  # or keep separate if desired
+        self.console_level = numeric_level
         for handler in self.logger.handlers:
             handler.setLevel(numeric_level)
-        print(f"DEBUG: Set logger level to {level}")
 
     def setLevel(
         self, level: int | Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -190,24 +193,14 @@ class CustomLogger:
         force: bool = False,
         encoding: str | None = None,
         errors: str | None = None,
+        silent: bool | None = None,
     ) -> None:
         """
         Configure the logger with settings similar to logging.basicConfig.
-
-        Args:
-            name: If specified, changes the logger's name and reinitializes it.
-            filename: If specified, log messages to this file.
-            filemode: Mode to open the file ('a' for append, 'w' for overwrite). Default is 'a'.
-            format: Format string for log messages. Default is '%(message)s'.
-            datefmt: Format string for timestamps in log messages.
-            style: Format style for the formatter ('%', '{', or '$'). Default is '%'.
-            level: Logging level for all handlers. If None, existing levels are unchanged.
-            stream: Stream for console output. If specified, replaces existing StreamHandler.
-            handlers: Iterable of handlers to set. If specified, replaces all existing handlers.
-            force: If True, clear all existing handlers before applying new configuration.
-            encoding: Encoding for the file handler, if filename is specified.
-            errors: Error handling scheme for the file handler, if filename is specified.
         """
+        if silent is not None:
+            self.silent = silent
+
         if name is not None and name != self.name:
             self.name = name
             self.logger = self._initialize_logger(name)
@@ -236,17 +229,20 @@ class CustomLogger:
             self.logger.addHandler(file_handler)
 
         if stream is not None:
+            self._target_stream = stream
             for handler in self.logger.handlers[:]:
                 if isinstance(handler, logging.StreamHandler) and not isinstance(
                     handler, logging.FileHandler
                 ):
                     self.logger.removeHandler(handler)
-            console_handler = logging.StreamHandler(stream)
-            console_handler.setLevel(
-                eff_level if eff_level is not None else self.console_level
-            )
-            console_handler.setFormatter(self.formatter)
-            self.logger.addHandler(console_handler)
+            if not self.silent:
+                console_handler = logging.StreamHandler(stream)
+                console_handler.setLevel(
+                    eff_level if eff_level is not None else self.console_level
+                )
+                console_handler.setFormatter(self.formatter)
+                self.logger.addHandler(console_handler)
+                self._console_handler = console_handler
 
         if handlers is not None:
             self.logger.handlers.clear()
@@ -261,10 +257,6 @@ class CustomLogger:
             self.level = eff_level
             for handler in self.logger.handlers:
                 handler.setLevel(eff_level)
-
-        print(
-            f"DEBUG: Configured logger with name={self.name}, filename={filename}, level={level}, format={format}"
-        )
 
     def basicConfig(
         self,
@@ -284,11 +276,10 @@ class CustomLogger:
         encoding: str | None = None,
         errors: str | None = None,
         overwrite: bool = False,
+        silent: bool | None = None,
     ) -> None:
-        # If overwrite is True, set filemode to "w" (write/truncate)
         if overwrite:
             filemode = "w"
-        # Ensure the directory for the log file exists
         if filename is not None:
             log_dir = os.path.dirname(os.path.abspath(filename))
             os.makedirs(log_dir, exist_ok=True)
@@ -305,6 +296,7 @@ class CustomLogger:
             force=force,
             encoding=encoding,
             errors=errors,
+            silent=silent,
         )
 
     def custom_logger_method(self, level: str) -> Callable[..., None]:
@@ -325,7 +317,6 @@ class CustomLogger:
                 "ERROR": 40,
                 "CRITICAL": 50,
             }
-            # level filtering: compare numeric values
             numeric_level = CustomLogger._level_map.get(level.upper(), logging.DEBUG)
             if numeric_level < self.console_level:
                 return
@@ -359,49 +350,39 @@ class CustomLogger:
                     (msg, colors[i % len(colors)] if colors else level)
                 )
             colored_output = ""
+            console_stream = (
+                self._console_handler.stream if self._console_handler else None
+            )
             try:
-                if hasattr(sys.stdout, "fileno") and os.isatty(sys.stdout.fileno()):
-                    colored_output = "".join(
-                        f"{COLORS.get(color, COLORS['LOG'])}{msg}{RESET}"
-                        for msg, color in processed_messages
-                    )
-                else:
-                    colored_output = " ".join(msg for msg, _ in processed_messages)
-            except io.UnsupportedOperation:
-                colored_output = " ".join(msg for msg, _ in processed_messages)
-                self._print_direct(
-                    "[WARNING] Fallback to non-colored output due to io.UnsupportedOperation"
+                is_tty = False
+                if console_stream and hasattr(console_stream, "fileno"):
+                    is_tty = os.isatty(console_stream.fileno())
+            except (io.UnsupportedOperation, OSError):
+                is_tty = False
+
+            if is_tty:
+                colored_output = "".join(
+                    f"{COLORS.get(color, COLORS['LOG'])}{msg}{RESET}"
+                    for msg, color in processed_messages
                 )
+            else:
+                colored_output = " ".join(msg for msg, _ in processed_messages)
+
             if level.lower() == "error" and exc_info:
                 error_msg = colorize_log("Trace exception:", "gray")
-                try:
-                    if not (
-                        hasattr(sys.stdout, "fileno") and os.isatty(sys.stdout.fileno())
-                    ):
-                        error_msg = clean_ansi(error_msg)
-                except io.UnsupportedOperation:
+                if not is_tty:
                     error_msg = clean_ansi(error_msg)
-                    self._print_direct(
-                        "[WARNING] Fallback to non-colored error message due to io.UnsupportedOperation"
-                    )
-                self._print_direct(error_msg)
+                self._print_direct(error_msg, stream=console_stream)
+
                 error_trace = colorize_log(traceback.format_exc(), level)
-                try:
-                    if not (
-                        hasattr(sys.stdout, "fileno") and os.isatty(sys.stdout.fileno())
-                    ):
-                        error_trace = clean_ansi(error_trace)
-                except io.UnsupportedOperation:
+                if not is_tty:
                     error_trace = clean_ansi(error_trace)
-                    self._print_direct(
-                        "[WARNING] Fallback to non-colored error trace due to io.UnsupportedOperation"
-                    )
-                self._print_direct(error_trace)
+                self._print_direct(error_trace, stream=console_stream)
+
             if not end:
                 end = "" if flush else "\n"
-            # Write output directly to stdout buffer to bypass Rich's FileProxy
-            # which can cause RecursionError in multi-threaded contexts
-            self._print_direct(colored_output, end=end)
+            self._print_direct(colored_output, end=end, stream=console_stream)
+
             target_log_file = log_file if log_file is not None else self.log_file
             if target_log_file:
                 log_dir = os.path.dirname(os.path.abspath(target_log_file))
@@ -419,7 +400,6 @@ class CustomLogger:
                 with open(target_log_file, "a") as file:
                     if not flush and self._last_message_flushed:
                         file.write("\n\n")
-                    # Write only the end string (newline) for empty messages, skip metadata
                     if output_message.strip() == "":
                         file.write(end)
                     else:
@@ -464,7 +444,8 @@ class CustomLogger:
         return wrapper
 
     def newline(self) -> None:
-        print("\n", end="")
+        console_stream = self._console_handler.stream if self._console_handler else None
+        self._print_direct("\n", end="", stream=console_stream)
         if self.log_file:
             with open(self.log_file, "a") as file:
                 file.write("\n")
@@ -515,16 +496,18 @@ class CustomLogger:
             return prompt_log
 
         prompt_log = _inner(prompt, level)
+        console_stream = self._console_handler.stream if self._console_handler else None
+
         try:
-            if hasattr(sys.stdout, "fileno") and os.isatty(sys.stdout.fileno()):
-                print(prompt_log)
-            else:
-                print(clean_ansi(prompt_log))
-        except io.UnsupportedOperation:
-            print(clean_ansi(prompt_log))
-            print(
-                "[WARNING] Fallback to non-colored output in pretty method due to io.UnsupportedOperation"
-            )
+            is_tty = False
+            if console_stream and hasattr(console_stream, "fileno"):
+                is_tty = os.isatty(console_stream.fileno())
+        except (io.UnsupportedOperation, OSError):
+            is_tty = False
+
+        output = prompt_log if is_tty else clean_ansi(prompt_log)
+        self._print_direct(output, stream=console_stream)
+
         target_log_file = log_file if log_file is not None else self.log_file
         if target_log_file:
             log_dir = os.path.dirname(os.path.abspath(target_log_file))
@@ -566,27 +549,27 @@ class CustomLogger:
         self.warning(f"'CustomLogger' object has no attribute '{name}'")
 
     @staticmethod
-    def _print_direct(message: str = "", end: str = "\n") -> None:
+    def _print_direct(
+        message: str = "", end: str = "\n", stream: Any | None = None
+    ) -> None:
         """
-        Write output directly to stdout buffer, bypassing Rich's FileProxy.
+        Write output directly to stream buffer, bypassing Rich's FileProxy.
 
-        Rich's FileProxy can cause RecursionError in multi-threaded contexts
-        (e.g., audio recorder threads). Writing to sys.stdout.buffer avoids
-        the proxy entirely while still outputting to the console.
+        Falls back safely for non-standard streams (e.g., StringIO in tests)
+        or when .buffer is unavailable.
         """
+        target = stream if stream is not None else sys.stderr
         try:
-            output = message
-            if end:
-                output += end
-            sys.stdout.buffer.write(output.encode("utf-8"))
-            sys.stdout.buffer.flush()
-        except (AttributeError, io.UnsupportedOperation):
-            # Fallback for non-standard stdout (e.g., StringIO in tests)
-            print(message, end=end, flush=True)
+            output = message + (end if end else "")
+            if hasattr(target, "buffer"):
+                target.buffer.write(output.encode("utf-8"))
+                target.buffer.flush()
+            else:
+                target.write(output)
+                target.flush()
+        except (AttributeError, io.UnsupportedOperation, OSError):
+            print(message, end=end, flush=True, file=target)
 
-    # ──────────────────────────────────────────────────────────────
-    # Add a classmethod that mimics logging.getLogger()
-    # ──────────────────────────────────────────────────────────────
     @classmethod
     def getLogger(
         cls,
@@ -596,10 +579,11 @@ class CustomLogger:
         console_level: int | str = "DEBUG",
         level: int | str = "DEBUG",
         fmt: str | logging.Formatter = "%(message)s",
+        silent: bool = False,
+        stream: Any | None = None,
     ) -> "CustomLogger":
         """
-        Works exactly like the global ``getLogger`` you already have,
-        but also allows:
+        Works exactly like the global ``getLogger``, but also allows:
             logger.getLogger("faster_whisper").setLevel(logger.DEBUG)
         """
         return cls(
@@ -609,6 +593,8 @@ class CustomLogger:
             console_level=console_level,
             level=level,
             fmt=fmt,
+            silent=silent,
+            stream=stream,
         )
 
 
@@ -617,49 +603,49 @@ def logger_examples(logger: CustomLogger):
     logger.newline()
     logger.log("This is a default log message.")
     logger("Called log message.")
-    logger.info()  # Added
+    logger.info()
     logger.info("This is an info message.")
     logger.info("This is a bright info message.", bright=True)
-    logger.debug()  # Added
+    logger.debug()
     logger.debug("This is a debug message.")
     logger.debug("This is a bright debug message.", bright=True)
-    logger.warning()  # Added
+    logger.warning()
     logger.warning("This is a warning message.")
     logger.warning("This is a bright warning message.", bright=True)
-    logger.error()  # Added
+    logger.error()
     logger.error("This is an error message.")
     logger.error("This is a bright error message.", bright=True)
-    logger.critical()  # Added
+    logger.critical()
     logger.critical("This is a critical message.")
     logger.critical("This is a bright critical message.", bright=True)
-    logger.success()  # Added
+    logger.success()
     logger.success("This is a success message.")
     logger.success("This is a bright success message.", bright=True)
-    logger.orange()  # Added
+    logger.orange()
     logger.orange("This is a orange message.")
     logger.orange("This is a bright orange message.", bright=True)
-    logger.teal()  # Added
+    logger.teal()
     logger.teal("This is a teal message.")
     logger.teal("This is a bright teal message.", bright=True)
-    logger.cyan()  # Added
+    logger.cyan()
     logger.cyan("This is a cyan message.")
     logger.cyan("This is a bright cyan message.", bright=True)
-    logger.blue()  # Added
+    logger.blue()
     logger.blue("This is a blue message.")
     logger.blue("This is a bright blue message.", bright=True)
-    logger.pink()  # Added
+    logger.pink()
     logger.pink("This is a pink message.")
     logger.pink("This is a bright pink message.", bright=True)
-    logger.purple()  # Added
+    logger.purple()
     logger.purple("This is a purple message.")
     logger.purple("This is a bright purple message.", bright=True)
-    logger.lime()  # Added
+    logger.lime()
     logger.lime("This is a lime message.")
     logger.lime("This is a bright lime message.", bright=True)
-    logger.magenta()  # Added
+    logger.magenta()
     logger.magenta("This is a magenta message.")
     logger.magenta("This is a bright magenta message.", bright=True)
-    logger.green()  # Added
+    logger.green()
     logger.green("This is a green message.")
     logger.green("This is a bright green message.", bright=True)
     logger.log(
@@ -803,9 +789,13 @@ def parse_arguments() -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set the console logging level (options: DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
-    args = parser.parse_args()
-    print(f"DEBUG: Parsed arguments: log-cli-level={args.log_cli_level}")
-    return args
+    parser.add_argument(
+        "--silent",
+        action="store_true",
+        default=False,
+        help="Suppress all console output from the logger",
+    )
+    return parser.parse_args()
 
 
 def getLogger(
@@ -815,10 +805,21 @@ def getLogger(
     console_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "DEBUG",
     fmt: str | logging.Formatter = "%(message)s",
+    silent: bool = False,
+    stream: Any | None = None,
 ):
     if not name or isinstance(name, str) and name == logger.name:
         return logger
-    return CustomLogger(name, log_file, overwrite, console_level, level, fmt).setLevel
+    return CustomLogger(
+        name,
+        log_file,
+        overwrite,
+        console_level,
+        level,
+        fmt,
+        silent=silent,
+        stream=stream,
+    )
 
 
 logger = CustomLogger()
@@ -834,6 +835,9 @@ if __name__ == "__main__":
 
     file_path = f"{OUTPUT_DIR}/log.txt"
     logger_with_file = CustomLogger(
-        filename=file_path, overwrite=False, console_level=args.log_cli_level
+        filename=file_path,
+        overwrite=False,
+        console_level=args.log_cli_level,
+        silent=args.silent,
     )
     logger_examples(logger_with_file)
