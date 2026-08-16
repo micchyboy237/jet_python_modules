@@ -6,14 +6,23 @@ EXTRACTOR_SCHEMA = {
     "type": "function",
     "function": {
         "name": "web_extractor",
-        "description": "Extract specific information from a webpage. Use AFTER finding a URL via web_search.",
+        "description": (
+            "Extract and VERIFY specific information from a webpage. "
+            "Use AFTER web_search to confirm facts before including them in responses. "
+            "For list items: extract title, year, studio, synopsis, and source credibility. "
+            "For dates/events: extract exact date, venue, and official confirmation status."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "url": {"type": "string", "description": "Full URL of the webpage"},
                 "goal": {
                     "type": "string",
-                    "description": "Precise description of what to extract",
+                    "description": (
+                        "Precise extraction goal. Examples: "
+                        "'Verify anime title, release year, and studio for [X]'; "
+                        "'Confirm NBA season start date and official source'"
+                    ),
                 },
             },
             "required": ["url", "goal"],

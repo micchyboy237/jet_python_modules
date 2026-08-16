@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from agent.orchestrator import AgenticOrchestrator
+from agent.search_manager import SEARCH_MANAGER_SCHEMA, search_manager
 from tools.code_interpreter import CODE_SCHEMA, code_interpreter
 from tools.registry import ToolRegistry
 from tools.web_extractor import EXTRACTOR_SCHEMA, web_extractor
@@ -18,6 +19,8 @@ logging.basicConfig(
 
 def build_registry() -> ToolRegistry:
     reg = ToolRegistry()
+    # Register search_manager FIRST so model prefers it for factual queries
+    reg.register("search_manager", search_manager, SEARCH_MANAGER_SCHEMA)
     reg.register("web_search", web_search, SEARCH_SCHEMA)
     reg.register("web_extractor", web_extractor, EXTRACTOR_SCHEMA)
     reg.register("code_interpreter", code_interpreter, CODE_SCHEMA)
@@ -28,7 +31,7 @@ def main():
     registry = build_registry()
     agent = AgenticOrchestrator(registry)
 
-    print("🤖 Qwen Studio Style Agent (Jet-Integrated)")
+    print("🤖 Qwen Studio Style Agent (Enforced Verification)")
     print("=" * 50)
 
     while True:
