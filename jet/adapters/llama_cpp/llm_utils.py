@@ -1,5 +1,4 @@
-"""
-LLM Utilities Adapter for llama.cpp with Built-in Observability.
+"""LLM Utilities Adapter for llama.cpp with Built-in Observability.
 
 This module provides a simplified, high-level interface for interacting with
 llama.cpp-compatible servers via the OpenAI API protocol. It serves as the
@@ -11,6 +10,34 @@ Key Features:
     - Native support for agentic tool-use loops with executable registries
     - Vision/multimodal support via base64 image encoding
     - Streaming responses with real-time console output and usage metrics
+    - Dynamic structured output: pass Pydantic models, JSON Schema dicts,
+      grammar (GBNF), or raw response_format dicts — all auto-resolved
+
+Structured Output Support:
+    The `response_format` parameter accepts multiple input types that are
+    automatically normalized by structured_output.resolve_response_format():
+
+      1. Pydantic BaseModel class
+         → Generates JSON Schema, injects schema prompt, validates output
+         → Access result via: result.structured.parsed (typed model instance)
+
+      2. JSON Schema dict (object or array)
+         → Wraps in json_schema API format, injects field descriptions
+         → Must have "properties"/"$schema" (object) or "type":"array"+"items"
+
+      3. Grammar dict {"type": "grammar", "grammar": "<GBNF>"}
+         → Routes grammar to extra_body (not response_format) per llama.cpp spec
+         → Guarantees valid output at token level; requires enable_thinking=False
+
+      4. Raw dict {"type": "json_object"} or {"type": "json_schema", ...}
+         → Passed through directly to the API
+
+      5. None (default)
+         → Plain text mode, no structured parsing
+
+    After streaming completes, output is automatically parsed and validated.
+    Results attach to StreamCompletionResult.structured (a StructuredResult
+    dataclass with .success, .parsed, .error, .validation_errors fields).
 
 Common Args:
     These parameters are shared across chat(), achat(), generate(), and agenerate().
@@ -31,10 +58,11 @@ Common Args:
     client (OpenAI | AsyncOpenAI | None): Pre-configured client instance.
         If None, a default client is created via get_client()/get_async_client().
     enable_thinking (bool): Request model reasoning/thinking tokens in output.
-        Only supported by models with native thinking capability. Defaults to False.
+        Only supported by models with native thinking capability. MUST be False
+        when using grammar-constrained output. Defaults to False.
     max_tokens (int): Maximum completion tokens to generate. Defaults to 16384.
     temperature (float): Sampling temperature (0.0 = greedy, 2.0 = most random).
-        Defaults to 0.7.
+        Use 0.0–0.3 for structured output reliability. Defaults to 0.7.
     top_p (float): Nucleus sampling threshold. Tokens with cumulative probability
         above this are excluded. Defaults to 0.8.
     top_k (int): Limit sampling to the k most likely tokens. llama.cpp native
@@ -58,24 +86,33 @@ Common Args:
     tool_registry (dict[str, Callable] | None): Mapping of tool names to callable
         executors. When provided, enables automatic agentic tool-call loops.
         Without it, raw tool calls are returned for external handling.
-    response_format (dict | None): Structured output format, e.g.
-        {"type": "json_object"}. Defaults to None.
+    response_format (Any): Structured output format. Accepts Pydantic BaseModel
+        class, JSON Schema dict, grammar dict, raw API dict, or None. See
+        "Structured Output Support" section above for full details. Defaults to None.
     max_tool_rounds (int): Maximum agentic loop iterations before forced stop.
         Only effective when tool_registry is provided. Defaults to 10.
     extra_body_params (dict | None): Additional key-value pairs merged into the
         API request's extra_body field for llama.cpp-specific parameters.
+        Grammar is automatically routed here when using grammar response_format.
     session_id (str | None): Session identifier to group related traces as a
         conversation thread in Phoenix. Defaults to None.
 
 Functions:
-    chat(): Synchronous multi-turn chat with optional tool execution.
-    achat(): Async multi-turn chat with optional tool execution.
+    chat(): Synchronous multi-turn chat with optional tool execution and
+            structured output. Returns StreamCompletionResult.
+    achat(): Async multi-turn chat with optional tool execution and
+             structured output. Returns StreamCompletionResult.
     generate(): Synchronous raw text completion (no chat formatting).
+                Does not support structured output. Returns StreamCompletionResult.
     agenerate(): Async raw text completion (no chat formatting).
+                 Does not support structured output. Returns StreamCompletionResult.
 
 Note:
     All functions automatically configure tracing when project_name is non-empty.
-    See individual function signatures for which Common Args each accepts.
+    Structured output parsing happens post-stream and attaches to
+    result.structured. Check result.structured.success before accessing
+    result.structured.parsed. See individual function signatures for which
+    Common Args each accepts.
 """
 
 import argparse
@@ -122,13 +159,15 @@ def chat(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
     tool_registry: dict[str, Callable[..., Any]] | None = None,
-    response_format: dict[str, Any] | None = None,
+    response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    logger.debug(f"💬 chat() called with type={type(prompt_or_messages).__name__}")
+    """Synchronous multi-turn chat with optional tool execution and structured output."""
+    from jet.logger import logger
 
+    logger.debug(f"💬 chat() called with type={type(prompt_or_messages).__name__}")
     return run_chat_stream(
         prompt_or_messages=prompt_or_messages,
         model=model,
@@ -184,13 +223,15 @@ async def achat(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
     tool_registry: dict[str, Callable[..., Any]] | None = None,
-    response_format: dict[str, Any] | None = None,
+    response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    logger.debug(f"💬 achat() called with type={type(prompt_or_messages).__name__}")
+    """Async multi-turn chat with optional tool execution and structured output."""
+    from jet.logger import logger
 
+    logger.debug(f"💬 achat() called with type={type(prompt_or_messages).__name__}")
     return await run_chat_stream_async(
         prompt_or_messages=prompt_or_messages,
         model=model,
@@ -244,6 +285,8 @@ def generate(
     session_id: str | None = None,
 ) -> StreamCompletionResult:
     """Synchronous raw text generation alternative to chat()."""
+    from jet.logger import logger
+
     logger.debug(f"✏️ generate() called with prompt length={len(prompt)}")
     return run_generate_stream(
         prompt=prompt,
@@ -291,6 +334,8 @@ async def agenerate(
     session_id: str | None = None,
 ) -> StreamCompletionResult:
     """Asynchronous raw text generation alternative to achat()."""
+    from jet.logger import logger
+
     logger.debug(f"✏️ agenerate() called with prompt length={len(prompt)}")
     return await run_generate_stream_async(
         prompt=prompt,
@@ -360,7 +405,6 @@ if __name__ == "__main__":
     from jet.logger import logger
 
     args = get_args()
-
     result = asyncio.run(
         achat(
             args.prompt,
@@ -370,7 +414,6 @@ if __name__ == "__main__":
             seed=args.seed,
         )
     )
-
     logger.info(
         f"📋 Result: {len(result.content)} chars, finish_reason={result.finish_reason}"
     )
