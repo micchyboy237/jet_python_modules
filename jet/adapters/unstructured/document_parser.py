@@ -691,11 +691,9 @@ def extract_rag_context(elements: List[Dict[str, Any]]) -> str:
     return context
 
 
-def _extract_document_metadata(
-    path: str,
-) -> tuple[List[Dict[str, Any]], List[str], int, Optional[int]]:
+def parse_document_elements(path: str) -> List[Dict[str, Any]]:
     """
-    Parse a document and extract raw elements plus summary metadata.
+    Parse a document and return raw unstructured element dictionaries.
 
     Handles .ipynb files natively and delegates other formats to
     unstructured.partition.auto. Supports both local files and URLs.
@@ -704,32 +702,31 @@ def _extract_document_metadata(
         path: File path or URL to parse.
 
     Returns:
-        Tuple of (element_dicts, categories, word_count, page_count).
+        List of element dicts compatible with chunk_rag_context and extract_rag_context.
+        Returns empty list on failure.
     """
-    if path.endswith(".ipynb"):
-        element_dicts = _parse_notebook(path)
-        categories = sorted({e.get("type", "Unknown") for e in element_dicts})
-        full_text = " ".join(e.get("text", "") for e in element_dicts)
-        word_count = len(full_text.split())
-        page_count = None
-    else:
-        if path.startswith(("http://", "https://")):
-            elements = partition(url=path)
+    logger.info(f"parse_document_elements | START | path={path}")
+    try:
+        if path.endswith(".ipynb"):
+            elements = _parse_notebook(path)
         else:
-            elements = partition(filename=path)
+            if path.startswith(("http://", "https://")):
+                raw_elements = partition(url=path)
+            else:
+                raw_elements = partition(filename=path)
+            elements = [e.to_dict() for e in raw_elements]
 
-        categories = [getattr(e, "category", "Unknown") for e in elements]
-        full_text = " ".join(str(e) for e in elements)
-        word_count = len(full_text.split())
-        page_numbers = [
-            getattr(e.metadata, "page_number", None)
-            for e in elements
-            if hasattr(e, "metadata")
-        ]
-        page_count = max((p for p in page_numbers if p is not None), default=None)
-        element_dicts = [e.to_dict() for e in elements]
+        logger.info(
+            f"parse_document_elements | DONE | path={path} | elements={len(elements)}"
+        )
+        return elements
 
-    return element_dicts, categories, word_count, page_count
+    except Exception as e:
+        logger.error(
+            f"parse_document_elements | FAILED | path={path} | error={e}",
+            exc_info=True,
+        )
+        return []
 
 
 def parse_document(
@@ -754,9 +751,19 @@ def parse_document(
     """
     logger.info(f"parse_document | START | path={path} | model={model}")
     try:
-        element_dicts, categories, word_count, page_count = _extract_document_metadata(
-            path
-        )
+        element_dicts = parse_document_elements(path)
+
+        # Derive summary metadata from elements
+        categories = sorted({e.get("type", "Unknown") for e in element_dicts})
+        full_text = " ".join(e.get("text", "") for e in element_dicts)
+        word_count = len(full_text.split())
+
+        page_numbers = [
+            e.get("metadata", {}).get("page_number")
+            for e in element_dicts
+            if e.get("metadata", {}).get("page_number") is not None
+        ]
+        page_count = max(page_numbers, default=None) if page_numbers else None
 
         rag_context = extract_rag_context(element_dicts)
         chunks = chunk_rag_context(
@@ -769,7 +776,7 @@ def parse_document(
         result = {
             "path": path,
             "element_count": len(element_dicts),
-            "categories": sorted(set(categories)),
+            "categories": categories,
             "word_count": word_count,
             "page_count": page_count,
             "elements": element_dicts,
