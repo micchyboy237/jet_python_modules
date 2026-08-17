@@ -30,8 +30,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Base path for example documents relative to this project structure
 # Adjust this path if your environment mounts example-docs differently
-EXAMPLE_DOCS_DIR = (
-    Path(__file__).resolve().parents[4] / "repo-libs" / "unstructured" / "example-docs"
+EXAMPLE_DOCS_DIR = Path(
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured/example-docs"
 )
 
 
