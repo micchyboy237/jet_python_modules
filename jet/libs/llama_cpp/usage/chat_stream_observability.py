@@ -18,6 +18,11 @@ from jet.libs.llama_cpp.usage.observability_utils import (
     PHOENIX_URL,
     setup_observability,
 )
+from jet.libs.llama_cpp.usage.structured_output import (
+    OutputFormat,
+    parse_structured_content,
+    resolve_response_format,
+)
 from openai import OpenAI, Stream
 from openai.types.chat import ChatCompletionChunk
 from openinference.semconv.trace import (
@@ -237,47 +242,57 @@ def run_chat_stream(
     tools: list[dict[str, Any]] | None = None,
     tool_choice: str | dict[str, Any] | None = None,
     tool_registry: dict[str, Callable[..., Any]] | None = None,
-    response_format: dict[str, Any] | None = None,
+    response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Stream a chat completion with full tool + structured output observability."""
+    """Stream a chat completion with full tool + structured output observability.
+
+    Args:
+        response_format: Accepts dict, Pydantic BaseModel, JSON Schema dict, or None.
+                         Automatically resolved to the correct API format via
+                         structured_output.resolve_response_format().
+    """
+    # ── Resolve structured output format ──────────────────────────────
+    resolved_fmt = resolve_response_format(response_format)
+    api_response_format = resolved_fmt.api_format
+
+    # Grammar must go in extra_body, NOT response_format
+    if resolved_fmt.output_format == OutputFormat.GRAMMAR:
+        grammar_str = (api_response_format or {}).get("_grammar", "")
+        if grammar_str:
+            if extra_body_params is None:
+                extra_body_params = {}
+            extra_body_params["grammar"] = grammar_str
+            logger.debug("📜 Moved grammar from response_format → extra_body.grammar")
+        api_response_format = None  # Do not send grammar as response_format
+
     if project_name:
         setup_observability(
             project_name=project_name,
             capture_content=capture_content,
             phoenix_url=phoenix_url,
         )
-
     tracer = trace.get_tracer(__name__)
     if client is None:
         logger.debug("🔌 No client provided; creating default via get_client()")
         client = get_client()
-
-    # Resolve prompt vs messages internally
     prompt: str | None = None
     messages: list[dict[str, Any]] | None = None
     if isinstance(prompt_or_messages, str):
         prompt = prompt_or_messages
     else:
         messages = prompt_or_messages
-
     is_agentic = tool_registry is not None
     span_name = "agent_workflow" if is_agentic else "chat_completion"
-
-    # Determine Span Kind: AGENT if tools/registry exist, otherwise CHAIN
     root_span_kind = (
         OpenInferenceSpanKindValues.AGENT.value
         if is_agentic
         else OpenInferenceSpanKindValues.CHAIN.value
     )
-
     with tracer.start_as_current_span(span_name) as loop_span:
-        # --- SET REQUIRED OPENINFERENCE ATTRIBUTES ---
         loop_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, root_span_kind)
-
-        # Set Input Value for Phoenix UI "Input" column
         input_val = prompt
         if messages and len(messages) > 0:
             last_msg = messages[-1]
@@ -290,8 +305,6 @@ def run_chat_stream(
                 ]
                 input_val = " ".join(text_parts)
         loop_span.set_attribute(SpanAttributes.INPUT_VALUE, input_val)
-
-        # --- SET CUSTOM ATTRIBUTES ---
         trace_id = loop_span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
         loop_span.set_attribute("llm.model", model)
@@ -309,8 +322,6 @@ def run_chat_stream(
                 "llm.tools.names",
                 json.dumps([t.get("function", {}).get("name") for t in tools]),
             )
-
-        # Initialize current_messages from resolved inputs
         current_messages: list[dict[str, Any]] | None = messages
         if current_messages is None:
             if image_source:
@@ -330,13 +341,23 @@ def run_chat_stream(
             else:
                 current_messages = [{"role": "user", "content": prompt}]
 
+        # ── Inject schema prompt for structured output ────────────────
+        if resolved_fmt.system_prompt_addition and current_messages:
+            schema_msg = {
+                "role": "system",
+                "content": resolved_fmt.system_prompt_addition,
+            }
+            insert_idx = 0
+            for i, msg in enumerate(current_messages):
+                if msg.get("role") == "system":
+                    insert_idx = i + 1
+            current_messages.insert(insert_idx, schema_msg)
+            logger.debug(f"📐 Injected schema prompt at index {insert_idx}")
+
         last_result: StreamCompletionResult | None = None
         round_num = 0
-
         while round_num < max_tool_rounds:
             round_num += 1
-
-            # Inner span for each turn
             with tracer.start_as_current_span(
                 f"turn_{round_num}",
                 attributes={
@@ -371,10 +392,17 @@ def run_chat_stream(
                         "llm.tools.names",
                         json.dumps([t.get("function", {}).get("name") for t in tools]),
                     )
-                if response_format:
+                # ── Updated: use resolved format for span attributes ──
+                span.set_attribute(
+                    "llm.response_format.type", resolved_fmt.output_format.value
+                )
+                if resolved_fmt.output_format == OutputFormat.GRAMMAR:
+                    span.set_attribute("llm.grammar.active", True)
+                    span.set_attribute("llm.grammar.source", "response_format")
+                if resolved_fmt.schema:
                     span.set_attribute(
-                        "llm.response_format.type",
-                        response_format.get("type", "unknown"),
+                        "llm.response_format.schema_name",
+                        resolved_fmt.schema.get("title", "unnamed"),
                     )
                 grammar_value = (extra_body_params or {}).get("grammar")
                 if grammar_value:
@@ -389,7 +417,6 @@ def run_chat_stream(
                     )
                 else:
                     span.set_attribute("llm.grammar.active", False)
-
                 if round_num == 1:
                     logger.info("─" * 60)
                     logger.info(
@@ -413,8 +440,16 @@ def run_chat_stream(
                         logger.info(
                             f"🔧 Tools        : {tool_names} (choice={tool_choice})"
                         )
-                    if response_format:
-                        logger.info(f"📐 Response fmt : {response_format}")
+                    # ── Updated: log resolved format ──────────────────
+                    if resolved_fmt.output_format != OutputFormat.TEXT:
+                        logger.info(
+                            f"📐 Response fmt : {resolved_fmt.output_format.value}"
+                            + (
+                                f" (schema={resolved_fmt.model_type.__name__})"
+                                if resolved_fmt.model_type
+                                else ""
+                            )
+                        )
                     if extra_body_params:
                         logger.info(
                             f"🔩 Extra body   : {list(extra_body_params.keys())}"
@@ -427,11 +462,9 @@ def run_chat_stream(
                     console.print(
                         f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]"
                     )
-
                 logger.info(
                     f"📨 Round {round_num}: {len(current_messages)} message(s) in history"
                 )
-
                 extra_body: dict[str, Any] = {
                     "top_k": top_k,
                     "chat_template_kwargs": {"enable_thinking": enable_thinking},
@@ -445,7 +478,6 @@ def run_chat_stream(
                     logger.debug(
                         f"🔧 Merged extra_body_params: {list(extra_body_params.keys())}"
                     )
-
                 api_kwargs: dict[str, Any] = {
                     "model": model,
                     "messages": current_messages,
@@ -465,21 +497,19 @@ def run_chat_stream(
                     api_kwargs["tools"] = tools
                 if tool_choice is not None:
                     api_kwargs["tool_choice"] = tool_choice
-                if response_format:
-                    api_kwargs["response_format"] = response_format
-
+                # ── Updated: use resolved API format ──────────────────
+                if api_response_format:
+                    api_kwargs["response_format"] = api_response_format
                 logger.info(
                     f"➡️  Sending request (thinking={enable_thinking}, "
-                    f"tools={bool(tools)}, format={response_format})"
+                    f"tools={bool(tools)}, format={resolved_fmt.output_format.value})"
                 )
-
                 t_request_start = time.perf_counter()
                 collected_content: list[str] = []
                 tool_calls_acc: dict[int, dict[str, Any]] = {}
                 usage = None
                 first_token_at: float | None = None
                 finish_reason: str | None = None
-
                 try:
                     stream: Stream[ChatCompletionChunk] = (
                         client.chat.completions.create(**api_kwargs)
@@ -564,10 +594,7 @@ def run_chat_stream(
                         (first_token_at - t_request_start) if first_token_at else None
                     )
                     full_response = "".join(collected_content)
-
-                    # SET OUTPUT VALUE for this turn
                     span.set_attribute(SpanAttributes.OUTPUT_VALUE, full_response)
-
                     parsed_tool_calls: list[ToolCallResult] = []
                     if tool_calls_acc:
                         for idx in sorted(tool_calls_acc):
@@ -642,7 +669,6 @@ def run_chat_stream(
                     if finish_reason:
                         logger.info(f"   Finish reason      : {finish_reason}")
                     span.set_status(Status(StatusCode.OK))
-
                 last_result = StreamCompletionResult(
                     content=full_response,
                     tool_calls=parsed_tool_calls,
@@ -656,6 +682,23 @@ def run_chat_stream(
                     finish_reason=finish_reason,
                 )
 
+                # ── Parse structured output if applicable ─────────────
+                if (
+                    resolved_fmt.output_format != OutputFormat.TEXT
+                    and not parsed_tool_calls
+                ):
+                    structured = parse_structured_content(full_response, resolved_fmt)
+                    last_result.structured = structured
+                    if structured.success:
+                        logger.info(
+                            f"   ✅ Structured output validated "
+                            f"({resolved_fmt.output_format.value})"
+                        )
+                    else:
+                        logger.warning(
+                            f"   ⚠️ Structured parse failed: {structured.error}"
+                        )
+
             if not last_result.has_tool_calls:
                 break
             if not is_agentic:
@@ -664,7 +707,6 @@ def run_chat_stream(
                     "returning result for caller to handle."
                 )
                 break
-
             assistant_tc_message: dict[str, Any] = {
                 "role": "assistant",
                 "content": last_result.content or None,
@@ -706,9 +748,7 @@ def run_chat_stream(
                         "content": json.dumps(tool_result, default=str),
                     }
                 )
-
         if last_result is not None:
-            # SET FINAL OUTPUT on root span
             loop_span.set_attribute(SpanAttributes.OUTPUT_VALUE, last_result.content)
             loop_span.set_attribute("agent.total_rounds", round_num)
             loop_span.set_attribute(
@@ -718,7 +758,6 @@ def run_chat_stream(
             console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
             logger.info("─" * 60)
             logger.info(f"🏁 Execution complete after {round_num} round(s)")
-
         return last_result or StreamCompletionResult(
             content="", finish_reason="no_response"
         )
