@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, TypedDict, Union
+from typing import Any, Dict, List, Literal, TypedDict, Union, overload
 
 from jet.adapters.llama_cpp.config import LLM_MODEL
 from jet.logger import logger
@@ -9,6 +9,34 @@ from .tokenizer_management import get_tokenizer
 class InputTokensResponse(TypedDict):
     input_tokens: int
     object: str
+
+
+@overload
+def count_tokens(
+    content: Union[str, List[Union[int, str, List[int], Dict[str, str]]]],
+    add_special: bool = False,
+    base_url: str | None = None,
+    model: str | None = None,
+    tools: List[Dict[str, Any]] | None = None,
+    use_server: bool = False,
+    prevent_total: Literal[False] = False,
+    auto_fallback: bool = True,
+    **kwargs,
+) -> int: ...
+
+
+@overload
+def count_tokens(
+    content: Union[str, List[Union[int, str, List[int], Dict[str, str]]]],
+    add_special: bool = False,
+    base_url: str | None = None,
+    model: str | None = None,
+    tools: List[Dict[str, Any]] | None = None,
+    use_server: bool = False,
+    prevent_total: Literal[True] = ...,
+    auto_fallback: bool = True,
+    **kwargs,
+) -> List[int]: ...
 
 
 def count_tokens(
