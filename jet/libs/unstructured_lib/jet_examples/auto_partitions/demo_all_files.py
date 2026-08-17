@@ -12,7 +12,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from unstructured.partition.auto import partition
 
@@ -29,10 +29,35 @@ shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Base path for example documents relative to this project structure
-# Adjust this path if your environment mounts example-docs differently
 EXAMPLE_DOCS_DIR = Path(
     "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured/example-docs"
 )
+
+
+def _find_example_file(filename: str) -> Optional[Path]:
+    """Recursively search for a file within EXAMPLE_DOCS_DIR.
+
+    Args:
+        filename: The name of the file to find (e.g., 'fake-memo.pdf').
+
+    Returns:
+        Full Path object if found, None otherwise.
+    """
+    # First check root level for speed
+    root_path = EXAMPLE_DOCS_DIR / filename
+    if root_path.exists():
+        return root_path
+
+    # Recursive glob search
+    matches = list(EXAMPLE_DOCS_DIR.rglob(filename))
+    if matches:
+        # Return first match; prefer exact filename over partial matches
+        for m in matches:
+            if m.name == filename:
+                return m
+        return matches[0]
+
+    return None
 
 
 def _save_elements(elements: list[Any], filename: str) -> None:
@@ -44,7 +69,6 @@ def _save_elements(elements: list[Any], filename: str) -> None:
     """
     output_path = OUTPUT_DIR / f"{filename}.json"
     try:
-        # Convert elements to dict representation
         element_dicts = [e.to_dict() for e in elements]
 
         with open(output_path, "w", encoding="utf-8") as f:
@@ -59,20 +83,18 @@ def _run_partition(filename: str, **kwargs: Any) -> None:
     """Generic helper to partition a file and save results.
 
     Args:
-        filename: Name of the file in EXAMPLE_DOCS_DIR.
+        filename: Name of the file to find recursively under EXAMPLE_DOCS_DIR.
         **kwargs: Additional arguments passed to partition().
     """
-    file_path = EXAMPLE_DOCS_DIR / filename
+    file_path = _find_example_file(filename)
 
-    if not file_path.exists():
-        logger.warning(f"File not found, skipping: {file_path}")
+    if file_path is None:
+        logger.warning(f"File not found recursively, skipping: {filename}")
         return
 
-    logger.info(f"Partitioning: {filename}")
+    logger.info(f"Partitioning: {file_path.relative_to(EXAMPLE_DOCS_DIR)}")
     try:
-        # Default to fast strategy for demo speed; auto will handle fallbacks
         kwargs.setdefault("strategy", "fast")
-        # Disable table structure inference by default for speed in demo
         kwargs.setdefault("skip_infer_table_types", ["pdf", "jpg", "png", "heic"])
 
         elements = partition(filename=str(file_path), **kwargs)
@@ -117,7 +139,6 @@ def demo_eml() -> None:
 
 def demo_image() -> None:
     """Partition an image file."""
-    # Images often require hi_res or OCR; allowing auto to decide
     _run_partition("DA-1p.jpg", strategy="auto")
 
 
