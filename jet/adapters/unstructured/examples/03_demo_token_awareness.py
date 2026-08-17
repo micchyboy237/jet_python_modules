@@ -31,14 +31,21 @@ def demo_token_estimation():
         "",  # Edge case: empty string
     ]
 
+    # Use model=None to leverage the configured default LLM_MODEL
+    # instead of passing literal "default" which triggers HF 404s
+    model_key = None if _HAS_LLAMA_CPP_UTILS else None
+
     print(f"\n{'Text':<55} {'Heuristic':>10} {'Model':>10}")
     print("-" * 77)
     for text in test_texts:
         heuristic = estimate_tokens(text, model=None)
-        # When model=None and llama_cpp is available, it uses default LLM_MODEL
-        model_count = (
-            estimate_tokens(text, model="default") if _HAS_LLAMA_CPP_UTILS else "N/A"
-        )
+        if _HAS_LLAMA_CPP_UTILS:
+            try:
+                model_count = estimate_tokens(text, model=model_key)
+            except Exception:
+                model_count = "err"
+        else:
+            model_count = "N/A"
         display_text = text[:52] + "..." if len(text) > 55 else text
         print(f"{display_text:<55} {heuristic:>10} {str(model_count):>10}")
 
@@ -49,10 +56,16 @@ def demo_auto_chunk_sizing():
     print("AUTO CHUNK SIZING")
     print("-" * 50)
 
-    test_models = [None, "nonexistent_model_xyz", "qwen2.5:3b"]
+    # Include a known-good model from the local server to demonstrate
+    # successful auto-sizing alongside fallback cases
+    test_models = [
+        None,  # Fallback: no model specified
+        "nonexistent_model_xyz",  # Fallback: invalid model
+        "qwen3.5-2b",  # ✅ Known model on local server
+    ]
     for model_key in test_models:
         size = auto_chunk_size(model_key)
-        label = model_key if model_key else "(default)"
+        label = model_key if model_key else "(default/fallback)"
         print(f"  model={label:30s} → max_tokens={size}")
 
 

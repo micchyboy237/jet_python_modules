@@ -137,7 +137,7 @@ def rerank(
     top_n: int | None = None,
     normalize_scores: bool = True,
     sigmoid_temperature: float = 1.0,
-    method: Literal["auto", "model", "bm25"] = "auto",
+    method: Literal["auto", "model", "bm25"] = "model",
 ) -> list[RerankResult]:
     """
     Rerank documents using either a cross-encoder model or BM25.
@@ -149,8 +149,8 @@ def rerank(
         normalize_scores: If True (default), apply sigmoid normalization.
         sigmoid_temperature: Controls sigmoid steepness (default 1.0).
         method: Reranking strategy.
-            - "auto": Try model first, fall back to BM25 on failure (default).
-            - "model": Force cross-encoder model via llama.cpp server.
+            - "model": Force cross-encoder model via llama.cpp server (default).
+            - "auto": Try model first, fall back to BM25 on failure.
             - "bm25": Force lexical BM25 reranking (no GPU/server needed).
 
     Returns:
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     ]
 
     # Demonstrate each reranking method explicitly
-    methods_to_demo: list[Literal["model", "bm25"]] = ["model", "bm25"]
+    methods_to_demo: list[Literal["model", "auto", "bm25"]] = ["model", "auto", "bm25"]
 
     for method in methods_to_demo:
         print("\n" + "=" * 60)
