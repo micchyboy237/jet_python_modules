@@ -41,8 +41,8 @@ def main():
 
     # Run the chat stream
     result = run_chat_stream(
+        prompt,
         client=client,
-        prompt=prompt,
         model=MODEL,
         temperature=0.7,
         max_tokens=16384,

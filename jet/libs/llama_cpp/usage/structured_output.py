@@ -305,8 +305,8 @@ def json_object_output(
     logger.debug(f"🏗️ [json_object_output] Starting with prompt: {prompt[:80]}...")
 
     result = run_chat_stream(
+        prompt,
         client=client,
-        prompt=prompt,
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,

@@ -55,9 +55,9 @@ def main():
     )
 
     result = run_chat_stream(
+        prompt,
         client=client,
         image_source=str(image_path),
-        prompt=prompt,
         model=MODEL,
         temperature=0.7,
         max_tokens=4096,

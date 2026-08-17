@@ -81,8 +81,8 @@ def main():
     # ── Turn 1: LLM decides to call a tool ──────────────────────────────
     logger.info("═══ TURN 1: Initial request with tool definitions ═══")
     turn1_response = run_chat_stream(
+        prompt,
         client=client,
-        prompt=prompt,
         model=MODEL,
         tools=[WEATHER_TOOL],
         tool_choice="auto",

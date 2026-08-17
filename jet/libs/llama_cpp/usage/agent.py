@@ -169,8 +169,8 @@ class Agent:
             for turn in range(1, self.max_turns + 1):
                 logger.info(f"🔁 Agent Run: Turn {turn}/{self.max_turns}")
                 result = run_chat_stream(
+                    self._context.get_messages(),
                     client=self.client,
-                    messages=self._context.get_messages(),
                     model=self.model,
                     tools=self._tools_schema or None,
                     tool_choice="auto" if self._tools_schema else None,

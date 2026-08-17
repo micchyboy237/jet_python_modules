@@ -138,8 +138,8 @@ def main():
     # The key difference from demo 04: pass tool_registry directly.
     # run_chat_stream handles the full LLM → tool → LLM loop internally.
     result = run_chat_stream(
+        prompt,
         client=client,
-        prompt=prompt,
         model=MODEL,
         tools=TOOLS,
         tool_choice="auto",

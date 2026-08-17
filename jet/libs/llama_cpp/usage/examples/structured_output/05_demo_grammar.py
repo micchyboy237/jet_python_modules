@@ -81,8 +81,8 @@ def demo_grammar_mode():
     # Key difference from other demos: grammar goes in extra_body_params,
     # NOT in response_format. enable_thinking MUST be False.
     result = run_chat_stream(
+        prompt,
         client=client,
-        prompt=prompt,
         temperature=0.0,
         max_tokens=300,
         enable_thinking=False,
