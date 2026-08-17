@@ -691,6 +691,47 @@ def extract_rag_context(elements: List[Dict[str, Any]]) -> str:
     return context
 
 
+def _extract_document_metadata(
+    path: str,
+) -> tuple[List[Dict[str, Any]], List[str], int, Optional[int]]:
+    """
+    Parse a document and extract raw elements plus summary metadata.
+
+    Handles .ipynb files natively and delegates other formats to
+    unstructured.partition.auto. Supports both local files and URLs.
+
+    Args:
+        path: File path or URL to parse.
+
+    Returns:
+        Tuple of (element_dicts, categories, word_count, page_count).
+    """
+    if path.endswith(".ipynb"):
+        element_dicts = _parse_notebook(path)
+        categories = sorted({e.get("type", "Unknown") for e in element_dicts})
+        full_text = " ".join(e.get("text", "") for e in element_dicts)
+        word_count = len(full_text.split())
+        page_count = None
+    else:
+        if path.startswith(("http://", "https://")):
+            elements = partition(url=path)
+        else:
+            elements = partition(filename=path)
+
+        categories = [getattr(e, "category", "Unknown") for e in elements]
+        full_text = " ".join(str(e) for e in elements)
+        word_count = len(full_text.split())
+        page_numbers = [
+            getattr(e.metadata, "page_number", None)
+            for e in elements
+            if hasattr(e, "metadata")
+        ]
+        page_count = max((p for p in page_numbers if p is not None), default=None)
+        element_dicts = [e.to_dict() for e in elements]
+
+    return element_dicts, categories, word_count, page_count
+
+
 def parse_document(
     path: str,
     chunk_max_tokens: Optional[int] = None,
@@ -713,28 +754,9 @@ def parse_document(
     """
     logger.info(f"parse_document | START | path={path} | model={model}")
     try:
-        if path.endswith(".ipynb"):
-            element_dicts = _parse_notebook(path)
-            categories = sorted({e.get("type", "Unknown") for e in element_dicts})
-            full_text = " ".join(e.get("text", "") for e in element_dicts)
-            word_count = len(full_text.split())
-            page_count = None
-        else:
-            if path.startswith(("http://", "https://")):
-                elements = partition(url=path)
-            else:
-                elements = partition(filename=path)
-
-            categories = [getattr(e, "category", "Unknown") for e in elements]
-            full_text = " ".join(str(e) for e in elements)
-            word_count = len(full_text.split())
-            page_numbers = [
-                getattr(e.metadata, "page_number", None)
-                for e in elements
-                if hasattr(e, "metadata")
-            ]
-            page_count = max((p for p in page_numbers if p is not None), default=None)
-            element_dicts = [e.to_dict() for e in elements]
+        element_dicts, categories, word_count, page_count = _extract_document_metadata(
+            path
+        )
 
         rag_context = extract_rag_context(element_dicts)
         chunks = chunk_rag_context(
