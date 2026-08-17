@@ -1,0 +1,83 @@
+[
+  {
+    "name": "arize-phoenix",
+    "version": "20.0.0",
+    "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix"
+  },
+  {
+    "name": "arize-phoenix-client",
+    "version": "3.1.0"
+  },
+  {
+    "name": "arize-phoenix-evals",
+    "version": "3.4.0"
+  },
+  {
+    "name": "arize-phoenix-otel",
+    "version": "0.17.1"
+  },
+  {
+    "name": "arize-phoenix-sqlean",
+    "version": "0.1.0"
+  },
+  {
+    "name": "opentelemetry-api",
+    "version": "1.44.0"
+  },
+  {
+    "name": "opentelemetry-exporter-otlp",
+    "version": "1.44.0"
+  },
+  {
+    "name": "opentelemetry-exporter-otlp-proto-common",
+    "version": "1.44.0"
+  },
+  {
+    "name": "opentelemetry-exporter-otlp-proto-grpc",
+    "version": "1.44.0"
+  },
+  {
+    "name": "opentelemetry-exporter-otlp-proto-http",
+    "version": "1.44.0"
+  },
+  {
+    "name": "opentelemetry-instrumentation",
+    "version": "0.65b0"
+  },
+  {
+    "name": "opentelemetry-instrumentation-httpx",
+    "version": "0.65b0"
+  },
+  {
+    "name": "opentelemetry-instrumentation-openai-v2",
+    "version": "2.4b0"
+  },
+  {
+    "name": "opentelemetry-instrumentation-requests",
+    "version": "0.65b0"
+  },
+  {
+    "name": "opentelemetry-instrumentation-sqlalchemy",
+    "version": "0.65b0"
+  },
+  {
+    "name": "opentelemetry-proto",
+    "version": "1.44.0"
+  },
+  {
+    "name": "opentelemetry-sdk",
+    "version": "1.44.0"
+  },
+  {
+    "name": "opentelemetry-semantic-conventions",
+    "version": "0.65b0"
+  },
+  {
+    "name": "opentelemetry-util-genai",
+    "version": "1.0b0"
+  },
+  {
+    "name": "opentelemetry-util-http",
+    "version": "0.65b0"
+  }
+]
