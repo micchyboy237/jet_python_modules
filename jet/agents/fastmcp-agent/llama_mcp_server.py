@@ -1,18 +1,13 @@
 """
 FastMCP server that exposes a local llama.cpp `llama-server` instance as MCP tools.
-
 Prerequisites:
     pip install -r requirements.txt
-
 Run llama-server first (on your Windows box, GTX 1660), e.g.:
     llama-server -hf unsloth/Qwen2.5-7B-Instruct-GGUF:Q4_K_M --host 0.0.0.0 --port 8080 --n-gpu-layers 28
-
 Then run this script:
     python llama_mcp_server.py
-
 Register it with your MCP client (Claude Desktop / Claude Code) pointing at this script,
 or connect to it with demo_client.py.
-
 Note on streaming output: this server is normally spawned over stdio by an MCP
 client, and stdout carries the MCP JSON-RPC protocol. So streamed chunks are
 flushed to STDERR (not stdout) as they arrive — safe to watch in a terminal,
@@ -24,29 +19,54 @@ import json
 import logging
 import os
 import sys
+import time
+import uuid
 from typing import Any, Optional
 
 import httpx
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 
-# ---------------------------------------------------------------------------
-# Config — loaded from a .env file (if present) and/or real environment
-# variables, so you don't have to edit code when the server moves (e.g.
-# Windows LAN IP vs 127.0.0.1). Real environment variables always win over
-# .env, so `export LLAMA_CPP_LLM_URL=...` still overrides the file.
-# ---------------------------------------------------------------------------
-load_dotenv()
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DOTENV_PATH = os.path.join(_SCRIPT_DIR, ".env")
+_ENV_BEFORE_LOAD = set(os.environ)
+_DOTENV_LOADED = os.path.isfile(_DOTENV_PATH) and load_dotenv(_DOTENV_PATH)
 
-LLM_MODEL = os.environ.get("LLAMA_CPP_LLM_MODEL", "qwen3.5-uncensored:2b")
-LLAMA_SERVER_URL = os.environ.get("LLAMA_CPP_LLM_URL", "http://127.0.0.1:8080")
-REQUEST_TIMEOUT_SECONDS = float(os.environ.get("LLAMA_TIMEOUT", "120"))
+_DEFAULTS = {
+    "LLAMA_CPP_LLM_MODEL": "qwen3.5-uncensored:2b",
+    "LLAMA_CPP_LLM_URL": "http://127.0.0.1:8080",
+    "LLAMA_TIMEOUT": "120",
+}
 
-# ---------------------------------------------------------------------------
-# Logging — every call and response is logged for traceability.
-# StreamHandler defaults to stderr, which is what keeps this safe alongside
-# an stdio-based MCP transport.
-# ---------------------------------------------------------------------------
+
+def _env(name: str) -> tuple[str, str]:
+    """Return (value, source), distinguishing a real shell env var from one
+    that only appeared after loading .env, from a hardcoded default."""
+    if name in _ENV_BEFORE_LOAD:
+        return os.environ[name], "shell env var"
+    if name in os.environ:
+        return os.environ[name], f".env file ({_DOTENV_PATH})"
+    return _DEFAULTS[name], "default"
+
+
+_llm_model_val, _llm_model_src = _env("LLAMA_CPP_LLM_MODEL")
+_llama_url_val, _llama_url_src = _env("LLAMA_CPP_LLM_URL")
+_timeout_val, _timeout_src = _env("LLAMA_TIMEOUT")
+
+LLM_MODEL = _llm_model_val
+
+# Normalize base URL: strip trailing slashes and accidental /v1 suffix
+# to prevent double-path bugs like /v1/v1/chat/completions
+LLAMA_SERVER_URL = _llama_url_val.rstrip("/")
+if LLAMA_SERVER_URL.endswith("/v1"):
+    logging.getLogger("llama_mcp_server").warning(
+        "LLAMA_CPP_LLM_URL ends with /v1 — stripping to avoid double path suffix. "
+        "Set base URL only (e.g. http://host:port)."
+    )
+    LLAMA_SERVER_URL = LLAMA_SERVER_URL[:-3].rstrip("/")
+
+REQUEST_TIMEOUT_SECONDS = float(_timeout_val)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -79,12 +99,9 @@ def _build_payload(
         "max_tokens": max_tokens,
         "stream": stream,
     }
-
     if LLM_MODEL:
         payload["model"] = LLM_MODEL
 
-    # Only include sampling params the caller actually set, so unset ones fall
-    # back to llama-server's own defaults instead of being overridden with None.
     optional_sampling_params = {
         "temperature": temperature,
         "top_p": top_p,
@@ -96,10 +113,6 @@ def _build_payload(
         if value is not None:
             payload[key] = value
 
-    # llama-server / vLLM-style passthrough for chat template kwargs (e.g.
-    # disabling a model's "thinking" mode). This is a plain top-level field
-    # in the raw JSON body — no "extra_body" wrapper needed, that's an
-    # OpenAI-SDK-only convention with no meaning to llama-server itself.
     payload.setdefault("chat_template_kwargs", {"enable_thinking": False})
 
     if extra_params:
@@ -123,7 +136,6 @@ async def ask_local_llm(
 ) -> str:
     """
     Send a prompt to the locally-hosted llama.cpp model and return its reply.
-
     Args:
         prompt: The user's question or instruction for the local model.
         system_prompt: Optional system-level instruction to steer the model's behavior.
@@ -139,15 +151,20 @@ async def ask_local_llm(
         stream: If True (default), tokens are requested as a stream and printed
             to stderr as they arrive. The full reply is still returned as one
             string once generation completes, either way.
-
     Returns:
         The model's full text response, or an error message if the request failed.
     """
+    request_id = uuid.uuid4().hex[:8]
+    endpoint = f"{LLAMA_SERVER_URL}/v1/chat/completions"
+    started_at = time.monotonic()
+
     logger.info(
-        "ask_local_llm called | prompt_len=%d max_tokens=%d stream=%s",
+        "[%s] ask_local_llm start | prompt_len=%d max_tokens=%d stream=%s target=%s",
+        request_id,
         len(prompt),
         max_tokens,
         stream,
+        endpoint,
     )
 
     payload = _build_payload(
@@ -163,100 +180,203 @@ async def ask_local_llm(
         stream,
     )
     logger.info(
-        "Sampling params: %s", {k: v for k, v in payload.items() if k != "messages"}
+        "[%s] Sampling params: %s",
+        request_id,
+        {k: v for k, v in payload.items() if k != "messages"},
     )
 
     try:
         if stream:
-            return await _stream_completion(payload)
-        return await _single_shot_completion(payload)
+            reply = await _stream_completion(payload, request_id)
+        else:
+            reply = await _single_shot_completion(payload, request_id)
+
+        elapsed = time.monotonic() - started_at
+        logger.info(
+            "[%s] ask_local_llm done | elapsed=%.2fs reply_len=%d",
+            request_id,
+            elapsed,
+            len(reply),
+        )
+        return reply
+
     except httpx.TimeoutException:
+        elapsed = time.monotonic() - started_at
         logger.error(
-            "Request to llama-server timed out after %.0fs", REQUEST_TIMEOUT_SECONDS
+            "[%s] Timed out after %.2fs (limit=%.0fs) calling %s",
+            request_id,
+            elapsed,
+            REQUEST_TIMEOUT_SECONDS,
+            endpoint,
         )
         return "Error: the local model took too long to respond (timeout)."
+
     except httpx.HTTPStatusError as exc:
+        elapsed = time.monotonic() - started_at
         logger.error(
-            "llama-server returned HTTP %s: %s",
+            "[%s] HTTP %s from %s after %.2fs | body=%s",
+            request_id,
             exc.response.status_code,
+            endpoint,
+            elapsed,
             exc.response.text,
         )
         return f"Error: llama-server returned HTTP {exc.response.status_code}."
+
     except httpx.RequestError as exc:
-        logger.error("Could not reach llama-server at %s: %s", LLAMA_SERVER_URL, exc)
+        elapsed = time.monotonic() - started_at
+        logger.error(
+            "[%s] Connection failed after %.2fs | target=%s error_type=%s error=%s",
+            request_id,
+            elapsed,
+            endpoint,
+            type(exc).__name__,
+            exc,
+        )
         return (
             f"Error: could not reach llama-server at {LLAMA_SERVER_URL}. Is it running?"
         )
 
 
-async def _single_shot_completion(payload: dict[str, Any]) -> str:
+async def _single_shot_completion(payload: dict[str, Any], request_id: str) -> str:
     """Non-streaming request: wait for the full response, then return it."""
+    endpoint = f"{LLAMA_SERVER_URL}/v1/chat/completions"
+    logger.info("[%s] Sending non-streaming request to %s", request_id, endpoint)
+
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
-        response = await client.post(
-            f"{LLAMA_SERVER_URL}/v1/chat/completions",
-            json=payload,
+        response = await client.post(endpoint, json=payload)
+        logger.info(
+            "[%s] Received HTTP %s from llama-server", request_id, response.status_code
         )
         response.raise_for_status()
         data = response.json()
 
     reply = data["choices"][0]["message"]["content"]
-    logger.info("ask_local_llm success (non-streaming) | reply_len=%d", len(reply))
+    usage = data.get("usage")
+    if usage:
+        logger.info("[%s] Token usage: %s", request_id, usage)
+
+    logger.info(
+        "[%s] Non-streaming completion parsed | reply_len=%d", request_id, len(reply)
+    )
     return reply
 
 
-async def _stream_completion(payload: dict[str, Any]) -> str:
+async def _stream_completion(payload: dict[str, Any], request_id: str) -> str:
     """
     Streaming request: parse llama-server's SSE chunks, print each piece of
     content to stderr as it arrives (flushed immediately, no newline, so it
     reads naturally like the model "typing"), and return the assembled reply.
     """
+    endpoint = f"{LLAMA_SERVER_URL}/v1/chat/completions"
+    logger.info("[%s] Opening streaming request to %s", request_id, endpoint)
+
     reply_parts: list[str] = []
+    chunk_count = 0
+    started_at = time.monotonic()
+    first_chunk_at: Optional[float] = None
 
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
-        async with client.stream(
-            "POST", f"{LLAMA_SERVER_URL}/v1/chat/completions", json=payload
-        ) as response:
+        async with client.stream("POST", endpoint, json=payload) as response:
+            logger.info(
+                "[%s] Stream connection opened | HTTP %s",
+                request_id,
+                response.status_code,
+            )
             response.raise_for_status()
+
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data: "):
                     continue
                 data_str = line[len("data: ") :].strip()
                 if data_str == "[DONE]":
+                    logger.info("[%s] Received [DONE] sentinel", request_id)
                     break
-
                 try:
                     chunk = json.loads(data_str)
                 except json.JSONDecodeError:
-                    logger.warning("Skipping malformed SSE chunk: %r", data_str)
+                    logger.warning(
+                        "[%s] Skipping malformed SSE chunk: %r", request_id, data_str
+                    )
                     continue
 
                 delta = chunk.get("choices", [{}])[0].get("delta", {})
                 content = delta.get("content")
                 if content:
+                    if first_chunk_at is None:
+                        first_chunk_at = time.monotonic()
+                        logger.info(
+                            "[%s] First token received | time_to_first_token=%.2fs",
+                            request_id,
+                            first_chunk_at - started_at,
+                        )
+                    chunk_count += 1
                     print(content, end="", flush=True, file=sys.stderr)
                     reply_parts.append(content)
 
-    print(file=sys.stderr)  # final newline after the streamed output
+    print(file=sys.stderr)
     reply = "".join(reply_parts)
-    logger.info("ask_local_llm success (streaming) | reply_len=%d", len(reply))
+    logger.info(
+        "[%s] Stream complete | chunks=%d reply_len=%d",
+        request_id,
+        chunk_count,
+        len(reply),
+    )
     return reply
 
 
 @mcp.tool
 async def check_llama_server_health() -> str:
     """Check whether the local llama-server is reachable and report basic status."""
-    logger.info("check_llama_server_health called")
+    request_id = uuid.uuid4().hex[:8]
+    endpoint = f"{LLAMA_SERVER_URL}/health"
+    logger.info(
+        "[%s] check_llama_server_health start | target=%s", request_id, endpoint
+    )
+    started_at = time.monotonic()
+
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            response = await client.get(f"{LLAMA_SERVER_URL}/health")
+            response = await client.get(endpoint)
             response.raise_for_status()
-        logger.info("llama-server is healthy")
+
+        elapsed = time.monotonic() - started_at
+        logger.info("[%s] llama-server healthy | elapsed=%.2fs", request_id, elapsed)
         return f"llama-server at {LLAMA_SERVER_URL} is up and healthy."
+
     except httpx.RequestError as exc:
-        logger.error("Health check failed: %s", exc)
+        elapsed = time.monotonic() - started_at
+        logger.error(
+            "[%s] Health check failed after %.2fs | error_type=%s error=%s",
+            request_id,
+            elapsed,
+            type(exc).__name__,
+            exc,
+        )
         return f"llama-server at {LLAMA_SERVER_URL} is NOT reachable: {exc}"
 
 
 if __name__ == "__main__":
-    logger.info("Starting FastMCP bridge, target llama-server: %s", LLAMA_SERVER_URL)
+    logger.info(
+        "Process | pid=%d cwd=%s script=%s python=%s",
+        os.getpid(),
+        os.getcwd(),
+        os.path.abspath(__file__),
+        sys.executable,
+    )
+    logger.info(
+        ".env file: %s",
+        f"found and loaded from {_DOTENV_PATH}"
+        if _DOTENV_LOADED
+        else f"not found at {_DOTENV_PATH} (using shell env vars / defaults only)",
+    )
+    logger.info("Config | LLAMA_CPP_LLM_MODEL=%s (%s)", LLM_MODEL, _llm_model_src)
+    logger.info("Config | LLAMA_CPP_LLM_URL=%s (%s)", LLAMA_SERVER_URL, _llama_url_src)
+    logger.info(
+        "Config | LLAMA_TIMEOUT=%.0fs (%s)", REQUEST_TIMEOUT_SECONDS, _timeout_src
+    )
+    logger.info(
+        "Starting FastMCP bridge | server_name='Local Llama.cpp Bridge' target=%s",
+        f"{LLAMA_SERVER_URL}/v1/chat/completions",
+    )
     mcp.run()

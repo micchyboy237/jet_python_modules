@@ -1,12 +1,9 @@
 """
 Demo FastMCP client for llama_mcp_server.py
-
 Connects to the local MCP server over stdio, discovers the tools it registers
 (ask_local_llm, check_llama_server_health), lets you pick one, and executes it.
-
 Prerequisites:
     pip install -r requirements.txt
-
 Usage:
     python demo_client.py
     python demo_client.py --tool check_llama_server_health
@@ -21,22 +18,25 @@ import os
 from dotenv import load_dotenv
 from fastmcp import Client
 
-load_dotenv()
+# Load .env from THIS script's directory (same dir as llama_mcp_server.py)
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_DOTENV_PATH = os.path.join(_SCRIPT_DIR, ".env")
+load_dotenv(_DOTENV_PATH, override=True)
 
-# ---------------------------------------------------------------------------
-# Logging — every step of discovery + execution is logged for traceability
-# ---------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("demo_client")
 
-# Path to the server script this client will spawn over stdio.
 SERVER_SCRIPT = os.environ.get(
     "LLAMA_MCP_SERVER_PATH",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "llama_mcp_server.py"),
+    os.path.join(_SCRIPT_DIR, "llama_mcp_server.py"),
 )
+
+# Log resolved config for traceability
+logger.info("Resolved LLAMA_CPP_LLM_URL=%s", os.environ.get("LLAMA_CPP_LLM_URL"))
+logger.info("Resolved LLAMA_CPP_LLM_MODEL=%s", os.environ.get("LLAMA_CPP_LLM_MODEL"))
 
 
 async def list_tools(client: Client) -> list:
@@ -55,7 +55,6 @@ def choose_tool_interactively(tools: list):
     print("\nAvailable tools:")
     for i, tool in enumerate(tools, start=1):
         print(f"  {i}. {tool.name} — {(tool.description or '').splitlines()[0]}")
-
     while True:
         choice = input(f"\nSelect a tool (1-{len(tools)}): ").strip()
         if choice.isdigit() and 1 <= int(choice) <= len(tools):
@@ -68,10 +67,8 @@ def build_arguments_interactively(tool) -> dict:
     schema = tool.inputSchema or {}
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
-
     if not properties:
         return {}
-
     args = {}
     print(f"\nEnter arguments for '{tool.name}' (blank = skip optional field):")
     for name, spec in properties.items():
@@ -81,10 +78,8 @@ def build_arguments_interactively(tool) -> dict:
         if default is not None:
             prompt_text += f" [default: {default}]"
         value = input(prompt_text + ": ").strip()
-
         if value == "" and name not in required:
             continue
-        # Cast to the declared JSON schema type where reasonable.
         param_type = spec.get("type")
         if param_type == "integer" and value:
             value = int(value)
@@ -112,6 +107,11 @@ async def main():
     args = parser.parse_args()
 
     logger.info("Connecting to MCP server via stdio: %s", SERVER_SCRIPT)
+
+    # FastMCP 3.4.x Client does NOT accept env= kwarg.
+    # Subprocess inherits parent's os.environ automatically on macOS/Linux.
+    # We ensured .env is loaded with override=True above, so LLAMA_* vars
+    # are correctly set in this process AND inherited by the child.
     client = Client(SERVER_SCRIPT)
 
     async with client:
@@ -121,7 +121,6 @@ async def main():
             return
 
         if args.tool:
-            # Non-interactive path, e.g. for scripting/CI.
             tool = next((t for t in tools if t.name == args.tool), None)
             if tool is None:
                 logger.error("No tool named '%s' on this server", args.tool)
@@ -133,12 +132,10 @@ async def main():
                     return
                 call_args = {"prompt": args.prompt}
         else:
-            # Interactive path: choose tool, then fill in its arguments.
             tool = choose_tool_interactively(tools)
             call_args = build_arguments_interactively(tool)
 
         result = await run_tool(client, tool.name, call_args)
-
         print("\n--- Result ---")
         for block in result.content:
             if hasattr(block, "text"):
