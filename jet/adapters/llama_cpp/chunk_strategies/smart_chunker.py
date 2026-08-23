@@ -285,6 +285,9 @@ class SmartChunker:
         header_count = sum(1 for l in non_empty_lines if l.strip().startswith("#"))
         has_tables = any(_TABLE_INDICATOR in l for l in non_empty_lines)
 
+        # ✅ FIX: Define has_code_fence (was referenced but never assigned)
+        has_code_fence = any("```" in l for l in non_empty_lines)
+
         is_code = (
             code_ratio > 0.15
             or has_code_fence

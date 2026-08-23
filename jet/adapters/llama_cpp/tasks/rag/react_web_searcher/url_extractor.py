@@ -40,11 +40,10 @@ class UrlContextExtractor:
         self,
         url: str,
         strict_sentences: bool = True,
-        query: str | None = None,  # ✅ NEW: Optional query for targeted extraction
+        query: str | None = None,
     ) -> tuple[str, str]:
         """
         Fetch and extract content from a URL.
-
         Args:
             url: The URL to fetch.
             strict_sentences: Unused (kept for API compat).
@@ -56,7 +55,6 @@ class UrlContextExtractor:
             url[:80],
             query[:60] if query else None,
         )
-
         try:
             html_content = ""
             async for result in scrape_urls(
@@ -91,7 +89,31 @@ class UrlContextExtractor:
             if not html_content:
                 return "", "Page returned empty content or fetch failed."
 
+            # ✅ FIX: Try standard extraction first, then relaxed if too short
             clean_text = self._extract_with_trafilatura(html_content.encode("utf-8"))
+            if clean_text:
+                initial_tokens = estimate_tokens_safe(clean_text, model=self.model)
+                if initial_tokens < MIN_VALID_TOKENS:
+                    logger.warning(
+                        "Trafilatura standard extraction too short (%d tokens), "
+                        "retrying with relaxed settings for list/ranking content",
+                        initial_tokens,
+                    )
+                    relaxed_text = self._extract_with_trafilatura_relaxed(
+                        html_content.encode("utf-8")
+                    )
+                    if relaxed_text:
+                        relaxed_tokens = estimate_tokens_safe(
+                            relaxed_text, model=self.model
+                        )
+                        if relaxed_tokens > initial_tokens:
+                            logger.info(
+                                "✅ Relaxed extraction improved: %d → %d tokens",
+                                initial_tokens,
+                                relaxed_tokens,
+                            )
+                            clean_text = relaxed_text
+
             if not clean_text:
                 logger.warning("Trafilatura failed, falling back to regex.")
                 clean_text = self._extract_with_regex(html_content)
@@ -107,11 +129,9 @@ class UrlContextExtractor:
                 self.max_tokens,
             )
 
-            # If content fits entirely, return as-is regardless of query
             if total_tokens <= self.max_tokens:
                 final_text = clean_text.strip()
             else:
-                # Chunk the content first
                 chunks = self._chunker.chunk(
                     text=clean_text,
                     chunk_size=min(self.max_tokens, 512),
@@ -120,26 +140,21 @@ class UrlContextExtractor:
                     buffer=4,
                     retrieval_type="dense",
                 )
-
                 if not chunks:
                     return "", "SmartChunker produced no valid chunks."
 
-                # ✅ NEW: Query-aware selection via hybrid_search
                 if query:
                     logger.info(
                         "🔍 Applying hybrid_search for query-aware extraction (%d chunks)",
                         len(chunks),
                     )
                     try:
-                        # Retrieve top results fitting within token budget
-                        # We retrieve more than needed to allow for token assembly
                         search_results = hybrid_search(
                             query=query,
                             documents=chunks,
                             top_n=min(len(chunks), 10),
                             normalize_scores=True,
                         )
-                        # Use ranked chunks instead of raw sequential chunks
                         selected_chunks = [r["text"] for r in search_results]
                         logger.info(
                             "✅ Hybrid search selected %d relevant chunks",
@@ -155,8 +170,6 @@ class UrlContextExtractor:
                     selected_chunks = chunks
 
                 formatted = format_chunks_for_rag(selected_chunks)
-
-                # Assemble within token budget
                 assembled_parts: list[str] = []
                 assembled_tokens = 0
                 for chunk in formatted:
@@ -198,8 +211,7 @@ class UrlContextExtractor:
     @staticmethod
     def _extract_with_trafilatura(content: bytes) -> Optional[str]:
         """Use Trafilatura for robust main-content extraction.
-
-        ✅ Tables enabled + markdown output for SmartChunker compatibility.
+        ✅ Tables enabled + txt output for list/ranking compatibility.
         """
         try:
             import trafilatura
@@ -208,8 +220,10 @@ class UrlContextExtractor:
                 content,
                 include_links=False,
                 include_tables=True,
-                output_format="markdown",
+                include_comments=False,
+                output_format="txt",
                 no_fallback=False,
+                deduplicate=False,  # ✅ KEY: Prevents killing repeated list structures
             )
             return extracted.strip() if extracted else None
         except ImportError:
@@ -217,6 +231,35 @@ class UrlContextExtractor:
             return None
         except Exception as e:
             logger.debug("Trafilatura extraction failed: %s", e)
+            return None
+
+    @staticmethod
+    def _extract_with_trafilatura_relaxed(content: bytes) -> Optional[str]:
+        """Relaxed Trafilatura extraction for list/ranking pages.
+        Disables aggressive filtering that kills short list entries.
+        Falls back to trafilatura.bare_extraction for maximum content retention.
+        """
+        try:
+            import trafilatura
+
+            # Try bare_extraction which skips boilerplate heuristics entirely
+            result = trafilatura.bare_extraction(
+                content,
+                include_links=False,
+                include_tables=True,
+                include_images=False,
+                deduplicate=False,
+            )
+            if result and result.get("text"):
+                text = result["text"].strip()
+                if text:
+                    logger.debug("Relaxed bare_extraction yielded %d chars", len(text))
+                    return text
+            return None
+        except ImportError:
+            return None
+        except Exception as e:
+            logger.debug("Relaxed Trafilatura extraction failed: %s", e)
             return None
 
     @staticmethod
