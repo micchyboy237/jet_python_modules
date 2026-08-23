@@ -28,6 +28,7 @@ class JetLLMJudge:
     EVAL_MAX_TOKENS = 1024
     CLAIM_MAX_TOKENS = 2048
     EVAL_MODEL = "qwen3.5-uncensored:2b"
+    EVAL_SEED = 42  # Fixed seed for reproducible evaluation scores
 
     def __init__(self, model: str | None = None, project_prefix: str = "rag-eval"):
         self.model = model or self.EVAL_MODEL
@@ -39,13 +40,15 @@ class JetLLMJudge:
         response_format: Any,
         metric_name: str,
         max_tokens: int | None = None,
+        session_id: str | None = None,
     ) -> StreamCompletionResult:
         logger.debug(
-            "🔍 Judge [%s] calling achat: model=%s, msgs=%d, format=%s",
+            "🔍 Judge [%s] calling achat: model=%s, msgs=%d, format=%s, session=%s",
             metric_name,
             self.model,
             len(messages),
             type(response_format).__name__,
+            session_id,
         )
         result: StreamCompletionResult = await achat(
             prompt_or_messages=messages,
@@ -56,6 +59,8 @@ class JetLLMJudge:
             response_format=response_format,
             enable_thinking=False,
             capture_content=True,
+            seed=self.EVAL_SEED,
+            session_id=session_id,
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         logger.debug(

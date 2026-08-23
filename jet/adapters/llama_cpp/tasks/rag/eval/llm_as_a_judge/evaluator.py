@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 from jet.adapters.llama_cpp.chunking_utils import truncate_texts
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
@@ -118,6 +119,9 @@ class RAGEvaluator:
         Computes faithfulness, hallucination rate, and answer relevancy.
         Context is truncated to fit judge model window before verification.
         """
+        # Generate a unique session ID per evaluation to correlate traces
+        eval_session_id = f"eval-{uuid.uuid4().hex[:12]}"
+
         # Truncate contexts to prevent judge overflow on large retrievals
         safe_contexts = self._truncate_contexts_for_judge(contexts)
 
@@ -126,8 +130,12 @@ class RAGEvaluator:
             (faithfulness, halluc_rate, faith_tokens),
             (relevancy, rel_tokens),
         ) = await asyncio.gather(
-            self.metrics.compute_faithfulness(response, safe_contexts),
-            self.metrics.compute_answer_relevancy(query, response),
+            self.metrics.compute_faithfulness(
+                response, safe_contexts, session_id=eval_session_id
+            ),
+            self.metrics.compute_answer_relevancy(
+                query, response, session_id=eval_session_id
+            ),
         )
 
         result = RAGEvaluationResult(
