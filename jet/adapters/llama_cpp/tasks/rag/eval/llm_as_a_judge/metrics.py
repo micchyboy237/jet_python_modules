@@ -1,4 +1,3 @@
-# jet/adapters/llama_cpp/tasks/rag/eval/metrics.py
 """Metric computation using JetLLMJudge + embed_utils for semantic similarity."""
 
 from __future__ import annotations
@@ -28,11 +27,16 @@ class RAGMetrics:
         self,
         query: str,
         contexts: list[str],
+        *,
+        session_id: str | None = None,
     ) -> tuple[float, int]:
         if not contexts:
             return 0.0, 0
         judgments = await asyncio.gather(
-            *[self.judge.judge_chunk_relevance(query, chunk) for chunk in contexts]
+            *[
+                self.judge.judge_chunk_relevance(query, chunk, session_id=session_id)
+                for chunk in contexts
+            ]
         )
         total_tokens = sum(t for _, t in judgments)
         weighted_score = 0.0
@@ -47,13 +51,17 @@ class RAGMetrics:
         self,
         response: str,
         contexts: list[str],
+        *,
+        session_id: str | None = None,
     ) -> tuple[float, float, int]:
         context_text = "\n---\n".join(contexts)
-        claims, extract_tokens = await self.judge.extract_claims(response)
+        claims, extract_tokens = await self.judge.extract_claims(
+            response, session_id=session_id
+        )
         if not claims:
             return 1.0, 0.0, extract_tokens
         verifications, verify_tokens = await self.judge.verify_claims(
-            claims, context_text
+            claims, context_text, session_id=session_id
         )
         total_tokens = extract_tokens + verify_tokens
         if not verifications:
@@ -69,18 +77,19 @@ class RAGMetrics:
         self,
         query: str,
         response: str,
+        *,
+        session_id: str | None = None,
     ) -> tuple[float, int]:
         """Semantic similarity via embeddings instead of lexical overlap."""
-        questions, tokens = await self.judge.generate_reverse_questions(response)
+        questions, tokens = await self.judge.generate_reverse_questions(
+            response, session_id=session_id
+        )
         if not questions:
             return 0.0, tokens
-
-        # Batch embed query + all reverse questions in one call
         all_texts = [query] + questions
         embeddings = embed(all_texts, return_format="numpy")
         query_emb = embeddings[0]
         question_embs = embeddings[1:]
-
         similarities = [cosine_similarity(query_emb, q_emb) for q_emb in question_embs]
         relevancy = float(np.mean(similarities))
         return relevancy, tokens

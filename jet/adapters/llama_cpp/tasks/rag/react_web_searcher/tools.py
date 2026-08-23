@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import httpx
 from jet.adapters.llama_cpp.chunking_utils import truncate_texts
 from jet.adapters.llama_cpp.llm_utils import achat
+from openai import AsyncOpenAI
 
 from .types import SearchResult
 
@@ -71,7 +73,6 @@ async def searxng_search(
             )
         )
 
-    # Format as readable text for the agent's observation
     lines = [f"Found {len(results)} results for '{query}':\n"]
     for i, r in enumerate(results, 1):
         lines.append(f"[{i}] {r.title}")
@@ -108,16 +109,12 @@ async def read_url(url: str, model: str = "qwen3.5-uncensored:2b") -> str:
         logger.error("❌ Failed to fetch %s: %s", url[:60], e)
         return f"Failed to fetch URL: {e}"
 
-    # Strip HTML tags roughly (full parsing would need beautifulsoup)
-    import re
-
     clean_text = re.sub(r"<[^>]+>", " ", text)
     clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
     if not clean_text:
         return "Page content is empty or could not be extracted."
 
-    # Truncate to fit agent context
     truncated = truncate_texts(
         clean_text,
         model=model,
@@ -136,11 +133,17 @@ async def synthesize(
     findings: str,
     original_query: str,
     model: str = "qwen3.5-uncensored:2b",
+    session_id: str | None = None,
+    client: AsyncOpenAI | None = None,
 ) -> str:
     """Synthesize multiple search findings into a coherent answer.
 
     Tool for the ReAct agent. Called when enough information has been
     gathered to produce a final answer.
+
+    Args:
+        session_id: Phoenix session ID for trace correlation.
+        client: Shared AsyncOpenAI client to avoid per-call overhead.
     """
     logger.info("🧩 Synthesizing findings for query: %r", original_query[:60])
 
@@ -170,6 +173,8 @@ async def synthesize(
         max_tokens=2048,
         enable_thinking=False,
         capture_content=True,
+        session_id=session_id,  # Correlated traces
+        client=client,  # Client reuse
     )
 
     logger.info("✅ Synthesis complete: %d chars", len(result.content))

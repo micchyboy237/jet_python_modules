@@ -35,7 +35,6 @@ class RAGEvaluator:
     and token usage tracking automatically.
     """
 
-    # Reserve tokens for system prompt + response in judge calls
     JUDGE_CONTEXT_RESERVE_TOKENS = 1024
 
     def __init__(self, model: str | None = None):
@@ -70,17 +69,13 @@ class RAGEvaluator:
             truncated = truncated[0] if truncated else ""
         return [truncated] if truncated else contexts
 
-    # ------------------------------------------------------------------
-    # Stage 1: Pre-Generation Gate
-    # ------------------------------------------------------------------
-
     async def evaluate_pre_generation_gate(
         self, query: str, contexts: list[str]
     ) -> RAGEvaluationResult:
         """
         Fast synchronous gate before generation.
-        Blocks generation if retrieval quality is critically low.
 
+        Blocks generation if retrieval quality is critically low.
         Only computes Contextual Precision (fastest retrieval-only metric).
         Does NOT call generation or faithfulness — those happen after the gate passes.
         """
@@ -88,7 +83,6 @@ class RAGEvaluator:
             query, contexts
         )
         passed = precision >= RAGMetrics.CONTEXT_PRECISION_THRESHOLD
-
         if not passed:
             logger.warning(
                 "Pre-gen gate FAILED: precision=%.3f (threshold=%.2f) query=%r",
@@ -96,7 +90,6 @@ class RAGEvaluator:
                 RAGMetrics.CONTEXT_PRECISION_THRESHOLD,
                 query[:80],
             )
-
         return RAGEvaluationResult(
             stage=EvalStage.PRE_GENERATION_GATE,
             query=query,
@@ -105,27 +98,81 @@ class RAGEvaluator:
             total_eval_tokens=tokens,
         )
 
-    # ------------------------------------------------------------------
-    # Stage 2: Production Async Evaluation
-    # ------------------------------------------------------------------
-
     async def evaluate_production_async(
         self, query: str, contexts: list[str], response: str
     ) -> RAGEvaluationResult:
         """
         Reference-free safety evaluation.
-        Runs AFTER response is sent to user via background worker.
 
+        Runs AFTER response is sent to user via background worker.
         Computes faithfulness, hallucination rate, and answer relevancy.
         Context is truncated to fit judge model window before verification.
         """
-        # Generate a unique session ID per evaluation to correlate traces
         eval_session_id = f"eval-{uuid.uuid4().hex[:12]}"
-
-        # Truncate contexts to prevent judge overflow on large retrievals
         safe_contexts = self._truncate_contexts_for_judge(contexts)
+        (
+            (faithfulness, halluc_rate, faith_tokens),
+            (relevancy, rel_tokens),
+        ) = await asyncio.gather(
+            self.metrics.compute_faithfulness(
+                response, safe_contexts, session_id=eval_session_id
+            ),
+            self.metrics.compute_answer_relevancy(
+                query, response, session_id=eval_session_id
+            ),
+        )
+        result = RAGEvaluationResult(
+            stage=EvalStage.PRODUCTION_ASYNC,
+            query=query,
+            faithfulness=faithfulness,
+            hallucination_rate=halluc_rate,
+            answer_relevancy=relevancy,
+            total_eval_tokens=faith_tokens + rel_tokens,
+        )
+        if result.has_critical_failure:
+            logger.error(
+                "CRITICAL RAG FAILURE: faith=%.3f halluc=%.3f query=%r",
+                faithfulness,
+                halluc_rate,
+                query[:80],
+            )
+        return result
 
-        # Run faithfulness and answer relevancy concurrently
+    async def evaluate_offline(
+        self,
+        query: str,
+        contexts: list[str],
+        response: str,
+        reference: str,
+    ) -> RAGEvaluationResult:
+        """
+        Full benchmark suite with ground-truth reference.
+
+        Used in CI/CD regression testing and model comparison.
+        Computes ALL metrics including Contextual Recall (requires reference).
+        Context is truncated for both faithfulness and recall verification.
+        """
+        eval_session_id = f"eval-offline-{uuid.uuid4().hex[:12]}"
+        safe_contexts = self._truncate_contexts_for_judge(contexts)
+        context_text = "\n---\n".join(safe_contexts)
+
+        ref_claims, ref_extract_tokens = await self.judge.extract_claims(
+            reference, session_id=eval_session_id
+        )
+        ref_verifications, ref_verify_tokens = await self.judge.verify_claims(
+            ref_claims, context_text, session_id=eval_session_id
+        )
+        recall_tokens = ref_extract_tokens + ref_verify_tokens
+        attributable = sum(1 for v in ref_verifications if v["status"] == "supported")
+        contextual_recall = (
+            attributable / len(ref_verifications) if ref_verifications else 0.0
+        )
+
+        precision, prec_tokens = await self.metrics.compute_contextual_precision(
+            query,
+            contexts,
+            session_id=eval_session_id,
+        )
         (
             (faithfulness, halluc_rate, faith_tokens),
             (relevancy, rel_tokens),
@@ -138,75 +185,7 @@ class RAGEvaluator:
             ),
         )
 
-        result = RAGEvaluationResult(
-            stage=EvalStage.PRODUCTION_ASYNC,
-            query=query,
-            faithfulness=faithfulness,
-            hallucination_rate=halluc_rate,
-            answer_relevancy=relevancy,
-            total_eval_tokens=faith_tokens + rel_tokens,
-        )
-
-        if result.has_critical_failure:
-            logger.error(
-                "CRITICAL RAG FAILURE: faith=%.3f halluc=%.3f query=%r",
-                faithfulness,
-                halluc_rate,
-                query[:80],
-            )
-
-        return result
-
-    # ------------------------------------------------------------------
-    # Stage 3: Offline Benchmark
-    # ------------------------------------------------------------------
-
-    async def evaluate_offline(
-        self,
-        query: str,
-        contexts: list[str],
-        response: str,
-        reference: str,
-    ) -> RAGEvaluationResult:
-        """
-        Full benchmark suite with ground-truth reference.
-        Used in CI/CD regression testing and model comparison.
-
-        Computes ALL metrics including Contextual Recall (requires reference).
-        Context is truncated for both faithfulness and recall verification.
-        """
-        # Truncate contexts once for both faithfulness and recall
-        safe_contexts = self._truncate_contexts_for_judge(contexts)
-        context_text = "\n---\n".join(safe_contexts)
-
-        # --- Contextual Recall: can reference claims be attributed to context? ---
-        ref_claims, ref_extract_tokens = await self.judge.extract_claims(reference)
-        ref_verifications, ref_verify_tokens = await self.judge.verify_claims(
-            ref_claims, context_text
-        )
-        recall_tokens = ref_extract_tokens + ref_verify_tokens
-
-        attributable = sum(1 for v in ref_verifications if v["status"] == "supported")
-        contextual_recall = (
-            attributable / len(ref_verifications) if ref_verifications else 0.0
-        )
-
-        # --- Remaining metrics (concurrent) ---
-        precision, prec_tokens = await self.metrics.compute_contextual_precision(
-            query,
-            contexts,  # Full contexts OK here — per-chunk, not concatenated
-        )
-
-        (
-            (faithfulness, halluc_rate, faith_tokens),
-            (relevancy, rel_tokens),
-        ) = await asyncio.gather(
-            self.metrics.compute_faithfulness(response, safe_contexts),
-            self.metrics.compute_answer_relevancy(query, response),
-        )
-
         total_tokens = prec_tokens + recall_tokens + faith_tokens + rel_tokens
-
         return RAGEvaluationResult(
             stage=EvalStage.OFFLINE_BENCHMARK,
             query=query,

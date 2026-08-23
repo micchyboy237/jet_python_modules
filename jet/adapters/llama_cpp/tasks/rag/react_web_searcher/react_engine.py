@@ -1,10 +1,13 @@
-"""ReAct loop engine using llm_utils.achat with tool_registry."""
+"""ReAct loop engine using llm_utils.achat with full feature utilization."""
 
 from __future__ import annotations
 
 import logging
+import uuid
 
+from jet.adapters.llama_cpp.factory import get_async_llm_client
 from jet.adapters.llama_cpp.llm_utils import achat
+from openai import AsyncOpenAI
 
 from .query_analyzer import QueryAnalyzer
 from .tools import get_tool_definitions, get_tool_registry
@@ -38,7 +41,15 @@ IMPORTANT:
 
 
 class ReactEngine:
-    """Orchestrates the full ReAct search pipeline."""
+    """Orchestrates the full ReAct search pipeline.
+
+    Utilizes all applicable llm_utils.achat features:
+    - session_id: All calls within one search share a Phoenix conversation thread
+    - seed: Analyzer uses fixed seed for reproducible decomposition
+    - stop: Prevents runaway generation beyond current turn
+    - client: Single shared AsyncOpenAI client avoids per-call overhead
+    - finish_reason: Detects truncation on final answer
+    """
 
     def __init__(
         self,
@@ -53,13 +64,21 @@ class ReactEngine:
         self.validator = PostAnswerValidator(model=model) if enable_validation else None
         self.tool_definitions = get_tool_definitions()
         self.tool_registry = get_tool_registry()
+        # Shared client across all LLM calls in this engine instance
+        self._client: AsyncOpenAI = get_async_llm_client()
 
     async def search(self, query: str) -> FinalAnswer:
         """Run the full ReAct web search pipeline for a query."""
         logger.info("🚀 Starting ReAct search for: %r", query[:80])
 
-        # Step 1: Analyze and optionally decompose
-        analysis = await self.analyzer.analyze(query)
+        # Single session ID for entire search pipeline (analyzer + ReAct + validation)
+        session_id = f"react-{uuid.uuid4().hex[:12]}"
+        logger.debug("🧵 Session ID: %s", session_id)
+
+        # Step 1: Analyze with reproducible seed + shared client
+        analysis = await self.analyzer.analyze(
+            query, session_id=session_id, client=self._client
+        )
 
         # Step 2: Build initial message based on complexity
         if analysis.complexity == QueryComplexity.COMPLEX and analysis.sub_queries:
@@ -81,11 +100,12 @@ class ReactEngine:
             {"role": "user", "content": user_content},
         ]
 
-        # Step 3: Run ReAct loop via llm_utils.achat with tool_registry
+        # Step 3: ReAct loop with all features enabled
         logger.info(
-            "🔄 Starting ReAct loop (max_iterations=%d, tools=%d)",
+            "🔄 Starting ReAct loop (max_iterations=%d, tools=%d, session=%s)",
             self.max_iterations,
             len(self.tool_registry),
+            session_id,
         )
 
         result = await achat(
@@ -100,19 +120,31 @@ class ReactEngine:
             max_tool_rounds=self.max_iterations,
             enable_thinking=False,
             capture_content=True,
+            session_id=session_id,  # Correlated traces
+            stop=["Observation:", "Thought:"],  # Prevent runaway generation
+            client=self._client,  # Client reuse
         )
 
-        # Extract steps from tool calls in the result
+        # Check for truncation on final answer
+        truncated = result.finish_reason == "length"
+        if truncated:
+            logger.warning(
+                "⚠️ ReAct loop truncated at max_tokens=4096. "
+                "Final answer may be incomplete."
+            )
+
+        # Extract steps from tool calls
         steps: list[AgentStep] = []
         for tc in result.tool_calls:
             steps.append(
                 AgentStep(
-                    thought="",  # Thoughts are embedded in assistant content
+                    thought="",
                     action=tc.name,
                     action_input=tc.arguments,
                     observation=str(
                         tc.arguments.get("query", tc.arguments.get("url", ""))
                     )[:200],
+                    tokens_used=0,  # Per-step token tracking would require streaming hooks
                 )
             )
 
@@ -120,17 +152,17 @@ class ReactEngine:
         answer_text = result.content or ""
 
         logger.info(
-            "✅ ReAct loop complete: %d steps, %d tokens, %d chars",
+            "✅ ReAct loop complete: %d steps, %d tokens, %d chars, truncated=%s",
             len(steps),
             total_tokens,
             len(answer_text),
+            truncated,
         )
 
-        # Step 4: Post-answer validation
+        # Step 4: Post-answer validation with same session_id + shared client
         eval_result = None
         confidence = "high"
         if self.enable_validation and self.validator and answer_text:
-            # Collect all search snippets as context for validation
             search_contexts = [
                 s.observation for s in steps if s.action == "searxng_search"
             ]
@@ -139,6 +171,8 @@ class ReactEngine:
                     query=query,
                     response=answer_text,
                     contexts=search_contexts,
+                    session_id=session_id,
+                    client=self._client,
                 )
                 if eval_result.get("has_critical_failure"):
                     confidence = "low"
@@ -157,9 +191,10 @@ class ReactEngine:
 
         return FinalAnswer(
             answer=answer_text,
-            sources=[],  # Sources extracted from tool call observations
+            sources=[],
             steps=steps,
             confidence=confidence,
             total_tokens=total_tokens,
+            truncated=truncated,
             eval_result=eval_result,
         )

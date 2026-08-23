@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from jet.adapters.llama_cpp.llm_utils import achat
+from openai import AsyncOpenAI
 
 from .types import QueryAnalysis
 
@@ -30,12 +31,24 @@ Respond with valid JSON matching the QueryAnalysis schema only."""
 class QueryAnalyzer:
     """Classifies queries and decomposes complex ones into sub-queries."""
 
+    ANALYSIS_SEED = 42  # Fixed seed for reproducible decomposition
+
     def __init__(self, model: str = "qwen3.5-uncensored:2b"):
         self.model = model
 
-    async def analyze(self, query: str) -> QueryAnalysis:
-        """Analyze a query and return classification + optional decomposition."""
-        logger.info("🔍 Analyzing query: %r", query[:80])
+    async def analyze(
+        self,
+        query: str,
+        session_id: str | None = None,
+        client: AsyncOpenAI | None = None,
+    ) -> QueryAnalysis:
+        """Analyze a query and return classification + optional decomposition.
+
+        Args:
+            session_id: Phoenix session ID for trace correlation.
+            client: Shared AsyncOpenAI client to avoid per-call overhead.
+        """
+        logger.info("🔍 Analyzing query: %r (session=%s)", query[:80], session_id)
 
         messages = [
             {"role": "user", "content": ANALYSIS_PROMPT.format(query=query)},
@@ -50,6 +63,9 @@ class QueryAnalyzer:
             response_format=QueryAnalysis,
             enable_thinking=False,
             capture_content=True,
+            seed=self.ANALYSIS_SEED,  # Reproducible decomposition
+            session_id=session_id,  # Correlated traces
+            client=client,  # Client reuse
         )
 
         if not result.structured or not result.structured.success:

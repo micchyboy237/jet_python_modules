@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import httpx
+from jet.adapters.llama_cpp.factory import get_async_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_types import (
     StreamCompletionResult,
     ToolCallResult,
@@ -61,16 +62,6 @@ def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # Client & Image Helpers (Async)
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-def get_async_client(
-    base_url: str = LLAMA_CPP_BASE_URL, timeout: float = 120.0
-) -> AsyncOpenAI:
-    return AsyncOpenAI(
-        base_url=base_url,
-        api_key="sk-1234",
-        timeout=timeout,
-    )
 
 
 async def fetch_remote_image_bytes_async(
@@ -293,8 +284,10 @@ async def run_chat_stream_async(
         )
     tracer = trace.get_tracer(__name__)
     if client is None:
-        logger.debug("🔌 No client provided; creating default via get_async_client()")
-        client = get_async_client()
+        logger.debug(
+            "🔌 No client provided; creating default via get_async_llm_client()"
+        )
+        client = get_async_llm_client()
     prompt: str | None = None
     messages: list[dict[str, Any]] | None = None
     if isinstance(prompt_or_messages, str):
@@ -829,8 +822,10 @@ async def run_generate_stream_async(
 
     tracer = trace.get_tracer(__name__)
     if client is None:
-        logger.debug("🔌 No client provided; creating default via get_async_client()")
-        client = get_async_client()
+        logger.debug(
+            "🔌 No client provided; creating default via get_async_llm_client()"
+        )
+        client = get_async_llm_client()
 
     with tracer.start_as_current_span("text_completion") as span:
         span.set_attribute(
@@ -1053,7 +1048,7 @@ async def main():
     logger.info(f"   Phoenix URL  : {args.phoenix_url}")
     logger.info(f"   Project      : {args.project}")
 
-    client = get_async_client(base_url=args.base_url, timeout=args.timeout)
+    client = get_async_llm_client(base_url=args.base_url, timeout=args.timeout)
 
     result = await run_chat_stream_async(
         args.prompt,

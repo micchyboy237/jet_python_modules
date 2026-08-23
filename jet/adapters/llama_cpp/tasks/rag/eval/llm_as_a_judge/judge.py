@@ -1,4 +1,3 @@
-# jet/adapters/llama_cpp/tasks/rag/eval/llm_as_a_judge/judge.py
 """LLM-as-a-Judge primitives using llm_utils.achat.
 
 NOTE: All judge prompts use a SINGLE user message (no system message).
@@ -28,7 +27,7 @@ class JetLLMJudge:
     EVAL_MAX_TOKENS = 1024
     CLAIM_MAX_TOKENS = 2048
     EVAL_MODEL = "qwen3.5-uncensored:2b"
-    EVAL_SEED = 42  # Fixed seed for reproducible evaluation scores
+    EVAL_SEED = 42
 
     def __init__(self, model: str | None = None, project_prefix: str = "rag-eval"):
         self.model = model or self.EVAL_MODEL
@@ -78,8 +77,9 @@ class JetLLMJudge:
             )
         return result
 
-    async def extract_claims(self, text: str) -> tuple[list[str], int]:
-        # Single user message — no system message to avoid template conflict
+    async def extract_claims(
+        self, text: str, *, session_id: str | None = None
+    ) -> tuple[list[str], int]:
         messages = [
             {
                 "role": "user",
@@ -96,6 +96,7 @@ class JetLLMJudge:
             {"type": "array", "items": {"type": "string"}},
             "claim-extraction",
             max_tokens=self.CLAIM_MAX_TOKENS,
+            session_id=session_id,
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
@@ -114,8 +115,9 @@ class JetLLMJudge:
         self,
         query: str,
         chunk: str,
+        *,
+        session_id: str | None = None,
     ) -> tuple[RelevanceJudgment, int]:
-        # Single user message with inline schema description
         schema_desc = json.dumps(RelevanceJudgment.model_json_schema(), indent=2)
         messages = [
             {
@@ -128,7 +130,9 @@ class JetLLMJudge:
                 ),
             },
         ]
-        result = await self._call_judge(messages, RelevanceJudgment, "relevance")
+        result = await self._call_judge(
+            messages, RelevanceJudgment, "relevance", session_id=session_id
+        )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
             error = (
@@ -150,6 +154,8 @@ class JetLLMJudge:
         self,
         claims: list[str],
         context: str,
+        *,
+        session_id: str | None = None,
     ) -> tuple[list[ClaimVerification], int]:
         if not claims:
             return [], 0
@@ -171,6 +177,7 @@ class JetLLMJudge:
             {"type": "array", "items": ClaimVerification.model_json_schema()},
             "faithfulness",
             max_tokens=self.CLAIM_MAX_TOKENS,
+            session_id=session_id,
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
@@ -189,6 +196,8 @@ class JetLLMJudge:
         self,
         answer: str,
         n: int = 3,
+        *,
+        session_id: str | None = None,
     ) -> tuple[list[str], int]:
         messages = [
             {
@@ -205,6 +214,7 @@ class JetLLMJudge:
             messages,
             {"type": "array", "items": {"type": "string"}},
             "answer-relevancy",
+            session_id=session_id,
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:

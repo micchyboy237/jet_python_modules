@@ -56,7 +56,7 @@ Common Args:
     image_source (str | None): Local path, HTTP(S) URL, or raw bytes of an image
         to include as vision input. Only applies to chat/achat. Defaults to None.
     client (OpenAI | AsyncOpenAI | None): Pre-configured client instance.
-        If None, a default client is created via get_client()/get_async_client().
+        If None, a default client is created via get_llm_client()/get_async_llm_client().
     enable_thinking (bool): Request model reasoning/thinking tokens in output.
         Only supported by models with native thinking capability. MUST be False
         when using grammar-constrained output. Defaults to False.

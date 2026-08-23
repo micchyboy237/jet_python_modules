@@ -63,4 +63,5 @@ class FinalAnswer:
     steps: list[AgentStep] = field(default_factory=list)
     confidence: str = "high"
     total_tokens: int = 0
+    truncated: bool = False
     eval_result: Optional[dict] = None

@@ -5,15 +5,18 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from jet.adapters.llama_cpp.tasks.rag.eval.llm_as_a_judge import (
-    RAGEvaluator,
-)
+from jet.adapters.llama_cpp.tasks.rag.eval.llm_as_a_judge import RAGEvaluator
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
 
 class PostAnswerValidator:
-    """Validates ReAct agent answers using the existing eval pipeline."""
+    """Validates ReAct agent answers using the existing eval pipeline.
+
+    Threads session_id and shared client through to the evaluator
+    for full trace correlation and client reuse.
+    """
 
     def __init__(self, model: str = "qwen3.5-uncensored:2b"):
         self.evaluator = RAGEvaluator(model=model)
@@ -23,12 +26,21 @@ class PostAnswerValidator:
         query: str,
         response: str,
         contexts: list[str],
+        session_id: str | None = None,
+        client: AsyncOpenAI | None = None,
     ) -> dict[str, Any]:
-        """Run production async evaluation on the agent's answer."""
+        """Run production async evaluation on the agent's answer.
+
+        Args:
+            session_id: Phoenix session ID for trace correlation.
+            client: Shared AsyncOpenAI client (currently not threaded
+                    through RAGEvaluator; reserved for future use).
+        """
         logger.info(
-            "🔍 Validating agent answer (%d chars, %d contexts)",
+            "🔍 Validating agent answer (%d chars, %d contexts, session=%s)",
             len(response),
             len(contexts),
+            session_id,
         )
 
         result = await self.evaluator.evaluate_production_async(

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import requests
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_types import (
     StreamCompletionResult,
     ToolCallResult,
@@ -60,14 +61,6 @@ def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # Client & Image Helpers
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-def get_client(base_url: str = LLAMA_CPP_BASE_URL, timeout: float = 120.0) -> OpenAI:
-    return OpenAI(
-        base_url=base_url,
-        api_key="sk-1234",
-        timeout=timeout,
-    )
 
 
 def fetch_remote_image_bytes(url: str, headers: dict | None = None) -> bytes:
@@ -276,8 +269,8 @@ def run_chat_stream(
         )
     tracer = trace.get_tracer(__name__)
     if client is None:
-        logger.debug("🔌 No client provided; creating default via get_client()")
-        client = get_client()
+        logger.debug("🔌 No client provided; creating default via get_llm_client()")
+        client = get_llm_client()
     prompt: str | None = None
     messages: list[dict[str, Any]] | None = None
     if isinstance(prompt_or_messages, str):
@@ -816,8 +809,8 @@ def run_generate_stream(
 
     tracer = trace.get_tracer(__name__)
     if client is None:
-        logger.debug("🔌 No client provided; creating default via get_client()")
-        client = get_client()
+        logger.debug("🔌 No client provided; creating default via get_llm_client()")
+        client = get_llm_client()
 
     with tracer.start_as_current_span("text_completion") as span:
         span.set_attribute(
@@ -1123,7 +1116,7 @@ if __name__ == "__main__":
     logger.info(f"   Phoenix URL  : {args.phoenix_url}")
     logger.info(f"   Project      : {args.project}")
 
-    client = get_client(base_url=args.base_url, timeout=args.timeout)
+    client = get_llm_client(base_url=args.base_url, timeout=args.timeout)
 
     # ✅ No more separate setup_observability() call needed
     result = run_chat_stream(
