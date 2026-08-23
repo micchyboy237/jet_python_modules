@@ -52,14 +52,10 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
 from typing import Sequence
 
-# Add the current directory to sys.path for module resolution
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from evaluator import RAGEvaluator
+from jet.adapters.llama_cpp.tasks.rag.eval.llm_as_a_judge import RAGEvaluator
 
 logger = logging.getLogger(__name__)
 
