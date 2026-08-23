@@ -10,11 +10,14 @@
 - ✅ NEW: List-intent rules injected into user message for small model adherence
 - ✅ NEW: Forced synthesis when memory budget exhausted or target reached
 - ✅ NEW: Token-aware context truncation in sufficiency checks (replaces char-ratio)
+- ✅ CANONICAL FIX: Explicit Thought: parsing from agent output for auditable reasoning
+- ✅ CANONICAL FIX: Action-based sufficiency inference replaces static keyword heuristic
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -33,6 +36,24 @@ from .validator import PostAnswerValidator
 
 logger = logging.getLogger(__name__)
 
+# Regex for extracting explicit Thought: traces from agent content
+_THOUGHT_PATTERN = re.compile(
+    r"Thought:\s*(.*?)(?=\nAction:|\nObservation:|$)", re.DOTALL | re.IGNORECASE
+)
+
+
+def _extract_thought_from_content(content: str) -> str:
+    """Extract explicit Thought: trace from LLM content.
+    Returns empty string if no Thought: prefix found (native tool-call mode).
+    This enables backward compatibility: when the model uses native function-calling
+    without explicit Thought: prefixes, behavior is identical to before.
+    """
+    if not content:
+        return ""
+    match = _THOUGHT_PATTERN.search(content)
+    return match.group(1).strip() if match else ""
+
+
 SYSTEM_PROMPT = """\
 You are a thorough web research agent. Your goal is to answer the user's question \
 accurately and completely using web search.
@@ -40,6 +61,7 @@ You have access to three tools:
 1. searxng_search - Search the web for information
 2. read_url - Read the full content of a specific web page (supports focused extraction via 'query' param)
 3. synthesize - Combine your findings into a final answer
+
 ## GENERAL RULES
 1. ⚠️ CRITICAL: Search snippets are summaries and often lack detail.
    You MUST use read_url on at least 1-2 promising results to verify facts
@@ -52,7 +74,20 @@ You have access to three tools:
 6. If you cannot find sufficient information after multiple searches and page reads, say so.
 7. Call synthesize ONLY when ready to produce the final answer.
 8. After each search or page read, carefully evaluate whether you have enough
-   information to answer the query COMPLETELY before deciding next steps."""
+   information to answer the query COMPLETELY before deciding next steps.
+
+## REASONING FORMAT
+Before EVERY tool call, you MUST write a Thought: line explaining:
+- What you have learned so far
+- Whether you have ENOUGH INFORMATION to answer completely
+- What specific gaps remain (if any)
+- Why you chose this particular next action
+
+Example:
+Thought: I found that pandas eat bamboo, but I still need their habitat range.
+       I have enough on diet but missing geography. Searching for habitat info.
+Action: searxng_search
+"""
 
 _SUFFICIENCY_SCHEMA: dict[str, Any] = {
     "type": "json_schema",
@@ -135,7 +170,7 @@ def _build_list_intent_user_message(query: str, refined_query: str) -> str:
     guardrail from system prompt to user message.
     """
     return (
-        f"Question: {refined_query}\n\n"
+        f"Question: {refined_query}\n"
         f"⚠️ IMPORTANT LIST-QUERY RULES:\n"
         f"- This is a LIST/RANKING query. Search for CURATED LISTS only.\n"
         f"- ✅ DO: Search for 'best [topic] list [year]' or 'top [topic] ranking [year]'\n"
@@ -143,13 +178,14 @@ def _build_list_intent_user_message(query: str, refined_query: str) -> str:
         f"- ❌ NEVER: Search for individual items/titles one-by-one\n"
         f"- ❌ NEVER: Decompose into per-entity sub-queries\n"
         f"- If the first list is incomplete, search for ANOTHER LIST, not individual items\n"
-        f"- When you have enough items from list pages, call synthesize immediately\n\n"
+        f"- When you have enough items from list pages, call synthesize immediately\n"
         f"Search for information and provide a complete, accurate answer."
     )
 
 
 class ReactEngine:
     """Orchestrates the full ReAct search pipeline.
+
     Utilizes all applicable llm_utils.achat features:
     - session_id: All calls within one search share a Phoenix conversation thread
     - seed: Analyzer uses fixed seed for reproducible decomposition
@@ -157,12 +193,15 @@ class ReactEngine:
     - client: Single shared AsyncOpenAI client avoids per-call overhead
     - finish_reason: Detects truncation on final answer
     - step_tracker: Mutable list passed to tool wrappers for accurate step counting
+
     ✅ NEW: AccumulationMemory integration with token-accurate budgeting.
     ✅ NEW: Intermediate context sufficiency evaluation gate.
     ✅ NEW: Programmatic list-intent guardrail via tool registry.
     ✅ NEW: List-intent rules in user message for small model adherence.
     ✅ NEW: Forced synthesis when memory budget exhausted or target reached.
     ✅ NEW: Token-aware context truncation in sufficiency checks.
+    ✅ CANONICAL FIX: Explicit Thought: parsing for auditable reasoning traces.
+    ✅ CANONICAL FIX: Action-based sufficiency inference (replaces static keywords).
     ✅ EXISTING: Validation feedback loop re-searches on critical failure.
     ✅ EXISTING: Source population from AgentStep metadata.
     ✅ EXISTING: Dynamic max_tokens derived from model context window.
@@ -186,6 +225,68 @@ class ReactEngine:
         self.tool_definitions = get_tool_definitions()
         self._client: AsyncOpenAI = get_async_llm_client()
 
+    @staticmethod
+    def _infer_sufficiency_from_action(
+        result: Any,
+        answer_text: str,
+    ) -> dict[str, Any] | None:
+        """Infer sufficiency from the agent's actual tool-call decision.
+
+        Reads the tool calls emitted by the model in this turn to determine
+        what the agent decided to do next. This is always consistent with
+        the agent's behavior and requires zero extra tokens or parsing.
+
+        Returns same schema as _evaluate_context_sufficiency for drop-in use.
+        Returns None when the agent's intent is ambiguous (no tool calls and
+        no content), signaling the caller to fall back to structured LLM check.
+        """
+        # Agent explicitly chose to synthesize → sufficient
+        if result.has_tool_calls:
+            tool_names = [tc.name for tc in result.tool_calls]
+            if "synthesize" in tool_names:
+                return {
+                    "is_sufficient": True,
+                    "missing_info": [],
+                    "next_action": "synthesize",
+                    "suggested_query": "",
+                }
+            if "read_url" in tool_names:
+                return {
+                    "is_sufficient": False,
+                    "missing_info": ["Agent chose to read another URL"],
+                    "next_action": "read_next_link",
+                    "suggested_query": "",
+                }
+            if "searxng_search" in tool_names:
+                # Extract the query the agent chose as the suggested next query
+                search_tc = next(
+                    (tc for tc in result.tool_calls if tc.name == "searxng_search"),
+                    None,
+                )
+                suggested = ""
+                if search_tc and isinstance(search_tc.arguments, dict):
+                    suggested = search_tc.arguments.get("query", "")
+                return {
+                    "is_sufficient": False,
+                    "missing_info": ["Agent chose to search again"],
+                    "next_action": "search_new_query",
+                    "suggested_query": suggested,
+                }
+            # Unknown tool → ambiguous
+            return None
+
+        # Agent returned content with no tool call → implicit synthesis attempt
+        if answer_text and answer_text.strip():
+            return {
+                "is_sufficient": True,
+                "missing_info": [],
+                "next_action": "synthesize",
+                "suggested_query": "",
+            }
+
+        # No tool calls and no content → ambiguous, fall back to structured check
+        return None
+
     async def _evaluate_context_sufficiency(
         self,
         query: str,
@@ -193,8 +294,10 @@ class ReactEngine:
         session_id: str,
     ) -> dict[str, Any]:
         """Structured sufficiency check using memory's accumulated contexts.
+
         ✅ CHANGED: Uses truncate_to_tokens for accurate budget fitting
         instead of char-ratio estimation.
+
         Returns dict with keys: is_sufficient, missing_info, next_action, suggested_query.
         On failure, defaults to continuing the loop (conservative fallback).
         """
@@ -209,9 +312,8 @@ class ReactEngine:
 
         combined = "\n---\n".join(contexts)
         judge_budget = memory.remaining_token_budget + 2048
-
-        # ✅ CHANGED: Direct token-aware truncation replaces char-ratio estimation
         combined_tokens = count_tokens(combined, model=self.model)
+
         if combined_tokens > judge_budget:
             original_tokens = combined_tokens
             combined = truncate_to_tokens(
@@ -230,11 +332,11 @@ class ReactEngine:
                 "role": "user",
                 "content": (
                     f"Evaluate whether the accumulated context below is SUFFICIENT "
-                    f"to fully answer this query.\n\n"
+                    f"to fully answer this query.\n"
                     f"Query: {query}\n"
                     f"Query Intent: {memory.intent.value}\n"
-                    f"List Items Collected: {memory.list_item_count}\n\n"
-                    f"Accumulated Context ({memory.accumulated_tokens} tokens):\n{combined}\n\n"
+                    f"List Items Collected: {memory.list_item_count}\n"
+                    f"Accumulated Context ({memory.accumulated_tokens} tokens):\n{combined}\n"
                     f"Respond with valid JSON matching the ContextSufficiencyCheck schema."
                 ),
             },
@@ -253,6 +355,7 @@ class ReactEngine:
                 session_id=session_id,
                 client=self._client,
             )
+
             if result.structured and result.structured.success:
                 parsed = result.structured.parsed
                 if isinstance(parsed, dict):
@@ -265,6 +368,7 @@ class ReactEngine:
                         memory.max_tokens,
                     )
                     return parsed
+
             logger.warning(
                 "⚠️ Sufficiency parse failed: %s",
                 result.structured.error
@@ -348,6 +452,7 @@ class ReactEngine:
             rerank_model=self.rerank_model,
             query_intent=analysis.intent,
             memory=memory,
+            last_assistant_content="",
         )
 
         react_max_tokens = _get_react_max_tokens(self.model)
@@ -381,7 +486,6 @@ class ReactEngine:
                 enable_thinking=False,
                 capture_content=True,
                 session_id=session_id,
-                stop=["Observation:", "Thought:"],
                 client=self._client,
             )
 
@@ -415,6 +519,16 @@ class ReactEngine:
                     react_max_tokens,
                 )
 
+            # ✅ CANONICAL FIX: Rebuild registry with extracted thought for next turn
+            bound_registry = get_tool_registry(
+                step_tracker=steps,
+                embed_model=self.embed_model,
+                rerank_model=self.rerank_model,
+                query_intent=analysis.intent,
+                memory=memory,
+                last_assistant_content=answer_text,
+            )
+
             if memory.should_force_synthesis() and not answer_text:
                 logger.info(
                     "🛑 Memory requests forced synthesis (tokens=%d/%d, items=%d)",
@@ -434,6 +548,8 @@ class ReactEngine:
                 )
                 continue
 
+            # ✅ ACTION-BASED SUFFICIENCY: Infer from agent's actual tool-call decision.
+            # Falls back to structured LLM check only when action is ambiguous.
             if (
                 memory.num_contexts > 0
                 and not answer_text
@@ -441,17 +557,29 @@ class ReactEngine:
                 and memory.get_sufficiency_snapshot() is None
             ):
                 sufficiency_checks += 1
-                logger.debug(
-                    "🔍 Running sufficiency check #%d (%d contexts, %d tokens)",
-                    sufficiency_checks,
-                    memory.num_contexts,
-                    memory.accumulated_tokens,
-                )
-                sufficiency = await self._evaluate_context_sufficiency(
-                    query=query,
-                    memory=memory,
-                    session_id=session_id,
-                )
+
+                sufficiency = self._infer_sufficiency_from_action(result, answer_text)
+
+                if sufficiency is None:
+                    logger.debug(
+                        "🔍 Action-based sufficiency ambiguous, running structured check #%d "
+                        "(%d contexts, %d tokens)",
+                        sufficiency_checks,
+                        memory.num_contexts,
+                        memory.accumulated_tokens,
+                    )
+                    sufficiency = await self._evaluate_context_sufficiency(
+                        query=query,
+                        memory=memory,
+                        session_id=session_id,
+                    )
+                else:
+                    logger.info(
+                        "🎯 Action-based sufficiency: sufficient=%s next=%s (saved 1 LLM call)",
+                        sufficiency["is_sufficient"],
+                        sufficiency["next_action"],
+                    )
+
                 memory.update_sufficiency(**sufficiency)
 
                 next_action = sufficiency.get("next_action", "search_new_query")
@@ -511,6 +639,7 @@ class ReactEngine:
                         }
                     )
 
+            # ✅ VALIDATION FEEDBACK LOOP (properly nested inside while True)
             eval_result = None
             confidence = "high"
 
@@ -521,6 +650,7 @@ class ReactEngine:
                     len(validation_contexts),
                     memory.accumulated_tokens,
                 )
+
                 if validation_contexts:
                     logger.debug("🔍 Running post-answer validation")
                     eval_result = await self.validator.validate(
@@ -537,6 +667,7 @@ class ReactEngine:
                         eval_result.get("answer_relevancy", -1),
                         eval_result.get("has_critical_failure", False),
                     )
+
                     if eval_result.get("has_critical_failure"):
                         confidence = "low"
                         logger.warning(
@@ -544,6 +675,7 @@ class ReactEngine:
                             eval_result.get("faithfulness", -1),
                             eval_result.get("hallucination_rate", -1),
                         )
+
                         if validation_retries < _MAX_VALIDATION_RETRIES:
                             validation_retries += 1
                             logger.info(
@@ -589,6 +721,7 @@ class ReactEngine:
 
             break
 
+        # --- Post-loop: source extraction and final answer assembly ---
         sources: list[SearchResult] = []
         seen_urls: set[str] = set()
         for step in steps:
@@ -631,4 +764,5 @@ class ReactEngine:
             status["tokens_max"],
             status["list_items"],
         )
+
         return final

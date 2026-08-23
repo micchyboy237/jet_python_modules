@@ -1,8 +1,10 @@
 """ReAct tool implementations: SearXNG search, URL reading, synthesis.
+
 Tool wrappers accept an optional _step_tracker list and _memory instance.
 When provided by ReactEngine, each tool call:
 1. Appends an AgentStep to step_tracker for accurate step counting
 2. Updates AccumulationMemory with full observations and token counts
+
 ✅ IMPROVEMENTS:
 - synthesize() uses PromptBudget for safe prompt assembly
 - read_url() applies SmartChunker + hybrid_search for structured content
@@ -12,6 +14,7 @@ When provided by ReactEngine, each tool call:
 - ✅ NEW: List-intent guardrail via _query_intent parameter
 - ✅ NEW: Reuses jet.search.searxng for caching, retries, and filtering
 - ✅ NEW: Token-aware snippet truncation replaces MAX_SNIPPET_CHARS
+- ✅ CANONICAL FIX: Thought extraction from agent content populates AgentStep.thought
 """
 
 from __future__ import annotations
@@ -36,7 +39,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ✅ CHANGED: Token-based limit replaces MAX_SNIPPET_CHARS = 500
 MAX_SNIPPET_TOKENS = 150
 _url_extractor = UrlContextExtractor(model=LLM_MODEL)
 
@@ -57,17 +59,15 @@ def truncate_to_tokens(
     if full_count <= max_tokens:
         return text
 
-    # Binary search for the longest prefix that fits
     lo, hi = 0, len(text)
     best = ""
     iterations = 0
-    max_iterations = 30  # log2(len(text)) is typically < 20
+    max_iterations = 30
 
     while lo <= hi and iterations < max_iterations:
         mid = (lo + hi) // 2
         candidate = text[:mid]
         tokens = count_tokens(candidate, model=model)
-
         if tokens <= max_tokens:
             best = candidate
             lo = mid + 1
@@ -98,6 +98,7 @@ async def searxng_search(
     _step_tracker: list[AgentStep] | None = None,
     _query_intent: QueryIntent = QueryIntent.UNKNOWN,
     _memory: "AccumulationMemory | None" = None,
+    _thought: str = "",
 ) -> str:
     """Search via SearXNG using jet.search.searxng and return formatted results.
 
@@ -105,6 +106,7 @@ async def searxng_search(
     deduplication, relevance filtering, and site filtering.
     ✅ ASYNC SAFE: Wraps synchronous search in asyncio.to_thread.
     ✅ TOKEN-AWARE: Snippets truncated by token count, not char count.
+    ✅ CANONICAL FIX: Accepts _thought from registry for AgentStep population.
     """
     logger.info("🔎 SearXNG search: %r (categories=%s)", query[:60], categories)
 
@@ -140,7 +142,7 @@ async def searxng_search(
         if _step_tracker is not None:
             _step_tracker.append(
                 AgentStep(
-                    thought="",
+                    thought=_thought,
                     action="searxng_search",
                     action_input={"query": query, "categories": categories},
                     observation=observation,
@@ -154,7 +156,7 @@ async def searxng_search(
         if _step_tracker is not None:
             _step_tracker.append(
                 AgentStep(
-                    thought="",
+                    thought=_thought,
                     action="searxng_search",
                     action_input={"query": query, "categories": categories},
                     observation=observation,
@@ -164,7 +166,6 @@ async def searxng_search(
             _memory.record_search(query=query, observation=observation)
         return observation
 
-    # ✅ CHANGED: Token-aware snippet truncation instead of char slicing
     results: list[SearchResult] = []
     for r in raw_results:
         raw_snippet = r.get("content", "") or ""
@@ -187,8 +188,8 @@ async def searxng_search(
         lines.append(f"    URL: {r.url}")
         lines.append(f"    Snippet: {r.snippet}")
         lines.append("")
-    observation = "\n".join(lines)
 
+    observation = "\n".join(lines)
     logger.info(
         "✅ SearXNG returned %d results (snippets token-bounded to %d tokens)",
         len(results),
@@ -201,7 +202,7 @@ async def searxng_search(
     if _step_tracker is not None:
         _step_tracker.append(
             AgentStep(
-                thought="",
+                thought=_thought,
                 action="searxng_search",
                 action_input={
                     "query": query,
@@ -212,6 +213,7 @@ async def searxng_search(
                 observation=observation,
             )
         )
+
     return observation
 
 
@@ -223,6 +225,7 @@ async def read_url(
     rerank_model: str = RERANK_MODEL,
     _step_tracker: list[AgentStep] | None = None,
     _memory: "AccumulationMemory | None" = None,
+    _thought: str = "",
 ) -> str:
     """Fetch a URL and return structured, query-relevant content.
 
@@ -230,6 +233,7 @@ async def read_url(
     to extract only the most relevant sections from the page rather than
     returning generic top chunks.
     ✅ NEW: Updates AccumulationMemory with content and accurate token count.
+    ✅ CANONICAL FIX: Accepts _thought from registry for AgentStep population.
     """
     if model != _url_extractor.model:
         _url_extractor.model = model
@@ -262,13 +266,14 @@ async def read_url(
     if _step_tracker is not None:
         _step_tracker.append(
             AgentStep(
-                thought="",
+                thought=_thought,
                 action="read_url",
                 action_input={"url": url, "query": query},
                 observation=observation,
                 source_url=url,
             )
         )
+
     return observation
 
 
@@ -279,12 +284,14 @@ async def synthesize(
     session_id: str | None = None,
     client: AsyncOpenAI | None = None,
     _step_tracker: list[AgentStep] | None = None,
+    _thought: str = "",
 ) -> str:
     """Synthesize multiple search findings into a coherent answer.
 
     ✅ IMPROVEMENT: Uses PromptBudget to guarantee safe prompt assembly,
     preventing silent truncation and HTTP 400 errors from context overflow.
     Dynamically allocates remaining budget to completion tokens.
+    ✅ CANONICAL FIX: Accepts _thought from registry for AgentStep population.
     """
     logger.info("🧩 Synthesizing findings for query: %r", original_query[:60])
 
@@ -305,7 +312,6 @@ async def synthesize(
         query=original_query,
         chunks=safe_findings,
     )
-
     logger.info(
         "💰 Budget allocation: %d/%d tokens used, %d chunks included, %d truncated",
         alloc.total_used,
@@ -344,12 +350,13 @@ async def synthesize(
     if _step_tracker is not None:
         _step_tracker.append(
             AgentStep(
-                thought="",
+                thought=_thought,
                 action="synthesize",
                 action_input={"original_query": original_query},
                 observation=result.content,
             )
         )
+
     return result.content
 
 
@@ -472,6 +479,7 @@ def get_tool_registry(
     rerank_model: str = RERANK_MODEL,
     query_intent: QueryIntent = QueryIntent.UNKNOWN,
     memory: "AccumulationMemory | None" = None,
+    last_assistant_content: str = "",
 ) -> dict:
     """Return callable tool registry for llm_utils.achat agentic loop.
 
@@ -481,14 +489,25 @@ def get_tool_registry(
         embed_model: Embedding model for read_url hybrid search.
         rerank_model: Rerank model for read_url hybrid search.
         query_intent: Query intent for list-intent guardrail enforcement.
-        memory: ✅ NEW: AccumulationMemory instance for real-time context updates.
+        memory: AccumulationMemory instance for real-time context updates.
+        last_assistant_content: ✅ CANONICAL FIX: Raw assistant content from the
+            current turn, used to extract explicit Thought: traces. When the model
+            uses native function-calling without Thought: prefixes, this produces
+            empty strings and behavior is identical to before.
     """
+    # Import here to avoid circular dependency (react_engine imports tools)
+    from .react_engine import _extract_thought_from_content
+
+    # Extract thought once per turn, shared across all tool calls in that turn
+    extracted_thought = _extract_thought_from_content(last_assistant_content)
+
     registry = {
         "searxng_search": functools.partial(
             searxng_search,
             _step_tracker=step_tracker,
             _query_intent=query_intent,
             _memory=memory,
+            _thought=extracted_thought,
         ),
         "read_url": functools.partial(
             read_url,
@@ -496,7 +515,12 @@ def get_tool_registry(
             embed_model=embed_model,
             rerank_model=rerank_model,
             _memory=memory,
+            _thought=extracted_thought,
         ),
-        "synthesize": functools.partial(synthesize, _step_tracker=step_tracker),
+        "synthesize": functools.partial(
+            synthesize,
+            _step_tracker=step_tracker,
+            _thought=extracted_thought,
+        ),
     }
     return registry
