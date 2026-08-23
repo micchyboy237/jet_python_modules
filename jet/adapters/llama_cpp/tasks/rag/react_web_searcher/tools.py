@@ -1,5 +1,4 @@
 """ReAct tool implementations: SearXNG search, URL reading, synthesis.
-
 Tool wrappers accept an optional _step_tracker list. When provided by
 ReactEngine, each tool call appends an AgentStep so the engine can
 report accurate step counts. Without it, tools work standalone.
@@ -8,22 +7,23 @@ report accurate step counts. Without it, tools work standalone.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 import httpx
-from jet.adapters.llama_cpp.chunking_utils import truncate_texts
 from jet.adapters.llama_cpp.llm_utils import achat
 from openai import AsyncOpenAI
 
 from .types import AgentStep, SearchResult
+from .url_extractor import UrlContextExtractor
 
 logger = logging.getLogger(__name__)
 
 SEARXNG_BASE_URL = "http://localhost:8888"
 SEARCH_TIMEOUT = 15.0
-READ_TIMEOUT = 10.0
 MAX_SNIPPET_CHARS = 500
+
+# Initialize extractor once for reuse
+_url_extractor = UrlContextExtractor(model="qwen3.5-uncensored:2b")
 
 
 async def searxng_search(
@@ -131,7 +131,6 @@ async def searxng_search(
                 observation=observation[:200],
             )
         )
-
     return observation
 
 
@@ -140,73 +139,19 @@ async def read_url(
     model: str = "qwen3.5-uncensored:2b",
     _step_tracker: list[AgentStep] | None = None,
 ) -> str:
-    """Fetch a URL and return truncated text content."""
-    logger.info("📄 Reading URL: %s", url[:80])
+    """Fetch a URL and return truncated text content using UrlContextExtractor."""
+    # Update extractor model if different from default
+    if model != _url_extractor.model:
+        _url_extractor.model = model
 
-    try:
-        async with httpx.AsyncClient(
-            timeout=READ_TIMEOUT,
-            follow_redirects=True,
-            headers={"User-Agent": "JetReactSearcher/1.0"},
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "")
-            if "text/html" not in content_type and "text/plain" not in content_type:
-                observation = f"Cannot read non-text content type: {content_type}"
-                if _step_tracker is not None:
-                    _step_tracker.append(
-                        AgentStep(
-                            thought="",
-                            action="read_url",
-                            action_input={"url": url},
-                            observation=observation[:200],
-                        )
-                    )
-                return observation
-            text = resp.text
-    except Exception as e:
-        logger.error("❌ Failed to fetch %s: %s", url[:60], e)
-        observation = f"Failed to fetch URL: {e}"
-        if _step_tracker is not None:
-            _step_tracker.append(
-                AgentStep(
-                    thought="",
-                    action="read_url",
-                    action_input={"url": url},
-                    observation=observation[:200],
-                )
-            )
-        return observation
+    content, error = await _url_extractor.extract(url)
 
-    clean_text = re.sub(r"<[^>]+>", " ", text)
-    clean_text = re.sub(r"\s+", " ", clean_text).strip()
-
-    if not clean_text:
-        observation = "Page content is empty or could not be extracted."
-        if _step_tracker is not None:
-            _step_tracker.append(
-                AgentStep(
-                    thought="",
-                    action="read_url",
-                    action_input={"url": url},
-                    observation=observation[:200],
-                )
-            )
-        return observation
-
-    truncated = truncate_texts(
-        clean_text,
-        model=model,
-        max_tokens=2048,
-        strict_sentences=True,
-        show_progress=False,
-    )
-    if isinstance(truncated, list):
-        truncated = truncated[0] if truncated else ""
-
-    logger.info("✅ Read %d chars from %s", len(truncated), url[:60])
-    observation = f"Content from {url}:\n\n{truncated}"
+    if error:
+        observation = error
+        logger.warning("⚠️ read_url failed: %s", error[:100])
+    else:
+        observation = f"Content from {url}:\n{content}"
+        logger.info("✅ read_url success: %d chars", len(content))
 
     if _step_tracker is not None:
         _step_tracker.append(
@@ -217,7 +162,6 @@ async def read_url(
                 observation=observation[:200],
             )
         )
-
     return observation
 
 
@@ -237,9 +181,9 @@ async def synthesize(
             "role": "user",
             "content": (
                 f"Synthesize the following research findings into a comprehensive, "
-                f"accurate answer to the original question.\n\n"
-                f"Original Question: {original_query}\n\n"
-                f"Research Findings:\n{findings}\n\n"
+                f"accurate answer to the original question.\n"
+                f"Original Question: {original_query}\n"
+                f"Research Findings:\n{findings}\n"
                 f"Instructions:\n"
                 f"- Use ONLY information from the findings above\n"
                 f"- Cite sources by referencing the result numbers\n"
@@ -273,7 +217,6 @@ async def synthesize(
                 observation=result.content[:200],
             )
         )
-
     return result.content
 
 
@@ -322,9 +265,9 @@ def get_tool_definitions() -> list[dict]:
             "function": {
                 "name": "read_url",
                 "description": (
-                    "Fetch and read the full text content of a web page. "
+                    "Fetch and read the full text content of a web page using a headless browser. "
                     "Use this after finding a promising URL from search results "
-                    "to get detailed information beyond the snippet."
+                    "to get detailed information beyond the snippet. Handles JavaScript rendering."
                 ),
                 "parameters": {
                     "type": "object",
@@ -369,10 +312,9 @@ def get_tool_definitions() -> list[dict]:
 
 def get_tool_registry(step_tracker: list[AgentStep] | None = None) -> dict:
     """Return callable tool registry for llm_utils.achat agentic loop.
-
     Args:
         step_tracker: Optional mutable list that tool wrappers append to.
-                      Pass this from ReactEngine to get accurate step counts.
+        Pass this from ReactEngine to get accurate step counts.
     """
     import functools
 
