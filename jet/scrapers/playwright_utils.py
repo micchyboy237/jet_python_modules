@@ -33,16 +33,16 @@ async def scrape_url(
     context: BrowserContext,
     url: str,
     *,
-    scroll_strategy: ScrollStrategy = "none",
+    scroll_strategy: ScrollStrategy = "until_stable",
     scroll_max_attempts: int = 15,
     scroll_delay_ms: int = 1400,
     scroll_timeout_ms: int = 45000,
     timeout: Optional[float] = 10000,
     max_retries: int = 1,
     with_screenshot: bool = True,
-    scroll_mode: ScrollMode = "jump",
+    scroll_mode: ScrollMode = "increment",
     wait_for_js: bool = False,
-    use_cache: bool = True,  # Now respected properly
+    use_cache: bool = False,
 ) -> ScrapeResult:
     cache_key = f"html:{url}"
     if use_cache:
@@ -165,7 +165,7 @@ async def scroll_to_bottom(
     page,
     *,
     strategy: ScrollStrategy = "until_stable",
-    mode: ScrollMode = "jump",
+    mode: ScrollMode = "increment",
     max_attempts: int = 15,
     delay_ms: int = 1400,
     overall_timeout_ms: int = 45000,
@@ -270,13 +270,13 @@ async def scrape_urls(
     timeout: Optional[float] = 10000,
     max_retries: int = 1,
     with_screenshot: bool = True,
-    scroll_strategy: ScrollStrategy = "none",
+    scroll_strategy: ScrollStrategy = "until_stable",
     scroll_max_attempts: int = 15,
     scroll_delay_ms: int = 1400,
-    scroll_mode: ScrollMode = "jump",
+    scroll_mode: ScrollMode = "increment",
     headless: bool = True,
     wait_for_js: bool = False,
-    use_cache: bool = True,
+    use_cache: bool = False,
 ) -> AsyncIterator[ScrapeResult]:
     semaphore = asyncio.Semaphore(num_parallel)
     completed_count = 0
@@ -431,13 +431,13 @@ def scrape_urls_sync(
     timeout: Optional[float] = 10000,
     max_retries: int = 1,
     with_screenshot: bool = True,
-    scroll_strategy: ScrollStrategy = "none",
+    scroll_strategy: ScrollStrategy = "until_stable",
     scroll_max_attempts: int = 15,
     scroll_delay_ms: int = 1400,
-    scroll_mode: ScrollMode = "jump",
+    scroll_mode: ScrollMode = "increment",
     headless: bool = True,
     wait_for_js: bool = False,
-    use_cache: bool = True,
+    use_cache: bool = False,
 ) -> Iterator[ScrapeResult]:
     """
     Synchronously scrape a list of URLs using Playwright, yielding ScrapeResult for each URL.

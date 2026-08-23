@@ -1,4 +1,3 @@
-# jet_python_modules/jet/adapters/llama_cpp/chunk_strategies/smart_chunker.py
 """Smart chunker that adapts to document structure.
 
 Supports two input modes:
@@ -26,7 +25,6 @@ from jet.adapters.llama_cpp.types import LLAMACPP_KEYS
 
 logger = logging.getLogger(__name__)
 
-# Element type sets for text-heuristic fallback only
 _ATOMIC_TYPES: Set[str] = {"Table", "CodeSnippet", "Formula"}
 _SECTION_TYPES: Set[str] = {"Title", "Header"}
 _NARRATIVE_TYPES: Set[str] = {
@@ -83,16 +81,16 @@ class SmartChunker:
             text: Raw text to chunk.
             chunk_size: Max tokens per chunk (0 or None → auto from model).
             chunk_overlap: Overlapping tokens between consecutive chunks.
-                          Automatically set to 0 for sparse/hybrid retrieval.
+                Automatically set to 0 for sparse/hybrid retrieval.
             min_chunk_size: Minimum tokens for a chunk to be kept.
             buffer: Extra token margin reserved to avoid exceeding chunk_size.
             elements: Optional unstructured element dicts from partition().
-                      When provided, delegates to chunk_rag_context() for
-                      atomic-element-preserving hierarchical chunking.
+                When provided, delegates to chunk_rag_context() for
+                atomic-element-preserving hierarchical chunking.
             retrieval_type: Downstream retrieval method. Determines overlap:
-                           - "dense": Use configured chunk_overlap (default)
-                           - "sparse": Force overlap=0 (BM25/SPLADE)
-                           - "hybrid": Force overlap=0 (reranker handles boundaries)
+                - "dense": Use configured chunk_overlap (default)
+                - "sparse": Force overlap=0 (BM25/SPLADE)
+                - "hybrid": Force overlap=0 (reranker handles boundaries)
 
         Returns:
             List of chunk strings.
@@ -102,7 +100,6 @@ class SmartChunker:
 
         effective_chunk_size = chunk_size or self.default_chunk_size
 
-        # ── Element path: delegate to document_parser ─────────────────
         if elements:
             return self._chunk_with_elements(
                 elements=elements,
@@ -111,7 +108,6 @@ class SmartChunker:
                 retrieval_type=retrieval_type,
             )
 
-        # ── Text-only path: heuristic + sub-chunker delegation ────────
         effective_overlap = chunk_overlap
         if retrieval_type in ("sparse", "hybrid"):
             if chunk_overlap > 0:
@@ -140,8 +136,6 @@ class SmartChunker:
         )
         return self._chunk_by_structure(text, structure, common_kwargs)
 
-    # ── Element-based chunking via document_parser ────────────────────
-
     def _chunk_with_elements(
         self,
         elements: List[Dict[str, Any]],
@@ -149,7 +143,11 @@ class SmartChunker:
         overlap_tokens: int,
         retrieval_type: RetrievalType,
     ) -> List[str]:
-        """Delegate to document_parser.chunk_rag_context for atomic-safe chunking."""
+        """Delegate to document_parser.chunk_rag_context for atomic-safe chunking.
+
+        ✅ IMPROVEMENT: Propagates element type metadata to format_chunks_for_rag()
+        instead of losing it and falling back to heuristic detection.
+        """
         try:
             from jet.adapters.unstructured.document_parser import chunk_rag_context
         except ImportError as exc:
@@ -157,8 +155,7 @@ class SmartChunker:
                 "document_parser not available (%s); falling back to text heuristic",
                 exc,
             )
-            # Fallback: concatenate element texts and use text-heuristic path
-            combined = "\n\n".join(
+            combined = "\n".join(
                 e.get("text", "") for e in elements if e.get("text", "").strip()
             )
             structure = self._classify_from_elements(elements)
@@ -170,7 +167,6 @@ class SmartChunker:
             )
             return self._chunk_by_structure(combined, structure, kwargs)
 
-        # Adjust overlap for retrieval type
         effective_overlap = overlap_tokens
         if retrieval_type in ("sparse", "hybrid"):
             effective_overlap = 0
@@ -191,17 +187,44 @@ class SmartChunker:
             model=self.model,
         )
 
-        chunks = [c["text"] for c in chunk_dicts if c.get("text", "").strip()]
+        # ✅ IMPROVEMENT: Extract both text AND content types from chunk metadata
+        chunks: List[str] = []
+        content_types: List[str] = []
+        for c in chunk_dicts:
+            text = c.get("text", "").strip()
+            if not text:
+                continue
+            chunks.append(text)
+
+            # Map strategy/metadata to ContentType for format_chunks_for_rag
+            strategy = c.get("strategy", "")
+            elem_types = c.get("metadata", {}).get("element_types", [])
+            if strategy == "atomic" or any(
+                t in ("Table", "CodeSnippet", "Formula") for t in elem_types
+            ):
+                if "Table" in elem_types:
+                    content_types.append("table")
+                elif "CodeSnippet" in elem_types:
+                    content_types.append("code")
+                else:
+                    content_types.append("prose")
+            else:
+                content_types.append("prose")
+
+        # ✅ Format with explicit content types instead of heuristic fallback
+        from jet.adapters.llama_cpp.chunk_strategies.rag_formatter import (
+            format_chunks_for_rag,
+        )
+
+        formatted_chunks = format_chunks_for_rag(chunks, content_types=content_types)
 
         strategies_used = sorted({c.get("strategy", "unknown") for c in chunk_dicts})
         logger.info(
             "SmartChunker: chunk_rag_context produced %d chunks, strategies=%s",
-            len(chunks),
+            len(formatted_chunks),
             strategies_used,
         )
-        return chunks
-
-    # ── Text-only sub-chunker dispatch ────────────────────────────────
+        return formatted_chunks
 
     def _chunk_by_structure(
         self,
@@ -224,13 +247,12 @@ class SmartChunker:
             logger.debug("Routing to TokenAwareSentenceChunker")
             return self._sentence_chunker.chunk(text=text, **kwargs)
 
-    # ── Element classification (fallback only) ────────────────────────
-
     def _classify_from_elements(self, elements: List[Dict[str, Any]]) -> str:
         """Classify structure from element types. Used only as fallback
         when document_parser is unavailable."""
         if not elements:
             return "flat_narrative"
+
         types = [e.get("type", "") for e in elements]
         has_sections = any(t in _SECTION_TYPES for t in types)
         has_atomic = any(t in _ATOMIC_TYPES for t in types)
@@ -248,8 +270,6 @@ class SmartChunker:
         else:
             return "structured"
 
-    # ── Text-only heuristic classification ────────────────────────────
-
     def _detect_structure_from_text(self, text: str) -> str:
         """Heuristic structure detection for raw text without elements."""
         lines = text.split("\n")
@@ -262,7 +282,6 @@ class SmartChunker:
             if any(indicator in l for indicator in _CODE_INDICATORS)
         )
         code_ratio = code_line_count / max(total_lines, 1)
-        has_code_fence = any("```" in l for l in lines)
         header_count = sum(1 for l in non_empty_lines if l.strip().startswith("#"))
         has_tables = any(_TABLE_INDICATOR in l for l in non_empty_lines)
 

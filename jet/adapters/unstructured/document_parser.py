@@ -13,6 +13,7 @@ os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
 logging.getLogger().setLevel(logging.WARNING)
 logger = logging.getLogger("doc_parser")
 logger.setLevel(logging.INFO)
+
 _formatter = logging.Formatter("%(asctime)s [%(levelname)-8s] %(name)s | %(message)s")
 _stream = logging.StreamHandler(sys.stdout)
 _stream.setFormatter(_formatter)
@@ -38,7 +39,6 @@ except ImportError as e:
     logger.critical("   Fix: pip install 'unstructured[all-docs]'")
     sys.exit(1)
 
-# ✅ NEW: Import accurate token counting and model context utilities
 try:
     from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
     from jet.adapters.llama_cpp.token_utils import count_tokens
@@ -71,6 +71,7 @@ RAG_CONTEXT_TYPES: Set[str] = {
     "FormKeysValues",
     "Form",
 }
+
 ATOMIC_TYPES: Set[str] = {"Table", "CodeSnippet", "Formula"}
 SECTION_TYPES: Set[str] = {"Title", "Header"}
 
@@ -106,7 +107,7 @@ def auto_chunk_size(model_key: Optional[str] = None) -> int:
 
     Args:
         model_key: llama.cpp model key (e.g., "qwen3.5:2b").
-                   Uses default LLM_MODEL from config if None.
+            Uses default LLM_MODEL from config if None.
 
     Returns:
         Recommended max_tokens per chunk.
@@ -140,11 +141,13 @@ def classify_structure(elements: List[Dict[str, Any]]) -> str:
     """Classify document structure to select chunking strategy."""
     if not elements:
         return "empty"
+
     types = [e.get("type", "") for e in elements]
     has_sections = any(t in SECTION_TYPES for t in types)
     has_atomic = any(t in ATOMIC_TYPES for t in types)
     narrative_count = sum(1 for t in types if t == "NarrativeText")
     total = len(types)
+
     if has_sections and total > 3:
         return "structured"
     elif has_atomic and not has_sections:
@@ -181,18 +184,16 @@ def _merge_up_to_budget(
         text_tokens = estimate_tokens(text, model=model)
 
         if text_tokens > max_tokens:
-            # Flush accumulated parts before handling oversized text
             if current_parts:
                 chunks.append(
                     {
-                        "text": "\n\n".join(current_parts),
+                        "text": "\n".join(current_parts),
                         "token_count": current_tokens,
                     }
                 )
                 current_parts = []
                 current_tokens = 0
 
-            # Split oversized text by words
             words = text.split()
             sub_parts: List[str] = []
             sub_tokens = 0
@@ -228,7 +229,7 @@ def _merge_up_to_budget(
         if current_tokens + text_tokens > max_tokens and current_parts:
             chunks.append(
                 {
-                    "text": "\n\n".join(current_parts),
+                    "text": "\n".join(current_parts),
                     "token_count": current_tokens,
                 }
             )
@@ -253,7 +254,7 @@ def _merge_up_to_budget(
     if current_parts:
         chunks.append(
             {
-                "text": "\n\n".join(current_parts),
+                "text": "\n".join(current_parts),
                 "token_count": current_tokens,
             }
         )
@@ -271,18 +272,18 @@ def chunk_rag_context(
     Hierarchical, token-aware chunking of parsed document elements with metadata preservation.
 
     Automatically selects strategy based on document structure:
-      - structured: section → paragraph → sentence hierarchy
-      - flat_narrative: synthetic paragraph grouping → sentence fallback
-      - atomic_flat: each atomic element = own chunk; narrative grouped separately
-      - monolithic: sentence splitting → merge up to budget
-      - mixed: anchored sections + flat fallback for unanchored runs
+    - structured: section → paragraph → sentence hierarchy
+    - flat_narrative: synthetic paragraph grouping → sentence fallback
+    - atomic_flat: each atomic element = own chunk; narrative grouped separately
+    - monolithic: sentence splitting → merge up to budget
+    - mixed: anchored sections + flat fallback for unanchored runs
 
     Args:
         elements: List of element dicts from partition().to_dict()
         max_tokens: Target max tokens per chunk. Pass None to auto-derive from model.
         overlap_tokens: Overlap between consecutive chunks (0 for sparse retrieval)
         model: Optional llama.cpp model key for accurate token counting and
-               auto chunk sizing. Uses default LLM_MODEL if None and max_tokens is None.
+            auto chunk sizing. Uses default LLM_MODEL if None and max_tokens is None.
 
     Returns:
         List of chunk dicts with 'text', 'token_count', 'strategy', and 'metadata' keys.
@@ -290,7 +291,6 @@ def chunk_rag_context(
     if not elements:
         return []
 
-    # ✅ Auto-derive chunk size from model context if not explicitly set
     if max_tokens is None:
         max_tokens = auto_chunk_size(model)
         logger.info(
@@ -330,6 +330,10 @@ def chunk_rag_context(
                 "languages": primary_meta.get("languages"),
                 "element_ids": element_ids,
                 "parent_id": primary_meta.get("parent_id"),
+                # ✅ IMPROVEMENT: Propagate element types for downstream formatting
+                "element_types": [
+                    e.get("type", "") for e in source_elems if e.get("type")
+                ],
             },
         }
 
@@ -368,7 +372,6 @@ def chunk_rag_context(
                             )
                         narrative_parts = []
                         narrative_sources = []
-
                     tok = estimate_tokens(text, model=model)
                     chunks.append(_build_chunk(text, tok, "atomic", [elem]))
                 else:
@@ -413,7 +416,6 @@ def chunk_rag_context(
                         )
                     narrative_parts = []
                     narrative_sources = []
-
                 chunks.append(
                     _build_chunk(
                         text, estimate_tokens(text, model=model), "atomic", [elem]
@@ -442,7 +444,7 @@ def chunk_rag_context(
         for i in range(0, len(texts), GROUP_SIZE):
             group_texts = texts[i : i + GROUP_SIZE]
             group_sources = sources[i : i + GROUP_SIZE]
-            merged = "\n\n".join(group_texts)
+            merged = "\n".join(group_texts)
 
             if estimate_tokens(merged, model=model) <= max_tokens:
                 chunks.append(
@@ -554,7 +556,6 @@ def chunk_rag_context(
                             )
                         narrative_parts = []
                         narrative_sources = []
-
                     chunks.append(
                         _build_chunk(
                             text, estimate_tokens(text, model=model), "atomic", [elem]
@@ -598,7 +599,6 @@ def chunk_rag_context(
         f"chunk_rag_context | produced {len(chunks)} chunks | "
         f"total_tokens={total_tokens} | strategies={strategies_used}"
     )
-
     return chunks
 
 
@@ -682,7 +682,7 @@ def extract_rag_context(elements: List[Dict[str, Any]]) -> str:
             else:
                 rag_parts.append(text)
 
-    context = "\n\n".join(rag_parts)
+    context = "\n".join(rag_parts)
     logger.info(
         f"extract_rag_context | kept={len(rag_parts)} elements | "
         f"chars={len(context)} | types_used="
@@ -720,7 +720,6 @@ def parse_document_elements(path: str) -> List[Dict[str, Any]]:
             f"parse_document_elements | DONE | path={path} | elements={len(elements)}"
         )
         return elements
-
     except Exception as e:
         logger.error(
             f"parse_document_elements | FAILED | path={path} | error={e}",
@@ -740,24 +739,26 @@ def parse_document(
 
     Handles local files, URLs, notebooks, and unsupported types gracefully.
 
+    ✅ IMPROVEMENT: Auto-derives chunk sizes from model context at entry point
+    and propagates consistently through chunk_rag_context, replacing hardcoded defaults.
+
     Args:
         path: File path or URL to parse.
         chunk_max_tokens: Max tokens per chunk. Pass None to auto-derive from
-                          the target model's context window (recommended).
-                          Explicit values override auto-sizing.
+            the target model's context window (recommended).
+            Explicit values override auto-sizing.
         chunk_overlap_tokens: Overlap tokens between consecutive chunks.
         model: llama.cpp model key (e.g., "qwen3.5:2b") for accurate token
-               counting and auto chunk sizing. Uses default LLM_MODEL if None.
+            counting and auto chunk sizing. Uses default LLM_MODEL if None.
     """
     logger.info(f"parse_document | START | path={path} | model={model}")
+
     try:
         element_dicts = parse_document_elements(path)
 
-        # Derive summary metadata from elements
         categories = sorted({e.get("type", "Unknown") for e in element_dicts})
         full_text = " ".join(e.get("text", "") for e in element_dicts)
         word_count = len(full_text.split())
-
         page_numbers = [
             e.get("metadata", {}).get("page_number")
             for e in element_dicts
@@ -766,9 +767,17 @@ def parse_document(
         page_count = max(page_numbers, default=None) if page_numbers else None
 
         rag_context = extract_rag_context(element_dicts)
+
+        # ✅ IMPROVEMENT: Auto-derive ONCE at entry point, propagate consistently
+        effective_max_tokens = chunk_max_tokens or auto_chunk_size(model)
+        logger.info(
+            f"parse_document | chunk_max_tokens={'auto' if chunk_max_tokens is None else chunk_max_tokens} "
+            f"→ effective={effective_max_tokens} (model={model})"
+        )
+
         chunks = chunk_rag_context(
             element_dicts,
-            max_tokens=chunk_max_tokens,
+            max_tokens=effective_max_tokens,  # ← ALWAYS MODEL-AWARE
             overlap_tokens=chunk_overlap_tokens,
             model=model,
         )
@@ -784,6 +793,7 @@ def parse_document(
             "chunks": chunks,
             "status": "success",
         }
+
         logger.info(
             f"parse_document | DONE | elements={len(element_dicts)} | "
             f"words={word_count} | pages={page_count} | "

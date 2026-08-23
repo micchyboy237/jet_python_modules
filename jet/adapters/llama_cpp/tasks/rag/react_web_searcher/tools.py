@@ -1,7 +1,13 @@
 """ReAct tool implementations: SearXNG search, URL reading, synthesis.
+
 Tool wrappers accept an optional _step_tracker list. When provided by
 ReactEngine, each tool call appends an AgentStep so the engine can
 report accurate step counts. Without it, tools work standalone.
+
+✅ IMPROVEMENTS:
+- synthesize() uses PromptBudget for safe prompt assembly
+- read_url() applies SmartChunker + format_chunks_for_rag for structured content
+- All tools propagate source metadata into AgentStep for citation
 """
 
 from __future__ import annotations
@@ -10,6 +16,7 @@ import logging
 from typing import Any
 
 import httpx
+from jet.adapters.llama_cpp.budget_utils import PromptBudget
 from jet.adapters.llama_cpp.llm_utils import achat
 from openai import AsyncOpenAI
 
@@ -22,7 +29,6 @@ SEARXNG_BASE_URL = "http://localhost:8888"
 SEARCH_TIMEOUT = 15.0
 MAX_SNIPPET_CHARS = 500
 
-# Initialize extractor once for reuse
 _url_extractor = UrlContextExtractor(model="qwen3.5-uncensored:2b")
 
 
@@ -82,6 +88,7 @@ async def searxng_search(
         return observation
 
     raw_results = data.get("results", [])[:num_results]
+
     if not raw_results:
         logger.warning("⚠️ No results for query: %r", query[:60])
         observation = "No search results found. Try rephrasing the query."
@@ -136,30 +143,42 @@ async def searxng_search(
 
 async def read_url(
     url: str,
+    query: str | None = None,  # ✅ NEW: Accept query for targeted extraction
     model: str = "qwen3.5-uncensored:2b",
     _step_tracker: list[AgentStep] | None = None,
 ) -> str:
-    """Fetch a URL and return truncated text content using UrlContextExtractor."""
-    # Update extractor model if different from default
+    """Fetch a URL and return structured, query-relevant content.
+
+    ✅ IMPROVEMENT: When 'query' is provided, uses hybrid_search internally
+    to extract only the most relevant sections from the page rather than
+    returning generic top chunks.
+    """
     if model != _url_extractor.model:
         _url_extractor.model = model
 
-    content, error = await _url_extractor.extract(url)
+    # ✅ Pass query to extractor for targeted retrieval
+    content, error = await _url_extractor.extract(url, query=query)
 
     if error:
         observation = error
         logger.warning("⚠️ read_url failed: %s", error[:100])
     else:
-        observation = f"Content from {url}:\n{content}"
-        logger.info("✅ read_url success: %d chars", len(content))
+        # Content is already chunked/formatted/re-ranked by extractor
+        observation = f"Relevant content from {url}:\n{content}"
+        logger.info(
+            "✅ read_url success: %d chars extracted for query=%r",
+            len(content),
+            query[:60] if query else None,
+        )
 
     if _step_tracker is not None:
         _step_tracker.append(
             AgentStep(
                 thought="",
                 action="read_url",
-                action_input={"url": url},
+                action_input={"url": url, "query": query},
                 observation=observation[:200],
+                source_url=url,
             )
         )
     return observation
@@ -173,33 +192,63 @@ async def synthesize(
     client: AsyncOpenAI | None = None,
     _step_tracker: list[AgentStep] | None = None,
 ) -> str:
-    """Synthesize multiple search findings into a coherent answer."""
+    """Synthesize multiple search findings into a coherent answer.
+
+    ✅ IMPROVEMENT: Uses PromptBudget to guarantee safe prompt assembly,
+    preventing silent truncation and HTTP 400 errors from context overflow.
+    Dynamically allocates remaining budget to completion tokens.
+    """
     logger.info("🧩 Synthesizing findings for query: %r", original_query[:60])
+
+    system_prompt = (
+        "Synthesize research findings into a comprehensive, accurate answer. "
+        "Use ONLY information from the provided findings. Cite sources by number. "
+        "If findings are insufficient, say so explicitly. Do not fabricate."
+    )
+
+    # ✅ Budget-aware synthesis: validate findings fit within context window
+    budget = PromptBudget(model, max_completion_tokens=1024)
+    safe_findings = budget.validate(
+        system_prompt=system_prompt,
+        query=original_query,
+        chunks=[findings],
+    )
+
+    alloc = budget.get_allocation(
+        system_prompt=system_prompt,
+        query=original_query,
+        chunks=safe_findings,
+    )
+
+    logger.info(
+        "💰 Budget allocation: %d/%d tokens used, %d chunks included, %d truncated",
+        alloc.total_used,
+        alloc.model_ctx,
+        alloc.chunks_included,
+        alloc.chunks_truncated,
+    )
+
+    safe_text = safe_findings[0] if safe_findings else "No findings available."
 
     messages = [
         {
             "role": "user",
             "content": (
-                f"Synthesize the following research findings into a comprehensive, "
-                f"accurate answer to the original question.\n"
-                f"Original Question: {original_query}\n"
-                f"Research Findings:\n{findings}\n"
-                f"Instructions:\n"
-                f"- Use ONLY information from the findings above\n"
-                f"- Cite sources by referencing the result numbers\n"
-                f"- If findings are insufficient, say so explicitly\n"
-                f"- Be concise but thorough\n"
-                f"- Do not fabricate information"
+                f"Original Question: {original_query}\n\n"
+                f"Research Findings:\n{safe_text}"
             ),
         },
     ]
+
+    # ✅ Use remaining budget for completion instead of hardcoded 2048
+    safe_completion_tokens = max(256, alloc.model_ctx - alloc.total_used)
 
     result = await achat(
         prompt_or_messages=messages,
         model=model,
         project_name="react-synthesize",
         temperature=0.3,
-        max_tokens=2048,
+        max_tokens=safe_completion_tokens,
         enable_thinking=False,
         capture_content=True,
         session_id=session_id,
@@ -265,9 +314,11 @@ def get_tool_definitions() -> list[dict]:
             "function": {
                 "name": "read_url",
                 "description": (
-                    "Fetch and read the full text content of a web page using a headless browser. "
-                    "Use this after finding a promising URL from search results "
-                    "to get detailed information beyond the snippet. Handles JavaScript rendering."
+                    "Fetch and read the full text content of a web page. "
+                    "IMPORTANT: Snippets from search are often incomplete. "
+                    "Use this tool to get detailed, verified information. "
+                    "Accepts an optional 'query' parameter to extract only "
+                    "the most relevant sections from long pages."
                 ),
                 "parameters": {
                     "type": "object",
@@ -275,6 +326,10 @@ def get_tool_definitions() -> list[dict]:
                         "url": {
                             "type": "string",
                             "description": "The full URL to fetch and read",
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Optional: The specific question or topic to focus extraction on. Highly recommended for long articles.",
                         },
                     },
                     "required": ["url"],
@@ -312,9 +367,10 @@ def get_tool_definitions() -> list[dict]:
 
 def get_tool_registry(step_tracker: list[AgentStep] | None = None) -> dict:
     """Return callable tool registry for llm_utils.achat agentic loop.
+
     Args:
         step_tracker: Optional mutable list that tool wrappers append to.
-        Pass this from ReactEngine to get accurate step counts.
+            Pass this from ReactEngine to get accurate step counts.
     """
     import functools
 
