@@ -2,6 +2,7 @@ import os
 from typing import Literal, TypedDict
 
 import requests
+from jet.adapters.llama_cpp.config import RERANK_MODEL
 from jet.adapters.llama_cpp.scoring_utils import sigmoid_normalize_scores
 from jet.logger import logger
 
@@ -38,9 +39,15 @@ def _rerank_via_model(
     top_n: int | None,
     normalize_scores: bool,
     sigmoid_temperature: float,
+    model: str = RERANK_MODEL,
 ) -> list[RerankResult]:
     """Existing model-based reranking logic extracted for clarity."""
-    payload = {"model": MODEL, "query": query, "documents": documents}
+    resolved_model = model or MODEL
+    payload = {
+        "model": resolved_model,
+        "query": query,
+        "documents": documents,
+    }
     if top_n is not None:
         payload["top_n"] = top_n
 
@@ -138,6 +145,7 @@ def rerank(
     normalize_scores: bool = True,
     sigmoid_temperature: float = 1.0,
     method: Literal["auto", "model", "bm25"] = "model",
+    model: str = RERANK_MODEL,
 ) -> list[RerankResult]:
     """
     Rerank documents using either a cross-encoder model or BM25.
@@ -152,6 +160,7 @@ def rerank(
             - "model": Force cross-encoder model via llama.cpp server (default).
             - "auto": Try model first, fall back to BM25 on failure.
             - "bm25": Force lexical BM25 reranking (no GPU/server needed).
+        model: Rerank model to use. Defaults to RERANK_MODEL from config.
 
     Returns:
         List of RerankResult dicts with keys: rank, index, score, raw_score, text
@@ -166,15 +175,25 @@ def rerank(
 
     if method == "model":
         return _rerank_via_model(
-            query, documents, top_n, normalize_scores, sigmoid_temperature
+            query,
+            documents,
+            top_n,
+            normalize_scores,
+            sigmoid_temperature,
+            model=model,
         )
 
     # method == "auto"
     if _check_rerank_server():
         try:
-            logger.info(f"Rerank server available, using model '{MODEL}'")
+            logger.info(f"Rerank server available, using model '{model}'")
             return _rerank_via_model(
-                query, documents, top_n, normalize_scores, sigmoid_temperature
+                query,
+                documents,
+                top_n,
+                normalize_scores,
+                sigmoid_temperature,
+                model=model,
             )
         except Exception as e:
             logger.warning(f"Model reranking failed ({e}), falling back to BM25")

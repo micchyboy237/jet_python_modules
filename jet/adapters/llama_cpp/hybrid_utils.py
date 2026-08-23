@@ -15,6 +15,7 @@ import os
 from typing import Dict, List, TypedDict
 
 import numpy as np
+from jet.adapters.llama_cpp.config import EMBED_MODEL, RERANK_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.rerank_utils import rerank
 from jet.adapters.llama_cpp.scoring_utils import (
@@ -45,6 +46,8 @@ def hybrid_search(
     normalize_scores: bool = True,
     sigmoid_temperature: float = 1.0,
     doc_embeddings: np.ndarray | list[list[float]] | None = None,
+    embed_model: str = EMBED_MODEL,
+    rerank_model: str = RERANK_MODEL,
 ) -> list[HybridSearchResult]:
     """
     Two-stage hybrid search: vector retrieval → cross-encoder reranking.
@@ -85,6 +88,8 @@ def hybrid_search(
             Accepts np.ndarray or list[list[float]].
             Use this to avoid re-embedding the same document set
             across multiple queries.
+        embed_model: Embedding model to use. Defaults to EMBED_MODEL from config.
+        rerank_model: Rerank model to use. Defaults to RERANK_MODEL from config.
 
     Returns:
         List of HybridSearchResult dicts sorted by reranker score (descending).
@@ -119,8 +124,7 @@ def hybrid_search(
     )
 
     logger.info("Stage 1/2: Vector search (embedding + cosine similarity)")
-
-    query_emb = embed(query, prefix=resolved_query_prefix)
+    query_emb = embed(query, prefix=resolved_query_prefix, model=embed_model)
 
     if doc_embeddings is not None:
         if len(doc_embeddings) != n_docs:
@@ -134,7 +138,7 @@ def hybrid_search(
             "skipping document embedding step"
         )
     else:
-        doc_embs = embed(documents, prefix=resolved_doc_prefix)
+        doc_embs = embed(documents, prefix=resolved_doc_prefix, model=embed_model)
         logger.info(f"Document embeddings computed (shape={doc_embs.shape})")
 
     similarities = np.array(
@@ -186,7 +190,12 @@ def hybrid_search(
     logger.info("Stage 2/2: Cross-encoder reranking")
 
     rerank_top_n = min(top_n, len(candidates)) if top_n is not None else len(candidates)
-    rerank_results = rerank(query, candidates, top_n=rerank_top_n)
+    rerank_results = rerank(
+        query,
+        candidates,
+        top_n=rerank_top_n,
+        model=rerank_model,
+    )
 
     raw_rerank_scores = [rr["score"] for rr in rerank_results]
 
@@ -261,7 +270,8 @@ def hybrid_search_pdr(
     pdr_result: Dict[str, List[Dict]],
     top_n: int = 5,
     vector_score_threshold: float | None = None,
-    model: str | None = None,
+    embed_model: str = EMBED_MODEL,
+    rerank_model: str = RERANK_MODEL,
     **kwargs,
 ) -> List[Dict]:
     """Hybrid search over PDR children with automatic parent resolution.
@@ -276,7 +286,8 @@ def hybrid_search_pdr(
             'parents' and 'children' lists with linked IDs.
         top_n: Number of unique parent results to return.
         vector_score_threshold: Optional minimum vector score for child candidates.
-        model: Model key for embedding (passed to hybrid_search).
+        embed_model: Embedding model to use. Defaults to EMBED_MODEL from config.
+        rerank_model: Rerank model to use. Defaults to RERANK_MODEL from config.
         **kwargs: Additional kwargs forwarded to hybrid_search().
 
     Returns:
@@ -297,6 +308,8 @@ def hybrid_search_pdr(
         child_texts,
         top_n=top_n * 2,  # Over-retrieve to account for parent deduplication
         vector_score_threshold=vector_score_threshold,
+        embed_model=embed_model,
+        rerank_model=rerank_model,
         **kwargs,
     )
 
