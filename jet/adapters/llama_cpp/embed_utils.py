@@ -1,10 +1,10 @@
 # jet.adapters.llama_cpp.embed_utils
 
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Literal, Union, overload
 
 import numpy as np
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.factory import get_embedding_client
 from jet.adapters.llama_cpp.types import LLAMACPP_EMBED_KEYS
 from rich.console import Console
@@ -12,17 +12,13 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TextColumn
 
 console = Console()
 
-# === CONFIG ===
-SERVER_URL = os.getenv("LLAMA_CPP_EMBED_URL")
-MODEL_NAME: LLAMACPP_EMBED_KEYS = os.getenv("LLAMA_CPP_EMBED_MODEL")
-
 client = get_embedding_client()
 
 
 @overload
 def embed(
     text: str,
-    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
+    model: LLAMACPP_EMBED_KEYS = EMBED_MODEL,
     return_format: Literal["numpy", "list"] = "numpy",
     prefix: str | None = None,
 ) -> Union[list[float], np.ndarray]: ...
@@ -31,7 +27,7 @@ def embed(
 @overload
 def embed(
     text: list[str],
-    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
+    model: LLAMACPP_EMBED_KEYS = EMBED_MODEL,
     return_format: Literal["numpy", "list"] = "numpy",
     max_workers: int = 2,
     show_progress: bool = True,
@@ -43,7 +39,7 @@ def embed(
 
 def embed(
     text: Union[str, list[str]],
-    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
+    model: LLAMACPP_EMBED_KEYS = EMBED_MODEL,
     return_format: Literal["numpy", "list"] = "numpy",
     max_workers: int = 2,
     show_progress: bool = True,
@@ -92,14 +88,14 @@ def embed(
 
 def embed_single(
     text: str,
-    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
+    model: LLAMACPP_EMBED_KEYS = EMBED_MODEL,
     return_format: Literal["numpy", "list"] = "numpy",
 ) -> Union[list[float], np.ndarray]:
     """Embed one text string via /v1/embeddings endpoint.
 
     Args:
         text: Input text to embed
-        model: Model identifier
+        model: Model identifier. Defaults to EMBED_MODEL from config.
         return_format: "numpy" returns np.ndarray (default), "list" returns Python list
 
     Returns:
@@ -117,7 +113,7 @@ def embed_single(
 
 
 def embed_chunk(
-    texts: list[str], model: LLAMACPP_EMBED_KEYS = MODEL_NAME
+    texts: list[str], model: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 ) -> list[list[float]]:
     """Embed a list of texts sequentially, returns list of embeddings in same order."""
     # Keep returning plain Python lists here (cheaper + conversion happens once in embed_batch)
@@ -126,7 +122,7 @@ def embed_chunk(
 
 def embed_batch(
     texts: list[str],
-    model: LLAMACPP_EMBED_KEYS = MODEL_NAME,
+    model: LLAMACPP_EMBED_KEYS = EMBED_MODEL,
     max_workers: int = 2,
     show_progress: bool = True,
     return_format: Literal["numpy", "list"] = "numpy",
@@ -145,7 +141,7 @@ def embed_batch(
 
     Args:
         texts: List of text strings to embed
-        model: Model identifier
+        model: Model identifier. Defaults to EMBED_MODEL from config.
         max_workers: Number of concurrent threads (default: 2, reduced from 6)
         show_progress: Whether to show progress bar
         return_format: "numpy" or "list"
