@@ -2,6 +2,7 @@ import os
 from typing import TypedDict
 
 import numpy as np
+from jet.adapters.llama_cpp.config import EMBED_MODEL
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
 
@@ -22,6 +23,7 @@ def vector_search(
     return_embeddings: bool = False,
     query_prefix: str | None = None,
     document_prefix: str | None = None,
+    embed_model: str = EMBED_MODEL,
 ) -> list[VectorSearchResult] | tuple[list[VectorSearchResult], np.ndarray, np.ndarray]:
     """
     Embed query and documents, then rank by cosine similarity.
@@ -33,6 +35,7 @@ def vector_search(
         return_embeddings: If True, also returns (query_emb, doc_embs).
         query_prefix: Prefix for the query. Falls back to EMBED_QUERY_PREFIX env var.
         document_prefix: Prefix for documents. Falls back to EMBED_DOC_PREFIX env var.
+        embed_model: Embedding model to use. Defaults to EMBED_MODEL from config.
 
     Returns:
         List of VectorSearchResult dicts (rank, index, score, text),
@@ -53,8 +56,8 @@ def vector_search(
         else os.getenv("EMBED_DOC_PREFIX") or None
     )
 
-    query_embedding = embed(query, prefix=resolved_query_prefix)
-    doc_embeddings = embed(documents, prefix=resolved_doc_prefix)
+    query_embedding = embed(query, prefix=resolved_query_prefix, model=embed_model)
+    doc_embeddings = embed(documents, prefix=resolved_doc_prefix, model=embed_model)
 
     similarities = [
         cosine_similarity(query_embedding, doc_emb) for doc_emb in doc_embeddings

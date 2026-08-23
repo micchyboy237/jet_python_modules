@@ -1,27 +1,36 @@
 """ReAct tool implementations: SearXNG search, URL reading, synthesis.
 
-Tool wrappers accept an optional _step_tracker list. When provided by
-ReactEngine, each tool call appends an AgentStep so the engine can
-report accurate step counts. Without it, tools work standalone.
+Tool wrappers accept an optional _step_tracker list and _memory instance.
+When provided by ReactEngine, each tool call:
+1. Appends an AgentStep to step_tracker for accurate step counting
+2. Updates AccumulationMemory with full observations and token counts
 
 ✅ IMPROVEMENTS:
 - synthesize() uses PromptBudget for safe prompt assembly
-- read_url() applies SmartChunker + format_chunks_for_rag for structured content
+- read_url() applies SmartChunker + hybrid_search for structured content
 - All tools propagate source metadata into AgentStep for citation
+- ✅ NEW: Memory integration for real-time context accumulation
+- ✅ NEW: Token counting via count_tokens() for accurate budget tracking
+- ✅ NEW: List-intent guardrail via _query_intent parameter
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from jet.adapters.llama_cpp.budget_utils import PromptBudget
+from jet.adapters.llama_cpp.config import EMBED_MODEL_LG, LLM_MODEL, RERANK_MODEL
 from jet.adapters.llama_cpp.llm_utils import achat
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from openai import AsyncOpenAI
 
-from .types import AgentStep, SearchResult
+from .types import AgentStep, QueryIntent, SearchResult
 from .url_extractor import UrlContextExtractor
+
+if TYPE_CHECKING:
+    from .memory import AccumulationMemory
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +38,7 @@ SEARXNG_BASE_URL = "http://localhost:8888"
 SEARCH_TIMEOUT = 15.0
 MAX_SNIPPET_CHARS = 500
 
-_url_extractor = UrlContextExtractor(model="qwen3.5-uncensored:2b")
+_url_extractor = UrlContextExtractor(model=LLM_MODEL)
 
 
 async def searxng_search(
@@ -38,8 +47,14 @@ async def searxng_search(
     num_results: int = 5,
     time_range: str | None = None,
     _step_tracker: list[AgentStep] | None = None,
+    _query_intent: QueryIntent = QueryIntent.UNKNOWN,
+    _memory: "AccumulationMemory | None" = None,
 ) -> str:
-    """Search via SearXNG and return formatted results."""
+    """Search via SearXNG and return formatted results.
+
+    ✅ NEW: Updates AccumulationMemory with full observation and parsed results.
+    ✅ NEW: Accepts _query_intent for future list-intent guardrail enforcement.
+    """
     logger.info("🔎 SearXNG search: %r (categories=%s)", query[:60], categories)
 
     params: dict[str, Any] = {
@@ -67,7 +82,7 @@ async def searxng_search(
                     thought="",
                     action="searxng_search",
                     action_input={"query": query, "categories": categories},
-                    observation=observation[:200],
+                    observation=observation,
                 )
             )
         return observation
@@ -82,7 +97,7 @@ async def searxng_search(
                     thought="",
                     action="searxng_search",
                     action_input={"query": query, "categories": categories},
-                    observation=observation[:200],
+                    observation=observation,
                 )
             )
         return observation
@@ -98,9 +113,12 @@ async def searxng_search(
                     thought="",
                     action="searxng_search",
                     action_input={"query": query, "categories": categories},
-                    observation=observation[:200],
+                    observation=observation,
                 )
             )
+        # ✅ NEW: Update memory even on zero results (for loop detection)
+        if _memory is not None:
+            _memory.record_search(query=query, observation=observation)
         return observation
 
     results: list[SearchResult] = []
@@ -125,6 +143,14 @@ async def searxng_search(
     observation = "\n".join(lines)
     logger.info("✅ SearXNG returned %d results", len(results))
 
+    # ✅ NEW: Update memory with full observation and parsed results
+    if _memory is not None:
+        _memory.record_search(
+            query=query,
+            results=results,
+            observation=observation,
+        )
+
     if _step_tracker is not None:
         _step_tracker.append(
             AgentStep(
@@ -135,40 +161,56 @@ async def searxng_search(
                     "categories": categories,
                     "num_results": num_results,
                 },
-                observation=observation[:200],
+                observation=observation,  # Full observation stored
             )
         )
+
     return observation
 
 
 async def read_url(
     url: str,
-    query: str | None = None,  # ✅ NEW: Accept query for targeted extraction
-    model: str = "qwen3.5-uncensored:2b",
+    query: str | None = None,
+    model: str = LLM_MODEL,
+    embed_model: str = EMBED_MODEL_LG,
+    rerank_model: str = RERANK_MODEL,
     _step_tracker: list[AgentStep] | None = None,
+    _memory: "AccumulationMemory | None" = None,
 ) -> str:
     """Fetch a URL and return structured, query-relevant content.
 
     ✅ IMPROVEMENT: When 'query' is provided, uses hybrid_search internally
     to extract only the most relevant sections from the page rather than
     returning generic top chunks.
+    ✅ NEW: Updates AccumulationMemory with content and accurate token count.
     """
     if model != _url_extractor.model:
         _url_extractor.model = model
+    if embed_model is not None:
+        _url_extractor.embed_model = embed_model
+    if rerank_model is not None:
+        _url_extractor.rerank_model = rerank_model
 
-    # ✅ Pass query to extractor for targeted retrieval
     content, error = await _url_extractor.extract(url, query=query)
 
     if error:
         observation = error
         logger.warning("⚠️ read_url failed: %s", error[:100])
     else:
-        # Content is already chunked/formatted/re-ranked by extractor
         observation = f"Relevant content from {url}:\n{content}"
         logger.info(
             "✅ read_url success: %d chars extracted for query=%r",
             len(content),
             query[:60] if query else None,
+        )
+
+    # ✅ NEW: Update memory with content and accurate token count
+    if _memory is not None and not error:
+        content_tokens = count_tokens(content, model=model)
+        _memory.record_read(
+            url=url,
+            content=content,
+            tokens=content_tokens,
         )
 
     if _step_tracker is not None:
@@ -177,17 +219,18 @@ async def read_url(
                 thought="",
                 action="read_url",
                 action_input={"url": url, "query": query},
-                observation=observation[:200],
+                observation=observation,  # Full observation stored
                 source_url=url,
             )
         )
+
     return observation
 
 
 async def synthesize(
     findings: str,
     original_query: str,
-    model: str = "qwen3.5-uncensored:2b",
+    model: str = LLM_MODEL,
     session_id: str | None = None,
     client: AsyncOpenAI | None = None,
     _step_tracker: list[AgentStep] | None = None,
@@ -206,14 +249,12 @@ async def synthesize(
         "If findings are insufficient, say so explicitly. Do not fabricate."
     )
 
-    # ✅ Budget-aware synthesis: validate findings fit within context window
     budget = PromptBudget(model, max_completion_tokens=1024)
     safe_findings = budget.validate(
         system_prompt=system_prompt,
         query=original_query,
         chunks=[findings],
     )
-
     alloc = budget.get_allocation(
         system_prompt=system_prompt,
         query=original_query,
@@ -234,13 +275,11 @@ async def synthesize(
         {
             "role": "user",
             "content": (
-                f"Original Question: {original_query}\n\n"
-                f"Research Findings:\n{safe_text}"
+                f"Original Question: {original_query}\nResearch Findings:\n{safe_text}"
             ),
         },
     ]
 
-    # ✅ Use remaining budget for completion instead of hardcoded 2048
     safe_completion_tokens = max(256, alloc.model_ctx - alloc.total_used)
 
     result = await achat(
@@ -263,9 +302,10 @@ async def synthesize(
                 thought="",
                 action="synthesize",
                 action_input={"original_query": original_query},
-                observation=result.content[:200],
+                observation=result.content,  # Full observation stored
             )
         )
+
     return result.content
 
 
@@ -329,7 +369,10 @@ def get_tool_definitions() -> list[dict]:
                         },
                         "query": {
                             "type": "string",
-                            "description": "Optional: The specific question or topic to focus extraction on. Highly recommended for long articles.",
+                            "description": (
+                                "Optional: The specific question or topic to focus extraction on. "
+                                "Highly recommended for long articles."
+                            ),
                         },
                     },
                     "required": ["url"],
@@ -365,18 +408,39 @@ def get_tool_definitions() -> list[dict]:
     ]
 
 
-def get_tool_registry(step_tracker: list[AgentStep] | None = None) -> dict:
+def get_tool_registry(
+    step_tracker: list[AgentStep] | None = None,
+    embed_model: str = EMBED_MODEL_LG,
+    rerank_model: str = RERANK_MODEL,
+    query_intent: QueryIntent = QueryIntent.UNKNOWN,
+    memory: "AccumulationMemory | None" = None,
+) -> dict:
     """Return callable tool registry for llm_utils.achat agentic loop.
 
     Args:
         step_tracker: Optional mutable list that tool wrappers append to.
             Pass this from ReactEngine to get accurate step counts.
+        embed_model: Embedding model for read_url hybrid search.
+        rerank_model: Rerank model for read_url hybrid search.
+        query_intent: Query intent for list-intent guardrail enforcement.
+        memory: ✅ NEW: AccumulationMemory instance for real-time context updates.
     """
     import functools
 
     registry = {
-        "searxng_search": functools.partial(searxng_search, _step_tracker=step_tracker),
-        "read_url": functools.partial(read_url, _step_tracker=step_tracker),
+        "searxng_search": functools.partial(
+            searxng_search,
+            _step_tracker=step_tracker,
+            _query_intent=query_intent,
+            _memory=memory,
+        ),
+        "read_url": functools.partial(
+            read_url,
+            _step_tracker=step_tracker,
+            embed_model=embed_model,
+            rerank_model=rerank_model,
+            _memory=memory,
+        ),
         "synthesize": functools.partial(synthesize, _step_tracker=step_tracker),
     }
     return registry

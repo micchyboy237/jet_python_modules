@@ -12,11 +12,11 @@ from pydantic import BaseModel, Field
 class QueryIntent(str, Enum):
     """Classifies the structural intent of a query for search strategy routing."""
 
-    LIST = "list"  # Top N, best of, rankings, recommendations
-    COMPARISON = "comparison"  # X vs Y, pros/cons, alternatives
-    FACTUAL = "factual"  # Single fact, definition, date, entity lookup
-    COMPLEX = "complex"  # Multi-faceted, requires decomposition
-    UNKNOWN = "unknown"  # Fallback
+    LIST = "list"
+    COMPARISON = "comparison"
+    FACTUAL = "factual"
+    COMPLEX = "complex"
+    UNKNOWN = "unknown"
 
 
 class QueryComplexity(str, Enum):
@@ -69,8 +69,8 @@ class SearchResult:
 class AgentStep:
     """One Thought → Action → Observation cycle in the ReAct loop.
 
-    ✅ IMPROVEMENT: Added source_url and source_title fields so tools
-    can propagate provenance metadata for citation in FinalAnswer.
+    ✅ IMPROVEMENT: observation now stores FULL text (not truncated).
+    Truncation is applied only at display/logging boundaries.
     """
 
     thought: str
@@ -78,8 +78,8 @@ class AgentStep:
     action_input: dict = field(default_factory=dict)
     observation: str = ""
     tokens_used: int = 0
-    source_url: str | None = None  # ← NEW: URL of the source read/searched
-    source_title: str | None = None  # ← NEW: Title of the source page
+    source_url: str | None = None
+    source_title: str | None = None
 
 
 @dataclass

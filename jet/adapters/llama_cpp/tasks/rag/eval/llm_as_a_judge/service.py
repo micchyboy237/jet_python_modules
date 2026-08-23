@@ -8,6 +8,7 @@ import logging
 from typing import Optional
 
 from jet.adapters.llama_cpp.chunking_utils import truncate_texts
+from jet.adapters.llama_cpp.config import EMBED_MODEL_LG, LLM_MODEL, RERANK_MODEL
 from jet.adapters.llama_cpp.hybrid_utils import hybrid_search
 from jet.adapters.llama_cpp.llm_utils import achat
 from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
@@ -20,18 +21,21 @@ logger = logging.getLogger(__name__)
 class RAGService:
     """Fully implemented RAG service using jet adapters. No placeholders."""
 
-    GENERATION_MODEL = "qwen3.5-uncensored:2b"
     MAX_CONTEXT_CHUNKS = 5
 
     def __init__(
         self,
         evaluator: RAGEvaluator,
         documents: list[str],
-        generation_model: str | None = None,
+        generation_model: str = LLM_MODEL,
+        embed_model: str = EMBED_MODEL_LG,
+        rerank_model: str = RERANK_MODEL,
     ):
         self.evaluator = evaluator
         self.documents = documents
-        self.gen_model = generation_model or self.GENERATION_MODEL
+        self.model = generation_model
+        self.embed_model = embed_model  # ← STORE
+        self.rerank_model = rerank_model  # ← STORE
         self._eval_queue: asyncio.Queue = asyncio.Queue()
         self._eval_worker_task: Optional[asyncio.Task] = None
 
@@ -40,7 +44,11 @@ class RAGService:
         logger.info(
             "📦 Pre-computing document embeddings for %d docs...", len(documents)
         )
-        self._doc_embeddings = embed(documents, return_format="numpy")
+        self._doc_embeddings = embed(
+            documents,
+            return_format="numpy",
+            model=self.embed_model,  # ← PASS
+        )
         logger.info(
             "✅ Document embeddings ready (shape=%s)", self._doc_embeddings.shape
         )
@@ -108,6 +116,8 @@ class RAGService:
                 top_n=self.MAX_CONTEXT_CHUNKS,
                 doc_embeddings=self._doc_embeddings,
                 normalize_scores=True,
+                embed_model=self.embed_model,
+                rerank_model=self.rerank_model,
             )
             logger.info(
                 "✅ Retrieval complete: %d results, scores=[%s]",
@@ -124,6 +134,7 @@ class RAGService:
                 query=query,
                 documents=self.documents,
                 top_n=self.MAX_CONTEXT_CHUNKS,
+                embed_model=self.embed_model,
             )
             logger.info("🔄 Vector-only fallback: %d results", len(vec_results))
             return [r["text"] for r in vec_results]
@@ -131,12 +142,12 @@ class RAGService:
     async def _generate(self, query: str, contexts: list[str]) -> str:
         """Real generation via llm_utils.achat with context truncation."""
         try:
-            ctx_info = get_model_ctx_embd_size(self.gen_model)
+            ctx_info = get_model_ctx_embd_size(self.model)
             max_ctx_tokens = ctx_info["ctx"]
         except Exception as e:
             logger.warning(
                 "⚠️ Could not get ctx size for %s: %s — using default 4096",
-                self.gen_model,
+                self.model,
                 e,
             )
             max_ctx_tokens = 4096
@@ -152,7 +163,7 @@ class RAGService:
 
         truncated_contexts = truncate_texts(
             contexts,
-            model=self.gen_model,
+            model=self.model,
             max_tokens=context_budget,
             strict_sentences=True,
         )
@@ -178,10 +189,10 @@ class RAGService:
             },
         ]
 
-        logger.debug("🤖 Calling generation model=%s", self.gen_model)
+        logger.debug("🤖 Calling generation model=%s", self.model)
         result = await achat(
             prompt_or_messages=messages,
-            model=self.gen_model,
+            model=self.model,
             project_name="rag-generation",
             temperature=0.3,
             max_tokens=reserved_tokens,

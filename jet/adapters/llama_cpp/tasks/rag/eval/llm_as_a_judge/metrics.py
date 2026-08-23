@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 import numpy as np
+from jet.adapters.llama_cpp.config import EMBED_MODEL_LG
 from jet.adapters.llama_cpp.embed_utils import embed
 from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
 
@@ -20,8 +21,9 @@ class RAGMetrics:
     ANSWER_RELEVANCY_THRESHOLD = 0.6
     HALLUCINATION_THRESHOLD = 0.5
 
-    def __init__(self, judge: JetLLMJudge):
+    def __init__(self, judge: JetLLMJudge, embed_model: str = EMBED_MODEL_LG):
         self.judge = judge
+        self.embed_model = embed_model
 
     async def compute_contextual_precision(
         self,
@@ -86,10 +88,12 @@ class RAGMetrics:
         )
         if not questions:
             return 0.0, tokens
+
         all_texts = [query] + questions
-        embeddings = embed(all_texts, return_format="numpy")
+        embeddings = embed(all_texts, return_format="numpy", model=self.embed_model)
         query_emb = embeddings[0]
         question_embs = embeddings[1:]
+
         similarities = [cosine_similarity(query_emb, q_emb) for q_emb in question_embs]
         relevancy = float(np.mean(similarities))
         return relevancy, tokens

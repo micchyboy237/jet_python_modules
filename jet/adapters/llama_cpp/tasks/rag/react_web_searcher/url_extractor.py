@@ -2,6 +2,8 @@
 URL Context Extractor for ReAct Web Searcher.
 Uses jet.scrapers.playwright_utils for robust browser management and
 SmartChunker + hybrid_search for query-aware content extraction.
+
+✅ IMPROVEMENT: Default max_tokens derived dynamically from model context window.
 """
 
 from __future__ import annotations
@@ -15,13 +17,43 @@ from jet.adapters.llama_cpp.chunk_strategies import (
     estimate_tokens_safe,
     format_chunks_for_rag,
 )
+from jet.adapters.llama_cpp.config import EMBED_MODEL_LG, LLM_MODEL, RERANK_MODEL
 from jet.adapters.llama_cpp.hybrid_utils import hybrid_search
+from jet.adapters.llama_cpp.model_utils import get_model_ctx_embd_size
 from jet.scrapers.playwright_utils import scrape_urls
 
 logger = logging.getLogger(__name__)
 
-MAX_TOKENS_DEFAULT = 2048
+_FALLBACK_MAX_TOKENS = 2048
 MIN_VALID_TOKENS = 64
+
+
+def _get_default_max_tokens(model: str) -> int:
+    """Derive default extraction budget from model context window.
+
+    Uses ~50% of context as extraction budget, clamped to [512, 4096].
+    Falls back to 2048 on failure.
+    """
+    try:
+        ctx_info = get_model_ctx_embd_size(model)
+        ctx = ctx_info.get("ctx", 0)
+        if ctx > 0:
+            derived = min(max(int(ctx * 0.5), 512), 4096)
+            logger.debug(
+                "📏 UrlExtractor default max_tokens derived: ctx=%d → %d",
+                ctx,
+                derived,
+            )
+            return derived
+    except Exception as exc:
+        logger.warning(
+            "⚠️ Could not derive max_tokens for %s (%s: %s); using fallback %d",
+            model,
+            type(exc).__name__,
+            exc,
+            _FALLBACK_MAX_TOKENS,
+        )
+    return _FALLBACK_MAX_TOKENS
 
 
 class UrlContextExtractor:
@@ -29,11 +61,17 @@ class UrlContextExtractor:
 
     def __init__(
         self,
-        model: str = "qwen3.5-uncensored:2b",
-        max_tokens: int = MAX_TOKENS_DEFAULT,
+        model: str = LLM_MODEL,
+        max_tokens: int | None = None,
+        embed_model: str = EMBED_MODEL_LG,
+        rerank_model: str = RERANK_MODEL,
     ):
         self.model = model
-        self.max_tokens = max_tokens
+        self.max_tokens = (
+            max_tokens if max_tokens is not None else _get_default_max_tokens(model)
+        )
+        self.embed_model = embed_model
+        self.rerank_model = rerank_model
         self._chunker = SmartChunker(model)
 
     async def extract(
@@ -44,6 +82,7 @@ class UrlContextExtractor:
     ) -> tuple[str, str]:
         """
         Fetch and extract content from a URL.
+
         Args:
             url: The URL to fetch.
             query: Optional search query. If provided, uses hybrid_search
@@ -51,10 +90,12 @@ class UrlContextExtractor:
             strict_sentences: Unused (kept for API compat).
         """
         logger.info(
-            "📄 Extracting context via playwright_utils: %s (query=%r)",
+            "📄 Extracting context via playwright_utils: %s (query=%r, budget=%d)",
             url[:80],
             query[:60] if query else None,
+            self.max_tokens,
         )
+
         try:
             html_content = ""
             async for result in scrape_urls(
@@ -89,8 +130,8 @@ class UrlContextExtractor:
             if not html_content:
                 return "", "Page returned empty content or fetch failed."
 
-            # ✅ FIX: Try standard extraction first, then relaxed if too short
             clean_text = self._extract_with_trafilatura(html_content.encode("utf-8"))
+
             if clean_text:
                 initial_tokens = estimate_tokens_safe(clean_text, model=self.model)
                 if initial_tokens < MIN_VALID_TOKENS:
@@ -140,6 +181,7 @@ class UrlContextExtractor:
                     buffer=4,
                     retrieval_type="dense",
                 )
+
                 if not chunks:
                     return "", "SmartChunker produced no valid chunks."
 
@@ -154,6 +196,8 @@ class UrlContextExtractor:
                             documents=chunks,
                             top_n=min(len(chunks), 10),
                             normalize_scores=True,
+                            embed_model=self.embed_model,
+                            rerank_model=self.rerank_model,
                         )
                         selected_chunks = [r["text"] for r in search_results]
                         logger.info(
@@ -170,6 +214,7 @@ class UrlContextExtractor:
                     selected_chunks = chunks
 
                 formatted = format_chunks_for_rag(selected_chunks)
+
                 assembled_parts: list[str] = []
                 assembled_tokens = 0
                 for chunk in formatted:
@@ -223,7 +268,7 @@ class UrlContextExtractor:
                 include_comments=False,
                 output_format="txt",
                 no_fallback=False,
-                deduplicate=False,  # ✅ KEY: Prevents killing repeated list structures
+                deduplicate=False,
             )
             return extracted.strip() if extracted else None
         except ImportError:
@@ -242,7 +287,6 @@ class UrlContextExtractor:
         try:
             import trafilatura
 
-            # Try bare_extraction which skips boilerplate heuristics entirely
             result = trafilatura.bare_extraction(
                 content,
                 include_links=False,
@@ -273,7 +317,6 @@ class UrlContextExtractor:
 if __name__ == "__main__":
     import argparse
     import asyncio
-    import logging
 
     logging.basicConfig(level=logging.INFO)
 
@@ -312,7 +355,5 @@ if __name__ == "__main__":
         ],
         help="List of URLs to extract content from. Space-separated.",
     )
-
     args = parser.parse_args()
-
     asyncio.run(main(args.query, args.urls))

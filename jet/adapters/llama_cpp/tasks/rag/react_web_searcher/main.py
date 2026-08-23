@@ -45,6 +45,7 @@ import json
 import logging
 from typing import Sequence
 
+from jet.adapters.llama_cpp.config import EMBED_MODEL_LG, LLM_MODEL, RERANK_MODEL
 from jet.adapters.llama_cpp.tasks.rag.react_web_searcher import (
     QueryAnalyzer,
     ReactEngine,
@@ -65,8 +66,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--model",
-        default="qwen3.5-uncensored:2b",
-        help="LLM model for reasoning and tool use (default: qwen3.5-uncensored:2b)",
+        default=LLM_MODEL,
+        help=f"LLM model for reasoning and tool use (default: {LLM_MODEL})",
+    )
+    parser.add_argument(
+        "--embed-model",
+        default=EMBED_MODEL_LG,
+        help=f"Embedding model override (default: {EMBED_MODEL_LG})",
+    )
+    parser.add_argument(
+        "--rerank-model",
+        default=RERANK_MODEL,
+        help=f"Rerank model override (default: {RERANK_MODEL})",
     )
     parser.add_argument(
         "--max-iterations",
@@ -131,6 +142,8 @@ async def run_search(args: argparse.Namespace) -> None:
         model=args.model,
         max_iterations=args.max_iterations,
         enable_validation=not args.no_validation,
+        embed_model=args.embed_model,  # ← PASS
+        rerank_model=args.rerank_model,  # ← PASS
     )
     result = await engine.search(args.query)
 
