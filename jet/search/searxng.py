@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 from datetime import datetime
@@ -13,22 +14,10 @@ from jet.logger.timer import sleep_countdown
 from jet.search.filters import deduplicate_results, filter_relevant, sort_by_score
 from jet.search.formatters import decode_encoded_characters
 
-# DEFAULT_REDIS_PORT = 3101
 DEFAULT_REDIS_PORT = 6379
 DEFAULT_REDIS_DB = 1
 DEFAULT_QUERY_URL = os.getenv("SEARXNG_URL")
-DEFAULT_ENGINES = [
-    # "google",
-    # "brave",
-    # "yahoo",
-    # "mojeek",        # Fully independent crawler
-    # "brave",         # Brave Search – own index + high reliability
-    # "startpage",     # Anonymous Google proxy, very stable
-    # "kagi",          # Premium paid engine, excellent quality & uptime
-    # "duckduckgo",    # Widely trusted metasearch with great coverage
-    # "qwant",         # Strong European privacy-focused engine
-    # "swisscows",     # Privacy-first, family-safe, reliable Bing backend
-]
+DEFAULT_ENGINES = []
 
 
 class SearchResult(TypedDict):
@@ -41,7 +30,7 @@ class SearchResult(TypedDict):
     parsed_url: list[str]
     engines: list[str]
     positions: list[int]
-    publishedDate: str  # Alternatively, use datetime if you plan to parse it
+    publishedDate: str
     score: float
     category: str
 
@@ -63,9 +52,65 @@ class NoResultsFoundError(Exception):
     pass
 
 
+def _normalize_csv_param(value, default: str = "", param_name: str = "param") -> str:
+    """Normalize a multi-value parameter into a clean comma-separated string.
+
+    Handles:
+    - list/tuple → joined with commas
+    - str that looks like a list repr ("['anime']") → parsed then joined
+    - str CSV ("general, anime") → stripped and cleaned
+    - None/empty → returns default
+
+    SearXNG rejects Python list repr strings like "['anime']".
+    This ensures only valid CSV strings reach build_query_url.
+    """
+    if value is None:
+        return default
+
+    # Case 1: Already a proper list/tuple
+    if isinstance(value, (list, tuple)):
+        result = ",".join(str(v).strip() for v in value if str(v).strip())
+        return result or default
+
+    if not isinstance(value, str):
+        logger.warning(
+            "🔧 %s: unexpected type %s, converting to string",
+            param_name,
+            type(value).__name__,
+        )
+        value = str(value)
+
+    stripped = value.strip()
+    if not stripped:
+        return default
+
+    # Case 2: String that looks like a Python list repr: "['anime']" or '["general","news"]'
+    if stripped.startswith("[") and stripped.endswith("]"):
+        try:
+            parsed = ast.literal_eval(stripped)
+            if isinstance(parsed, (list, tuple)):
+                result = ",".join(str(v).strip() for v in parsed if str(v).strip())
+                logger.warning(
+                    "🔧 Fixed malformed %s: %r → %r",
+                    param_name,
+                    stripped,
+                    result,
+                )
+                return result or default
+        except (ValueError, SyntaxError):
+            logger.warning(
+                "⚠️ %s looks like list repr but failed to parse: %r, treating as CSV",
+                param_name,
+                stripped,
+            )
+
+    # Case 3: Normal CSV string — clean up whitespace around commas
+    result = ",".join(part.strip() for part in stripped.split(",") if part.strip())
+    return result or default
+
+
 def build_query_url(base_url: str, params: dict) -> str:
     """Helper function to construct the full search query URL with deduplicated parameters."""
-    # Handle None or empty base_url
     if not base_url:
         base_url = os.getenv("SEARXNG_URL", "http://localhost:8888")
         logger.warning(f"base_url was None/empty, using default: {base_url}")
@@ -75,8 +120,6 @@ def build_query_url(base_url: str, params: dict) -> str:
     logger.debug(f"params: {json.dumps(params, default=str)}")
 
     parsed_url = urlparse(base_url)
-
-    # Convert bytes components to strings (urlparse returns bytes for empty values on invalid URLs)
     scheme = (
         parsed_url.scheme.decode()
         if isinstance(parsed_url.scheme, bytes)
@@ -139,22 +182,17 @@ def build_query_url(base_url: str, params: dict) -> str:
 
 
 def remove_empty_attributes(data):
-    """
-    Recursively remove keys with empty values from dictionaries and
-    remove empty elements from lists.
-    """
+    """Recursively remove keys with empty values from dictionaries and
+    remove empty elements from lists."""
     if isinstance(data, dict):
-        # Return a new dictionary with only non-empty values
         return {
             k: remove_empty_attributes(v)
             for k, v in data.items()
             if v not in [None, "", [], {}]
         }
     elif isinstance(data, list):
-        # Return a new list with non-empty elements
         return [remove_empty_attributes(v) for v in data if v not in [None, "", [], {}]]
     else:
-        # Return the data as is if it's not a dict or list
         return data
 
 
@@ -165,22 +203,20 @@ def fetch_search_results(
     logger.log("Requesting URL: ", query_url, colors=["LOG", "DEBUG"])
     logger.log("Headers:")
     logger.info(json.dumps(headers, indent=2))
-
-    # Log params for debugging but don't pass them separately since they're already in query_url
     logger.log("Params (already embedded in URL):")
     logger.info(json.dumps(params, indent=2))
 
-    # Fixed: Don't pass params separately to avoid duplication in URL
     response = requests.get(query_url, headers=headers)
     response.raise_for_status()
     results = response.json()
+
     for result in results.get("results", []):
         result["id"] = generate_key(result["url"])
+
     return results
 
 
 def format_min_date(min_date: datetime) -> datetime:
-    # hours, minutes, and seconds set to 0
     result = min_date.replace(hour=0, minute=0, second=0, microsecond=0)
     return result
 
@@ -217,28 +253,52 @@ def search_searxng(
     logger.debug(f"kwargs: {json.dumps(kwargs, default=str)}")
 
     try:
+        # ✅ Normalize include/exclude sites regardless of input type
         if include_sites:
+            if isinstance(include_sites, str):
+                include_sites = [
+                    s.strip() for s in include_sites.split(",") if s.strip()
+                ]
             include_query = " OR ".join([f"site:{site}" for site in include_sites])
             query += " " + include_query
+
         if exclude_sites:
+            if isinstance(exclude_sites, str):
+                exclude_sites = [
+                    s.strip() for s in exclude_sites.split(",") if s.strip()
+                ]
             exclude_query = " ".join([f"-site:{site}" for site in exclude_sites])
             query += " " + exclude_query
+
+        # ✅ FIXED: Normalize ALL multi-value params through _normalize_csv_param
+        # Prevents SearXNG ValidationException from list repr strings like "['anime']"
+        raw_categories = kwargs.get("categories", ["general"])
+        normalized_categories = _normalize_csv_param(
+            raw_categories, default="general", param_name="categories"
+        )
 
         params = {
             "q": query,
             "format": "json",
             "language": kwargs.get("language", "en"),
-            "categories": ",".join(kwargs.get("categories", ["general"])),
+            "categories": normalized_categories,
         }
+
         if "pageno" in kwargs:
             params["pageno"] = kwargs["pageno"] or 1
         if "safesearch" in kwargs:
             params["safesearch"] = kwargs["safesearch"] or 0
+
+        # ✅ FIXED: Normalize engines through same helper
         if engines:
-            params["engines"] = ",".join(engines)
-            logger.debug(
-                f"engines joined: {params['engines']} (type: {type(params['engines']).__name__})"
+            normalized_engines = _normalize_csv_param(
+                engines, default="", param_name="engines"
             )
+            if normalized_engines:
+                params["engines"] = normalized_engines
+                logger.debug(
+                    f"engines joined: {params['engines']} (type: {type(params['engines']).__name__})"
+                )
 
         if not min_date:
             years_ago = kwargs.get("years_ago", 1)
@@ -288,7 +348,6 @@ def search_searxng(
                         )
                         cached_result = None
                 else:
-                    # Cache exists but contains empty results - clear it and fetch fresh
                     logger.warning(
                         f"search_searxng: Cache hit but contains empty results for {cache_key}. Clearing corrupted cache."
                     )
@@ -315,10 +374,8 @@ def search_searxng(
                         continue
                     else:
                         logger.error("Max retries reached with no results.")
-                        # Don't cache empty results
                         return []
                 else:
-                    # We got results, exit retry loop
                     break
             except requests.exceptions.RequestException as e:
                 if retries < max_retries:
@@ -333,7 +390,6 @@ def search_searxng(
                     logger.error(f"Max retries reached. Error: {e}")
                     return []
 
-        # If we got here with no results after all retries, return empty
         if not result or not result.get("results", []):
             logger.error("search_searxng: No results after all retries, not caching")
             return []
@@ -347,7 +403,6 @@ def search_searxng(
         results = results[:count] if count is not None else results
         result["results"] = results
 
-        # Only cache if we have actual results
         if results:
             cache.set(cache_key, result)
             logger.log(
@@ -358,7 +413,6 @@ def search_searxng(
             logger.warning(
                 f"search_searxng: No valid results after filtering for {cache_key}. Not caching."
             )
-            # Clear any previously cached empty results for this key
             cache.clear(cache_key)
 
         return results
@@ -370,7 +424,6 @@ def search_searxng(
 
 if __name__ == "__main__":
     import argparse
-    from datetime import datetime
 
     parser = argparse.ArgumentParser(description="Search using SearXNG")
     parser.add_argument("query", help="Search query string")
@@ -427,10 +480,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output", choices=["json", "text"], default="text", help="Output format"
     )
-
     args = parser.parse_args()
 
-    # Parse min_date if provided
     min_date = None
     if args.min_date:
         min_date = datetime.fromisoformat(args.min_date)

@@ -1,10 +1,8 @@
 """ReAct tool implementations: SearXNG search, URL reading, synthesis.
-
 Tool wrappers accept an optional _step_tracker list and _memory instance.
 When provided by ReactEngine, each tool call:
 1. Appends an AgentStep to step_tracker for accurate step counting
 2. Updates AccumulationMemory with full observations and token counts
-
 ✅ IMPROVEMENTS:
 - synthesize() uses PromptBudget for safe prompt assembly
 - read_url() applies SmartChunker + hybrid_search for structured content
@@ -12,18 +10,22 @@ When provided by ReactEngine, each tool call:
 - ✅ NEW: Memory integration for real-time context accumulation
 - ✅ NEW: Token counting via count_tokens() for accurate budget tracking
 - ✅ NEW: List-intent guardrail via _query_intent parameter
+- ✅ NEW: Reuses jet.search.searxng for caching, retries, and filtering
+- ✅ NEW: Token-aware snippet truncation replaces MAX_SNIPPET_CHARS
 """
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import logging
 from typing import TYPE_CHECKING, Any
 
-import httpx
 from jet.adapters.llama_cpp.budget_utils import PromptBudget
 from jet.adapters.llama_cpp.config import EMBED_MODEL_LG, LLM_MODEL, RERANK_MODEL
 from jet.adapters.llama_cpp.llm_utils import achat
 from jet.adapters.llama_cpp.token_utils import count_tokens
+from jet.search.searxng import search_searxng as jet_search_searxng
 from openai import AsyncOpenAI
 
 from .types import AgentStep, QueryIntent, SearchResult
@@ -34,11 +36,55 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SEARXNG_BASE_URL = "http://localhost:8888"
-SEARCH_TIMEOUT = 15.0
-MAX_SNIPPET_CHARS = 500
-
+# ✅ CHANGED: Token-based limit replaces MAX_SNIPPET_CHARS = 500
+MAX_SNIPPET_TOKENS = 150
 _url_extractor = UrlContextExtractor(model=LLM_MODEL)
+
+
+def truncate_to_tokens(
+    text: str, max_tokens: int, model: str, suffix: str = "..."
+) -> str:
+    """Truncate text to fit within max_tokens using binary search.
+
+    Avoids repeated full-tokenization by narrowing the search space.
+    Returns original text if already within budget.
+    Safe for use across tools and engine modules.
+    """
+    if not text:
+        return text
+
+    full_count = count_tokens(text, model=model)
+    if full_count <= max_tokens:
+        return text
+
+    # Binary search for the longest prefix that fits
+    lo, hi = 0, len(text)
+    best = ""
+    iterations = 0
+    max_iterations = 30  # log2(len(text)) is typically < 20
+
+    while lo <= hi and iterations < max_iterations:
+        mid = (lo + hi) // 2
+        candidate = text[:mid]
+        tokens = count_tokens(candidate, model=model)
+
+        if tokens <= max_tokens:
+            best = candidate
+            lo = mid + 1
+        else:
+            hi = mid - 1
+        iterations += 1
+
+    if best and suffix:
+        suffix_tokens = count_tokens(suffix, model=model)
+        if suffix_tokens < max_tokens:
+            combined_budget = max_tokens - suffix_tokens
+            if count_tokens(best, model=model) > combined_budget:
+                while best and count_tokens(best + suffix, model=model) > max_tokens:
+                    best = best[:-1]
+            return best + suffix
+
+    return best
 
 
 async def searxng_search(
@@ -46,50 +92,50 @@ async def searxng_search(
     categories: str = "general",
     num_results: int = 5,
     time_range: str | None = None,
+    engines: list[str] | None = None,
+    include_sites: list[str] | None = None,
+    exclude_sites: list[str] | None = None,
     _step_tracker: list[AgentStep] | None = None,
     _query_intent: QueryIntent = QueryIntent.UNKNOWN,
     _memory: "AccumulationMemory | None" = None,
 ) -> str:
-    """Search via SearXNG and return formatted results.
+    """Search via SearXNG using jet.search.searxng and return formatted results.
 
-    ✅ NEW: Updates AccumulationMemory with full observation and parsed results.
-    ✅ NEW: Accepts _query_intent for future list-intent guardrail enforcement.
+    ✅ REUSES: jet.search.searxng for Redis caching, automatic retries,
+    deduplication, relevance filtering, and site filtering.
+    ✅ ASYNC SAFE: Wraps synchronous search in asyncio.to_thread.
+    ✅ TOKEN-AWARE: Snippets truncated by token count, not char count.
     """
     logger.info("🔎 SearXNG search: %r (categories=%s)", query[:60], categories)
 
-    params: dict[str, Any] = {
-        "q": query,
-        "format": "json",
-        "categories": categories,
-        "pageno": 1,
+    kwargs: dict[str, Any] = {
+        "count": num_results,
+        "categories": [categories] if isinstance(categories, str) else categories,
+        "use_cache": True,
+        "max_retries": 3,
     }
+    if engines:
+        kwargs["engines"] = engines
+    if include_sites:
+        kwargs["include_sites"] = include_sites
+    if exclude_sites:
+        kwargs["exclude_sites"] = exclude_sites
+
+    effective_query = query
     if time_range:
-        params["time_range"] = time_range
+        effective_query = f"{query} {time_range}"
+        logger.debug("⏳ Appended time_range '%s' to query", time_range)
 
     try:
-        async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT) as client:
-            resp = await client.get(f"{SEARXNG_BASE_URL}/search", params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPStatusError as e:
-        logger.error("❌ SearXNG HTTP error: %s", e)
-        observation = (
-            f"Search failed: HTTP {e.response.status_code}. Try a different query."
+        raw_results = await asyncio.to_thread(
+            jet_search_searxng,
+            query=effective_query,
+            **kwargs,
         )
-        if _step_tracker is not None:
-            _step_tracker.append(
-                AgentStep(
-                    thought="",
-                    action="searxng_search",
-                    action_input={"query": query, "categories": categories},
-                    observation=observation,
-                )
-            )
-        return observation
     except Exception as e:
-        logger.error("❌ SearXNG request failed: %s", e)
+        logger.error("❌ SearXNG search failed: %s", e)
         observation = (
-            f"Search failed: {e}. Check if SearXNG is running at {SEARXNG_BASE_URL}"
+            f"Search failed: {e}. Try a different query or check SearXNG status."
         )
         if _step_tracker is not None:
             _step_tracker.append(
@@ -101,8 +147,6 @@ async def searxng_search(
                 )
             )
         return observation
-
-    raw_results = data.get("results", [])[:num_results]
 
     if not raw_results:
         logger.warning("⚠️ No results for query: %r", query[:60])
@@ -116,18 +160,22 @@ async def searxng_search(
                     observation=observation,
                 )
             )
-        # ✅ NEW: Update memory even on zero results (for loop detection)
         if _memory is not None:
             _memory.record_search(query=query, observation=observation)
         return observation
 
+    # ✅ CHANGED: Token-aware snippet truncation instead of char slicing
     results: list[SearchResult] = []
     for r in raw_results:
+        raw_snippet = r.get("content", "") or ""
+        truncated_snippet = truncate_to_tokens(
+            raw_snippet, MAX_SNIPPET_TOKENS, model=LLM_MODEL
+        )
         results.append(
             SearchResult(
                 title=r.get("title", ""),
                 url=r.get("url", ""),
-                snippet=(r.get("content", "") or "")[:MAX_SNIPPET_CHARS],
+                snippet=truncated_snippet,
                 engine=r.get("engine", "unknown"),
                 score=float(r.get("score", 0)),
             )
@@ -139,17 +187,16 @@ async def searxng_search(
         lines.append(f"    URL: {r.url}")
         lines.append(f"    Snippet: {r.snippet}")
         lines.append("")
-
     observation = "\n".join(lines)
-    logger.info("✅ SearXNG returned %d results", len(results))
 
-    # ✅ NEW: Update memory with full observation and parsed results
+    logger.info(
+        "✅ SearXNG returned %d results (snippets token-bounded to %d tokens)",
+        len(results),
+        MAX_SNIPPET_TOKENS,
+    )
+
     if _memory is not None:
-        _memory.record_search(
-            query=query,
-            results=results,
-            observation=observation,
-        )
+        _memory.record_search(query=query, results=results, observation=observation)
 
     if _step_tracker is not None:
         _step_tracker.append(
@@ -160,11 +207,11 @@ async def searxng_search(
                     "query": query,
                     "categories": categories,
                     "num_results": num_results,
+                    "time_range": time_range,
                 },
-                observation=observation,  # Full observation stored
+                observation=observation,
             )
         )
-
     return observation
 
 
@@ -204,7 +251,6 @@ async def read_url(
             query[:60] if query else None,
         )
 
-    # ✅ NEW: Update memory with content and accurate token count
     if _memory is not None and not error:
         content_tokens = count_tokens(content, model=model)
         _memory.record_read(
@@ -219,11 +265,10 @@ async def read_url(
                 thought="",
                 action="read_url",
                 action_input={"url": url, "query": query},
-                observation=observation,  # Full observation stored
+                observation=observation,
                 source_url=url,
             )
         )
-
     return observation
 
 
@@ -302,10 +347,9 @@ async def synthesize(
                 thought="",
                 action="synthesize",
                 action_input={"original_query": original_query},
-                observation=result.content,  # Full observation stored
+                observation=result.content,
             )
         )
-
     return result.content
 
 
@@ -317,10 +361,9 @@ def get_tool_definitions() -> list[dict]:
             "function": {
                 "name": "searxng_search",
                 "description": (
-                    "Search the web using SearXNG meta-search engine. "
-                    "Returns titles, URLs, and snippets. Use this to find "
-                    "information about any topic. Supports category filtering "
-                    "(general, news, science, etc.) and time ranges (day, month, year)."
+                    "Search the web using SearXNG meta-search engine with built-in caching, "
+                    "filtering, and retry logic. Returns titles, URLs, and snippets. "
+                    "Supports category filtering, engine selection, and site inclusion/exclusion."
                 ),
                 "parameters": {
                     "type": "object",
@@ -341,8 +384,23 @@ def get_tool_definitions() -> list[dict]:
                         },
                         "time_range": {
                             "type": "string",
-                            "description": "Time filter: day, month, year, or null for no filter",
+                            "description": "Time filter appended to query: day, month, year",
                             "enum": ["day", "month", "year"],
+                        },
+                        "engines": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Specific search engines to use (e.g., ['google', 'bing'])",
+                        },
+                        "include_sites": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Limit search to these domains (e.g., ['wikipedia.org'])",
+                        },
+                        "exclude_sites": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Exclude these domains from results",
                         },
                     },
                     "required": ["query"],
@@ -425,8 +483,6 @@ def get_tool_registry(
         query_intent: Query intent for list-intent guardrail enforcement.
         memory: ✅ NEW: AccumulationMemory instance for real-time context updates.
     """
-    import functools
-
     registry = {
         "searxng_search": functools.partial(
             searxng_search,

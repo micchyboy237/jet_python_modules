@@ -1,5 +1,4 @@
 """ReAct loop engine using llm_utils.achat with full feature utilization.
-
 ✅ IMPROVEMENTS:
 - Validation feedback loop: re-searches on critical failure instead of returning bad answer
 - Source population: extracts source URLs from AgentStep metadata for citation
@@ -10,6 +9,7 @@
 - ✅ NEW: Programmatic list-intent guardrail via tool registry
 - ✅ NEW: List-intent rules injected into user message for small model adherence
 - ✅ NEW: Forced synthesis when memory budget exhausted or target reached
+- ✅ NEW: Token-aware context truncation in sufficiency checks (replaces char-ratio)
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from openai import AsyncOpenAI
 
 from .memory import AccumulationMemory
 from .query_analyzer import QueryAnalyzer
-from .tools import get_tool_definitions, get_tool_registry
+from .tools import get_tool_definitions, get_tool_registry, truncate_to_tokens
 from .types import AgentStep, FinalAnswer, QueryComplexity, QueryIntent, SearchResult
 from .validator import PostAnswerValidator
 
@@ -36,12 +36,10 @@ logger = logging.getLogger(__name__)
 SYSTEM_PROMPT = """\
 You are a thorough web research agent. Your goal is to answer the user's question \
 accurately and completely using web search.
-
 You have access to three tools:
 1. searxng_search - Search the web for information
 2. read_url - Read the full content of a specific web page (supports focused extraction via 'query' param)
 3. synthesize - Combine your findings into a final answer
-
 ## GENERAL RULES
 1. ⚠️ CRITICAL: Search snippets are summaries and often lack detail.
    You MUST use read_url on at least 1-2 promising results to verify facts
@@ -55,8 +53,6 @@ You have access to three tools:
 7. Call synthesize ONLY when ready to produce the final answer.
 8. After each search or page read, carefully evaluate whether you have enough
    information to answer the query COMPLETELY before deciding next steps."""
-
-# ── Sufficiency evaluation schema ──────────────────────────────────────────────
 
 _SUFFICIENCY_SCHEMA: dict[str, Any] = {
     "type": "json_schema",
@@ -107,7 +103,6 @@ _MAX_SUFFICIENCY_CHECKS = 8
 
 def _get_react_max_tokens(model: str) -> int:
     """Derive max_tokens for ReAct loop from model context window.
-
     Reserves 25% of context for prompt/tools/observations, uses remaining
     75% as max generation tokens. Falls back to 4096 on failure.
     """
@@ -135,7 +130,6 @@ def _get_react_max_tokens(model: str) -> int:
 
 def _build_list_intent_user_message(query: str, refined_query: str) -> str:
     """Build user message with list-intent rules embedded directly.
-
     Small models follow user-message instructions more reliably than
     system-prompt negative constraints. This moves the critical list
     guardrail from system prompt to user message.
@@ -156,7 +150,6 @@ def _build_list_intent_user_message(query: str, refined_query: str) -> str:
 
 class ReactEngine:
     """Orchestrates the full ReAct search pipeline.
-
     Utilizes all applicable llm_utils.achat features:
     - session_id: All calls within one search share a Phoenix conversation thread
     - seed: Analyzer uses fixed seed for reproducible decomposition
@@ -164,12 +157,12 @@ class ReactEngine:
     - client: Single shared AsyncOpenAI client avoids per-call overhead
     - finish_reason: Detects truncation on final answer
     - step_tracker: Mutable list passed to tool wrappers for accurate step counting
-
     ✅ NEW: AccumulationMemory integration with token-accurate budgeting.
     ✅ NEW: Intermediate context sufficiency evaluation gate.
     ✅ NEW: Programmatic list-intent guardrail via tool registry.
     ✅ NEW: List-intent rules in user message for small model adherence.
     ✅ NEW: Forced synthesis when memory budget exhausted or target reached.
+    ✅ NEW: Token-aware context truncation in sufficiency checks.
     ✅ EXISTING: Validation feedback loop re-searches on critical failure.
     ✅ EXISTING: Source population from AgentStep metadata.
     ✅ EXISTING: Dynamic max_tokens derived from model context window.
@@ -200,8 +193,8 @@ class ReactEngine:
         session_id: str,
     ) -> dict[str, Any]:
         """Structured sufficiency check using memory's accumulated contexts.
-
-        Uses count_tokens to ensure judge prompt fits within budget.
+        ✅ CHANGED: Uses truncate_to_tokens for accurate budget fitting
+        instead of char-ratio estimation.
         Returns dict with keys: is_sufficient, missing_info, next_action, suggested_query.
         On failure, defaults to continuing the loop (conservative fallback).
         """
@@ -214,21 +207,21 @@ class ReactEngine:
                 "suggested_query": "",
             }
 
-        # Build judge prompt with token-aware truncation
         combined = "\n---\n".join(contexts)
-        # Reserve tokens for judge system prompt + response generation
         judge_budget = memory.remaining_token_budget + 2048
-        combined_tokens = count_tokens(combined, model=self.model)
 
+        # ✅ CHANGED: Direct token-aware truncation replaces char-ratio estimation
+        combined_tokens = count_tokens(combined, model=self.model)
         if combined_tokens > judge_budget:
-            # Truncate to fit judge budget using char ratio approximation
-            char_ratio = len(combined) / max(combined_tokens, 1)
-            truncated_chars = int(judge_budget * char_ratio)
-            combined = combined[:truncated_chars] + "\n...[truncated]"
+            original_tokens = combined_tokens
+            combined = truncate_to_tokens(
+                combined, judge_budget, model=self.model, suffix="\n...[truncated]"
+            )
+            new_tokens = count_tokens(combined, model=self.model)
             logger.debug(
-                "✂️ Truncated sufficiency context: %d → ~%d tokens (budget=%d)",
-                combined_tokens,
-                judge_budget,
+                "✂️ Truncated sufficiency context: %d → %d tokens (budget=%d)",
+                original_tokens,
+                new_tokens,
                 judge_budget,
             )
 
@@ -260,7 +253,6 @@ class ReactEngine:
                 session_id=session_id,
                 client=self._client,
             )
-
             if result.structured and result.structured.success:
                 parsed = result.structured.parsed
                 if isinstance(parsed, dict):
@@ -273,7 +265,6 @@ class ReactEngine:
                         memory.max_tokens,
                     )
                     return parsed
-
             logger.warning(
                 "⚠️ Sufficiency parse failed: %s",
                 result.structured.error
@@ -283,7 +274,6 @@ class ReactEngine:
         except Exception as exc:
             logger.warning("⚠️ Sufficiency exception: %s", exc)
 
-        # Conservative fallback: continue loop
         return {
             "is_sufficient": False,
             "missing_info": [],
@@ -297,7 +287,6 @@ class ReactEngine:
         session_id = f"react-{uuid.uuid4().hex[:12]}"
         logger.debug("🧵 Session ID: %s", session_id)
 
-        # ── Step 1: Analyze query ──────────────────────────────────────────
         logger.debug("📋 Step 1: Analyzing query complexity")
         analysis = await self.analyzer.analyze(
             query, session_id=session_id, client=self._client
@@ -310,7 +299,6 @@ class ReactEngine:
             analysis.refined_query[:60],
         )
 
-        # ── Initialize token-aware accumulation memory ────────────────────
         target_list_size = 10 if analysis.intent == QueryIntent.LIST else None
         memory = AccumulationMemory(
             model=self.model,
@@ -324,7 +312,6 @@ class ReactEngine:
             target_list_size,
         )
 
-        # ── Build user message with intent-aware rules ─────────────────────
         if analysis.complexity == QueryComplexity.COMPLEX and analysis.sub_queries:
             user_content = (
                 f"Original Question: {query}\n"
@@ -338,7 +325,6 @@ class ReactEngine:
                 len(analysis.sub_queries),
             )
         elif analysis.intent == QueryIntent.LIST:
-            # ✅ NEW: List-intent rules in USER message for small model adherence
             user_content = _build_list_intent_user_message(
                 query, analysis.refined_query
             )
@@ -356,7 +342,6 @@ class ReactEngine:
         ]
 
         steps: list[AgentStep] = []
-        # ✅ NEW: Pass memory and query_intent to tool registry
         bound_registry = get_tool_registry(
             step_tracker=steps,
             embed_model=self.embed_model,
@@ -430,7 +415,6 @@ class ReactEngine:
                     react_max_tokens,
                 )
 
-            # ── ✅ NEW: Check force synthesis from memory state ────────────
             if memory.should_force_synthesis() and not answer_text:
                 logger.info(
                     "🛑 Memory requests forced synthesis (tokens=%d/%d, items=%d)",
@@ -450,7 +434,6 @@ class ReactEngine:
                 )
                 continue
 
-            # ── ✅ NEW: Intermediate sufficiency evaluation ────────────────
             if (
                 memory.num_contexts > 0
                 and not answer_text
@@ -464,7 +447,6 @@ class ReactEngine:
                     memory.num_contexts,
                     memory.accumulated_tokens,
                 )
-
                 sufficiency = await self._evaluate_context_sufficiency(
                     query=query,
                     memory=memory,
@@ -529,7 +511,6 @@ class ReactEngine:
                         }
                     )
 
-            # ── Post-answer validation (existing logic) ────────────────────
             eval_result = None
             confidence = "high"
 
@@ -540,7 +521,6 @@ class ReactEngine:
                     len(validation_contexts),
                     memory.accumulated_tokens,
                 )
-
                 if validation_contexts:
                     logger.debug("🔍 Running post-answer validation")
                     eval_result = await self.validator.validate(
@@ -557,7 +537,6 @@ class ReactEngine:
                         eval_result.get("answer_relevancy", -1),
                         eval_result.get("has_critical_failure", False),
                     )
-
                     if eval_result.get("has_critical_failure"):
                         confidence = "low"
                         logger.warning(
@@ -565,7 +544,6 @@ class ReactEngine:
                             eval_result.get("faithfulness", -1),
                             eval_result.get("hallucination_rate", -1),
                         )
-
                         if validation_retries < _MAX_VALIDATION_RETRIES:
                             validation_retries += 1
                             logger.info(
@@ -586,7 +564,6 @@ class ReactEngine:
                                     ),
                                 }
                             )
-                            # Reset sufficiency cache so agent can continue gathering
                             memory.record_synthesis(answer_text)
                             continue
                         else:
@@ -612,7 +589,6 @@ class ReactEngine:
 
             break
 
-        # ── Build final answer with sources ────────────────────────────────
         sources: list[SearchResult] = []
         seen_urls: set[str] = set()
         for step in steps:
@@ -655,5 +631,4 @@ class ReactEngine:
             status["tokens_max"],
             status["list_items"],
         )
-
         return final
