@@ -39,16 +39,16 @@ class UrlContextExtractor:
     async def extract(
         self,
         url: str,
-        strict_sentences: bool = True,
         query: str | None = None,
+        strict_sentences: bool = True,
     ) -> tuple[str, str]:
         """
         Fetch and extract content from a URL.
         Args:
             url: The URL to fetch.
-            strict_sentences: Unused (kept for API compat).
             query: Optional search query. If provided, uses hybrid_search
                    to return only the most relevant chunks instead of raw top chunks.
+            strict_sentences: Unused (kept for API compat).
         """
         logger.info(
             "📄 Extracting context via playwright_utils: %s (query=%r)",
@@ -271,30 +271,48 @@ class UrlContextExtractor:
 
 
 if __name__ == "__main__":
+    import argparse
     import asyncio
     import logging
 
     logging.basicConfig(level=logging.INFO)
 
-    async def main():
+    async def main(query: str, urls: list[str]):
         extractor = UrlContextExtractor(model="qwen3.5-uncensored:2b")
-        test_urls = [
-            "https://en.wikipedia.org/wiki/Isekai",
-            "https://myanimelist.net/stacks/28254",
-            "https://httpbin.org/status/404",
-        ]
         print("=" * 60)
         print("URL CONTEXT EXTRACTION DEMO (playwright_utils)")
         print("=" * 60)
-        for url in test_urls:
+        for url in urls:
             print(f"\n{'-' * 60}")
             print(f"🔍 Testing: {url}")
             print(f"{'-' * 60}")
-            content, error = await extractor.extract(url)
+            content, error = await extractor.extract(url, query=query)
             if error:
                 print(f"❌ Error: {error}")
             else:
                 print(f"✅ Success! {len(content)} chars")
                 print(content[:300] + "...")
 
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(
+        description="Extract clean context from URLs using playwright_utils and SmartChunker/hybrid_search."
+    )
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default="Top isekai / reincarnation anime 2026",
+        help="Search/query string for relevance filtering.",
+    )
+    parser.add_argument(
+        "urls",
+        nargs="*",
+        default=[
+            "https://en.wikipedia.org/wiki/Isekai",
+            "https://myanimelist.net/stacks/28254",
+            "https://httpbin.org/status/404",
+        ],
+        help="List of URLs to extract content from. Space-separated.",
+    )
+
+    args = parser.parse_args()
+
+    asyncio.run(main(args.query, args.urls))

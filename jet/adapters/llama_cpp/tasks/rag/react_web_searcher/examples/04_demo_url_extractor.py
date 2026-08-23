@@ -19,18 +19,19 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    # Initialize the extractor with a specific model for token-aware truncation
-    extractor = UrlContextExtractor(
-        model="qwen3.5-uncensored:2b",
-        max_tokens=1024,  # Limit output to ~1024 tokens for the demo
-    )
-
+    query = "Top isekai / reincarnation anime 2026"
     # Test URLs covering different scenarios
     test_urls = [
         "https://en.wikipedia.org/wiki/Isekai",
         "https://myanimelist.net/stacks/28254",
         "https://httpbin.org/status/404",  # Expected failure
     ]
+
+    # Initialize the extractor with a specific model for token-aware truncation
+    extractor = UrlContextExtractor(
+        model="qwen3.5-uncensored:2b",
+        max_tokens=1024,  # Limit output to ~1024 tokens for the demo
+    )
 
     print("=" * 60)
     print("URL CONTEXT EXTRACTION DEMO")
@@ -41,7 +42,7 @@ async def main():
         print(f"🔍 Testing: {url}")
         print(f"{'-' * 60}")
 
-        content, error = await extractor.extract(url)
+        content, error = await extractor.extract(url, query=query)
 
         if error:
             print(f"❌ Error: {error}")
