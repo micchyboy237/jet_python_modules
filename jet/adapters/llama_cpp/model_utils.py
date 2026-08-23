@@ -16,7 +16,6 @@ from jet.adapters.llama_cpp.models import (
     LLAMACPP_MODELS,
     LLAMACPP_VALUES,
 )
-from jet.logger import logger
 
 # Define ModelType as a Literal
 ModelType = Literal["llm", "embed", "rerank"]
@@ -112,14 +111,11 @@ def get_llama_cpp_candidate_urls() -> List[str]:
         if normalized not in seen:
             seen.add(normalized)
             urls.append(normalized)
-            logger.debug(f"Added candidate host: {normalized}")
         else:
-            logger.debug(f"Skipped duplicate host: {normalized}")
+            pass
     if not urls:
         default_url = get_llama_cpp_base_url()
-        logger.debug(f"No hosts configured, falling back to default: {default_url}")
         urls.append(default_url)
-    logger.info(f"Resolved {len(urls)} candidate host(s): {urls}")
     return urls
 
 
@@ -136,21 +132,17 @@ def get_model_hf_id(model_key: LLAMACPP_KEYS) -> LLAMACPP_VALUES:
     Raises:
         ValueError: If model_key is not found in any model mapping
     """
-    logger.debug(f"Resolving HF ID for model key: {model_key}")
 
     # Check LLM models first
     if model_key in LLAMACPP_LLM_MODELS:
         hf_id = LLAMACPP_LLM_MODELS[model_key]
-        logger.debug(f"Found in LLM models: {hf_id}")
         return hf_id
 
     # Check all models (embed, rerank, vision)
     if model_key in LLAMACPP_MODELS:
         hf_id = LLAMACPP_MODELS[model_key]
-        logger.debug(f"Found in combined models: {hf_id}")
         return hf_id
 
-    logger.error(f"Model key '{model_key}' not found in any model mapping")
     raise ValueError(f"Model key '{model_key}' not found in LLAMACPP_MODELS")
 
 
@@ -182,26 +174,20 @@ def determine_model_type(model: Dict[str, Any]) -> ModelType:
     # New format: Check tags first
     tags = model.get("tags", [])
     if "embed" in tags:
-        logger.debug("Model type determined from tags: embed")
         return "embed"
     elif "rerank" in tags:
-        logger.debug("Model type determined from tags: rerank")
         return "rerank"
     elif "llm" in tags:
-        logger.debug("Model type determined from tags: llm")
         return "llm"
 
     # Fallback: Old format - check status.args for flags
     args = model.get("status", {}).get("args", [])
     if "--embeddings" in args:
-        logger.debug("Model type determined from args (fallback): embed")
         return "embed"
     elif "--reranking" in args:
-        logger.debug("Model type determined from args (fallback): rerank")
         return "rerank"
 
     # Default to LLM if no type indicators found
-    logger.debug(f"No type indicator found in tags {tags} or args, defaulting to llm")
     return "llm"
 
 
@@ -223,12 +209,10 @@ def _fetch_models_from_host(url: str) -> List[Dict[str, Any]]:
     from openai import OpenAI
 
     client = OpenAI(base_url=f"{url}/v1", api_key="not-needed")
-    logger.info(f"Fetching models from {url}")
 
     try:
         response = client.models.list()
     except Exception as e:
-        logger.warning(f"Skipping host {url}, failed to fetch models: {e}")
         return []
 
     # Handle both old and new response formats
@@ -241,18 +225,11 @@ def _fetch_models_from_host(url: str) -> List[Dict[str, Any]]:
     # New format has 'models' array (static config) and 'data' array (loaded instances)
     if "data" in models_dict and isinstance(models_dict["data"], list):
         models_data = models_dict["data"]
-        logger.debug(f"Using 'data' array format with {len(models_data)} model(s)")
     # Old format fallback
     elif "models" in models_dict and isinstance(models_dict["models"], list):
         models_data = models_dict["models"]
-        logger.debug(f"Using 'models' array format with {len(models_data)} model(s)")
     else:
-        logger.warning(
-            f"Unknown response format from {url}: {list(models_dict.keys())}"
-        )
         return []
-
-    logger.debug(f"Retrieved {len(models_data)} model(s) from {url}")
 
     result = []
     for model in models_data:
@@ -296,12 +273,10 @@ def _normalize_model_dict(
     """
     # If model already has 'status' key, it's in the old format
     if "status" in model:
-        logger.debug(f"Model already in old format: {model.get('id', 'unknown')}")
         return model
 
     # Model from new format 'data' array
     model_id = model.get("id", "")
-    logger.debug(f"Normalizing new format model: {model_id}")
 
     # Find matching model config from 'models' array if available
     model_config = {}
@@ -312,7 +287,6 @@ def _normalize_model_dict(
                 or config_model.get("model") == model_id
             ):
                 model_config = config_model
-                logger.debug(f"Found matching model config for {model_id}")
                 break
 
     # Build status from capabilities and configuration
@@ -352,9 +326,6 @@ def _normalize_model_dict(
         "_model_config": model_config if model_config else None,
     }
 
-    logger.debug(
-        f"Normalized model {model_id}: type=llm, ctx={normalized['meta'].get('n_ctx', 'N/A')}"
-    )
     return normalized
 
 
@@ -379,11 +350,9 @@ def get_models(base_url: Optional[str] = None) -> ModelsResponse:
         for model in _fetch_models_from_host(url):
             model_id = model["id"]
             if model_id in merged:
-                logger.debug(f"Duplicate model id '{model_id}' from {url} skipped")
                 continue
             merged[model_id] = model
 
-    logger.info(f"Aggregated {len(merged)} unique model(s) across {len(urls)} host(s)")
     return {
         "object": "list",
         "data": list(merged.values()),
@@ -459,16 +428,11 @@ def get_model_ctx_embd_size(
             meta = model.get("meta", {})
 
             if not meta:
-                logger.warning(f"No meta data found for model: {alias}")
                 raise ValueError(f"No meta data found for model: {alias}")
 
             ctx = meta.get("n_ctx", 0)
             ctx_train = meta.get("n_ctx_train", 0)
             embd_dims = meta.get("n_embd", 0)
-
-            logger.debug(
-                f"Model {alias}: ctx={ctx}, ctx_train={ctx_train}, embd_dims={embd_dims}"
-            )
 
             return ModelContextEmbeddingSize(
                 ctx=ctx,
