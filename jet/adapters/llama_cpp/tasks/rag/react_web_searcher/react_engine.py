@@ -1,3 +1,4 @@
+# jet/adapters/llama_cpp/tasks/rag/react_web_searcher/react_engine.py
 """ReAct loop engine using llm_utils.achat with full feature utilization."""
 
 from __future__ import annotations
@@ -70,16 +71,23 @@ class ReactEngine:
         """Run the full ReAct web search pipeline for a query."""
         logger.info("🚀 Starting ReAct search for: %r", query[:80])
 
-        # Single session ID for entire search pipeline
+        # ── Session ID for trace correlation ────────────────────────────
         session_id = f"react-{uuid.uuid4().hex[:12]}"
         logger.debug("🧵 Session ID: %s", session_id)
 
-        # Step 1: Analyze with reproducible seed + shared client
+        # ── Step 1: Query Analysis ──────────────────────────────────────
+        logger.debug("📋 Step 1: Analyzing query complexity")
         analysis = await self.analyzer.analyze(
             query, session_id=session_id, client=self._client
         )
+        logger.info(
+            "📋 Analysis result: complexity=%s, sub_queries=%d, refined=%r",
+            analysis.complexity.value,
+            len(analysis.sub_queries),
+            analysis.refined_query[:60],
+        )
 
-        # Step 2: Build initial message based on complexity
+        # ── Step 2: Build initial messages ──────────────────────────────
         if analysis.complexity == QueryComplexity.COMPLEX and analysis.sub_queries:
             user_content = (
                 f"Original Question: {query}\n\n"
@@ -88,20 +96,27 @@ class ReactEngine:
                 + f"\n\nRefined query: {analysis.refined_query}\n\n"
                 f"Search each sub-query, gather findings, then synthesize a complete answer."
             )
+            logger.debug(
+                "📝 Complex query: %d sub-queries injected into prompt",
+                len(analysis.sub_queries),
+            )
         else:
             user_content = (
                 f"Question: {analysis.refined_query}\n\n"
                 f"Search for information and provide a complete, accurate answer."
             )
+            logger.debug("📝 Simple query: using refined query directly")
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ]
 
-        # Step 3: Create mutable step tracker and bind to tool registry
-        # This fixes Bug 1: llm_utils.achat consumes intermediate tool calls
-        # internally, so we track steps via tool wrapper side-effects instead.
+        # ── Step 3: ReAct Loop ──────────────────────────────────────────
+        # BUG FIX #1: Create mutable step tracker and bind to tool registry.
+        # llm_utils.achat(tool_registry=...) consumes intermediate tool calls
+        # internally, so result.tool_calls only contains the final assistant
+        # message. We track steps via tool wrapper side-effects instead.
         steps: list[AgentStep] = []
         bound_registry = get_tool_registry(step_tracker=steps)
 
@@ -129,46 +144,74 @@ class ReactEngine:
             client=self._client,
         )
 
-        # Check for truncation on final answer
+        # ── Post-loop diagnostics ───────────────────────────────────────
         truncated = result.finish_reason == "length"
+        total_tokens = result.usage.get("total_tokens", 0) if result.usage else 0
+        answer_text = result.content or ""
+
+        logger.info(
+            "✅ ReAct loop complete: %d steps, %d tokens, %d chars, truncated=%s, finish=%s",
+            len(steps),
+            total_tokens,
+            len(answer_text),
+            truncated,
+            result.finish_reason,
+        )
+
+        # Debug: log each tracked step
+        for i, step in enumerate(steps, 1):
+            logger.debug(
+                "   Step %d/%d: %s(%s) → %d chars observation",
+                i,
+                len(steps),
+                step.action,
+                list(step.action_input.keys()),
+                len(step.observation),
+            )
+
         if truncated:
             logger.warning(
                 "⚠️ ReAct loop truncated at max_tokens=4096. "
                 "Final answer may be incomplete."
             )
 
-        total_tokens = result.usage.get("total_tokens", 0) if result.usage else 0
-        answer_text = result.content or ""
-
-        logger.info(
-            "✅ ReAct loop complete: %d steps, %d tokens, %d chars, truncated=%s",
-            len(steps),
-            total_tokens,
-            len(answer_text),
-            truncated,
-        )
-
-        # Step 4: Post-answer validation with same session_id + shared client
-        # Bug 2 fix: steps are now populated by tool wrappers, so
+        # ── Step 4: Post-Answer Validation ──────────────────────────────
+        # BUG FIX #2: Now that steps are populated by tool wrappers,
         # search_contexts will be non-empty and validation will actually run.
         eval_result = None
         confidence = "high"
+
         if self.enable_validation and self.validator and answer_text:
-            search_contexts = [
-                s.observation for s in steps if s.action == "searxng_search"
+            # Collect ALL observations (search + read_url) as validation context
+            validation_contexts = [
+                s.observation
+                for s in steps
+                if s.action in ("searxng_search", "read_url")
             ]
             logger.debug(
-                "📋 Validation contexts: %d search observations collected",
-                len(search_contexts),
+                "📋 Validation contexts: %d observations collected (%d search, %d read_url)",
+                len(validation_contexts),
+                sum(1 for s in steps if s.action == "searxng_search"),
+                sum(1 for s in steps if s.action == "read_url"),
             )
-            if search_contexts:
+
+            if validation_contexts:
+                logger.debug("🔍 Running post-answer validation")
                 eval_result = await self.validator.validate(
                     query=query,
                     response=answer_text,
-                    contexts=search_contexts,
+                    contexts=validation_contexts,
                     session_id=session_id,
                     client=self._client,
                 )
+                logger.debug(
+                    "🔍 Validation complete: faith=%.3f halluc=%.3f relevancy=%.3f critical=%s",
+                    eval_result.get("faithfulness", -1),
+                    eval_result.get("hallucination_rate", -1),
+                    eval_result.get("answer_relevancy", -1),
+                    eval_result.get("has_critical_failure", False),
+                )
+
                 if eval_result.get("has_critical_failure"):
                     confidence = "low"
                     logger.warning(
@@ -185,10 +228,16 @@ class ReactEngine:
                     )
             else:
                 logger.warning(
-                    "⚠️ No search observations found in steps — skipping validation"
+                    "⚠️ No search/read_url observations found in %d steps — skipping validation",
+                    len(steps),
                 )
+        elif not self.enable_validation:
+            logger.debug("⏭️ Validation disabled, skipping")
+        elif not answer_text:
+            logger.debug("⏭️ Empty answer, skipping validation")
 
-        return FinalAnswer(
+        # ── Build Final Answer ──────────────────────────────────────────
+        final = FinalAnswer(
             answer=answer_text,
             sources=[],
             steps=steps,
@@ -197,3 +246,14 @@ class ReactEngine:
             truncated=truncated,
             eval_result=eval_result,
         )
+
+        logger.info(
+            "🏁 Search complete: confidence=%s, steps=%d, tokens=%d, truncated=%s, validated=%s",
+            final.confidence,
+            len(final.steps),
+            final.total_tokens,
+            final.truncated,
+            final.eval_result is not None,
+        )
+
+        return final
