@@ -360,16 +360,37 @@ async def run_chat_stream_async(
 
         # ── Inject schema prompt for structured output ────────────────
         if resolved_fmt.system_prompt_addition and current_messages:
-            schema_msg = {
-                "role": "system",
-                "content": resolved_fmt.system_prompt_addition,
-            }
-            insert_idx = 0
+            # Find existing system message to merge into
+            existing_system_idx = None
             for i, msg in enumerate(current_messages):
                 if msg.get("role") == "system":
-                    insert_idx = i + 1
-            current_messages.insert(insert_idx, schema_msg)
-            logger.debug(f"📐 Injected schema prompt at index {insert_idx}")
+                    existing_system_idx = i
+                    break
+
+            if existing_system_idx is not None:
+                # MERGE: Append schema instructions to existing system message
+                # This avoids creating a second system message which breaks
+                # Qwen3.5's Jinja template ("System message must be at the beginning")
+                existing_content = current_messages[existing_system_idx].get(
+                    "content", ""
+                )
+                merged_content = (
+                    f"{existing_content}\n\n{resolved_fmt.system_prompt_addition}"
+                )
+                current_messages[existing_system_idx]["content"] = merged_content
+                logger.debug(
+                    f"📐 Merged schema prompt into existing system message at index {existing_system_idx}"
+                )
+            else:
+                # No existing system message → safe to insert at index 0
+                schema_msg = {
+                    "role": "system",
+                    "content": resolved_fmt.system_prompt_addition,
+                }
+                current_messages.insert(0, schema_msg)
+                logger.debug(
+                    "📐 Injected schema prompt as new system message at index 0"
+                )
 
         last_result: StreamCompletionResult | None = None
         round_num = 0

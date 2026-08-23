@@ -66,6 +66,7 @@ class StructuredResult(Generic[T]):
 
 _JSON_OBJECT_RE = re.compile(r"(\{.*\})", re.DOTALL)
 _JSON_ARRAY_RE = re.compile(r"(\[.*\])", re.DOTALL)
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
 
 def extract_json(raw: str) -> dict | list | None:

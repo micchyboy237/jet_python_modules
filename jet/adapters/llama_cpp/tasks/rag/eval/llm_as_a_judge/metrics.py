@@ -58,9 +58,9 @@ class RAGMetrics:
         total_tokens = extract_tokens + verify_tokens
         if not verifications:
             return 0.0, 1.0, total_tokens
-        supported = sum(1 for v in verifications if v.status == "supported")
-        contradicted = sum(1 for v in verifications if v.status == "contradicted")
-        not_mentioned = sum(1 for v in verifications if v.status == "not_mentioned")
+        supported = sum(1 for v in verifications if v["status"] == "supported")
+        contradicted = sum(1 for v in verifications if v["status"] == "contradicted")
+        not_mentioned = sum(1 for v in verifications if v["status"] == "not_mentioned")
         faithfulness = supported / len(verifications)
         hallucination_rate = (contradicted + not_mentioned) / len(verifications)
         return faithfulness, hallucination_rate, total_tokens

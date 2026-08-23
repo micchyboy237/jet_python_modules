@@ -1,8 +1,15 @@
-# jet/adapters/llama_cpp/tasks/rag/eval/judge.py
-"""LLM-as-a-Judge primitives using llm_utils.achat."""
+# jet/adapters/llama_cpp/tasks/rag/eval/llm_as_a_judge/judge.py
+"""LLM-as-a-Judge primitives using llm_utils.achat.
+
+NOTE: All judge prompts use a SINGLE user message (no system message).
+This avoids llm_utils injecting a schema system prompt at index 1,
+which breaks Qwen3.5's Jinja template ("System message must be at the beginning").
+Schema adherence is enforced via response_format + inline instructions.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -33,6 +40,13 @@ class JetLLMJudge:
         metric_name: str,
         max_tokens: int | None = None,
     ) -> StreamCompletionResult:
+        logger.debug(
+            "🔍 Judge [%s] calling achat: model=%s, msgs=%d, format=%s",
+            metric_name,
+            self.model,
+            len(messages),
+            type(response_format).__name__,
+        )
         result: StreamCompletionResult = await achat(
             prompt_or_messages=messages,
             model=self.model,
@@ -45,31 +59,32 @@ class JetLLMJudge:
         )
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         logger.debug(
-            "Eval [%s] tokens: p=%d c=%d total=%d",
+            "✅ Judge [%s] completed: tokens=%d, finish=%s, structured=%s",
             metric_name,
-            result.usage.get("prompt_tokens", 0) if result.usage else 0,
-            result.usage.get("completion_tokens", 0) if result.usage else 0,
             tokens,
+            result.finish_reason,
+            result.structured.success if result.structured else "None",
         )
         if result.finish_reason == "length":
             logger.warning(
-                "Judge [%s] truncated at max_tokens=%d",
+                "⚠️ Judge [%s] truncated at max_tokens=%d",
                 metric_name,
                 max_tokens or self.EVAL_MAX_TOKENS,
             )
         return result
 
     async def extract_claims(self, text: str) -> tuple[list[str], int]:
+        # Single user message — no system message to avoid template conflict
         messages = [
             {
-                "role": "system",
+                "role": "user",
                 "content": (
-                    "Extract all discrete factual claims from the text. "
+                    "Extract all discrete factual claims from the following text. "
                     "Each claim must be independently verifiable. "
-                    "Return a JSON array of strings only."
+                    "Return ONLY a JSON array of strings.\n\n"
+                    f"Text: {text}"
                 ),
             },
-            {"role": "user", "content": text},
         ]
         result = await self._call_judge(
             messages,
@@ -80,12 +95,14 @@ class JetLLMJudge:
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
             logger.error(
-                "Claim extraction failed: %s",
+                "❌ Claim extraction failed: %s | raw_content=%r",
                 result.structured.error
                 if result.structured
                 else "No structured output",
+                result.content[:200],
             )
             return [], tokens
+        logger.debug("📝 Extracted %d claims", len(result.structured.parsed))
         return result.structured.parsed, tokens
 
     async def judge_chunk_relevance(
@@ -93,16 +110,18 @@ class JetLLMJudge:
         query: str,
         chunk: str,
     ) -> tuple[RelevanceJudgment, int]:
+        # Single user message with inline schema description
+        schema_desc = json.dumps(RelevanceJudgment.model_json_schema(), indent=2)
         messages = [
             {
-                "role": "system",
+                "role": "user",
                 "content": (
                     "You are a retrieval relevance judge. Determine if the context "
-                    "chunk contains information useful for answering the query. "
-                    "Respond with valid JSON matching the schema only."
+                    "chunk contains information useful for answering the query.\n\n"
+                    f"Query: {query}\n\nContext Chunk: {chunk}\n\n"
+                    f"Respond with valid JSON matching this schema:\n{schema_desc}"
                 ),
             },
-            {"role": "user", "content": f"Query: {query}\n\nContext Chunk: {chunk}"},
         ]
         result = await self._call_judge(messages, RelevanceJudgment, "relevance")
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
@@ -110,10 +129,16 @@ class JetLLMJudge:
             error = (
                 result.structured.error if result.structured else "No structured output"
             )
-            logger.error("Relevance judge failed: %s", error)
+            logger.error(
+                "❌ Relevance judge failed: %s | raw=%r", error, result.content[:200]
+            )
             return RelevanceJudgment(
                 is_relevant=False, reason=f"Error: {error}"
             ), tokens
+        logger.debug(
+            "🏷️ Chunk relevance: is_relevant=%s",
+            result.structured.parsed.is_relevant,
+        )
         return result.structured.parsed, tokens
 
     async def verify_claims(
@@ -124,18 +149,16 @@ class JetLLMJudge:
         if not claims:
             return [], 0
         claims_text = "\n".join(f"- {c}" for c in claims)
+        schema_desc = json.dumps(ClaimVerification.model_json_schema(), indent=2)
         messages = [
             {
-                "role": "system",
-                "content": (
-                    "For each claim, determine if it is supported, contradicted, "
-                    "or not mentioned in the provided context. "
-                    "Return a JSON array of objects matching the schema."
-                ),
-            },
-            {
                 "role": "user",
-                "content": f"Claims:\n{claims_text}\n\nContext:\n{context}",
+                "content": (
+                    "For each claim below, determine if it is supported, contradicted, "
+                    "or not mentioned in the provided context.\n\n"
+                    f"Claims:\n{claims_text}\n\nContext:\n{context}\n\n"
+                    f"Return a JSON array of objects matching this schema:\n{schema_desc}"
+                ),
             },
         ]
         result = await self._call_judge(
@@ -147,12 +170,14 @@ class JetLLMJudge:
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
             logger.error(
-                "Claim verification failed: %s",
+                "❌ Claim verification failed: %s | raw=%r",
                 result.structured.error
                 if result.structured
                 else "No structured output",
+                result.content[:200],
             )
             return [], tokens
+        logger.debug("🔎 Verified %d claims", len(result.structured.parsed))
         return result.structured.parsed, tokens
 
     async def generate_reverse_questions(
@@ -162,14 +187,14 @@ class JetLLMJudge:
     ) -> tuple[list[str], int]:
         messages = [
             {
-                "role": "system",
+                "role": "user",
                 "content": (
                     f"Generate exactly {n} distinct questions that the given answer "
                     "would be a direct and complete response to. "
-                    "Return a JSON array of strings only."
+                    "Return ONLY a JSON array of strings.\n\n"
+                    f"Answer: {answer}"
                 ),
             },
-            {"role": "user", "content": f"Answer: {answer}"},
         ]
         result = await self._call_judge(
             messages,
@@ -179,10 +204,12 @@ class JetLLMJudge:
         tokens = result.usage.get("total_tokens", 0) if result.usage else 0
         if not result.structured or not result.structured.success:
             logger.error(
-                "Reverse question gen failed: %s",
+                "❌ Reverse question gen failed: %s | raw=%r",
                 result.structured.error
                 if result.structured
                 else "No structured output",
+                result.content[:200],
             )
             return [], tokens
+        logger.debug("❓ Generated %d reverse questions", len(result.structured.parsed))
         return result.structured.parsed, tokens
