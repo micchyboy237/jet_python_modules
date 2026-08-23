@@ -178,7 +178,7 @@ class RAGEvaluator:
         )
         recall_tokens = ref_extract_tokens + ref_verify_tokens
 
-        attributable = sum(1 for v in ref_verifications if v.status == "supported")
+        attributable = sum(1 for v in ref_verifications if v["status"] == "supported")
         contextual_recall = (
             attributable / len(ref_verifications) if ref_verifications else 0.0
         )
