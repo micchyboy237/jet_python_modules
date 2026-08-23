@@ -49,6 +49,7 @@ class ReactEngine:
     - stop: Prevents runaway generation beyond current turn
     - client: Single shared AsyncOpenAI client avoids per-call overhead
     - finish_reason: Detects truncation on final answer
+    - step_tracker: Mutable list passed to tool wrappers for accurate step counting
     """
 
     def __init__(
@@ -63,15 +64,13 @@ class ReactEngine:
         self.analyzer = QueryAnalyzer(model=model)
         self.validator = PostAnswerValidator(model=model) if enable_validation else None
         self.tool_definitions = get_tool_definitions()
-        self.tool_registry = get_tool_registry()
-        # Shared client across all LLM calls in this engine instance
         self._client: AsyncOpenAI = get_async_llm_client()
 
     async def search(self, query: str) -> FinalAnswer:
         """Run the full ReAct web search pipeline for a query."""
         logger.info("🚀 Starting ReAct search for: %r", query[:80])
 
-        # Single session ID for entire search pipeline (analyzer + ReAct + validation)
+        # Single session ID for entire search pipeline
         session_id = f"react-{uuid.uuid4().hex[:12]}"
         logger.debug("🧵 Session ID: %s", session_id)
 
@@ -100,11 +99,16 @@ class ReactEngine:
             {"role": "user", "content": user_content},
         ]
 
-        # Step 3: ReAct loop with all features enabled
+        # Step 3: Create mutable step tracker and bind to tool registry
+        # This fixes Bug 1: llm_utils.achat consumes intermediate tool calls
+        # internally, so we track steps via tool wrapper side-effects instead.
+        steps: list[AgentStep] = []
+        bound_registry = get_tool_registry(step_tracker=steps)
+
         logger.info(
             "🔄 Starting ReAct loop (max_iterations=%d, tools=%d, session=%s)",
             self.max_iterations,
-            len(self.tool_registry),
+            len(bound_registry),
             session_id,
         )
 
@@ -116,13 +120,13 @@ class ReactEngine:
             max_tokens=4096,
             tools=self.tool_definitions,
             tool_choice="auto",
-            tool_registry=self.tool_registry,
+            tool_registry=bound_registry,
             max_tool_rounds=self.max_iterations,
             enable_thinking=False,
             capture_content=True,
-            session_id=session_id,  # Correlated traces
-            stop=["Observation:", "Thought:"],  # Prevent runaway generation
-            client=self._client,  # Client reuse
+            session_id=session_id,
+            stop=["Observation:", "Thought:"],
+            client=self._client,
         )
 
         # Check for truncation on final answer
@@ -131,21 +135,6 @@ class ReactEngine:
             logger.warning(
                 "⚠️ ReAct loop truncated at max_tokens=4096. "
                 "Final answer may be incomplete."
-            )
-
-        # Extract steps from tool calls
-        steps: list[AgentStep] = []
-        for tc in result.tool_calls:
-            steps.append(
-                AgentStep(
-                    thought="",
-                    action=tc.name,
-                    action_input=tc.arguments,
-                    observation=str(
-                        tc.arguments.get("query", tc.arguments.get("url", ""))
-                    )[:200],
-                    tokens_used=0,  # Per-step token tracking would require streaming hooks
-                )
             )
 
         total_tokens = result.usage.get("total_tokens", 0) if result.usage else 0
@@ -160,12 +149,18 @@ class ReactEngine:
         )
 
         # Step 4: Post-answer validation with same session_id + shared client
+        # Bug 2 fix: steps are now populated by tool wrappers, so
+        # search_contexts will be non-empty and validation will actually run.
         eval_result = None
         confidence = "high"
         if self.enable_validation and self.validator and answer_text:
             search_contexts = [
                 s.observation for s in steps if s.action == "searxng_search"
             ]
+            logger.debug(
+                "📋 Validation contexts: %d search observations collected",
+                len(search_contexts),
+            )
             if search_contexts:
                 eval_result = await self.validator.validate(
                     query=query,
@@ -188,6 +183,10 @@ class ReactEngine:
                         eval_result.get("hallucination_rate", -1),
                         eval_result.get("answer_relevancy", -1),
                     )
+            else:
+                logger.warning(
+                    "⚠️ No search observations found in steps — skipping validation"
+                )
 
         return FinalAnswer(
             answer=answer_text,

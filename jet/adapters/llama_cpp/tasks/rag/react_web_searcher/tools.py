@@ -1,4 +1,9 @@
-"""ReAct tool implementations: SearXNG search, URL reading, synthesis."""
+"""ReAct tool implementations: SearXNG search, URL reading, synthesis.
+
+Tool wrappers accept an optional _step_tracker list. When provided by
+ReactEngine, each tool call appends an AgentStep so the engine can
+report accurate step counts. Without it, tools work standalone.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +16,7 @@ from jet.adapters.llama_cpp.chunking_utils import truncate_texts
 from jet.adapters.llama_cpp.llm_utils import achat
 from openai import AsyncOpenAI
 
-from .types import SearchResult
+from .types import AgentStep, SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +24,6 @@ SEARXNG_BASE_URL = "http://localhost:8888"
 SEARCH_TIMEOUT = 15.0
 READ_TIMEOUT = 10.0
 MAX_SNIPPET_CHARS = 500
-MAX_PAGE_CHARS = 3000
 
 
 async def searxng_search(
@@ -27,12 +31,9 @@ async def searxng_search(
     categories: str = "general",
     num_results: int = 5,
     time_range: str | None = None,
+    _step_tracker: list[AgentStep] | None = None,
 ) -> str:
-    """Search via SearXNG and return formatted results.
-
-    Tool for the ReAct agent. Returns a string summary of search results
-    that fits within the agent's observation window.
-    """
+    """Search via SearXNG and return formatted results."""
     logger.info("🔎 SearXNG search: %r (categories=%s)", query[:60], categories)
 
     params: dict[str, Any] = {
@@ -51,15 +52,49 @@ async def searxng_search(
             data = resp.json()
     except httpx.HTTPStatusError as e:
         logger.error("❌ SearXNG HTTP error: %s", e)
-        return f"Search failed: HTTP {e.response.status_code}. Try a different query."
+        observation = (
+            f"Search failed: HTTP {e.response.status_code}. Try a different query."
+        )
+        if _step_tracker is not None:
+            _step_tracker.append(
+                AgentStep(
+                    thought="",
+                    action="searxng_search",
+                    action_input={"query": query, "categories": categories},
+                    observation=observation[:200],
+                )
+            )
+        return observation
     except Exception as e:
         logger.error("❌ SearXNG request failed: %s", e)
-        return f"Search failed: {e}. Check if SearXNG is running at {SEARXNG_BASE_URL}"
+        observation = (
+            f"Search failed: {e}. Check if SearXNG is running at {SEARXNG_BASE_URL}"
+        )
+        if _step_tracker is not None:
+            _step_tracker.append(
+                AgentStep(
+                    thought="",
+                    action="searxng_search",
+                    action_input={"query": query, "categories": categories},
+                    observation=observation[:200],
+                )
+            )
+        return observation
 
     raw_results = data.get("results", [])[:num_results]
     if not raw_results:
         logger.warning("⚠️ No results for query: %r", query[:60])
-        return "No search results found. Try rephrasing the query."
+        observation = "No search results found. Try rephrasing the query."
+        if _step_tracker is not None:
+            _step_tracker.append(
+                AgentStep(
+                    thought="",
+                    action="searxng_search",
+                    action_input={"query": query, "categories": categories},
+                    observation=observation[:200],
+                )
+            )
+        return observation
 
     results: list[SearchResult] = []
     for r in raw_results:
@@ -82,15 +117,30 @@ async def searxng_search(
 
     observation = "\n".join(lines)
     logger.info("✅ SearXNG returned %d results", len(results))
+
+    if _step_tracker is not None:
+        _step_tracker.append(
+            AgentStep(
+                thought="",
+                action="searxng_search",
+                action_input={
+                    "query": query,
+                    "categories": categories,
+                    "num_results": num_results,
+                },
+                observation=observation[:200],
+            )
+        )
+
     return observation
 
 
-async def read_url(url: str, model: str = "qwen3.5-uncensored:2b") -> str:
-    """Fetch a URL and return truncated text content.
-
-    Tool for the ReAct agent. Fetches page content and truncates to fit
-    within the agent's context budget.
-    """
+async def read_url(
+    url: str,
+    model: str = "qwen3.5-uncensored:2b",
+    _step_tracker: list[AgentStep] | None = None,
+) -> str:
+    """Fetch a URL and return truncated text content."""
     logger.info("📄 Reading URL: %s", url[:80])
 
     try:
@@ -103,17 +153,47 @@ async def read_url(url: str, model: str = "qwen3.5-uncensored:2b") -> str:
             resp.raise_for_status()
             content_type = resp.headers.get("content-type", "")
             if "text/html" not in content_type and "text/plain" not in content_type:
-                return f"Cannot read non-text content type: {content_type}"
+                observation = f"Cannot read non-text content type: {content_type}"
+                if _step_tracker is not None:
+                    _step_tracker.append(
+                        AgentStep(
+                            thought="",
+                            action="read_url",
+                            action_input={"url": url},
+                            observation=observation[:200],
+                        )
+                    )
+                return observation
             text = resp.text
     except Exception as e:
         logger.error("❌ Failed to fetch %s: %s", url[:60], e)
-        return f"Failed to fetch URL: {e}"
+        observation = f"Failed to fetch URL: {e}"
+        if _step_tracker is not None:
+            _step_tracker.append(
+                AgentStep(
+                    thought="",
+                    action="read_url",
+                    action_input={"url": url},
+                    observation=observation[:200],
+                )
+            )
+        return observation
 
     clean_text = re.sub(r"<[^>]+>", " ", text)
     clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
     if not clean_text:
-        return "Page content is empty or could not be extracted."
+        observation = "Page content is empty or could not be extracted."
+        if _step_tracker is not None:
+            _step_tracker.append(
+                AgentStep(
+                    thought="",
+                    action="read_url",
+                    action_input={"url": url},
+                    observation=observation[:200],
+                )
+            )
+        return observation
 
     truncated = truncate_texts(
         clean_text,
@@ -126,7 +206,19 @@ async def read_url(url: str, model: str = "qwen3.5-uncensored:2b") -> str:
         truncated = truncated[0] if truncated else ""
 
     logger.info("✅ Read %d chars from %s", len(truncated), url[:60])
-    return f"Content from {url}:\n\n{truncated}"
+    observation = f"Content from {url}:\n\n{truncated}"
+
+    if _step_tracker is not None:
+        _step_tracker.append(
+            AgentStep(
+                thought="",
+                action="read_url",
+                action_input={"url": url},
+                observation=observation[:200],
+            )
+        )
+
+    return observation
 
 
 async def synthesize(
@@ -135,16 +227,9 @@ async def synthesize(
     model: str = "qwen3.5-uncensored:2b",
     session_id: str | None = None,
     client: AsyncOpenAI | None = None,
+    _step_tracker: list[AgentStep] | None = None,
 ) -> str:
-    """Synthesize multiple search findings into a coherent answer.
-
-    Tool for the ReAct agent. Called when enough information has been
-    gathered to produce a final answer.
-
-    Args:
-        session_id: Phoenix session ID for trace correlation.
-        client: Shared AsyncOpenAI client to avoid per-call overhead.
-    """
+    """Synthesize multiple search findings into a coherent answer."""
     logger.info("🧩 Synthesizing findings for query: %r", original_query[:60])
 
     messages = [
@@ -173,11 +258,22 @@ async def synthesize(
         max_tokens=2048,
         enable_thinking=False,
         capture_content=True,
-        session_id=session_id,  # Correlated traces
-        client=client,  # Client reuse
+        session_id=session_id,
+        client=client,
     )
 
     logger.info("✅ Synthesis complete: %d chars", len(result.content))
+
+    if _step_tracker is not None:
+        _step_tracker.append(
+            AgentStep(
+                thought="",
+                action="synthesize",
+                action_input={"original_query": original_query},
+                observation=result.content[:200],
+            )
+        )
+
     return result.content
 
 
@@ -271,10 +367,18 @@ def get_tool_definitions() -> list[dict]:
     ]
 
 
-def get_tool_registry() -> dict:
-    """Return callable tool registry for llm_utils.achat agentic loop."""
-    return {
-        "searxng_search": searxng_search,
-        "read_url": read_url,
-        "synthesize": synthesize,
+def get_tool_registry(step_tracker: list[AgentStep] | None = None) -> dict:
+    """Return callable tool registry for llm_utils.achat agentic loop.
+
+    Args:
+        step_tracker: Optional mutable list that tool wrappers append to.
+                      Pass this from ReactEngine to get accurate step counts.
+    """
+    import functools
+
+    registry = {
+        "searxng_search": functools.partial(searxng_search, _step_tracker=step_tracker),
+        "read_url": functools.partial(read_url, _step_tracker=step_tracker),
+        "synthesize": functools.partial(synthesize, _step_tracker=step_tracker),
     }
+    return registry
