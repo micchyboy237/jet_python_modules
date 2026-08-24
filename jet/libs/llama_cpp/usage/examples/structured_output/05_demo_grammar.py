@@ -7,8 +7,8 @@ import logging
 import time
 from pathlib import Path
 
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    get_client,
     run_chat_stream,
     setup_observability,
 )
@@ -44,7 +44,7 @@ def demo_grammar_mode():
         )
     )
     setup_observability(project_name="demo-grammar")
-    client = get_client()
+    client = get_llm_client()
 
     prompt = (
         "Write a brief review of 'Dune' by Frank Herbert.\n"

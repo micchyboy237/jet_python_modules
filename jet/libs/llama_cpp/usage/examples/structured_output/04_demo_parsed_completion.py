@@ -6,8 +6,8 @@ import json
 import logging
 from pathlib import Path
 
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    get_client,
     run_chat_stream,
     setup_observability,
 )
@@ -43,7 +43,7 @@ def main():
         )
     )
     setup_observability(project_name="demo-parsed-completion")
-    client = get_client()
+    client = get_llm_client()
 
     text = (
         "PyCon US 2024 in Pittsburgh, PA attracted 2,500+ attendees. "

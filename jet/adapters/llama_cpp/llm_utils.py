@@ -1,133 +1,145 @@
 """LLM Utilities Adapter for llama.cpp with Built-in Observability.
 
 High-level sync/async interface to llama.cpp-compatible servers (OpenAI API
-protocol), with automatic tracing (OpenTelemetry + Phoenix), agentic tool-use
-loops, vision input, streaming, and flexible structured output.
+protocol). Provides automatic tracing, agentic tool-use loops, vision input,
+streaming, and structured output validation.
 
-QUICK REFERENCE — which function to call
-==========================================
-| Need                          | Sync         | Async          |
-|--------------------------------|--------------|----------------|
-| Chat / multi-turn / tools/vision | chat()     | achat()        |
-| Raw text completion (no chat fmt)| generate() | agenerate()    |
+## Function Selection
 
-Rule of thumb: use chat()/achat() unless you specifically need raw-prompt
-completion with no chat template applied. generate()/agenerate() do NOT
-support tools, vision, or structured output (response_format).
+| Need                               | Sync       | Async      |
+|------------------------------------|------------|------------|
+| Chat / multi-turn / tools / vision | chat()     | achat()    |
+| Raw text completion (no chat fmt)  | generate() | agenerate()|
 
-QUICK START
-===========
+Use chat()/achat() unless you specifically need raw-prompt completion with
+no chat template. generate()/agenerate() do NOT support tools, vision, or
+structured output.
+
+## Quick Start
+
     from jet.adapters.llama_cpp.llm_utils import chat
 
+    # Simple chat
     result = chat("Explain OpenTelemetry in one sentence.")
     print(result.content)
 
-Tool use (agentic loop, auto-executed):
+    # Agentic tool use (auto-executed)
     result = chat(
         "What's the weather in Tokyo?",
         tools=[{"type": "function", "function": {"name": "get_weather", ...}}],
         tool_registry={"get_weather": get_weather_fn},
     )
 
-Structured output (Pydantic):
+    # Structured output via Pydantic
     class Answer(BaseModel):
         summary: str
-
     result = chat("Summarize X", response_format=Answer)
     if result.structured.success:
-        answer = result.structured.parsed  # Answer instance
+        answer = result.structured.parsed
 
-Vision:
-    result = chat("What's in this image?", image_source="path/or/url.jpg")
+    # Vision
+    result = chat("Describe this image", image_source="path/or/url.jpg")
 
-STRUCTURED OUTPUT (response_format) — chat()/achat() ONLY
-============================================================
-Passed through structured_output.resolve_response_format(), which accepts:
+## Structured Output (response_format) — chat()/achat() ONLY
 
-| Input type                                   | Behavior                                      |
-|-----------------------------------------------|------------------------------------------------|
-| Pydantic BaseModel class                      | Schema injected, output validated & parsed into the model |
-| JSON Schema dict (object or array)             | Wrapped as json_schema format; needs "properties"/"$schema" or "type":"array"+"items" |
-| Grammar dict {"type":"grammar","grammar":"<GBNF>"} | Routed to extra_body (not response_format) per llama.cpp; guarantees valid output at token level |
-| Raw dict {"type":"json_object"/"json_schema",...} | Passed through unchanged |
-| None (default)                                | Plain text, no parsing |
+Accepts any of these types; resolution and validation are fully automatic:
 
-⚠️ CONSTRAINT: grammar output requires enable_thinking=False.
+- **Pydantic BaseModel class**: Schema extracted, injected into API request,
+  and output validated + parsed into a model instance.
+- **JSON Schema dict** (with "properties"/"$schema" or "type":"array"+"items"):
+  Wrapped as json_schema format; output validated against the schema using
+  Draft 2020-12 rules.
+- **Grammar dict** {"type": "grammar", "grammar": "<GBNF>"}: Routed to
+  extra_body for llama.cpp token-level constraints. Guarantees valid output.
+  ⚠️ Requires enable_thinking=False.
+- **Raw dict** {"type": "json_object"} or {"type": "json_schema"}: Passed
+  through unchanged to the API.
+- **None** (default): Plain text, no parsing.
+
 ⚠️ generate()/agenerate() cannot use response_format at all.
 
-Result access: after streaming, result.structured is a StructuredResult with
-.success (bool), .parsed (typed instance or dict), .error, .validation_errors.
-Always check result.structured.success before reading .parsed.
+### Accessing Validated Results
 
-PARAMETERS BY GROUP
-====================
-(Not every function accepts every param — see each function's signature.)
+After streaming completes, result.structured is a StructuredResult containing:
+- .success (bool): Whether parsing and validation succeeded.
+- .parsed (BaseModel | dict | list | None): Typed instance or raw dict/list.
+- .error (str | None): Human-readable failure description.
+- .validation_errors (list[str]): Individual field-level validation failures.
+- .validator_backend (str | None): Which validator was used (for observability).
 
-Input:
-    prompt_or_messages (str | list[dict]): prompt string or OpenAI messages list.
-        Default: "What is OpenTelemetry in one sentence?"
-    model (str): model id served by llama.cpp. Default: MODEL env var or
-        "qwen3.5-uncensored:2b".
-    image_source (str | None): local path, URL, or bytes for vision input.
-        chat()/achat() only.
+Always check .success before reading .parsed.
 
-Sampling:
-    max_tokens (int, default 16384), temperature (float, default 0.7,
-        use 0.0–0.3 for reliable structured output), top_p (0.8), top_k (20,
-        llama.cpp native), min_p (0.0, disabled), repeat_penalty (1.1),
-        presence_penalty (1.5, range -2..2), frequency_penalty (0.0, range -2..2),
-        logit_bias (dict[str,int] | None, e.g. {"1234": -100}), seed (int | None),
-        stop (list[str] | None, max 4).
-    enable_thinking (bool, default False): request reasoning tokens.
-        MUST be False when response_format uses grammar.
+## Parameters Reference
 
-Tools (chat()/achat() only):
-    tools (list[dict] | None): OpenAI-format function definitions.
-    tool_choice (str | dict | None): "auto" | "none" | "required" | specific fn.
-    tool_registry (dict[str, Callable] | None): name→executor map. Providing
-        this enables an automatic agentic loop (model calls tool → executor
-        runs → result fed back → repeat). Omit it to get raw tool_calls back
-        for you to handle yourself.
-    max_tool_rounds (int, default 10): cap on agentic loop iterations.
-        Only matters when tool_registry is set.
+### Input
+- prompt_or_messages (str | list[dict]): Prompt string or OpenAI messages list.
+  Default: "What is OpenTelemetry in one sentence?"
+- model (str): Model ID served by llama.cpp. Default: MODEL env var or
+  "qwen3.5-uncensored:2b".
+- image_source (str | None): Local path, URL, or bytes for vision input.
+  chat()/achat() only.
 
-Structured output (chat()/achat() only):
-    response_format (Any): see STRUCTURED OUTPUT section above.
+### Sampling
+- max_tokens (int, default 16384)
+- temperature (float, default 0.7; use 0.0–0.3 for reliable structured output)
+- top_p (float, default 0.8)
+- top_k (int, default 20; llama.cpp native parameter)
+- min_p (float, default 0.0; disabled)
+- repeat_penalty (float, default 1.1)
+- presence_penalty (float, default 1.5; range -2..2)
+- frequency_penalty (float, default 0.0; range -2..2)
+- logit_bias (dict[str, int] | None): e.g. {"1234": -100}
+- seed (int | None): For reproducible generation.
+- stop (list[str] | None): Stop sequences, max 4.
+- enable_thinking (bool, default False): Request reasoning tokens.
+  MUST be False when response_format uses grammar.
 
-Observability:
-    project_name (str): Phoenix project for trace grouping. "" disables
-        observability. Default: "<func>-llm-utils-obs".
-    capture_content (bool, default True): record prompt/response text in
-        traces. Set False for PII-sensitive workloads.
-    phoenix_url (str): Phoenix server base URL. Default: PHOENIX_URL const.
-    session_id (str | None): groups related traces as one conversation thread.
+### Tools (chat()/achat() only)
+- tools (list[dict] | None): OpenAI-format function definitions.
+- tool_choice (str | dict | None): "auto" | "none" | "required" | specific fn.
+- tool_registry (dict[str, Callable] | None): Name→executor map. Providing this
+  enables an automatic agentic loop: model calls tool → executor runs → result
+  fed back → repeat until done. Omit to receive raw tool_calls for manual handling.
+- max_tool_rounds (int, default 10): Cap on agentic loop iterations.
+  Only applies when tool_registry is set.
 
-Client / misc:
-    client (OpenAI | AsyncOpenAI | None): pre-configured client; if None,
-        one is created via get_llm_client()/get_async_llm_client().
-    extra_body_params (dict | None): merged into the API request's extra_body
-        for llama.cpp-specific params. Grammar is auto-routed here when
-        response_format resolves to grammar type.
+### Structured Output (chat()/achat() only)
+- response_format (Any): See Structured Output section above.
 
-FUNCTIONS
-=========
-    chat(prompt_or_messages, ...) -> StreamCompletionResult
-        Sync multi-turn chat. Supports tools, vision, structured output.
-    achat(prompt_or_messages, ...) -> StreamCompletionResult
-        Async version of chat().
-    generate(prompt, ...) -> StreamCompletionResult
-        Sync raw completion, no chat formatting, no tools/vision/structured output.
-    agenerate(prompt, ...) -> StreamCompletionResult
-        Async version of generate().
+### Observability
+- project_name (str): Phoenix project for trace grouping. Empty string disables
+  observability. Default: "<func>-llm-utils-obs".
+- capture_content (bool, default True): Record prompt/response text in traces.
+  Set False for PII-sensitive workloads.
+- phoenix_url (str): Phoenix server base URL. Default: PHOENIX_URL constant.
+- session_id (str | None): Groups related traces as one conversation thread.
 
-NOTES
-=====
-- Observability auto-configures whenever project_name is non-empty.
-- Structured-output parsing happens after the stream completes and attaches
-  to result.structured — always check .success before using .parsed.
-- All four functions return StreamCompletionResult (see chat_stream_types.py):
-  .content (str), .tool_calls (list), .usage (dict|None), .finish_reason (str|None),
-  .has_tool_calls (bool property), .structured (only set when response_format used).
+### Client / Misc
+- client (OpenAI | AsyncOpenAI | None): Pre-configured client. If None, one is
+  created via get_llm_client()/get_async_llm_client().
+- extra_body_params (dict | None): Merged into API request extra_body for
+  llama.cpp-specific params. Grammar is auto-routed here when applicable.
+
+## Return Type
+
+All four functions return StreamCompletionResult with:
+- .content (str): Full response text.
+- .tool_calls (list[ToolCallResult]): Parsed tool calls from the response.
+- .usage (dict | None): Token usage stats (prompt_tokens, completion_tokens, total_tokens).
+- .finish_reason (str | None): API finish reason.
+- .has_tool_calls (bool): Property; True if tool_calls is non-empty.
+- .structured (StructuredResult | None): Only populated when response_format is used.
+
+## Key Behaviors
+
+- Observability auto-configures whenever project_name is non-empty. Setup is
+  idempotent (safe to call multiple times across functions).
+- Structured output parsing happens AFTER the stream completes. The validator
+  backend is selected once at module import and logged automatically.
+- Grammar mode moves the GBNF string from response_format into extra_body
+  transparently; callers always pass it via response_format regardless.
+- When tool_registry is provided, the agentic loop runs entirely inside the
+  function. Without it, tool_calls are returned for external orchestration.
 """
 
 import argparse

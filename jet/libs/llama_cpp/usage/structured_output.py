@@ -1,11 +1,8 @@
-# jet_python_modules/jet/libs/llama_cpp/usage/structured_output.py
 """Pure structured output validation and schema resolution utilities.
-
 This module contains NO streaming or API call logic. It provides:
   - resolve_response_format(): Normalize Pydantic/Schema/Dict → API-ready format
   - parse_structured_content(): Validate raw text against a target format
   - build_schema_prompt(): Generate system prompts for schema adherence
-
 All streaming/orchestration happens in chat_stream_observability.
 """
 
@@ -24,8 +21,28 @@ try:
     PYDANTIC_AVAILABLE = True
 except ImportError:
     PYDANTIC_AVAILABLE = False
-    BaseModel = object  # type: ignore[misc,assignment]
-    ValidationError = Exception  # type: ignore[misc,assignment]
+    BaseModel = object  # type: ignore[assignment,misc]
+    ValidationError = Exception  # type: ignore[assignment,misc]
+
+# --- JSON Schema Validator Backend Selection (PRIVATE) ---
+# Prefer jsonschema-rs (Rust, 84-2270x faster) over pure-Python jsonschema.
+# Both support Draft 2020-12. fastjsonschema is NOT used (Draft-07 only).
+_VALIDATOR_BACKEND: str | None = None
+_Draft202012Validator: Any = None
+
+try:
+    import jsonschema_rs
+
+    _Draft202012Validator = jsonschema_rs.Draft202012Validator
+    _VALIDATOR_BACKEND = "jsonschema-rs"
+except ImportError:
+    try:
+        from jsonschema import Draft202012Validator
+
+        _Draft202012Validator = Draft202012Validator
+        _VALIDATOR_BACKEND = "jsonschema"
+    except ImportError:
+        _VALIDATOR_BACKEND = None
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +79,7 @@ class StructuredResult(Generic[T]):
     error: str | None = None
     format_used: OutputFormat = OutputFormat.TEXT
     validation_errors: list[str] = field(default_factory=list)
+    validator_backend: str | None = None
 
 
 _JSON_OBJECT_RE = re.compile(r"(\{.*\})", re.DOTALL)
@@ -119,7 +137,6 @@ def resolve_response_format(
     if response_format is None:
         return ResolvedFormat(api_format=None, output_format=OutputFormat.TEXT)
 
-    # ── Pydantic model class ──────────────────────────────────────────
     if (
         PYDANTIC_AVAILABLE
         and isinstance(response_format, type)
@@ -146,12 +163,9 @@ def resolve_response_format(
             system_prompt_addition=prompt_addition,
         )
 
-    # ── Dict-based formats ────────────────────────────────────────────
     if isinstance(response_format, dict):
         fmt_type = response_format.get("type", "")
 
-        # Grammar mode: extract grammar string, do NOT set api_format
-        # Grammar goes in extra_body, not response_format
         if fmt_type == "grammar" or "grammar" in response_format:
             grammar_str = response_format.get("grammar", "")
             if not grammar_str:
@@ -160,11 +174,10 @@ def resolve_response_format(
                 )
             logger.debug("📜 Resolved grammar mode (will use extra_body.grammar)")
             return ResolvedFormat(
-                api_format={"_grammar": grammar_str},  # sentinel for caller
+                api_format={"_grammar": grammar_str},
                 output_format=OutputFormat.GRAMMAR,
             )
 
-        # JSON Schema dict (object): has 'properties' or '$schema'
         if "properties" in response_format or "$schema" in response_format:
             name = response_format.get("title", "custom_schema")
             api_format = {
@@ -184,7 +197,6 @@ def resolve_response_format(
                 system_prompt_addition=prompt_addition,
             )
 
-        # JSON Schema dict (array): has 'type': 'array' and 'items'
         if fmt_type == "array" and "items" in response_format:
             name = response_format.get("title", "array_schema")
             api_format = {
@@ -195,7 +207,6 @@ def resolve_response_format(
                     "schema": response_format,
                 },
             }
-            # Build prompt for array items
             items_schema = response_format["items"]
             if isinstance(items_schema, dict) and "properties" in items_schema:
                 prompt_addition = build_schema_prompt(items_schema)
@@ -213,7 +224,6 @@ def resolve_response_format(
                 system_prompt_addition=prompt_addition,
             )
 
-        # Known passthrough types
         if fmt_type in ("json_object", "json_schema"):
             logger.debug(f"📐 Resolved dict format: {fmt_type}")
             return ResolvedFormat(
@@ -251,33 +261,50 @@ def parse_structured_content(
 ) -> StructuredResult:
     """Parse and validate raw model output against a resolved format.
 
+    Validation priority:
+      1. Pydantic model_validate (if model_type set)
+      2. jsonschema-rs Draft202012Validator (preferred, Rust-backed)
+      3. jsonschema Draft202012Validator (pure-Python fallback)
+      4. No schema validation (raw JSON extraction only)
+
+    The active validator backend is logged automatically and recorded in
+    StructuredResult.validator_backend for observability. Clients do NOT
+    need to import or query the backend directly.
+
     This is a pure function — no API calls, no streaming.
-    Testable independently with any string input.
     """
     if resolved.output_format == OutputFormat.TEXT:
         return StructuredResult(
-            success=True, content=content, format_used=OutputFormat.TEXT
+            success=True,
+            content=content,
+            format_used=OutputFormat.TEXT,
+            validator_backend=None,
         )
 
     extracted = extract_json(content)
     if extracted is None:
+        logger.warning("⚠️ Failed to extract JSON from response")
         return StructuredResult(
             success=False,
             content=content,
             error="Failed to extract JSON from response",
             format_used=resolved.output_format,
+            validator_backend=_VALIDATOR_BACKEND,
         )
 
-    # Pydantic validation
+    # 1. Pydantic validation takes priority when a model class is available
     if resolved.model_type is not None and PYDANTIC_AVAILABLE:
         try:
             instance = resolved.model_type.model_validate(extracted)
-            logger.debug(f"✅ Validated against {resolved.model_type.__name__}")
+            logger.debug(
+                f"✅ Validated against {resolved.model_type.__name__} (pydantic)"
+            )
             return StructuredResult(
                 success=True,
                 content=content,
                 parsed=instance,
                 format_used=resolved.output_format,
+                validator_backend="pydantic",
             )
         except ValidationError as e:
             errors = [f"{err['loc']}: {err['msg']}" for err in e.errors()]
@@ -289,12 +316,63 @@ def parse_structured_content(
                 error="Pydantic validation failed",
                 format_used=resolved.output_format,
                 validation_errors=errors,
+                validator_backend="pydantic",
             )
 
-    # Plain JSON success
+    # 2. Modern JSON Schema validation (jsonschema-rs or jsonschema fallback)
+    if resolved.schema is not None and _Draft202012Validator is not None:
+        try:
+            validator = _Draft202012Validator(resolved.schema)
+            errors_list = list(validator.iter_errors(extracted))
+            if errors_list:
+                validation_msgs = [
+                    f"{'.'.join(str(p) for p in err.absolute_path) or '(root)'}: {err.message}"
+                    for err in errors_list
+                ]
+                logger.warning(
+                    f"⚠️ JSON Schema validation failed ({_VALIDATOR_BACKEND}): "
+                    f"{validation_msgs}"
+                )
+                return StructuredResult(
+                    success=False,
+                    content=content,
+                    parsed=extracted,
+                    error=f"JSON Schema validation failed ({len(errors_list)} errors)",
+                    format_used=resolved.output_format,
+                    validation_errors=validation_msgs,
+                    validator_backend=_VALIDATOR_BACKEND,
+                )
+            logger.info(
+                f"✅ Structured output validated via {_VALIDATOR_BACKEND} (Draft 2020-12)"
+            )
+            return StructuredResult(
+                success=True,
+                content=content,
+                parsed=extracted,
+                format_used=resolved.output_format,
+                validator_backend=_VALIDATOR_BACKEND,
+            )
+        except Exception as exc:
+            logger.error(
+                f"❌ JSON Schema validator ({_VALIDATOR_BACKEND}) raised: {exc}"
+            )
+            return StructuredResult(
+                success=False,
+                content=content,
+                parsed=extracted,
+                error=f"Validator error ({_VALIDATOR_BACKEND}): {exc}",
+                format_used=resolved.output_format,
+                validator_backend=_VALIDATOR_BACKEND,
+            )
+
+    # 3. Fallback: valid JSON extracted but no schema validation performed
+    logger.debug(
+        "⚠️ No JSON Schema validator installed; returning extracted JSON without validation"
+    )
     return StructuredResult(
         success=True,
         content=content,
         parsed=extracted,
         format_used=resolved.output_format,
+        validator_backend=None,
     )

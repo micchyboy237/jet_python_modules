@@ -7,8 +7,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
-    get_client,
     run_chat_stream,
     setup_observability,
 )
@@ -46,7 +46,7 @@ def main():
         )
     )
     setup_observability(project_name="demo-pydantic-model")
-    client = get_client()
+    client = get_llm_client()
 
     text = (
         "Python is a high-level language created by Guido van Rossum in 1991. "

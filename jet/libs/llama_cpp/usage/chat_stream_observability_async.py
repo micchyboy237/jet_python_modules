@@ -262,11 +262,9 @@ async def run_chat_stream_async(
                          Automatically resolved to the correct API format via
                          structured_output.resolve_response_format().
     """
-    # ── Resolve structured output format ──────────────────────────────
     resolved_fmt = resolve_response_format(response_format)
     api_response_format = resolved_fmt.api_format
 
-    # Grammar must go in extra_body, NOT response_format
     if resolved_fmt.output_format == OutputFormat.GRAMMAR:
         grammar_str = (api_response_format or {}).get("_grammar", "")
         if grammar_str:
@@ -282,18 +280,22 @@ async def run_chat_stream_async(
             capture_content=capture_content,
             phoenix_url=phoenix_url,
         )
+
     tracer = trace.get_tracer(__name__)
+
     if client is None:
         logger.debug(
             "🔌 No client provided; creating default via get_async_llm_client()"
         )
         client = get_async_llm_client()
+
     prompt: str | None = None
     messages: list[dict[str, Any]] | None = None
     if isinstance(prompt_or_messages, str):
         prompt = prompt_or_messages
     else:
         messages = prompt_or_messages
+
     is_agentic = tool_registry is not None
     span_name = "agent_workflow" if is_agentic else "chat_completion"
     root_span_kind = (
@@ -301,8 +303,10 @@ async def run_chat_stream_async(
         if is_agentic
         else OpenInferenceSpanKindValues.CHAIN.value
     )
+
     with tracer.start_as_current_span(span_name) as loop_span:
         loop_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, root_span_kind)
+
         input_val = prompt
         if messages and len(messages) > 0:
             last_msg = messages[-1]
@@ -314,6 +318,7 @@ async def run_chat_stream_async(
                     p.get("text", "") for p in content if p.get("type") == "text"
                 ]
                 input_val = " ".join(text_parts)
+
         loop_span.set_attribute(SpanAttributes.INPUT_VALUE, input_val)
         trace_id = loop_span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
@@ -322,6 +327,7 @@ async def run_chat_stream_async(
             "agent.mode", "agentic" if is_agentic else "single_turn"
         )
         loop_span.set_attribute("agent.has_tool_registry", is_agentic)
+
         if session_id is not None:
             loop_span.set_attribute("session.id", session_id)
         if is_agentic:
@@ -332,6 +338,7 @@ async def run_chat_stream_async(
                 "llm.tools.names",
                 json.dumps([t.get("function", {}).get("name") for t in tools]),
             )
+
         current_messages: list[dict[str, Any]] | None = messages
         if current_messages is None:
             if image_source:
@@ -351,19 +358,13 @@ async def run_chat_stream_async(
             else:
                 current_messages = [{"role": "user", "content": prompt}]
 
-        # ── Inject schema prompt for structured output ────────────────
         if resolved_fmt.system_prompt_addition and current_messages:
-            # Find existing system message to merge into
             existing_system_idx = None
             for i, msg in enumerate(current_messages):
                 if msg.get("role") == "system":
                     existing_system_idx = i
                     break
-
             if existing_system_idx is not None:
-                # MERGE: Append schema instructions to existing system message
-                # This avoids creating a second system message which breaks
-                # Qwen3.5's Jinja template ("System message must be at the beginning")
                 existing_content = current_messages[existing_system_idx].get(
                     "content", ""
                 )
@@ -375,7 +376,6 @@ async def run_chat_stream_async(
                     f"📐 Merged schema prompt into existing system message at index {existing_system_idx}"
                 )
             else:
-                # No existing system message → safe to insert at index 0
                 schema_msg = {
                     "role": "system",
                     "content": resolved_fmt.system_prompt_addition,
@@ -387,8 +387,10 @@ async def run_chat_stream_async(
 
         last_result: StreamCompletionResult | None = None
         round_num = 0
+
         while round_num < max_tool_rounds:
             round_num += 1
+
             with tracer.start_as_current_span(
                 f"turn_{round_num}",
                 attributes={
@@ -409,6 +411,7 @@ async def run_chat_stream_async(
                 span.set_attribute("llm.sampling.frequency_penalty", frequency_penalty)
                 span.set_attribute("llm.sampling.max_tokens", max_tokens)
                 span.set_attribute("llm.sampling.enable_thinking", enable_thinking)
+
                 if seed is not None:
                     span.set_attribute("llm.sampling.seed", seed)
                 if logit_bias:
@@ -423,7 +426,7 @@ async def run_chat_stream_async(
                         "llm.tools.names",
                         json.dumps([t.get("function", {}).get("name") for t in tools]),
                     )
-                # ── Structured format span attributes ─────────────────
+
                 span.set_attribute(
                     "llm.response_format.type", resolved_fmt.output_format.value
                 )
@@ -435,6 +438,7 @@ async def run_chat_stream_async(
                         "llm.response_format.schema_name",
                         resolved_fmt.schema.get("title", "unnamed"),
                     )
+
                 grammar_value = (extra_body_params or {}).get("grammar")
                 if grammar_value:
                     span.set_attribute("llm.grammar.active", True)
@@ -444,6 +448,7 @@ async def run_chat_stream_async(
                     span.set_attribute("llm.grammar.preview", grammar_value[:500])
                 else:
                     span.set_attribute("llm.grammar.active", False)
+
                 if round_num == 1:
                     logger.info("─" * 60)
                     logger.info(
@@ -467,7 +472,6 @@ async def run_chat_stream_async(
                         logger.info(
                             f"🔧 Tools        : {tool_names} (choice={tool_choice})"
                         )
-                    # ── Log resolved format ───────────────────────────
                     if resolved_fmt.output_format != OutputFormat.TEXT:
                         logger.info(
                             f"📐 Response fmt : {resolved_fmt.output_format.value}"
@@ -489,9 +493,11 @@ async def run_chat_stream_async(
                     console.print(
                         f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]"
                     )
+
                 logger.info(
                     f"📨 Round {round_num}: {len(current_messages)} message(s) in history"
                 )
+
                 extra_body: dict[str, Any] = {
                     "top_k": top_k,
                     "chat_template_kwargs": {"enable_thinking": enable_thinking},
@@ -505,6 +511,7 @@ async def run_chat_stream_async(
                     logger.debug(
                         f"🔧 Merged extra_body_params: {list(extra_body_params.keys())}"
                     )
+
                 api_kwargs: dict[str, Any] = {
                     "model": model,
                     "messages": current_messages,
@@ -524,40 +531,47 @@ async def run_chat_stream_async(
                     api_kwargs["tools"] = tools
                 if tool_choice is not None:
                     api_kwargs["tool_choice"] = tool_choice
-                # ── Use resolved API format ───────────────────────────
                 if api_response_format:
                     api_kwargs["response_format"] = api_response_format
+
                 logger.info(
                     f"➡️  Sending request (thinking={enable_thinking}, "
                     f"tools={bool(tools)}, format={resolved_fmt.output_format.value})"
                 )
+
                 t_request_start = time.perf_counter()
                 collected_content: list[str] = []
                 tool_calls_acc: dict[int, dict[str, Any]] = {}
                 usage = None
                 first_token_at: float | None = None
                 finish_reason: str | None = None
+
                 try:
                     stream: AsyncStream[
                         ChatCompletionChunk
                     ] = await client.chat.completions.create(**api_kwargs)
                     in_think_block = False
                     console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
                     async for chunk in stream:
                         if not chunk.choices:
                             usage = getattr(chunk, "usage", None)
                             continue
+
                         delta = chunk.choices[0].delta
                         if not delta:
                             continue
+
                         if chunk.choices[0].finish_reason:
                             finish_reason = chunk.choices[0].finish_reason
+
                         if first_token_at is None and (
                             getattr(delta, "content", None)
                             or getattr(delta, "reasoning_content", None)
                             or getattr(delta, "tool_calls", None)
                         ):
                             first_token_at = time.perf_counter()
+
                         if (
                             hasattr(delta, "reasoning_content")
                             and delta.reasoning_content
@@ -579,6 +593,7 @@ async def run_chat_stream_async(
                                 "[bold orange1]</think>[/bold orange1]", end=""
                             )
                             in_think_block = False
+
                         if hasattr(delta, "content") and delta.content:
                             console.print(
                                 f"[bold cyan]{delta.content}[/bold cyan]",
@@ -587,6 +602,7 @@ async def run_chat_stream_async(
                                 soft_wrap=True,
                             )
                             collected_content.append(delta.content)
+
                         if hasattr(delta, "tool_calls") and delta.tool_calls:
                             for tc_delta in delta.tool_calls:
                                 idx = tc_delta.index
@@ -607,8 +623,10 @@ async def run_chat_stream_async(
                                         tool_calls_acc[idx]["function"][
                                             "arguments"
                                         ] += tc_delta.function.arguments
+
                     if in_think_block:
                         console.print("[bold orange1]</think>[/bold orange1]", end="")
+
                 except Exception as exc:
                     span.record_exception(exc)
                     span.set_status(Status(StatusCode.ERROR))
@@ -622,6 +640,7 @@ async def run_chat_stream_async(
                     )
                     full_response = "".join(collected_content)
                     span.set_attribute(SpanAttributes.OUTPUT_VALUE, full_response)
+
                     parsed_tool_calls: list[ToolCallResult] = []
                     if tool_calls_acc:
                         for idx in sorted(tool_calls_acc):
@@ -640,6 +659,7 @@ async def run_chat_stream_async(
                                     raw_arguments=fn.get("arguments", ""),
                                 )
                             )
+
                     if parsed_tool_calls:
                         logger.info(f"🔧 Tool calls received: {len(parsed_tool_calls)}")
                         for tc in parsed_tool_calls:
@@ -662,6 +682,7 @@ async def run_chat_stream_async(
                                 default=str,
                             ),
                         )
+
                     logger.info("─" * 60)
                     logger.info(f"📊 Round {round_num} summary")
                     if usage:
@@ -696,6 +717,7 @@ async def run_chat_stream_async(
                     if finish_reason:
                         logger.info(f"   Finish reason      : {finish_reason}")
                     span.set_status(Status(StatusCode.OK))
+
                 last_result = StreamCompletionResult(
                     content=full_response,
                     tool_calls=parsed_tool_calls,
@@ -709,13 +731,33 @@ async def run_chat_stream_async(
                     finish_reason=finish_reason,
                 )
 
-                # ── Parse structured output if applicable ─────────────
+                # Structured output parsing with encapsulated validator backend
                 if (
                     resolved_fmt.output_format != OutputFormat.TEXT
                     and not parsed_tool_calls
                 ):
                     structured = parse_structured_content(full_response, resolved_fmt)
                     last_result.structured = structured
+
+                    # Record validator metadata in span (encapsulated — client
+                    # never imports or queries the backend directly)
+                    if structured.validator_backend:
+                        span.set_attribute(
+                            "llm.structured_output.validator_backend",
+                            structured.validator_backend,
+                        )
+                    span.set_attribute(
+                        "llm.structured_output.success", structured.success
+                    )
+                    span.set_attribute(
+                        "llm.structured_output.format", structured.format_used.value
+                    )
+                    if structured.validation_errors:
+                        span.set_attribute(
+                            "llm.structured_output.validation_error_count",
+                            len(structured.validation_errors),
+                        )
+
                     if structured.success:
                         logger.info(
                             f"   ✅ Structured output validated "
@@ -728,12 +770,14 @@ async def run_chat_stream_async(
 
             if not last_result.has_tool_calls:
                 break
+
             if not is_agentic:
                 logger.info(
                     "⏸️  Tool calls present but no tool_registry provided; "
                     "returning result for caller to handle."
                 )
                 break
+
             assistant_tc_message: dict[str, Any] = {
                 "role": "assistant",
                 "content": last_result.content or None,
@@ -750,6 +794,7 @@ async def run_chat_stream_async(
                 ],
             }
             current_messages.append(assistant_tc_message)
+
             for tc in last_result.tool_calls:
                 executor = tool_registry.get(tc.name)
                 if executor is None:
@@ -775,6 +820,7 @@ async def run_chat_stream_async(
                         "content": json.dumps(tool_result, default=str),
                     }
                 )
+
         if last_result is not None:
             loop_span.set_attribute(SpanAttributes.OUTPUT_VALUE, last_result.content)
             loop_span.set_attribute("agent.total_rounds", round_num)
@@ -785,6 +831,7 @@ async def run_chat_stream_async(
             console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
             logger.info("─" * 60)
             logger.info(f"🏁 Execution complete after {round_num} round(s)")
+
         return last_result or StreamCompletionResult(
             content="", finish_reason="no_response"
         )
