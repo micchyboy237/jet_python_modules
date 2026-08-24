@@ -115,68 +115,32 @@ def build_query_url(base_url: str, params: dict) -> str:
         base_url = os.getenv("SEARXNG_URL", "http://localhost:8888")
         logger.warning(f"base_url was None/empty, using default: {base_url}")
 
-    logger.debug("=== build_query_url called ===")
-    logger.debug(f"base_url: {base_url}")
-    logger.debug(f"params: {json.dumps(params, default=str)}")
-
+    # ✅ FIX: Ensure /search path is used for JSON API
     parsed_url = urlparse(base_url)
-    scheme = (
-        parsed_url.scheme.decode()
-        if isinstance(parsed_url.scheme, bytes)
-        else parsed_url.scheme or "http"
-    )
-    netloc = (
-        parsed_url.netloc.decode()
-        if isinstance(parsed_url.netloc, bytes)
-        else parsed_url.netloc or "localhost:8888"
-    )
-    path = (
-        parsed_url.path.decode()
-        if isinstance(parsed_url.path, bytes)
-        else parsed_url.path or "/"
-    )
-    params_str = (
-        parsed_url.params.decode()
-        if isinstance(parsed_url.params, bytes)
-        else parsed_url.params or ""
-    )
-    fragment = (
-        parsed_url.fragment.decode()
-        if isinstance(parsed_url.fragment, bytes)
-        else parsed_url.fragment or ""
-    )
+    path = parsed_url.path.rstrip("/")
+    if not path or path == "/":
+        path = "/search"
 
-    logger.debug(
-        f"parsed_url: scheme={scheme}, netloc={netloc}, path={path}, query={parsed_url.query}"
-    )
+    scheme = parsed_url.scheme or "http"
+    netloc = parsed_url.netloc or "localhost:8888"
+    params_str = parsed_url.params or ""
+    fragment = parsed_url.fragment or ""
 
+    # Merge query params
     query_params = parse_qs(parsed_url.query)
-    logger.debug(f"initial query_params: {json.dumps(query_params, default=str)}")
-
     for key, value in params.items():
-        logger.debug(f"Processing param: {key}={value} (type: {type(value).__name__})")
         if isinstance(value, (list, tuple)):
-            converted = [str(v) for v in value]
-            logger.debug(f"  Converted list/tuple to: {converted}")
-            query_params[key] = converted
+            query_params[key] = [str(v) for v in value]
         else:
-            logger.debug(f"  Converted single value to: [str(value)]")
             query_params[key] = [str(value)]
 
     encoded_params = {}
     for key, value_list in query_params.items():
-        logger.debug(f"Encoding: {key} = {value_list}")
-        if len(value_list) == 1:
-            encoded_params[key] = value_list[0]
-        else:
-            encoded_params[key] = value_list
-
-    logger.debug(f"encoded_params: {json.dumps(encoded_params, default=str)}")
+        encoded_params[key] = value_list[0] if len(value_list) == 1 else value_list
 
     new_query = urlencode(encoded_params, doseq=True)
-    logger.debug(f"new_query string: {new_query}")
-
     new_url = urlunparse((scheme, netloc, path, params_str, new_query, fragment))
+
     logger.debug(f"Final URL: {new_url}")
     return new_url
 
@@ -201,14 +165,25 @@ def fetch_search_results(
 ) -> QueryResponse:
     """Fetches search results from SearXNG."""
     logger.log("Requesting URL: ", query_url, colors=["LOG", "DEBUG"])
-    logger.log("Headers:")
-    logger.info(json.dumps(headers, indent=2))
-    logger.log("Params (already embedded in URL):")
-    logger.info(json.dumps(params, indent=2))
 
     response = requests.get(query_url, headers=headers)
     response.raise_for_status()
+
+    # ✅ Validate content type before parsing
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" not in content_type:
+        logger.error(
+            f"Expected JSON but got {content_type}. "
+            f"URL may be missing /search path: {query_url}"
+        )
+        raise ValueError(f"Non-JSON response from SearXNG: {content_type}")
+
     results = response.json()
+
+    # Validate expected keys exist
+    if not isinstance(results, dict) or "results" not in results:
+        logger.error(f"Malformed SearXNG response: missing 'results' key")
+        raise ValueError("Malformed SearXNG JSON response")
 
     for result in results.get("results", []):
         result["id"] = generate_key(result["url"])
@@ -218,6 +193,61 @@ def fetch_search_results(
 
 def format_min_date(min_date: datetime) -> datetime:
     result = min_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    return result
+
+
+# ✅ NEW: Extracted core fetch+retry logic into reusable helper
+def _fetch_with_retry(
+    headers: dict,
+    params: dict,
+    query_url: str,
+    max_retries: int,
+) -> QueryResponse | None:
+    """Fetch search results with retry logic. Returns None if all attempts yield no results."""
+    RETRY_DELAY = 3  # ✅ Reduced from exponential backoff to flat 3s
+
+    result = None
+    retries = 0
+    while retries <= max_retries:
+        if result and result.get("results", []):
+            break
+        try:
+            result = fetch_search_results(headers, params, query_url)
+
+            results_list = result.get("results", [])
+            unresponsive = result.get("unresponsive_engines", [])
+
+            if not results_list:
+                if unresponsive and retries < max_retries:
+                    logger.warning(
+                        f"No results due to unresponsive engines {unresponsive}. "
+                        f"Retrying {retries + 1}/{max_retries} after {RETRY_DELAY}s..."
+                    )
+                    sleep_countdown(RETRY_DELAY)
+                    retries += 1
+                    continue
+
+                logger.info(
+                    f"No results found for pageno={params.get('pageno', 1)}. "
+                    f"This may be a valid empty result."
+                )
+                break  # Legitimate empty page, stop retrying
+
+            else:
+                break
+
+        except requests.exceptions.RequestException as e:
+            if retries < max_retries:
+                logger.warning(
+                    f"Request failed: {e}. Retrying {retries + 1}/{max_retries} after {RETRY_DELAY}s..."
+                )
+                sleep_countdown(RETRY_DELAY)
+                retries += 1
+                continue
+            else:
+                logger.error(f"Max retries reached. Error: {e}")
+                return None
+
     return result
 
 
@@ -232,7 +262,7 @@ def search_searxng(
     engines: list[str] | None = DEFAULT_ENGINES,
     include_sites: list[str] | None = None,
     exclude_sites: list[str] | None = None,
-    max_retries: int = 3,
+    max_retries: int = 1,  # ✅ CHANGED: Default reduced from 3 to 1
     **kwargs,
 ) -> list[SearchResult]:
     query = decode_encoded_characters(query)
@@ -270,8 +300,7 @@ def search_searxng(
             exclude_query = " ".join([f"-site:{site}" for site in exclude_sites])
             query += " " + exclude_query
 
-        # ✅ FIXED: Normalize ALL multi-value params through _normalize_csv_param
-        # Prevents SearXNG ValidationException from list repr strings like "['anime']"
+        # ✅ Normalize ALL multi-value params through _normalize_csv_param
         raw_categories = kwargs.get("categories", ["general"])
         normalized_categories = _normalize_csv_param(
             raw_categories, default="general", param_name="categories"
@@ -284,12 +313,13 @@ def search_searxng(
             "categories": normalized_categories,
         }
 
-        if "pageno" in kwargs:
-            params["pageno"] = kwargs["pageno"] or 1
+        current_pageno = kwargs.get("pageno", 1) or 1
+        params["pageno"] = current_pageno
+
         if "safesearch" in kwargs:
             params["safesearch"] = kwargs["safesearch"] or 0
 
-        # ✅ FIXED: Normalize engines through same helper
+        # ✅ Normalize engines through same helper
         if engines:
             normalized_engines = _normalize_csv_param(
                 engines, default="", param_name="engines"
@@ -305,7 +335,6 @@ def search_searxng(
             current_date = datetime.now()
             min_date = current_date.replace(year=current_date.year - years_ago)
         min_date = format_min_date(min_date)
-        min_date_iso = min_date.isoformat()
 
         # ===== DEBUG: Log params before build_query_url =====
         logger.debug("=== Params before build_query_url ===")
@@ -356,42 +385,49 @@ def search_searxng(
             else:
                 logger.warning(f"search_searxng: Cache miss for {cache_key}")
 
+        # ✅ Use extracted retry helper for initial page fetch
         result = cached_result
-        retries = 0
-        while retries <= max_retries:
-            if result and result.get("results", []):
-                break
-            try:
-                result = fetch_search_results(headers, params, query_url)
-                if not result.get("results", []):
-                    if retries < max_retries:
-                        delay = 10 * (2**retries)
-                        logger.warning(
-                            f"No results found. Retrying {retries + 1}/{max_retries} after {delay}s delay..."
-                        )
-                        sleep_countdown(delay)
-                        retries += 1
-                        continue
-                    else:
-                        logger.error("Max retries reached with no results.")
-                        return []
-                else:
-                    break
-            except requests.exceptions.RequestException as e:
-                if retries < max_retries:
-                    delay = 10 * (2**retries)
-                    logger.warning(
-                        f"Request failed: {e}. Retrying {retries + 1}/{max_retries} after {delay}s delay..."
+        if not result:
+            result = _fetch_with_retry(headers, params, query_url, max_retries)
+
+        # ✅ NEW: Page 2 fallback — only when on page 1 and no results
+        if current_pageno == 1 and (not result or not result.get("results", [])):
+            logger.info(
+                "search_searxng: Page 1 returned no results. Falling back to page 2..."
+            )
+            page2_params = {**params, "pageno": 2}
+            page2_url = build_query_url(query_url.rsplit("?", 1)[0], page2_params)
+
+            # Check cache for page 2 first
+            page2_cache_key = page2_url
+            page2_cached = None
+            if use_cache:
+                page2_cached = cache.get(page2_cache_key)
+
+            if page2_cached and page2_cached.get("results", []):
+                logger.log(
+                    "search_searxng: Cache hit for page 2 fallback",
+                    colors=["SUCCESS", "BRIGHT_SUCCESS"],
+                )
+                result = page2_cached
+            else:
+                page2_result = _fetch_with_retry(
+                    headers, page2_params, page2_url, max_retries
+                )
+                if page2_result and page2_result.get("results", []):
+                    result = page2_result
+                    logger.info(
+                        f"search_searxng: Page 2 fallback returned {len(result['results'])} results"
                     )
-                    sleep_countdown(delay)
-                    retries += 1
-                    continue
                 else:
-                    logger.error(f"Max retries reached. Error: {e}")
-                    return []
+                    logger.warning(
+                        "search_searxng: Page 2 fallback also returned no results"
+                    )
 
         if not result or not result.get("results", []):
-            logger.error("search_searxng: No results after all retries, not caching")
+            logger.error(
+                "search_searxng: No results after all retries and page 2 fallback, not caching"
+            )
             return []
 
         result["number_of_results"] = len(result.get("results", []))
@@ -404,9 +440,11 @@ def search_searxng(
         result["results"] = results
 
         if results:
-            cache.set(cache_key, result)
+            # Cache under the ORIGINAL page 1 key so future calls benefit
+            effective_cache_key = cache_key if current_pageno == 1 else query_url
+            cache.set(effective_cache_key, result)
             logger.log(
-                f"search_searxng: Cached {len(results)} results for {cache_key}",
+                f"search_searxng: Cached {len(results)} results for {effective_cache_key}",
                 colors=["SUCCESS", "BRIGHT_SUCCESS"],
             )
         else:
@@ -461,7 +499,10 @@ if __name__ == "__main__":
         help="Exclude specific sites from search",
     )
     parser.add_argument(
-        "--max-retries", type=int, default=3, help="Maximum number of retry attempts"
+        "--max-retries",
+        type=int,
+        default=1,
+        help="Maximum number of retry attempts",  # ✅ UPDATED default
     )
     parser.add_argument("--language", default="en", help="Search language")
     parser.add_argument(

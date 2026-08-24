@@ -10,6 +10,7 @@
 - ✅ NEW: List-intent rules injected into user message for small model adherence
 - ✅ NEW: Forced synthesis when memory budget exhausted or target reached
 - ✅ NEW: Token-aware context truncation in sufficiency checks (replaces char-ratio)
+- ✅ NEW: Shared session_id passed to validator for unified Phoenix traces
 """
 
 from __future__ import annotations
@@ -42,17 +43,17 @@ You have access to three tools:
 3. synthesize - Combine your findings into a final answer
 ## GENERAL RULES
 1. ⚠️ CRITICAL: Search snippets are summaries and often lack detail.
-   You MUST use read_url on at least 1-2 promising results to verify facts
-   and gather comprehensive details before synthesizing.
+You MUST use read_url on at least 1-2 promising results to verify facts
+and gather comprehensive details before synthesizing.
 2. When calling read_url, ALWAYS pass the original query or sub-query
-   to focus extraction on relevant sections.
+to focus extraction on relevant sections.
 3. When you have enough VERIFIED information, call synthesize to produce the final answer.
 4. Always cite your sources.
 5. Do NOT make up information. Only use what you find via search AND verify via read_url.
 6. If you cannot find sufficient information after multiple searches and page reads, say so.
 7. Call synthesize ONLY when ready to produce the final answer.
 8. After each search or page read, carefully evaluate whether you have enough
-   information to answer the query COMPLETELY before deciding next steps."""
+information to answer the query COMPLETELY before deciding next steps."""
 
 _SUFFICIENCY_SCHEMA: dict[str, Any] = {
     "type": "json_schema",
@@ -135,7 +136,7 @@ def _build_list_intent_user_message(query: str, refined_query: str) -> str:
     guardrail from system prompt to user message.
     """
     return (
-        f"Question: {refined_query}\n\n"
+        f"Question: {refined_query}\n"
         f"⚠️ IMPORTANT LIST-QUERY RULES:\n"
         f"- This is a LIST/RANKING query. Search for CURATED LISTS only.\n"
         f"- ✅ DO: Search for 'best [topic] list [year]' or 'top [topic] ranking [year]'\n"
@@ -143,7 +144,7 @@ def _build_list_intent_user_message(query: str, refined_query: str) -> str:
         f"- ❌ NEVER: Search for individual items/titles one-by-one\n"
         f"- ❌ NEVER: Decompose into per-entity sub-queries\n"
         f"- If the first list is incomplete, search for ANOTHER LIST, not individual items\n"
-        f"- When you have enough items from list pages, call synthesize immediately\n\n"
+        f"- When you have enough items from list pages, call synthesize immediately\n"
         f"Search for information and provide a complete, accurate answer."
     )
 
@@ -209,9 +210,8 @@ class ReactEngine:
 
         combined = "\n---\n".join(contexts)
         judge_budget = memory.remaining_token_budget + 2048
-
-        # ✅ CHANGED: Direct token-aware truncation replaces char-ratio estimation
         combined_tokens = count_tokens(combined, model=self.model)
+
         if combined_tokens > judge_budget:
             original_tokens = combined_tokens
             combined = truncate_to_tokens(
@@ -230,11 +230,11 @@ class ReactEngine:
                 "role": "user",
                 "content": (
                     f"Evaluate whether the accumulated context below is SUFFICIENT "
-                    f"to fully answer this query.\n\n"
+                    f"to fully answer this query.\n"
                     f"Query: {query}\n"
                     f"Query Intent: {memory.intent.value}\n"
-                    f"List Items Collected: {memory.list_item_count}\n\n"
-                    f"Accumulated Context ({memory.accumulated_tokens} tokens):\n{combined}\n\n"
+                    f"List Items Collected: {memory.list_item_count}\n"
+                    f"Accumulated Context ({memory.accumulated_tokens} tokens):\n{combined}\n"
                     f"Respond with valid JSON matching the ContextSufficiencyCheck schema."
                 ),
             },
@@ -284,6 +284,8 @@ class ReactEngine:
     async def search(self, query: str) -> FinalAnswer:
         """Run the full ReAct web search pipeline for a query."""
         logger.info("🚀 Starting ReAct search for: %r", query[:80])
+
+        # Generate session ID once for the entire workflow (Search + Validation)
         session_id = f"react-{uuid.uuid4().hex[:12]}"
         logger.debug("🧵 Session ID: %s", session_id)
 
@@ -397,7 +399,6 @@ class ReactEngine:
                 truncated,
                 result.finish_reason,
             )
-
             for i, step in enumerate(steps, 1):
                 logger.debug(
                     "   Step %d/%d: %s(%s) → %d chars observation",
@@ -521,8 +522,10 @@ class ReactEngine:
                     len(validation_contexts),
                     memory.accumulated_tokens,
                 )
+
                 if validation_contexts:
                     logger.debug("🔍 Running post-answer validation")
+                    # ✅ UPDATED: Pass session_id to validator for trace correlation
                     eval_result = await self.validator.validate(
                         query=query,
                         response=answer_text,
@@ -537,6 +540,7 @@ class ReactEngine:
                         eval_result.get("answer_relevancy", -1),
                         eval_result.get("has_critical_failure", False),
                     )
+
                     if eval_result.get("has_critical_failure"):
                         confidence = "low"
                         logger.warning(
@@ -544,6 +548,7 @@ class ReactEngine:
                             eval_result.get("faithfulness", -1),
                             eval_result.get("hallucination_rate", -1),
                         )
+
                         if validation_retries < _MAX_VALIDATION_RETRIES:
                             validation_retries += 1
                             logger.info(

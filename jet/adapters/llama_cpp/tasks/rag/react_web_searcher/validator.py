@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 class PostAnswerValidator:
     """Validates ReAct agent answers using the existing eval pipeline.
-
     Threads session_id and shared client through to the evaluator
     for full trace correlation and client reuse.
     """
@@ -30,11 +29,10 @@ class PostAnswerValidator:
         client: AsyncOpenAI | None = None,
     ) -> dict[str, Any]:
         """Run production async evaluation on the agent's answer.
-
         Args:
             session_id: Phoenix session ID for trace correlation.
             client: Shared AsyncOpenAI client (currently not threaded
-                    through RAGEvaluator; reserved for future use).
+            through RAGEvaluator; reserved for future use).
         """
         logger.info(
             "🔍 Validating agent answer (%d chars, %d contexts, session=%s)",
@@ -42,13 +40,13 @@ class PostAnswerValidator:
             len(contexts),
             session_id,
         )
-
+        # ✅ UPDATED: Pass session_id to evaluator
         result = await self.evaluator.evaluate_production_async(
             query=query,
             contexts=contexts,
             response=response,
+            session_id=session_id,
         )
-
         return {
             "faithfulness": result.faithfulness,
             "hallucination_rate": result.hallucination_rate,

@@ -5,7 +5,6 @@ Orchestrates RAGMetrics across three evaluation stages:
 1. Pre-generation gate (sync, blocks bad retrieval)
 2. Production async eval (reference-free safety monitoring)
 3. Offline benchmark (full suite with ground-truth recall)
-
 Uses chunking_utils.truncate_texts to prevent context overflow
 during faithfulness/recall verification against large context sets.
 """
@@ -29,7 +28,6 @@ logger = logging.getLogger(__name__)
 class RAGEvaluator:
     """
     Orchestrates metric computation across evaluation stages.
-
     All judge calls go through JetLLMJudge → llm_utils.achat,
     inheriting Phoenix tracing, structured output validation,
     and token usage tracking automatically.
@@ -74,7 +72,6 @@ class RAGEvaluator:
     ) -> RAGEvaluationResult:
         """
         Fast synchronous gate before generation.
-
         Blocks generation if retrieval quality is critically low.
         Only computes Contextual Precision (fastest retrieval-only metric).
         Does NOT call generation or faithfulness — those happen after the gate passes.
@@ -99,16 +96,25 @@ class RAGEvaluator:
         )
 
     async def evaluate_production_async(
-        self, query: str, contexts: list[str], response: str
+        self,
+        query: str,
+        contexts: list[str],
+        response: str,
+        session_id: str | None = None,  # ✅ NEW PARAMETER
     ) -> RAGEvaluationResult:
         """
         Reference-free safety evaluation.
-
         Runs AFTER response is sent to user via background worker.
         Computes faithfulness, hallucination rate, and answer relevancy.
         Context is truncated to fit judge model window before verification.
+
+        Args:
+            session_id: Optional session ID to correlate traces with the parent workflow.
+                        If provided, uses this ID; otherwise generates a new one.
         """
-        eval_session_id = f"eval-{uuid.uuid4().hex[:12]}"
+        # ✅ UPDATED: Use provided session_id or generate new one
+        eval_session_id = session_id or f"eval-{uuid.uuid4().hex[:12]}"
+
         safe_contexts = self._truncate_contexts_for_judge(contexts)
         (
             (faithfulness, halluc_rate, faith_tokens),
@@ -144,18 +150,22 @@ class RAGEvaluator:
         contexts: list[str],
         response: str,
         reference: str,
+        session_id: str | None = None,  # ✅ NEW PARAMETER
     ) -> RAGEvaluationResult:
         """
         Full benchmark suite with ground-truth reference.
-
         Used in CI/CD regression testing and model comparison.
         Computes ALL metrics including Contextual Recall (requires reference).
         Context is truncated for both faithfulness and recall verification.
+
+        Args:
+            session_id: Optional session ID to correlate traces.
         """
-        eval_session_id = f"eval-offline-{uuid.uuid4().hex[:12]}"
+        # ✅ UPDATED: Use provided session_id or generate new one
+        eval_session_id = session_id or f"eval-offline-{uuid.uuid4().hex[:12]}"
+
         safe_contexts = self._truncate_contexts_for_judge(contexts)
         context_text = "\n---\n".join(safe_contexts)
-
         ref_claims, ref_extract_tokens = await self.judge.extract_claims(
             reference, session_id=eval_session_id
         )
@@ -167,7 +177,6 @@ class RAGEvaluator:
         contextual_recall = (
             attributable / len(ref_verifications) if ref_verifications else 0.0
         )
-
         precision, prec_tokens = await self.metrics.compute_contextual_precision(
             query,
             contexts,
@@ -184,7 +193,6 @@ class RAGEvaluator:
                 query, response, session_id=eval_session_id
             ),
         )
-
         total_tokens = prec_tokens + recall_tokens + faith_tokens + rel_tokens
         return RAGEvaluationResult(
             stage=EvalStage.OFFLINE_BENCHMARK,
