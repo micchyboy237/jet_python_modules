@@ -178,18 +178,42 @@ class LocalEmbedderClient:
         self.model_name = model_name
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        from openinference.semconv.trace import EmbeddingAttributes
+
         with tracer.start_as_current_span(
-            "embedder.embed",
+            "CreateEmbeddings",
             attributes={
                 SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.EMBEDDING.value,
                 SpanAttributes.EMBEDDING_MODEL_NAME: self.model_name,
-                SpanAttributes.EMBEDDING_TEXTS: json.dumps([redact(t) for t in texts]),
+                SpanAttributes.INPUT_VALUE: json.dumps([redact(t) for t in texts]),
+                SpanAttributes.INPUT_MIME_TYPE: "application/json",
             },
-        ):
+        ) as span:
             resp = OpenAI(base_url=self.base_url, api_key="local").embeddings.create(
                 model=self.model_name, input=texts
             )
-            return [item.embedding for item in resp.data]
+            embeddings = [item.embedding for item in resp.data]
+
+            # Record per-embedding text + vector using indexed attributes
+            for i, (text, vector) in enumerate(zip(texts, embeddings)):
+                span.set_attribute(
+                    f"{SpanAttributes.EMBEDDING_EMBEDDINGS}.{i}.{EmbeddingAttributes.EMBEDDING_TEXT}",
+                    redact(text),
+                )
+                span.set_attribute(
+                    f"{SpanAttributes.EMBEDDING_EMBEDDINGS}.{i}.{EmbeddingAttributes.EMBEDDING_VECTOR}",
+                    vector,
+                )
+
+            if hasattr(resp, "usage") and resp.usage:
+                span.set_attribute(
+                    SpanAttributes.LLM_TOKEN_COUNT_PROMPT, resp.usage.prompt_tokens or 0
+                )
+                span.set_attribute(
+                    SpanAttributes.LLM_TOKEN_COUNT_TOTAL, resp.usage.total_tokens or 0
+                )
+
+            return embeddings
 
 
 class LocalRerankerClient:
@@ -198,13 +222,18 @@ class LocalRerankerClient:
         self.model_name = model_name
 
     def rerank(self, query: str, documents: list[str], top_k: int = 5) -> list[dict]:
+        from openinference.semconv.trace import DocumentAttributes, RerankerAttributes
+
         with tracer.start_as_current_span(
             "reranker.rerank",
             attributes={
-                SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.RETRIEVER.value,
-                SpanAttributes.RETRIEVAL_QUERY_TEXT: redact(query),
-                "reranker.model_name": self.model_name,
-                "reranker.top_k": top_k,
+                SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.RERANKER.value,
+                RerankerAttributes.RERANKER_QUERY: redact(query),
+                RerankerAttributes.RERANKER_MODEL_NAME: self.model_name,
+                RerankerAttributes.RERANKER_TOP_K: top_k,
+                RerankerAttributes.RERANKER_INPUT_DOCUMENTS: json.dumps(
+                    [redact(d) for d in documents]
+                ),
             },
         ) as span:
             import requests
@@ -219,9 +248,34 @@ class LocalRerankerClient:
                 },
                 timeout=30,
             ).json()
-            results = resp.get("results", [])
-            span.set_attribute("reranker.result_count", len(results))
-            return results
+
+            raw_results = resp.get("results", [])
+
+            # llama.cpp returns {index, relevance_score} WITHOUT document text [[27]]
+            # Map back to original documents array by index
+            enriched_results = []
+            for r in raw_results:
+                idx = r["index"]
+                enriched_results.append(
+                    {
+                        "document": documents[idx],
+                        "relevance_score": r["relevance_score"],
+                        "index": idx,
+                    }
+                )
+
+            # Record output documents to span
+            for i, result in enumerate(enriched_results):
+                span.set_attribute(
+                    f"{RerankerAttributes.RERANKER_OUTPUT_DOCUMENTS}.{i}.{DocumentAttributes.DOCUMENT_CONTENT}",
+                    redact(result["document"][:2000]),
+                )
+                span.set_attribute(
+                    f"{RerankerAttributes.RERANKER_OUTPUT_DOCUMENTS}.{i}.{DocumentAttributes.DOCUMENT_SCORE}",
+                    float(result["relevance_score"]),
+                )
+
+            return enriched_results
 
 
 # ─── 5. TOOL REGISTRY WITH INSTRUMENTATION ───────────────────────────────────
@@ -252,8 +306,11 @@ def search_docs(
         candidate_docs = ["doc1 content", "doc2 content", "doc3 content"]
         reranked = reranker.rerank(query, candidate_docs, top_k=3)
 
+        # Safe: rerank() now guarantees "document" key via index mapping
         result = "\n---\n".join([r["document"] for r in reranked])
-        span.set_attribute(SpanAttributes.TOOL_OUTPUT, redact(result[:2000]))
+
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, redact(result[:2000]))
+        span.set_attribute(SpanAttributes.OUTPUT_MIME_TYPE, "text/plain")
         span.set_attribute("tool.output_full_length", len(result))
 
         console.print(
