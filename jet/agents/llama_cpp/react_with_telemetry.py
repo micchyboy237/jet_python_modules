@@ -303,7 +303,11 @@ def search_docs(
         )
 
         embeddings = embedder.embed([query])
-        candidate_docs = ["doc1 content", "doc2 content", "doc3 content"]
+        candidate_docs = [
+            "Q3 2026 Earnings Report: Revenue grew 12% YoY to $4.2B driven by AI product adoption. Operating margin expanded to 28%. EPS of $3.15 beat consensus by 8%.",
+            "Q2 2026 Earnings Report: Revenue of $3.8B, up 9% YoY. Cloud segment grew 22%. Company raised full-year guidance citing strong enterprise demand.",
+            "Annual Report FY2025: Full-year revenue $14.1B. R&D spending increased 18% focused on generative AI infrastructure. Share buyback program expanded to $5B.",
+        ]
         reranked = reranker.rerank(query, candidate_docs, top_k=3)
 
         # Safe: rerank() now guarantees "document" key via index mapping
@@ -427,6 +431,29 @@ def run_react_loop(
                     meta.repeated_tool_calls += 1
                     iter_span.set_attribute("react.repeated_call", True)
                     console.print(Text("⚠️ Repeated tool call detected", style="yellow"))
+
+                    # Circuit breaker: force final_answer after 2 identical calls
+                    repeat_count = meta.previous_tool_signatures.count(tool_sig)
+                    if repeat_count >= 2:
+                        console.print(
+                            Text(
+                                "🛑 Circuit breaker: forcing final_answer after repeated failures",
+                                style="bold red",
+                            )
+                        )
+                        messages.append({"role": "assistant", "content": raw_output})
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "SYSTEM: You have called the same tool with the same parameters multiple times "
+                                    "without progress. STOP searching. Provide your best answer based on the "
+                                    "observations you already have, or clearly state that the information is unavailable."
+                                ),
+                            }
+                        )
+                        continue
+
                 meta.previous_tool_signatures.append(tool_sig)
 
                 try:
