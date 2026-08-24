@@ -61,3 +61,7 @@ VISION_MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", "qwen3.5-uncensored:2b")
 VISION_HF_MODEL = os.getenv("LLAMA_CPP_VISION_HF_MODEL", "Qwen/Qwen3.5-2B")
 VISION_BASE_HOST = os.getenv("LLAMA_CPP_VISION_HOST")
 VISION_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL")
+
+# OpenTelemetry
+PHOENIX_BASE_URL = os.getenv("LLM_OBS_PHOENIX_URL", "http://localhost:6006")
+PHOENIX_REST_API = os.getenv("LLM_OBS_PHOENIX_REST_API", "http://localhost:6006/v1")
