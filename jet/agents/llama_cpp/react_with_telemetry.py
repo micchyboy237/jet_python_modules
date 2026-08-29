@@ -16,17 +16,41 @@ from jet.adapters.llama_cpp.config import (
 from openai import OpenAI
 from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 from opentelemetry import trace
-from phoenix.otel import register
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from phoenix.otel import BatchSpanProcessor, HTTPSpanExporter, TracerProvider, register
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 # ─── 1. PHOENIX + OTEL SETUP ────────────────────────────────────────────────
-register(
-    project_name="react-agent-local",
+
+PROJECT_NAME = "react-agent-local"
+
+# ✅ Manually create resource WITH project name
+resource = Resource.create(
+    {
+        "openinference.project.name": PROJECT_NAME,
+    }
+)
+
+provider = TracerProvider(resource=resource)
+exporter = HTTPSpanExporter(
     endpoint=f"{PHOENIX_REST_API}/traces",
 )
+provider.add_span_processor(BatchSpanProcessor(exporter))
+trace.set_tracer_provider(provider)
+
+# Register with set_global_tracer_provider=False to avoid duplicate processors
+# project_name here is ignored when set_global_tracer_provider=False,
+# but we include it for documentation / future compatibility
+register(
+    project_name=PROJECT_NAME,
+    set_global_tracer_provider=False,
+)
+
 tracer = trace.get_tracer(__name__)
 console = Console(force_terminal=True, highlight=False)
 
@@ -224,6 +248,11 @@ class LocalRerankerClient:
     def rerank(self, query: str, documents: list[str], top_k: int = 5) -> list[dict]:
         from openinference.semconv.trace import DocumentAttributes, RerankerAttributes
 
+        # ✅ DEBUG
+        console.print(f"[dim]🔎 Reranker INPUT docs count: {len(documents)}[/dim]")
+
+        safe_docs = [redact(str(d)) for d in documents]
+
         with tracer.start_as_current_span(
             "reranker.rerank",
             attributes={
@@ -231,11 +260,23 @@ class LocalRerankerClient:
                 RerankerAttributes.RERANKER_QUERY: redact(query),
                 RerankerAttributes.RERANKER_MODEL_NAME: self.model_name,
                 RerankerAttributes.RERANKER_TOP_K: top_k,
-                RerankerAttributes.RERANKER_INPUT_DOCUMENTS: json.dumps(
-                    [redact(d) for d in documents]
-                ),
+                # ❌ DO NOT set RERANKER_INPUT_DOCUMENTS as a JSON string
+                # The Phoenix UI expects indexed/flattened attributes instead
             },
         ) as span:
+            # ✅ FIX: Set input documents as indexed attributes per OpenInference spec
+            # This is what the Phoenix UI .map() actually iterates over
+            for i, doc_text in enumerate(safe_docs):
+                span.set_attribute(
+                    f"{RerankerAttributes.RERANKER_INPUT_DOCUMENTS}.{i}.{DocumentAttributes.DOCUMENT_CONTENT}",
+                    doc_text,
+                )
+
+            # ✅ DEBUG
+            console.print(
+                f"[green]✅ Set {len(safe_docs)} indexed input_documents attributes[/green]"
+            )
+
             import requests
 
             resp = requests.post(
@@ -251,8 +292,6 @@ class LocalRerankerClient:
 
             raw_results = resp.get("results", [])
 
-            # llama.cpp returns {index, relevance_score} WITHOUT document text [[27]]
-            # Map back to original documents array by index
             enriched_results = []
             for r in raw_results:
                 idx = r["index"]
@@ -264,7 +303,7 @@ class LocalRerankerClient:
                     }
                 )
 
-            # Record output documents to span
+            # Output documents (already correctly indexed)
             for i, result in enumerate(enriched_results):
                 span.set_attribute(
                     f"{RerankerAttributes.RERANKER_OUTPUT_DOCUMENTS}.{i}.{DocumentAttributes.DOCUMENT_CONTENT}",
@@ -275,6 +314,9 @@ class LocalRerankerClient:
                     float(result["relevance_score"]),
                 )
 
+            console.print(
+                f"[dim]🔎 Reranker OUTPUT: {len(enriched_results)} docs returned[/dim]"
+            )
             return enriched_results
 
 
@@ -498,6 +540,21 @@ def run_react_loop(
             f"Steps: {meta.total_steps} | Tokens: {meta.total_tokens} | "
             f"Repeated Calls: {meta.repeated_tool_calls} | Success: {meta.success}"
         )
+
+        # ─── LOG TRACE URL ────────────────────────────────────────────────────────
+        # Use Phoenix's stable redirect URL — no need to know project name or UI routes
+        # Format: {phoenix_host}/redirects/traces/{otel_trace_id}
+        phoenix_host = PHOENIX_REST_API.rstrip("/")
+        if phoenix_host.endswith("/v1"):
+            phoenix_host = phoenix_host[:-3]
+
+        trace_id_hex = format(root_span.get_span_context().trace_id, "032x")
+        trace_url = f"{phoenix_host}/redirects/traces/{trace_id_hex}"
+
+        console.rule("[bold]🔗 Trace Link")
+        console.print(f"[link={trace_url}]{trace_url}[/link]", style="bold cyan")
+        console.print(f"[dim]Session ID: {session_id}[/dim]")
+        console.print(f"[dim]Trace ID:   {trace_id_hex}[/dim]")
 
         return root_span.attributes.get("agent.final_answer", "No answer produced")
 
