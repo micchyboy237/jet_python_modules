@@ -1,25 +1,34 @@
-from typing import Any, Dict, List, Literal, Optional, Type, TypedDict, Union
-from langchain_core.callbacks import AsyncCallbackManagerForToolRun, CallbackManagerForToolRun
-from langchain_core.tools import BaseTool, ToolException
-from pydantic import BaseModel, Field
-from datetime import datetime
 import asyncio
 import re
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional, Type, TypedDict, Union
+
 import numpy as np
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForToolRun,
+    CallbackManagerForToolRun,
+)
+from langchain_core.tools import BaseTool, ToolException
+from pydantic import BaseModel, Field
+
+from jet.adapters.llama_cpp.config import EMBED_MODEL, EMBED_QUERY_PREFIX
+from jet.adapters.llama_cpp.embed_utils import embed as llamacpp_embed
 from jet.logger import logger
 from jet.search.playwright.playwright_extract import PlaywrightExtract
 from jet.search.searxng import search_searxng
-from jet.llm.utils.embeddings import get_ollama_embedding_function
 from jet.transformers.formatters import format_json
 
 try:
     from nltk.tokenize import sent_tokenize
+
     NLTK_AVAILABLE = True
 except ImportError:
     NLTK_AVAILABLE = False
 
+
 class PlaywrightSearchInput(BaseModel):
     """Input for PlaywrightSearch"""
+
     query: str = Field(description="Search query to look up")
     include_domains: Optional[List[str]] = Field(
         default=[],
@@ -30,7 +39,7 @@ class PlaywrightSearchInput(BaseModel):
         In both cases, determine the appropriate domains (e.g., ['nasa.gov'] or ['apple.com']) and set this parameter.
         Results will ONLY come from the specified domains - no other sources will be included.
         Default is an empty list (no domain restriction).
-        """
+        """,
     )
     exclude_domains: Optional[List[str]] = Field(
         default=[],
@@ -41,7 +50,7 @@ class PlaywrightSearchInput(BaseModel):
         In both cases, determine the appropriate domains to exclude (e.g., ['twitter.com'] or ['apple.com']) and set this parameter.
         Results will filter out all content from the specified domains.
         Default is an empty list (no domain exclusion).
-        """
+        """,
     )
     search_depth: Optional[Literal["basic", "advanced"]] = Field(
         default="basic",
@@ -49,14 +58,14 @@ class PlaywrightSearchInput(BaseModel):
         Use 'basic' for simple queries requiring quick, straightforward answers.
         Use 'advanced' for complex queries, specialized topics, rare information, or when in-depth analysis is needed.
         Default is 'basic'.
-        """
+        """,
     )
     include_images: Optional[bool] = Field(
         default=True,
         description="""Determines if the search returns relevant images along with text results.
         Set to True when the user explicitly requests visuals or when images would significantly enhance understanding (e.g., 'Show me what black holes look like,' 'Find pictures of Renaissance art').
         Default is True for PlaywrightSearch to leverage visual content extraction.
-        """
+        """,
     )
     time_range: Optional[Literal["day", "week", "month", "year"]] = Field(
         default=None,
@@ -65,7 +74,7 @@ class PlaywrightSearchInput(BaseModel):
         For less popular or niche topics, use broader time ranges ('month' or 'year') to ensure sufficient relevant results.
         Options: 'day' (24h), 'week' (7d), 'month' (30d), 'year' (365d).
         Default is None (no time restriction).
-        """
+        """,
     )
     topic: Optional[Literal["general", "news", "finance"]] = Field(
         default="general",
@@ -73,7 +82,7 @@ class PlaywrightSearchInput(BaseModel):
         Use 'general' (default) for most queries, INCLUDING those with terms like 'latest,' 'newest,' or 'recent' when referring to general information.
         Use 'finance' for markets, investments, economic data, or financial news.
         Use 'news' ONLY for politics, sports, or major current events covered by mainstream media - NOT simply because a query asks for 'new' information.
-        """
+        """,
     )
     include_favicon: Optional[bool] = Field(
         default=True,
@@ -83,7 +92,7 @@ class PlaywrightSearchInput(BaseModel):
         - Providing visual cues about the source's credibility or brand
         - Creating bookmark-like displays with recognizable site icons
         Default is True to enhance result presentation.
-        """
+        """,
     )
     start_date: Optional[str] = Field(
         default=None,
@@ -99,7 +108,7 @@ class PlaywrightSearchInput(BaseModel):
         - '2023-12-25' - Results from December 25, 2023 onwards
         When combined with end_date, creates a precise date range filter.
         Default is None (no start date restriction).
-        """
+        """,
     )
     end_date: Optional[str] = Field(
         default=None,
@@ -116,16 +125,17 @@ class PlaywrightSearchInput(BaseModel):
         When combined with start_date, creates a precise date range filter.
         For example: start_date='2024-01-01', end_date='2024-03-31' returns results from Q1 2024 only.
         Default is None (no end date restriction).
-        """
+        """,
     )
     max_content_length: Optional[int] = Field(
         default=500,
-        description="Maximum length of the content field in characters. Default is 500."
+        description="Maximum length of the content field in characters. Default is 500.",
     )
     ollama_embed_model: Optional[str] = Field(
         default="nomic-embed-text",
-        description="Ollama embedding model to use for relevance scoring. Default is 'nomic-embed-text'."
+        description="Ollama embedding model to use for relevance scoring. Default is 'nomic-embed-text'.",
     )
+
 
 class PlaywrightSearchResult(TypedDict):
     url: str
@@ -137,51 +147,46 @@ class PlaywrightSearchResult(TypedDict):
     images: List[str]
     favicon: Optional[str]
 
+
 class PlaywrightSearchAPIWrapper(BaseModel):
     """Wrapper for Playwright-based search engine."""
+
     searxng_url: str = Field(default="http://jethros-macbook-air.local:8888")
     max_results: Optional[int] = Field(default=5)
     include_image_descriptions: Optional[bool] = Field(default=False)
     max_content_length: Optional[int] = Field(default=500)
-    ollama_embed_model: str = Field(default="nomic-embed-text")
-    ollama_url: str = Field(default="http://localhost:11434")
-
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-        self._embed_func = get_ollama_embedding_function(
-            model=self.ollama_embed_model,
-            url=self.ollama_url,
-            return_format="numpy"
-        )
-        self._query_embedding_cache = {}
 
     def _score_chunks(self, chunks: List[str], query: str) -> List[float]:
-        """Score multiple text chunks based on semantic similarity to the query using Ollama embeddings."""
+        """Score chunks using jet.adapters.llama_cpp for batched/deduped performance."""
         if not chunks or not query:
             return [0.0] * len(chunks)
+
         try:
-            # Cache query embedding to avoid redundant computation
-            if query not in self._query_embedding_cache:
-                self._query_embedding_cache[query] = self._embed_func(query)
-            query_embedding = self._query_embedding_cache[query]
-            
-            # Generate embeddings for all chunks in a single batch
-            chunk_embeddings = self._embed_func(chunks)
-            
-            # Calculate cosine similarity for all chunks
-            scores = []
-            for chunk_embedding in chunk_embeddings:
-                dot_product = np.dot(query_embedding, chunk_embedding)
-                norm_query = np.linalg.norm(query_embedding)
-                norm_chunk = np.linalg.norm(chunk_embedding)
-                if norm_query == 0 or norm_chunk == 0:
-                    scores.append(0.0)
-                else:
-                    similarity = dot_product / (norm_query * norm_chunk)
-                    scores.append(max(0.0, min(1.0, similarity)))
-            return scores
+            # Leverages auto-batching, deduplication, and prefix handling
+            query_emb = llamacpp_embed(
+                query,
+                model=EMBED_MODEL,
+                prefix=EMBED_QUERY_PREFIX,
+                return_format="numpy",
+            )
+            chunk_embs = llamacpp_embed(
+                chunks,
+                model=EMBED_MODEL,
+                return_format="numpy",
+                show_progress=False,  # Disable progress bar for internal scoring
+            )
+
+            # Vectorized cosine similarity
+            norms = np.linalg.norm(chunk_embs, axis=1) * np.linalg.norm(query_emb)
+            valid_mask = norms > 0
+            scores = np.zeros(len(chunks))
+            scores[valid_mask] = (
+                np.dot(chunk_embs[valid_mask], query_emb) / norms[valid_mask]
+            )
+
+            return np.clip(scores, 0.0, 1.0).tolist()
         except Exception as e:
-            print(f"Error scoring chunks: {e}")
+            logger.error(f"Error scoring chunks via llama_cpp adapter: {e}")
             return [0.0] * len(chunks)
 
     def _split_into_sentences(self, text: str) -> List[str]:
@@ -189,11 +194,13 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         if NLTK_AVAILABLE:
             return sent_tokenize(text)
         # Fallback regex for sentence splitting
-        sentence_endings = r'(?<=[.!?])\s+'
+        sentence_endings = r"(?<=[.!?])\s+"
         sentences = re.split(sentence_endings, text)
         return [s.strip() for s in sentences if s.strip()]
 
-    def _extract_relevant_content(self, raw_content: str, query: str, max_length: int) -> str:
+    def _extract_relevant_content(
+        self, raw_content: str, query: str, max_length: int
+    ) -> str:
         """Extract the most relevant content from raw_content up to max_length, with [...] separators."""
         if not raw_content:
             return ""
@@ -204,8 +211,12 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         max_chunk_chars = max_chunk_tokens * 4
         chunks = [chunk for chunk in chunks if len(chunk) <= max_chunk_chars]
         if not chunks:
-            return raw_content[:max_length] + "..." if len(raw_content) > max_length else raw_content
-        
+            return (
+                raw_content[:max_length] + "..."
+                if len(raw_content) > max_length
+                else raw_content
+            )
+
         # Score all chunks in a single batch
         scores = self._score_chunks(chunks, query)
         scored_chunks = list(zip(chunks, scores))
@@ -217,20 +228,26 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         for chunk, _ in scored_chunks:
             if selected_chunks >= max_chunks:
                 break
-            chunk_with_separator = chunk + separator if selected_chunks < max_chunks - 1 else chunk
+            chunk_with_separator = (
+                chunk + separator if selected_chunks < max_chunks - 1 else chunk
+            )
             if len(content) + len(chunk_with_separator) <= max_length:
                 content += chunk_with_separator
                 selected_chunks += 1
             else:
                 remaining = max_length - len(content)
                 if remaining > 10:
-                    content += chunk[:remaining].rsplit(' ', 1)[0] + "..."
+                    content += chunk[:remaining].rsplit(" ", 1)[0] + "..."
                 break
         content = content.strip()
         if not content:
-            content = chunks[0][:max_length] + "..." if len(chunks[0]) > max_length else chunks[0]
+            content = (
+                chunks[0][:max_length] + "..."
+                if len(chunks[0]) > max_length
+                else chunks[0]
+            )
         if content.endswith(separator):
-            content = content[:-len(separator)]
+            content = content[: -len(separator)]
         return content
 
     async def raw_results_async(
@@ -267,72 +284,88 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                     raise ToolException("end_date cannot be before start_date.")
             except ValueError:
                 raise ToolException("Invalid end_date format. Use YYYY-MM-DD.")
-        topic_map = {
-            "general": ["general"],
-            "news": ["news"],
-            "finance": ["business"]
-        }
+        topic_map = {"general": ["general"], "news": ["news"], "finance": ["business"]}
         categories = topic_map.get(topic, ["general"])
-        logger.debug(f"[search_searxng] args:\n{format_json({
-            "query_url": self.searxng_url,
-            "query": query,
-            "count": self.max_results if search_depth == "basic" else self.max_results * 2,
-            "include_sites": include_domains,
-            "exclude_sites": exclude_domains,
-            "min_date": min_date,
-            "categories": categories,
-            "years_ago": years_ago
-        })}")
+        logger.debug(
+            f"[search_searxng] args:\n{
+                format_json(
+                    {
+                        'query_url': self.searxng_url,
+                        'query': query,
+                        'count': self.max_results
+                        if search_depth == 'basic'
+                        else self.max_results * 2,
+                        'include_sites': include_domains,
+                        'exclude_sites': exclude_domains,
+                        'min_date': min_date,
+                        'categories': categories,
+                        'years_ago': years_ago,
+                    }
+                )
+            }"
+        )
         search_results = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: search_searxng(
                 query_url=self.searxng_url,
                 query=query,
-                count=self.max_results if search_depth == "basic" else self.max_results * 2,
+                count=self.max_results
+                if search_depth == "basic"
+                else self.max_results * 2,
                 include_sites=include_domains,
                 exclude_sites=exclude_domains,
                 min_date=min_date,
                 categories=categories,
-                years_ago=years_ago
-            )
+                years_ago=years_ago,
+            ),
         )
-        logger.success(f"[search_searxng] results ({len(search_results)}):\n{format_json(search_results)}")
+        logger.success(
+            f"[search_searxng] results ({len(search_results)}):\n{format_json(search_results)}"
+        )
         if not search_results:
             return {
                 "query": query,
                 "results": [],
                 "images": [] if include_images else None,
-                "response_time": asyncio.get_event_loop().time() - start_time
+                "response_time": asyncio.get_event_loop().time() - start_time,
             }
         urls = [result["url"] for result in search_results]
         logger.debug(f"Search Result URLs ({len(urls)}):\n{format_json(urls)}")
         extractor = PlaywrightExtract()
-        extract_format = "markdown" if include_raw_content in (True, "markdown") else "text"
+        extract_format = (
+            "markdown" if include_raw_content in (True, "markdown") else "text"
+        )
         extract_results = await extractor._arun(
             urls=urls,
             extract_depth=search_depth,
             include_images=include_images,
             include_favicon=include_favicon,
-            format=extract_format
+            format=extract_format,
         )
         results = []
         search_texts = [result["content"] for result in search_results]
         embed_scores = self._score_chunks(search_texts, query)
-        for search_result, extract_result, embed_score in zip(search_results, extract_results["results"], embed_scores):
+        for search_result, extract_result, embed_score in zip(
+            search_results, extract_results["results"], embed_scores
+        ):
             if "error" in extract_result:
                 continue
-            content = self._extract_relevant_content(
-                extract_result["raw_content"],
-                query,
-                self.max_content_length
-            ) if extract_result.get("raw_content") else search_result["content"]
+            content = (
+                self._extract_relevant_content(
+                    extract_result["raw_content"], query, self.max_content_length
+                )
+                if extract_result.get("raw_content")
+                else search_result["content"]
+            )
             result_item = {
                 "url": search_result["url"],
                 "title": search_result["title"],
                 "content": content,
                 "raw_score": search_result["score"],
                 "score": embed_score,
-                "raw_content": extract_result["raw_content"] if include_raw_content else None,
+                "raw_content": extract_result["raw_content"]
+                if include_raw_content
+                else None,
             }
             if include_images:
                 result_item["images"] = extract_result["images"]
@@ -349,14 +382,18 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         if include_answer:
             answer_depth = "advanced" if include_answer == "advanced" else "basic"
             answer_content = " ".join([r["content"] for r in results[:3]])
-            answer = answer_content[:200] + "..." if len(answer_content) > 200 else answer_content
+            answer = (
+                answer_content[:200] + "..."
+                if len(answer_content) > 200
+                else answer_content
+            )
         return {
             "query": query,
             "follow_up_questions": None,
             "answer": answer,
             "images": images if include_images else None,
-            "results": results[:self.max_results],
-            "response_time": asyncio.get_event_loop().time() - start_time
+            "results": results[: self.max_results],
+            "response_time": asyncio.get_event_loop().time() - start_time,
         }
 
     def raw_results(
@@ -377,15 +414,30 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         auto_parameters: Optional[bool],
         country: Optional[str],
     ) -> Dict[str, Any]:
-        return asyncio.run(self.raw_results_async(
-            query, include_domains, exclude_domains, search_depth, include_images,
-            time_range, topic, include_favicon, start_date, end_date,
-            include_answer, include_raw_content, include_image_descriptions,
-            auto_parameters, country
-        ))
+        return asyncio.run(
+            self.raw_results_async(
+                query,
+                include_domains,
+                exclude_domains,
+                search_depth,
+                include_images,
+                time_range,
+                topic,
+                include_favicon,
+                start_date,
+                end_date,
+                include_answer,
+                include_raw_content,
+                include_image_descriptions,
+                auto_parameters,
+                country,
+            )
+        )
+
 
 class PlaywrightSearch(BaseTool):
     """Tool that searches the web using Playwright and SearXNG."""
+
     name: str = "playwright_search"
     description: str = (
         "A search engine using Playwright and SearXNG for comprehensive, accurate results. "
@@ -409,7 +461,9 @@ class PlaywrightSearch(BaseTool):
     include_image_descriptions: bool = False
     auto_parameters: Optional[bool] = None
     country: Optional[str] = None
-    api_wrapper: PlaywrightSearchAPIWrapper = Field(default_factory=PlaywrightSearchAPIWrapper)
+    api_wrapper: PlaywrightSearchAPIWrapper = Field(
+        default_factory=PlaywrightSearchAPIWrapper
+    )
 
     def _run(
         self,
@@ -428,13 +482,21 @@ class PlaywrightSearch(BaseTool):
         try:
             raw_results = self.api_wrapper.raw_results(
                 query=query,
-                include_domains=self.include_domains if self.include_domains else include_domains,
-                exclude_domains=self.exclude_domains if self.exclude_domains else exclude_domains,
+                include_domains=self.include_domains
+                if self.include_domains
+                else include_domains,
+                exclude_domains=self.exclude_domains
+                if self.exclude_domains
+                else exclude_domains,
                 search_depth=self.search_depth if self.search_depth else search_depth,
-                include_images=self.include_images if self.include_images else include_images,
+                include_images=self.include_images
+                if self.include_images
+                else include_images,
                 time_range=self.time_range if self.time_range else time_range,
                 topic=self.topic if self.topic else topic,
-                include_favicon=self.include_favicon if self.include_favicon else include_favicon,
+                include_favicon=self.include_favicon
+                if self.include_favicon
+                else include_favicon,
                 start_date=start_date,
                 end_date=end_date,
                 include_answer=self.include_answer,
@@ -481,13 +543,21 @@ class PlaywrightSearch(BaseTool):
         try:
             raw_results = await self.api_wrapper.raw_results_async(
                 query=query,
-                include_domains=self.include_domains if self.include_domains else include_domains,
-                exclude_domains=self.exclude_domains if self.exclude_domains else exclude_domains,
+                include_domains=self.include_domains
+                if self.include_domains
+                else include_domains,
+                exclude_domains=self.exclude_domains
+                if self.exclude_domains
+                else exclude_domains,
                 search_depth=self.search_depth if self.search_depth else search_depth,
-                include_images=self.include_images if self.include_images else include_images,
+                include_images=self.include_images
+                if self.include_images
+                else include_images,
                 time_range=self.time_range if self.time_range else time_range,
                 topic=self.topic if self.topic else topic,
-                include_favicon=self.include_favicon if self.include_favicon else include_favicon,
+                include_favicon=self.include_favicon
+                if self.include_favicon
+                else include_favicon,
                 start_date=start_date,
                 end_date=end_date,
                 include_answer=self.include_answer,
@@ -532,7 +602,9 @@ class PlaywrightSearch(BaseTool):
         if exclude_domains:
             suggestions.append("Remove exclude_domains argument")
         if search_depth == "basic":
-            suggestions.append("Try a more detailed search using 'advanced' search_depth")
+            suggestions.append(
+                "Try a more detailed search using 'advanced' search_depth"
+            )
         if topic != "general":
             suggestions.append("Try a general search using 'general' topic")
         return suggestions

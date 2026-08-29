@@ -544,9 +544,18 @@ class CustomLogger:
         self._last_message_flushed = False
 
     def __getattr__(self, name: str) -> Callable[..., None]:
+        # Dunder/private attributes MUST raise AttributeError for Python
+        # introspection (hasattr, inspect, pickle, LangGraph tracing, etc.)
+        if name.startswith("_"):
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'"
+            )
         if name.upper() in COLORS:
             return self.custom_logger_method(name.upper())
-        self.warning(f"'CustomLogger' object has no attribute '{name}'")
+        # Also raise for non-color attributes so hasattr() works correctly
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'"
+        )
 
     @staticmethod
     def _print_direct(

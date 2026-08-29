@@ -19,6 +19,7 @@ from jet.code.markdown_utils._markdown_parser import base_parse_markdown
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
 from jet.scrapers.playwright_utils import scrape_urls_sync
 from jet.scrapers.utils import extract_favicon_ico_link
+from jet.search.playwright.content_reranker import rerank_extracted_content
 from jet.transformers.formatters import format_html
 
 
@@ -181,6 +182,11 @@ class PlaywrightExtract(BaseTool):
     apiwrapper: PlaywrightExtractAPIWrapper = Field(
         default_factory=PlaywrightExtractAPIWrapper
     )
+    query_context: Optional[str] = Field(
+        default=None,
+        description="Optional query to rerank extracted content against. "
+        "When provided, returns only the most relevant sections.",
+    )
 
     def _run(
         self,
@@ -189,6 +195,7 @@ class PlaywrightExtract(BaseTool):
         include_images: bool = True,
         include_favicon: bool = True,
         format: Optional[Literal["markdown", "text"]] = None,
+        query_context: Optional[str] = None,  # NEW PARAMETER
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         try:
@@ -205,6 +212,31 @@ class PlaywrightExtract(BaseTool):
                 else include_favicon,
                 format=self.format if self.format else format,
             )
+
+            # Apply hybrid reranking if query context provided
+            active_query = query_context or self.query_context
+            if active_query and raw_results.get("results"):
+                for result in raw_results["results"]:
+                    if result.get("raw_content"):
+                        reranked = rerank_extracted_content(
+                            query=active_query,
+                            content=result["raw_content"],
+                            top_n=3,
+                        )
+                        if reranked:
+                            result["relevant_sections"] = [
+                                {
+                                    "rank": r["rank"],
+                                    "score": r["score"],
+                                    "text": r["text"],
+                                }
+                                for r in reranked
+                            ]
+                            logger.info(
+                                f"Reranked {result['url']}: "
+                                f"{len(reranked)} relevant sections found"
+                            )
+
             results = raw_results.get("results", [])
             failed_results = raw_results.get("failed_results", [])
             if not results or len(failed_results) == len(urls):
@@ -232,6 +264,7 @@ class PlaywrightExtract(BaseTool):
         include_images: bool = True,
         include_favicon: bool = True,
         format: Optional[Literal["markdown", "text"]] = None,
+        query_context: Optional[str] = None,  # NEW PARAMETER
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> Dict[str, Any]:
         try:
@@ -248,6 +281,31 @@ class PlaywrightExtract(BaseTool):
                 else include_favicon,
                 format=self.format if self.format else format,
             )
+
+            # Apply hybrid reranking if query context provided
+            active_query = query_context or self.query_context
+            if active_query and raw_results.get("results"):
+                for result in raw_results["results"]:
+                    if result.get("raw_content"):
+                        reranked = await maybe_async_rerank_extracted_content(
+                            query=active_query,
+                            content=result["raw_content"],
+                            top_n=3,
+                        )
+                        if reranked:
+                            result["relevant_sections"] = [
+                                {
+                                    "rank": r["rank"],
+                                    "score": r["score"],
+                                    "text": r["text"],
+                                }
+                                for r in reranked
+                            ]
+                            logger.info(
+                                f"Reranked {result['url']}: "
+                                f"{len(reranked)} relevant sections found"
+                            )
+
             results = raw_results.get("results", [])
             failed_results = raw_results.get("failed_results", [])
             if not results and len(failed_results) == len(urls):
@@ -276,6 +334,7 @@ class PlaywrightExtract(BaseTool):
         include_images: bool = True,
         include_favicon: bool = True,
         format: Optional[Literal["markdown", "text"]] = None,
+        query_context: Optional[str] = None,  # NEW PARAMETER for consistency
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
         use_cache: bool = True,
         url_limit: Optional[int] = None,
@@ -330,6 +389,24 @@ class PlaywrightExtract(BaseTool):
                 if self.include_favicon:
                     favicon = extract_favicon_ico_link(html)
                     result["favicon"] = favicon
+
+                # Optionally hybrid reranking in the stream
+                active_query = query_context or self.query_context
+                if active_query and result.get("raw_content"):
+                    reranked = rerank_extracted_content(
+                        query=active_query,
+                        content=result["raw_content"],
+                        top_n=3,
+                    )
+                    if reranked:
+                        result["relevant_sections"] = [
+                            {"rank": r["rank"], "score": r["score"], "text": r["text"]}
+                            for r in reranked
+                        ]
+                        logger.info(
+                            f"Reranked {result['url']}: "
+                            f"{len(reranked)} relevant sections found"
+                        )
 
                 yield result
 
