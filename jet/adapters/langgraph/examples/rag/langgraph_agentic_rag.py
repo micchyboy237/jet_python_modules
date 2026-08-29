@@ -21,11 +21,11 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
-from langchain_core.pydantic_v1 import BaseModel, Field
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Shared Resources (initialized once, reused across all nodes)
@@ -100,7 +100,7 @@ retriever = vectorstore.as_retriever()
 # Tools
 # ---------------------------------------------------------------------------
 
-from langchain.tools.retriever import create_retriever_tool
+from langchain_core.tools.retriever import create_retriever_tool
 
 retriever_tool = create_retriever_tool(
     retriever,

@@ -42,9 +42,9 @@ class ChatLlamaCpp(ChatOpenAI):
         chat_template_kwargs = merged_extra_body.setdefault("chat_template_kwargs", {})
         chat_template_kwargs["enable_thinking"] = enable_thinking
 
+        kwargs["extra_body"] = merged_extra_body
         kwargs["model_kwargs"] = {
             **kwargs.get("model_kwargs", {}),
-            "extra_body": merged_extra_body,
         }
 
         super().__init__(
