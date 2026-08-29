@@ -5,6 +5,7 @@ sys.path.append(
 )
 import json
 import uuid
+import warnings
 from typing import List, Tuple, Union
 
 from dotenv import load_dotenv
@@ -25,6 +26,13 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from phoenix.otel import HTTPSpanExporter
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Suppress harmless LangChain extra_body warning
+warnings.filterwarnings(
+    "ignore",
+    message="Parameters {'extra_body'} should be specified explicitly.*",
+    category=UserWarning,
+)
 
 load_dotenv()
 
@@ -49,6 +57,40 @@ def _redact(text: str) -> str:
         if pattern in lower:
             return "[REDACTED]"
     return text
+
+
+def _extract_token_usage(response_obj) -> dict:
+    """Extract token usage from LangChain response if available."""
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    try:
+        # LangChain AIMessage stores usage in response_metadata or usage_metadata
+        if hasattr(response_obj, "usage_metadata") and response_obj.usage_metadata:
+            um = response_obj.usage_metadata
+            usage["prompt_tokens"] = um.get("input_tokens", 0)
+            usage["completion_tokens"] = um.get("output_tokens", 0)
+            usage["total_tokens"] = um.get("total_tokens", 0)
+        elif (
+            hasattr(response_obj, "response_metadata")
+            and response_obj.response_metadata
+        ):
+            rm = response_obj.response_metadata
+            if "token_usage" in rm:
+                tu = rm["token_usage"]
+                usage["prompt_tokens"] = tu.get("prompt_tokens", 0)
+                usage["completion_tokens"] = tu.get("completion_tokens", 0)
+                usage["total_tokens"] = tu.get("total_tokens", 0)
+    except Exception:
+        pass
+    return usage
+
+
+def _set_llm_token_attrs(span, usage: dict):
+    """Set token count attributes on an LLM span."""
+    span.set_attribute(SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage["prompt_tokens"])
+    span.set_attribute(
+        SpanAttributes.LLM_TOKEN_COUNT_COMPLETION, usage["completion_tokens"]
+    )
+    span.set_attribute(SpanAttributes.LLM_TOKEN_COUNT_TOTAL, usage["total_tokens"])
 
 
 def encode_pdf(path, chunk_size=1000, chunk_overlap=200):
@@ -130,11 +172,17 @@ def retrieval_evaluator(query: str, document: str) -> float:
             RetrievalEvaluatorInput, method="json_mode"
         )
         input_variables = {"query": query, "document": document}
-        result = chain.invoke(input_variables).relevance_score
+        result_obj = chain.invoke(input_variables)
+        score = result_obj.relevance_score
 
-        span.set_attribute(SpanAttributes.OUTPUT_VALUE, str(result))
-        span.set_attribute("crag.relevance_score", result)
-        return result
+        # Extract token usage from the underlying AIMessage if accessible
+        # Note: with_structured_output may strip metadata; fallback to 0 if unavailable
+        usage = _extract_token_usage(result_obj)
+        _set_llm_token_attrs(span, usage)
+
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, str(score))
+        span.set_attribute("crag.relevance_score", score)
+        return score
 
 
 class KnowledgeRefinementInput(BaseModel):
@@ -180,8 +228,12 @@ def knowledge_refinement(document: str, query: str = "") -> List[str]:
             KnowledgeRefinementInput, method="json_mode"
         )
         input_variables = {"document": document, "query": query}
-        result = chain.invoke(input_variables).key_points
+        result_obj = chain.invoke(input_variables)
+        result = result_obj.key_points
         points = [point.strip() for point in result.split("\n") if point.strip()]
+
+        usage = _extract_token_usage(result_obj)
+        _set_llm_token_attrs(span, usage)
 
         span.set_attribute(
             SpanAttributes.OUTPUT_VALUE, _redact("\n".join(points)[:2000])
@@ -220,7 +272,11 @@ def rewrite_query(query: str) -> str:
             QueryRewriterInput, method="json_mode"
         )
         input_variables = {"query": query}
-        rewritten = chain.invoke(input_variables).query.strip()
+        result_obj = chain.invoke(input_variables)
+        rewritten = result_obj.query.strip()
+
+        usage = _extract_token_usage(result_obj)
+        _set_llm_token_attrs(span, usage)
 
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, _redact(rewritten))
         return rewritten
@@ -279,10 +335,11 @@ def retrieve_documents(query: str, faiss_index: FAISS, k: int = 3) -> List[str]:
 
 
 def evaluate_documents(query: str, documents: List[str]) -> List[float]:
-    """Evaluate documents with parent span wrapping individual evaluator calls."""
+    """Evaluate documents with parent CHAIN span wrapping individual evaluator calls."""
     with tracer.start_as_current_span(
         "crag.evaluate_documents",
         attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.CHAIN.value,
             "crag.doc_count_to_evaluate": len(documents),
             SpanAttributes.INPUT_VALUE: _redact(query),
         },
@@ -354,7 +411,11 @@ def generate_response(
             ),
         }
         response_chain = response_prompt | llm
-        response_content = response_chain.invoke(input_variables).content
+        response_msg = response_chain.invoke(input_variables)
+        response_content = response_msg.content
+
+        usage = _extract_token_usage(response_msg)
+        _set_llm_token_attrs(span, usage)
 
         span.set_attribute(
             SpanAttributes.OUTPUT_VALUE, _redact(response_content[:3000])
@@ -395,6 +456,7 @@ def crag_process(query: str, faiss_index: FAISS) -> str:
         with tracer.start_as_current_span(
             "crag.decide",
             attributes={
+                SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.CHAIN.value,
                 "crag.max_relevance_score": max_score,
                 "crag.threshold_high": 0.7,
                 "crag.threshold_low": 0.3,
