@@ -1,10 +1,5 @@
 [
     {
-        "name": "arize-phoenix",
-        "version": "20.0.0",
-        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/arize-phoenix"
-    },
-    {
         "name": "audioflux",
         "version": "0.1.9",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux"
@@ -21,7 +16,7 @@
     },
     {
         "name": "crawlee",
-        "version": "1.9.1",
+        "version": "1.9.4",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawlee-python"
     },
     {
@@ -31,7 +26,7 @@
     },
     {
         "name": "deepeval",
-        "version": "4.1.7",
+        "version": "4.2.0",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/deepeval"
     },
     {
@@ -66,12 +61,12 @@
     },
     {
         "name": "langchain-core",
-        "version": "1.5.4",
+        "version": "1.5.5",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/core"
     },
     {
         "name": "langchain-openai",
-        "version": "1.4.3",
+        "version": "1.5.1",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langchain/libs/partners/openai"
     },
     {
@@ -121,7 +116,7 @@
     },
     {
         "name": "unstructured",
-        "version": "0.26.1",
+        "version": "0.27.5",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/unstructured"
     },
     {
