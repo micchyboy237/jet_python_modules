@@ -31,8 +31,22 @@ def suppress_logging():
 
     transformers_logging.set_verbosity_warning()
 
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Silence httpcore/httpx socket-level tracing
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpcore2").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("hpack").setLevel(logging.WARNING)
+
+    # Silence LiteLLM internal debug logs
+    logging.getLogger("LiteLLM").setLevel(logging.INFO)
+    logging.getLogger("litellm").setLevel(logging.INFO)
+
+    # Suppress HTTP request/response logs from openai
+    logging.getLogger("openai").setLevel(logging.WARNING)
+
+    # Silence aiohttp transport noise
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
+
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
     logging.getLogger("requests").setLevel(logging.WARNING)
@@ -45,9 +59,6 @@ def suppress_logging():
 
     # Set Numba's logging level to WARNING or higher to suppress debug/info logs
     logging.getLogger("numba").setLevel(logging.WARNING)
-
-    # Suppress HTTP request/response logs from openai
-    logging.getLogger("openai").setLevel(logging.WARNING)
 
     # Suppress DEBUG/INFO from markdown-it-py and mdit_plain modules
     logging.getLogger("markdown_it").setLevel(logging.WARNING)
