@@ -86,7 +86,6 @@ General:
 
 - Browse when beneficial or requested.
 - Always use easy to understand terms.
-- Dont use memory from previous artifacts.
 
 My device:
 
