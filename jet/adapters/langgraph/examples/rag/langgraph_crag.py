@@ -129,18 +129,17 @@ def build_crag_graph(
 ):
     """Build and compile the CRAG workflow with full observability."""
 
-    # --- Structured grader ---
-    structured_llm_grader = llm.with_structured_output(
-        GradeDocuments, method="json_mode"
-    )
+    # --- Manual JSON grader (reliable with small local LLMs) ---
     grade_prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
                 (
                     "You are a grader assessing relevance of a retrieved document to a user question.\n"
-                    "If the document contains keyword(s) or semantic meaning related to the question, grade it as relevant.\n"
-                    "Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question."
+                    "If the document contains keyword(s) or semantic meaning related to the question, grade it as relevant.\n\n"
+                    "Respond ONLY with valid JSON in this EXACT format:\n"
+                    '{{"binary_score": "yes"}} or {{"binary_score": "no"}}\n'
+                    "Do NOT include any other fields, explanations, or markdown."
                 ),
             ),
             (
@@ -149,7 +148,7 @@ def build_crag_graph(
             ),
         ]
     )
-    retrieval_grader = grade_prompt | structured_llm_grader
+    grade_chain = grade_prompt | llm
 
     # --- RAG generation chain ---
     rag_prompt = ChatPromptTemplate.from_messages(
@@ -175,7 +174,8 @@ def build_crag_graph(
                 "system",
                 (
                     "You are a question re-writer that converts an input question to a better version that is optimized\n"
-                    "for web search. Look at the input and try to reason about the underlying semantic intent / meaning."
+                    "for web search. Look at the input and try to reason about the underlying semantic intent / meaning.\n\n"
+                    "Respond ONLY with the rewritten question as plain text. Do NOT include JSON, explanations, or markdown."
                 ),
             ),
             (
@@ -253,10 +253,24 @@ def build_crag_graph(
             web_search = "No"
             for d in documents:
                 content = d.page_content if hasattr(d, "page_content") else str(d)
-                score = retrieval_grader.invoke(
+                response_msg = grade_chain.invoke(
                     {"question": question, "document": content}
                 )
-                grade = score.binary_score
+                raw = (
+                    response_msg.content.strip()
+                    if hasattr(response_msg, "content")
+                    else str(response_msg).strip()
+                )
+                try:
+                    parsed = json.loads(raw)
+                    grade = parsed.get("binary_score", "no").lower().strip()
+                except (json.JSONDecodeError, AttributeError):
+                    # Fallback: check if raw text contains yes/no
+                    grade = "yes" if "yes" in raw.lower() else "no"
+                    logger.warning(
+                        f"JSON parse failed for grader, fallback to '{grade}'. Raw: {raw[:100]}"
+                    )
+
                 if grade == "yes":
                     logger.info("---GRADE: DOCUMENT RELEVANT---")
                     filtered_docs.append(d)
