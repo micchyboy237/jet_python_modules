@@ -18,8 +18,9 @@ from jet.adapters.langchain.chat_llama_cpp import ChatLlamaCpp
 from jet.adapters.langchain.tools.searxng_search_tool import SearXNGSearchResults
 from jet.adapters.llama_cpp.config import LLM_MODEL, PHOENIX_REST_API
 from jet.logger import logger
-from langgraph.graph import END, START, Send, StateGraph
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.types import Send
 from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
