@@ -203,7 +203,7 @@ def encode_pdf(
 
 
 # Initialize LLM and search tool once at module level (no dynamic config needed)
-llm = get_chat_openai(model=LLM_MODEL, max_tokens=1000, temperature=0)
+llm = get_chat_openai(model=LLM_MODEL, max_tokens=16000, temperature=0.3)
 search = SearXNGSearchResults()
 
 

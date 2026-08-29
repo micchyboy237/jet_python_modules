@@ -35,7 +35,7 @@ class SearXNGInput(BaseModel):
         default=0, description="Safe search level: 0 (off), 1 (moderate), 2 (strict)."
     )
     years_ago: int = Field(
-        default=1,
+        default=3,
         description="Limit results to this many years ago when no explicit min_date is set.",
     )
 
