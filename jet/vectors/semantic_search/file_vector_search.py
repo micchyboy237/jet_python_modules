@@ -527,6 +527,7 @@ def search_files(
     preprocess: Callable[[str], str] | None = None,
     weights: Weights | None = None,
     batch_size: int = 64,
+    max_workers: int = 2,
     show_progress: bool = True,
     use_cache: bool = False,
     query_prefix: str = DEFAULT_QUERY_PREFIX,
@@ -535,12 +536,49 @@ def search_files(
     """
     Search files using vector similarity on chunked contents + file metadata.
 
-    Yields up to top_k results iteratively that meet the threshold, or all results if top_k is None.
-    Uses llama_cpp server for both embedding generation and token counting.
+    Yields up to top_k results iteratively that meet the threshold, or all
+    results if top_k is None. Uses a remote llama.cpp server for embedding
+    generation and token counting.
 
     Query text is embedded with EMBED_QUERY_PREFIX and file name/dir/content
-    text is embedded with EMBED_DOC_PREFIX (both from jet.adapters.llama_cpp.config),
-    matching the asymmetric prefix convention expected by nomic-embed-style models.
+    text is embedded with EMBED_DOC_PREFIX (both from
+    jet.adapters.llama_cpp.config), matching the asymmetric prefix convention
+    expected by nomic-embed-style models.
+
+    Remote Tuning Guide (Mac M1 → Windows PC):
+        batch_size:
+            - 64 (default): Balanced for WiFi and LAN
+            - 128+: Use on wired gigabit ethernet only
+            - 32: Use if experiencing timeouts on slow WiFi
+        max_workers:
+            - 2 (default): Safe for WiFi, prevents TCP saturation
+            - 4: Use on wired gigabit with 8GB+ VRAM GPU
+            - 1: Use if server is shared or on congested networks
+
+    Args:
+        paths: Single path or list of paths to scan
+        query: Search query string
+        extensions: File extensions to include (e.g., ['.py', '.md'])
+        top_k: Maximum results to yield (None = all)
+        embed_model: Embedding model identifier
+        chunk_size: Token size per content chunk
+        chunk_overlap: Overlap tokens between consecutive chunks
+        threshold: Minimum weighted similarity score to yield
+        tokenizer: Optional callable to count tokens (defaults to llama_cpp)
+        split_chunks: If True, yield individual chunks; if False, merge adjacent
+        includes: Glob patterns to include
+        excludes: Glob patterns to exclude
+        preprocess: Optional text preprocessing callable
+        weights: Similarity weights for name/dir/content components
+        batch_size: Texts per embedding request (higher = better RTT amortization)
+        max_workers: Concurrent embedding threads (lower = safer for remote)
+        show_progress: Display progress bars during embedding
+        use_cache: Enable embedding cache to skip unchanged files
+        query_prefix: Prefix prepended to query text before embedding
+        doc_prefix: Prefix prepended to document text before embedding
+
+    Yields:
+        FileSearchResult dictionaries sorted by weighted similarity score
     """
 
     def default_tokenizer(text):
@@ -573,6 +611,7 @@ def search_files(
     dir_texts = [Path(p).parent.name or "root" for p in unique_files]
     chunk_texts = [chunk for _, chunk, _, _, _ in chunk_data]
 
+    # Embed query
     query_processed = preprocess(query) if preprocess else query
     logger.info(f"Embedding query: {query_processed[:100]}...")
     query_vector = embed(
@@ -583,6 +622,7 @@ def search_files(
     )
     logger.debug(f"Query vector shape: {query_vector.shape}")
 
+    # Embed file names and directory names
     processed_name_texts = [
         preprocess(name) if preprocess else name for name in name_texts
     ]
@@ -598,6 +638,7 @@ def search_files(
             model=embed_model,
             return_format="numpy",
             batch_size=min(128, len(name_dir_texts)),
+            max_workers=max_workers,
             show_progress=True,
             progress_description="Embedding names/dirs",
             prefix=doc_prefix,
@@ -610,6 +651,7 @@ def search_files(
         name_vectors = np.array([])
         dir_vectors = np.array([])
 
+    # Embed content chunks
     processed_chunk_texts = [preprocess(c) if preprocess else c for c in chunk_texts]
     logger.info(f"Embedding {len(processed_chunk_texts)} chunks...")
     try:
@@ -618,7 +660,7 @@ def search_files(
             model=embed_model,
             return_format="numpy",
             batch_size=batch_size,
-            max_workers=6,
+            max_workers=max_workers,
             show_progress=True,
             progress_description="Embedding chunks",
             prefix=doc_prefix,
@@ -631,6 +673,7 @@ def search_files(
         logger.error(f"Failed to embed chunks: {e}")
         return
 
+    # Compute similarities and yield results
     results: list[FileSearchResult] = []
     chunk_counts = {}
     yielded = 0
@@ -677,6 +720,7 @@ def search_files(
                 logger.info(f"Reached top_k limit ({top_k}). Stopping search.")
                 return
 
+    # Sort and optionally merge remaining results
     results.sort(key=lambda x: x["score"], reverse=True)
     for i, r in enumerate(results, 1):
         r["rank"] = i
@@ -685,7 +729,6 @@ def search_files(
         logger.info(f"Merging {len(results)} results...")
         merged_results = merge_results(results, tokenizer)
         logger.info(f"Merged into {len(merged_results)} results")
-
         for i, result in enumerate(
             merged_results if top_k is None else merged_results[:top_k], 1
         ):

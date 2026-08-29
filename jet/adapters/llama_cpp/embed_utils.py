@@ -1,5 +1,4 @@
-# jet.adapters.llama_cpp.embed_utils
-
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Literal, Union, overload
 
@@ -11,7 +10,6 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskID, TextColumn
 
 console = Console()
-
 client = get_embedding_client()
 
 
@@ -31,7 +29,7 @@ def embed(
     return_format: Literal["numpy", "list"] = "numpy",
     max_workers: int = 2,
     show_progress: bool = True,
-    batch_size: int | None = 16,
+    batch_size: int | None = 64,
     progress_description: str = "Embedding texts",
     prefix: str | None = None,
 ) -> Union[list[list[float]], np.ndarray]: ...
@@ -43,22 +41,20 @@ def embed(
     return_format: Literal["numpy", "list"] = "numpy",
     max_workers: int = 2,
     show_progress: bool = True,
-    batch_size: int | None = 16,
+    batch_size: int | None = 64,
     progress_description: str = "Embedding texts",
     prefix: str | None = None,
 ) -> Union[list[float], list[list[float]], np.ndarray]:
     """
-    Unified embedding interface.
+    Unified embedding interface for local or remote llama.cpp servers.
 
     - str input → uses embed_single
     - list[str] input → uses embed_batch
 
-    Keeps API ergonomic while reusing existing implementations.
-
-    VRAM Optimization Notes:
-    - Default max_workers=2 (reduced from 6) to limit concurrent GPU requests
-    - Default batch_size=16 (reduced from 32) to reduce per-request memory
-    - For large datasets, consider max_workers=1 with larger batch_size
+    Remote Optimization Notes:
+    - Default batch_size=64 amortizes network RTT over more texts per request
+    - Default max_workers=2 prevents TCP connection saturation on WiFi/LAN
+    - For wired gigabit connections, increase batch_size to 128 and max_workers to 4
     """
     if isinstance(text, str):
         if prefix:
@@ -72,7 +68,6 @@ def embed(
     if isinstance(text, list):
         if prefix:
             text = [f"{prefix}{t}" for t in text]
-
         return embed_batch(
             texts=text,
             model=model,
@@ -116,7 +111,6 @@ def embed_chunk(
     texts: list[str], model: LLAMACPP_EMBED_KEYS = EMBED_MODEL
 ) -> list[list[float]]:
     """Embed a list of texts sequentially, returns list of embeddings in same order."""
-    # Keep returning plain Python lists here (cheaper + conversion happens once in embed_batch)
     return [embed_single(t, model=model, return_format="list") for t in texts]
 
 
@@ -126,27 +120,29 @@ def embed_batch(
     max_workers: int = 2,
     show_progress: bool = True,
     return_format: Literal["numpy", "list"] = "numpy",
-    batch_size: int | None = 16,
+    batch_size: int | None = 64,
     progress_description: str = "Embedding texts",
+    request_timeout: float = 120.0,
 ) -> Union[list[list[float]], np.ndarray]:
     """
     Embed multiple texts in parallel using ThreadPoolExecutor + batching.
-    Deduplicates input texts for efficiency, reconstructs output list in original order.
 
-    VRAM Optimization:
-    - Reduced default max_workers from 6 to 2 to limit concurrent GPU requests
-    - Reduced default batch_size from 32 to 16 to reduce per-request memory footprint
-    - For GTX 1660 (6GB VRAM), this prevents OOM errors during parallel processing
-    - For larger VRAM GPUs, you can increase these values
+    Optimized for remote llama.cpp servers (Mac M1 client → Windows PC server):
+    - Larger default batch_size (64) amortizes network round-trip latency
+    - Lower default max_workers (2) prevents TCP/WiFi saturation
+    - Connectivity check before processing avoids silent hangs
+    - Per-batch progress updates eliminate "stuck at 0%" perception
+    - Request timeout prevents indefinite blocking on network failures
 
     Args:
         texts: List of text strings to embed
         model: Model identifier. Defaults to EMBED_MODEL from config.
-        max_workers: Number of concurrent threads (default: 2, reduced from 6)
+        max_workers: Number of concurrent threads (default: 2 for remote safety)
         show_progress: Whether to show progress bar
         return_format: "numpy" or "list"
-        batch_size: Number of texts per batch (default: 16, reduced from 32)
+        batch_size: Number of texts per batch (default: 64 for remote RTT amortization)
         progress_description: Description for progress bar
+        request_timeout: Seconds to wait per batch before raising TimeoutError
 
     Returns:
         Embeddings as numpy array or list of lists
@@ -154,33 +150,42 @@ def embed_batch(
     if not texts:
         return np.array([]) if return_format == "numpy" else []
 
-    # ── Deduplicate while preserving original index mapping ───────────────
+    # Quick connectivity check before starting expensive work
+    if show_progress:
+        console.print("[dim]Connecting to embedding server...[/dim]")
+        start_time = time.monotonic()
+        try:
+            client.models.list()
+            elapsed = time.monotonic() - start_time
+            console.print(f"[green]Server reachable ({elapsed:.0f}ms RTT)[/green]")
+        except Exception as e:
+            console.print(
+                f"[red]Server unreachable: {e}. Check network/server status.[/red]"
+            )
+            raise
+
+    # Deduplicate input texts for efficiency
     text_to_indices: dict[str, list[int]] = {}
     for idx, text in enumerate(texts):
         text_to_indices.setdefault(text, []).append(idx)
 
     unique_texts = list(text_to_indices.keys())
-
-    # We embed only unique texts but must reconstruct full output later
     total_unique = len(unique_texts)
     total_texts = len(texts)
-
-    # Log in case deduplication occurred (original had duplicates)
     deduped_count = total_texts - total_unique
+
     if deduped_count > 0:
         console.print(
-            f"[yellow]Deduped: {total_texts} → {total_unique} (removed {deduped_count} duplicates)[/yellow]"
+            f"[yellow]Deduped: {total_texts} → {total_unique} "
+            f"(removed {deduped_count} duplicates)[/yellow]"
         )
 
     if batch_size is None or batch_size <= 1:
         batch_size = 1
 
-    # NOTE: progress reflects unique texts being embedded
-
-    # ── Progress setup ────────────────────────────────
+    # Initialize progress bar
     progress = None
     task_id: TaskID | None = None
-
     if show_progress:
         progress = Progress(
             SpinnerColumn(),
@@ -194,19 +199,17 @@ def embed_batch(
         task_id = progress.add_task(progress_description, total=total_unique)
 
     embeddings: list[list[float] | None] = [None] * total_texts
-
     batches = [
         (i, unique_texts[i : i + batch_size])
         for i in range(0, total_unique, batch_size)
     ]
 
-    # VRAM Safety: Limit concurrent workers to prevent GPU memory exhaustion
-    # GTX 1660 has 6GB VRAM - each concurrent request allocates KV cache + activations
-    actual_workers = min(max_workers, 4)  # Hard cap at 4 for safety
+    # Cap workers to prevent network/GPU saturation
+    actual_workers = min(max_workers, 4)
     if actual_workers < max_workers:
         console.print(
             f"[yellow]Limiting workers to {actual_workers} (requested {max_workers}) "
-            f"to prevent VRAM overflow[/yellow]"
+            f"to prevent network/GPU saturation[/yellow]"
         )
 
     with ThreadPoolExecutor(max_workers=actual_workers) as executor:
@@ -218,36 +221,43 @@ def embed_batch(
             for start_idx, batch_texts in batches
         }
 
+        completed_count = 0
         for future in as_completed(future_to_info):
             start_idx, batch_len = future_to_info[future]
             try:
-                batch_emb = future.result()
+                batch_emb = future.result(timeout=request_timeout)
 
-                # Map unique embeddings back to original indices
+                # Map embeddings back to original indices (handles duplicates)
                 for offset, emb in enumerate(batch_emb):
                     unique_text = unique_texts[start_idx + offset]
                     for original_idx in text_to_indices[unique_text]:
                         embeddings[original_idx] = emb
 
-                # Update progress
+                # Update progress immediately after each batch completes
+                completed_count += batch_len
                 if show_progress and task_id is not None:
-                    progress.update(task_id, advance=batch_len)
+                    progress.update(task_id, completed=completed_count)
 
+            except TimeoutError:
+                console.print(
+                    f"[red]Timeout after {request_timeout}s for batch at index "
+                    f"{start_idx}. Check server load/network.[/red]"
+                )
             except Exception as e:
                 console.print(
                     f"[red]Error in batch starting at index {start_idx} "
                     f"({batch_len} texts): {e}[/red]"
                 )
-                # Optionally continue or raise
 
     if show_progress and progress is not None:
         progress.stop()
 
+    # Filter out any None entries from failed batches
     embeddings = [e for e in embeddings if e is not None]
-
     if len(embeddings) != total_texts:
         console.print(
-            f"[yellow]Warning: Only {len(embeddings)}/{total_texts} texts embedded[/yellow]"
+            f"[yellow]Warning: Only {len(embeddings)}/{total_texts} "
+            f"texts embedded successfully[/yellow]"
         )
 
     if return_format == "numpy":

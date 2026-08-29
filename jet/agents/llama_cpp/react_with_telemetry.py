@@ -504,12 +504,25 @@ def run_react_loop(
 
 # ─── 7. USAGE ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Run the ReAct Agent with a user query."
+    )
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default="What were the key findings in the Q3 2026 earnings report?",
+        help='User query to run (default: "What were the key findings in the Q3 2026 earnings report?")',
+    )
+    args = parser.parse_args()
+
     llm = LocalLLMClient(LLM_BASE_URL, LLM_MODEL)
     embedder = LocalEmbedderClient(EMBED_BASE_URL_LG, EMBED_MODEL_LG)
     reranker = LocalRerankerClient(RERANK_BASE_URL, RERANK_MODEL)
 
     answer = run_react_loop(
-        user_query="What were the key findings in the Q3 2026 earnings report?",
+        user_query=args.query,
         llm=llm,
         embedder=embedder,
         reranker=reranker,
