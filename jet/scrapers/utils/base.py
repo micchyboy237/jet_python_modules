@@ -1067,16 +1067,20 @@ def is_element_clickable(
     if element is None:
         return False
 
-    tag = element.tag.lower()
+    tag = (
+        element.tag.lower()
+        if isinstance(element.tag, str)
+        else str(element.tag).lower()
+    )
     attrs = element.attrib
 
     # ✅ 1. JS-based detection (preferred)
     if js_clickables:
-        # Use xpath match if available, else fallback to tag/text heuristic
         el_id = attrs.get("id")
         el_href = attrs.get("href")
         el_role = attrs.get("role")
-        el_text = (element.text_content() or "").strip()[:100]
+        # ✅ FIX: Use itertext() instead of text_content() for lxml.etree._Element compatibility
+        el_text = "".join(element.itertext()).strip()[:100]
 
         for js_el in js_clickables:
             if js_el.get("role") == el_role and js_el.get("text") == el_text:
@@ -1193,20 +1197,18 @@ class BaseNode:
         if element is None:
             return None
 
-        # Use tree-level parent reference if available (TreeNode)
         parent_id: str | None = None
         if isinstance(self, TreeNode):
             parent_id = self.parent_id
         elif element.getparent() is not None:
             parent_elem = element.getparent()
 
-        direct_text = (
-            element.text_content()
-            if element.tag in TEXT_ELEMENTS
-            else element.text or ""
-        ).strip()
+        # ✅ FIX: Use itertext() for lxml.etree._Element compatibility
+        if element.tag in TEXT_ELEMENTS:
+            direct_text = "".join(element.itertext()).strip()
+        else:
+            direct_text = (element.text or "").strip()
 
-        # Prefer cached xpath
         xpath = self.xpath or get_xpath(element)
         css_selector = self.css_selector or get_css_selector(element)
         is_clickable = self.is_clickable or is_element_clickable(element)
@@ -1511,13 +1513,14 @@ def exclude_elements(doc: pq, excludes: list[str]) -> None:
 def _get_safe_output_dir() -> str:
     """
     Returns a safe, writable base directory for generated artifacts.
+    Always uses 'generated' as the immediate subdirectory under the entry file's directory.
     Falls back to './generated' if get_entry_file_dir() returns an empty string or root path.
     """
     entry_dir = get_entry_file_dir()
     # Check for empty string, root path, or non-existent/unwritable paths
     if not entry_dir or entry_dir == "/" or entry_dir == "\\":
         return os.path.abspath("./generated")
-    return entry_dir
+    return os.path.join(entry_dir, "generated")
 
 
 def extract_tree_with_text(
@@ -1541,14 +1544,20 @@ def extract_tree_with_text(
         url = None
         html = source
 
-    # Use safe directory resolver
     base_dir = _get_safe_output_dir()
     entry_name = get_entry_file_name(remove_extension=True) or "playwright_session"
+
+    # ✅ NEW: Resolve and read utils.js path relative to this module
+    _utils_js_path = (
+        Path(__file__).resolve().parent.parent / "browser" / "scripts" / "utils.js"
+    )
+    if not _utils_js_path.exists():
+        raise FileNotFoundError(f"Required JS utility not found: {_utils_js_path}")
+    _utils_js_content = _utils_js_path.read_text(encoding="utf-8")
 
     with sync_playwright() as p:
         traces_dir = os.path.join(base_dir, entry_name, "playwright", "traces")
         os.makedirs(traces_dir, exist_ok=True)
-
         browser = p.chromium.launch(
             headless=headless,
             executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
@@ -1557,14 +1566,24 @@ def extract_tree_with_text(
         ua = UserAgent()
         page = browser.new_page(user_agent=ua.random)
 
+        # ✅ Inject utils.js as init script (covers goto/reload/navigations)
+        page.add_init_script(_utils_js_content)
+        logger.debug(
+            f"Registered utils.js ({len(_utils_js_content)} chars) as init script"
+        )
+
         page_load_success = True
         try:
             if url:
                 page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
             else:
-                # Use "load" instead of "domcontentloaded" for static HTML strings.
-                # "domcontentloaded" can hang indefinitely on large/malformed static strings.
-                page.set_content(html, timeout=timeout_ms, wait_until="load")
+                page.set_content(
+                    html, timeout=timeout_ms, wait_until="domcontentloaded"
+                )
+                # ✅ CRITICAL: set_content() does NOT trigger add_init_script()
+                # Must manually inject utils.js into the current frame context
+                page.evaluate(_utils_js_content)
+                logger.debug("Manually injected utils.js after set_content()")
         except PlaywrightTimeoutError as e:
             logger.warning(
                 f"Playwright timeout ({timeout_ms}ms) exceeded while rendering content. "
