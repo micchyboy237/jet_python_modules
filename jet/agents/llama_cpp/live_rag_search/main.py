@@ -1,3 +1,5 @@
+# jet_python_modules/jet/agents/llama_cpp/live_rag_search/main.py
+
 import argparse
 import asyncio
 import uuid
@@ -75,7 +77,6 @@ async def async_main(args: argparse.Namespace) -> None:
 
     llm_kwargs = {"temperature": 0.1, "max_tokens": 4096}
 
-    # Select scraper
     if args.use_playwright:
         scraper = PlaywrightScraperProvider()
         logger.info("Using Playwright Scraper (JS Rendering Enabled)")

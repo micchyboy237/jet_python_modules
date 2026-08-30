@@ -1,3 +1,5 @@
+# jet_python_modules/jet/agents/llama_cpp/live_rag_search/memory.py
+
 import json
 from dataclasses import dataclass, field
 
@@ -12,6 +14,14 @@ class AccumulatedMemory:
         for entity_id, entity_data in new_entities.items():
             if self.total_fact_count >= limit:
                 break
+
+            # Defensive check: Ensure entity_data is a dict
+            if not isinstance(entity_data, dict):
+                if isinstance(entity_data, str):
+                    entity_data = {"value": entity_data}
+                else:
+                    continue
+
             if entity_id not in self.facts:
                 self.facts[entity_id] = dict(entity_data)
                 self.total_fact_count += len(entity_data)

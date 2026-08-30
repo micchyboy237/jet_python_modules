@@ -1,3 +1,5 @@
+# jet_python_modules/jet/agents/llama_cpp/live_rag_search/providers/scraper.py
+
 from abc import ABC, abstractmethod
 from typing import List, Optional
 from urllib.parse import urljoin
@@ -32,12 +34,17 @@ class HttpxScraperProvider(ScraperProvider):
             ) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
+                # Store raw HTML for link extraction if needed, but return text for LLM
+                self._last_html = resp.text
                 return self._clean_html(resp.text)
         except Exception as e:
             logger.warning(f"httpx scrape failed for {url}: {e}")
             return None
 
     async def extract_links(self, html_content: str, base_url: str) -> List[str]:
+        # If html_content is actually text (cleaned), this might fail.
+        # Ideally, we pass raw HTML. For now, we try to parse what we have.
+        # In a real flow, agent.py should pass raw HTML to this method.
         soup = BeautifulSoup(html_content, "html.parser")
         links = []
         for tag in soup.find_all("a", href=True):
@@ -68,28 +75,23 @@ class PlaywrightScraperProvider(ScraperProvider):
                 page = await context.new_page()
 
                 logger.debug(f"Playwright navigating to {url}")
-                # Convert seconds to ms for Playwright
                 await page.goto(
                     url, timeout=timeout * 1000, wait_until="domcontentloaded"
                 )
-
-                # Wait for network idle or specific content
                 await page.wait_for_timeout(2000)
-
-                # Scroll to bottom to trigger lazy loading
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await page.wait_for_timeout(1000)
 
                 html_content = await page.content()
                 await browser.close()
 
+                self._last_html = html_content
                 return self._clean_html(html_content)
         except Exception as e:
             logger.error(f"Playwright scrape failed for {url}: {e}")
             return None
 
     async def extract_links(self, html_content: str, base_url: str) -> List[str]:
-        # Reuse logic from Httpx provider as DOM parsing is same
         soup = BeautifulSoup(html_content, "html.parser")
         links = []
         for tag in soup.find_all("a", href=True):
