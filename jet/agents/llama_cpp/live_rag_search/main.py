@@ -7,6 +7,7 @@ import uuid
 from agent import LiveRAGSearchAgent
 from config import SafetyLimits
 from jet.adapters.llama_cpp.config import LLM_MODEL, PHOENIX_REST_API
+from jet.adapters.llama_cpp.factory import get_async_llm_client
 from jet.logger import logger
 from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 from opentelemetry import trace
@@ -77,6 +78,9 @@ async def async_main(args: argparse.Namespace) -> None:
 
     llm_kwargs = {"temperature": 0.1, "max_tokens": 4096}
 
+    # Create a shared client to manage lifecycle
+    llm_client = get_async_llm_client()
+
     if args.use_playwright:
         scraper = PlaywrightScraperProvider()
         logger.info("Using Playwright Scraper (JS Rendering Enabled)")
@@ -115,6 +119,9 @@ async def async_main(args: argparse.Namespace) -> None:
         trace_id_hex = format(root_span.get_span_context().trace_id, "032x")
         trace_url = f"{phoenix_host}/redirects/traces/{trace_id_hex}"
         print(f"\n🔗 Trace: {trace_url}")
+
+    # EXPLICIT CLEANUP
+    await llm_client.close()
 
 
 def main() -> None:
