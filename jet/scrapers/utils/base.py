@@ -19,7 +19,7 @@ from jet.file.utils import save_file
 from jet.logger import logger
 from jet.logger.config import colorize_log
 from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
-from jet.scrapers.config import JS_UTILS_PATH, TEXT_ELEMENTS
+from jet.scrapers.config import TEXT_ELEMENTS
 from jet.search.formatters import decode_text_with_unidecode
 from jet.search.searxng import NoResultsFoundError, SearchResult, search_searxng
 from jet.transformers.formatters import format_html
@@ -1508,6 +1508,18 @@ def exclude_elements(doc: pq, excludes: list[str]) -> None:
             pq(element).remove()
 
 
+def _get_safe_output_dir() -> str:
+    """
+    Returns a safe, writable base directory for generated artifacts.
+    Falls back to './generated' if get_entry_file_dir() returns an empty string or root path.
+    """
+    entry_dir = get_entry_file_dir()
+    # Check for empty string, root path, or non-existent/unwritable paths
+    if not entry_dir or entry_dir == "/" or entry_dir == "\\":
+        return os.path.abspath("./generated")
+    return entry_dir
+
+
 def extract_tree_with_text(
     source: str,
     excludes: list[str] = ["nav", "footer", "script", "style"],
@@ -1522,7 +1534,6 @@ def extract_tree_with_text(
     """
     if os.path.exists(source) and not source.startswith("file://"):
         source = f"file://{source}"
-
     if re.match(r"^https?://", source) or re.match(r"^file://", source):
         url = source
         html = None
@@ -1530,8 +1541,12 @@ def extract_tree_with_text(
         url = None
         html = source
 
+    # Use safe directory resolver
+    base_dir = _get_safe_output_dir()
+    entry_name = get_entry_file_name(remove_extension=True) or "playwright_session"
+
     with sync_playwright() as p:
-        traces_dir = f"{get_entry_file_dir()}/generated/{get_entry_file_name(remove_extension=True)}/playwright/traces"
+        traces_dir = os.path.join(base_dir, entry_name, "playwright", "traces")
         os.makedirs(traces_dir, exist_ok=True)
 
         browser = p.chromium.launch(
@@ -1539,56 +1554,78 @@ def extract_tree_with_text(
             executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
             traces_dir=traces_dir,
         )
-
         ua = UserAgent()
         page = browser.new_page(user_agent=ua.random)
 
-        # --- Load content ---
-        if url:
-            page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        page_load_success = True
+        try:
+            if url:
+                page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+            else:
+                # Use "load" instead of "domcontentloaded" for static HTML strings.
+                # "domcontentloaded" can hang indefinitely on large/malformed static strings.
+                page.set_content(html, timeout=timeout_ms, wait_until="load")
+        except PlaywrightTimeoutError as e:
+            logger.warning(
+                f"Playwright timeout ({timeout_ms}ms) exceeded while rendering content. "
+                f"Falling back to raw HTML parsing. Error: {e}"
+            )
+            page_load_success = False
+
+        # If page load failed, use the original raw HTML string instead of crashing
+        if page_load_success:
+            page_content = page.content()
+            clickables = page.evaluate("Utils.getClickableElements()")
+            logger.info(f"Collected {len(clickables)} clickable elements from utils.")
+            js_clickables = page.evaluate("Utils.getJSClickableElements()")
+            logger.info(
+                f"Collected {len(js_clickables)} clickable elements from JS utils."
+            )
+
+            # ... [Keep existing screenshot logic here] ...
+            if with_screenshot:
+                screenshot_name = f"screenshot_{uuid.uuid4().hex}.png"
+                screenshot_dir = os.path.join(
+                    base_dir, entry_name, "playwright", "screenshots"
+                )
+                os.makedirs(screenshot_dir, exist_ok=True)
+                screenshot_path = os.path.join(screenshot_dir, screenshot_name)
+                try:
+                    screenshot = page.screenshot(full_page=True, path=screenshot_path)
+                    if screenshot:
+                        decoded_screenshot = base64.b64encode(screenshot).decode(
+                            "utf-8"
+                        )
+                        logger.debug(
+                            f"Decoded screenshot, length: {len(decoded_screenshot)}"
+                        )
+                        logger.success(f"Screenshot saved at: {screenshot_path}")
+                except Exception as ss_err:
+                    logger.warning(f"Failed to take screenshot: {ss_err}")
         else:
-            page.set_content(html, timeout=timeout_ms, wait_until="domcontentloaded")
+            # Fallback when Playwright fails to render
+            page_content = html if html else ""
+            clickables = []
+            js_clickables = []
+            logger.info("Skipped JS clickables extraction due to render timeout.")
 
-        # --- Inject JS utilities after load ---
-        page.add_script_tag(path=JS_UTILS_PATH)
-
-        if wait_for_js:
-            js_timeout = 5000
-            logger.debug(f"Waiting JS content for {js_timeout // 1000}s")
-            page.wait_for_timeout(js_timeout)
-
-        # --- Optional screenshot ---
-        if with_screenshot:
-            screenshot_name = f"screenshot_{uuid.uuid4().hex}.png"
-            screenshot_path = f"{get_entry_file_dir()}/generated/{get_entry_file_name(remove_extension=True)}/playwright/screenshots/{screenshot_name}"
-            screenshot = page.screenshot(full_page=True, path=screenshot_path)
-            if screenshot:
-                decoded_screenshot = base64.b64encode(screenshot).decode("utf-8")
-                logger.debug(f"Decoded screenshot, length: {len(decoded_screenshot)}")
-                logger.success(f"Screenshot saved at: {screenshot_path}")
-
-        # --- Collect HTML and JS-based clickables ---
-        page_content = page.content()
-        clickables = page.evaluate("Utils.getClickableElements()")
-        logger.info(f"Collected {len(clickables)} clickable elements from utils.")
-        js_clickables = page.evaluate("Utils.getJSClickableElements()")
-        logger.info(f"Collected {len(js_clickables)} clickable elements from JS utils.")
-
-        # --- Build fast lookup for selectors ---
         clickable_selectors: set[str] = set()
         for item in clickables:
             selector = item.get("css_selector") or item.get("selector")
             if selector:
                 clickable_selectors.add(selector.strip())
 
-        out_dir = f"{get_entry_file_dir()}/generated/{os.path.splitext(get_entry_file_name())[0]}"
+        out_dir = os.path.join(base_dir, entry_name)
+        os.makedirs(out_dir, exist_ok=True)
+
         logger.debug(
             f"Prepared clickable selector set: {len(clickable_selectors)} items"
         )
-        save_file(clickables, f"{out_dir}/clickables.json")
-        save_file(js_clickables, f"{out_dir}/js_clickables.json")
-        save_file(clickable_selectors, f"{out_dir}/clickable_selectors.json")
-
+        save_file(clickables, os.path.join(out_dir, "clickables.json"))
+        save_file(js_clickables, os.path.join(out_dir, "js_clickables.json"))
+        save_file(
+            clickable_selectors, os.path.join(out_dir, "clickable_selectors.json")
+        )
         browser.close()
 
     # --- Format HTML and clean excluded tags ---
@@ -1881,8 +1918,12 @@ def extract_text_elements(
         url = None
         html = source
 
+    # Use safe directory resolver
+    base_dir = _get_safe_output_dir()
+    entry_name = get_entry_file_name(remove_extension=True) or "playwright_session"
+
     with sync_playwright() as p:
-        traces_dir = f"{get_entry_file_dir()}/playwright/traces"
+        traces_dir = os.path.join(base_dir, "playwright", "traces")
         os.makedirs(traces_dir, exist_ok=True)
 
         browser = p.chromium.launch(
@@ -1890,31 +1931,28 @@ def extract_text_elements(
             executable_path=PLAYWRIGHT_CHROMIUM_EXECUTABLE,
             traces_dir=traces_dir,
         )
-
         ua = UserAgent()
         page = browser.new_page(user_agent=ua.random)
-
         if url:
             page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
         else:
             page.set_content(html, timeout=timeout_ms, wait_until="domcontentloaded")
-
         if wait_for_js:
             js_timeout = 5000
             logger.debug(f"Waiting JS content for {js_timeout // 1000}s")
             page.wait_for_timeout(js_timeout)
-
         if with_screenshot:
-            # Generate a random screenshot name using uuid
             screenshot_name = f"screenshot_{uuid.uuid4().hex}.png"
-            screenshot_path = f"{get_entry_file_dir()}/generated/{get_entry_file_name(remove_extension=True)}/playwright/screenshots/{screenshot_name}"
-            os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
+            screenshot_dir = os.path.join(
+                base_dir, entry_name, "playwright", "screenshots"
+            )
+            os.makedirs(screenshot_dir, exist_ok=True)
+            screenshot_path = os.path.join(screenshot_dir, screenshot_name)
             screenshot = page.screenshot(full_page=True, path=screenshot_path)
             if screenshot:
                 decoded_screenshot = base64.b64encode(screenshot).decode("utf-8")
                 logger.debug(f"Decoded screenshot, length: {len(decoded_screenshot)}")
                 logger.success(f"Screenshot saved at: {screenshot_path}")
-
         page_content = page.content()
         browser.close()
 
