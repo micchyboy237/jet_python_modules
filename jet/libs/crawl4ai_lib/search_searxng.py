@@ -1,17 +1,16 @@
 """Semantic search pipeline for crawl4ai_lib.
 
-Searches via SearXNG, then reranks results using embeddings from the
-shared llama.cpp adapter. All embedding/scoring logic is delegated to
-jet.adapters.llama_cpp to avoid duplication.
+Phase 1: Searches via SearXNG using jet.search.searxng.async_search_searxng
+         (gains Redis caching, deduplication, filtering, score sorting).
+Phase 2: Reranks results using embeddings from jet.adapters.llama_cpp
+         (shared factory client, scoring utils, centralized config).
 """
 
 import argparse
 import asyncio
 from dataclasses import dataclass
 from typing import List, Optional, TypedDict
-from urllib.parse import urlencode, urljoin
 
-import httpx
 import numpy as np
 from jet.adapters.llama_cpp.factory import get_async_embedding_client
 from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
@@ -26,6 +25,7 @@ from jet.libs.crawl4ai_lib.config import (
     SEARXNG_URL,
 )
 from jet.logger import logger
+from jet.search.searxng import async_search_searxng
 from rich import box
 from rich.console import Console
 from rich.live import Live
@@ -52,44 +52,6 @@ class AppConfig:
     sites: Optional[List[str]]
 
 
-async def _request_with_retries(
-    client: httpx.AsyncClient,
-    method: str,
-    url: str,
-    max_retries: int = DEFAULT_MAX_RETRIES,
-    **kwargs,
-) -> httpx.Response:
-    """Internal helper for retrying GET/POST requests with exponential backoff."""
-    for attempt in range(max_retries + 1):
-        try:
-            if method.upper() == "GET":
-                response = await client.get(url, **kwargs)
-            elif method.upper() == "POST":
-                response = await client.post(url, **kwargs)
-            else:
-                raise ValueError(f"Unsupported method: {method}")
-            response.raise_for_status()
-            return response
-        except (httpx.RequestError, httpx.HTTPStatusError) as e:
-            if attempt == max_retries:
-                logger.error(
-                    f"_request_with_retries: max retries exceeded for "
-                    f"{method} {url} - {e}"
-                )
-                raise
-            delay = 2**attempt
-            logger.warning(
-                f"_request_with_retries: attempt {attempt + 1}/{max_retries} "
-                f"for {method} {url} ({type(e).__name__}), retrying in {delay}s"
-            )
-            console.print(
-                f"[yellow]⚠ Retry {attempt + 1}/{max_retries} for {method} {url} "
-                f"(error: {type(e).__name__}) in {delay}s...[/]"
-            )
-            await asyncio.sleep(delay)
-    raise RuntimeError("Max retries exceeded")
-
-
 async def embed_texts(
     texts: List[str],
     base_url: str = EMBED_BASE_URL,
@@ -109,7 +71,6 @@ async def embed_texts(
         f"embed_texts: n_texts={len(texts)}, model={embed_model}, base_url={base_url}"
     )
 
-    # PRE-CHECK: Verify server is reachable before attempting embeddings
     console.print(f"[dim]Verifying embedding server at {base_url}...[/dim]")
     try:
         check_client = get_async_embedding_client(
@@ -198,7 +159,6 @@ async def semantic_seed_filter(
             query_emb = embeddings[0]
 
             for i, (r, emb) in enumerate(zip(results, embeddings[1:]), 1):
-                # REUSED: Shared cosine_similarity from scoring_utils
                 score = cosine_similarity(query_emb, emb)
                 scored.append(
                     {
@@ -349,7 +309,11 @@ async def search_seed_results(
     max_results: int = DEFAULT_MAX_SEARCH_RESULTS,
     max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> List[dict]:
-    """Fetch raw search results from SearXNG with retry logic."""
+    """Fetch raw search results from SearXNG using shared async_search_searxng.
+
+    Gains Redis caching, deduplication, relevance filtering, and score sorting
+    from jet.search.searxng without duplicating any logic.
+    """
     logger.info(
         f"search_seed_results: query='{query[:80]}...', "
         f"url={searxng_base_url}, max_results={max_results}"
@@ -357,46 +321,34 @@ async def search_seed_results(
     console.print(f"[bold cyan]SearXNG[/] → [i]{query}[/i]", style="dim")
 
     with console.status("[bold green]Querying SearXNG...", spinner="dots"):
-        params = {
-            "q": query,
-            "format": "json",
-            "pageno": 1,
-            "language": "en",
-            "categories": "general",
-        }
-        query_string = urlencode(params)
-        full_url = (
-            urljoin(searxng_base_url.rstrip("/") + "/", "search") + "?" + query_string
-        )
-        console.print("[dim bright_black]SearXNG full request URL:[/]", style="dim")
-        console.print(f"[blue underline]{full_url}[/blue underline]", soft_wrap=True)
-        console.print("")
-
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            try:
-                resp = await _request_with_retries(
-                    client, "GET", full_url, max_retries=max_retries
-                )
-                data = resp.json()
-                results = []
-                for r in data.get("results", []):
-                    if r.get("url", "").startswith("http"):
-                        results.append(
-                            {
-                                "url": r["url"],
-                                "title": r.get("title", ""),
-                                "snippet": r.get("content", ""),
-                            }
-                        )
-                logger.info(
-                    f"search_seed_results: fetched {len(results)} results "
-                    f"(requested max={max_results})"
-                )
-                return results[:max_results]
-            except Exception as e:
-                logger.error(f"search_seed_results: SearXNG request failed - {e}")
-                console.print(f"[bold red]ERROR[/] SearXNG request failed: {e}")
-                return []
+        try:
+            search_results = await async_search_searxng(
+                query=query,
+                query_url=searxng_base_url,
+                count=max_results,
+                max_retries=max_retries,
+                timeout=timeout,
+                use_cache=True,
+            )
+            # Normalize SearchResult fields to simple dicts for downstream use
+            results = [
+                {
+                    "url": r.get("url", ""),
+                    "title": r.get("title", ""),
+                    "snippet": r.get("content", ""),
+                }
+                for r in search_results
+                if r.get("url", "").startswith("http")
+            ]
+            logger.info(
+                f"search_seed_results: fetched {len(results)} results "
+                f"(requested max={max_results})"
+            )
+            return results
+        except Exception as e:
+            logger.error(f"search_seed_results: SearXNG request failed - {e}")
+            console.print(f"[bold red]ERROR[/] SearXNG request failed: {e}")
+            return []
 
 
 async def semantic_search_results(

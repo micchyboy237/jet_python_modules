@@ -91,8 +91,6 @@ class CrawlResultProcessor:
                 if fit_md:
                     data["fit_markdown"] = fit_md
                     data["fit_markdown_length"] = len(fit_md)
-                    # NOTE: No longer storing duplicate data["markdown"] = fit_md
-                    # get_rag_context() resolves priority at read time
                 else:
                     md_str = getattr(markdown_obj, "raw_markdown", None) or str(
                         markdown_obj or ""
@@ -155,10 +153,6 @@ class CrawlResultProcessor:
 
         Assembles markdown sources sorted by relevance, truncating when
         the token budget is exhausted to prevent LLM context overflow.
-
-        Args:
-            max_tokens: Maximum tokens for assembled context.
-            model: Model name for token counting. Uses LLM_MODEL default.
         """
         if not self.results:
             return ""
@@ -166,7 +160,7 @@ class CrawlResultProcessor:
         if model is None:
             model = LLM_MODEL
 
-        # Final sort before assembly (since we skip some sorts during streaming)
+        # Final sort before assembly
         self.results.sort(
             key=lambda x: (x.get("relevance_score", 0.0), x.get("timestamp", 0)),
             reverse=True,

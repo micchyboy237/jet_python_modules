@@ -35,18 +35,13 @@ CRAWLER_MAX_SESSION_PERMIT = int(os.getenv("CRAWL_MAX_SESSION_PERMIT", "3"))
 CRAWLER_CHECK_INTERVAL = float(os.getenv("CRAWL_CHECK_INTERVAL", "1.0"))
 CRAWLER_MONITOR_MAX_WIDTH = int(os.getenv("CRAWL_MONITOR_MAX_WIDTH", "130"))
 
-# ---------------------------------------------------------------------------
-# Re-export adapter configs for single-import convenience
-# ---------------------------------------------------------------------------
 __all__ = [
-    # Adapter configs (re-exported)
     "EMBED_BASE_URL",
     "EMBED_MODEL",
     "LLM_BASE_URL",
     "LLM_MODEL",
     "RERANK_BASE_URL",
     "RERANK_MODEL",
-    # Crawler-specific configs
     "SEARXNG_URL",
     "DEFAULT_TOP_K",
     "DEFAULT_MAX_SEARCH_RESULTS",

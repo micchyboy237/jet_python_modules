@@ -2,10 +2,7 @@
 and generates structured RAG context.
 
 Usage:
-    # Run with default query and top 5 results
     python streaming_rag_crawler.py
-
-    # Custom query with more results
     python streaming_rag_crawler.py "Python async web scraping best practices" -k 10
 
 Outputs:
@@ -19,10 +16,12 @@ from pathlib import Path
 from typing import List
 
 import aiofiles
+from jet.adapters.llama_cpp.token_utils import count_tokens
 from jet.libs.crawl4ai_lib.async_web_crawler_manager import AsyncWebCrawlerManager
 from jet.libs.crawl4ai_lib.config import (
     CRAWLER_MAX_SESSION_PERMIT,
     CRAWLER_MEMORY_THRESHOLD_PERCENT,
+    LLM_MODEL,
 )
 from jet.libs.crawl4ai_lib.rag_crawler import CrawlResultProcessor
 from jet.libs.crawl4ai_lib.search_searxng import SemanticResult, semantic_search_results
@@ -78,8 +77,6 @@ async def main():
     processor = CrawlResultProcessor()
     processor.set_current_query(query)
 
-    # Manager creates MemoryAdaptiveDispatcher internally via _create_dispatcher()
-    # using these constructor parameters for memory threshold and concurrency
     crawler_manager = AsyncWebCrawlerManager(
         headless=False,
         verbose=True,
@@ -101,16 +98,16 @@ async def main():
         },
     )
 
-    # Save search results
     async with aiofiles.open(SEARCH_RESULTS_JSON, "w", encoding="utf-8") as f:
         await f.write(json.dumps(processor.get_results(), indent=2, ensure_ascii=False))
 
-    # Generate and save RAG context
     rag_context = processor.get_rag_context()
     async with aiofiles.open(RAG_CONTEXT_MD, "w", encoding="utf-8") as f:
         await f.write(rag_context)
 
-    # Save clean RAG results (without large markdown blobs)
+    # Count tokens for display (uses local tokenizer, no server call)
+    rag_context_tokens = count_tokens(rag_context, model=LLM_MODEL)
+
     rag_results = processor.get_results()
     clean_results = []
     for o in rag_results:
@@ -123,7 +120,6 @@ async def main():
     async with aiofiles.open(RAG_RESULTS_JSON, "w", encoding="utf-8") as f:
         await f.write(json.dumps(clean_results, indent=2, ensure_ascii=False))
 
-    # Save per-source files
     for o in rag_results:
         sub_dir = RAG_RESULTS_DIR / format_sub_source_dir(o["url"])
         sub_dir.mkdir(parents=True, exist_ok=True)
@@ -151,7 +147,7 @@ async def main():
     print(f"\n📁 RAG results saved to:\n   {full_path}")
 
     print(f"\n📝 RAG Context saved to:\n   {RAG_CONTEXT_MD.resolve().absolute()}")
-    print(f"   ({len(rag_context):,} characters)")
+    print(f"   ({rag_context_tokens:,} tokens)")
 
     logger.info("Streaming RAG crawl completed successfully")
 
