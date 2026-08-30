@@ -50,6 +50,19 @@ LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1
 DEFAULT_MODEL = "qwen3.5-uncensored:2b"
 MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
 
+PII_PATTERNS = ["ssn", "password", "api_key", "secret", "token"]
+
+
+def _redact(text: str) -> str:
+    """Redact sensitive content from text for safe tracing."""
+    if not isinstance(text, str):
+        return str(text)
+    lower = text.lower()
+    for pattern in PII_PATTERNS:
+        if pattern in lower:
+            return "[REDACTED]"
+    return text
+
 
 def format_trace_id(trace_id: int) -> str:
     return format(trace_id, "032x")
@@ -255,16 +268,20 @@ async def run_chat_stream_async(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Async stream a chat completion with full tool + structured output observability.
+    """Async stream a chat completion with full tool + structured output observability."""
+    PII_PATTERNS = ["ssn", "password", "api_key", "secret", "token"]
 
-    Args:
-        response_format: Accepts dict, Pydantic BaseModel, JSON Schema dict, or None.
-                         Automatically resolved to the correct API format via
-                         structured_output.resolve_response_format().
-    """
+    def _redact(text: str) -> str:
+        if not isinstance(text, str):
+            return str(text)
+        lower = text.lower()
+        for pattern in PII_PATTERNS:
+            if pattern in lower:
+                return "[REDACTED]"
+        return text
+
     resolved_fmt = resolve_response_format(response_format)
     api_response_format = resolved_fmt.api_format
-
     if resolved_fmt.output_format == OutputFormat.GRAMMAR:
         grammar_str = (api_response_format or {}).get("_grammar", "")
         if grammar_str:
@@ -272,7 +289,7 @@ async def run_chat_stream_async(
                 extra_body_params = {}
             extra_body_params["grammar"] = grammar_str
             logger.debug("📜 Moved grammar from response_format → extra_body.grammar")
-        api_response_format = None
+            api_response_format = None
 
     if project_name:
         setup_observability(
@@ -319,17 +336,20 @@ async def run_chat_stream_async(
                 ]
                 input_val = " ".join(text_parts)
 
-        loop_span.set_attribute(SpanAttributes.INPUT_VALUE, input_val)
+        loop_span.set_attribute(
+            SpanAttributes.INPUT_VALUE, _redact(str(input_val)[:3000])
+        )
+        if session_id is not None:
+            loop_span.set_attribute(SpanAttributes.SESSION_ID, session_id)
+
         trace_id = loop_span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+
         loop_span.set_attribute("llm.model", model)
         loop_span.set_attribute(
             "agent.mode", "agentic" if is_agentic else "single_turn"
         )
         loop_span.set_attribute("agent.has_tool_registry", is_agentic)
-
-        if session_id is not None:
-            loop_span.set_attribute("session.id", session_id)
         if is_agentic:
             loop_span.set_attribute("agent.max_tool_rounds", max_tool_rounds)
         if tools:
@@ -368,21 +388,13 @@ async def run_chat_stream_async(
                 existing_content = current_messages[existing_system_idx].get(
                     "content", ""
                 )
-                merged_content = (
-                    f"{existing_content}\n\n{resolved_fmt.system_prompt_addition}"
-                )
-                current_messages[existing_system_idx]["content"] = merged_content
-                logger.debug(
-                    f"📐 Merged schema prompt into existing system message at index {existing_system_idx}"
+                current_messages[existing_system_idx]["content"] = (
+                    f"{existing_content}\n{resolved_fmt.system_prompt_addition}"
                 )
             else:
-                schema_msg = {
-                    "role": "system",
-                    "content": resolved_fmt.system_prompt_addition,
-                }
-                current_messages.insert(0, schema_msg)
-                logger.debug(
-                    "📐 Injected schema prompt as new system message at index 0"
+                current_messages.insert(
+                    0,
+                    {"role": "system", "content": resolved_fmt.system_prompt_addition},
                 )
 
         last_result: StreamCompletionResult | None = None
@@ -390,7 +402,6 @@ async def run_chat_stream_async(
 
         while round_num < max_tool_rounds:
             round_num += 1
-
             with tracer.start_as_current_span(
                 f"turn_{round_num}",
                 attributes={
@@ -398,6 +409,19 @@ async def run_chat_stream_async(
                     "agent.round": round_num,
                 },
             ) as span:
+                if current_messages:
+                    last_msg = current_messages[-1]
+                    turn_input = last_msg.get("content", "")
+                    if isinstance(turn_input, list):
+                        turn_input = " ".join(
+                            p.get("text", "")
+                            for p in turn_input
+                            if p.get("type") == "text"
+                        )
+                    span.set_attribute(
+                        SpanAttributes.INPUT_VALUE, _redact(str(turn_input)[:3000])
+                    )
+
                 span.set_attribute("llm.model", model)
                 span.set_attribute(
                     "llm.image_source", str(image_source) if image_source else "none"
@@ -411,7 +435,6 @@ async def run_chat_stream_async(
                 span.set_attribute("llm.sampling.frequency_penalty", frequency_penalty)
                 span.set_attribute("llm.sampling.max_tokens", max_tokens)
                 span.set_attribute("llm.sampling.enable_thinking", enable_thinking)
-
                 if seed is not None:
                     span.set_attribute("llm.sampling.seed", seed)
                 if logit_bias:
@@ -426,26 +449,24 @@ async def run_chat_stream_async(
                         "llm.tools.names",
                         json.dumps([t.get("function", {}).get("name") for t in tools]),
                     )
-
                 span.set_attribute(
                     "llm.response_format.type", resolved_fmt.output_format.value
                 )
+
                 if resolved_fmt.output_format == OutputFormat.GRAMMAR:
                     span.set_attribute("llm.grammar.active", True)
                     span.set_attribute("llm.grammar.source", "response_format")
-                if resolved_fmt.schema:
-                    span.set_attribute(
-                        "llm.response_format.schema_name",
-                        resolved_fmt.schema.get("title", "unnamed"),
-                    )
-
-                grammar_value = (extra_body_params or {}).get("grammar")
-                if grammar_value:
-                    span.set_attribute("llm.grammar.active", True)
-                    span.set_attribute(
-                        "llm.grammar.rule_count", grammar_value.count("::=")
-                    )
-                    span.set_attribute("llm.grammar.preview", grammar_value[:500])
+                    if resolved_fmt.schema:
+                        span.set_attribute(
+                            "llm.response_format.schema_name",
+                            resolved_fmt.schema.get("title", "unnamed"),
+                        )
+                    grammar_value = (extra_body_params or {}).get("grammar")
+                    if grammar_value:
+                        span.set_attribute(
+                            "llm.grammar.rule_count", grammar_value.count("::=")
+                        )
+                        span.set_attribute("llm.grammar.preview", grammar_value[:500])
                 else:
                     span.set_attribute("llm.grammar.active", False)
 
@@ -456,12 +477,10 @@ async def run_chat_stream_async(
                     )
                     logger.info(f"🤖 Model        : {model}")
                     logger.info(
-                        f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k} "
-                        f"min_p={min_p} rep_pen={repeat_penalty}"
+                        f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k} min_p={min_p} rep_pen={repeat_penalty}"
                     )
                     logger.info(
-                        f"   freq_pen={frequency_penalty} pres_pen={presence_penalty} "
-                        f"seed={seed} stop={stop}"
+                        f"   freq_pen={frequency_penalty} pres_pen={presence_penalty} seed={seed} stop={stop}"
                     )
                     if logit_bias:
                         logger.info(f"   logit_bias={logit_bias}")
@@ -473,30 +492,29 @@ async def run_chat_stream_async(
                             f"🔧 Tools        : {tool_names} (choice={tool_choice})"
                         )
                     if resolved_fmt.output_format != OutputFormat.TEXT:
-                        logger.info(
+                        fmt_info = (
                             f"📐 Response fmt : {resolved_fmt.output_format.value}"
-                            + (
-                                f" (schema={resolved_fmt.model_type.__name__})"
-                                if resolved_fmt.model_type
-                                else ""
-                            )
                         )
+                        if resolved_fmt.model_type:
+                            fmt_info += f" (schema={resolved_fmt.model_type.__name__})"
+                        logger.info(fmt_info)
                     if extra_body_params:
                         logger.info(
                             f"🔩 Extra body   : {list(extra_body_params.keys())}"
                         )
+                    grammar_value = (extra_body_params or {}).get("grammar")
                     if grammar_value:
-                        rule_count = grammar_value.count("::=")
-                        logger.info(f"📜 Grammar      : active ({rule_count} rules)")
+                        logger.info(
+                            f"📜 Grammar      : active ({grammar_value.count('::=')} rules)"
+                        )
                     if session_id is not None:
                         logger.info(f"🧵 Session ID   : {session_id}")
                     console.print(
                         f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]"
                     )
-
-                logger.info(
-                    f"📨 Round {round_num}: {len(current_messages)} message(s) in history"
-                )
+                    logger.info(
+                        f"📨 Round {round_num}: {len(current_messages)} message(s) in history"
+                    )
 
                 extra_body: dict[str, Any] = {
                     "top_k": top_k,
@@ -508,9 +526,6 @@ async def run_chat_stream_async(
                     extra_body["repeat_penalty"] = repeat_penalty
                 if extra_body_params:
                     extra_body.update(extra_body_params)
-                    logger.debug(
-                        f"🔧 Merged extra_body_params: {list(extra_body_params.keys())}"
-                    )
 
                 api_kwargs: dict[str, Any] = {
                     "model": model,
@@ -535,188 +550,250 @@ async def run_chat_stream_async(
                     api_kwargs["response_format"] = api_response_format
 
                 logger.info(
-                    f"➡️  Sending request (thinking={enable_thinking}, "
-                    f"tools={bool(tools)}, format={resolved_fmt.output_format.value})"
+                    f"➡️  Sending request (thinking={enable_thinking}, tools={bool(tools)}, format={resolved_fmt.output_format.value})"
                 )
 
-                t_request_start = time.perf_counter()
-                collected_content: list[str] = []
-                tool_calls_acc: dict[int, dict[str, Any]] = {}
-                usage = None
-                first_token_at: float | None = None
-                finish_reason: str | None = None
+                # === DEDICATED ASYNC LLM SPAN ===
+                with tracer.start_as_current_span(
+                    "llm.chat.completion",
+                    attributes={
+                        SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.LLM.value,
+                        SpanAttributes.LLM_MODEL_NAME: model,
+                        SpanAttributes.LLM_INVOCATION_PARAMETERS: json.dumps(
+                            {
+                                "temperature": temperature,
+                                "top_p": top_p,
+                                "max_tokens": max_tokens,
+                                "enable_thinking": enable_thinking,
+                            }
+                        ),
+                    },
+                ) as llm_span:
+                    safe_messages = [
+                        {
+                            "role": m.get("role", ""),
+                            "content": _redact(str(m.get("content", ""))[:2000]),
+                        }
+                        for m in (current_messages or [])
+                    ]
+                    llm_span.set_attribute(
+                        SpanAttributes.LLM_INPUT_MESSAGES, json.dumps(safe_messages)
+                    )
 
-                try:
-                    stream: AsyncStream[
-                        ChatCompletionChunk
-                    ] = await client.chat.completions.create(**api_kwargs)
-                    in_think_block = False
-                    console.print("[bold cyan]Response:[/bold cyan] ", end="")
+                    t_request_start = time.perf_counter()
+                    collected_content: list[str] = []
+                    tool_calls_acc: dict[int, dict[str, Any]] = {}
+                    usage = None
+                    first_token_at: float | None = None
+                    finish_reason: str | None = None
 
-                    async for chunk in stream:
-                        if not chunk.choices:
-                            usage = getattr(chunk, "usage", None)
-                            continue
+                    try:
+                        stream: AsyncStream[
+                            ChatCompletionChunk
+                        ] = await client.chat.completions.create(**api_kwargs)
+                        in_think_block = False
+                        console.print("[bold cyan]Response:[/bold cyan] ", end="")
+                        async for chunk in stream:
+                            if not chunk.choices:
+                                usage = getattr(chunk, "usage", None)
+                                continue
+                            delta = chunk.choices[0].delta
+                            if not delta:
+                                continue
+                            if chunk.choices[0].finish_reason:
+                                finish_reason = chunk.choices[0].finish_reason
+                            if first_token_at is None and (
+                                getattr(delta, "content", None)
+                                or getattr(delta, "reasoning_content", None)
+                                or getattr(delta, "tool_calls", None)
+                            ):
+                                first_token_at = time.perf_counter()
 
-                        delta = chunk.choices[0].delta
-                        if not delta:
-                            continue
-
-                        if chunk.choices[0].finish_reason:
-                            finish_reason = chunk.choices[0].finish_reason
-
-                        if first_token_at is None and (
-                            getattr(delta, "content", None)
-                            or getattr(delta, "reasoning_content", None)
-                            or getattr(delta, "tool_calls", None)
-                        ):
-                            first_token_at = time.perf_counter()
-
-                        if (
-                            hasattr(delta, "reasoning_content")
-                            and delta.reasoning_content
-                        ):
-                            if not in_think_block:
+                            if (
+                                hasattr(delta, "reasoning_content")
+                                and delta.reasoning_content
+                            ):
+                                if not in_think_block:
+                                    console.print(
+                                        "[bold orange1]<think>[/bold orange1]", end=""
+                                    )
+                                    in_think_block = True
                                 console.print(
-                                    "[bold orange1]<think>[/bold orange1]", end=""
+                                    f"[bold orange1]{delta.reasoning_content}[/bold orange1]",
+                                    end="",
+                                    highlight=False,
+                                    soft_wrap=True,
                                 )
-                                in_think_block = True
-                            console.print(
-                                f"[bold orange1]{delta.reasoning_content}[/bold orange1]",
-                                end="",
-                                highlight=False,
-                                soft_wrap=True,
-                            )
-                            collected_content.append(delta.reasoning_content)
-                        elif in_think_block:
+                                collected_content.append(delta.reasoning_content)
+                            elif in_think_block:
+                                console.print(
+                                    "[bold orange1]</think>[/bold orange1]", end=""
+                                )
+                                in_think_block = False
+
+                            if hasattr(delta, "content") and delta.content:
+                                console.print(
+                                    f"[bold cyan]{delta.content}[/bold cyan]",
+                                    end="",
+                                    highlight=False,
+                                    soft_wrap=True,
+                                )
+                                collected_content.append(delta.content)
+
+                            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                                for tc_delta in delta.tool_calls:
+                                    idx = tc_delta.index
+                                    if idx not in tool_calls_acc:
+                                        tool_calls_acc[idx] = {
+                                            "id": tc_delta.id or "",
+                                            "type": tc_delta.type or "function",
+                                            "function": {"name": "", "arguments": ""},
+                                        }
+                                    if tc_delta.id:
+                                        tool_calls_acc[idx]["id"] = tc_delta.id
+                                    if tc_delta.function:
+                                        if tc_delta.function.name:
+                                            tool_calls_acc[idx]["function"]["name"] += (
+                                                tc_delta.function.name
+                                            )
+                                        if tc_delta.function.arguments:
+                                            tool_calls_acc[idx]["function"][
+                                                "arguments"
+                                            ] += tc_delta.function.arguments
+
+                        if in_think_block:
                             console.print(
                                 "[bold orange1]</think>[/bold orange1]", end=""
                             )
-                            in_think_block = False
 
-                        if hasattr(delta, "content") and delta.content:
-                            console.print(
-                                f"[bold cyan]{delta.content}[/bold cyan]",
-                                end="",
-                                highlight=False,
-                                soft_wrap=True,
-                            )
-                            collected_content.append(delta.content)
+                    except Exception as exc:
+                        llm_span.record_exception(exc)
+                        llm_span.set_status(Status(StatusCode.ERROR))
+                        span.record_exception(exc)
+                        span.set_status(Status(StatusCode.ERROR))
+                        logger.exception("❌ Async streaming failed")
+                        raise
+                    finally:
+                        console.print()
 
-                        if hasattr(delta, "tool_calls") and delta.tool_calls:
-                            for tc_delta in delta.tool_calls:
-                                idx = tc_delta.index
-                                if idx not in tool_calls_acc:
-                                    tool_calls_acc[idx] = {
-                                        "id": tc_delta.id or "",
-                                        "type": tc_delta.type or "function",
-                                        "function": {"name": "", "arguments": ""},
-                                    }
-                                if tc_delta.id:
-                                    tool_calls_acc[idx]["id"] = tc_delta.id
-                                if tc_delta.function:
-                                    if tc_delta.function.name:
-                                        tool_calls_acc[idx]["function"]["name"] += (
-                                            tc_delta.function.name
-                                        )
-                                    if tc_delta.function.arguments:
-                                        tool_calls_acc[idx]["function"][
-                                            "arguments"
-                                        ] += tc_delta.function.arguments
-
-                    if in_think_block:
-                        console.print("[bold orange1]</think>[/bold orange1]", end="")
-
-                except Exception as exc:
-                    span.record_exception(exc)
-                    span.set_status(Status(StatusCode.ERROR))
-                    logger.exception("❌ Streaming failed")
-                    raise
-                finally:
-                    console.print()
                     total_secs = time.perf_counter() - t_request_start
                     ttft = (
                         (first_token_at - t_request_start) if first_token_at else None
                     )
                     full_response = "".join(collected_content)
-                    span.set_attribute(SpanAttributes.OUTPUT_VALUE, full_response)
 
-                    parsed_tool_calls: list[ToolCallResult] = []
-                    if tool_calls_acc:
-                        for idx in sorted(tool_calls_acc):
-                            tc = tool_calls_acc[idx]
-                            fn = tc["function"]
-                            try:
-                                parsed_args = json.loads(fn["arguments"])
-                            except json.JSONDecodeError:
-                                parsed_args = {}
-                            parsed_tool_calls.append(
-                                ToolCallResult(
-                                    id=tc.get("id", ""),
-                                    type=tc.get("type", "function"),
-                                    name=fn.get("name", ""),
-                                    arguments=parsed_args,
-                                    raw_arguments=fn.get("arguments", ""),
-                                )
-                            )
-
-                    if parsed_tool_calls:
-                        logger.info(f"🔧 Tool calls received: {len(parsed_tool_calls)}")
-                        for tc in parsed_tool_calls:
-                            args_preview = tc.raw_arguments[:120]
-                            if len(tc.raw_arguments) > 120:
-                                args_preview += "..."
-                            logger.info(f"   → {tc.name}({args_preview})")
-                        span.set_attribute(
-                            "llm.tool_calls",
-                            json.dumps(
-                                [
-                                    {
-                                        "id": tc.id,
-                                        "type": tc.type,
-                                        "name": tc.name,
-                                        "arguments": tc.raw_arguments,
-                                    }
-                                    for tc in parsed_tool_calls
-                                ],
-                                default=str,
-                            ),
-                        )
-
-                    logger.info("─" * 60)
-                    logger.info(f"📊 Round {round_num} summary")
+                    llm_span.set_attribute(
+                        SpanAttributes.OUTPUT_VALUE, _redact(full_response[:3000])
+                    )
+                    llm_span.set_attribute(
+                        SpanAttributes.LLM_OUTPUT_MESSAGES,
+                        json.dumps(
+                            [
+                                {
+                                    "role": "assistant",
+                                    "content": _redact(full_response[:2000]),
+                                }
+                            ]
+                        ),
+                    )
                     if usage:
-                        tok_per_sec = (
-                            usage.completion_tokens / total_secs
-                            if total_secs > 0
-                            else 0.0
+                        llm_span.set_attribute(
+                            SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage.prompt_tokens
                         )
-                        logger.info(f"   Prompt tokens      : {usage.prompt_tokens}")
-                        logger.info(
-                            f"   Completion tokens  : {usage.completion_tokens}"
+                        llm_span.set_attribute(
+                            SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                            usage.completion_tokens,
                         )
-                        logger.info(f"   Total tokens       : {usage.total_tokens}")
-                        logger.info(f"   Throughput         : {tok_per_sec:.1f} tok/s")
-                        span.set_attribute(
-                            "llm.usage.prompt_tokens", usage.prompt_tokens
-                        )
-                        span.set_attribute(
-                            "llm.usage.completion_tokens", usage.completion_tokens
+                        llm_span.set_attribute(
+                            SpanAttributes.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens
                         )
                     if ttft is not None:
-                        logger.info(f"   Time to first token: {ttft:.2f}s")
-                    logger.info(f"   Total duration     : {total_secs:.2f}s")
-                    if parsed_tool_calls:
-                        logger.info(
-                            f"   Response type      : tool_calls ({len(parsed_tool_calls)} call(s))"
+                        llm_span.set_attribute(
+                            "llm.latency.time_to_first_token_s", round(ttft, 4)
                         )
-                    else:
-                        logger.info(
-                            f"   Response length    : {len(full_response)} chars"
+                    llm_span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+                    llm_span.set_status(Status(StatusCode.OK))
+
+                span.set_attribute(
+                    SpanAttributes.OUTPUT_VALUE, _redact(full_response[:3000])
+                )
+                if usage:
+                    span.set_attribute(
+                        SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage.prompt_tokens
+                    )
+                    span.set_attribute(
+                        SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                        usage.completion_tokens,
+                    )
+                    span.set_attribute(
+                        SpanAttributes.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens
+                    )
+
+                parsed_tool_calls: list[ToolCallResult] = []
+                if tool_calls_acc:
+                    for idx in sorted(tool_calls_acc):
+                        tc = tool_calls_acc[idx]
+                        fn = tc["function"]
+                        try:
+                            parsed_args = json.loads(fn["arguments"])
+                        except json.JSONDecodeError:
+                            parsed_args = {}
+                        parsed_tool_calls.append(
+                            ToolCallResult(
+                                id=tc.get("id", ""),
+                                type=tc.get("type", "function"),
+                                name=fn.get("name", ""),
+                                arguments=parsed_args,
+                                raw_arguments=fn.get("arguments", ""),
+                            )
                         )
-                    if finish_reason:
-                        logger.info(f"   Finish reason      : {finish_reason}")
-                    span.set_status(Status(StatusCode.OK))
+
+                if parsed_tool_calls:
+                    logger.info(f"🔧 Tool calls received: {len(parsed_tool_calls)}")
+                    for tc in parsed_tool_calls:
+                        args_preview = tc.raw_arguments[:120] + (
+                            "..." if len(tc.raw_arguments) > 120 else ""
+                        )
+                        logger.info(f"   → {tc.name}({args_preview})")
+                    span.set_attribute(
+                        "llm.tool_calls",
+                        json.dumps(
+                            [
+                                {
+                                    "id": tc.id,
+                                    "type": tc.type,
+                                    "name": tc.name,
+                                    "arguments": tc.raw_arguments,
+                                }
+                                for tc in parsed_tool_calls
+                            ],
+                            default=str,
+                        ),
+                    )
+
+                logger.info("─" * 60)
+                logger.info(f"📊 Round {round_num} summary")
+                if usage:
+                    tok_per_sec = (
+                        usage.completion_tokens / total_secs if total_secs > 0 else 0.0
+                    )
+                    logger.info(f"   Prompt tokens      : {usage.prompt_tokens}")
+                    logger.info(f"   Completion tokens  : {usage.completion_tokens}")
+                    logger.info(f"   Total tokens       : {usage.total_tokens}")
+                    logger.info(f"   Throughput         : {tok_per_sec:.1f} tok/s")
+                if ttft is not None:
+                    logger.info(f"   Time to first token: {ttft:.2f}s")
+                logger.info(f"   Total duration     : {total_secs:.2f}s")
+                if parsed_tool_calls:
+                    logger.info(
+                        f"   Response type      : tool_calls ({len(parsed_tool_calls)} call(s))"
+                    )
+                else:
+                    logger.info(f"   Response length    : {len(full_response)} chars")
+                if finish_reason:
+                    logger.info(f"   Finish reason      : {finish_reason}")
+
+                span.set_status(Status(StatusCode.OK))
 
                 last_result = StreamCompletionResult(
                     content=full_response,
@@ -731,16 +808,12 @@ async def run_chat_stream_async(
                     finish_reason=finish_reason,
                 )
 
-                # Structured output parsing with encapsulated validator backend
                 if (
                     resolved_fmt.output_format != OutputFormat.TEXT
                     and not parsed_tool_calls
                 ):
                     structured = parse_structured_content(full_response, resolved_fmt)
                     last_result.structured = structured
-
-                    # Record validator metadata in span (encapsulated — client
-                    # never imports or queries the backend directly)
                     if structured.validator_backend:
                         span.set_attribute(
                             "llm.structured_output.validator_backend",
@@ -757,80 +830,78 @@ async def run_chat_stream_async(
                             "llm.structured_output.validation_error_count",
                             len(structured.validation_errors),
                         )
-
                     if structured.success:
                         logger.info(
-                            f"   ✅ Structured output validated "
-                            f"({resolved_fmt.output_format.value})"
+                            f"   ✅ Structured output validated ({resolved_fmt.output_format.value})"
                         )
                     else:
                         logger.warning(
                             f"   ⚠️ Structured parse failed: {structured.error}"
                         )
 
-            if not last_result.has_tool_calls:
-                break
-
-            if not is_agentic:
-                logger.info(
-                    "⏸️  Tool calls present but no tool_registry provided; "
-                    "returning result for caller to handle."
-                )
-                break
-
-            assistant_tc_message: dict[str, Any] = {
-                "role": "assistant",
-                "content": last_result.content or None,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": tc.type,
-                        "function": {
-                            "name": tc.name,
-                            "arguments": tc.raw_arguments,
-                        },
-                    }
-                    for tc in last_result.tool_calls
-                ],
-            }
-            current_messages.append(assistant_tc_message)
-
-            for tc in last_result.tool_calls:
-                executor = tool_registry.get(tc.name)
-                if executor is None:
-                    logger.warning(
-                        f"⚠️  Tool '{tc.name}' not found in registry; "
-                        f"returning error result to model."
+                if not last_result.has_tool_calls:
+                    break
+                if not is_agentic:
+                    logger.info(
+                        "⏸️  Tool calls present but no tool_registry provided; returning result for caller to handle."
                     )
-                    tool_result: Any = {
-                        "error": f"Unknown tool: {tc.name}",
-                        "available_tools": list(tool_registry.keys()),
-                    }
-                else:
-                    tool_result = await execute_tool_with_span_async(
-                        tool_name=tc.name,
-                        tool_arguments=tc.arguments,
-                        executor=executor,
-                        strict=False,
+                    break
+
+                assistant_tc_message: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": last_result.content or None,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": tc.type,
+                            "function": {
+                                "name": tc.name,
+                                "arguments": tc.raw_arguments,
+                            },
+                        }
+                        for tc in last_result.tool_calls
+                    ],
+                }
+                current_messages.append(assistant_tc_message)
+
+                for tc in last_result.tool_calls:
+                    executor = tool_registry.get(tc.name)
+                    if executor is None:
+                        logger.warning(
+                            f"⚠️  Tool '{tc.name}' not found in registry; returning error result to model."
+                        )
+                        tool_result: Any = {
+                            "error": f"Unknown tool: {tc.name}",
+                            "available_tools": list(tool_registry.keys()),
+                        }
+                    else:
+                        tool_result = await execute_tool_with_span_async(
+                            tool_name=tc.name,
+                            tool_arguments=tc.arguments,
+                            executor=executor,
+                            strict=False,
+                        )
+                    current_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": json.dumps(tool_result, default=str),
+                        }
                     )
-                current_messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": json.dumps(tool_result, default=str),
-                    }
-                )
 
         if last_result is not None:
-            loop_span.set_attribute(SpanAttributes.OUTPUT_VALUE, last_result.content)
+            loop_span.set_attribute(
+                SpanAttributes.OUTPUT_VALUE, _redact(last_result.content[:3000])
+            )
             loop_span.set_attribute("agent.total_rounds", round_num)
             loop_span.set_attribute(
                 "agent.final_finish_reason", last_result.finish_reason or "unknown"
             )
             loop_span.set_status(Status(StatusCode.OK))
-            console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
-            logger.info("─" * 60)
-            logger.info(f"🏁 Execution complete after {round_num} round(s)")
+
+        console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
+        logger.info("─" * 60)
+        logger.info(f"🏁 Execution complete after {round_num} round(s)")
 
         return last_result or StreamCompletionResult(
             content="", finish_reason="no_response"

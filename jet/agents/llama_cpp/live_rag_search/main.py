@@ -1,80 +1,61 @@
 import argparse
 import asyncio
-import os
-import sys
+import uuid
 
 from agent import LiveRAGSearchAgent
 from config import SafetyLimits
+from jet.adapters.llama_cpp.config import LLM_MODEL, PHOENIX_REST_API
+from jet.logger import logger
+from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from phoenix.otel import HTTPSpanExporter
 from providers.llm import (
-    OpenAIAnswerGenerator,
-    OpenAIFactExtractor,
-    OpenAIInnerLinkFilter,
-    OpenAISufficiencyEvaluator,
+    LlamaCppAnswerGenerator,
+    LlamaCppFactExtractor,
+    LlamaCppInnerLinkFilter,
+    LlamaCppSufficiencyEvaluator,
 )
 from providers.scraper import HttpxScraperProvider
-from providers.search import SerpAPISearchProvider
+from providers.search import SearXNGSearchProvider
+
+PROJECT_NAME = "live-rag-search-local"
+
+
+def setup_telemetry():
+    """Initialize OpenTelemetry + Phoenix tracing."""
+    resource = Resource.create({"openinference.project.name": PROJECT_NAME})
+    provider = TracerProvider(resource=resource)
+    exporter = HTTPSpanExporter(endpoint=f"{PHOENIX_REST_API}/traces")
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+    trace.set_tracer_provider(provider)
+    logger.info(f"✅ Telemetry initialized: {PHOENIX_REST_API}")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Live RAG Search with Accumulated Memory",
+        description="Live RAG Search with Accumulated Memory & Local LLM",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Example:
-  python main.py --query "top 20 ongoing isekai anime with episodes and release dates"
-  python main.py --query "..." --max-scrapes 50 --max-inner-links 3
-        """,
     )
     parser.add_argument("--query", "-q", required=True, help="Search query")
     parser.add_argument(
-        "--max-top-results",
-        type=int,
-        default=10,
-        help="Max top-level search results to process",
+        "--model", "-m", default=LLM_MODEL, help=f"LLM model (default: {LLM_MODEL})"
     )
-    parser.add_argument(
-        "--max-inner-links", type=int, default=5, help="Max inner links per page"
-    )
-    parser.add_argument(
-        "--max-scrapes", type=int, default=30, help="Total scrape budget"
-    )
-    parser.add_argument(
-        "--max-memory-facts",
-        type=int,
-        default=500,
-        help="Max facts in accumulated memory",
-    )
-    parser.add_argument(
-        "--scrape-timeout",
-        type=float,
-        default=10.0,
-        help="Per-page scrape timeout (seconds)",
-    )
-    parser.add_argument(
-        "--llm-model",
-        type=str,
-        default="gpt-4o-mini",
-        help="LLM model for evaluation/extraction",
-    )
-    parser.add_argument(
-        "--answer-model",
-        type=str,
-        default="gpt-4o",
-        help="LLM model for final answer generation",
-    )
+    parser.add_argument("--max-top-results", type=int, default=10)
+    parser.add_argument("--max-inner-links", type=int, default=5)
+    parser.add_argument("--max-scrapes", type=int, default=30)
+    parser.add_argument("--max-memory-facts", type=int, default=500)
+    parser.add_argument("--scrape-timeout", type=float, default=10.0)
+    parser.add_argument("--searxng-url", default=None, help="SearXNG base URL override")
     return parser.parse_args()
 
 
 async def async_main(args: argparse.Namespace) -> None:
-    api_key = os.environ.get("OPENAI_API_KEY")
-    search_api_key = os.environ.get("SERPAPI_KEY")
-
-    if not api_key:
-        print("ERROR: OPENAI_API_KEY environment variable not set", file=sys.stderr)
-        sys.exit(1)
-    if not search_api_key:
-        print("ERROR: SERPAPI_KEY environment variable not set", file=sys.stderr)
-        sys.exit(1)
+    setup_telemetry()
+    tracer = trace.get_tracer(__name__)
+    session_id = str(uuid.uuid4())
 
     limits = SafetyLimits(
         MAX_TOP_LEVEL_RESULTS=args.max_top_results,
@@ -84,19 +65,41 @@ async def async_main(args: argparse.Namespace) -> None:
         SCRAPE_TIMEOUT_SEC=args.scrape_timeout,
     )
 
+    llm_kwargs = {"temperature": 0.1, "max_tokens": 4096}
+
     agent = LiveRAGSearchAgent(
         query=args.query,
-        search_provider=SerpAPISearchProvider(api_key=search_api_key),
+        search_provider=SearXNGSearchProvider(base_url=args.searxng_url),
         scraper_provider=HttpxScraperProvider(),
-        evaluator=OpenAISufficiencyEvaluator(api_key=api_key, model=args.llm_model),
-        extractor=OpenAIFactExtractor(api_key=api_key, model=args.llm_model),
-        link_filter=OpenAIInnerLinkFilter(api_key=api_key, model=args.llm_model),
-        generator=OpenAIAnswerGenerator(api_key=api_key, model=args.answer_model),
+        evaluator=LlamaCppSufficiencyEvaluator(model=args.model, **llm_kwargs),
+        extractor=LlamaCppFactExtractor(model=args.model, **llm_kwargs),
+        link_filter=LlamaCppInnerLinkFilter(model=args.model, **llm_kwargs),
+        generator=LlamaCppAnswerGenerator(model=args.model, **llm_kwargs),
         limits=limits,
     )
 
-    answer = await agent.run()
-    print(answer)
+    with tracer.start_as_current_span(
+        "live_rag.session",
+        attributes={
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.AGENT.value,
+            SpanAttributes.SESSION_ID: session_id,
+            SpanAttributes.INPUT_VALUE: args.query,
+            "live_rag.model": args.model,
+            "live_rag.limits": str(limits),
+        },
+    ) as root_span:
+        logger.info(f"🚀 Starting Live RAG Search: {args.query}")
+        answer = await agent.run()
+
+        root_span.set_attribute(SpanAttributes.OUTPUT_VALUE, answer[:3000])
+
+        # Print trace link
+        phoenix_host = PHOENIX_REST_API.rstrip("/")
+        if phoenix_host.endswith("/v1"):
+            phoenix_host = phoenix_host[:-3]
+        trace_id_hex = format(root_span.get_span_context().trace_id, "032x")
+        trace_url = f"{phoenix_host}/redirects/traces/{trace_id_hex}"
+        print(f"\n🔗 Trace: {trace_url}")
 
 
 def main() -> None:
