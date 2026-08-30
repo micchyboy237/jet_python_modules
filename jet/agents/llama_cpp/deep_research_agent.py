@@ -174,36 +174,54 @@ def web_search(state: dict, search_tool: SearXNGSearchResults) -> dict:
     ) as span:
         result = search_tool.invoke({"query": query})
 
-        # SearXNGSearchResults returns (formatted_string, raw_results) tuple
+        # SearXNGSearchResults._run returns Tuple[Union[str, List[Dict]], List[SearchResult]]
+        # With output_format="list", first element is List[Dict]; second is raw SearchResult list
         if isinstance(result, tuple):
-            formatted_content, raw_results = result
+            formatted_output, raw_results = result
         else:
-            formatted_content = result
+            formatted_output = result
             raw_results = []
 
+        # Build content parts from raw_results (preferred) or fall back to formatted_output
         content_parts = []
         source_urls = []
-        for r in raw_results:
-            url = r.get("url", "")
-            content = r.get("content", "")[:2000]
-            title = r.get("title", "Untitled")
-            score = r.get("score", "N/A")
-            content_parts.append(
-                f"[Source: {url} | Score: {score}]\n{title}\n{content}"
-            )
-            source_urls.append(url)
+
+        if raw_results:
+            for r in raw_results:
+                url = r.get("url", "")
+                content = r.get("content", "")[:2000]
+                title = r.get("title", "Untitled")
+                score = r.get("score", "N/A")
+                content_parts.append(
+                    f"[Source: {url} | Score: {score}]\n{title}\n{content}"
+                )
+                source_urls.append(url)
+        elif isinstance(formatted_output, list):
+            # Cache hit with output_format="list": formatted_output is List[Dict]
+            for r in formatted_output:
+                url = r.get("url", "")
+                content = str(r.get("content", ""))[:2000]
+                title = r.get("title", "Untitled")
+                score = r.get("score", "N/A")
+                content_parts.append(
+                    f"[Source: {url} | Score: {score}]\n{title}\n{content}"
+                )
+                source_urls.append(url)
+        elif isinstance(formatted_output, str):
+            # Fallback: string format output
+            content_parts.append(formatted_output)
 
         combined = (
-            "\n\n---\n\n".join(content_parts) if content_parts else formatted_content
+            "\n\n---\n\n".join(content_parts) if content_parts else "No results found."
         )
 
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, _redact(combined[:3000]))
-        span.set_attribute("deep_research.search_result_count", len(raw_results))
+        span.set_attribute("deep_research.search_result_count", len(content_parts))
         span.set_attribute("deep_research.source_urls", json.dumps(source_urls))
 
-        logger.info(f"Web search for '{query}' returned {len(raw_results)} results")
+        logger.info(f"Web search for '{query}' returned {len(content_parts)} results")
         return {
-            "research_results": [combined],
+            "research_results": [combined],  # Always a list of strings
             "sources": source_urls,
         }
 
@@ -298,14 +316,16 @@ def dispatch_follow_ups(state: OverallState) -> List[Send]:
     if not reflection or not reflection.follow_up_queries:
         return []
 
-    sends = [
-        Send("web_search", {"search_query": q})
-        for q in reflection.follow_up_queries[:3]
-    ]
+    queries = reflection.follow_up_queries[:3]
+    sends = [Send("web_search", {"search_query": q}) for q in queries]
 
-    logger.info(
-        f"Dispatching {len(sends)} follow-up searches: {[s.kwargs['search_query'] for s in sends]}"
-    )
+    # LangGraph v1.0+ uses .arg instead of .kwargs for Send state payload
+    try:
+        query_labels = [s.arg.get("search_query", "?") for s in sends]
+    except AttributeError:
+        query_labels = [q for q in queries]
+
+    logger.info(f"Dispatching {len(sends)} follow-up searches: {query_labels}")
     return sends
 
 
@@ -356,7 +376,7 @@ def build_graph(
     """Build and compile the deep research LangGraph."""
     builder = StateGraph(OverallState)
 
-    # Bind dependencies to node functions via closures
+    # Only these four nodes exist — NO dispatch_follow_ups node
     builder.add_node(
         "generate_initial_queries", lambda state: generate_initial_queries(state, llm)
     )
@@ -364,11 +384,12 @@ def build_graph(
     builder.add_node(
         "reflect_on_research", lambda state: reflect_on_research(state, llm)
     )
-    builder.add_node("dispatch_follow_ups", dispatch_follow_ups)
     builder.add_node("finalize_report", lambda state: finalize_report(state, llm))
 
-    # Edges
+    # Entry edge
     builder.add_edge(START, "generate_initial_queries")
+
+    # Fan-out initial queries via Send from conditional edge (valid per docs)
     builder.add_conditional_edges(
         "generate_initial_queries",
         lambda state: [
@@ -376,29 +397,42 @@ def build_graph(
         ],
         ["web_search"],
     )
+
+    # After each search, always reflect
     builder.add_edge("web_search", "reflect_on_research")
+
+    # KEY FIX: Combined router + dispatcher as a conditional edge function
+    # This is the ONLY place Send objects may be returned [[15]]
+    def route_and_dispatch(state: OverallState):
+        reflection = state.get("_reflection")
+        current_loops = state.get("loop_count", 0)
+        limit = state.get("max_loops", max_loops)
+
+        # Terminal condition: sufficient OR max loops reached
+        if reflection and (reflection.is_sufficient or current_loops >= limit):
+            logger.info(
+                f"Routing → finalize_report (sufficient={getattr(reflection, 'is_sufficient', None)}, loops={current_loops}/{limit})"
+            )
+            return "finalize_report"
+
+        # Fan-out: return List[Send] from conditional edge (documented pattern) [[15]]
+        follow_ups = reflection.follow_up_queries[:3] if reflection else []
+        if not follow_ups:
+            logger.info("No follow-up queries; routing → finalize_report")
+            return "finalize_report"
+
+        sends = [Send("web_search", {"search_query": q}) for q in follow_ups]
+        logger.info(
+            f"Dispatching {len(sends)} follow-ups: {[s.arg['search_query'] for s in sends]}"
+        )
+        return sends
+
     builder.add_conditional_edges(
         "reflect_on_research",
-        route_research,
-        {
-            "finalize_report": "finalize_report",
-            "__continue_search__": "dispatch_follow_ups",
-        },
+        route_and_dispatch,
+        ["finalize_report", "web_search"],
     )
-    builder.add_conditional_edges(
-        "dispatch_follow_ups",
-        lambda state: [
-            Send("web_search", {"search_query": q})
-            for q in (
-                state.get("_reflection")
-                or ReflectionOutput(
-                    is_sufficient=True, knowledge_gaps=[], follow_up_queries=[]
-                )
-            ).follow_up_queries[:3]
-        ]
-        or [END],
-        ["web_search"],
-    )
+
     builder.add_edge("finalize_report", END)
 
     return builder.compile()

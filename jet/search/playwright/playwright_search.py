@@ -3,7 +3,6 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Type, TypedDict, Union
 
-import numpy as np
 from langchain_core.callbacks import (
     AsyncCallbackManagerForToolRun,
     CallbackManagerForToolRun,
@@ -13,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from jet.adapters.llama_cpp.config import EMBED_MODEL, EMBED_QUERY_PREFIX
 from jet.adapters.llama_cpp.embed_utils import embed as llamacpp_embed
+from jet.adapters.llama_cpp.scoring_utils import cosine_similarity
 from jet.logger import logger
 from jet.search.playwright.playwright_extract import PlaywrightExtract
 from jet.search.searxng import search_searxng
@@ -33,107 +33,80 @@ class PlaywrightSearchInput(BaseModel):
     include_domains: Optional[List[str]] = Field(
         default=[],
         description="""A list of domains to restrict search results to.
-        Use this when:
-        1. The user explicitly requests information from specific websites (e.g., 'Find climate data from nasa.gov')
-        2. The user mentions an organization or company without specifying the domain (e.g., 'Find information about iPhones from Apple')
-        In both cases, determine the appropriate domains (e.g., ['nasa.gov'] or ['apple.com']) and set this parameter.
-        Results will ONLY come from the specified domains - no other sources will be included.
-        Default is an empty list (no domain restriction).
-        """,
+Use this when:
+1. The user explicitly requests information from specific websites (e.g., 'Find climate data from nasa.gov')
+2. The user mentions an organization or company without specifying the domain (e.g., 'Find information about iPhones from Apple')
+In both cases, determine the appropriate domains (e.g., ['nasa.gov'] or ['apple.com']) and set this parameter.
+Results will ONLY come from the specified domains - no other sources will be included.
+Default is an empty list (no domain restriction).
+""",
     )
     exclude_domains: Optional[List[str]] = Field(
         default=[],
         description="""A list of domains to exclude from search results.
-        Use this when:
-        1. The user explicitly requests to avoid certain websites (e.g., 'Find information about climate change but not from twitter.com')
-        2. The user mentions not wanting results from specific organizations without naming the domain (e.g., 'Find phone reviews but nothing from Apple')
-        In both cases, determine the appropriate domains to exclude (e.g., ['twitter.com'] or ['apple.com']) and set this parameter.
-        Results will filter out all content from the specified domains.
-        Default is an empty list (no domain exclusion).
-        """,
+Use this when:
+1. The user explicitly requests to avoid certain websites (e.g., 'Find information about climate change but not from twitter.com')
+2. The user mentions not wanting results from specific organizations without naming the domain (e.g., 'Find phone reviews but nothing from Apple')
+In both cases, determine the appropriate domains to exclude (e.g., ['twitter.com'] or ['apple.com']) and set this parameter.
+Results will filter out all content from the specified domains.
+Default is an empty list (no domain exclusion).
+""",
     )
     search_depth: Optional[Literal["basic", "advanced"]] = Field(
         default="basic",
         description="""Controls search thoroughness and result comprehensiveness.
-        Use 'basic' for simple queries requiring quick, straightforward answers.
-        Use 'advanced' for complex queries, specialized topics, rare information, or when in-depth analysis is needed.
-        Default is 'basic'.
-        """,
+Use 'basic' for simple queries requiring quick, straightforward answers.
+Use 'advanced' for complex queries, specialized topics, rare information, or when in-depth analysis is needed.
+Default is 'basic'.
+""",
     )
     include_images: Optional[bool] = Field(
         default=True,
         description="""Determines if the search returns relevant images along with text results.
-        Set to True when the user explicitly requests visuals or when images would significantly enhance understanding (e.g., 'Show me what black holes look like,' 'Find pictures of Renaissance art').
-        Default is True for PlaywrightSearch to leverage visual content extraction.
-        """,
+Set to True when the user explicitly requests visuals or when images would significantly enhance understanding (e.g., 'Show me what black holes look like,' 'Find pictures of Renaissance art').
+Default is True for PlaywrightSearch to leverage visual content extraction.
+""",
     )
     time_range: Optional[Literal["day", "week", "month", "year"]] = Field(
         default=None,
         description="""Limits results to content published within a specific timeframe.
-        ONLY set this when the user explicitly mentions a time period (e.g., 'latest AI news,' 'articles from last week').
-        For less popular or niche topics, use broader time ranges ('month' or 'year') to ensure sufficient relevant results.
-        Options: 'day' (24h), 'week' (7d), 'month' (30d), 'year' (365d).
-        Default is None (no time restriction).
-        """,
+ONLY set this when the user explicitly mentions a time period (e.g., 'latest AI news,' 'articles from last week').
+For less popular or niche topics, use broader time ranges ('month' or 'year') to ensure sufficient relevant results.
+Options: 'day' (24h), 'week' (7d), 'month' (30d), 'year' (365d).
+Default is None (no time restriction).
+""",
     )
     topic: Optional[Literal["general", "news", "finance"]] = Field(
         default="general",
         description="""Specifies search category for optimized results.
-        Use 'general' (default) for most queries, INCLUDING those with terms like 'latest,' 'newest,' or 'recent' when referring to general information.
-        Use 'finance' for markets, investments, economic data, or financial news.
-        Use 'news' ONLY for politics, sports, or major current events covered by mainstream media - NOT simply because a query asks for 'new' information.
-        """,
+Use 'general' (default) for most queries, INCLUDING those with terms like 'latest,' 'newest,' or 'recent' when referring to general information.
+Use 'finance' for markets, investments, economic data, or financial news.
+Use 'news' ONLY for politics, sports, or major current events covered by mainstream media - NOT simply because a query asks for 'new' information.
+""",
     )
     include_favicon: Optional[bool] = Field(
         default=True,
         description="""Determines whether to include favicon URLs for each search result.
-        When enabled, each search result will include the website's favicon URL, useful for:
-        - Building rich UI interfaces with visual website indicators
-        - Providing visual cues about the source's credibility or brand
-        - Creating bookmark-like displays with recognizable site icons
-        Default is True to enhance result presentation.
-        """,
+When enabled, each search result will include the website's favicon URL, useful for:
+- Building rich UI interfaces with visual website indicators
+- Providing visual cues about the source's credibility or brand
+- Creating bookmark-like displays with recognizable site icons
+Default is True to enhance result presentation.
+""",
     )
     start_date: Optional[str] = Field(
         default=None,
         description="""Filters search results to include only content published on or after this date.
-        Use this when you need to:
-        - Find recent developments or updates on a topic
-        - Exclude outdated information from search results
-        - Focus on content within a specific timeframe
-        - Combine with end_date to create a custom date range
-        Format must be YYYY-MM-DD (e.g., '2024-01-15' for January 15, 2024).
-        Examples:
-        - '2024-01-01' - Results from January 1, 2024 onwards
-        - '2023-12-25' - Results from December 25, 2023 onwards
-        When combined with end_date, creates a precise date range filter.
-        Default is None (no start date restriction).
-        """,
+Format must be YYYY-MM-DD (e.g., '2024-01-15'). Default is None.""",
     )
     end_date: Optional[str] = Field(
         default=None,
         description="""Filters search results to include only content published on or before this date.
-        Use this when you need to:
-        - Exclude content published after a certain date
-        - Study historical information or past events
-        - Research how topics were covered during specific time periods
-        - Combine with start_date to create a custom date range
-        Format must be YYYY-MM-DD (e.g., '2024-03-31' for March 31, 2024).
-        Examples:
-        - '2024-03-31' - Results up to and including March 31, 2024
-        - '2023-12-31' - Results up to and including December 31, 2023
-        When combined with start_date, creates a precise date range filter.
-        For example: start_date='2024-01-01', end_date='2024-03-31' returns results from Q1 2024 only.
-        Default is None (no end date restriction).
-        """,
+Format must be YYYY-MM-DD (e.g., '2024-03-31'). Default is None.""",
     )
     max_content_length: Optional[int] = Field(
         default=500,
         description="Maximum length of the content field in characters. Default is 500.",
-    )
-    ollama_embed_model: Optional[str] = Field(
-        default="nomic-embed-text",
-        description="Ollama embedding model to use for relevance scoring. Default is 'nomic-embed-text'.",
     )
 
 
@@ -157,12 +130,18 @@ class PlaywrightSearchAPIWrapper(BaseModel):
     max_content_length: Optional[int] = Field(default=500)
 
     def _score_chunks(self, chunks: List[str], query: str) -> List[float]:
-        """Score chunks using jet.adapters.llama_cpp for batched/deduped performance."""
+        """Score chunks using centralized llama_cpp adapters.
+
+        Uses embed_utils for batched/deduped embedding and scoring_utils
+        for standardized cosine similarity calculation.
+        """
         if not chunks or not query:
             return [0.0] * len(chunks)
 
         try:
-            # Leverages auto-batching, deduplication, and prefix handling
+            logger.debug(f"Scoring {len(chunks)} chunks for query: '{query[:50]}...'")
+
+            # Use centralized embed utility (handles batching, dedup, remote optimization)
             query_emb = llamacpp_embed(
                 query,
                 model=EMBED_MODEL,
@@ -173,18 +152,20 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 chunks,
                 model=EMBED_MODEL,
                 return_format="numpy",
-                show_progress=False,  # Disable progress bar for internal scoring
+                show_progress=False,
             )
 
-            # Vectorized cosine similarity
-            norms = np.linalg.norm(chunk_embs, axis=1) * np.linalg.norm(query_emb)
-            valid_mask = norms > 0
-            scores = np.zeros(len(chunks))
-            scores[valid_mask] = (
-                np.dot(chunk_embs[valid_mask], query_emb) / norms[valid_mask]
-            )
+            # Use standardized scoring utility instead of manual numpy linalg
+            scores = [float(cosine_similarity(query_emb, ce)) for ce in chunk_embs]
 
-            return np.clip(scores, 0.0, 1.0).tolist()
+            # Clip to 0-1 range for consistency
+            clipped_scores = [max(0.0, min(1.0, s)) for s in scores]
+
+            logger.debug(
+                f"Chunk scores computed: min={min(clipped_scores):.3f}, max={max(clipped_scores):.3f}"
+            )
+            return clipped_scores
+
         except Exception as e:
             logger.error(f"Error scoring chunks via llama_cpp adapter: {e}")
             return [0.0] * len(chunks)
@@ -193,7 +174,6 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         """Split text into sentences, using NLTK if available, else regex."""
         if NLTK_AVAILABLE:
             return sent_tokenize(text)
-        # Fallback regex for sentence splitting
         sentence_endings = r"(?<=[.!?])\s+"
         sentences = re.split(sentence_endings, text)
         return [s.strip() for s in sentences if s.strip()]
@@ -201,15 +181,17 @@ class PlaywrightSearchAPIWrapper(BaseModel):
     def _extract_relevant_content(
         self, raw_content: str, query: str, max_length: int
     ) -> str:
-        """Extract the most relevant content from raw_content up to max_length, with [...] separators."""
+        """Extract the most relevant content from raw_content up to max_length."""
         if not raw_content:
             return ""
+
         chunks = self._split_into_sentences(raw_content)
         if not chunks:
             return ""
-        max_chunk_tokens = 200
-        max_chunk_chars = max_chunk_tokens * 4
+
+        max_chunk_chars = 800  # ~200 tokens
         chunks = [chunk for chunk in chunks if len(chunk) <= max_chunk_chars]
+
         if not chunks:
             return (
                 raw_content[:max_length] + "..."
@@ -217,14 +199,14 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 else raw_content
             )
 
-        # Score all chunks in a single batch
         scores = self._score_chunks(chunks, query)
-        scored_chunks = list(zip(chunks, scores))
-        scored_chunks.sort(key=lambda x: x[1], reverse=True)
+        scored_chunks = sorted(zip(chunks, scores), key=lambda x: x[1], reverse=True)
+
         content = ""
         separator = " [...] "
         selected_chunks = 0
         max_chunks = 3
+
         for chunk, _ in scored_chunks:
             if selected_chunks >= max_chunks:
                 break
@@ -239,6 +221,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 if remaining > 10:
                     content += chunk[:remaining].rsplit(" ", 1)[0] + "..."
                 break
+
         content = content.strip()
         if not content:
             content = (
@@ -248,6 +231,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             )
         if content.endswith(separator):
             content = content[: -len(separator)]
+
         return content
 
     async def raw_results_async(
@@ -272,11 +256,13 @@ class PlaywrightSearchAPIWrapper(BaseModel):
         time_range_map = {"day": 0, "week": 0, "month": 0, "year": 1}
         years_ago = time_range_map.get(time_range, 1) if time_range else 1
         min_date = None
+
         if start_date:
             try:
                 min_date = datetime.strptime(start_date, "%Y-%m-%d")
             except ValueError:
                 raise ToolException("Invalid start_date format. Use YYYY-MM-DD.")
+
         if end_date and min_date:
             try:
                 end_date_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -284,26 +270,14 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                     raise ToolException("end_date cannot be before start_date.")
             except ValueError:
                 raise ToolException("Invalid end_date format. Use YYYY-MM-DD.")
+
         topic_map = {"general": ["general"], "news": ["news"], "finance": ["business"]}
         categories = topic_map.get(topic, ["general"])
+
         logger.debug(
-            f"[search_searxng] args:\n{
-                format_json(
-                    {
-                        'query_url': self.searxng_url,
-                        'query': query,
-                        'count': self.max_results
-                        if search_depth == 'basic'
-                        else self.max_results * 2,
-                        'include_sites': include_domains,
-                        'exclude_sites': exclude_domains,
-                        'min_date': min_date,
-                        'categories': categories,
-                        'years_ago': years_ago,
-                    }
-                )
-            }"
+            f"[search_searxng] args:\n{format_json({'query': query, 'count': self.max_results if search_depth == 'basic' else self.max_results * 2})}"
         )
+
         search_results = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: search_searxng(
@@ -319,9 +293,9 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 years_ago=years_ago,
             ),
         )
-        logger.success(
-            f"[search_searxng] results ({len(search_results)}):\n{format_json(search_results)}"
-        )
+
+        logger.success(f"[search_searxng] results ({len(search_results)})")
+
         if not search_results:
             return {
                 "query": query,
@@ -329,12 +303,13 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 "images": [] if include_images else None,
                 "response_time": asyncio.get_event_loop().time() - start_time,
             }
+
         urls = [result["url"] for result in search_results]
-        logger.debug(f"Search Result URLs ({len(urls)}):\n{format_json(urls)}")
         extractor = PlaywrightExtract()
         extract_format = (
             "markdown" if include_raw_content in (True, "markdown") else "text"
         )
+
         extract_results = await extractor._arun(
             urls=urls,
             extract_depth=search_depth,
@@ -342,14 +317,17 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             include_favicon=include_favicon,
             format=extract_format,
         )
+
         results = []
         search_texts = [result["content"] for result in search_results]
         embed_scores = self._score_chunks(search_texts, query)
+
         for search_result, extract_result, embed_score in zip(
             search_results, extract_results["results"], embed_scores
         ):
             if "error" in extract_result:
                 continue
+
             content = (
                 self._extract_relevant_content(
                     extract_result["raw_content"], query, self.max_content_length
@@ -357,6 +335,7 @@ class PlaywrightSearchAPIWrapper(BaseModel):
                 if extract_result.get("raw_content")
                 else search_result["content"]
             )
+
             result_item = {
                 "url": search_result["url"],
                 "title": search_result["title"],
@@ -372,21 +351,24 @@ class PlaywrightSearchAPIWrapper(BaseModel):
             if include_favicon:
                 result_item["favicon"] = extract_result["favicon"]
             results.append(result_item)
+
         results.sort(key=lambda x: x["score"], reverse=True)
+
         images = []
         if include_images and include_image_descriptions:
             for result in results:
                 if "images" in result:
                     images.extend(result["images"])
+
         answer = None
         if include_answer:
-            answer_depth = "advanced" if include_answer == "advanced" else "basic"
             answer_content = " ".join([r["content"] for r in results[:3]])
             answer = (
                 answer_content[:200] + "..."
                 if len(answer_content) > 200
                 else answer_content
             )
+
         return {
             "query": query,
             "follow_up_questions": None,
@@ -441,11 +423,11 @@ class PlaywrightSearch(BaseTool):
     name: str = "playwright_search"
     description: str = (
         "A search engine using Playwright and SearXNG for comprehensive, accurate results. "
-        "Useful for answering questions about current events. "
         "Supports advanced search depths, domain management, time range filters, and image search."
     )
     args_schema: Type[BaseModel] = PlaywrightSearchInput
     handle_tool_error: bool = True
+
     include_domains: Optional[List[str]] = None
     exclude_domains: Optional[List[str]] = None
     search_depth: Optional[Literal["basic", "advanced"]] = None
@@ -461,6 +443,7 @@ class PlaywrightSearch(BaseTool):
     include_image_descriptions: bool = False
     auto_parameters: Optional[bool] = None
     country: Optional[str] = None
+
     api_wrapper: PlaywrightSearchAPIWrapper = Field(
         default_factory=PlaywrightSearchAPIWrapper
     )
@@ -517,7 +500,6 @@ class PlaywrightSearch(BaseTool):
                 error_message = (
                     f"No search results found for '{query}'. "
                     f"Suggestions: {', '.join(suggestions)}. "
-                    f"Try modifying your search parameters with one of these approaches."
                 )
                 raise ToolException(error_message)
             return raw_results
@@ -578,7 +560,6 @@ class PlaywrightSearch(BaseTool):
                 error_message = (
                     f"No search results found for '{query}'. "
                     f"Suggestions: {', '.join(suggestions)}. "
-                    f"Try modifying your search parameters with one of these approaches."
                 )
                 raise ToolException(error_message)
             return raw_results
@@ -590,21 +571,14 @@ class PlaywrightSearch(BaseTool):
     def _generate_suggestions(self, params: Dict[str, Any]) -> List[str]:
         """Generate helpful suggestions based on the failed search parameters."""
         suggestions = []
-        search_depth = params.get("search_depth")
-        exclude_domains = params.get("exclude_domains")
-        include_domains = params.get("include_domains")
-        time_range = params.get("time_range")
-        topic = params.get("topic")
-        if time_range:
+        if params.get("time_range"):
             suggestions.append("Remove time_range argument")
-        if include_domains:
+        if params.get("include_domains"):
             suggestions.append("Remove include_domains argument")
-        if exclude_domains:
+        if params.get("exclude_domains"):
             suggestions.append("Remove exclude_domains argument")
-        if search_depth == "basic":
-            suggestions.append(
-                "Try a more detailed search using 'advanced' search_depth"
-            )
-        if topic != "general":
-            suggestions.append("Try a general search using 'general' topic")
+        if params.get("search_depth") == "basic":
+            suggestions.append("Try 'advanced' search_depth")
+        if params.get("topic") != "general":
+            suggestions.append("Try 'general' topic")
         return suggestions
