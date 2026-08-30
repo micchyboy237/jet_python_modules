@@ -1,3 +1,16 @@
+"""
+Streaming RAG crawler that searches via SearXNG, crawls top results, and generates structured RAG context.
+
+Usage:
+    # Run with default query and top 5 results
+    python streaming_rag_crawler.py
+
+    # Custom query with more results
+    python streaming_rag_crawler.py "Python async web scraping best practices" -k 10
+
+    # Outputs: search_results.json, rag_results.json, rag_context.md, and per-source markdown files
+"""
+
 import asyncio
 import json
 from pathlib import Path

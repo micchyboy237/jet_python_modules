@@ -1,3 +1,17 @@
+"""
+Streaming multi-URL crawler with relevance scoring and incremental JSON output.
+
+Usage:
+    # Run with default URLs and query (edit main() to customize)
+    python streaming_multi_url_crawl_query.py
+
+    # Customize by modifying the `urls` list and `USER_QUERY` in main()
+    # Results are saved incrementally to generated/streaming_multi_url_crawl_query/results.json
+    # sorted by relevance score (BM25 + content survival ratio)
+"""
+
+# streaming_multi_url_crawl_query.py
+
 import asyncio
 import json
 import shutil

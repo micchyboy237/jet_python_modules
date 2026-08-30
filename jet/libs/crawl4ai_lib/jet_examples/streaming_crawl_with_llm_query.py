@@ -1,10 +1,18 @@
 """
-Streaming Crawl with Filters
+Streaming web crawler with deep crawling, filtering, and optional LLM extraction.
 
-Usage Examples
---------------
+Usage:
+    # Basic crawl (max 20 pages, depth 2)
+    python streaming_crawl_with_llm_query.py https://example.com
 
-python streaming_crawl_with_llm_query.py "https://missav.ws/en" -u "*.ws/en/*-*" -s 4
+    # Crawl with LLM extraction query
+    python streaming_crawl_with_llm_query.py https://example.com "Extract all product names and prices"
+
+    # Filtered crawl with custom depth and domain restrictions
+    python streaming_crawl_with_llm_query.py https://example.com -d 3 -p 50 -a example.com cdn.example.com -t text/html application/json
+
+    # Wait for dynamic content before extraction
+    python streaming_crawl_with_llm_query.py https://spa-site.com -w "#content-loaded" -W 10000 --max-segments 4
 """
 
 import argparse
