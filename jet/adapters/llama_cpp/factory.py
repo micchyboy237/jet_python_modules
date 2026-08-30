@@ -20,8 +20,8 @@ from openai import AsyncOpenAI, OpenAI
 from openai.resources import Embeddings
 
 # Shared defaults
-_DEFAULT_TIMEOUT = 120.0
-_DEFAULT_MAX_RETRIES = 3
+_DEFAULT_TIMEOUT = 30.0
+_DEFAULT_MAX_RETRIES = 1
 _DEFAULT_API_KEY = "not-needed"
 
 

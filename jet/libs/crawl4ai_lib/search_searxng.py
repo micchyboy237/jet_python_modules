@@ -52,44 +52,6 @@ class AppConfig:
     sites: Optional[List[str]]
 
 
-async def embed_texts(
-    texts: List[str],
-    base_url: str = EMBED_BASE_URL,
-    embed_model: str = EMBED_MODEL,
-    timeout: float = EMBED_REQUEST_TIMEOUT,
-    max_retries: int = DEFAULT_MAX_RETRIES,
-) -> List[np.ndarray]:
-    """Embed texts using the shared async OpenAI client from factory.
-
-    Leverages factory-configured retries, timeout, and auth.
-    Returns embeddings in the same order as input texts.
-    """
-    if not texts:
-        return []
-
-    logger.info(f"embed_texts: n_texts={len(texts)}, model={embed_model}")
-    client = get_async_embedding_client(
-        base_url=base_url,
-        timeout=timeout,
-        max_retries=max_retries,
-    )
-    try:
-        response = await client.embeddings.create(
-            input=texts,
-            model=embed_model,
-        )
-        # Sort by index to guarantee order matches input
-        sorted_data = sorted(response.data, key=lambda x: x.index)
-        embeddings = [
-            np.array(item.embedding, dtype=np.float32) for item in sorted_data
-        ]
-        logger.info(f"embed_texts: successfully embedded {len(embeddings)} texts")
-        return embeddings
-    except Exception as e:
-        logger.error(f"embed_texts: failed - {e}")
-        raise
-
-
 async def _request_with_retries(
     client: httpx.AsyncClient,
     method: str,
@@ -128,6 +90,66 @@ async def _request_with_retries(
     raise RuntimeError("Max retries exceeded")
 
 
+async def embed_texts(
+    texts: List[str],
+    base_url: str = EMBED_BASE_URL,
+    embed_model: str = EMBED_MODEL,
+    timeout: float = EMBED_REQUEST_TIMEOUT,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+) -> List[np.ndarray]:
+    """Embed texts using the shared async OpenAI client from factory.
+
+    Includes connectivity pre-check and strict timeout to prevent silent hangs.
+    Returns embeddings in the same order as input texts.
+    """
+    if not texts:
+        return []
+
+    logger.info(
+        f"embed_texts: n_texts={len(texts)}, model={embed_model}, base_url={base_url}"
+    )
+
+    # PRE-CHECK: Verify server is reachable before attempting embeddings
+    console.print(f"[dim]Verifying embedding server at {base_url}...[/dim]")
+    try:
+        check_client = get_async_embedding_client(
+            base_url=base_url, timeout=5.0, max_retries=0
+        )
+        await check_client.models.list()
+        console.print("[green]✓ Embedding server reachable[/green]")
+    except Exception as e:
+        logger.error(f"embed_texts: server unreachable at {base_url} - {e}")
+        console.print(f"[bold red]✗ Embedding server unreachable: {e}[/bold red]")
+        raise ConnectionError(
+            f"Embedding server at {base_url} is not responding. "
+            f"Check network/server status."
+        ) from e
+
+    client = get_async_embedding_client(
+        base_url=base_url,
+        timeout=timeout,
+        max_retries=max_retries,
+    )
+    try:
+        logger.info(
+            f"embed_texts: sending request (timeout={timeout}s, retries={max_retries})"
+        )
+        response = await client.embeddings.create(
+            input=texts,
+            model=embed_model,
+        )
+        sorted_data = sorted(response.data, key=lambda x: x.index)
+        embeddings = [
+            np.array(item.embedding, dtype=np.float32) for item in sorted_data
+        ]
+        logger.info(f"embed_texts: successfully embedded {len(embeddings)} texts")
+        return embeddings
+    except Exception as e:
+        logger.error(f"embed_texts: failed after retries - {type(e).__name__}: {e}")
+        console.print(f"[bold red]✗ Embedding failed: {e}[/bold red]")
+        raise
+
+
 async def semantic_seed_filter(
     query: str,
     results: List[dict],
@@ -138,16 +160,7 @@ async def semantic_seed_filter(
 ) -> List[SemanticResult]:
     """Perform semantic reranking using shared embedding and scoring utils.
 
-    Args:
-        query: Search query string.
-        results: Raw search result dicts with title/url/snippet keys.
-        top_k: Number of top semantic matches to return.
-        embed_url: Embedding server base URL.
-        embed_model: Embedding model identifier.
-        max_retries: Max retries for embedding requests.
-
-    Returns:
-        List of SemanticResult dicts sorted by descending similarity score.
+    Falls back to unranked results if embedding fails, so the crawl can continue.
     """
     if not results:
         logger.warning("semantic_seed_filter: empty results list, returning []")
@@ -158,60 +171,83 @@ async def semantic_seed_filter(
         f"n_results={len(results)}, top_k={top_k}"
     )
     console.rule("Semantic Reranking", style="bright_blue")
-    task_description = "[cyan]Computing embeddings..."
 
-    with Live(console=console, refresh_per_second=8) as live:
-        live.update(Panel(task_description, style="bold cyan"))
+    try:
+        task_description = "[cyan]Computing embeddings..."
+        with Live(console=console, refresh_per_second=8) as live:
+            live.update(Panel(task_description, style="bold cyan"))
 
-        texts = [query] + [
-            f"{r.get('title', '')} {r.get('snippet', '')}" for r in results
+            texts = [query] + [
+                f"{r.get('title', '')} {r.get('snippet', '')}" for r in results
+            ]
+            embeddings = await embed_texts(
+                texts,
+                base_url=embed_url,
+                embed_model=embed_model,
+                max_retries=max_retries,
+            )
+
+            live.update(
+                Panel(
+                    "[green]Embeddings ready — calculating similarities...",
+                    style="bold green",
+                )
+            )
+
+            scored: List[SemanticResult] = []
+            query_emb = embeddings[0]
+
+            for i, (r, emb) in enumerate(zip(results, embeddings[1:]), 1):
+                # REUSED: Shared cosine_similarity from scoring_utils
+                score = cosine_similarity(query_emb, emb)
+                scored.append(
+                    {
+                        "rank": i,
+                        "score": score,
+                        "title": r.get("title", "").strip(),
+                        "url": r.get("url", "").strip(),
+                        "snippet": r.get("snippet", "").strip(),
+                    }
+                )
+
+            scored.sort(key=lambda x: x["score"], reverse=True)
+            for i, item in enumerate(scored, 1):
+                item["rank"] = i
+
+            live.update(
+                Panel(
+                    "[green]Similarity scores calculated and sorted",
+                    style="bold green",
+                )
+            )
+            await asyncio.sleep(0.6)
+
+        logger.info(
+            f"semantic_seed_filter: selected {min(top_k, len(scored))}/{len(scored)} "
+            f"results, top_score={scored[0]['score']:.4f}"
+            if scored
+            else "semantic_seed_filter: no scored results"
+        )
+        return scored[:top_k]
+
+    except (ConnectionError, Exception) as e:
+        logger.warning(
+            f"semantic_seed_filter: embedding failed, returning raw results "
+            f"unranked - {e}"
+        )
+        console.print(
+            "[yellow]⚠ Semantic reranking unavailable, using raw SearXNG order[/yellow]"
+        )
+        return [
+            {
+                "rank": i + 1,
+                "score": 0.0,
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "snippet": r.get("snippet", ""),
+            }
+            for i, r in enumerate(results[:top_k])
         ]
-        embeddings = await embed_texts(
-            texts,
-            base_url=embed_url,
-            embed_model=embed_model,
-            max_retries=max_retries,
-        )
-
-        live.update(
-            Panel(
-                "[green]Embeddings ready — calculating similarities...",
-                style="bold green",
-            )
-        )
-
-        scored: List[SemanticResult] = []
-        query_emb = embeddings[0]
-
-        for i, (r, emb) in enumerate(zip(results, embeddings[1:]), 1):
-            # REUSED: Shared cosine_similarity from scoring_utils
-            score = cosine_similarity(query_emb, emb)
-            scored.append(
-                {
-                    "rank": i,
-                    "score": score,
-                    "title": r.get("title", "").strip(),
-                    "url": r.get("url", "").strip(),
-                    "snippet": r.get("snippet", "").strip(),
-                }
-            )
-
-        scored.sort(key=lambda x: x["score"], reverse=True)
-        for i, item in enumerate(scored, 1):
-            item["rank"] = i
-
-        live.update(
-            Panel("[green]Similarity scores calculated and sorted", style="bold green")
-        )
-        await asyncio.sleep(0.6)
-
-    logger.info(
-        f"semantic_seed_filter: selected {min(top_k, len(scored))}/{len(scored)} "
-        f"results, top_score={scored[0]['score']:.4f}"
-        if scored
-        else "semantic_seed_filter: no scored results"
-    )
-    return scored[:top_k]
 
 
 def normalize_sites(raw_sites: Optional[List[str]]) -> List[str]:
@@ -236,7 +272,7 @@ def normalize_sites(raw_sites: Optional[List[str]]) -> List[str]:
 
 
 def get_args() -> argparse.Namespace:
-    DEFAULT_QUERY = "Isekai / reincarnation anime releases 2026"
+    DEFAULT_QUERY = "Latest top anime releases 2026"
     parser = argparse.ArgumentParser(
         description="Semantic Search + Adaptive Crawl (Embedding Strategy)"
     )
@@ -258,7 +294,9 @@ def get_args() -> argparse.Namespace:
         "-m",
         type=int,
         default=DEFAULT_MAX_SEARCH_RESULTS,
-        help=f"Maximum raw results from SearXNG (default: {DEFAULT_MAX_SEARCH_RESULTS})",
+        help=(
+            f"Maximum raw results from SearXNG (default: {DEFAULT_MAX_SEARCH_RESULTS})"
+        ),
     )
     parser.add_argument(
         "--max-retries",
@@ -425,13 +463,14 @@ async def semantic_search_results(
         f"semantic_search_results: completed with {len(semantic_results)} results"
     )
     console.print(
-        f"\n[b green]Selected {len(semantic_results)} strongest semantic results[/b green]\n"
+        f"\n[b green]Selected {len(semantic_results)} strongest semantic "
+        f"results[/b green]\n"
     )
     return semantic_results
 
 
 def print_final_results(results: List[SemanticResult], query: str):
-    """Print final results with 4-column header + separate snippet box below each result."""
+    """Print final results with 4-column header + separate snippet box."""
     if not results:
         console.print("[yellow]No semantic results to display.[/yellow]")
         return
@@ -476,8 +515,8 @@ def print_final_results(results: List[SemanticResult], query: str):
 
     console.print(
         Panel(
-            f"[bold green]✓ Completed:[/] Found {len(results)} semantically relevant results "
-            f'for query: [cyan]"{query}"[/cyan]',
+            f"[bold green]✓ Completed:[/] Found {len(results)} semantically "
+            f'relevant results for query: [cyan]"{query}"[/cyan]',
             border_style="bright_green",
             padding=(1, 2),
         )

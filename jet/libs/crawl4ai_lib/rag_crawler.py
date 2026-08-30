@@ -1,10 +1,19 @@
+"""Reusable crawl result processor with RAG context generation.
+
+Processes streaming crawl results, computes relevance scores, and assembles
+token-safe RAG context for LLM consumption. Memory-optimized to prevent
+crawler safety-lock stalls.
+"""
+
 import asyncio
+import gc
 from typing import Any, List
 
+from jet.adapters.llama_cpp.token_utils import count_tokens
+from jet.libs.crawl4ai_lib.config import LLM_MODEL, RAG_MAX_TOKENS
+from jet.logger import logger
 
-# ----------------------------------------------------------------------
-# Reusable Result Processor Class
-# ----------------------------------------------------------------------
+
 class CrawlResultProcessor:
     """Reusable class for processing crawl results with RAG support."""
 
@@ -17,9 +26,10 @@ class CrawlResultProcessor:
         self._current_user_query = query
 
     async def process_result(self, result: Any) -> None:
-        """
-        Async callback required by crawl_many.
-        This version is now properly awaitable.
+        """Async callback required by crawl_many.
+
+        Memory-optimized: calculates score once, sorts periodically,
+        avoids duplicate markdown storage, and triggers GC after each result.
         """
         try:
             url = getattr(result, "url", "Unknown")
@@ -35,6 +45,8 @@ class CrawlResultProcessor:
                 markdown_obj = getattr(result, "markdown", None)
                 raw_len = len(getattr(markdown_obj, "raw_markdown", "") or "")
                 fit_len = len(getattr(markdown_obj, "fit_markdown", "") or "")
+
+                # Calculate score ONCE and reuse (was previously called 2×)
                 score = (
                     calculate_relevance_score(result, user_query) if user_query else 0.0
                 )
@@ -55,7 +67,6 @@ class CrawlResultProcessor:
                     print(f" Status: {status}")
                 print("-" * 90)
 
-            # Store result (same structure as before)
             data: dict[str, Any] = {
                 "url": getattr(result, "url", None),
                 "success": success,
@@ -80,7 +91,8 @@ class CrawlResultProcessor:
                 if fit_md:
                     data["fit_markdown"] = fit_md
                     data["fit_markdown_length"] = len(fit_md)
-                    data["markdown"] = fit_md
+                    # NOTE: No longer storing duplicate data["markdown"] = fit_md
+                    # get_rag_context() resolves priority at read time
                 else:
                     md_str = getattr(markdown_obj, "raw_markdown", None) or str(
                         markdown_obj or ""
@@ -88,7 +100,8 @@ class CrawlResultProcessor:
                     data["markdown"] = md_str
                     data["markdown_length"] = len(md_str)
 
-                data["relevance_score"] = calculate_relevance_score(result, user_query)
+                # Reuse pre-calculated score (eliminates duplicate call)
+                data["relevance_score"] = score
 
                 extracted = getattr(result, "extracted_content", None)
                 if extracted:
@@ -105,15 +118,23 @@ class CrawlResultProcessor:
 
             self.results.append(data)
 
-            # Keep results sorted by relevance score (descending)
-            self.results.sort(
-                key=lambda x: (x.get("relevance_score", 0.0), x.get("timestamp", 0)),
-                reverse=True,
-            )
+            # Sort periodically instead of every insert (~80% less sorting)
+            if len(self.results) % 5 == 0:
+                self.results.sort(
+                    key=lambda x: (
+                        x.get("relevance_score", 0.0),
+                        x.get("timestamp", 0),
+                    ),
+                    reverse=True,
+                )
+
+            # Explicit GC hint to release large markdown strings promptly
+            del result
+            gc.collect()
 
         except Exception as e:
-            print(
-                f"⚠️ Error processing result for {getattr(result, 'url', 'Unknown')}: {e}"
+            logger.warning(
+                f"Error processing result for {getattr(result, 'url', 'Unknown')}: {e}"
             )
             self.results.append(
                 {
@@ -125,28 +146,78 @@ class CrawlResultProcessor:
                 }
             )
 
-    def get_rag_context(self) -> str:
-        """Generate clean RAG-ready context from successful results."""
+    def get_rag_context(
+        self,
+        max_tokens: int = RAG_MAX_TOKENS,
+        model: str | None = None,
+    ) -> str:
+        """Generate token-safe RAG context from successful results.
+
+        Assembles markdown sources sorted by relevance, truncating when
+        the token budget is exhausted to prevent LLM context overflow.
+
+        Args:
+            max_tokens: Maximum tokens for assembled context.
+            model: Model name for token counting. Uses LLM_MODEL default.
+        """
         if not self.results:
             return ""
 
+        if model is None:
+            model = LLM_MODEL
+
+        # Final sort before assembly (since we skip some sorts during streaming)
+        self.results.sort(
+            key=lambda x: (x.get("relevance_score", 0.0), x.get("timestamp", 0)),
+            reverse=True,
+        )
+
         parts: List[str] = []
+        total_tokens = 0
+
         for item in self.results:
             if not item.get("success", False):
                 continue
 
             url = item.get("url", "")
             title = item.get("title", "Untitled")
+
+            # Resolve markdown priority without duplicate storage
             markdown = (
-                item.get("markdown")
-                or item.get("fit_markdown")
+                item.get("fit_markdown")
+                or item.get("markdown")
                 or item.get("raw_markdown", "")
             ).strip()
 
-            if markdown and len(markdown) > 50:
-                header = f"Source: {title}\nURL: {url}\n\n"
-                parts.append(header + markdown + "\n\n" + "---" + "\n\n")
+            if not markdown or len(markdown) < 50:
+                continue
 
+            section = f"Source: {title}\nURL: {url}\n\n{markdown}\n\n---\n\n"
+
+            # Token-aware truncation
+            section_tokens = count_tokens(section, model=model)
+            if total_tokens + section_tokens > max_tokens:
+                remaining = max_tokens - total_tokens
+                if remaining < 100:
+                    break
+                char_ratio = len(section) / max(section_tokens, 1)
+                truncated = section[: int(remaining * char_ratio)]
+                parts.append(
+                    truncated + "\n\n[... truncated due to token limit ...]\n\n"
+                )
+                logger.info(
+                    f"get_rag_context: truncated at {max_tokens} tokens "
+                    f"({len(parts)} sources included)"
+                )
+                break
+
+            parts.append(section)
+            total_tokens += section_tokens
+
+        logger.info(
+            f"get_rag_context: assembled {total_tokens} tokens "
+            f"from {len(parts)} sources"
+        )
         return "".join(parts).strip()
 
     def get_results(self) -> List[dict[str, Any]]:
@@ -157,7 +228,10 @@ class CrawlResultProcessor:
 
 
 def calculate_relevance_score(result: Any, user_query: str) -> float:
-    """Original relevance calculation — unchanged."""
+    """Calculate relevance score based on content survival and keyword density.
+
+    Combines BM25-filtered content ratio (65%) with keyword match density (35%).
+    """
     if not getattr(result, "success", False):
         return 0.0
 
