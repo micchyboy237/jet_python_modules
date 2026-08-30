@@ -18,7 +18,7 @@ from providers.llm import (
     LlamaCppInnerLinkFilter,
     LlamaCppSufficiencyEvaluator,
 )
-from providers.scraper import HttpxScraperProvider
+from providers.scraper import HttpxScraperProvider, PlaywrightScraperProvider
 from providers.search import SearXNGSearchProvider
 
 PROJECT_NAME = "live-rag-search-local"
@@ -31,7 +31,7 @@ def setup_telemetry():
     exporter = HTTPSpanExporter(endpoint=f"{PHOENIX_REST_API}/traces")
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
-    logger.info(f"✅ Telemetry initialized: {PHOENIX_REST_API}")
+    logger.info(f"📡 Telemetry initialized: {PHOENIX_REST_API}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,7 +41,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--query", "-q", required=True, help="Search query")
     parser.add_argument(
-        "--model", "-m", default=LLM_MODEL, help=f"LLM model (default: {LLM_MODEL})"
+        "--model",
+        "-m",
+        default=LLM_MODEL,
+        help=f"LLM model (default: {LLM_MODEL})",
     )
     parser.add_argument("--max-top-results", type=int, default=10)
     parser.add_argument("--max-inner-links", type=int, default=5)
@@ -49,6 +52,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-memory-facts", type=int, default=500)
     parser.add_argument("--scrape-timeout", type=float, default=10.0)
     parser.add_argument("--searxng-url", default=None, help="SearXNG base URL override")
+    parser.add_argument(
+        "--use-playwright",
+        action="store_true",
+        help="Use Playwright for JS rendering (slower but more robust)",
+    )
     return parser.parse_args()
 
 
@@ -67,10 +75,18 @@ async def async_main(args: argparse.Namespace) -> None:
 
     llm_kwargs = {"temperature": 0.1, "max_tokens": 4096}
 
+    # Select scraper
+    if args.use_playwright:
+        scraper = PlaywrightScraperProvider()
+        logger.info("Using Playwright Scraper (JS Rendering Enabled)")
+    else:
+        scraper = HttpxScraperProvider()
+        logger.info("Using Httpx Scraper (Fast, Static Only)")
+
     agent = LiveRAGSearchAgent(
         query=args.query,
         search_provider=SearXNGSearchProvider(base_url=args.searxng_url),
-        scraper_provider=HttpxScraperProvider(),
+        scraper_provider=scraper,
         evaluator=LlamaCppSufficiencyEvaluator(model=args.model, **llm_kwargs),
         extractor=LlamaCppFactExtractor(model=args.model, **llm_kwargs),
         link_filter=LlamaCppInnerLinkFilter(model=args.model, **llm_kwargs),
@@ -90,10 +106,8 @@ async def async_main(args: argparse.Namespace) -> None:
     ) as root_span:
         logger.info(f"🚀 Starting Live RAG Search: {args.query}")
         answer = await agent.run()
-
         root_span.set_attribute(SpanAttributes.OUTPUT_VALUE, answer[:3000])
 
-        # Print trace link
         phoenix_host = PHOENIX_REST_API.rstrip("/")
         if phoenix_host.endswith("/v1"):
             phoenix_host = phoenix_host[:-3]

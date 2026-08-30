@@ -56,7 +56,7 @@ class FactExtractor(ABC):
 class InnerLinkFilter(ABC):
     @abstractmethod
     async def filter_links(
-        self, page_content: str, base_url: str, query: str, max_links: int
+        self, candidate_links: List[str], base_url: str, query: str, max_links: int
     ) -> List[str]: ...
 
 
@@ -84,17 +84,25 @@ class LlamaCppSufficiencyEvaluator(SufficiencyEvaluator):
                 ),
             },
         ) as span:
-            prompt = (
-                f"Determine if the provided context sufficiently answers the query.\n"
-                f"Query: {query}\n"
-                f"Existing Memory: {memory_context[:2000]}\n"
-                f"New Context ({source}): {new_context[:3000]}\n\n"
-                f'Respond ONLY with valid JSON: {{"status": "complete"|"incomplete", "reasoning": "..."}}'
+            # Truncate contexts to fit local model window
+            mem_snippet = (
+                memory_context[-2000:] if len(memory_context) > 2000 else memory_context
             )
-            messages = [HumanMessage(content=prompt)]
+            new_snippet = new_context[:3000]
 
+            prompt = (
+                f"Goal: Determine if we have enough info to answer: '{query}'\n\n"
+                f"Accumulated Memory:\n{mem_snippet}\n\n"
+                f"New Context ({source}):\n{new_snippet}\n\n"
+                f'Output JSON only: {{"status": "complete"|"incomplete", "reasoning": "..."}}\n'
+                f"If status is incomplete, explain what specific facts are missing."
+            )
+
+            messages = [HumanMessage(content=prompt)]
             collected = []
             final_chunk = None
+
+            # Stream output
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
                     print(chunk.content, end="", flush=True)
@@ -104,6 +112,7 @@ class LlamaCppSufficiencyEvaluator(SufficiencyEvaluator):
 
             raw = "".join(collected).strip()
             usage = _extract_usage(final_chunk) if final_chunk else {}
+
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage.get("prompt_tokens", 0)
             )
@@ -114,7 +123,6 @@ class LlamaCppSufficiencyEvaluator(SufficiencyEvaluator):
             span.set_attribute(SpanAttributes.OUTPUT_VALUE, _redact(raw[:1000]))
 
             try:
-                # Simple JSON extraction fallback
                 start = raw.find("{")
                 end = raw.rfind("}") + 1
                 data = json.loads(raw[start:end]) if start != -1 and end > 0 else {}
@@ -149,14 +157,15 @@ class LlamaCppFactExtractor(FactExtractor):
         ) as span:
             prompt = (
                 f"Extract key entities/facts relevant to '{query}' from the text below.\n"
-                f"Existing IDs: {list(existing_entity_ids)[:50]}\n"
-                f"Text: {content[:4000]}\n\n"
+                f"Existing IDs (skip these): {list(existing_entity_ids)[:50]}\n"
+                f"Text: {content[:4000]}\n"
                 f'Return JSON: {{"entities": {{"entity_id": {{"fact_key": "value"}}}}}}'
             )
-            messages = [HumanMessage(content=prompt)]
 
+            messages = [HumanMessage(content=prompt)]
             collected = []
             final_chunk = None
+
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
                     print(chunk.content, end="", flush=True)
@@ -166,6 +175,7 @@ class LlamaCppFactExtractor(FactExtractor):
 
             raw = "".join(collected).strip()
             usage = _extract_usage(final_chunk) if final_chunk else {}
+
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage.get("prompt_tokens", 0)
             )
@@ -190,27 +200,38 @@ class LlamaCppInnerLinkFilter(InnerLinkFilter):
         self.llm = ChatLlamaCpp(model=model, enable_thinking=False, **kwargs)
 
     async def filter_links(
-        self, page_content: str, base_url: str, query: str, max_links: int
+        self, candidate_links: List[str], base_url: str, query: str, max_links: int
     ) -> List[str]:
+        if not candidate_links:
+            return []
+
         with tracer.start_as_current_span(
             "live_rag.llm.link_filter",
             attributes={
                 SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.LLM.value,
                 SpanAttributes.LLM_MODEL_NAME: self.llm._model,
+                "live_rag.candidate_links_count": len(candidate_links),
             },
         ) as span:
-            # Simplified: In production, extract links via BS4 first, then ask LLM to rank/filter
-            prompt = (
-                f"Given query '{query}', identify up to {max_links} most relevant internal links "
-                f"from this page content that might contain deeper answers.\n"
-                f"Base URL: {base_url}\n"
-                f"Content Snippet: {page_content[:3000]}\n\n"
-                f'Return JSON array of URLs: ["url1", "url2"]'
-            )
-            messages = [HumanMessage(content=prompt)]
+            # Limit candidates to prevent prompt overflow
+            links_str = "\n".join(candidate_links[:50])
 
+            prompt = (
+                f"Task: Select the most relevant URLs to answer the query.\n"
+                f"Query: '{query}'\n"
+                f"Candidate URLs:\n{links_str}\n\n"
+                f"Instructions:\n"
+                f"1. Return ONLY a JSON list of URLs.\n"
+                f"2. Select at most {max_links} URLs.\n"
+                f"3. Prioritize pages likely containing detailed info (e.g., specific anime pages, lists with dates).\n"
+                f"4. Ignore navigation, login, or generic home pages.\n"
+                f'Output format: ["url1", "url2"]'
+            )
+
+            messages = [HumanMessage(content=prompt)]
             collected = []
             final_chunk = None
+
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
                     print(chunk.content, end="", flush=True)
@@ -220,6 +241,7 @@ class LlamaCppInnerLinkFilter(InnerLinkFilter):
 
             raw = "".join(collected).strip()
             usage = _extract_usage(final_chunk) if final_chunk else {}
+
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage.get("prompt_tokens", 0)
             )
@@ -227,16 +249,20 @@ class LlamaCppInnerLinkFilter(InnerLinkFilter):
                 SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
                 usage.get("completion_tokens", 0),
             )
-            span.set_attribute(SpanAttributes.OUTPUT_VALUE, _redact(raw[:1000]))
+            span.set_attribute(SpanAttributes.OUTPUT_VALUE, raw[:500])
 
             try:
                 start = raw.find("[")
                 end = raw.rfind("]") + 1
-                links = json.loads(raw[start:end]) if start != -1 and end > 0 else []
-                return [l for l in links if isinstance(l, str)][:max_links]
+                if start != -1 and end > 0:
+                    links = json.loads(raw[start:end])
+                    # Validate against candidates to prevent hallucination
+                    valid_links = [l for l in links if l in candidate_links]
+                    return valid_links[:max_links]
             except Exception as e:
                 logger.warning(f"Link filter parse error: {e}")
-                return []
+
+            return []
 
 
 class LlamaCppAnswerGenerator(AnswerGenerator):
@@ -264,13 +290,14 @@ class LlamaCppAnswerGenerator(AnswerGenerator):
                 f"Accumulated Facts: {memory_context}\n"
                 f"{'Provide a partial answer noting missing info.' if partial else 'Provide a complete answer.'}"
             )
+
             messages = [
                 SystemMessage(content=system_msg),
                 HumanMessage(content=user_msg),
             ]
-
             collected = []
             final_chunk = None
+
             print("\n🤖 Final Answer: ", end="", flush=True)
             async for chunk in self.llm.astream(messages):
                 if chunk.content:
@@ -281,6 +308,7 @@ class LlamaCppAnswerGenerator(AnswerGenerator):
 
             answer = "".join(collected)
             usage = _extract_usage(final_chunk) if final_chunk else {}
+
             span.set_attribute(
                 SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage.get("prompt_tokens", 0)
             )
