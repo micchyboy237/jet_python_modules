@@ -15,6 +15,11 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/Utils/codependpy"
     },
     {
+        "name": "Crawl4AI",
+        "version": "0.9.2",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai"
+    },
+    {
         "name": "crawlee",
         "version": "1.9.4",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawlee-python"

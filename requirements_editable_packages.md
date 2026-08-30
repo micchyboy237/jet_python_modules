@@ -3,6 +3,7 @@ Package                      Version            Editable project location
 audioflux                    0.1.9              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/audioFlux
 bertopic                     0.17.4             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic
 codependpy                   0.1.1              /Users/jethroestrada/Desktop/External_Projects/Utils/codependpy
+Crawl4AI                     0.9.2              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawl4ai
 crawlee                      1.9.4              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/crawlee-python
 datasketch                   2.0.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/datasketch
 deepeval                     4.2.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/deepeval

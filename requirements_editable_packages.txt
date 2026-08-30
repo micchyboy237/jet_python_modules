@@ -1,6 +1,7 @@
 audioflux==0.1.9
 bertopic==0.17.4
 codependpy==0.1.1
+Crawl4AI==0.9.2
 crawlee==1.9.4
 datasketch==2.0.0
 deepeval==4.2.0
