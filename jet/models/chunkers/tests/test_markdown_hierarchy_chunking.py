@@ -3,7 +3,7 @@
 import re
 
 import pytest
-from jet.models.embeddings.chunking import (
+from jet.models.chunkers import (
     chunk_docs_by_hierarchy,
     chunk_headers_by_hierarchy,
 )

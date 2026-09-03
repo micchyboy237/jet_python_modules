@@ -24,7 +24,7 @@ Minimal Usage Examples
 
 Single document:
 
-    >>> from jet.models.embeddings.chunking import chunk_headers_by_hierarchy
+    >>> from jet.models.chunkers import chunk_headers_by_hierarchy
     >>> text = '''
     ... # Introduction
     ... Welcome to the guide.
@@ -49,7 +49,7 @@ Single document:
 
 Multiple documents with explicit IDs:
 
-    >>> from jet.models.embeddings.chunking import chunk_docs_by_hierarchy
+    >>> from jet.models.chunkers import chunk_docs_by_hierarchy
     >>> docs = ["# Doc A\\nContent A.", "# Doc B\\nContent B."]
     >>> results = chunk_docs_by_hierarchy(docs, chunk_size=10, ids=["a1", "b2"])
     >>> {r["doc_id"] for r in results}

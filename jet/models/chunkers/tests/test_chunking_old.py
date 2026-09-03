@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 from unittest.mock import patch
 
 import pytest
-from jet.models.embeddings.chunking import (
+from jet.models.chunkers import (
     chunk_docs_by_hierarchy,
     chunk_headers_by_hierarchy,
 )
