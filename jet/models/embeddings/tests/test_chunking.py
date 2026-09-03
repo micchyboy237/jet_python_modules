@@ -1,466 +1,375 @@
+# tests/test_markdown_hierarchy_chunking.py
+
+import re
+
 import pytest
-import nltk
-from jet.data.utils import generate_unique_id
-from jet.models.embeddings.chunking import chunk_docs_by_hierarchy, chunk_headers_by_hierarchy
-from typing import Dict, TypedDict, Callable, Union, List, Optional
+from jet.models.embeddings.chunking import (
+    chunk_docs_by_hierarchy,
+    chunk_headers_by_hierarchy,
+)
 
 
-class Metadata(TypedDict):
-    start_idx: int
-    end_idx: int
+def simple_tokenizer(x):
+    """
+    Deterministic tokenizer for tests.
+
+    Avoids relying on nltk punkt/tokenizer data.
+    """
+    if isinstance(x, str):
+        return x.split()
+    return [s.split() for s in x]
 
 
-class ChunkResult(TypedDict):
-    content: str
-    num_tokens: int
-    header: str
-    parent_header: Optional[str]
-    level: int
-    parent_level: Optional[int]
-    doc_index: int
-    chunk_index: int
-    metadata: Metadata
+def simple_sentence_splitter(text: str):
+    """
+    Simple sentence splitter for tests.
+
+    Keeps punctuation attached to the sentence.
+    """
+    matches = re.finditer(r"[^.!?]+[.!?]|[^.!?]+$", text)
+    return [m.group(0).strip() for m in matches if m.group(0).strip()]
 
 
-@pytest.fixture(scope="class")
-def chunking_shared():
-    def tokenizer(x):
-        return nltk.word_tokenize(x) if isinstance(x, str) else [nltk.word_tokenize(t) for t in x]
-    split_fn = nltk.sent_tokenize
-    chunk_size = 16
-    return tokenizer, split_fn, chunk_size
+def body_slice(source: str, chunk: dict) -> str:
+    return source[chunk["metadata"]["start_idx"] : chunk["metadata"]["end_idx"]].strip()
 
 
-@pytest.fixture(scope="class")
-def markdown_text():
-    return """
-# Root Header
-This is a sentence in root.
+def full_chunk_slice(source: str, chunk: dict) -> str:
+    """Slice that includes both header and body content."""
+    return source[chunk["metadata"]["start_idx"] : chunk["metadata"]["end_idx"]].strip()
 
-## Level 2 Header
-This is a very long sentence that fits chunksize.
-Short sentence.
-Joined short sentence for merging.
 
-### Level 3 Header
-This is another long sentence.
-This is a long sibling sentence.
-This is the 5th long sentence.
+def chunk_one(text: str, chunk_size: int = 50):
+    return chunk_headers_by_hierarchy(
+        text,
+        chunk_size=chunk_size,
+        tokenizer=simple_tokenizer,
+        split_fn=simple_sentence_splitter,
+    )
+
+
+def test_empty_input_returns_empty_list():
+    assert chunk_one("") == []
+    assert chunk_one("   \n\n   ") == []
+
+
+def test_basic_header_chunking():
+    text = "# Introduction\nWelcome to the guide."
+    chunks = chunk_one(text, chunk_size=20)
+
+    assert len(chunks) == 1
+    chunk = chunks[0]
+
+    assert chunk["header"] == "# Introduction"
+    assert chunk["content"] == "Welcome to the guide."
+
+    # Metadata now covers header + body
+    assert full_chunk_slice(text, chunk) == "# Introduction\nWelcome to the guide."
+
+
+def test_nested_header_parent_relationship():
+    text = """# Introduction
+Welcome.
+
+## Setup
+Install dependencies first.
+Then configure your environment.
+"""
+    chunks = chunk_one(text, chunk_size=50)
+    intro, setup = chunks
+
+    assert full_chunk_slice(text, intro) == "# Introduction\nWelcome."
+    assert (
+        full_chunk_slice(text, setup)
+        == "## Setup\nInstall dependencies first.\nThen configure your environment."
+    )
+
+
+def test_multiple_header_levels_resolve_nearest_parent():
+    text = """# H1
+Top.
+
+## H2
+Middle.
+
+### H3
+Deep.
 """
 
+    chunks = chunk_one(text, chunk_size=50)
 
-class TestChunkHeadersByHierarchy:
-    def test_chunk_headers_by_hierarchy_with_root(self, chunking_shared, markdown_text):
-        tokenizer, split_fn, chunk_size = chunking_shared
-        expected = [
-            {
-                "id": "86472f83-3503-46cb-b80d-63d4a5aaf564",
-                "parent_id": None,
-                "header_doc_id": "dce2fa07-5470-4822-90a4-2bdc481cc41c",
-                "doc_index": 0,
-                "chunk_index": 0,
-                "num_tokens": 10,
-                "header": "# Root Header",
-                "parent_header": None,
-                "content": "This is a sentence in root.",
-                "level": 1,
-                "parent_level": None,
-                "metadata": {
-                    "start_idx": 15,
-                    "end_idx": 41
-                }
-            },
-            {
-                "id": "0511bc15-0b5d-437e-8fdc-e105db96fe1c",
-                "parent_id": "dce2fa07-5470-4822-90a4-2bdc481cc41c",
-                "header_doc_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
-                "doc_index": 1,
-                "chunk_index": 0,
-                "num_tokens": 15,
-                "header": "## Level 2 Header",
-                "parent_header": "# Root Header",
-                "content": "This is a very long sentence that fits chunksize.",
-                "level": 2,
-                "parent_level": 1,
-                "metadata": {
-                    "start_idx": 62,
-                    "end_idx": 110
-                }
-            },
-            {
-                "id": "e87d7ed2-7017-4dad-8b90-a1ec5af65bd4",
-                "parent_id": "dce2fa07-5470-4822-90a4-2bdc481cc41c",
-                "header_doc_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
-                "doc_index": 1,
-                "chunk_index": 1,
-                "num_tokens": 14,
-                "header": "## Level 2 Header",
-                "parent_header": "# Root Header",
-                "content": "Short sentence.\nJoined short sentence for merging.",
-                "level": 2,
-                "parent_level": 1,
-                "metadata": {
-                    "start_idx": 112,
-                    "end_idx": 161
-                }
-            },
-            {
-                "id": "7f79b935-11f2-4e45-9fa1-918c0a8cf467",
-                "parent_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
-                "header_doc_id": "dd52452f-2e93-47e9-9bbc-18c8bac87fe5",
-                "doc_index": 2,
-                "chunk_index": 0,
-                "num_tokens": 12,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is another long sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 183,
-                    "end_idx": 212
-                }
-            },
-            {
-                "id": "897c107f-8138-4b62-a5cd-386589d4fcd4",
-                "parent_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
-                "header_doc_id": "dd52452f-2e93-47e9-9bbc-18c8bac87fe5",
-                "doc_index": 2,
-                "chunk_index": 1,
-                "num_tokens": 13,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is a long sibling sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 214,
-                    "end_idx": 245
-                }
-            },
-            {
-                "id": "2449d6a6-0a71-4944-bb47-9a61006adbf9",
-                "parent_id": "9424a3d0-8dd4-4965-a268-6d45e0d590aa",
-                "header_doc_id": "dd52452f-2e93-47e9-9bbc-18c8bac87fe5",
-                "doc_index": 2,
-                "chunk_index": 2,
-                "num_tokens": 13,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is the 5th long sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 247,
-                    "end_idx": 276
-                }
-            }
-        ]
-        results = chunk_headers_by_hierarchy(
-            markdown_text, chunk_size, tokenizer, split_fn)
-        assert len(results) == len(expected)
-        for res, exp in zip(results, expected):
-            assert isinstance(res["id"], str) and res["id"]
-            assert isinstance(res["header_doc_id"],
-                              str) and res["header_doc_id"]
-            assert isinstance(res.get("parent_id", None), (str, type(None)))
-            res_no_ids = {k: v for k, v in res.items() if k not in [
-                "id", "header_doc_id", "parent_id"]}
-            exp_no_ids = {k: v for k, v in exp.items() if k not in [
-                "id", "header_doc_id", "parent_id"]}
-            assert res_no_ids == exp_no_ids
+    assert len(chunks) == 3
 
-    def test_chunk_headers_by_hierarchy_no_root(self, chunking_shared, markdown_text):
-        # Generate initial chunks with no root
-        markdown_text = "\n".join(line for line in markdown_text.splitlines()
-                                  if not line.startswith("# Root Header") and "This is a sentence in root." not in line)
-        tokenizer, split_fn, chunk_size = chunking_shared
-        expected = [
-            {
-                "id": "6fd6dacb-025b-4e91-9e7f-d3c48367ddaa",
-                "parent_id": None,
-                "header_doc_id": "515581a4-941e-48e8-b658-03c698fae9d5",
-                "doc_index": 0,
-                "chunk_index": 0,
-                "num_tokens": 15,
-                "header": "## Level 2 Header",
-                "parent_header": None,
-                "content": "This is a very long sentence that fits chunksize.",
-                "level": 2,
-                "parent_level": None,
-                "metadata": {
-                    "start_idx": 19,
-                    "end_idx": 67
-                }
-            },
-            {
-                "id": "03b8dbdb-b6f5-4a82-a803-c10278dfabbb",
-                "parent_id": None,
-                "header_doc_id": "515581a4-941e-48e8-b658-03c698fae9d5",
-                "doc_index": 0,
-                "chunk_index": 1,
-                "num_tokens": 14,
-                "header": "## Level 2 Header",
-                "parent_header": None,
-                "content": "Short sentence.\nJoined short sentence for merging.",
-                "level": 2,
-                "parent_level": None,
-                "metadata": {
-                    "start_idx": 69,
-                    "end_idx": 118
-                }
-            },
-            {
-                "id": "8778a759-c476-4a91-b1b9-b89fabcdaadd",
-                "parent_id": "515581a4-941e-48e8-b658-03c698fae9d5",
-                "header_doc_id": "4d7c36a2-8450-48f4-bdb2-904d90067ee3",
-                "doc_index": 1,
-                "chunk_index": 0,
-                "num_tokens": 12,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is another long sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 140,
-                    "end_idx": 169
-                }
-            },
-            {
-                "id": "5f494cee-3371-42c0-9d02-b222c8a83e8f",
-                "parent_id": "515581a4-941e-48e8-b658-03c698fae9d5",
-                "header_doc_id": "4d7c36a2-8450-48f4-bdb2-904d90067ee3",
-                "doc_index": 1,
-                "chunk_index": 1,
-                "num_tokens": 13,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is a long sibling sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 171,
-                    "end_idx": 202
-                }
-            },
-            {
-                "id": "0970804a-2296-4a09-a49b-f439f4c6f974",
-                "parent_id": "515581a4-941e-48e8-b658-03c698fae9d5",
-                "header_doc_id": "4d7c36a2-8450-48f4-bdb2-904d90067ee3",
-                "doc_index": 1,
-                "chunk_index": 2,
-                "num_tokens": 13,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is the 5th long sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 204,
-                    "end_idx": 233
-                }
-            }
-        ]
-        results = chunk_headers_by_hierarchy(
-            markdown_text, chunk_size, tokenizer, split_fn)
-        assert len(results) == len(expected)
-        for res, exp in zip(results, expected):
-            assert isinstance(res["id"], str) and res["id"]
-            assert isinstance(res["header_doc_id"],
-                              str) and res["header_doc_id"]
-            assert isinstance(res.get("parent_id", None), (str, type(None)))
-            res_no_ids = {k: v for k, v in res.items() if k not in [
-                "id", "header_doc_id", "parent_id"]}
-            exp_no_ids = {k: v for k, v in exp.items() if k not in [
-                "id", "header_doc_id", "parent_id"]}
-            assert res_no_ids == exp_no_ids
+    h1, h2, h3 = chunks
+
+    assert h1["header"] == "# H1"
+    assert h1["parent_header"] is None
+
+    assert h2["header"] == "## H2"
+    assert h2["parent_header"] == "# H1"
+    assert h2["parent_id"] == h1["header_doc_id"]
+
+    assert h3["header"] == "### H3"
+    assert h3["parent_header"] == "## H2"
+    assert h3["parent_id"] == h2["header_doc_id"]
 
 
-class TestChunkDocsByHierarchy:
-    def test_chunk_docs_by_hierarchy_multiple_docs(self, chunking_shared, markdown_text):
-        # Given: Two markdown documents with hierarchical headers and content
-        tokenizer, split_fn, chunk_size = chunking_shared
-        doc1 = markdown_text
-        doc2 = """
-## Another Header
-This is a different document.
-Another sentence in this doc.
+def test_sibling_headers_share_same_parent():
+    text = """# Root
+Root body.
 
-### Sub Header
-This is a sub-level sentence.
-Another sub-level sentence.
+## A
+A body.
+
+## B
+B body.
 """
-        markdown_texts = [doc1, doc2]
-        doc_ids = [generate_unique_id(), generate_unique_id()]
 
-        # Expected results combining chunks from both documents
-        expected = [
-            {
-                "id": "72791c29-c6d9-4c08-9405-393f22295029",
-                "parent_id": None,
-                "header_doc_id": "0243df06-9020-4822-90fc-5eaa78543be2",
-                "doc_index": 0,
-                "chunk_index": 0,
-                "num_tokens": 10,
-                "header": "# Root Header",
-                "parent_header": None,
-                "content": "This is a sentence in root.",
-                "level": 1,
-                "parent_level": None,
-                "metadata": {
-                    "start_idx": 15,
-                    "end_idx": 41
-                },
-                "doc_id": "635ec309-ef09-42c1-b974-2f742fb8c35c"
-            },
-            {
-                "id": "216ce372-987a-4576-a4d5-e3b08c3168c4",
-                "parent_id": "0243df06-9020-4822-90fc-5eaa78543be2",
-                "header_doc_id": "d0288004-ca75-4e02-b6db-aa4b9a470c51",
-                "doc_index": 0,
-                "chunk_index": 0,
-                "num_tokens": 15,
-                "header": "## Level 2 Header",
-                "parent_header": "# Root Header",
-                "content": "This is a very long sentence that fits chunksize.",
-                "level": 2,
-                "parent_level": 1,
-                "metadata": {
-                    "start_idx": 62,
-                    "end_idx": 110
-                },
-                "doc_id": "635ec309-ef09-42c1-b974-2f742fb8c35c"
-            },
-            {
-                "id": "ef4870ab-3cf0-494b-804c-ebc117acbe39",
-                "parent_id": "0243df06-9020-4822-90fc-5eaa78543be2",
-                "header_doc_id": "d0288004-ca75-4e02-b6db-aa4b9a470c51",
-                "doc_index": 0,
-                "chunk_index": 1,
-                "num_tokens": 14,
-                "header": "## Level 2 Header",
-                "parent_header": "# Root Header",
-                "content": "Short sentence.\nJoined short sentence for merging.",
-                "level": 2,
-                "parent_level": 1,
-                "metadata": {
-                    "start_idx": 112,
-                    "end_idx": 161
-                },
-                "doc_id": "635ec309-ef09-42c1-b974-2f742fb8c35c"
-            },
-            {
-                "id": "5d5f1fe0-5232-4052-a991-a6d9d90f72d6",
-                "parent_id": "d0288004-ca75-4e02-b6db-aa4b9a470c51",
-                "header_doc_id": "8c2c3f71-2876-49b4-8d93-34b6d354d070",
-                "doc_index": 0,
-                "chunk_index": 0,
-                "num_tokens": 12,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is another long sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 183,
-                    "end_idx": 212
-                },
-                "doc_id": "635ec309-ef09-42c1-b974-2f742fb8c35c"
-            },
-            {
-                "id": "3daceba1-0b6b-43a1-8073-2a21b2f0806a",
-                "parent_id": "d0288004-ca75-4e02-b6db-aa4b9a470c51",
-                "header_doc_id": "8c2c3f71-2876-49b4-8d93-34b6d354d070",
-                "doc_index": 0,
-                "chunk_index": 1,
-                "num_tokens": 13,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is a long sibling sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 214,
-                    "end_idx": 245
-                },
-                "doc_id": "635ec309-ef09-42c1-b974-2f742fb8c35c"
-            },
-            {
-                "id": "aef0e16f-c871-42f6-9bd7-a03acaeb20ef",
-                "parent_id": "d0288004-ca75-4e02-b6db-aa4b9a470c51",
-                "header_doc_id": "8c2c3f71-2876-49b4-8d93-34b6d354d070",
-                "doc_index": 0,
-                "chunk_index": 2,
-                "num_tokens": 13,
-                "header": "### Level 3 Header",
-                "parent_header": "## Level 2 Header",
-                "content": "This is the 5th long sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 247,
-                    "end_idx": 276
-                },
-                "doc_id": "635ec309-ef09-42c1-b974-2f742fb8c35c"
-            },
-            {
-                "id": "58cf2cc1-cee1-4a7d-88c6-50209a197354",
-                "parent_id": None,
-                "header_doc_id": "a319fcff-086a-4ecd-920b-5d02c1c84c27",
-                "doc_index": 1,
-                "chunk_index": 0,
-                "num_tokens": 16,
-                "header": "## Another Header",
-                "parent_header": None,
-                "content": "This is a different document.\nAnother sentence in this doc.",
-                "level": 2,
-                "parent_level": None,
-                "metadata": {
-                    "start_idx": 19,
-                    "end_idx": 77
-                },
-                "doc_id": "f1f3bb98-1912-4aeb-8ae1-04495421dc59"
-            },
-            {
-                "id": "854cbf57-5b21-4015-9217-92c5c91ebd06",
-                "parent_id": "a319fcff-086a-4ecd-920b-5d02c1c84c27",
-                "header_doc_id": "28f04b37-c340-4c16-9fb4-38d355c437e3",
-                "doc_index": 1,
-                "chunk_index": 0,
-                "num_tokens": 15,
-                "header": "### Sub Header",
-                "parent_header": "## Another Header",
-                "content": "This is a sub-level sentence.\nAnother sub-level sentence.",
-                "level": 3,
-                "parent_level": 2,
-                "metadata": {
-                    "start_idx": 95,
-                    "end_idx": 151
-                },
-                "doc_id": "f1f3bb98-1912-4aeb-8ae1-04495421dc59"
-            }
-        ]
+    chunks = chunk_one(text, chunk_size=50)
 
-        # When: We chunk the documents using chunk_docs_by_hierarchy
-        results = chunk_docs_by_hierarchy(
-            markdown_texts, chunk_size, tokenizer, split_fn, doc_ids
+    assert len(chunks) == 3
+
+    root, a, b = chunks
+
+    assert a["parent_header"] == "# Root"
+    assert b["parent_header"] == "# Root"
+    assert a["parent_id"] == root["header_doc_id"]
+    assert b["parent_id"] == root["header_doc_id"]
+
+
+def test_header_without_body_is_skipped():
+    text = """# Empty Header
+
+## Child
+Child body.
+"""
+
+    chunks = chunk_one(text, chunk_size=50)
+
+    assert len(chunks) == 1
+
+    chunk = chunks[0]
+    assert chunk["header"] == "## Child"
+    assert chunk["content"] == "Child body."
+
+    # Even though "# Empty Header" produces no chunk,
+    # it should still be tracked as the parent.
+    assert chunk["parent_header"] == "# Empty Header"
+    assert chunk["parent_level"] == 1
+    assert chunk["parent_id"] is not None
+
+
+def test_multiple_empty_headers_are_skipped_but_hierarchy_is_preserved():
+    text = """# Root
+
+## Empty Child
+
+### Real Section
+Actual body.
+"""
+
+    chunks = chunk_one(text, chunk_size=50)
+
+    assert len(chunks) == 1
+
+    chunk = chunks[0]
+    assert chunk["header"] == "### Real Section"
+    assert chunk["content"] == "Actual body."
+
+    assert chunk["parent_header"] == "## Empty Child"
+    assert chunk["parent_level"] == 2
+    assert chunk["parent_id"] is not None
+
+
+def test_header_tokens_count_toward_chunk_budget():
+    text = """# Big Header
+one two.
+three four.
+"""
+
+    # Header tokens:
+    # "# Big Header" -> ["#", "Big", "Header"] = 3
+    #
+    # Sentence tokens:
+    # "one two." -> 2
+    # "three four." -> 2
+    #
+    # Header + first sentence = 5
+    # Header + both sentences = 7
+    #
+    # With chunk_size=5, each sentence should become its own chunk.
+    chunks = chunk_one(text, chunk_size=5)
+
+    assert len(chunks) == 2
+
+    assert chunks[0]["content"] == "one two."
+    assert chunks[0]["num_tokens"] == 5
+
+    assert chunks[1]["content"] == "three four."
+    assert chunks[1]["num_tokens"] == 5
+
+
+def test_oversized_sentence_is_emitted_as_single_chunk():
+    text = """# H
+one two three four five six.
+"""
+
+    # Header has 2 tokens: "#", "H"
+    # Sentence has 6 tokens.
+    # Total = 8 > chunk_size.
+    chunks = chunk_one(text, chunk_size=3)
+
+    assert len(chunks) == 1
+
+    chunk = chunks[0]
+    assert chunk["content"] == "one two three four five six."
+    assert chunk["num_tokens"] == 8
+
+
+def test_chunk_index_resets_per_header():
+    text = """# A
+one two.
+three four.
+
+# B
+five six.
+seven eight.
+"""
+
+    chunks = chunk_one(text, chunk_size=4)
+
+    a_chunks = [c for c in chunks if c["header"] == "# A"]
+    b_chunks = [c for c in chunks if c["header"] == "# B"]
+
+    assert [c["chunk_index"] for c in a_chunks] == [0, 1]
+    assert [c["chunk_index"] for c in b_chunks] == [0, 1]
+
+
+def test_repeated_sentences_have_correct_distinct_indices():
+    text = """# H
+Same.
+Same.
+"""
+    chunks = chunk_one(text, chunk_size=3)
+    first, second = chunks
+
+    # Both chunks include the header (overlapping ranges are expected)
+    assert full_chunk_slice(text, first) == "# H\nSame."
+
+    # Second chunk also includes header + its own body sentence
+    # The slice [header_start : second_body_end] naturally includes
+    # the first sentence too since it falls within the range.
+    # What matters is that content is correct and chunks are distinct.
+    second_slice = full_chunk_slice(text, second)
+    assert second_slice.startswith("# H")
+    assert second["content"] == "Same."
+
+    # Chunks must be distinct
+    assert first["chunk_index"] == 0
+    assert second["chunk_index"] == 1
+    assert first["id"] != second["id"]
+
+    # Body end positions must differ (second chunk's body ends later)
+    assert first["metadata"]["end_idx"] < second["metadata"]["end_idx"]
+
+
+def test_content_before_first_header_is_chunked():
+    text = """Intro before any header.
+
+# H
+Body under header.
+"""
+
+    chunks = chunk_one(text, chunk_size=50)
+
+    assert len(chunks) == 2
+
+    preamble = chunks[0]
+    header_chunk = chunks[1]
+
+    assert preamble["header"] == ""
+    assert preamble["parent_header"] is None
+    assert preamble["content"] == "Intro before any header."
+
+    assert header_chunk["header"] == "# H"
+    assert header_chunk["content"] == "Body under header."
+
+
+def test_chunk_docs_preserves_explicit_document_ids():
+    docs = [
+        "# Doc A\nContent A.",
+        "# Doc B\nContent B.",
+    ]
+
+    chunks = chunk_docs_by_hierarchy(
+        docs,
+        chunk_size=50,
+        tokenizer=simple_tokenizer,
+        split_fn=simple_sentence_splitter,
+        ids=["a1", "b2"],
+    )
+
+    assert len(chunks) == 2
+
+    assert chunks[0]["doc_id"] == "a1"
+    assert chunks[0]["doc_index"] == 0
+    assert chunks[0]["header"] == "# Doc A"
+
+    assert chunks[1]["doc_id"] == "b2"
+    assert chunks[1]["doc_index"] == 1
+    assert chunks[1]["header"] == "# Doc B"
+
+
+def test_chunk_docs_generates_document_ids_when_missing():
+    docs = [
+        "# Doc A\nContent A.",
+        "# Doc B\nContent B.",
+    ]
+
+    chunks = chunk_docs_by_hierarchy(
+        docs,
+        chunk_size=50,
+        tokenizer=simple_tokenizer,
+        split_fn=simple_sentence_splitter,
+    )
+
+    assert len(chunks) == 2
+
+    assert chunks[0]["doc_id"]
+    assert chunks[1]["doc_id"]
+    assert chunks[0]["doc_id"] != chunks[1]["doc_id"]
+
+
+def test_chunk_docs_rejects_mismatched_ids():
+    docs = [
+        "# Doc A\nContent A.",
+        "# Doc B\nContent B.",
+    ]
+
+    with pytest.raises(ValueError, match="Number of provided IDs"):
+        chunk_docs_by_hierarchy(
+            docs,
+            chunk_size=50,
+            tokenizer=simple_tokenizer,
+            split_fn=simple_sentence_splitter,
+            ids=["only-one-id"],
         )
 
-        # Then: The results should match the expected chunks with correct doc_ids
-        assert len(results) == len(
-            expected), f"Expected {len(expected)} chunks, got {len(results)}"
-        for res, exp in zip(results, expected):  # Fixed invalid loop variable
-            assert isinstance(
-                res["id"], str) and res["id"], "Chunk ID must be a non-empty string"
-            assert isinstance(
-                res["header_doc_id"], str) and res["header_doc_id"], "Header doc ID must be a non-empty string"
-            assert isinstance(res.get("parent_id", None), (str, type(
-                None))), "Parent ID must be a string or None"
-            assert isinstance(
-                res["doc_id"], str) and res["doc_id"], "Doc ID must be a non-empty string"
-            res_no_ids = {k: v for k, v in res.items() if k not in [
-                "id", "header_doc_id", "parent_id", "doc_id"]}
-            exp_no_ids = {k: v for k, v in exp.items() if k not in [
-                "id", "header_doc_id", "parent_id", "doc_id"]}
-            assert res_no_ids == exp_no_ids, f"Chunk mismatch: {res_no_ids} != {exp_no_ids}"
+
+def test_all_chunks_under_same_header_include_header_in_range():
+    """Every chunk from a single header must have the header in its metadata slice."""
+    text = """# Shared Header
+Sentence one is here.
+Sentence two is here.
+Sentence three is here.
+Sentence four is here.
+"""
+    chunks = chunk_one(text, chunk_size=6)
+    assert len(chunks) >= 2
+
+    for chunk in chunks:
+        sliced = full_chunk_slice(text, chunk)
+        assert chunk["header"] in sliced
+        assert chunk["content"] in sliced
+        # Content must appear after header in the slice
+        assert sliced.index(chunk["header"]) < sliced.index(chunk["content"])

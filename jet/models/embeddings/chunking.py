@@ -1,8 +1,63 @@
-from typing import Dict, TypedDict, Callable, Union, List, Optional
+"""
+Hierarchical Markdown Chunking Module
+
+Splits markdown documents into semantically-aware chunks that preserve header
+hierarchy, parent-child relationships, and precise source-text indices. Each
+chunk carries metadata enabling reconstruction of the original document structure
+for retrieval-augmented generation (RAG) pipelines.
+
+Key behaviors:
+- Chunks respect a configurable token budget (header tokens count toward limit).
+- Parent/child header relationships are tracked via generated IDs.
+- Source text indices (`start_idx`, `end_idx`) include the header line,
+  enabling full semantic-unit reconstruction from a single slice.
+- Headers with no body content before the next header are skipped (no empty chunks).
+- Sentences exceeding the chunk size are emitted as a single oversized chunk.
+- All chunks under the same header consistently include the header in their
+  metadata range, even when split by token budget.
+
+Minimal Usage Examples
+----------------------
+
+Single document:
+
+    >>> from jet.models.embeddings.chunking import chunk_headers_by_hierarchy
+    >>> text = '''
+    ... # Introduction
+    ... Welcome to the guide.
+    ... ## Setup
+    ... Install dependencies first.
+    ... Then configure your environment.
+    ... '''
+    >>> chunks = chunk_headers_by_hierarchy(text, chunk_size=10)
+    >>> len(chunks)
+    2
+    >>> chunks[0]["header"]
+    '# Introduction'
+    >>> chunks[0]["content"]
+    'Welcome to the guide.'
+    >>> chunks[1]["parent_header"]
+    '# Introduction'
+    >>> sliced = text[chunks[1]["metadata"]["start_idx"]:chunks[1]["metadata"]["end_idx"]].strip()
+    >>> sliced.startswith(chunks[1]["header"])
+    True
+    >>> chunks[1]["content"] in sliced
+    True
+
+Multiple documents with explicit IDs:
+
+    >>> from jet.models.embeddings.chunking import chunk_docs_by_hierarchy
+    >>> docs = ["# Doc A\\nContent A.", "# Doc B\\nContent B."]
+    >>> results = chunk_docs_by_hierarchy(docs, chunk_size=10, ids=["a1", "b2"])
+    >>> {r["doc_id"] for r in results}
+    {'a1', 'b2'}
+"""
+
 import re
-import nltk
+from typing import Callable, List, Optional, TypedDict, Union
+
 from jet.data.utils import generate_unique_id
-from jet.models.tokenizer.base import TokenizerWrapper, EncodingWrapper
+from jet.models.tokenizer.base import TokenizerWrapper
 
 
 class ChunkMetadata(TypedDict):
@@ -28,156 +83,206 @@ class ChunkResult(TypedDict):
 def chunk_headers_by_hierarchy(
     markdown_text: str,
     chunk_size: int,
-    tokenizer: Optional[Union[
-        Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]],
-        TokenizerWrapper
-    ]] = None,
-    split_fn: Optional[Callable[[str], List[str]]] = None
+    tokenizer: Optional[
+        Union[
+            Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]],
+            TokenizerWrapper,
+        ]
+    ] = None,
+    split_fn: Optional[Callable[[str], List[str]]] = None,
 ) -> List[ChunkResult]:
+    """
+    Chunk a single markdown document by header hierarchy.
+
+    Args:
+        markdown_text: Raw markdown string to chunk.
+        chunk_size: Maximum tokens per chunk (including header tokens).
+        tokenizer: Token counting function or TokenizerWrapper.
+                   Defaults to nltk.word_tokenize.
+        split_fn: Sentence splitting function. Defaults to nltk.sent_tokenize.
+
+    Returns:
+        List of ChunkResult dicts with content, hierarchy metadata, and
+        source-text indices. Empty input returns an empty list.
+    """
     if tokenizer is None:
-        def tokenizer(x): return nltk.word_tokenize(x) if isinstance(
-            x, str) else [nltk.word_tokenize(t) for t in x]
-    split_fn = split_fn or nltk.sent_tokenize
+        import nltk
+
+        def tokenizer(x):
+            return (
+                nltk.word_tokenize(x)
+                if isinstance(x, str)
+                else [nltk.word_tokenize(t) for t in x]
+            )
+
+    if split_fn is None:
+        import nltk
+
+        split_fn = nltk.sent_tokenize
+
     if not markdown_text.strip():
         return []
-    lines = markdown_text.strip().split('\n')
-    header_pattern = r'^(#{1,6})\s+(.+)$'
-    results = []
+
+    HEADER_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
+
+    results: List[ChunkResult] = []
+    header_stack: List[dict] = []  # {level, text, header_doc_id}
+    section_counter = 0
+
     current = {
-        "id": None,
-        "parent_id": None,
-        "header_doc_id": None,
-        "content": [],
-        "num_tokens": 0,
+        "content_parts": [],
+        "token_count": 0,
         "header": "",
-        "parent_header": None,
+        "header_tokens": 0,
         "level": 0,
+        "parent_header": None,
         "parent_level": None,
-        "doc_index": 0,
+        "parent_id": None,
+        "header_doc_id": "",
+        "section_index": 0,
         "chunk_index": 0,
-        "start_idx": 0,
-        "end_idx": 0,
-        "metadata": {},
+        "_header_abs_start": 0,
+        "abs_start": 0,
+        "abs_end": 0,
     }
-    header_stack = []
-    doc_index = -1
-    char_index = 0
 
-    def add_chunk():
-        if current["content"]:
-            header_tokens = (
-                tokenizer(current["header"])._ids
-                if isinstance(tokenizer, TokenizerWrapper)
-                else tokenizer(current["header"])
-            ) if current["header"] else []
-            content_str = "\n".join(current["content"]).strip()
-            chunk = {
-                "id": generate_unique_id(),
-                "parent_id": current["parent_id"],
-                "header_doc_id": current["header_doc_id"],
-                "doc_index": current["doc_index"],
-                "chunk_index": current["chunk_index"],
-                "num_tokens": current["num_tokens"] + (len(header_tokens) if isinstance(header_tokens, list) else 0),
-                "header": current["header"],
-                "parent_header": current["parent_header"],
-                "content": content_str,
-                "level": current["level"],
-                "parent_level": current["parent_level"],
-                "metadata": {
-                    "start_idx": current["start_idx"],
-                    "end_idx": current["end_idx"]
-                }
-            }
-            results.append(chunk)
-            current["chunk_index"] += 1
-            current["content"] = []
-            current["num_tokens"] = 0
+    def _resolve_parent(level: int):
+        """Find nearest ancestor with lower level in single pass."""
+        for h in reversed(header_stack):
+            if h["level"] < level:
+                return h["text"], h["level"], h["header_doc_id"]
+        return None, None, None
 
-    if lines and not lines[0].strip():
-        char_index += len(lines[0]) + 1
-        lines = lines[1:]
+    def _flush_chunk():
+        if not current["content_parts"]:
+            return
+
+        content_str = "\n".join(current["content_parts"]).strip()
+        total_tokens = current["token_count"] + current["header_tokens"]
+
+        chunk: ChunkResult = {
+            "id": generate_unique_id(),
+            "parent_id": current["parent_id"],
+            "header_doc_id": current["header_doc_id"],
+            "doc_index": current["section_index"],
+            "chunk_index": current["chunk_index"],
+            "num_tokens": total_tokens,
+            "header": current["header"],
+            "parent_header": current["parent_header"],
+            "content": content_str,
+            "level": current["level"],
+            "parent_level": current["parent_level"],
+            "metadata": {
+                "start_idx": current["abs_start"],
+                "end_idx": current["abs_end"],
+            },
+        }
+        results.append(chunk)
+        current["chunk_index"] += 1
+        current["content_parts"] = []
+        current["token_count"] = 0
+
+        # Reset BOTH anchors so next chunk starts fresh at header position
+        current["abs_start"] = current["_header_abs_start"]
+        current["abs_end"] = current["_header_abs_start"]  # ✅ ADD THIS LINE
+
+    def _count_tokens(text: str) -> int:
+        tokens = tokenizer(text)
+        if isinstance(tokenizer, TokenizerWrapper):
+            return len(tokens._ids) if hasattr(tokens, "_ids") else len(tokens)
+        if isinstance(tokens, list):
+            return len(tokens)
+        return 0
+
+    pos = 0
+    lines = markdown_text.split("\n")
 
     for line in lines:
-        line_with_newline = line + '\n'
-        line = line.strip()
-        if not line:
-            char_index += len(line_with_newline)
-            continue
-        header_match = re.match(header_pattern, line, re.MULTILINE)
+        line_len = len(line) + 1  # +1 for \n
+        stripped = line.strip()
+
+        header_match = HEADER_RE.match(stripped)
         if header_match:
-            add_chunk()
-            doc_index += 1
-            current["level"] = len(header_match.group(1))
-            current["header"] = header_match.group(0).strip()
-            header_stack = [
-                h for h in header_stack if h["level"] < current["level"]]
-            header_stack.append({
-                "level": current["level"],
-                "text": current["header"],
-                "header_doc_id": generate_unique_id()  # Store header_doc_id in header_stack
-            })
-            current["parent_header"] = next(
-                (h["text"] for h in header_stack[::-1]
-                 if h["level"] < current["level"]), None
-            ) if current["level"] > 1 else None
-            current["parent_level"] = next(
-                (h["level"] for h in header_stack[::-1]
-                 if h["level"] < current["level"]), None
-            ) if current["level"] > 1 else None
-            current["parent_id"] = next(
-                (h["header_doc_id"] for h in header_stack[::-1]
-                 if h["level"] < current["level"]), None
-            ) if current["level"] > 1 else None  # Assign parent_id
-            current["header_doc_id"] = header_stack[-1]["header_doc_id"]
-            current["doc_index"] = doc_index
-            current["chunk_index"] = 0
-            char_index += len(line_with_newline)
-            current["start_idx"] = char_index
+            _flush_chunk()
+            section_counter += 1
+
+            level = len(header_match.group(1))
+            header_text = stripped
+
+            # Update hierarchy stack
+            header_stack = [h for h in header_stack if h["level"] < level]
+            header_doc_id = generate_unique_id()
+            header_stack.append(
+                {
+                    "level": level,
+                    "text": header_text,
+                    "header_doc_id": header_doc_id,
+                }
+            )
+
+            parent_header, parent_level, parent_id = _resolve_parent(level)
+            hdr_token_count = _count_tokens(header_text)
+
+            current.update(
+                {
+                    "header": header_text,
+                    "header_tokens": hdr_token_count,
+                    "level": level,
+                    "parent_header": parent_header,
+                    "parent_level": parent_level,
+                    "parent_id": parent_id,
+                    "header_doc_id": header_doc_id,
+                    "section_index": section_counter,
+                    "chunk_index": 0,
+                    "_header_abs_start": pos,
+                    "abs_start": pos,
+                    "abs_end": pos + len(line),
+                }
+            )
+
+            pos += line_len
             continue
 
-        sentences = split_fn(line) if split_fn else [line]
-        for sentence_idx, sentence in enumerate(sentences):
-            sentence = sentence.strip()
-            if not sentence:
-                char_index += len(line_with_newline)
-                continue
+        # Process body content
+        if stripped:
+            sentences = split_fn(line)
+            search_offset = 0
 
-            tokens = (
-                tokenizer(sentence)._ids
-                if isinstance(tokenizer, TokenizerWrapper)
-                else tokenizer(sentence)
-            )
-            num_tokens = len(tokens) if isinstance(
-                tokens, list) else sum(len(t) for t in tokens)
-            header_tokens = (
-                tokenizer(current["header"])._ids
-                if isinstance(tokenizer, TokenizerWrapper)
-                else tokenizer(current["header"])
-            ) if current["header"] else []
-            header_num_tokens = len(header_tokens) if isinstance(
-                header_tokens, list) else 0
+            for sent in sentences:
+                sent_stripped = sent.strip()
+                if not sent_stripped:
+                    continue
 
-            if not current["content"]:
-                current["start_idx"] = char_index + 1
+                # Find exact position of this sentence instance in the line
+                idx = line.find(sent_stripped, search_offset)
+                if idx == -1:
+                    idx = search_offset
 
-            if current["num_tokens"] + num_tokens + header_num_tokens <= chunk_size:
-                current["content"].append(sentence)
-                current["num_tokens"] += num_tokens
-                current["end_idx"] = char_index + len(sentence)
-            else:
-                add_chunk()
-                current["content"] = [sentence]
-                current["num_tokens"] = num_tokens
-                current["start_idx"] = char_index + 1
-                current["end_idx"] = char_index + len(sentence)
+                abs_sent_start = pos + idx
+                abs_sent_end = abs_sent_start + len(sent_stripped)
 
-            char_index += len(sentence)
-            if sentence_idx < len(sentences) - 1:
-                char_index += 1
+                sent_token_count = _count_tokens(sent_stripped)
 
-        char_index += 1
+                # Budget check: header + accumulated + new sentence
+                projected = (
+                    current["token_count"] + sent_token_count + current["header_tokens"]
+                )
 
-    add_chunk()
+                if projected > chunk_size and current["content_parts"]:
+                    _flush_chunk()
+
+                if not current["content_parts"]:
+                    current["abs_start"] = current["_header_abs_start"]
+
+                current["content_parts"].append(sent_stripped)
+                current["token_count"] += sent_token_count
+                current["abs_end"] = abs_sent_end
+
+                search_offset = idx + len(sent_stripped)
+
+        pos += line_len
+
+    _flush_chunk()
     return results
 
 
@@ -188,15 +293,17 @@ class DocChunkResult(ChunkResult):
 def chunk_docs_by_hierarchy(
     markdown_texts: List[str],
     chunk_size: int,
-    tokenizer: Optional[Union[
-        Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]],
-        TokenizerWrapper
-    ]] = None,
+    tokenizer: Optional[
+        Union[
+            Callable[[Union[str, List[str]]], Union[List[str], List[List[str]]]],
+            TokenizerWrapper,
+        ]
+    ] = None,
     split_fn: Optional[Callable[[str], List[str]]] = None,
-    ids: Optional[List[str]] = None
+    ids: Optional[List[str]] = None,
 ) -> List[DocChunkResult]:
     """
-    Chunks a list of markdown documents by hierarchy, preserving document IDs.
+    Chunk multiple markdown documents by hierarchy, preserving document IDs.
 
     Args:
         markdown_texts: List of markdown text strings to chunk.
@@ -206,30 +313,41 @@ def chunk_docs_by_hierarchy(
         ids: Optional list of document IDs; if None, generates unique IDs.
 
     Returns:
-        List of DocChunkResult dictionaries containing chunked content with document IDs.
+        List of DocChunkResult dictionaries containing chunked content with
+        document IDs.
+
+    Raises:
+        ValueError: If len(ids) != len(markdown_texts).
     """
     if tokenizer is None:
-        def tokenizer(x): return nltk.word_tokenize(x) if isinstance(
-            x, str) else [nltk.word_tokenize(t) for t in x]
-    split_fn = split_fn or nltk.sent_tokenize
+        import nltk
+
+        def tokenizer(x):
+            return (
+                nltk.word_tokenize(x)
+                if isinstance(x, str)
+                else [nltk.word_tokenize(t) for t in x]
+            )
+
+    if split_fn is None:
+        import nltk
+
+        split_fn = nltk.sent_tokenize
+
     results: List[DocChunkResult] = []
     doc_ids = ids if ids else [generate_unique_id() for _ in markdown_texts]
-
     if len(doc_ids) != len(markdown_texts):
-        raise ValueError(
-            "Number of provided IDs must match number of documents")
+        raise ValueError("Number of provided IDs must match number of documents")
 
     for doc_idx, (markdown_text, doc_id) in enumerate(zip(markdown_texts, doc_ids)):
-        # Get chunks for the current document using chunk_headers_by_hierarchy
         doc_chunks = chunk_headers_by_hierarchy(
             markdown_text, chunk_size, tokenizer, split_fn
         )
-        # Update each chunk with the document ID and adjust doc_index to be unique across all documents
         for chunk in doc_chunks:
             chunk_result: DocChunkResult = {
                 **chunk,
                 "doc_id": doc_id,
-                "doc_index": doc_idx  # Override doc_index to reflect document position in input list
+                "doc_index": doc_idx,
             }
             results.append(chunk_result)
 
