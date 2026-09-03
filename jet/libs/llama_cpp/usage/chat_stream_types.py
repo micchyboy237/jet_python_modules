@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from jet.libs.llama_cpp.usage.structured_output import StructuredResult
 
 
 @dataclass
@@ -21,6 +26,7 @@ class StreamCompletionResult:
     tool_calls: list[ToolCallResult] = field(default_factory=list)
     usage: dict[str, int] | None = None
     finish_reason: str | None = None
+    structured: StructuredResult | None = None  # NEW: Explicit field
 
     @property
     def has_tool_calls(self) -> bool:

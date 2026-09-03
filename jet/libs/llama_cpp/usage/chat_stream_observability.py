@@ -1,38 +1,50 @@
+# jet_python_modules/jet/libs/llama_cpp/usage/chat_stream_observability.py
+"""Observability Wrapper for chat_stream.py.
+Adds OpenTelemetry tracing, Phoenix integration, rich console logging,
+and PII redaction around the pure streaming engine. All actual LLM logic
+is delegated to chat_stream.py.
+"""
+
 from __future__ import annotations
 
 import argparse
-import base64
-import json
 import logging
 import os
 import time
-from pathlib import Path
 from typing import Any, Callable
 
-import requests
-from jet.adapters.llama_cpp.factory import get_llm_client
-from jet.libs.llama_cpp.usage.chat_stream_types import (
-    StreamCompletionResult,
-    ToolCallResult,
+# Import pure engine functions
+from jet.libs.llama_cpp.usage.chat_stream import (
+    MODEL,
 )
+from jet.libs.llama_cpp.usage.chat_stream import (
+    run_chat_stream as _pure_run_chat_stream,
+)
+from jet.libs.llama_cpp.usage.chat_stream import (
+    run_chat_stream_async as _pure_run_chat_stream_async,
+)
+from jet.libs.llama_cpp.usage.chat_stream import (
+    run_generate_stream as _pure_run_generate_stream,
+)
+from jet.libs.llama_cpp.usage.chat_stream import (
+    run_generate_stream_async as _pure_run_generate_stream_async,
+)
+from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from jet.libs.llama_cpp.usage.observability_utils import (
     PHOENIX_URL,
     setup_observability,
 )
 from jet.libs.llama_cpp.usage.structured_output import (
     OutputFormat,
-    parse_structured_content,
     resolve_response_format,
 )
-from openai import OpenAI, Stream
-from openai.types.chat import ChatCompletionChunk
+from openai import AsyncOpenAI, OpenAI
 from openinference.semconv.trace import (
     OpenInferenceSpanKindValues,
     SpanAttributes,
 )
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
-from requests.exceptions import RequestException
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -43,17 +55,12 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
-logger = logging.getLogger("vision-stream-merged")
-
-LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1")
-DEFAULT_MODEL = "qwen3.5-uncensored:2b"
-MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
+logger = logging.getLogger("vision-stream-obs")
 
 PII_PATTERNS = ["ssn", "password", "api_key", "secret", "token"]
 
 
 def _redact(text: str) -> str:
-    """Redact sensitive content from text for safe tracing."""
     if not isinstance(text, str):
         return str(text)
     lower = text.lower()
@@ -71,160 +78,9 @@ def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
     return f"{phoenix_url.rstrip('/')}/redirects/traces/{format_trace_id(trace_id)}"
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Client & Image Helpers
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def fetch_remote_image_bytes(url: str, headers: dict | None = None) -> bytes:
-    default_headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-    }
-    headers = headers or default_headers
-    try:
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        return response.content
-    except RequestException as exc:
-        error_detail = ""
-        if hasattr(exc, "response") and exc.response is not None:
-            error_detail = (
-                f" (status={exc.response.status_code}, reason={exc.response.reason})"
-            )
-        raise ValueError(
-            f"Failed to fetch image from {url}{error_detail}: {exc}"
-        ) from exc
-
-
-def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
-    if isinstance(image_source, (str, Path)):
-        source = str(image_source)
-        if source.startswith(("http://", "https://")):
-            default_headers = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            }
-            try:
-                response = requests.get(source, headers=default_headers, timeout=30)
-                response.raise_for_status()
-                img_bytes = response.content
-                content_type = (
-                    response.headers.get("Content-Type", "")
-                    .split(";")[0]
-                    .strip()
-                    .lower()
-                )
-                valid_mimes = {"image/png", "image/jpeg", "image/webp", "image/gif"}
-                mime = content_type if content_type in valid_mimes else "image/jpeg"
-                logger.debug(
-                    f"🌐 Remote image detected as {mime} (header: {content_type})"
-                )
-            except RequestException as exc:
-                raise ValueError(f"Failed to fetch image from {source}: {exc}") from exc
-        else:
-            path = Path(source).expanduser()
-            img_bytes = path.read_bytes()
-            suffix = path.suffix.lower()
-            mime = {
-                ".png": "image/png",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".gif": "image/gif",
-                ".webp": "image/webp",
-            }.get(suffix, "image/jpeg")
-    elif isinstance(image_source, bytes):
-        img_bytes = image_source
-        mime = "image/jpeg"
-    else:
-        raise ValueError("image_source must be str/Path (local/remote) or bytes")
-
-    base64_data = base64.b64encode(img_bytes).decode("utf-8")
-    return base64_data, mime
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Encapsulated Tool Execution with Observability
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-def execute_tool_with_span(
-    tool_name: str,
-    tool_arguments: dict[str, Any] | str,
-    executor: Callable[..., Any],
-    *,
-    strict: bool = False,
-) -> dict[str, Any]:
-    tracer = trace.get_tracer(__name__)
-
-    if isinstance(tool_arguments, str):
-        try:
-            tool_arguments = json.loads(tool_arguments)
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ Failed to parse tool arguments for {tool_name}: {e}")
-            if strict:
-                raise
-            return {"error": f"Invalid JSON arguments: {e}", "tool": tool_name}
-
-    with tracer.start_as_current_span(
-        f"tool_execution.{tool_name}",
-        attributes={
-            "tool.name": tool_name,
-            "tool.arguments": json.dumps(tool_arguments, default=str),
-        },
-    ) as span:
-        t0 = time.perf_counter()
-        logger.info(
-            f"🔧 Executing tool: {tool_name}"
-            f"({json.dumps(tool_arguments, default=str)[:120]})"
-        )
-        try:
-            result = executor(**tool_arguments)
-            duration = time.perf_counter() - t0
-            span.set_attribute("tool.result", json.dumps(result, default=str))
-            span.set_attribute("tool.duration_s", round(duration, 4))
-            span.set_status(Status(StatusCode.OK))
-            logger.info(
-                f"   ✅ {tool_name} completed in {duration:.3f}s → "
-                f"{json.dumps(result, default=str)[:150]}"
-            )
-            return result
-        except TypeError as exc:
-            duration = time.perf_counter() - t0
-            error_msg = f"Argument mismatch: {exc}"
-            span.set_attribute("tool.error", error_msg)
-            span.set_attribute("tool.duration_s", round(duration, 4))
-            span.set_status(Status(StatusCode.ERROR))
-            logger.error(f"   ⚠️  {tool_name} argument error: {exc}")
-            if strict:
-                raise
-            return {"error": error_msg, "tool": tool_name}
-        except Exception as exc:
-            duration = time.perf_counter() - t0
-            span.record_exception(exc)
-            span.set_attribute("tool.duration_s", round(duration, 4))
-            span.set_status(Status(StatusCode.ERROR))
-            logger.exception(f"   ❌ {tool_name} failed after {duration:.3f}s")
-            if strict:
-                raise
-            return {"error": str(exc), "tool": tool_name}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Core Streaming Completion
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 def run_chat_stream(
-    prompt_or_messages: str | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
+    prompt_or_messages: str
+    | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
     project_name: str = "chat-stream-obs",
@@ -252,30 +108,7 @@ def run_chat_stream(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Stream a chat completion with full tool + structured output observability."""
-    # --- PII Redaction Helper (Local to function to avoid global state issues) ---
-    PII_PATTERNS = ["ssn", "password", "api_key", "secret", "token"]
-
-    def _redact(text: str) -> str:
-        if not isinstance(text, str):
-            return str(text)
-        lower = text.lower()
-        for pattern in PII_PATTERNS:
-            if pattern in lower:
-                return "[REDACTED]"
-        return text
-
-    resolved_fmt = resolve_response_format(response_format)
-    api_response_format = resolved_fmt.api_format
-    if resolved_fmt.output_format == OutputFormat.GRAMMAR:
-        grammar_str = (api_response_format or {}).get("_grammar", "")
-        if grammar_str:
-            if extra_body_params is None:
-                extra_body_params = {}
-            extra_body_params["grammar"] = grammar_str
-            logger.debug("📜 Moved grammar from response_format → extra_body.grammar")
-            api_response_format = None
-
+    """Traced synchronous chat streaming. Delegates to chat_stream.run_chat_stream."""
     if project_name:
         setup_observability(
             project_name=project_name,
@@ -284,18 +117,7 @@ def run_chat_stream(
         )
 
     tracer = trace.get_tracer(__name__)
-
-    if client is None:
-        logger.debug("🔌 No client provided; creating default via get_llm_client()")
-        client = get_llm_client()
-
-    prompt: str | None = None
-    messages: list[dict[str, Any]] | None = None
-    if isinstance(prompt_or_messages, str):
-        prompt = prompt_or_messages
-    else:
-        messages = prompt_or_messages
-
+    resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
     span_name = "agent_workflow" if is_agentic else "chat_completion"
     root_span_kind = (
@@ -304,398 +126,289 @@ def run_chat_stream(
         else OpenInferenceSpanKindValues.CHAIN.value
     )
 
-    with tracer.start_as_current_span(span_name) as loop_span:
-        loop_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, root_span_kind)
-
-        # --- Standardized Input & Session Attributes ---
-        input_val = prompt
-        if messages and len(messages) > 0:
-            last_msg = messages[-1]
-            content = last_msg.get("content")
-            if isinstance(content, str):
-                input_val = content
-            elif isinstance(content, list):
-                text_parts = [p.get("text", "") for p in content if p.get("type") == "text"]
-                input_val = " ".join(text_parts)
-
-        loop_span.set_attribute(SpanAttributes.INPUT_VALUE, _redact(str(input_val)[:3000]))
-        if session_id is not None:
-            loop_span.set_attribute(SpanAttributes.SESSION_ID, session_id)
-
-        trace_id = loop_span.get_span_context().trace_id
-        trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
-
-        loop_span.set_attribute("llm.model", model)
-        loop_span.set_attribute("agent.mode", "agentic" if is_agentic else "single_turn")
-        loop_span.set_attribute("agent.has_tool_registry", is_agentic)
-
-        if is_agentic:
-            loop_span.set_attribute("agent.max_tool_rounds", max_tool_rounds)
-        if tools:
-            loop_span.set_attribute("llm.tools.count", len(tools))
-            loop_span.set_attribute(
-                "llm.tools.names",
-                json.dumps([t.get("function", {}).get("name") for t in tools]),
+    # Extract input for tracing
+    input_val = prompt_or_messages if isinstance(prompt_or_messages, str) else ""
+    if isinstance(prompt_or_messages, list) and prompt_or_messages:
+        last_msg = prompt_or_messages[-1]
+        content = last_msg.get("content")
+        if isinstance(content, str):
+            input_val = content
+        elif isinstance(content, list):
+            input_val = " ".join(
+                p.get("text", "") for p in content if p.get("type") == "text"
             )
 
-        current_messages: list[dict[str, Any]] | None = messages
-        if current_messages is None:
-            if image_source:
-                t0 = time.perf_counter()
-                base64_img, mime_type = encode_image_to_base64(image_source)
-                logger.info(f"📦 Image encoded in {time.perf_counter() - t0:.2f}s ({mime_type})")
-                content: Any = [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{base64_img}"}},
-                ]
-                current_messages = [{"role": "user", "content": content}]
-            else:
-                current_messages = [{"role": "user", "content": prompt}]
+    with tracer.start_as_current_span(span_name) as root_span:
+        root_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, root_span_kind)
+        root_span.set_attribute(
+            SpanAttributes.INPUT_VALUE, _redact(str(input_val)[:3000])
+        )
+        if session_id is not None:
+            root_span.set_attribute(SpanAttributes.SESSION_ID, session_id)
 
-        # System prompt injection for structured output
-        if resolved_fmt.system_prompt_addition and current_messages:
-            existing_system_idx = None
-            for i, msg in enumerate(current_messages):
-                if msg.get("role") == "system":
-                    existing_system_idx = i
-                    break
-            if existing_system_idx is not None:
-                existing_content = current_messages[existing_system_idx].get("content", "")
-                merged_content = f"{existing_content}\n{resolved_fmt.system_prompt_addition}"
-                current_messages[existing_system_idx]["content"] = merged_content
-            else:
-                schema_msg = {"role": "system", "content": resolved_fmt.system_prompt_addition}
-                current_messages.insert(0, schema_msg)
+        trace_id = root_span.get_span_context().trace_id
+        trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+        root_span.set_attribute("llm.model", model)
+        root_span.set_attribute(
+            "agent.mode", "agentic" if is_agentic else "single_turn"
+        )
+        if tools:
+            root_span.set_attribute("llm.tools.count", len(tools))
 
-        last_result: StreamCompletionResult | None = None
-        round_num = 0
+        # Log startup info
+        logger.info("─" * 60)
+        logger.info(f"🖼️  Image source : {image_source or '(none — text-only)'}")
+        logger.info(f"🤖 Model        : {model}")
+        logger.info(f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k}")
+        if tools:
+            tool_names = [t.get("function", {}).get("name", "?") for t in tools]
+            logger.info(f"🔧 Tools        : {tool_names}")
+        if resolved_fmt.output_format != OutputFormat.TEXT:
+            logger.info(f"📐 Response fmt : {resolved_fmt.output_format.value}")
+        console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
-        while round_num < max_tool_rounds:
-            round_num += 1
-            with tracer.start_as_current_span(
-                f"turn_{round_num}",
-                attributes={
-                    SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.CHAIN.value,
-                    "agent.round": round_num,
-                },
-            ) as span:
-                # --- Turn-level Input Attribute ---
-                if current_messages:
-                    last_msg = current_messages[-1]
-                    turn_input = last_msg.get("content", "")
-                    if isinstance(turn_input, list):
-                        turn_input = " ".join(p.get("text", "") for p in turn_input if p.get("type") == "text")
-                    span.set_attribute(SpanAttributes.INPUT_VALUE, _redact(str(turn_input)[:3000]))
+        t_start = time.perf_counter()
 
-                span.set_attribute("llm.model", model)
-                span.set_attribute("llm.image_source", str(image_source) if image_source else "none")
-                span.set_attribute("llm.sampling.temperature", temperature)
-                span.set_attribute("llm.sampling.top_p", top_p)
-                span.set_attribute("llm.sampling.top_k", top_k)
-                span.set_attribute("llm.sampling.min_p", min_p)
-                span.set_attribute("llm.sampling.repeat_penalty", repeat_penalty)
-                span.set_attribute("llm.sampling.presence_penalty", presence_penalty)
-                span.set_attribute("llm.sampling.frequency_penalty", frequency_penalty)
-                span.set_attribute("llm.sampling.max_tokens", max_tokens)
-                span.set_attribute("llm.sampling.enable_thinking", enable_thinking)
-                if seed is not None:
-                    span.set_attribute("llm.sampling.seed", seed)
-                if logit_bias:
-                    span.set_attribute("llm.sampling.logit_bias", json.dumps(logit_bias))
-                if stop:
-                    span.set_attribute("llm.sampling.stop_sequences", json.dumps(stop))
-                if tools:
-                    span.set_attribute("llm.tools.count", len(tools))
-                    span.set_attribute(
-                        "llm.tools.names",
-                        json.dumps([t.get("function", {}).get("name") for t in tools]),
-                    )
-                span.set_attribute("llm.response_format.type", resolved_fmt.output_format.value)
+        # Delegate to pure engine
+        result = _pure_run_chat_stream(
+            prompt_or_messages=prompt_or_messages,
+            model=model,
+            image_source=image_source,
+            client=client,
+            enable_thinking=enable_thinking,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
+            repeat_penalty=repeat_penalty,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            logit_bias=logit_bias,
+            seed=seed,
+            stop=stop,
+            tools=tools,
+            tool_choice=tool_choice,
+            tool_registry=tool_registry,
+            response_format=response_format,
+            max_tool_rounds=max_tool_rounds,
+            extra_body_params=extra_body_params,
+        )
 
-                if resolved_fmt.output_format == OutputFormat.GRAMMAR:
-                    span.set_attribute("llm.grammar.active", True)
-                    span.set_attribute("llm.grammar.source", "response_format")
-                    if resolved_fmt.schema:
-                        span.set_attribute("llm.response_format.schema_name", resolved_fmt.schema.get("title", "unnamed"))
-                    grammar_value = (extra_body_params or {}).get("grammar")
-                    if grammar_value:
-                        span.set_attribute("llm.grammar.rule_count", grammar_value.count("::="))
-                        span.set_attribute("llm.grammar.preview", grammar_value[:500])
-                else:
-                    span.set_attribute("llm.grammar.active", False)
+        total_secs = time.perf_counter() - t_start
 
-                if round_num == 1:
-                    logger.info("─" * 60)
-                    logger.info(f"🖼️  Image source : {image_source or '(none — text-only)'}")
-                    logger.info(f"🤖 Model        : {model}")
-                    logger.info(f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k} min_p={min_p} rep_pen={repeat_penalty}")
-                    logger.info(f"   freq_pen={frequency_penalty} pres_pen={presence_penalty} seed={seed} stop={stop}")
-                    if logit_bias:
-                        logger.info(f"   logit_bias={logit_bias}")
-                    if tools:
-                        tool_names = [t.get("function", {}).get("name", "?") for t in tools]
-                        logger.info(f"🔧 Tools        : {tool_names} (choice={tool_choice})")
-                    if resolved_fmt.output_format != OutputFormat.TEXT:
-                        fmt_info = f"📐 Response fmt : {resolved_fmt.output_format.value}"
-                        if resolved_fmt.model_type:
-                            fmt_info += f" (schema={resolved_fmt.model_type.__name__})"
-                        logger.info(fmt_info)
-                    if extra_body_params:
-                        logger.info(f"🔩 Extra body   : {list(extra_body_params.keys())}")
-                    grammar_value = (extra_body_params or {}).get("grammar")
-                    if grammar_value:
-                        logger.info(f"📜 Grammar      : active ({grammar_value.count('::=')} rules)")
-                    if session_id is not None:
-                        logger.info(f"🧵 Session ID   : {session_id}")
-                    console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
-                    logger.info(f"📨 Round {round_num}: {len(current_messages)} message(s) in history")
+        # Set output attributes on root span
+        root_span.set_attribute(
+            SpanAttributes.OUTPUT_VALUE, _redact(result.content[:3000])
+        )
+        if result.usage:
+            root_span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
+                result.usage.get("prompt_tokens", 0),
+            )
+            root_span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                result.usage.get("completion_tokens", 0),
+            )
+            root_span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
+                result.usage.get("total_tokens", 0),
+            )
+        root_span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        root_span.set_status(Status(StatusCode.OK))
 
-                extra_body: dict[str, Any] = {
-                    "top_k": top_k,
-                    "chat_template_kwargs": {"enable_thinking": enable_thinking},
-                }
-                if min_p > 0.0:
-                    extra_body["min_p"] = min_p
-                if repeat_penalty != 1.1:
-                    extra_body["repeat_penalty"] = repeat_penalty
-                if extra_body_params:
-                    extra_body.update(extra_body_params)
-
-                api_kwargs: dict[str, Any] = {
-                    "model": model,
-                    "messages": current_messages,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "top_p": top_p,
-                    "presence_penalty": presence_penalty,
-                    "frequency_penalty": frequency_penalty,
-                    "logit_bias": logit_bias,
-                    "seed": seed,
-                    "stop": stop,
-                    "extra_body": extra_body,
-                    "stream": True,
-                    "stream_options": {"include_usage": True},
-                }
-                if tools:
-                    api_kwargs["tools"] = tools
-                if tool_choice is not None:
-                    api_kwargs["tool_choice"] = tool_choice
-                if api_response_format:
-                    api_kwargs["response_format"] = api_response_format
-
-                logger.info(f"➡️  Sending request (thinking={enable_thinking}, tools={bool(tools)}, format={resolved_fmt.output_format.value})")
-
-                # === DEDICATED LLM SPAN FOR THIS TURN ===
-                with tracer.start_as_current_span(
-                    "llm.chat.completion",
-                    attributes={
-                        SpanAttributes.OPENINFERENCE_SPAN_KIND: OpenInferenceSpanKindValues.LLM.value,
-                        SpanAttributes.LLM_MODEL_NAME: model,
-                        SpanAttributes.LLM_INVOCATION_PARAMETERS: json.dumps({
-                            "temperature": temperature, "top_p": top_p, "max_tokens": max_tokens,
-                            "enable_thinking": enable_thinking,
-                        }),
-                    },
-                ) as llm_span:
-                    # Record safe messages for LLM span
-                    safe_messages = [
-                        {"role": m.get("role", ""), "content": _redact(str(m.get("content", ""))[:2000])}
-                        for m in (current_messages or [])
-                    ]
-                    llm_span.set_attribute(SpanAttributes.LLM_INPUT_MESSAGES, json.dumps(safe_messages))
-
-                    t_request_start = time.perf_counter()
-                    collected_content: list[str] = []
-                    tool_calls_acc: dict[int, dict[str, Any]] = {}
-                    usage = None
-                    first_token_at: float | None = None
-                    finish_reason: str | None = None
-
-                    try:
-                        stream: Stream[ChatCompletionChunk] = client.chat.completions.create(**api_kwargs)
-                        in_think_block = False
-                        console.print("[bold cyan]Response:[/bold cyan] ", end="")
-                        for chunk in stream:
-                            if not chunk.choices:
-                                usage = getattr(chunk, "usage", None)
-                                continue
-                            delta = chunk.choices[0].delta
-                            if not delta:
-                                continue
-                            if chunk.choices[0].finish_reason:
-                                finish_reason = chunk.choices[0].finish_reason
-                            if first_token_at is None and (
-                                getattr(delta, "content", None)
-                                or getattr(delta, "reasoning_content", None)
-                                or getattr(delta, "tool_calls", None)
-                            ):
-                                first_token_at = time.perf_counter()
-
-                            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                                if not in_think_block:
-                                    console.print("[bold orange1]<think>[/bold orange1]", end="")
-                                    in_think_block = True
-                                console.print(f"[bold orange1]{delta.reasoning_content}[/bold orange1]", end="", highlight=False, soft_wrap=True)
-                                collected_content.append(delta.reasoning_content)
-                            elif in_think_block:
-                                console.print("[bold orange1]</think>[/bold orange1]", end="")
-                                in_think_block = False
-
-                            if hasattr(delta, "content") and delta.content:
-                                console.print(f"[bold cyan]{delta.content}[/bold cyan]", end="", highlight=False, soft_wrap=True)
-                                collected_content.append(delta.content)
-
-                            if hasattr(delta, "tool_calls") and delta.tool_calls:
-                                for tc_delta in delta.tool_calls:
-                                    idx = tc_delta.index
-                                    if idx not in tool_calls_acc:
-                                        tool_calls_acc[idx] = {"id": tc_delta.id or "", "type": tc_delta.type or "function", "function": {"name": "", "arguments": ""}}
-                                    if tc_delta.id:
-                                        tool_calls_acc[idx]["id"] = tc_delta.id
-                                    if tc_delta.function:
-                                        if tc_delta.function.name:
-                                            tool_calls_acc[idx]["function"]["name"] += tc_delta.function.name
-                                        if tc_delta.function.arguments:
-                                            tool_calls_acc[idx]["function"]["arguments"] += tc_delta.function.arguments
-
-                        if in_think_block:
-                            console.print("[bold orange1]</think>[/bold orange1]", end="")
-
-                    except Exception as exc:
-                        llm_span.record_exception(exc)
-                        llm_span.set_status(Status(StatusCode.ERROR))
-                        span.record_exception(exc)
-                        span.set_status(Status(StatusCode.ERROR))
-                        logger.exception("❌ Streaming failed")
-                        raise
-                    finally:
-                        console.print()
-
-                    total_secs = time.perf_counter() - t_request_start
-                    ttft = (first_token_at - t_request_start) if first_token_at else None
-                    full_response = "".join(collected_content)
-
-                    # --- Set LLM Span Output & Semantic Token Attributes ---
-                    llm_span.set_attribute(SpanAttributes.OUTPUT_VALUE, _redact(full_response[:3000]))
-                    llm_span.set_attribute(
-                        SpanAttributes.LLM_OUTPUT_MESSAGES,
-                        json.dumps([{"role": "assistant", "content": _redact(full_response[:2000])}]),
-                    )
-                    if usage:
-                        llm_span.set_attribute(SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage.prompt_tokens)
-                        llm_span.set_attribute(SpanAttributes.LLM_TOKEN_COUNT_COMPLETION, usage.completion_tokens)
-                        llm_span.set_attribute(SpanAttributes.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens)
-                    if ttft is not None:
-                        llm_span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
-                    llm_span.set_attribute("llm.latency.total_s", round(total_secs, 4))
-                    llm_span.set_status(Status(StatusCode.OK))
-
-                # --- Turn Span Summary Attributes ---
-                span.set_attribute(SpanAttributes.OUTPUT_VALUE, _redact(full_response[:3000]))
-                if usage:
-                    span.set_attribute(SpanAttributes.LLM_TOKEN_COUNT_PROMPT, usage.prompt_tokens)
-                    span.set_attribute(SpanAttributes.LLM_TOKEN_COUNT_COMPLETION, usage.completion_tokens)
-                    span.set_attribute(SpanAttributes.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens)
-
-                parsed_tool_calls: list[ToolCallResult] = []
-                if tool_calls_acc:
-                    for idx in sorted(tool_calls_acc):
-                        tc = tool_calls_acc[idx]
-                        fn = tc["function"]
-                        try:
-                            parsed_args = json.loads(fn["arguments"])
-                        except json.JSONDecodeError:
-                            parsed_args = {}
-                        parsed_tool_calls.append(
-                            ToolCallResult(id=tc.get("id", ""), type=tc.get("type", "function"), name=fn.get("name", ""), arguments=parsed_args, raw_arguments=fn.get("arguments", ""))
-                        )
-
-                if parsed_tool_calls:
-                    logger.info(f"🔧 Tool calls received: {len(parsed_tool_calls)}")
-                    for tc in parsed_tool_calls:
-                        args_preview = tc.raw_arguments[:120] + ("..." if len(tc.raw_arguments) > 120 else "")
-                        logger.info(f"   → {tc.name}({args_preview})")
-                    span.set_attribute(
-                        "llm.tool_calls",
-                        json.dumps([{"id": tc.id, "type": tc.type, "name": tc.name, "arguments": tc.raw_arguments} for tc in parsed_tool_calls], default=str),
-                    )
-
-                logger.info("─" * 60)
-                logger.info(f"📊 Round {round_num} summary")
-                if usage:
-                    tok_per_sec = usage.completion_tokens / total_secs if total_secs > 0 else 0.0
-                    logger.info(f"   Prompt tokens      : {usage.prompt_tokens}")
-                    logger.info(f"   Completion tokens  : {usage.completion_tokens}")
-                    logger.info(f"   Total tokens       : {usage.total_tokens}")
-                    logger.info(f"   Throughput         : {tok_per_sec:.1f} tok/s")
-                if ttft is not None:
-                    logger.info(f"   Time to first token: {ttft:.2f}s")
-                logger.info(f"   Total duration     : {total_secs:.2f}s")
-                if parsed_tool_calls:
-                    logger.info(f"   Response type      : tool_calls ({len(parsed_tool_calls)} call(s))")
-                else:
-                    logger.info(f"   Response length    : {len(full_response)} chars")
-                if finish_reason:
-                    logger.info(f"   Finish reason      : {finish_reason}")
-
-                span.set_status(Status(StatusCode.OK))
-
-                last_result = StreamCompletionResult(
-                    content=full_response,
-                    tool_calls=parsed_tool_calls,
-                    usage={"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
-                    finish_reason=finish_reason,
-                )
-
-                if resolved_fmt.output_format != OutputFormat.TEXT and not parsed_tool_calls:
-                    structured = parse_structured_content(full_response, resolved_fmt)
-                    last_result.structured = structured
-                    if structured.validator_backend:
-                        span.set_attribute("llm.structured_output.validator_backend", structured.validator_backend)
-                    span.set_attribute("llm.structured_output.success", structured.success)
-                    span.set_attribute("llm.structured_output.format", structured.format_used.value)
-                    if structured.validation_errors:
-                        span.set_attribute("llm.structured_output.validation_error_count", len(structured.validation_errors))
-                    if structured.success:
-                        logger.info(f"   ✅ Structured output validated ({resolved_fmt.output_format.value})")
-                    else:
-                        logger.warning(f"   ⚠️ Structured parse failed: {structured.error}")
-
-                if not last_result.has_tool_calls:
-                    break
-
-                if not is_agentic:
-                    logger.info("⏸️  Tool calls present but no tool_registry provided; returning result for caller to handle.")
-                    break
-
-                assistant_tc_message: dict[str, Any] = {
-                    "role": "assistant",
-                    "content": last_result.content or None,
-                    "tool_calls": [{"id": tc.id, "type": tc.type, "function": {"name": tc.name, "arguments": tc.raw_arguments}} for tc in last_result.tool_calls],
-                }
-                current_messages.append(assistant_tc_message)
-
-                for tc in last_result.tool_calls:
-                    executor = tool_registry.get(tc.name)
-                    if executor is None:
-                        logger.warning(f"⚠️  Tool '{tc.name}' not found in registry; returning error result to model.")
-                        tool_result: Any = {"error": f"Unknown tool: {tc.name}", "available_tools": list(tool_registry.keys())}
-                    else:
-                        tool_result = execute_tool_with_span(tool_name=tc.name, tool_arguments=tc.arguments, executor=executor, strict=False)
-                    current_messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(tool_result, default=str)})
-
-        # --- Root Span Finalization ---
-        if last_result is not None:
-            loop_span.set_attribute(SpanAttributes.OUTPUT_VALUE, _redact(last_result.content[:3000]))
-            loop_span.set_attribute("agent.total_rounds", round_num)
-            loop_span.set_attribute("agent.final_finish_reason", last_result.finish_reason or "unknown")
-            loop_span.set_status(Status(StatusCode.OK))
+        # Summary logging
+        logger.info("─" * 60)
+        logger.info(f"📊 Summary")
+        if result.usage:
+            tok_per_sec = (
+                result.usage.get("completion_tokens", 0) / total_secs
+                if total_secs > 0
+                else 0.0
+            )
+            logger.info(
+                f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / {result.usage.get('completion_tokens', 0)}c / {result.usage.get('total_tokens', 0)}t"
+            )
+            logger.info(f"   Throughput       : {tok_per_sec:.1f} tok/s")
+        logger.info(f"   Duration         : {total_secs:.2f}s")
+        logger.info(f"   Response length  : {len(result.content)} chars")
+        if result.finish_reason:
+            logger.info(f"   Finish reason    : {result.finish_reason}")
+        if result.has_tool_calls:
+            logger.info(f"   Tool calls       : {len(result.tool_calls)}")
+        if result.structured:
+            status = "✅" if result.structured.success else "⚠️"
+            logger.info(
+                f"   Structured       : {status} {result.structured.format_used.value}"
+            )
 
         console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
         logger.info("─" * 60)
-        logger.info(f"🏁 Execution complete after {round_num} round(s)")
+        return result
 
-        return last_result or StreamCompletionResult(content="", finish_reason="no_response")
+
+async def run_chat_stream_async(
+    prompt_or_messages: str
+    | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
+    model: str = MODEL,
+    *,
+    project_name: str = "achat-stream-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
+    image_source: str | None = None,
+    client: AsyncOpenAI | None = None,
+    enable_thinking: bool = False,
+    max_tokens: int = 16384,
+    temperature: float = 0.7,
+    top_p: float = 0.8,
+    top_k: int = 20,
+    min_p: float = 0.0,
+    repeat_penalty: float = 1.1,
+    presence_penalty: float = 1.5,
+    frequency_penalty: float = 0.0,
+    logit_bias: dict[str, int] | None = None,
+    seed: int | None = None,
+    stop: list[str] | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
+    tool_registry: dict[str, Callable[..., Any]] | None = None,
+    response_format: Any = None,
+    max_tool_rounds: int = 10,
+    extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
+) -> StreamCompletionResult:
+    """Traced asynchronous chat streaming. Delegates to chat_stream.run_chat_stream_async."""
+    if project_name:
+        setup_observability(
+            project_name=project_name,
+            capture_content=capture_content,
+            phoenix_url=phoenix_url,
+        )
+
+    tracer = trace.get_tracer(__name__)
+    resolved_fmt = resolve_response_format(response_format)
+    is_agentic = tool_registry is not None
+    span_name = "agent_workflow" if is_agentic else "chat_completion"
+    root_span_kind = (
+        OpenInferenceSpanKindValues.AGENT.value
+        if is_agentic
+        else OpenInferenceSpanKindValues.CHAIN.value
+    )
+
+    input_val = prompt_or_messages if isinstance(prompt_or_messages, str) else ""
+    if isinstance(prompt_or_messages, list) and prompt_or_messages:
+        last_msg = prompt_or_messages[-1]
+        content = last_msg.get("content")
+        if isinstance(content, str):
+            input_val = content
+        elif isinstance(content, list):
+            input_val = " ".join(
+                p.get("text", "") for p in content if p.get("type") == "text"
+            )
+
+    with tracer.start_as_current_span(span_name) as root_span:
+        root_span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, root_span_kind)
+        root_span.set_attribute(
+            SpanAttributes.INPUT_VALUE, _redact(str(input_val)[:3000])
+        )
+        if session_id is not None:
+            root_span.set_attribute(SpanAttributes.SESSION_ID, session_id)
+
+        trace_id = root_span.get_span_context().trace_id
+        trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+        root_span.set_attribute("llm.model", model)
+        root_span.set_attribute(
+            "agent.mode", "agentic" if is_agentic else "single_turn"
+        )
+        if tools:
+            root_span.set_attribute("llm.tools.count", len(tools))
+
+        logger.info("─" * 60)
+        logger.info(f"🖼️  Image source : {image_source or '(none — text-only)'}")
+        logger.info(f"🤖 Model        : {model}")
+        logger.info(f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k}")
+        if tools:
+            tool_names = [t.get("function", {}).get("name", "?") for t in tools]
+            logger.info(f"🔧 Tools        : {tool_names}")
+        if resolved_fmt.output_format != OutputFormat.TEXT:
+            logger.info(f"📐 Response fmt : {resolved_fmt.output_format.value}")
+        console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
+
+        t_start = time.perf_counter()
+
+        result = await _pure_run_chat_stream_async(
+            prompt_or_messages=prompt_or_messages,
+            model=model,
+            image_source=image_source,
+            client=client,
+            enable_thinking=enable_thinking,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
+            repeat_penalty=repeat_penalty,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            logit_bias=logit_bias,
+            seed=seed,
+            stop=stop,
+            tools=tools,
+            tool_choice=tool_choice,
+            tool_registry=tool_registry,
+            response_format=response_format,
+            max_tool_rounds=max_tool_rounds,
+            extra_body_params=extra_body_params,
+        )
+
+        total_secs = time.perf_counter() - t_start
+
+        root_span.set_attribute(
+            SpanAttributes.OUTPUT_VALUE, _redact(result.content[:3000])
+        )
+        if result.usage:
+            root_span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
+                result.usage.get("prompt_tokens", 0),
+            )
+            root_span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                result.usage.get("completion_tokens", 0),
+            )
+            root_span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_TOTAL,
+                result.usage.get("total_tokens", 0),
+            )
+        root_span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        root_span.set_status(Status(StatusCode.OK))
+
+        logger.info("─" * 60)
+        logger.info(f"📊 Summary")
+        if result.usage:
+            tok_per_sec = (
+                result.usage.get("completion_tokens", 0) / total_secs
+                if total_secs > 0
+                else 0.0
+            )
+            logger.info(
+                f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / {result.usage.get('completion_tokens', 0)}c / {result.usage.get('total_tokens', 0)}t"
+            )
+            logger.info(f"   Throughput       : {tok_per_sec:.1f} tok/s")
+        logger.info(f"   Duration         : {total_secs:.2f}s")
+        logger.info(f"   Response length  : {len(result.content)} chars")
+        if result.finish_reason:
+            logger.info(f"   Finish reason    : {result.finish_reason}")
+        if result.has_tool_calls:
+            logger.info(f"   Tool calls       : {len(result.tool_calls)}")
+        if result.structured:
+            status = "✅" if result.structured.success else "⚠️"
+            logger.info(
+                f"   Structured       : {status} {result.structured.format_used.value}"
+            )
+
+        console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
+        logger.info("─" * 60)
+        return result
 
 
 def run_generate_stream(
@@ -720,7 +433,7 @@ def run_generate_stream(
     extra_body_params: dict[str, Any] | None = None,
     session_id: str | None = None,
 ) -> StreamCompletionResult:
-    """Stream a raw text completion with Phoenix observability (no chat formatting)."""
+    """Traced synchronous raw text completion. Delegates to chat_stream.run_generate_stream."""
     if project_name:
         setup_observability(
             project_name=project_name,
@@ -729,146 +442,151 @@ def run_generate_stream(
         )
 
     tracer = trace.get_tracer(__name__)
-    if client is None:
-        logger.debug("🔌 No client provided; creating default via get_llm_client()")
-        client = get_llm_client()
-
     with tracer.start_as_current_span("text_completion") as span:
         span.set_attribute(
             SpanAttributes.OPENINFERENCE_SPAN_KIND,
             OpenInferenceSpanKindValues.LLM.value,
         )
         span.set_attribute(SpanAttributes.INPUT_VALUE, prompt)
-
         trace_id = span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
-
         span.set_attribute("llm.model", model)
-        span.set_attribute("llm.sampling.temperature", temperature)
-        span.set_attribute("llm.sampling.top_p", top_p)
-        span.set_attribute("llm.sampling.max_tokens", max_tokens)
         if session_id is not None:
             span.set_attribute("session.id", session_id)
 
         logger.info("─" * 60)
-        logger.info(f"📝 Text Completion Mode")
-        logger.info(f"🤖 Model        : {model}")
-        logger.info(f"🎛️  Sampling     : temp={temperature} top_p={top_p} top_k={top_k}")
+        logger.info(f"📝 Text Completion Mode | Model: {model}")
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
-        extra_body: dict[str, Any] = {"top_k": top_k}
-        if min_p > 0.0:
-            extra_body["min_p"] = min_p
-        if repeat_penalty != 1.1:
-            extra_body["repeat_penalty"] = repeat_penalty
-        if extra_body_params:
-            extra_body.update(extra_body_params)
+        t_start = time.perf_counter()
+        result = _pure_run_generate_stream(
+            prompt=prompt,
+            model=model,
+            client=client,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
+            repeat_penalty=repeat_penalty,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            logit_bias=logit_bias,
+            seed=seed,
+            stop=stop,
+            extra_body_params=extra_body_params,
+        )
+        total_secs = time.perf_counter() - t_start
 
-        api_kwargs: dict[str, Any] = {
-            "model": model,
-            "prompt": prompt,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "top_p": top_p,
-            "presence_penalty": presence_penalty,
-            "frequency_penalty": frequency_penalty,
-            "logit_bias": logit_bias,
-            "seed": seed,
-            "stop": stop,
-            "extra_body": extra_body,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, result.content)
+        if result.usage:
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
+                result.usage.get("prompt_tokens", 0),
+            )
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                result.usage.get("completion_tokens", 0),
+            )
+        span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        span.set_status(Status(StatusCode.OK))
 
-        t_request_start = time.perf_counter()
-        collected_content: list[str] = []
-        usage = None
-        first_token_at: float | None = None
-        finish_reason: str | None = None
+        logger.info(f"📊 Done: {len(result.content)} chars in {total_secs:.2f}s")
+        console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
+        return result
 
-        try:
-            stream = client.completions.create(**api_kwargs)
-            console.print("[bold cyan]Response:[/bold cyan] ", end="")
 
-            for chunk in stream:
-                if not chunk.choices:
-                    usage = getattr(chunk, "usage", None)
-                    continue
-
-                delta = chunk.choices[0].text
-                if chunk.choices[0].finish_reason:
-                    finish_reason = chunk.choices[0].finish_reason
-
-                if first_token_at is None and delta:
-                    first_token_at = time.perf_counter()
-
-                if delta:
-                    console.print(
-                        f"[bold cyan]{delta}[/bold cyan]",
-                        end="",
-                        highlight=False,
-                        soft_wrap=True,
-                    )
-                    collected_content.append(delta)
-
-        except Exception as exc:
-            span.record_exception(exc)
-            span.set_status(Status(StatusCode.ERROR))
-            logger.exception("❌ Text streaming failed")
-            raise
-        finally:
-            console.print()
-            total_secs = time.perf_counter() - t_request_start
-            ttft = (first_token_at - t_request_start) if first_token_at else None
-            full_response = "".join(collected_content)
-
-            span.set_attribute(SpanAttributes.OUTPUT_VALUE, full_response)
-
-            logger.info("─" * 60)
-            logger.info(f"📊 Generation summary")
-            if usage:
-                tok_per_sec = (
-                    usage.completion_tokens / total_secs if total_secs > 0 else 0.0
-                )
-                logger.info(f"   Prompt tokens      : {usage.prompt_tokens}")
-                logger.info(f"   Completion tokens  : {usage.completion_tokens}")
-                logger.info(f"   Throughput         : {tok_per_sec:.1f} tok/s")
-                span.set_attribute("llm.usage.prompt_tokens", usage.prompt_tokens)
-                span.set_attribute(
-                    "llm.usage.completion_tokens", usage.completion_tokens
-                )
-            if ttft is not None:
-                logger.info(f"   Time to first token: {ttft:.2f}s")
-            logger.info(f"   Total duration     : {total_secs:.2f}s")
-            logger.info(f"   Response length    : {len(full_response)} chars")
-            if finish_reason:
-                logger.info(f"   Finish reason      : {finish_reason}")
-
-            span.set_status(Status(StatusCode.OK))
-            console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
-
-        return StreamCompletionResult(
-            content=full_response,
-            tool_calls=[],
-            usage={
-                "prompt_tokens": usage.prompt_tokens,
-                "completion_tokens": usage.completion_tokens,
-                "total_tokens": usage.total_tokens,
-            }
-            if usage
-            else None,
-            finish_reason=finish_reason,
+async def run_generate_stream_async(
+    prompt: str,
+    model: str = MODEL,
+    *,
+    project_name: str = "agenerate-stream-obs",
+    capture_content: bool = True,
+    phoenix_url: str = PHOENIX_URL,
+    client: AsyncOpenAI | None = None,
+    max_tokens: int = 16384,
+    temperature: float = 0.7,
+    top_p: float = 0.8,
+    top_k: int = 20,
+    min_p: float = 0.0,
+    repeat_penalty: float = 1.1,
+    presence_penalty: float = 1.5,
+    frequency_penalty: float = 0.0,
+    logit_bias: dict[str, int] | None = None,
+    seed: int | None = None,
+    stop: list[str] | None = None,
+    extra_body_params: dict[str, Any] | None = None,
+    session_id: str | None = None,
+) -> StreamCompletionResult:
+    """Traced asynchronous raw text completion. Delegates to chat_stream.run_generate_stream_async."""
+    if project_name:
+        setup_observability(
+            project_name=project_name,
+            capture_content=capture_content,
+            phoenix_url=phoenix_url,
         )
 
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span("text_completion") as span:
+        span.set_attribute(
+            SpanAttributes.OPENINFERENCE_SPAN_KIND,
+            OpenInferenceSpanKindValues.LLM.value,
+        )
+        span.set_attribute(SpanAttributes.INPUT_VALUE, prompt)
+        trace_id = span.get_span_context().trace_id
+        trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+        span.set_attribute("llm.model", model)
+        if session_id is not None:
+            span.set_attribute("session.id", session_id)
 
-# ──────────────────────────────────────────────────────────────────────────────
-# CLI
-# ──────────────────────────────────────────────────────────────────────────────
+        logger.info("─" * 60)
+        logger.info(f"📝 Async Text Completion Mode | Model: {model}")
+        console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
+
+        t_start = time.perf_counter()
+        result = await _pure_run_generate_stream_async(
+            prompt=prompt,
+            model=model,
+            client=client,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
+            repeat_penalty=repeat_penalty,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            logit_bias=logit_bias,
+            seed=seed,
+            stop=stop,
+            extra_body_params=extra_body_params,
+        )
+        total_secs = time.perf_counter() - t_start
+
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, result.content)
+        if result.usage:
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_PROMPT,
+                result.usage.get("prompt_tokens", 0),
+            )
+            span.set_attribute(
+                SpanAttributes.LLM_TOKEN_COUNT_COMPLETION,
+                result.usage.get("completion_tokens", 0),
+            )
+        span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        span.set_status(Status(StatusCode.OK))
+
+        logger.info(f"📊 Done: {len(result.content)} chars in {total_secs:.2f}s")
+        console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
+        return result
+
+
+# --- CLI Entry Point (With Observability) ---
 
 
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Stream vision-model chat completions with Phoenix observability."
+        description="Stream chat completions with Phoenix observability."
     )
     parser.add_argument(
         "prompt",
@@ -882,7 +600,7 @@ def get_args() -> argparse.Namespace:
         "--image-source",
         type=str,
         default=None,
-        help="Path or URL to an image to analyze. Omit for a text-only chat request.",
+        help="Path or URL to an image to analyze. Omit for text-only.",
     )
     parser.add_argument(
         "--project",
@@ -900,12 +618,12 @@ def get_args() -> argparse.Namespace:
         "--no-capture-content",
         action="store_false",
         dest="capture_content",
-        help="Disable capturing prompt/response text in traces (metadata only).",
+        help="Disable capturing prompt/response text in traces.",
     )
     parser.add_argument(
         "--base-url",
         type=str,
-        default=LLAMA_CPP_BASE_URL,
+        default=os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1"),
         help="OpenAI-compatible server base URL (env: LLAMA_CPP_VISION_URL).",
     )
     parser.add_argument(
@@ -914,58 +632,23 @@ def get_args() -> argparse.Namespace:
         default=MODEL,
         help="Model name to request (env: LLAMA_CPP_VISION_MODEL).",
     )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=120.0,
-        help="Client request timeout in seconds.",
-    )
-    parser.add_argument(
-        "--enable-thinking",
-        action="store_true",
-        help="Enable the model's reasoning/thinking output.",
-    )
+    parser.add_argument("--timeout", type=float, default=120.0)
+    parser.add_argument("--enable-thinking", action="store_true")
     parser.add_argument("--max-tokens", type=int, default=16384)
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top-p", type=float, default=0.8)
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument("--min-p", type=float, default=0.0)
+    parser.add_argument("--repeat-penalty", type=float, default=1.1)
     parser.add_argument("--presence-penalty", type=float, default=1.5)
-    parser.add_argument(
-        "--frequency-penalty",
-        type=float,
-        default=0.0,
-        help="Penalize tokens based on frequency (-2.0 to 2.0).",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="Random seed for reproducible generation.",
-    )
-    parser.add_argument(
-        "--stop",
-        type=str,
-        nargs="+",
-        default=None,
-        help="Stop sequences (up to 4).",
-    )
+    parser.add_argument("--frequency-penalty", type=float, default=0.0)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--stop", type=str, nargs="+", default=None)
     parser.add_argument(
         "--logit-bias",
         type=str,
         default=None,
         help="JSON dict of token_id:bias pairs, e.g. '{\"1234\": -100}'",
-    )
-    parser.add_argument("--top-k", type=int, default=20)
-    parser.add_argument(
-        "--min-p",
-        type=float,
-        default=0.0,
-        help="Minimum probability threshold (llama.cpp specific).",
-    )
-    parser.add_argument(
-        "--repeat-penalty",
-        type=float,
-        default=1.1,
-        help="Repetition penalty (llama.cpp native parameter).",
     )
     parser.add_argument(
         "--tools-json",
@@ -977,7 +660,7 @@ def get_args() -> argparse.Namespace:
         "--tool-choice",
         type=str,
         default=None,
-        help='Tool choice: "auto", "none", "required", or JSON object.',
+        help='"auto", "none", "required", or JSON object.',
     )
     parser.add_argument(
         "--response-format",
@@ -989,12 +672,14 @@ def get_args() -> argparse.Namespace:
         "--session-id",
         type=str,
         default=None,
-        help="Session ID to group multiple traces as a conversation thread in Phoenix.",
+        help="Session ID to group traces as a conversation thread in Phoenix.",
     )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
+    from jet.adapters.llama_cpp.factory import get_llm_client
+
     args = get_args()
 
     parsed_logit_bias: dict[str, int] | None = None
@@ -1039,15 +724,12 @@ if __name__ == "__main__":
 
     client = get_llm_client(base_url=args.base_url, timeout=args.timeout)
 
-    # ✅ No more separate setup_observability() call needed
     result = run_chat_stream(
         args.prompt,
         model=args.model,
-        # Observability config passed directly
         project_name=args.project,
         capture_content=args.capture_content,
         phoenix_url=args.phoenix_url,
-        # ... all other existing params unchanged ...
         client=client,
         image_source=args.image_source,
         enable_thinking=args.enable_thinking,

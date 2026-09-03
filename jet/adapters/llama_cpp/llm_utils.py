@@ -1,3 +1,4 @@
+# jet_python_modules/jet/adapters/llama_cpp/llm_utils.py
 """LLM Utilities Adapter for llama.cpp with Built-in Observability.
 
 High-level sync/async interface to llama.cpp-compatible servers (OpenAI API
@@ -5,7 +6,6 @@ protocol). Provides automatic tracing, agentic tool-use loops, vision input,
 streaming, and structured output validation.
 
 ## Function Selection
-
 | Need                               | Sync       | Async      |
 |------------------------------------|------------|------------|
 | Chat / multi-turn / tools / vision | chat()     | achat()    |
@@ -16,7 +16,6 @@ no chat template. generate()/agenerate() do NOT support tools, vision, or
 structured output.
 
 ## Quick Start
-
     from jet.adapters.llama_cpp.llm_utils import chat
 
     # Simple chat
@@ -40,10 +39,11 @@ structured output.
     # Vision
     result = chat("Describe this image", image_source="path/or/url.jpg")
 
+    # Disable observability for benchmarks/batch jobs
+    result = chat("Quick test", enable_observability=False)
+
 ## Structured Output (response_format) — chat()/achat() ONLY
-
 Accepts any of these types; resolution and validation are fully automatic:
-
 - **Pydantic BaseModel class**: Schema extracted, injected into API request,
   and output validated + parsed into a model instance.
 - **JSON Schema dict** (with "properties"/"$schema" or "type":"array"+"items"):
@@ -59,7 +59,6 @@ Accepts any of these types; resolution and validation are fully automatic:
 ⚠️ generate()/agenerate() cannot use response_format at all.
 
 ### Accessing Validated Results
-
 After streaming completes, result.structured is a StructuredResult containing:
 - .success (bool): Whether parsing and validation succeeded.
 - .parsed (BaseModel | dict | list | None): Typed instance or raw dict/list.
@@ -107,11 +106,16 @@ Always check .success before reading .parsed.
 - response_format (Any): See Structured Output section above.
 
 ### Observability
+- enable_observability (bool, default True): When False, bypasses all tracing
+  and Phoenix setup. Uses the pure chat_stream engine directly. Useful for
+  benchmarks, batch processing, or environments without OTel dependencies.
 - project_name (str): Phoenix project for trace grouping. Empty string disables
-  observability. Default: "<func>-llm-utils-obs".
+  observability. Default: "<func>-llm-utils-obs". Ignored when
+  enable_observability=False.
 - capture_content (bool, default True): Record prompt/response text in traces.
-  Set False for PII-sensitive workloads.
+  Set False for PII-sensitive workloads. Ignored when enable_observability=False.
 - phoenix_url (str): Phoenix server base URL. Default: PHOENIX_URL constant.
+  Ignored when enable_observability=False.
 - session_id (str | None): Groups related traces as one conversation thread.
 
 ### Client / Misc
@@ -121,7 +125,6 @@ Always check .success before reading .parsed.
   llama.cpp-specific params. Grammar is auto-routed here when applicable.
 
 ## Return Type
-
 All four functions return StreamCompletionResult with:
 - .content (str): Full response text.
 - .tool_calls (list[ToolCallResult]): Parsed tool calls from the response.
@@ -131,9 +134,11 @@ All four functions return StreamCompletionResult with:
 - .structured (StructuredResult | None): Only populated when response_format is used.
 
 ## Key Behaviors
-
-- Observability auto-configures whenever project_name is non-empty. Setup is
-  idempotent (safe to call multiple times across functions).
+- Observability auto-configures whenever project_name is non-empty AND
+  enable_observability is True. Setup is idempotent (safe to call multiple
+  times across functions).
+- When enable_observability=False, the pure chat_stream engine is used with
+  zero OTel/Phoenix overhead. No spans, no trace URLs, no rich console output.
 - Structured output parsing happens AFTER the stream completes. The validator
   backend is selected once at module import and logged automatically.
 - Grammar mode moves the GBNF string from response_format into extra_body
@@ -145,19 +150,37 @@ All four functions return StreamCompletionResult with:
 import argparse
 from typing import Any, Callable
 
-from jet.libs.llama_cpp.usage.chat_stream_observability import (
+from jet.libs.llama_cpp.usage.chat_stream import (
     MODEL,
+)
+from jet.libs.llama_cpp.usage.chat_stream import (
+    run_chat_stream as _pure_chat,
+)
+from jet.libs.llama_cpp.usage.chat_stream import (
+    run_chat_stream_async as _pure_achat,
+)
+from jet.libs.llama_cpp.usage.chat_stream import (
+    run_generate_stream as _pure_generate,
+)
+from jet.libs.llama_cpp.usage.chat_stream import (
+    run_generate_stream_async as _pure_agenerate,
+)
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
     PHOENIX_URL,
-    run_chat_stream,
-    run_generate_stream,
 )
-from jet.libs.llama_cpp.usage.chat_stream_observability_async import (
-    run_chat_stream_async,
-    run_generate_stream_async,
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    run_chat_stream as _obs_chat,
 )
-from jet.libs.llama_cpp.usage.chat_stream_types import (
-    StreamCompletionResult,
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    run_chat_stream_async as _obs_achat,
 )
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    run_generate_stream as _obs_generate,
+)
+from jet.libs.llama_cpp.usage.chat_stream_observability import (
+    run_generate_stream_async as _obs_agenerate,
+)
+from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from openai import AsyncOpenAI, OpenAI
 
 
@@ -166,6 +189,7 @@ def chat(
     | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
+    enable_observability: bool = True,
     project_name: str = "chat-llm-utils-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
@@ -194,13 +218,14 @@ def chat(
     """Synchronous multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
 
-    logger.debug(f"💬 chat() called with type={type(prompt_or_messages).__name__}")
-    return run_chat_stream(
+    logger.debug(
+        f"💬 chat() called with type={type(prompt_or_messages).__name__}, "
+        f"obs={enable_observability}"
+    )
+
+    common_kwargs: dict[str, Any] = dict(
         prompt_or_messages=prompt_or_messages,
         model=model,
-        project_name=project_name,
-        capture_content=capture_content,
-        phoenix_url=phoenix_url,
         image_source=image_source,
         client=client,
         enable_thinking=enable_thinking,
@@ -221,8 +246,17 @@ def chat(
         response_format=response_format,
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
-        session_id=session_id,
     )
+
+    if enable_observability:
+        return _obs_chat(
+            **common_kwargs,
+            project_name=project_name,
+            capture_content=capture_content,
+            phoenix_url=phoenix_url,
+            session_id=session_id,
+        )
+    return _pure_chat(**common_kwargs)
 
 
 async def achat(
@@ -230,6 +264,7 @@ async def achat(
     | list[dict[str, Any]] = "What is OpenTelemetry in one sentence?",
     model: str = MODEL,
     *,
+    enable_observability: bool = True,
     project_name: str = "achat-llm-utils-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
@@ -258,13 +293,14 @@ async def achat(
     """Async multi-turn chat with optional tool execution and structured output."""
     from jet.logger import logger
 
-    logger.debug(f"💬 achat() called with type={type(prompt_or_messages).__name__}")
-    return await run_chat_stream_async(
+    logger.debug(
+        f"💬 achat() called with type={type(prompt_or_messages).__name__}, "
+        f"obs={enable_observability}"
+    )
+
+    common_kwargs: dict[str, Any] = dict(
         prompt_or_messages=prompt_or_messages,
         model=model,
-        project_name=project_name,
-        capture_content=capture_content,
-        phoenix_url=phoenix_url,
         image_source=image_source,
         client=client,
         enable_thinking=enable_thinking,
@@ -285,14 +321,24 @@ async def achat(
         response_format=response_format,
         max_tool_rounds=max_tool_rounds,
         extra_body_params=extra_body_params,
-        session_id=session_id,
     )
+
+    if enable_observability:
+        return await _obs_achat(
+            **common_kwargs,
+            project_name=project_name,
+            capture_content=capture_content,
+            phoenix_url=phoenix_url,
+            session_id=session_id,
+        )
+    return await _pure_achat(**common_kwargs)
 
 
 def generate(
     prompt: str,
     model: str = MODEL,
     *,
+    enable_observability: bool = True,
     project_name: str = "generate-llm-utils-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
@@ -314,13 +360,14 @@ def generate(
     """Synchronous raw text generation alternative to chat()."""
     from jet.logger import logger
 
-    logger.debug(f"✏️ generate() called with prompt length={len(prompt)}")
-    return run_generate_stream(
+    logger.debug(
+        f"✏️ generate() called with prompt length={len(prompt)}, "
+        f"obs={enable_observability}"
+    )
+
+    common_kwargs: dict[str, Any] = dict(
         prompt=prompt,
         model=model,
-        project_name=project_name,
-        capture_content=capture_content,
-        phoenix_url=phoenix_url,
         client=client,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -334,14 +381,24 @@ def generate(
         seed=seed,
         stop=stop,
         extra_body_params=extra_body_params,
-        session_id=session_id,
     )
+
+    if enable_observability:
+        return _obs_generate(
+            **common_kwargs,
+            project_name=project_name,
+            capture_content=capture_content,
+            phoenix_url=phoenix_url,
+            session_id=session_id,
+        )
+    return _pure_generate(**common_kwargs)
 
 
 async def agenerate(
     prompt: str,
     model: str = MODEL,
     *,
+    enable_observability: bool = True,
     project_name: str = "agenerate-llm-utils-obs",
     capture_content: bool = True,
     phoenix_url: str = PHOENIX_URL,
@@ -363,13 +420,14 @@ async def agenerate(
     """Asynchronous raw text generation alternative to achat()."""
     from jet.logger import logger
 
-    logger.debug(f"✏️ agenerate() called with prompt length={len(prompt)}")
-    return await run_generate_stream_async(
+    logger.debug(
+        f"✏️ agenerate() called with prompt length={len(prompt)}, "
+        f"obs={enable_observability}"
+    )
+
+    common_kwargs: dict[str, Any] = dict(
         prompt=prompt,
         model=model,
-        project_name=project_name,
-        capture_content=capture_content,
-        phoenix_url=phoenix_url,
         client=client,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -383,8 +441,17 @@ async def agenerate(
         seed=seed,
         stop=stop,
         extra_body_params=extra_body_params,
-        session_id=session_id,
     )
+
+    if enable_observability:
+        return await _obs_agenerate(
+            **common_kwargs,
+            project_name=project_name,
+            capture_content=capture_content,
+            phoenix_url=phoenix_url,
+            session_id=session_id,
+        )
+    return await _pure_agenerate(**common_kwargs)
 
 
 def get_args() -> argparse.Namespace:
@@ -423,6 +490,11 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="Random seed for reproducible generation.",
     )
+    parser.add_argument(
+        "--no-observability",
+        action="store_true",
+        help="Disable tracing and Phoenix integration entirely.",
+    )
     return parser.parse_args()
 
 
@@ -439,6 +511,7 @@ if __name__ == "__main__":
             image_source=args.image_source,
             project_name=args.project,
             seed=args.seed,
+            enable_observability=not args.no_observability,
         )
     )
     logger.info(
