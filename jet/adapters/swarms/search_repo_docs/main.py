@@ -83,11 +83,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=1000,
-        help="Embedding chunk size (default: 1000)",
+        default=450,
+        help="Embedding chunk size (default: 450)",
     )
     parser.add_argument(
-        "--chunk-overlap", type=int, default=200, help="Chunk overlap (default: 200)"
+        "--chunk-overlap", type=int, default=100, help="Chunk overlap (default: 100)"
     )
 
     args = parser.parse_args(argv)
