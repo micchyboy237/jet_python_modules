@@ -266,10 +266,11 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self,
         ws_url: str | None = None,
         reconnect_delay: float = 2.0,
-        send_timeout: float = 15.0,
+        send_timeout: float = 5.0,  # Reduced from 15.0 to 5.0 for faster failure detection
         global_srt_path: Path | None = None,
         max_queue_size: int = DEFAULT_MAX_QUEUE_SIZE,
         max_queue_age_sec: float = DEFAULT_MAX_QUEUE_AGE_SEC,
+        max_retries: int = 3,  # Prevent infinite hanging
     ) -> None:
         self.ws_url = ws_url or os.getenv("LOCAL_WS_LIVE_SUBTITLES_URL")
         if not self.ws_url:
@@ -279,11 +280,17 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         self.global_srt_path = global_srt_path
         self.max_queue_size = max_queue_size
         self.max_queue_age_sec = max_queue_age_sec
+        self.max_retries = max_retries
+
         self._language_store = LanguageStore()
         self._ws: Optional[ClientConnection] = None
         self._ws_lock = asyncio.Lock()
         self._stop_event = threading.Event()
+        self._cancel_current_task_event = (
+            asyncio.Event()
+        )  # Used to break retry loops on Reset
         self._connected_event = asyncio.Event()
+
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(
             target=self._run_loop, daemon=True, name="ws-subtitle-loop"
@@ -626,6 +633,9 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
         final_success = False
         permanent_failure_reason: Optional[str] = None
 
+        # Clear any previous cancellation flags before starting
+        self._cancel_current_task_event.clear()
+
         logger.info(
             "[WebsocketSubtitleSender] Processing segment %d (queue wait: %.2fs, "
             "duration: %.2fs, dir: %s)",
@@ -635,7 +645,18 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
             seg_dir,
         )
 
-        while True:
+        while attempt < self.max_retries:  # Replaced 'while True' with max limit
+            # Check if user hit Reset/Clear while we were sleeping/waiting
+            if self._cancel_current_task_event.is_set():
+                console.print(
+                    f"[yellow][WS][/yellow] Segment {seg_num} cancelled by user reset."
+                )
+                logger.warning(
+                    "[WebsocketSubtitleSender] Segment %d cancelled via clear_queue",
+                    seg_num,
+                )
+                return  # Exit immediately, dropping the segment
+
             attempt += 1
             if attempt == 1:
                 await self._emit_queue_status(
@@ -671,7 +692,6 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                             "[WebsocketSubtitleSender] Failed to notify retry status: %s",
                             exc,
                         )
-
                 await self._emit_queue_status(
                     processing_seg_num=seg_num,
                     status_color="#f0883e",
@@ -682,20 +702,24 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         "segment_dir": str(seg_dir),
                     },
                 )
-
                 console.print(
                     f"[yellow][WS][/yellow] Retrying segment {seg_num} "
-                    f"(attempt {attempt}) after {delay:.1f}s delay..."
+                    f"(attempt {attempt}/{self.max_retries}) after {delay:.1f}s delay..."
                 )
-                logger.info(
-                    "[WebsocketSubtitleSender] Retrying segment %d (attempt %d, "
-                    "delay: %.1fs, dir: %s)",
-                    seg_num,
-                    attempt,
-                    delay,
-                    seg_dir,
-                )
-                await asyncio.sleep(delay)
+
+                # Sleep using wait_for so it can be interrupted by Reset
+                try:
+                    await asyncio.wait_for(
+                        self._cancel_current_task_event.wait(), timeout=delay
+                    )
+                    # If wait() returns without TimeoutError, the event was set (Reset clicked)
+                    console.print(
+                        f"[yellow][WS][/yellow] Segment {seg_num} cancelled during retry delay."
+                    )
+                    return
+                except asyncio.TimeoutError:
+                    # Timeout means the delay finished normally, continue to retry
+                    pass
 
             _log_request(seg_num, header, audio_bytes, attempt)
             try:
@@ -708,8 +732,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         f"{'after ' + str(attempt) + ' attempts' if attempt > 1 else 'on first attempt'}"
                     )
                     logger.info(
-                        "[WebsocketSubtitleSender] Segment %d succeeded (attempts: %d, "
-                        "dir: %s)",
+                        "[WebsocketSubtitleSender] Segment %d succeeded (attempts: %d, dir: %s)",
                         seg_num,
                         attempt,
                         seg_dir,
@@ -724,8 +747,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                         f"(attempt {attempt}). Saving response and skipping retry."
                     )
                     logger.warning(
-                        "[WebsocketSubtitleSender] Segment %d permanent failure: %s "
-                        "(attempts: %d, dir: %s)",
+                        "[WebsocketSubtitleSender] Segment %d permanent failure: %s (attempts: %d, dir: %s)",
                         seg_num,
                         permanent_failure_reason,
                         attempt,
@@ -737,7 +759,7 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                 error_msg = response.get("error", "Unknown server error")
                 console.print(
                     f"[bold red][WS][/bold red] Segment {seg_num} failed: {error_msg} "
-                    f"(attempt {attempt}, will retry)"
+                    f"(attempt {attempt}/{self.max_retries}, will retry)"
                 )
                 logger.warning(
                     "[WebsocketSubtitleSender] Segment %d failed: %s (attempt: %d, dir: %s)",
@@ -753,37 +775,32 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     f"[yellow][WS][/yellow] Connection lost during segment {seg_num}: {exc}"
                 )
                 logger.warning(
-                    "[WebsocketSubtitleSender] Connection lost for segment %d: %s "
-                    "(attempt: %d, dir: %s)",
+                    "[WebsocketSubtitleSender] Connection lost for segment %d: %s (attempt: %d, dir: %s)",
                     seg_num,
                     exc,
                     attempt,
                     seg_dir,
                 )
                 last_error = exc
-
             except OSError as exc:
                 console.print(
                     f"[red][WS][/red] Network error for segment {seg_num}: {exc}"
                 )
                 logger.error(
-                    "[WebsocketSubtitleSender] Network error for segment %d: %s "
-                    "(attempt: %d, dir: %s)",
+                    "[WebsocketSubtitleSender] Network error for segment %d: %s (attempt: %d, dir: %s)",
                     seg_num,
                     exc,
                     attempt,
                     seg_dir,
                 )
                 last_error = exc
-
             except Exception as exc:
                 console.print(
                     f"[bold red][WS][/bold red] Segment {seg_num} send/receive failed: "
-                    f"{type(exc).__name__}: {exc} (attempt {attempt}, will retry)"
+                    f"{type(exc).__name__}: {exc} (attempt {attempt}/{self.max_retries}, will retry)"
                 )
                 logger.error(
-                    "[WebsocketSubtitleSender] Segment %d unexpected error: %s: %s "
-                    "(attempt: %d, dir: %s)",
+                    "[WebsocketSubtitleSender] Segment %d unexpected error: %s: %s (attempt: %d, dir: %s)",
                     seg_num,
                     type(exc).__name__,
                     exc,
@@ -791,6 +808,20 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
                     seg_dir,
                 )
                 last_error = exc
+
+        # Handle case where we exited the loop because max_retries was reached
+        if (
+            not final_success
+            and attempt >= self.max_retries
+            and not permanent_failure_reason
+        ):
+            console.print(
+                f"[bold red][WS][/bold red] Segment {seg_num} abandoned after {self.max_retries} attempts."
+            )
+            logger.error(
+                "[WebsocketSubtitleSender] Segment %d abandoned due to max retries.",
+                seg_num,
+            )
 
         if final_success:
             await self._emit_queue_status(
@@ -973,13 +1004,17 @@ class WebsocketSubtitleSender(SpeechSegmentHandler):
 
     def clear_queue(self) -> None:
         """
-        Drop all pending (not yet started) subtitle tasks.
+        Drop all pending (not yet started) subtitle tasks AND cancel the active task.
         Safe to call from any thread — e.g. from the UI clear action.
-        The currently running send/receive is allowed to complete normally.
         Also resets gap tracking so the next segment starts fresh.
         """
         self._task_queue.clear()
         self._prev_end_time_utc = None
+
+        # Signal the active retry loop to abort immediately
+        if self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._cancel_current_task_event.set)
+
         asyncio.run_coroutine_threadsafe(
             self._emit_queue_status(status_color="#3fb950"), self._loop
         )
