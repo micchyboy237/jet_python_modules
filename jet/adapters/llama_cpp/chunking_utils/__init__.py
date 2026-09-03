@@ -9,7 +9,7 @@ from .tokenization import (
     _tokenize_for_size,
 )
 from .truncation import truncate_texts
-from .types import ChunkResult, MarkdownChunkResult
+from .types import ChunkResult, MarkdownChunkResult, OverlapStrategy
 
 __all__ = [
     "chunk_texts",
@@ -20,6 +20,7 @@ __all__ = [
     "truncate_texts",
     "ChunkResult",
     "MarkdownChunkResult",
+    "OverlapStrategy",
     "_decode_tokens",
     "_decode_tokens_batch",
     "_get_last_n_tokens_and_decode",

@@ -2,14 +2,13 @@
 Demo: Markdown Hierarchy Chunking
 
 Shows how to split markdown documents into semantically-aware chunks
-that preserve header hierarchy, parent-child relationships, and source indices.
+with configurable overlap strategies.
 """
 
 import json
 import logging
 
 from jet.adapters.llama_cpp.chunking_utils import (
-    chunk_markdown_hierarchy,
     chunk_markdown_hierarchy_with_data,
 )
 
@@ -43,27 +42,37 @@ The main entry point is `jet.run()`. All adapters share a common interface.
 """
 
 
-def demo_flat_chunks():
-    """Simple usage: get list of chunk strings."""
-    logger.info("=== Flat Chunk List ===")
-    chunks = chunk_markdown_hierarchy(
-        markdown_text=SAMPLE_MARKDOWN,
-        chunk_size=64,
-        min_chunk_size=8,
-        show_progress=False,
-    )
-    for i, chunk in enumerate(chunks):
-        print(f"\n--- Chunk {i + 1} ({len(chunk)} chars) ---")
-        print(chunk[:200])
+def demo_overlap_strategies():
+    """Compare all three overlap strategies side by side."""
+    strategies = [
+        ("none", 0),
+        ("sentence", 1),
+        ("token", 32),
+    ]
+    for strategy, size in strategies:
+        logger.info(f"\n=== Strategy: {strategy} (size={size}) ===")
+        results = chunk_markdown_hierarchy_with_data(
+            markdown_text=SAMPLE_MARKDOWN,
+            chunk_size=64,
+            overlap_strategy=strategy,
+            overlap_size=size,
+            min_chunk_size=8,
+            show_progress=False,
+        )
+        for i, res in enumerate(results):
+            preview = res["content"][:100].replace("\n", " ")
+            print(f"  [{i}] ({res['num_tokens']}tok) {preview}")
 
 
 def demo_rich_metadata():
     """Rich usage: get hierarchy metadata for RAG indexing."""
-    logger.info("\n=== Rich Metadata Chunks ===")
+    logger.info("\n=== Rich Metadata (sentence overlap) ===")
     results = chunk_markdown_hierarchy_with_data(
         markdown_text=SAMPLE_MARKDOWN,
         ids=["jet-guide-v1"],
         chunk_size=64,
+        overlap_strategy="sentence",
+        overlap_size=1,
         min_chunk_size=8,
         show_progress=False,
     )
@@ -73,11 +82,7 @@ def demo_rich_metadata():
             "header": res["header"],
             "parent_header": res["parent_header"],
             "level": res["level"],
-            "section_index": res["section_index"],
-            "chunk_index": res["chunk_index"],
             "num_tokens": res["num_tokens"],
-            "body_range": f"{res['metadata']['body_start_idx']}-{res['metadata']['body_end_idx']}",
-            "line": res["metadata"]["line_idx"],
             "content_preview": res["content"][:80],
         }
         print(json.dumps(summary, indent=2))
@@ -95,6 +100,8 @@ def demo_multi_document():
         markdown_text=docs,
         ids=["doc-a", "doc-b"],
         chunk_size=64,
+        overlap_strategy="sentence",
+        overlap_size=1,
         min_chunk_size=4,
         show_progress=False,
     )
@@ -106,6 +113,6 @@ def demo_multi_document():
 
 
 if __name__ == "__main__":
-    demo_flat_chunks()
+    demo_overlap_strategies()
     demo_rich_metadata()
     demo_multi_document()

@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 
 class ChunkResult(TypedDict):
@@ -51,3 +51,6 @@ class MarkdownChunkResult(ChunkResult):
     parent_id: str | None
     section_index: int
     metadata: MarkdownChunkMetadata
+
+
+OverlapStrategy = Literal["none", "sentence", "token"]
