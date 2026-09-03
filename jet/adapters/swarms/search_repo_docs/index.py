@@ -1,4 +1,4 @@
-"""Document loading and vector index construction."""
+"""Document loading, chunking, and vector index construction."""
 
 from __future__ import annotations
 
@@ -10,11 +10,12 @@ from llama_index.core import Settings, SimpleDirectoryReader, VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai_like import OpenAILike
 
-from .config import REQUIRED_EXTENSIONS, SearchConfig
+from .chunking import chunk_documents
+from .config import SearchConfig
 
 
 def configure_settings(cfg: SearchConfig) -> None:
-    """Set global LlamaIndex Settings from SearchConfig."""
+    """Set global LlamaIndex Settings, reusing jet.adapters config values."""
     llm_model, llm_base = cfg.resolve_llm()
     emb_model, emb_base, emb_dims, q_prefix, d_prefix = cfg.resolve_embed()
 
@@ -41,12 +42,27 @@ def configure_settings(cfg: SearchConfig) -> None:
         embed_batch_size=32,
     )
 
+    # Chunk size/overlap now handled by chunk_documents() via token budget;
+    # these globals serve as fallbacks only
     Settings.chunk_size = cfg.chunk_size
     Settings.chunk_overlap = cfg.chunk_overlap
 
 
+def _is_text_file(path: Path, sample_bytes: int = 8192) -> bool:
+    """Return True if file appears to be text (not binary)."""
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(sample_bytes)
+        if b"\x00" in chunk:
+            return False
+        chunk.decode("utf-8", errors="strict")
+        return True
+    except (UnicodeDecodeError, OSError):
+        return False
+
+
 def load_documents(data_dirs: List[str]) -> list:
-    """Load documents from multiple directories with collision-safe IDs."""
+    """Load ALL text files from directories, skipping binaries."""
     all_documents = []
     for dir_path in data_dirs:
         resolved = Path(dir_path).resolve()
@@ -56,11 +72,17 @@ def load_documents(data_dirs: List[str]) -> list:
             )
             continue
 
+        text_files = [
+            str(p) for p in resolved.rglob("*") if p.is_file() and _is_text_file(p)
+        ]
+
+        if not text_files:
+            print(f"[WARN] No text files found in {dir_path}", file=sys.stderr)
+            continue
+
         reader = SimpleDirectoryReader(
-            input_dir=str(resolved),
-            recursive=True,
+            input_files=text_files,
             filename_as_id=False,
-            required_exts=REQUIRED_EXTENSIONS,
         )
         docs = reader.load_data()
 
@@ -73,19 +95,22 @@ def load_documents(data_dirs: List[str]) -> list:
             doc.id_ = f"{resolved.name}/{rel_path}"
             doc.metadata["source_dir"] = str(resolved)
             doc.metadata["file_id"] = doc.id_
+            doc.metadata["extension"] = source_file.suffix.lower()
 
         all_documents.extend(docs)
-        print(f"[INFO] Loaded {len(docs)} documents from {dir_path}")
+        print(f"[INFO] Loaded {len(docs)} text documents from {dir_path}")
 
     if not all_documents:
-        raise FileNotFoundError(
-            f"No documents found in any of the specified directories: {data_dirs}"
-        )
+        raise FileNotFoundError(f"No text documents found in any of: {data_dirs}")
     return all_documents
 
 
 def build_index(cfg: SearchConfig) -> VectorStoreIndex:
-    """Configure settings, load docs, and build the vector index."""
+    """Configure settings, load docs, chunk per-file-type, and build index."""
     configure_settings(cfg)
     documents = load_documents(cfg.data_dirs)
-    return VectorStoreIndex.from_documents(documents, show_progress=True)
+
+    emb_model, emb_base, _, _, _ = cfg.resolve_embed()
+    nodes = chunk_documents(documents, embed_model=emb_model, embed_base_url=emb_base)
+
+    return VectorStoreIndex(nodes=nodes, show_progress=True)
