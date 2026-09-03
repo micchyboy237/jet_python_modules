@@ -527,7 +527,7 @@ def search_files(
     preprocess: Callable[[str], str] | None = None,
     weights: Weights | None = None,
     batch_size: int = 64,
-    max_workers: int = 2,
+    max_workers: int = 6,
     show_progress: bool = True,
     use_cache: bool = False,
     query_prefix: str = DEFAULT_QUERY_PREFIX,

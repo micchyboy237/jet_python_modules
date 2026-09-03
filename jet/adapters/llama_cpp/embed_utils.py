@@ -205,7 +205,7 @@ def embed_batch(
     ]
 
     # Cap workers to prevent network/GPU saturation
-    actual_workers = min(max_workers, 4)
+    actual_workers = min(max_workers, 6)
     if actual_workers < max_workers:
         console.print(
             f"[yellow]Limiting workers to {actual_workers} (requested {max_workers}) "
