@@ -1,5 +1,5 @@
-# jet_python_modules/jet/libs/llama_cpp/usage/chat_stream_observability.py
 """Observability Wrapper for chat_stream.py.
+
 Adds OpenTelemetry tracing, Phoenix integration, rich console logging,
 and PII redaction around the pure streaming engine. All actual LLM logic
 is delegated to chat_stream.py.
@@ -13,7 +13,6 @@ import os
 import time
 from typing import Any, Callable
 
-# Import pure engine functions
 from jet.libs.llama_cpp.usage.chat_stream import (
     MODEL,
 )
@@ -39,6 +38,7 @@ from jet.libs.llama_cpp.usage.structured_output import (
     resolve_response_format,
 )
 from openai import AsyncOpenAI, OpenAI
+from openai.types.chat import ChatCompletionChunk
 from openinference.semconv.trace import (
     OpenInferenceSpanKindValues,
     SpanAttributes,
@@ -49,6 +49,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 console = Console()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(message)s",
@@ -76,6 +77,89 @@ def format_trace_id(trace_id: int) -> str:
 
 def build_phoenix_trace_url(phoenix_url: str, trace_id: int) -> str:
     return f"{phoenix_url.rstrip('/')}/redirects/traces/{format_trace_id(trace_id)}"
+
+
+def _make_chat_chunk_handler() -> tuple[
+    Callable[[ChatCompletionChunk], None],
+    dict[str, Any],
+]:
+    """Create a per-chunk callback that flushes tokens to console in real-time.
+
+    Returns:
+        Tuple of (callback_fn, state_dict) where state_dict tracks
+        first_token_at and in_think_block for post-stream metrics.
+    """
+    state: dict[str, Any] = {
+        "first_token_at": None,
+        "in_think_block": False,
+    }
+
+    def on_chunk(chunk: ChatCompletionChunk) -> None:
+        if not chunk.choices:
+            return
+
+        delta = chunk.choices[0].delta
+        if not delta:
+            return
+
+        # Track first token time
+        if state["first_token_at"] is None and (
+            getattr(delta, "content", None)
+            or getattr(delta, "reasoning_content", None)
+            or getattr(delta, "tool_calls", None)
+        ):
+            state["first_token_at"] = time.perf_counter()
+
+        # Handle reasoning/thinking content
+        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+            if not state["in_think_block"]:
+                console.print("[bold orange1]<think>[/bold orange1]", end="")
+                state["in_think_block"] = True
+            console.print(
+                f"[bold orange1]{delta.reasoning_content}[/bold orange1]",
+                end="",
+                highlight=False,
+                soft_wrap=True,
+            )
+        elif state["in_think_block"]:
+            console.print("[bold orange1]</think>[/bold orange1]", end="")
+            state["in_think_block"] = False
+
+        # Handle regular content
+        if hasattr(delta, "content") and delta.content:
+            console.print(
+                f"[bold cyan]{delta.content}[/bold cyan]",
+                end="",
+                highlight=False,
+                soft_wrap=True,
+            )
+
+    return on_chunk, state
+
+
+def _make_generate_chunk_handler() -> tuple[
+    Callable[[Any], None],
+    dict[str, Any],
+]:
+    """Create a per-chunk callback for raw text completion streaming."""
+    state: dict[str, Any] = {"first_token_at": None}
+
+    def on_chunk(chunk: Any) -> None:
+        if not chunk.choices:
+            return
+
+        delta = chunk.choices[0].text
+        if delta:
+            if state["first_token_at"] is None:
+                state["first_token_at"] = time.perf_counter()
+            console.print(
+                f"[bold cyan]{delta}[/bold cyan]",
+                end="",
+                highlight=False,
+                soft_wrap=True,
+            )
+
+    return on_chunk, state
 
 
 def run_chat_stream(
@@ -119,6 +203,7 @@ def run_chat_stream(
     tracer = trace.get_tracer(__name__)
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
+
     span_name = "agent_workflow" if is_agentic else "chat_completion"
     root_span_kind = (
         OpenInferenceSpanKindValues.AGENT.value
@@ -126,7 +211,6 @@ def run_chat_stream(
         else OpenInferenceSpanKindValues.CHAIN.value
     )
 
-    # Extract input for tracing
     input_val = prompt_or_messages if isinstance(prompt_or_messages, str) else ""
     if isinstance(prompt_or_messages, list) and prompt_or_messages:
         last_msg = prompt_or_messages[-1]
@@ -148,6 +232,7 @@ def run_chat_stream(
 
         trace_id = root_span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+
         root_span.set_attribute("llm.model", model)
         root_span.set_attribute(
             "agent.mode", "agentic" if is_agentic else "single_turn"
@@ -155,7 +240,6 @@ def run_chat_stream(
         if tools:
             root_span.set_attribute("llm.tools.count", len(tools))
 
-        # Log startup info
         logger.info("─" * 60)
         logger.info(f"🖼️  Image source : {image_source or '(none — text-only)'}")
         logger.info(f"🤖 Model        : {model}")
@@ -167,9 +251,12 @@ def run_chat_stream(
             logger.info(f"📐 Response fmt : {resolved_fmt.output_format.value}")
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
-        t_start = time.perf_counter()
+        # Build real-time chunk handler for console flushing
+        on_chunk, chunk_state = _make_chat_chunk_handler()
 
-        # Delegate to pure engine
+        t_start = time.perf_counter()
+        console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
         result = _pure_run_chat_stream(
             prompt_or_messages=prompt_or_messages,
             model=model,
@@ -193,11 +280,19 @@ def run_chat_stream(
             response_format=response_format,
             max_tool_rounds=max_tool_rounds,
             extra_body_params=extra_body_params,
+            on_chunk=on_chunk,
         )
 
-        total_secs = time.perf_counter() - t_start
+        # Close any open think block and print newline
+        if chunk_state["in_think_block"]:
+            console.print("[bold orange1]</think>[/bold orange1]", end="")
+        console.print()
 
-        # Set output attributes on root span
+        total_secs = time.perf_counter() - t_start
+        ttft = chunk_state.get("first_token_at")
+        if ttft is not None:
+            ttft = ttft - t_start
+
         root_span.set_attribute(
             SpanAttributes.OUTPUT_VALUE, _redact(result.content[:3000])
         )
@@ -215,9 +310,10 @@ def run_chat_stream(
                 result.usage.get("total_tokens", 0),
             )
         root_span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        if ttft is not None:
+            root_span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
         root_span.set_status(Status(StatusCode.OK))
 
-        # Summary logging
         logger.info("─" * 60)
         logger.info(f"📊 Summary")
         if result.usage:
@@ -227,10 +323,14 @@ def run_chat_stream(
                 else 0.0
             )
             logger.info(
-                f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / {result.usage.get('completion_tokens', 0)}c / {result.usage.get('total_tokens', 0)}t"
+                f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / "
+                f"{result.usage.get('completion_tokens', 0)}c / "
+                f"{result.usage.get('total_tokens', 0)}t"
             )
             logger.info(f"   Throughput       : {tok_per_sec:.1f} tok/s")
         logger.info(f"   Duration         : {total_secs:.2f}s")
+        if ttft is not None:
+            logger.info(f"   Time to first token: {ttft:.2f}s")
         logger.info(f"   Response length  : {len(result.content)} chars")
         if result.finish_reason:
             logger.info(f"   Finish reason    : {result.finish_reason}")
@@ -244,7 +344,8 @@ def run_chat_stream(
 
         console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
         logger.info("─" * 60)
-        return result
+
+    return result
 
 
 async def run_chat_stream_async(
@@ -288,6 +389,7 @@ async def run_chat_stream_async(
     tracer = trace.get_tracer(__name__)
     resolved_fmt = resolve_response_format(response_format)
     is_agentic = tool_registry is not None
+
     span_name = "agent_workflow" if is_agentic else "chat_completion"
     root_span_kind = (
         OpenInferenceSpanKindValues.AGENT.value
@@ -316,6 +418,7 @@ async def run_chat_stream_async(
 
         trace_id = root_span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+
         root_span.set_attribute("llm.model", model)
         root_span.set_attribute(
             "agent.mode", "agentic" if is_agentic else "single_turn"
@@ -334,7 +437,11 @@ async def run_chat_stream_async(
             logger.info(f"📐 Response fmt : {resolved_fmt.output_format.value}")
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
+        # Build real-time chunk handler for console flushing
+        on_chunk, chunk_state = _make_chat_chunk_handler()
+
         t_start = time.perf_counter()
+        console.print("[bold cyan]Response:[/bold cyan] ", end="")
 
         result = await _pure_run_chat_stream_async(
             prompt_or_messages=prompt_or_messages,
@@ -359,9 +466,18 @@ async def run_chat_stream_async(
             response_format=response_format,
             max_tool_rounds=max_tool_rounds,
             extra_body_params=extra_body_params,
+            on_chunk=on_chunk,
         )
 
+        # Close any open think block and print newline
+        if chunk_state["in_think_block"]:
+            console.print("[bold orange1]</think>[/bold orange1]", end="")
+        console.print()
+
         total_secs = time.perf_counter() - t_start
+        ttft = chunk_state.get("first_token_at")
+        if ttft is not None:
+            ttft = ttft - t_start
 
         root_span.set_attribute(
             SpanAttributes.OUTPUT_VALUE, _redact(result.content[:3000])
@@ -380,6 +496,8 @@ async def run_chat_stream_async(
                 result.usage.get("total_tokens", 0),
             )
         root_span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        if ttft is not None:
+            root_span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
         root_span.set_status(Status(StatusCode.OK))
 
         logger.info("─" * 60)
@@ -391,10 +509,14 @@ async def run_chat_stream_async(
                 else 0.0
             )
             logger.info(
-                f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / {result.usage.get('completion_tokens', 0)}c / {result.usage.get('total_tokens', 0)}t"
+                f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / "
+                f"{result.usage.get('completion_tokens', 0)}c / "
+                f"{result.usage.get('total_tokens', 0)}t"
             )
             logger.info(f"   Throughput       : {tok_per_sec:.1f} tok/s")
         logger.info(f"   Duration         : {total_secs:.2f}s")
+        if ttft is not None:
+            logger.info(f"   Time to first token: {ttft:.2f}s")
         logger.info(f"   Response length  : {len(result.content)} chars")
         if result.finish_reason:
             logger.info(f"   Finish reason    : {result.finish_reason}")
@@ -408,7 +530,8 @@ async def run_chat_stream_async(
 
         console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
         logger.info("─" * 60)
-        return result
+
+    return result
 
 
 def run_generate_stream(
@@ -442,14 +565,17 @@ def run_generate_stream(
         )
 
     tracer = trace.get_tracer(__name__)
+
     with tracer.start_as_current_span("text_completion") as span:
         span.set_attribute(
             SpanAttributes.OPENINFERENCE_SPAN_KIND,
             OpenInferenceSpanKindValues.LLM.value,
         )
         span.set_attribute(SpanAttributes.INPUT_VALUE, prompt)
+
         trace_id = span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+
         span.set_attribute("llm.model", model)
         if session_id is not None:
             span.set_attribute("session.id", session_id)
@@ -458,7 +584,12 @@ def run_generate_stream(
         logger.info(f"📝 Text Completion Mode | Model: {model}")
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
+        # Build real-time chunk handler for console flushing
+        on_chunk, chunk_state = _make_generate_chunk_handler()
+
         t_start = time.perf_counter()
+        console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
         result = _pure_run_generate_stream(
             prompt=prompt,
             model=model,
@@ -475,8 +606,15 @@ def run_generate_stream(
             seed=seed,
             stop=stop,
             extra_body_params=extra_body_params,
+            on_chunk=on_chunk,
         )
+
+        console.print()
+
         total_secs = time.perf_counter() - t_start
+        ttft = chunk_state.get("first_token_at")
+        if ttft is not None:
+            ttft = ttft - t_start
 
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, result.content)
         if result.usage:
@@ -489,11 +627,16 @@ def run_generate_stream(
                 result.usage.get("completion_tokens", 0),
             )
         span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        if ttft is not None:
+            span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
         span.set_status(Status(StatusCode.OK))
 
         logger.info(f"📊 Done: {len(result.content)} chars in {total_secs:.2f}s")
+        if ttft is not None:
+            logger.info(f"   Time to first token: {ttft:.2f}s")
         console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
-        return result
+
+    return result
 
 
 async def run_generate_stream_async(
@@ -527,14 +670,17 @@ async def run_generate_stream_async(
         )
 
     tracer = trace.get_tracer(__name__)
+
     with tracer.start_as_current_span("text_completion") as span:
         span.set_attribute(
             SpanAttributes.OPENINFERENCE_SPAN_KIND,
             OpenInferenceSpanKindValues.LLM.value,
         )
         span.set_attribute(SpanAttributes.INPUT_VALUE, prompt)
+
         trace_id = span.get_span_context().trace_id
         trace_url = build_phoenix_trace_url(phoenix_url, trace_id)
+
         span.set_attribute("llm.model", model)
         if session_id is not None:
             span.set_attribute("session.id", session_id)
@@ -543,7 +689,12 @@ async def run_generate_stream_async(
         logger.info(f"📝 Async Text Completion Mode | Model: {model}")
         console.print(f"🔗 Trace URL    : [link={trace_url}]{trace_url}[/link]")
 
+        # Build real-time chunk handler for console flushing
+        on_chunk, chunk_state = _make_generate_chunk_handler()
+
         t_start = time.perf_counter()
+        console.print("[bold cyan]Response:[/bold cyan] ", end="")
+
         result = await _pure_run_generate_stream_async(
             prompt=prompt,
             model=model,
@@ -560,8 +711,15 @@ async def run_generate_stream_async(
             seed=seed,
             stop=stop,
             extra_body_params=extra_body_params,
+            on_chunk=on_chunk,
         )
+
+        console.print()
+
         total_secs = time.perf_counter() - t_start
+        ttft = chunk_state.get("first_token_at")
+        if ttft is not None:
+            ttft = ttft - t_start
 
         span.set_attribute(SpanAttributes.OUTPUT_VALUE, result.content)
         if result.usage:
@@ -574,14 +732,16 @@ async def run_generate_stream_async(
                 result.usage.get("completion_tokens", 0),
             )
         span.set_attribute("llm.latency.total_s", round(total_secs, 4))
+        if ttft is not None:
+            span.set_attribute("llm.latency.time_to_first_token_s", round(ttft, 4))
         span.set_status(Status(StatusCode.OK))
 
         logger.info(f"📊 Done: {len(result.content)} chars in {total_secs:.2f}s")
+        if ttft is not None:
+            logger.info(f"   Time to first token: {ttft:.2f}s")
         console.print(f"🔗 View trace: [link={trace_url}]{trace_url}[/link]")
-        return result
 
-
-# --- CLI Entry Point (With Observability) ---
+    return result
 
 
 def get_args() -> argparse.Namespace:

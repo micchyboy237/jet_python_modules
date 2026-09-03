@@ -1,8 +1,10 @@
 # jet_python_modules/jet/libs/llama_cpp/usage/chat_stream.py
 """Pure LLM Streaming Engine — No Observability Dependencies.
+
 Provides sync/async chat and text completion streaming with tool-use loops,
 vision input, and structured output parsing. Completely free of OpenTelemetry,
 Phoenix, or any tracing side effects.
+
 Use this module directly when you need raw streaming without observability overhead.
 For traced execution, use chat_stream_observability.py instead.
 """
@@ -16,6 +18,7 @@ import inspect
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,9 +43,6 @@ logger = logging.getLogger(__name__)
 LLAMA_CPP_BASE_URL = os.getenv("LLAMA_CPP_VISION_URL", "http://localhost:8080/v1")
 DEFAULT_MODEL = "qwen3.5-uncensored:2b"
 MODEL = os.getenv("LLAMA_CPP_VISION_MODEL", DEFAULT_MODEL)
-
-
-# --- Image Utilities ---
 
 
 def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
@@ -77,7 +77,6 @@ def encode_image_to_base64(image_source: str | Path | bytes) -> tuple[str, str]:
         mime = "image/jpeg"
     else:
         raise ValueError("image_source must be str/Path (local/remote) or bytes")
-
     base64_data = base64.b64encode(img_bytes).decode("utf-8")
     return base64_data, mime
 
@@ -120,12 +119,8 @@ async def encode_image_to_base64_async(
         mime = "image/jpeg"
     else:
         raise ValueError("image_source must be str/Path (local/remote) or bytes")
-
     base64_data = base64.b64encode(img_bytes).decode("utf-8")
     return base64_data, mime
-
-
-# --- Tool Execution ---
 
 
 def execute_tool(
@@ -144,7 +139,6 @@ def execute_tool(
             if strict:
                 raise
             return {"error": f"Invalid JSON arguments: {e}", "tool": tool_name}
-
     try:
         result = executor(**tool_arguments)
         return result
@@ -177,7 +171,6 @@ async def execute_tool_async(
             if strict:
                 raise
             return {"error": f"Invalid JSON arguments: {e}", "tool": tool_name}
-
     try:
         if inspect.iscoroutinefunction(executor):
             result = await executor(**tool_arguments)
@@ -200,9 +193,6 @@ async def execute_tool_async(
         return {"error": str(exc), "tool": tool_name}
 
 
-# --- Internal Helpers ---
-
-
 def _build_messages(
     prompt: str | None,
     messages: list[dict[str, Any]] | None,
@@ -212,7 +202,6 @@ def _build_messages(
 ) -> list[dict[str, Any]]:
     """Build the initial messages list from prompt/messages/image inputs."""
     current_messages: list[dict[str, Any]] | None = messages
-
     if current_messages is None:
         if image_source and prompt:
             base64_img, mime_type = image_encoder(image_source)
@@ -228,7 +217,6 @@ def _build_messages(
             current_messages = [{"role": "user", "content": prompt}]
         else:
             current_messages = []
-
     if system_prompt_addition and current_messages:
         existing_system_idx = next(
             (
@@ -247,7 +235,6 @@ def _build_messages(
             current_messages.insert(
                 0, {"role": "system", "content": system_prompt_addition}
             )
-
     return current_messages
 
 
@@ -275,7 +262,108 @@ def _parse_tool_calls_from_accumulator(
     return parsed
 
 
-# --- Public API: Sync ---
+def make_console_chat_printer() -> tuple[
+    Callable[[ChatCompletionChunk], None], dict[str, Any]
+]:
+    """Create a plain-stdout on_chunk callback for live chat streaming output.
+
+    Mirrors chat_stream_observability's `_make_chat_chunk_handler`, minus
+    the rich/OTel dependency, so `python chat_stream.py "..."` streams
+    tokens live the same way the observability variant does.
+
+    Returns:
+        Tuple of (callback_fn, state_dict). state_dict tracks
+        "first_token_at" (perf_counter timestamp of first token, or None)
+        and "in_think_block" (bool) for post-stream metrics/cleanup.
+    """
+    state: dict[str, Any] = {"first_token_at": None, "in_think_block": False}
+
+    def on_chunk(chunk: ChatCompletionChunk) -> None:
+        if not chunk.choices:
+            return
+        delta = chunk.choices[0].delta
+        if not delta:
+            return
+        if state["first_token_at"] is None and (
+            getattr(delta, "content", None)
+            or getattr(delta, "reasoning_content", None)
+            or getattr(delta, "tool_calls", None)
+        ):
+            state["first_token_at"] = time.perf_counter()
+        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+            if not state["in_think_block"]:
+                print("<think>", end="", flush=True)
+                state["in_think_block"] = True
+            print(delta.reasoning_content, end="", flush=True)
+        elif state["in_think_block"]:
+            print("</think>", end="", flush=True)
+            state["in_think_block"] = False
+        if hasattr(delta, "content") and delta.content:
+            print(delta.content, end="", flush=True)
+
+    return on_chunk, state
+
+
+def make_console_generate_printer() -> tuple[Callable[[Any], None], dict[str, Any]]:
+    """Create a plain-stdout on_chunk callback for raw text-completion streaming.
+
+    Mirrors chat_stream_observability's `_make_generate_chunk_handler`.
+
+    Returns:
+        Tuple of (callback_fn, state_dict). state_dict tracks
+        "first_token_at" (perf_counter timestamp of first token, or None).
+    """
+    state: dict[str, Any] = {"first_token_at": None}
+
+    def on_chunk(chunk: Any) -> None:
+        if not chunk.choices:
+            return
+        delta = chunk.choices[0].text
+        if delta:
+            if state["first_token_at"] is None:
+                state["first_token_at"] = time.perf_counter()
+            print(delta, end="", flush=True)
+
+    return on_chunk, state
+
+
+def print_stream_summary(
+    result: StreamCompletionResult,
+    total_secs: float,
+    first_token_at: float | None,
+    t_start: float,
+) -> None:
+    """Print a 📊 Summary block, matching chat_stream_observability's shape
+    (tokens, throughput, duration, TTFT, response length, finish reason)
+    but via plain print() — no rich/OTel dependency.
+    """
+    ttft = (first_token_at - t_start) if first_token_at is not None else None
+    print("─" * 60)
+    print("📊 Summary")
+    if result.usage:
+        tok_per_sec = (
+            result.usage.get("completion_tokens", 0) / total_secs
+            if total_secs > 0
+            else 0.0
+        )
+        print(
+            f"   Tokens           : {result.usage.get('prompt_tokens', 0)}p / "
+            f"{result.usage.get('completion_tokens', 0)}c / "
+            f"{result.usage.get('total_tokens', 0)}t"
+        )
+        print(f"   Throughput       : {tok_per_sec:.1f} tok/s")
+    print(f"   Duration         : {total_secs:.2f}s")
+    if ttft is not None:
+        print(f"   Time to first token: {ttft:.2f}s")
+    print(f"   Response length  : {len(result.content)} chars")
+    if result.finish_reason:
+        print(f"   Finish reason    : {result.finish_reason}")
+    if result.has_tool_calls:
+        print(f"   Tool calls       : {len(result.tool_calls)}")
+    if result.structured:
+        status = "✅" if result.structured.success else "⚠️"
+        print(f"   Structured       : {status} {result.structured.format_used.value}")
+    print("─" * 60)
 
 
 def run_chat_stream(
@@ -303,29 +391,33 @@ def run_chat_stream(
     response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
+    on_chunk: Callable[[ChatCompletionChunk], None] | None = None,
 ) -> StreamCompletionResult:
-    """Pure synchronous chat streaming with tool loops and structured output."""
+    """Pure synchronous chat streaming with tool loops and structured output.
+
+    Args:
+        on_chunk: Optional callback invoked for each streamed chunk. Used by
+            the observability wrapper for real-time console flushing without
+            coupling this module to rich/logging. Also usable directly via
+            make_console_chat_printer() for plain-stdout streaming.
+    """
     resolved_fmt = resolve_response_format(response_format)
     api_response_format = resolved_fmt.api_format
-
     if resolved_fmt.output_format == OutputFormat.GRAMMAR:
         grammar_str = (api_response_format or {}).get("_grammar", "")
         if grammar_str:
             if extra_body_params is None:
                 extra_body_params = {}
             extra_body_params["grammar"] = grammar_str
-            api_response_format = None
-
+        api_response_format = None
     if client is None:
         client = get_llm_client()
-
     prompt: str | None = None
     messages: list[dict[str, Any]] | None = None
     if isinstance(prompt_or_messages, str):
         prompt = prompt_or_messages
     else:
         messages = prompt_or_messages
-
     current_messages = _build_messages(
         prompt,
         messages,
@@ -333,14 +425,11 @@ def run_chat_stream(
         resolved_fmt.system_prompt_addition,
         encode_image_to_base64,
     )
-
     is_agentic = tool_registry is not None
     last_result: StreamCompletionResult | None = None
     round_num = 0
-
     while round_num < max_tool_rounds:
         round_num += 1
-
         extra_body: dict[str, Any] = {
             "top_k": top_k,
             "chat_template_kwargs": {"enable_thinking": enable_thinking},
@@ -351,7 +440,6 @@ def run_chat_stream(
             extra_body["repeat_penalty"] = repeat_penalty
         if extra_body_params:
             extra_body.update(extra_body_params)
-
         api_kwargs: dict[str, Any] = {
             "model": model,
             "messages": current_messages,
@@ -373,18 +461,17 @@ def run_chat_stream(
             api_kwargs["tool_choice"] = tool_choice
         if api_response_format:
             api_kwargs["response_format"] = api_response_format
-
         collected_content: list[str] = []
         tool_calls_acc: dict[int, dict[str, Any]] = {}
         usage = None
         finish_reason: str | None = None
-
         stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
             **api_kwargs
         )
         in_think_block = False
-
         for chunk in stream:
+            if on_chunk is not None:
+                on_chunk(chunk)
             if not chunk.choices:
                 usage = getattr(chunk, "usage", None)
                 continue
@@ -393,16 +480,13 @@ def run_chat_stream(
                 continue
             if chunk.choices[0].finish_reason:
                 finish_reason = chunk.choices[0].finish_reason
-
             if hasattr(delta, "reasoning_content") and delta.reasoning_content:
                 in_think_block = True
                 collected_content.append(delta.reasoning_content)
             elif in_think_block:
                 in_think_block = False
-
             if hasattr(delta, "content") and delta.content:
                 collected_content.append(delta.content)
-
             if hasattr(delta, "tool_calls") and delta.tool_calls:
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
@@ -423,10 +507,8 @@ def run_chat_stream(
                             tool_calls_acc[idx]["function"]["arguments"] += (
                                 tc_delta.function.arguments
                             )
-
         full_response = "".join(collected_content)
         parsed_tool_calls = _parse_tool_calls_from_accumulator(tool_calls_acc)
-
         last_result = StreamCompletionResult(
             content=full_response,
             tool_calls=parsed_tool_calls,
@@ -439,17 +521,14 @@ def run_chat_stream(
             else None,
             finish_reason=finish_reason,
         )
-
         if resolved_fmt.output_format != OutputFormat.TEXT and not parsed_tool_calls:
             last_result.structured = parse_structured_content(
                 full_response, resolved_fmt
             )
-
         if not last_result.has_tool_calls:
             break
         if not is_agentic:
             break
-
         assistant_tc_message: dict[str, Any] = {
             "role": "assistant",
             "content": last_result.content or None,
@@ -463,7 +542,6 @@ def run_chat_stream(
             ],
         }
         current_messages.append(assistant_tc_message)
-
         for tc in last_result.tool_calls:
             executor = tool_registry.get(tc.name)
             if executor is None:
@@ -482,7 +560,6 @@ def run_chat_stream(
                     "content": json.dumps(tool_result, default=str),
                 }
             )
-
     return last_result or StreamCompletionResult(
         content="", finish_reason="no_response"
     )
@@ -505,11 +582,17 @@ def run_generate_stream(
     seed: int | None = None,
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
+    on_chunk: Callable[[Any], None] | None = None,
 ) -> StreamCompletionResult:
-    """Pure synchronous raw text completion streaming."""
+    """Pure synchronous raw text completion streaming.
+
+    Args:
+        on_chunk: Optional callback invoked for each streamed chunk. Also
+            usable directly via make_console_generate_printer() for
+            plain-stdout streaming.
+    """
     if client is None:
         client = get_llm_client()
-
     extra_body: dict[str, Any] = {"top_k": top_k}
     if min_p > 0.0:
         extra_body["min_p"] = min_p
@@ -517,7 +600,6 @@ def run_generate_stream(
         extra_body["repeat_penalty"] = repeat_penalty
     if extra_body_params:
         extra_body.update(extra_body_params)
-
     api_kwargs: dict[str, Any] = {
         "model": model,
         "prompt": prompt,
@@ -533,13 +615,13 @@ def run_generate_stream(
         "stream": True,
         "stream_options": {"include_usage": True},
     }
-
     collected_content: list[str] = []
     usage = None
     finish_reason: str | None = None
-
     stream = client.completions.create(**api_kwargs)
     for chunk in stream:
+        if on_chunk is not None:
+            on_chunk(chunk)
         if not chunk.choices:
             usage = getattr(chunk, "usage", None)
             continue
@@ -548,7 +630,6 @@ def run_generate_stream(
             finish_reason = chunk.choices[0].finish_reason
         if delta:
             collected_content.append(delta)
-
     full_response = "".join(collected_content)
     return StreamCompletionResult(
         content=full_response,
@@ -562,9 +643,6 @@ def run_generate_stream(
         else None,
         finish_reason=finish_reason,
     )
-
-
-# --- Public API: Async ---
 
 
 async def run_chat_stream_async(
@@ -592,34 +670,40 @@ async def run_chat_stream_async(
     response_format: Any = None,
     max_tool_rounds: int = 10,
     extra_body_params: dict[str, Any] | None = None,
+    on_chunk: Callable[[ChatCompletionChunk], None] | None = None,
 ) -> StreamCompletionResult:
-    """Pure asynchronous chat streaming with tool loops and structured output."""
+    """Pure asynchronous chat streaming with tool loops and structured output.
+
+    Args:
+        on_chunk: Optional callback invoked for each streamed chunk. Used by
+            the observability wrapper for real-time console flushing.
+
+    Note:
+        Stream and client lifecycle are managed internally by the OpenAI SDK.
+        Do NOT call stream.aclose() or client.close() manually — doing so
+        conflicts with httpcore2's safe_async_iterate context manager and
+        causes RuntimeError: generator didn't stop after athrow().
+    """
     resolved_fmt = resolve_response_format(response_format)
     api_response_format = resolved_fmt.api_format
-
     if resolved_fmt.output_format == OutputFormat.GRAMMAR:
         grammar_str = (api_response_format or {}).get("_grammar", "")
         if grammar_str:
             if extra_body_params is None:
                 extra_body_params = {}
             extra_body_params["grammar"] = grammar_str
-            api_response_format = None
-
-    _client_owned = client is None
+        api_response_format = None
     if client is None:
         client = get_async_llm_client()
-
     prompt: str | None = None
     messages: list[dict[str, Any]] | None = None
     if isinstance(prompt_or_messages, str):
         prompt = prompt_or_messages
     else:
         messages = prompt_or_messages
-
     encoded_image = None
     if image_source:
         encoded_image = await encode_image_to_base64_async(image_source)
-
     current_messages = _build_messages(
         prompt,
         messages,
@@ -627,174 +711,141 @@ async def run_chat_stream_async(
         resolved_fmt.system_prompt_addition,
         lambda src: encoded_image if encoded_image else ("", "image/jpeg"),
     )
-
     is_agentic = tool_registry is not None
     last_result: StreamCompletionResult | None = None
     round_num = 0
-
-    try:
-        while round_num < max_tool_rounds:
-            round_num += 1
-
-            extra_body: dict[str, Any] = {
-                "top_k": top_k,
-                "chat_template_kwargs": {"enable_thinking": enable_thinking},
+    while round_num < max_tool_rounds:
+        round_num += 1
+        extra_body: dict[str, Any] = {
+            "top_k": top_k,
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
+        }
+        if min_p > 0.0:
+            extra_body["min_p"] = min_p
+        if repeat_penalty != 1.1:
+            extra_body["repeat_penalty"] = repeat_penalty
+        if extra_body_params:
+            extra_body.update(extra_body_params)
+        api_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": current_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "presence_penalty": presence_penalty,
+            "frequency_penalty": frequency_penalty,
+            "logit_bias": logit_bias,
+            "seed": seed,
+            "stop": stop,
+            "extra_body": extra_body,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        if tools:
+            api_kwargs["tools"] = tools
+        if tool_choice is not None:
+            api_kwargs["tool_choice"] = tool_choice
+        if api_response_format:
+            api_kwargs["response_format"] = api_response_format
+        collected_content: list[str] = []
+        tool_calls_acc: dict[int, dict[str, Any]] = {}
+        usage = None
+        finish_reason: str | None = None
+        stream: AsyncStream[ChatCompletionChunk] = await client.chat.completions.create(
+            **api_kwargs
+        )
+        in_think_block = False
+        async for chunk in stream:
+            if on_chunk is not None:
+                on_chunk(chunk)
+            if not chunk.choices:
+                usage = getattr(chunk, "usage", None)
+                continue
+            delta = chunk.choices[0].delta
+            if not delta:
+                continue
+            if chunk.choices[0].finish_reason:
+                finish_reason = chunk.choices[0].finish_reason
+            if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+                in_think_block = True
+                collected_content.append(delta.reasoning_content)
+            elif in_think_block:
+                in_think_block = False
+            if hasattr(delta, "content") and delta.content:
+                collected_content.append(delta.content)
+            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in tool_calls_acc:
+                        tool_calls_acc[idx] = {
+                            "id": tc_delta.id or "",
+                            "type": tc_delta.type or "function",
+                            "function": {"name": "", "arguments": ""},
+                        }
+                    if tc_delta.id:
+                        tool_calls_acc[idx]["id"] = tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            tool_calls_acc[idx]["function"]["name"] += (
+                                tc_delta.function.name
+                            )
+                        if tc_delta.function.arguments:
+                            tool_calls_acc[idx]["function"]["arguments"] += (
+                                tc_delta.function.arguments
+                            )
+        full_response = "".join(collected_content)
+        parsed_tool_calls = _parse_tool_calls_from_accumulator(tool_calls_acc)
+        last_result = StreamCompletionResult(
+            content=full_response,
+            tool_calls=parsed_tool_calls,
+            usage={
+                "prompt_tokens": usage.prompt_tokens,
+                "completion_tokens": usage.completion_tokens,
+                "total_tokens": usage.total_tokens,
             }
-            if min_p > 0.0:
-                extra_body["min_p"] = min_p
-            if repeat_penalty != 1.1:
-                extra_body["repeat_penalty"] = repeat_penalty
-            if extra_body_params:
-                extra_body.update(extra_body_params)
-
-            api_kwargs: dict[str, Any] = {
-                "model": model,
-                "messages": current_messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "top_p": top_p,
-                "presence_penalty": presence_penalty,
-                "frequency_penalty": frequency_penalty,
-                "logit_bias": logit_bias,
-                "seed": seed,
-                "stop": stop,
-                "extra_body": extra_body,
-                "stream": True,
-                "stream_options": {"include_usage": True},
-            }
-            if tools:
-                api_kwargs["tools"] = tools
-            if tool_choice is not None:
-                api_kwargs["tool_choice"] = tool_choice
-            if api_response_format:
-                api_kwargs["response_format"] = api_response_format
-
-            collected_content: list[str] = []
-            tool_calls_acc: dict[int, dict[str, Any]] = {}
-            usage = None
-            finish_reason: str | None = None
-
-            stream: AsyncStream[
-                ChatCompletionChunk
-            ] = await client.chat.completions.create(**api_kwargs)
-            in_think_block = False
-
-            try:
-                async for chunk in stream:
-                    if not chunk.choices:
-                        usage = getattr(chunk, "usage", None)
-                        continue
-                    delta = chunk.choices[0].delta
-                    if not delta:
-                        continue
-                    if chunk.choices[0].finish_reason:
-                        finish_reason = chunk.choices[0].finish_reason
-
-                    if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                        in_think_block = True
-                        collected_content.append(delta.reasoning_content)
-                    elif in_think_block:
-                        in_think_block = False
-
-                    if hasattr(delta, "content") and delta.content:
-                        collected_content.append(delta.content)
-
-                    if hasattr(delta, "tool_calls") and delta.tool_calls:
-                        for tc_delta in delta.tool_calls:
-                            idx = tc_delta.index
-                            if idx not in tool_calls_acc:
-                                tool_calls_acc[idx] = {
-                                    "id": tc_delta.id or "",
-                                    "type": tc_delta.type or "function",
-                                    "function": {"name": "", "arguments": ""},
-                                }
-                            if tc_delta.id:
-                                tool_calls_acc[idx]["id"] = tc_delta.id
-                            if tc_delta.function:
-                                if tc_delta.function.name:
-                                    tool_calls_acc[idx]["function"]["name"] += (
-                                        tc_delta.function.name
-                                    )
-                                if tc_delta.function.arguments:
-                                    tool_calls_acc[idx]["function"]["arguments"] += (
-                                        tc_delta.function.arguments
-                                    )
-            finally:
-                if hasattr(stream, "aclose"):
-                    try:
-                        await stream.aclose()
-                    except Exception:
-                        pass
-
-            full_response = "".join(collected_content)
-            parsed_tool_calls = _parse_tool_calls_from_accumulator(tool_calls_acc)
-
-            last_result = StreamCompletionResult(
-                content=full_response,
-                tool_calls=parsed_tool_calls,
-                usage={
-                    "prompt_tokens": usage.prompt_tokens,
-                    "completion_tokens": usage.completion_tokens,
-                    "total_tokens": usage.total_tokens,
-                }
-                if usage
-                else None,
-                finish_reason=finish_reason,
+            if usage
+            else None,
+            finish_reason=finish_reason,
+        )
+        if resolved_fmt.output_format != OutputFormat.TEXT and not parsed_tool_calls:
+            last_result.structured = parse_structured_content(
+                full_response, resolved_fmt
             )
-
-            if (
-                resolved_fmt.output_format != OutputFormat.TEXT
-                and not parsed_tool_calls
-            ):
-                last_result.structured = parse_structured_content(
-                    full_response, resolved_fmt
+        if not last_result.has_tool_calls:
+            break
+        if not is_agentic:
+            break
+        assistant_tc_message: dict[str, Any] = {
+            "role": "assistant",
+            "content": last_result.content or None,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {"name": tc.name, "arguments": tc.raw_arguments},
+                }
+                for tc in last_result.tool_calls
+            ],
+        }
+        current_messages.append(assistant_tc_message)
+        for tc in last_result.tool_calls:
+            executor = tool_registry.get(tc.name)
+            if executor is None:
+                tool_result: Any = {
+                    "error": f"Unknown tool: {tc.name}",
+                    "available_tools": list(tool_registry.keys()),
+                }
+            else:
+                tool_result = await execute_tool_async(
+                    tc.name, tc.arguments, executor, strict=False
                 )
-
-            if not last_result.has_tool_calls:
-                break
-            if not is_agentic:
-                break
-
-            assistant_tc_message: dict[str, Any] = {
-                "role": "assistant",
-                "content": last_result.content or None,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": tc.type,
-                        "function": {"name": tc.name, "arguments": tc.raw_arguments},
-                    }
-                    for tc in last_result.tool_calls
-                ],
-            }
-            current_messages.append(assistant_tc_message)
-
-            for tc in last_result.tool_calls:
-                executor = tool_registry.get(tc.name)
-                if executor is None:
-                    tool_result: Any = {
-                        "error": f"Unknown tool: {tc.name}",
-                        "available_tools": list(tool_registry.keys()),
-                    }
-                else:
-                    tool_result = await execute_tool_async(
-                        tc.name, tc.arguments, executor, strict=False
-                    )
-                current_messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": json.dumps(tool_result, default=str),
-                    }
-                )
-
-    finally:
-        if _client_owned and hasattr(client, "close"):
-            try:
-                await client.close()
-            except Exception:
-                pass
-
+            current_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(tool_result, default=str),
+                }
+            )
     return last_result or StreamCompletionResult(
         content="", finish_reason="no_response"
     )
@@ -817,12 +868,19 @@ async def run_generate_stream_async(
     seed: int | None = None,
     stop: list[str] | None = None,
     extra_body_params: dict[str, Any] | None = None,
+    on_chunk: Callable[[Any], None] | None = None,
 ) -> StreamCompletionResult:
-    """Pure asynchronous raw text completion streaming."""
-    _client_owned = client is None
+    """Pure asynchronous raw text completion streaming.
+
+    Args:
+        on_chunk: Optional callback invoked for each streamed chunk.
+
+    Note:
+        Stream and client lifecycle are managed internally by the OpenAI SDK.
+        Do NOT call stream.aclose() or client.close() manually.
+    """
     if client is None:
         client = get_async_llm_client()
-
     extra_body: dict[str, Any] = {"top_k": top_k}
     if min_p > 0.0:
         extra_body["min_p"] = min_p
@@ -830,7 +888,6 @@ async def run_generate_stream_async(
         extra_body["repeat_penalty"] = repeat_penalty
     if extra_body_params:
         extra_body.update(extra_body_params)
-
     api_kwargs: dict[str, Any] = {
         "model": model,
         "prompt": prompt,
@@ -846,36 +903,21 @@ async def run_generate_stream_async(
         "stream": True,
         "stream_options": {"include_usage": True},
     }
-
     collected_content: list[str] = []
     usage = None
     finish_reason: str | None = None
-
-    try:
-        stream = await client.completions.create(**api_kwargs)
-        try:
-            async for chunk in stream:
-                if not chunk.choices:
-                    usage = getattr(chunk, "usage", None)
-                    continue
-                delta = chunk.choices[0].text
-                if chunk.choices[0].finish_reason:
-                    finish_reason = chunk.choices[0].finish_reason
-                if delta:
-                    collected_content.append(delta)
-        finally:
-            if hasattr(stream, "aclose"):
-                try:
-                    await stream.aclose()
-                except Exception:
-                    pass
-    finally:
-        if _client_owned and hasattr(client, "close"):
-            try:
-                await client.close()
-            except Exception:
-                pass
-
+    stream = await client.completions.create(**api_kwargs)
+    async for chunk in stream:
+        if on_chunk is not None:
+            on_chunk(chunk)
+        if not chunk.choices:
+            usage = getattr(chunk, "usage", None)
+            continue
+        delta = chunk.choices[0].text
+        if chunk.choices[0].finish_reason:
+            finish_reason = chunk.choices[0].finish_reason
+        if delta:
+            collected_content.append(delta)
     full_response = "".join(collected_content)
     return StreamCompletionResult(
         content=full_response,
@@ -891,9 +933,6 @@ async def run_generate_stream_async(
     )
 
 
-# --- CLI Entry Point (Pure, No Observability) ---
-
-
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Pure LLM streaming engine (no observability)."
@@ -903,14 +942,19 @@ def get_args() -> argparse.Namespace:
         type=str,
         nargs="?",
         default="What is OpenTelemetry in one sentence?",
-        help="Prompt for the chat/image analysis.",
+        help="Prompt for the chat/image analysis or raw completion.",
     )
     parser.add_argument(
         "-i",
         "--image-source",
         type=str,
         default=None,
-        help="Path or URL to an image to analyze. Omit for text-only.",
+        help="Path or URL to an image to analyze. Omit for text-only. (chat mode only)",
+    )
+    parser.add_argument(
+        "--generate",
+        action="store_true",
+        help="Use raw text completion (run_generate_stream) instead of chat mode.",
     )
     parser.add_argument(
         "--model",
@@ -946,19 +990,19 @@ def get_args() -> argparse.Namespace:
         "--tools-json",
         type=str,
         default=None,
-        help="JSON array of tool definitions for function calling.",
+        help="JSON array of tool definitions for function calling. (chat mode only)",
     )
     parser.add_argument(
         "--tool-choice",
         type=str,
         default=None,
-        help='"auto", "none", "required", or JSON object.',
+        help='"auto", "none", "required", or JSON object. (chat mode only)',
     )
     parser.add_argument(
         "--response-format",
         type=str,
         default=None,
-        help='JSON response format, e.g. \'{"type": "json_object"}\'.',
+        help='JSON response format, e.g. \'{"type": "json_object"}\'. (chat mode only)',
     )
     return parser.parse_args()
 
@@ -976,61 +1020,105 @@ if __name__ == "__main__":
             print(f"❌ Invalid logit_bias JSON: {e}", file=sys.stderr)
             raise SystemExit(1)
 
-    parsed_tools: list[dict[str, Any]] | None = None
-    if args.tools_json:
-        try:
-            parsed_tools = json.loads(args.tools_json)
-        except json.JSONDecodeError as e:
-            print(f"❌ Invalid tools JSON: {e}", file=sys.stderr)
-            raise SystemExit(1)
-
-    parsed_tool_choice: str | dict[str, Any] | None = args.tool_choice
-    if parsed_tool_choice and parsed_tool_choice.startswith("{"):
-        try:
-            parsed_tool_choice = json.loads(parsed_tool_choice)
-        except json.JSONDecodeError:
-            pass
-
-    parsed_response_format: dict[str, Any] | None = None
-    if args.response_format:
-        try:
-            parsed_response_format = json.loads(args.response_format)
-        except json.JSONDecodeError as e:
-            print(f"❌ Invalid response_format JSON: {e}", file=sys.stderr)
-            raise SystemExit(1)
-
     client = get_llm_client(base_url=args.base_url, timeout=args.timeout)
 
-    result = run_chat_stream(
-        args.prompt,
-        model=args.model,
-        image_source=args.image_source,
-        client=client,
-        enable_thinking=args.enable_thinking,
-        max_tokens=args.max_tokens,
-        temperature=args.temperature,
-        top_p=args.top_p,
-        top_k=args.top_k,
-        min_p=args.min_p,
-        repeat_penalty=args.repeat_penalty,
-        presence_penalty=args.presence_penalty,
-        frequency_penalty=args.frequency_penalty,
-        logit_bias=parsed_logit_bias,
-        seed=args.seed,
-        stop=args.stop,
-        tools=parsed_tools,
-        tool_choice=parsed_tool_choice,
-        response_format=parsed_response_format,
-        tool_registry=None,
+    print("─" * 60)
+    print(f"🤖 Model        : {args.model}")
+    print(
+        f"🎛️  Sampling     : temp={args.temperature} top_p={args.top_p} top_k={args.top_k}"
     )
 
-    if result.has_tool_calls:
-        print(
-            f"📋 Result: {len(result.tool_calls)} tool call(s), "
-            f"finish_reason={result.finish_reason}"
+    t_start = time.perf_counter()
+
+    if args.generate:
+        # ── Raw text completion mode ──────────────────────────────────
+        on_chunk, chunk_state = make_console_generate_printer()
+        print("Response: ", end="", flush=True)
+        result = run_generate_stream(
+            args.prompt,
+            model=args.model,
+            client=client,
+            max_tokens=args.max_tokens,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            top_k=args.top_k,
+            min_p=args.min_p,
+            repeat_penalty=args.repeat_penalty,
+            presence_penalty=args.presence_penalty,
+            frequency_penalty=args.frequency_penalty,
+            logit_bias=parsed_logit_bias,
+            seed=args.seed,
+            stop=args.stop,
+            on_chunk=on_chunk,
         )
-    else:
+        print()
+        total_secs = time.perf_counter() - t_start
+        print_stream_summary(result, total_secs, chunk_state["first_token_at"], t_start)
         print(
             f"📋 Result: {len(result.content)} chars, "
             f"finish_reason={result.finish_reason}"
         )
+    else:
+        # ── Chat streaming mode ───────────────────────────────────────
+        parsed_tools: list[dict[str, Any]] | None = None
+        if args.tools_json:
+            try:
+                parsed_tools = json.loads(args.tools_json)
+            except json.JSONDecodeError as e:
+                print(f"❌ Invalid tools JSON: {e}", file=sys.stderr)
+                raise SystemExit(1)
+        parsed_tool_choice: str | dict[str, Any] | None = args.tool_choice
+        if parsed_tool_choice and parsed_tool_choice.startswith("{"):
+            try:
+                parsed_tool_choice = json.loads(parsed_tool_choice)
+            except json.JSONDecodeError:
+                pass
+        parsed_response_format: dict[str, Any] | None = None
+        if args.response_format:
+            try:
+                parsed_response_format = json.loads(args.response_format)
+            except json.JSONDecodeError as e:
+                print(f"❌ Invalid response_format JSON: {e}", file=sys.stderr)
+                raise SystemExit(1)
+
+        on_chunk, chunk_state = make_console_chat_printer()
+        print("Response: ", end="", flush=True)
+        result = run_chat_stream(
+            args.prompt,
+            model=args.model,
+            image_source=args.image_source,
+            client=client,
+            enable_thinking=args.enable_thinking,
+            max_tokens=args.max_tokens,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            top_k=args.top_k,
+            min_p=args.min_p,
+            repeat_penalty=args.repeat_penalty,
+            presence_penalty=args.presence_penalty,
+            frequency_penalty=args.frequency_penalty,
+            logit_bias=parsed_logit_bias,
+            seed=args.seed,
+            stop=args.stop,
+            tools=parsed_tools,
+            tool_choice=parsed_tool_choice,
+            response_format=parsed_response_format,
+            tool_registry=None,
+            on_chunk=on_chunk,
+        )
+        if chunk_state["in_think_block"]:
+            print("</think>", end="")
+        print()
+        total_secs = time.perf_counter() - t_start
+        print_stream_summary(result, total_secs, chunk_state["first_token_at"], t_start)
+
+        if result.has_tool_calls:
+            print(
+                f"📋 Result: {len(result.tool_calls)} tool call(s), "
+                f"finish_reason={result.finish_reason}"
+            )
+        else:
+            print(
+                f"📋 Result: {len(result.content)} chars, "
+                f"finish_reason={result.finish_reason}"
+            )
