@@ -14,10 +14,11 @@ from jet.logger import logger
 from numpy.typing import NDArray
 from psycopg import sql
 from shared.data_types.job import (
+    HybridSearchResult,
     JobData,
-    JobSearchResult,
     TableJobMetadata,
     TableJobRow,
+    VectorSearchResult,
 )
 
 DEFAULT_EMBED_MODEL: LLAMACPP_EMBED_KEYS = EMBED_MODEL
@@ -797,7 +798,7 @@ def search_jobs(
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
     enrich_with_metadata: bool = True,
-) -> list[JobSearchResult]:
+) -> list[VectorSearchResult]:
     """
     Search for jobs based on a query string and return ranked results with data.
     Searches against chunked embeddings in DEFAULT_TABLE_DATA and optionally
@@ -875,12 +876,16 @@ def hybrid_search_jobs(
     embed_model: LLAMACPP_EMBED_KEYS = DEFAULT_EMBED_MODEL,
     db_client: PgVectorClient | None = None,
     enrich_with_metadata: bool = True,
-) -> list[JobSearchResult]:
+) -> list[HybridSearchResult]:
     """
     Hybrid search combining vector search with BM25 reranking.
     Optionally enriches results with full metadata.
     """
     from jet.vectors.reranker.bm25 import rerank_bm25
+
+    # Ensure db_client is available for both search and enrichment
+    if not db_client:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
     raw_results = search_jobs(
         query=query,
@@ -888,7 +893,7 @@ def hybrid_search_jobs(
         threshold=threshold,
         embed_model=embed_model,
         db_client=db_client,
-        enrich_with_metadata=False,  # We'll enrich after reranking
+        enrich_with_metadata=False,
     )
 
     ids = [result["id"] for result in raw_results]
@@ -908,26 +913,32 @@ def hybrid_search_jobs(
     ]
 
     query_candidates, reranked_results = rerank_bm25(query, documents, ids, metadatas)
+
     filtered_results = [
         result for result in reranked_results if is_valid_score(result.get("score"))
     ]
+
     removed_count = len(reranked_results) - len(filtered_results)
     if removed_count > 0:
         logger.debug(
             f"Filtered out {removed_count} reranked results with invalid scores"
         )
 
-    # Enrich results with metadata if requested
+    # Now db_client is guaranteed to exist when enrich_with_metadata is True
     if enrich_with_metadata and db_client:
         enriched_results = []
         for result in filtered_results:
-            # Get job_id from doc_id in metadata
-            doc_id = result.get("doc_id", "")
+            # FIX: Extract doc_id from nested metadata dict returned by BM25 reranker
+            # The reranker nests original chunk meta under "metadata" key
+            chunk_meta = result.get("metadata", {})
+            doc_id = chunk_meta.get("doc_id", "")
 
-            # Load full metadata for this job
+            # Fallback: if metadata.doc_id is missing, try using the chunk id directly
+            # (some jobs may use job_id as chunk_id when not chunked)
+            if not doc_id:
+                doc_id = result.get("id", "")
+
             metadata = _load_metadata_from_table(db_client, doc_id)
-
-            # Merge metadata into result
             enriched = {**result}
             if metadata:
                 enriched.update(
@@ -944,8 +955,11 @@ def hybrid_search_jobs(
                         "hours_per_week": metadata.get("hours_per_week"),
                     }
                 )
+            else:
+                logger.warning(
+                    f"No metadata found for doc_id='{doc_id}' (chunk_id={result.get('id')})"
+                )
             enriched_results.append(enriched)
-
         logger.debug(
             f"Enriched {len(enriched_results)} hybrid search results with metadata"
         )
