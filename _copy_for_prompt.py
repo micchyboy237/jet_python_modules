@@ -84,7 +84,7 @@ Summarize endpoints
 DEFAULT_INSTRUCTIONS_MESSAGE = """
 General:
 
-- Always browse first when beneficial, especially when requested.
+- Always browse the internet first when beneficial, especially when requested.
 - Use easy to understand terms.
 
 My device:

@@ -32,9 +32,17 @@ def suppress_logging():
     transformers_logging.set_verbosity_warning()
 
     # Silence httpcore/httpx socket-level tracing
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("httpcore2").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpx2").setLevel(
+        logging.WARNING
+    )  # NEW: openai>=3.0 uses HTTPX2, not httpx
+    logging.getLogger("httpcore2").setLevel(
+        logging.WARNING
+    )  # NEW: HTTPX2's transport-level logger
+    logging.getLogger("httpcore2.connection").setLevel(
+        logging.WARNING
+    )  # NEW: extra safety, in case sub-loggers are used
+    logging.getLogger("httpcore2.http11").setLevel(logging.WARNING)  # NEW
     logging.getLogger("hpack").setLevel(logging.WARNING)
 
     # Silence LiteLLM internal debug logs
