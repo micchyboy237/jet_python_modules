@@ -5,8 +5,8 @@ with llama.cpp OpenAI-compatible servers. Supports one or more doc directories.
 
 Usage:
     python search_repo_docs.py ./docs "How do I configure memory?"
-    python search_repo_docs.py ./docs ./examples ./tutorials "async agent patterns" --top-k 20
-    python search_repo_docs.py ./src/api ./src/examples "error handling" --rerank-top-n 3
+    python search_repo_docs.py ./docs ./examples "async agent patterns" --top-k 20
+    python search_repo_docs.py ./docs "API reference" --no-stream --enable-thinking
 """
 
 import argparse
@@ -15,12 +15,10 @@ import sys
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
-# Add swarms module from local path if not already present
+# Add swarms module from local path if not installed
 swarms_path = "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/swarms"
 if swarms_path not in sys.path:
     sys.path.append(swarms_path)
-
-from typing import Any, List, Optional
 
 import httpx
 from llama_index.core import Settings, SimpleDirectoryReader, VectorStoreIndex
@@ -31,12 +29,27 @@ from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai_like import OpenAILike
 from swarms import Agent, AgentRearrange
 
+# ---------------------------------------------------------------------------
+# File extensions to index
+# ---------------------------------------------------------------------------
+REQUIRED_EXTENSIONS = [
+    ".md",
+    ".mdx",
+    ".py",
+    ".ipynb",
+    ".txt",
+    ".rst",
+    ".yaml",
+    ".yml",
+    ".json",
+]
+
 
 # ---------------------------------------------------------------------------
-# Custom Reranker for llama.cpp /rerank endpoint
+# Custom Reranker for llama.cpp /rerank endpoint (uses httpx, not OpenAI SDK)
 # ---------------------------------------------------------------------------
 class LlamaCppReranker(BaseNodePostprocessor):
-    """Wraps a llama.cpp OpenAI-compatible rerank endpoint using httpx directly."""
+    """Wraps a llama.cpp OpenAI-compatible rerank endpoint using httpx."""
 
     top_n: int = Field(default=5, description="Number of nodes to return.")
     model: str = Field(description="Rerank model name.")
@@ -46,7 +59,6 @@ class LlamaCppReranker(BaseNodePostprocessor):
 
     def __init__(self, base_url: str, model: str, top_n: int = 5, **kwargs):
         super().__init__(top_n=top_n, model=model, base_url=base_url, **kwargs)
-        # Use httpx directly — OpenAI SDK doesn't support raw .post(json=...) [[11]]
         self._client = httpx.Client(base_url=base_url, timeout=60.0)
 
     @classmethod
@@ -98,9 +110,7 @@ class LlamaCppReranker(BaseNodePostprocessor):
 def load_documents_from_dirs(data_dirs: List[str]) -> list:
     """
     Load documents from multiple directories with unique IDs.
-
-    Prepends the relative directory path to each filename to prevent collisions
-    when multiple dirs contain files with the same basename (e.g., README.md).
+    Prepends the directory name to each filepath to prevent ID collisions.
     """
     all_documents = []
     for dir_path in data_dirs:
@@ -114,11 +124,11 @@ def load_documents_from_dirs(data_dirs: List[str]) -> list:
         reader = SimpleDirectoryReader(
             input_dir=str(resolved),
             recursive=True,
-            filename_as_id=False,  # We set custom IDs below
+            filename_as_id=False,
+            required_exts=REQUIRED_EXTENSIONS,
         )
         docs = reader.load_data()
 
-        # Create unique IDs: relative_dir/filename to avoid cross-dir collisions
         for doc in docs:
             source_file = Path(doc.metadata.get("file_path", ""))
             try:
@@ -136,7 +146,6 @@ def load_documents_from_dirs(data_dirs: List[str]) -> list:
         raise FileNotFoundError(
             f"No documents found in any of the specified directories: {data_dirs}"
         )
-
     return all_documents
 
 
@@ -151,21 +160,16 @@ def build_swarm(
     top_k: int = 15,
     rerank_top_n: int = 5,
     use_reranker: bool = True,
+    use_stream: bool = True,
+    enable_thinking: bool = False,
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
 ) -> AgentRearrange:
     """
     Build and return a configured AgentRearrange swarm backed by local docs.
 
-    Args:
-        data_dirs: One or more paths to docs/examples directories.
-        llm_model: Override LLM model name (default: from config).
-        embed_model: Override embedding model name (default: from config).
-        top_k: Chunks to retrieve before reranking.
-        rerank_top_n: Results to keep after reranking.
-        use_reranker: Whether to apply reranking post-retrieval.
-        chunk_size: Embedding chunk size in tokens.
-        chunk_overlap: Overlap between consecutive chunks.
+    All models/URLs are read from jet.adapters.llama_cpp.config; keyword args
+    override individual values without mutating the global config module.
     """
     from jet.adapters.llama_cpp.config import (
         EMBED_BASE_URL,
@@ -187,6 +191,18 @@ def build_swarm(
     _llm_model = llm_model or LLM_MODEL
     _embed_model = embed_model or EMBED_MODEL
 
+    # --- Build extra_body for enable_thinking control ------------------------
+    # OpenAILike passes additional_kwargs -> extra_body -> chat_template_kwargs
+    # to the OpenAI SDK, which sends it in the request body to llama.cpp.
+    # Ref: https://github.com/run-llama/llama_index/issues/18635
+    additional_kwargs = {
+        "extra_body": {
+            "chat_template_kwargs": {
+                "enable_thinking": enable_thinking,
+            }
+        }
+    }
+
     # --- Global LlamaIndex settings ------------------------------------------
     Settings.llm = OpenAILike(
         model=_llm_model,
@@ -194,6 +210,7 @@ def build_swarm(
         api_key="not-needed",
         is_chat_model=True,
         timeout=120,
+        additional_kwargs=additional_kwargs,
     )
 
     Settings.embed_model = OpenAIEmbedding(
@@ -212,16 +229,11 @@ def build_swarm(
     # --- Load documents from all directories ---------------------------------
     documents = load_documents_from_dirs(data_dirs)
 
-    # --- Build index directly (avoids LlamaIndexDB input_files limitation) ---
-    index = VectorStoreIndex.from_documents(
-        documents,
-        show_progress=True,
-    )
+    # --- Build index ---------------------------------------------------------
+    index = VectorStoreIndex.from_documents(documents, show_progress=True)
 
-    # Wrap index in a minimal memory object compatible with AgentRearrange
+    # Wrap index in a minimal memory object for AgentRearrange
     class _MemoryAdapter:
-        """Thin adapter exposing .index for AgentRearrange's memory_system contract."""
-
         def __init__(self, vector_index: VectorStoreIndex):
             self.index = vector_index
 
@@ -266,10 +278,85 @@ def build_swarm(
     else:
         swarm._reranker = None  # type: ignore[attr-defined]
 
-    # Stash index reference for direct query-engine access
+    # Stash references for query-time access
     swarm._index = index  # type: ignore[attr-defined]
+    swarm._use_stream = use_stream  # type: ignore[attr-defined]
+    swarm._top_k = top_k  # type: ignore[attr-defined]
 
     return swarm
+
+
+# ---------------------------------------------------------------------------
+# Query runner with streaming support
+# ---------------------------------------------------------------------------
+def run_query(swarm: AgentRearrange, query: str) -> None:
+    """
+    Execute a query against the swarm with optional streaming + reranking.
+
+    Streaming uses LlamaIndex's native streaming query engine which returns
+    a StreamingResponse with a response_gen generator. Each chunk is printed
+    and flushed immediately for natural real-time output.
+    Ref: https://developers.llamaindex.ai/.../query_engine/streaming/
+    """
+    reranker = getattr(swarm, "_reranker", None)
+    index = getattr(swarm, "_index", None)
+    use_stream = getattr(swarm, "_use_stream", False)
+    top_k = getattr(swarm, "_top_k", 15)
+
+    postprocessors = [reranker] if reranker else []
+
+    if index is not None and use_stream:
+        # --- STREAMING PATH ---
+        try:
+            engine = index.as_query_engine(
+                streaming=True,
+                similarity_top_k=top_k,
+                node_postprocessors=postprocessors,
+            )
+            streaming_response = engine.query(query)
+
+            # Iterate over token chunks as they arrive, flush each immediately
+            for text in streaming_response.response_gen:
+                print(text, end="", flush=True)
+            print()  # Final newline
+
+            # Print source citations after streaming completes
+            if hasattr(streaming_response, "source_nodes"):
+                print("\n" + "=" * 60)
+                print("📄 Sources:")
+                print("=" * 60)
+                for i, node in enumerate(streaming_response.source_nodes, 1):
+                    file_id = node.node.metadata.get("file_id", "unknown")
+                    score = f"{node.score:.4f}" if node.score else "N/A"
+                    print(f"  [{i}] {file_id} (score: {score})")
+            return
+        except Exception as e:
+            print(f"[WARN] Streaming failed ({e}), falling back", file=sys.stderr)
+
+    if index is not None and not use_stream:
+        # --- NON-STREAMING PATH (with reranker) ---
+        try:
+            engine = index.as_query_engine(
+                similarity_top_k=top_k,
+                node_postprocessors=postprocessors,
+            )
+            response = engine.query(query)
+            print(str(response))
+
+            if hasattr(response, "source_nodes"):
+                print("\n" + "=" * 60)
+                print("📄 Sources:")
+                print("=" * 60)
+                for i, node in enumerate(response.source_nodes, 1):
+                    file_id = node.node.metadata.get("file_id", "unknown")
+                    score = f"{node.score:.4f}" if node.score else "N/A"
+                    print(f"  [{i}] {file_id} (score: {score})")
+            return
+        except Exception as e:
+            print(f"[WARN] Direct query failed ({e}), falling back", file=sys.stderr)
+
+    # --- FALLBACK: swarm.run() ---
+    print(swarm.run(query))
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +369,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         epilog=(
             "Examples:\n"
             "  %(prog)s ./docs 'How does AgentRearrange handle errors?'\n"
-            "  %(prog)s ./docs ./examples ./tutorials 'async agent patterns' --top-k 20\n"
-            "  %(prog)s ./src/api ./src/examples 'error handling' --rerank-top-n 3\n"
-            "  %(prog)s ./docs 'API reference' --model qwen3.5-uncensored:4b --no-reranker\n"
+            "  %(prog)s ./docs ./examples 'async agent patterns' --top-k 20\n"
+            "  %(prog)s ./docs 'API reference' --no-stream --enable-thinking\n"
+            "  %(prog)s ./docs 'memory config' --model qwen3.5-uncensored:4b\n"
         ),
     )
 
@@ -326,6 +413,18 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Disable reranker even if RERANK_BASE_URL is configured",
     )
     parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        default=False,
+        help="Disable streaming; wait for full response before printing",
+    )
+    parser.add_argument(
+        "--enable-thinking",
+        action="store_true",
+        default=False,
+        help="Enable model thinking/chain-of-thought (default: disabled)",
+    )
+    parser.add_argument(
         "--chunk-size",
         type=int,
         default=1000,
@@ -340,7 +439,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
     args = parser.parse_args(argv)
 
-    # Split positional args: everything that is an existing dir vs the query
+    # Split positional args: directories vs query
     dirs: List[str] = []
     query_parts: List[str] = []
     found_non_dir = False
@@ -365,9 +464,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[List[str]] = None) -> None:
     args = parse_args(argv)
 
-    print(f"[INFO] Directories: {args.data_dirs}")
-    print(f"[INFO] Query:       {args.query}")
-    print(f"[INFO] Model:      {args.llm_model or '(from config)'}")
+    print(f"[INFO] Directories:      {args.data_dirs}")
+    print(f"[INFO] Query:            {args.query}")
+    print(f"[INFO] Model:            {args.llm_model or '(from config)'}")
+    print(f"[INFO] Streaming:        {not args.no_stream}")
+    print(f"[INFO] Thinking enabled: {args.enable_thinking}")
     print("-" * 60)
 
     swarm = build_swarm(
@@ -377,27 +478,13 @@ def main(argv: Optional[List[str]] = None) -> None:
         top_k=args.top_k,
         rerank_top_n=args.rerank_top_n,
         use_reranker=not args.no_reranker,
+        use_stream=not args.no_stream,
+        enable_thinking=args.enable_thinking,
         chunk_size=args.chunk_size,
         chunk_overlap=args.chunk_overlap,
     )
 
-    # Run with optional reranker post-processing
-    reranker = getattr(swarm, "_reranker", None)
-    index = getattr(swarm, "_index", None)
-
-    if reranker is not None and index is not None:
-        try:
-            engine = index.as_query_engine(
-                similarity_top_k=args.top_k,
-                node_postprocessors=[reranker],
-            )
-            response = engine.query(args.query)
-            print(str(response))
-        except Exception as e:
-            print(f"[WARN] Reranked query failed ({e}), falling back", file=sys.stderr)
-            print(swarm.run(args.query))
-    else:
-        print(swarm.run(args.query))
+    run_query(swarm, args.query)
 
 
 if __name__ == "__main__":
