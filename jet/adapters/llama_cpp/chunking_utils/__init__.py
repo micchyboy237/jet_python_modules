@@ -9,7 +9,7 @@ from .tokenization import (
     _tokenize_for_size,
 )
 from .truncation import truncate_texts
-from .types import ChunkResult, MarkdownChunkMetadata, MarkdownChunkResult
+from .types import ChunkResult, MarkdownChunkResult
 
 __all__ = [
     "chunk_texts",
@@ -19,7 +19,6 @@ __all__ = [
     "split_large_sentence",
     "truncate_texts",
     "ChunkResult",
-    "MarkdownChunkMetadata",
     "MarkdownChunkResult",
     "_decode_tokens",
     "_decode_tokens_batch",

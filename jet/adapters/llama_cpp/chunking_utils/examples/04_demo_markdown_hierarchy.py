@@ -1,80 +1,111 @@
 """
 Demo: Markdown Hierarchy Chunking
 
-Shows how to chunk markdown documents while preserving header structure,
-parent-child relationships, and precise source indices.
+Shows how to split markdown documents into semantically-aware chunks
+that preserve header hierarchy, parent-child relationships, and source indices.
 """
 
 import json
 import logging
 
-from jet.adapters.llama_cpp.chunking_utils import chunk_markdown_hierarchy_with_data
+from jet.adapters.llama_cpp.chunking_utils import (
+    chunk_markdown_hierarchy,
+    chunk_markdown_hierarchy_with_data,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+SAMPLE_MARKDOWN = """\
+# Jet Framework Guide
 
-def main():
-    markdown_doc = """# Project Documentation
-
-Welcome to the project overview. This guide covers setup and usage.
+Welcome to the Jet framework documentation.
 
 ## Installation
 
-First, install the dependencies using pip.
-Make sure you have Python 3.9+ installed.
-
-Then clone the repository from GitHub.
+Install via pip first. Then verify your installation.
 
 ### System Requirements
 
-You need at least 8GB RAM and 4 CPU cores.
-GPU acceleration is recommended for large models.
+Python 3.10+ is required. GPU acceleration needs CUDA 11.8+.
+
+### Optional Dependencies
+
+For markdown processing, install extras. For RAG pipelines, add vector store deps.
 
 ## Configuration
 
-Edit the config.yaml file to set your preferences.
-API keys should be stored in environment variables.
+Set environment variables before running. See the config reference for all options.
 
-# Advanced Topics
+## API Reference
 
-This section covers performance tuning and debugging.
+The main entry point is `jet.run()`. All adapters share a common interface.
 """
 
-    logger.info("Starting markdown hierarchy chunking demo...")
 
-    results = chunk_markdown_hierarchy_with_data(
-        markdown_text=markdown_doc,
+def demo_flat_chunks():
+    """Simple usage: get list of chunk strings."""
+    logger.info("=== Flat Chunk List ===")
+    chunks = chunk_markdown_hierarchy(
+        markdown_text=SAMPLE_MARKDOWN,
         chunk_size=64,
-        chunk_overlap=8,
-        min_chunk_size=10,
-        show_progress=True,
+        min_chunk_size=8,
+        show_progress=False,
     )
+    for i, chunk in enumerate(chunks):
+        print(f"\n--- Chunk {i + 1} ({len(chunk)} chars) ---")
+        print(chunk[:200])
 
-    logger.info(f"Generated {len(results)} hierarchical chunks:")
-    for i, chunk in enumerate(results):
-        print(f"\n{'=' * 60}")
-        print(f"Chunk {i + 1}: [{chunk['header']}] (Level {chunk['level']})")
-        print(f"Parent: {chunk['parent_header'] or '(Root)'}")
-        print(f"Tokens: {chunk['num_tokens']} | Section: {chunk['section_index']}")
-        print(
-            f"Body Range: [{chunk['metadata']['body_start_idx']}:{chunk['metadata']['body_end_idx']}]"
-        )
-        print(f"Content Preview: {chunk['content'][:100]}...")
 
-        # Verify index correctness
-        reconstructed = markdown_doc[
-            chunk["metadata"]["start_idx"] : chunk["metadata"]["end_idx"]
-        ]
-        if chunk["header"] and chunk["header"] not in reconstructed:
-            logger.warning(f"Header mismatch in chunk {i + 1}!")
+def demo_rich_metadata():
+    """Rich usage: get hierarchy metadata for RAG indexing."""
+    logger.info("\n=== Rich Metadata Chunks ===")
+    results = chunk_markdown_hierarchy_with_data(
+        markdown_text=SAMPLE_MARKDOWN,
+        ids=["jet-guide-v1"],
+        chunk_size=64,
+        min_chunk_size=8,
+        show_progress=False,
+    )
+    logger.info(f"Generated {len(results)} chunks:")
+    for res in results:
+        summary = {
+            "header": res["header"],
+            "parent_header": res["parent_header"],
+            "level": res["level"],
+            "section_index": res["section_index"],
+            "chunk_index": res["chunk_index"],
+            "num_tokens": res["num_tokens"],
+            "body_range": f"{res['metadata']['body_start_idx']}-{res['metadata']['body_end_idx']}",
+            "line": res["metadata"]["line_idx"],
+            "content_preview": res["content"][:80],
+        }
+        print(json.dumps(summary, indent=2))
+        print("-" * 50)
 
-    # Show JSON output for first chunk
-    if results:
-        print(f"\n{'=' * 60}")
-        print("Sample Chunk JSON:")
-        print(json.dumps(results[0], indent=2))
+
+def demo_multi_document():
+    """Multiple documents with explicit IDs."""
+    logger.info("\n=== Multi-Document Chunking ===")
+    docs = [
+        "# Doc A\nContent under A.\n## Sub A\nDeeper content.",
+        "# Doc B\nDifferent document entirely.",
+    ]
+    results = chunk_markdown_hierarchy_with_data(
+        markdown_text=docs,
+        ids=["doc-a", "doc-b"],
+        chunk_size=64,
+        min_chunk_size=4,
+        show_progress=False,
+    )
+    doc_groups: dict[str, int] = {}
+    for r in results:
+        doc_groups[r["doc_id"]] = doc_groups.get(r["doc_id"], 0) + 1
+    for doc_id, count in doc_groups.items():
+        logger.info(f"  {doc_id}: {count} chunks")
 
 
 if __name__ == "__main__":
-    main()
+    demo_flat_chunks()
+    demo_rich_metadata()
+    demo_multi_document()
