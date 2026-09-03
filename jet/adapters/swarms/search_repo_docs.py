@@ -20,13 +20,15 @@ swarms_path = "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/swarm
 if swarms_path not in sys.path:
     sys.path.append(swarms_path)
 
+from typing import Any, List, Optional
+
+import httpx
 from llama_index.core import Settings, SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
 from llama_index.core.postprocessor.types import BaseNodePostprocessor
 from llama_index.core.schema import MetadataMode, NodeWithScore, QueryBundle
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai_like import OpenAILike
-from openai import OpenAI as OpenAIClient
 from swarms import Agent, AgentRearrange
 
 
@@ -34,9 +36,8 @@ from swarms import Agent, AgentRearrange
 # Custom Reranker for llama.cpp /rerank endpoint
 # ---------------------------------------------------------------------------
 class LlamaCppReranker(BaseNodePostprocessor):
-    """Wraps a llama.cpp OpenAI-compatible rerank endpoint."""
+    """Wraps a llama.cpp OpenAI-compatible rerank endpoint using httpx directly."""
 
-    # Pydantic fields are required by BaseNodePostprocessor
     top_n: int = Field(default=5, description="Number of nodes to return.")
     model: str = Field(description="Rerank model name.")
     base_url: str = Field(description="llama.cpp rerank API base URL.")
@@ -45,7 +46,8 @@ class LlamaCppReranker(BaseNodePostprocessor):
 
     def __init__(self, base_url: str, model: str, top_n: int = 5, **kwargs):
         super().__init__(top_n=top_n, model=model, base_url=base_url, **kwargs)
-        self._client = OpenAIClient(base_url=base_url, api_key="not-needed")
+        # Use httpx directly — OpenAI SDK doesn't support raw .post(json=...) [[11]]
+        self._client = httpx.Client(base_url=base_url, timeout=60.0)
 
     @classmethod
     def class_name(cls) -> str:
@@ -72,6 +74,7 @@ class LlamaCppReranker(BaseNodePostprocessor):
                     "top_n": self.top_n,
                 },
             )
+            response.raise_for_status()
             results = response.json().get("results", [])
         except Exception as e:
             print(
