@@ -1,5 +1,6 @@
 """
 Demo: Chunking with Metadata
+
 Shows how to generate ChunkResult objects for RAG indexing.
 """
 

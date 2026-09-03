@@ -1,4 +1,3 @@
-# jet_python_modules/jet/adapters/llama_cpp/chunking_utils/truncation.py
 from typing import overload
 
 from jet.adapters.llama_cpp.config import LLM_MODEL

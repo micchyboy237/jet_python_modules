@@ -1,5 +1,6 @@
 """
 Demo: Text Truncation
+
 Shows how to truncate text to fit within model context windows.
 """
 

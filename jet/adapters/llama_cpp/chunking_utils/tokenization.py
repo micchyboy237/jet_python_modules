@@ -1,4 +1,3 @@
-# jet_python_modules/jet/adapters/llama_cpp/chunking_utils/tokenization.py
 from typing import Callable
 
 from jet.adapters.llama_cpp.config import LLM_MODEL

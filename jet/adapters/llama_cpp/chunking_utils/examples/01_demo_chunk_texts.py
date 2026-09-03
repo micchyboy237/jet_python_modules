@@ -1,5 +1,6 @@
 """
 Demo: Basic Text Chunking
+
 Shows how to split text into token-sized chunks using chunk_texts.
 """
 

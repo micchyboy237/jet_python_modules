@@ -1,4 +1,3 @@
-# jet_python_modules/jet/adapters/llama_cpp/chunking_utils/chunking.py
 import uuid
 from typing import Callable
 
