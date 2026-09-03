@@ -84,9 +84,8 @@ Summarize endpoints
 DEFAULT_INSTRUCTIONS_MESSAGE = """
 General:
 
-- Browse when beneficial or requested.
-- Always use easy to understand terms.
-- Dont use memory from previous artifacts.
+- Always browse first when beneficial, especially when requested.
+- Use easy to understand terms.
 
 My device:
 
