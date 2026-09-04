@@ -10,7 +10,7 @@ from jet.adapters.llama_cpp.config import (
     LLM_MODEL,
 )
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
-from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 from llama_index.llms.openai_like.base import OpenAILike
 from llama_index.memory.mem0 import Mem0Memory
 from llama_index.memory.mem0.utils import convert_messages_to_string, format_memory_json
@@ -47,13 +47,19 @@ def get_llama_cpp_llm() -> OpenAILike:
     return OpenAILike(**settings)
 
 
-def get_llama_cpp_embed_model(**kwargs) -> OpenAIEmbedding:
-    """Reuse jet's llama_cpp config for embeddings, same pattern as factory.get_embedding_client()."""
+def get_llama_cpp_embed_model(**kwargs) -> OpenAILikeEmbedding:
+    """Reuse jet's llama_cpp config for embeddings using OpenAILikeEmbedding
+    to support custom/local model names without strict validation."""
     logger.info(
         f"Building embed model client -> model={EMBED_MODEL} base_url={EMBED_BASE_URL}"
     )
-    settings = dict(model=EMBED_MODEL, api_base=EMBED_BASE_URL, timeout=30.0, **kwargs)
-    return OpenAIEmbedding(**kwargs)
+    return OpenAILikeEmbedding(
+        model_name=EMBED_MODEL,
+        api_base=EMBED_BASE_URL,
+        api_key="not-needed",
+        timeout=30.0,
+        **kwargs,
+    )
 
 
 def _build_mem0_config_dict(

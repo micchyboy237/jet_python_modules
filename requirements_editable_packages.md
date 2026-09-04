@@ -20,7 +20,11 @@ langgraph                    1.2.11             /Users/jethroestrada/Desktop/Ext
 langgraph-checkpoint         4.2.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/checkpoint
 langgraph-prebuilt           1.1.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/langgraph/libs/prebuilt
 letta                        0.16.8             /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta
-llama-index-llms-openai-like 0.7.2              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/llms/llama-index-llms-openai-like
+llama-index-core                   0.14.24            /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core
+llama-index-embeddings-openai-like 0.4.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/embeddings/llama-index-embeddings-openai-like
+llama-index-llms-openai-like       0.8.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/llms/llama-index-llms-openai-like
+llama-index-memory-mem0            2.1.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/memory/llama-index-memory-mem0
+llama-index-retrievers-bm25        0.8.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/retrievers/llama-index-retrievers-bm25
 nova-vad                     1.0.0              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/audio/nova-vad
 searxng                      2026.8.4+c63835bd2 /Users/jethroestrada/Desktop/External_Projects/AI/apps/searxng
 semhash                      0.4.1              /Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/semhash

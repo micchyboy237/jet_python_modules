@@ -100,9 +100,29 @@
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/letta"
     },
     {
+        "name": "llama-index-core",
+        "version": "0.14.24",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-core"
+    },
+    {
+        "name": "llama-index-embeddings-openai-like",
+        "version": "0.4.0",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/embeddings/llama-index-embeddings-openai-like"
+    },
+    {
         "name": "llama-index-llms-openai-like",
-        "version": "0.7.2",
+        "version": "0.8.0",
         "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/llms/llama-index-llms-openai-like"
+    },
+    {
+        "name": "llama-index-memory-mem0",
+        "version": "2.1.0",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/memory/llama-index-memory-mem0"
+    },
+    {
+        "name": "llama-index-retrievers-bm25",
+        "version": "0.8.0",
+        "editable_project_location": "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/llama_index/llama-index-integrations/retrievers/llama-index-retrievers-bm25"
     },
     {
         "name": "nova-vad",

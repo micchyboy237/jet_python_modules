@@ -43,6 +43,14 @@ def suppress_logging():
         logging.WARNING
     )  # NEW: extra safety, in case sub-loggers are used
     logging.getLogger("httpcore2.http11").setLevel(logging.WARNING)  # NEW
+
+    # Silence httpcore socket-level tracing (llama.cpp / OpenAI-compatible servers)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpcore.connection").setLevel(logging.WARNING)
+    logging.getLogger("httpcore.http11").setLevel(logging.WARNING)
+    logging.getLogger("httpcore.async_connection_pool").setLevel(logging.WARNING)
+    logging.getLogger("httpcore.sync_connection_pool").setLevel(logging.WARNING)
+
     logging.getLogger("hpack").setLevel(logging.WARNING)
 
     # Silence LiteLLM internal debug logs
