@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import nest_asyncio
 from jet.adapters.llama_cpp.config import (
@@ -8,8 +8,19 @@ from jet.adapters.llama_cpp.config import (
     EMBED_MODEL,
     LLM_BASE_URL,
     LLM_MODEL,
+    RERANK_BASE_URL,
+    RERANK_MODEL,
 )
 from llama_index.core.base.llms.types import ChatMessage, MessageRole
+from llama_index.core.bridge.pydantic import Field
+from llama_index.core.callbacks import CBEventType, EventPayload
+from llama_index.core.instrumentation import get_dispatcher
+from llama_index.core.instrumentation.events.rerank import (
+    ReRankEndEvent,
+    ReRankStartEvent,
+)
+from llama_index.core.postprocessor.types import BaseNodePostprocessor
+from llama_index.core.schema import MetadataMode, NodeWithScore, QueryBundle
 from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 from llama_index.llms.openai_like.base import OpenAILike
 from llama_index.memory.mem0 import Mem0Memory
@@ -24,6 +35,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+dispatcher = get_dispatcher(__name__)
+
 
 def get_llama_cpp_llm() -> OpenAILike:
     """Reuse jet's llama_cpp config. OpenAILike skips llama_index's hardcoded
@@ -34,17 +47,16 @@ def get_llama_cpp_llm() -> OpenAILike:
         api_base=LLM_BASE_URL,
         api_key="not-needed",
         is_chat_model=True,
-        is_function_calling_model=True,  # Required for FunctionAgent
-        context_window=10000,  # Match your server's --ctx-size
+        is_function_calling_model=True,
+        context_window=10000,
         timeout=120.0,
         additional_kwargs={
             "stream_options": {"include_usage": True},
         },
         extra_body={
-            "enable_thinking": False,  # Moved here to avoid OpenAI client validation errors
+            "enable_thinking": False,
         },
     )
-    return OpenAILike(**settings)
 
 
 def get_llama_cpp_embed_model(**kwargs) -> OpenAILikeEmbedding:
@@ -60,6 +72,178 @@ def get_llama_cpp_embed_model(**kwargs) -> OpenAILikeEmbedding:
         timeout=30.0,
         **kwargs,
     )
+
+
+# ─── Reranker ───────────────────────────────────────────────────────────────
+
+
+class LlamaCppRerank(BaseNodePostprocessor):
+    """LlamaIndex node postprocessor that calls a llama.cpp ``/v1/rerank``
+    endpoint (or any service that speaks the same wire format).
+
+    llama.cpp rerank wire format (POST /v1/rerank):
+        Request:  {"model": "...", "query": "...", "documents": [...], "top_n": N}
+        Response: {"results": [{"index": 0, "relevance_score": 1.23}, ...]}
+
+    This avoids pulling a multi-GB cross-encoder model into the Python
+    process — the heavy lifting happens on your llama.cpp server.
+    """
+
+    base_url: str = Field(
+        default="http://127.0.0.1:8082/v1",
+        description="Base URL of the llama.cpp reranker server (include /v1).",
+    )
+    model: str = Field(
+        default="bge-rerank:v2-m3",
+        description="Model alias passed in the request body (must match --alias on server).",
+    )
+    top_n: int = Field(
+        default=5,
+        description="Number of top-scored nodes to return.",
+    )
+    timeout: float = Field(
+        default=30.0,
+        description="HTTP request timeout in seconds.",
+    )
+    keep_retrieval_score: bool = Field(
+        default=False,
+        description="If True, preserve the original retrieval score in node metadata.",
+    )
+
+    @classmethod
+    def class_name(cls) -> str:
+        return "LlamaCppRerank"
+
+    def _call_api(self, query: str, documents: List[str]) -> List[dict]:
+        """Send a rerank request to the llama.cpp /v1/rerank endpoint.
+
+        Returns the ``results`` list: [{"index": int, "relevance_score": float}, ...]
+        """
+        import httpx
+
+        payload = {
+            "model": self.model,
+            "query": query,
+            "documents": documents,
+            "top_n": self.top_n,
+        }
+        with httpx.Client(timeout=self.timeout) as client:
+            response = client.post(
+                f"{self.base_url}/rerank",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+            return response.json()["results"]
+
+    def _postprocess_nodes(
+        self,
+        nodes: List[NodeWithScore],
+        query_bundle: Optional[QueryBundle] = None,
+    ) -> List[NodeWithScore]:
+        dispatcher.event(
+            ReRankStartEvent(
+                query=query_bundle,
+                nodes=nodes,
+                top_n=self.top_n,
+                model_name=self.model,
+            )
+        )
+
+        if query_bundle is None:
+            raise ValueError("Missing query bundle in extra info.")
+        if len(nodes) == 0:
+            return []
+
+        with self.callback_manager.event(
+            CBEventType.RERANKING,
+            payload={
+                EventPayload.NODES: nodes,
+                EventPayload.QUERY_STR: query_bundle.query_str,
+                EventPayload.TOP_K: self.top_n,
+            },
+        ) as event:
+            documents = [
+                node.node.get_content(metadata_mode=MetadataMode.ALL) for node in nodes
+            ]
+            scores = self._call_api(query_bundle.query_str, documents)
+
+            # Map scores back by original index (llama.cpp returns sorted by score desc)
+            for score_item in scores:
+                original_index = score_item["index"]
+                if self.keep_retrieval_score:
+                    nodes[original_index].node.metadata["retrieval_score"] = nodes[
+                        original_index
+                    ].score
+                nodes[original_index].score = float(score_item["relevance_score"])
+
+            new_nodes = sorted(nodes, key=lambda x: -(x.score if x.score else 0))[
+                : self.top_n
+            ]
+            event.on_end(payload={EventPayload.NODES: new_nodes})
+
+        dispatcher.event(ReRankEndEvent(nodes=new_nodes))
+        return new_nodes
+
+
+def get_llama_cpp_reranker(
+    top_n: int = 5,
+    timeout: float = 30.0,
+    keep_retrieval_score: bool = False,
+    **kwargs,
+) -> LlamaCppRerank:
+    """Create a LlamaCppRerank postprocessor using jet's llama_cpp config.
+
+    Reads RERANK_MODEL and RERANK_BASE_URL from jet.adapters.llama_cpp.config
+    (which in turn read from env vars LLAMA_CPP_RERANK_MODEL and LLAMA_CPP_RERANK_URL).
+
+    Args:
+        top_n: Number of top-scored nodes to return after reranking.
+        timeout: HTTP timeout in seconds for the rerank request.
+        keep_retrieval_score: If True, preserve the original retrieval score
+            in each node's metadata under the key ``retrieval_score``.
+        **kwargs: Additional keyword arguments forwarded to LlamaCppRerank.
+
+    Returns:
+        Configured LlamaCppRerank postprocessor ready for use in a query pipeline.
+
+    Raises:
+        ValueError: If RERANK_MODEL or RERANK_BASE_URL is not configured.
+
+    Example:
+        >>> from jet.adapters.llama_index.factory import get_llama_cpp_reranker
+        >>> reranker = get_llama_cpp_reranker(top_n=5)
+        >>> # Use in a query engine:
+        >>> query_engine = index.as_query_engine(
+        ...     similarity_top_k=20,
+        ...     node_postprocessors=[reranker],
+        ... )
+    """
+    if not RERANK_MODEL:
+        raise ValueError(
+            "RERANK_MODEL is not set. "
+            "Set LLAMA_CPP_RERANK_MODEL env var (e.g. 'bge-rerank:v2-m3')."
+        )
+    if not RERANK_BASE_URL:
+        raise ValueError(
+            "RERANK_BASE_URL is not set. "
+            "Set LLAMA_CPP_RERANK_URL env var (e.g. 'http://192.168.68.150:8082/v1')."
+        )
+
+    logger.info(
+        f"Building reranker client -> model={RERANK_MODEL} base_url={RERANK_BASE_URL}"
+    )
+    return LlamaCppRerank(
+        model=RERANK_MODEL,
+        base_url=RERANK_BASE_URL,
+        top_n=top_n,
+        timeout=timeout,
+        keep_retrieval_score=keep_retrieval_score,
+        **kwargs,
+    )
+
+
+# ─── Mem0 Memory ────────────────────────────────────────────────────────────
 
 
 def _build_mem0_config_dict(
@@ -164,6 +348,7 @@ def get_mem0_local_memory(
         f"Creating local SafeMem0Memory for user_id={user_id}, "
         f"agent_id={agent_id}, run_id={run_id}"
     )
+
     context_dict = {"user_id": user_id}
     if agent_id is not None:
         context_dict["agent_id"] = agent_id
@@ -205,6 +390,7 @@ def get_mem0_local_memory(
             f"Local SafeMem0Memory created successfully with search_msg_limit={search_msg_limit}"
         )
         return memory
+
     except Exception as e:
         logger.error(f"Failed to create local SafeMem0Memory: {e}", exc_info=True)
         raise
@@ -270,6 +456,7 @@ def get_mem0_cloud_memory(
         f"Creating cloud SafeMem0Memory for user_id={user_id}, "
         f"agent_id={agent_id}, run_id={run_id}"
     )
+
     context_dict = {"user_id": user_id}
     if agent_id is not None:
         context_dict["agent_id"] = agent_id
@@ -296,6 +483,7 @@ def get_mem0_cloud_memory(
             f"Cloud SafeMem0Memory created successfully with search_msg_limit={search_msg_limit}"
         )
         return memory
+
     except Exception as e:
         logger.error(f"Failed to create cloud SafeMem0Memory: {e}", exc_info=True)
         raise
@@ -348,6 +536,7 @@ class SafeMem0Memory(Mem0Memory):
         search_input = convert_messages_to_string(
             messages, input, limit=self.search_msg_limit
         )
+
         flt = self.context.build_filter()
 
         t1 = time.time()
@@ -357,15 +546,14 @@ class SafeMem0Memory(Mem0Memory):
             f"[SafeMem0Memory.get] mem0 search() done in {time.time() - t1:.2f}s "
             f"(first call may take longer — lazy model loads)"
         )
-        search_results = result.get("results", [])
 
+        search_results = result.get("results", [])
         logger.info(
             f"[SafeMem0Memory] Retrieved {len(search_results)} memory "
             f"result(s) for context filter={flt}"
         )
 
         if not search_results:
-            # Nothing to inject — return history untouched, no extra message.
             logger.debug(
                 "[SafeMem0Memory] No memory results found; returning history as-is."
             )
