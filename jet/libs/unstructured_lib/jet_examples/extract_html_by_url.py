@@ -2,13 +2,13 @@
 
 Usage:
     # Use default URLs
-    python script.py
+    python extract_html_by_url.py
 
     # Specify custom URLs
-    python script.py "https://example.com/page1" "https://example.com/page2"
+    python extract_html_by_url.py "https://example.com/page1" "https://example.com/page2"
 
     # Custom output directory
-    python script.py -o ./my_output
+    python extract_html_by_url.py -o ./my_output
 """
 
 import argparse
@@ -58,8 +58,14 @@ def main():
         print(f"Processing [{idx + 1}/{len(args.urls)}]: {url}")
         elements = partition_html(url=url)
 
+        # Save as object with url and elements
+        data = {
+            "url": url,
+            "elements": elements,
+        }
+
         filename = f"elements_{idx + 1}.json"
-        save_file(elements, output_dir / filename)
+        save_file(data, output_dir / filename)
         print(f"  Saved {len(elements)} elements to {filename}")
 
     print(f"\nAll done! Files saved to: {output_dir}")
