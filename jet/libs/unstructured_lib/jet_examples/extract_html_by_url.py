@@ -2,19 +2,18 @@
 
 Usage:
     # Use default URLs
-    python extract_html_by_url.py
+    python script.py
 
     # Specify custom URLs
-    python extract_html_by_url.py "https://example.com/page1" "https://example.com/page2"
+    python script.py "https://example.com/page1" "https://example.com/page2"
 
     # Custom output directory
-    python extract_html_by_url.py -o ./my_output
+    python script.py -o ./my_output
 """
 
 import argparse
 import shutil
 from pathlib import Path
-from urllib.parse import urlparse
 
 from jet.file.utils import save_file
 from unstructured.partition.html import partition_html
@@ -59,15 +58,7 @@ def main():
         print(f"Processing [{idx + 1}/{len(args.urls)}]: {url}")
         elements = partition_html(url=url)
 
-        # Create a sanitized filename from the URL path
-        parsed = urlparse(url)
-        path_parts = parsed.path.strip("/").split("/")
-        if path_parts and path_parts[-1]:
-            safe_name = path_parts[-1].replace("-", "_")[:50]
-        else:
-            safe_name = f"url_{idx}"
-
-        filename = f"{safe_name}.json"
+        filename = f"elements_{idx + 1}.json"
         save_file(elements, output_dir / filename)
         print(f"  Saved {len(elements)} elements to {filename}")
 
