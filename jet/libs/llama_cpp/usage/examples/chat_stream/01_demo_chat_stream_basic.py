@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
-    get_client,
     run_chat_stream,
     setup_observability,
 )
@@ -30,16 +30,9 @@ logger = logging.getLogger(Path(__file__).stem)
 
 
 def main():
-    # Setup observability
     setup_observability(project_name="chat-stream-basic-demo")
-
-    # Initialize the client
-    client = get_client()
-
-    # Define the prompt
+    client = get_llm_client()
     prompt = "Write a 3 sentence romantic short story"
-
-    # Run the chat stream
     result = run_chat_stream(
         prompt,
         client=client,
@@ -47,8 +40,6 @@ def main():
         temperature=0.7,
         max_tokens=16384,
     )
-
-    # Log results
     logger.info(f"📋 Finish reason: {result.finish_reason}")
     if result.usage:
         logger.info(

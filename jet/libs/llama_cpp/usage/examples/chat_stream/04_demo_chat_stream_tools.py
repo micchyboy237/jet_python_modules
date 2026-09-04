@@ -1,24 +1,20 @@
-"""Demo: Full tool-calling agent loop with complete Phoenix observability.
-
+"""Demo: Tool-calling agent loop with Phoenix observability.
 Demonstrates:
-  1. LLM decides to call a tool (turn 1)
-  2. Tool execution recorded as child span
-  3. Tool result sent back as `role: tool` message
-  4. LLM generates final answer using tool result (turn 2)
-  5. Both turns + tool execution visible in single Phoenix trace
+  1. LLM decides to call a tool
+  2. Automatic tool execution via tool_registry
+  3. Multi-turn loop handled inside run_chat_stream
+  4. Full trace visible in Phoenix
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
-    execute_tool_with_span,
-    get_client,
     run_chat_stream,
     setup_observability,
 )
@@ -74,85 +70,38 @@ TOOL_REGISTRY: dict[str, callable] = {
 
 def main():
     setup_observability(project_name="tool-calling-demo")
-    client = get_client()
-
+    client = get_llm_client()
     prompt = "What's the weather like in Tokyo right now? Use celsius."
 
-    # ── Turn 1: LLM decides to call a tool ──────────────────────────────
-    logger.info("═══ TURN 1: Initial request with tool definitions ═══")
-    turn1_response = run_chat_stream(
+    logger.info("🚀 Starting tool-calling demo with automatic execution")
+    logger.info(f"   Prompt: {prompt}")
+    logger.info(f"   Tools: {list(TOOL_REGISTRY.keys())}")
+
+    result = run_chat_stream(
         prompt,
         client=client,
         model=MODEL,
         tools=[WEATHER_TOOL],
         tool_choice="auto",
+        tool_registry=TOOL_REGISTRY,
+        max_tool_rounds=5,
         temperature=0.0,
     )
 
-    # NOTE: In production, run_chat_stream should return a structured
-    # StreamResult containing the accumulated tool_calls. For this demo,
-    # we reconstruct from what we know the model will output.
-    # CRITICAL: llama.cpp REQUIRES "type": "function" on assistant tool_calls
-    tool_calls = [
-        {
-            "id": "call_demo_001",
-            "type": "function",  # ← REQUIRED by llama.cpp
-            "function": {
-                "name": "get_weather",
-                "arguments": json.dumps({"location": "Tokyo", "unit": "celsius"}),
-            },
-        }
-    ]
-
-    if not tool_calls:
-        logger.warning(
-            "⚠️  No tool calls detected. Model may not support function calling."
+    logger.info("")
+    logger.info("═══ Final Result ═══")
+    logger.info(f"📋 Finish reason : {result.finish_reason}")
+    logger.info(f"📝 Content length: {len(result.content)} chars")
+    if result.has_tool_calls:
+        logger.info(f"🔧 Tool calls    : {len(result.tool_calls)}")
+    if result.usage:
+        logger.info(
+            f"📊 Tokens: {result.usage['prompt_tokens']} prompt + "
+            f"{result.usage['completion_tokens']} completion = "
+            f"{result.usage['total_tokens']} total"
         )
-        return
-
-    # ── Execute each tool with observability ────────────────────────────
-    tool_messages: list[dict[str, Any]] = []
-    for tc in tool_calls:
-        fn_name = tc["function"]["name"]
-        fn_args = json.loads(tc["function"]["arguments"])
-
-        executor = TOOL_REGISTRY.get(fn_name)
-        if executor is None:
-            logger.error(f"❌ Unknown tool: {fn_name}")
-            continue
-
-        result = execute_tool_with_span(fn_name, fn_args, executor)
-
-        tool_messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": json.dumps(result),
-            }
-        )
-
-    # ── Turn 2: Send tool results back to LLM ──────────────────────────
-    logger.info("\n═══ TURN 2: Follow-up with tool results ═══")
-    follow_up_messages: list[dict[str, Any]] = [
-        {"role": "user", "content": prompt},
-        {
-            "role": "assistant",
-            # Use empty string instead of None — some llama.cpp builds
-            # reject null content on assistant messages with tool_calls
-            "content": "",
-            "tool_calls": tool_calls,
-        },
-        *tool_messages,
-    ]
-
-    run_chat_stream(
-        client=client,
-        messages=follow_up_messages,
-        model=MODEL,
-        temperature=0.7,
-    )
-
-    logger.info("\n✅ Complete agent loop finished. Check Phoenix for full trace.")
+    logger.info("")
+    logger.info("✅ Tool-calling demo complete. Check Phoenix for full trace.")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,4 @@
 """Demo: Automatic tool execution via tool_registry with Phoenix observability.
-
 Demonstrates:
   1. Passing a tool_registry dict to run_chat_stream for automatic execution
   2. Multi-turn agent loop handled entirely inside run_chat_stream
@@ -14,9 +13,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
-    get_client,
     run_chat_stream,
     setup_observability,
 )
@@ -31,11 +30,6 @@ logging.basicConfig(
     handlers=[RichHandler(console=console, markup=True, rich_tracebacks=True)],
 )
 logger = logging.getLogger(Path(__file__).stem)
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Tool Definitions & Implementations
-# ──────────────────────────────────────────────────────────────────────────────
 
 WEATHER_TOOL: dict[str, Any] = {
     "type": "function",
@@ -101,13 +95,12 @@ def calculate(expression: str) -> dict[str, Any]:
     if not all(c in allowed_chars for c in expression):
         return {"error": f"Invalid characters in expression: {expression}"}
     try:
-        result = eval(expression)  # noqa: S307 — demo-only sandboxed check above
+        result = eval(expression)
         return {"expression": expression, "result": result}
     except Exception as exc:
         return {"error": str(exc), "expression": expression}
 
 
-# Registry maps tool names → callables. This is the single integration point.
 TOOL_REGISTRY: dict[str, Any] = {
     "get_weather": get_weather,
     "calculate": calculate,
@@ -116,27 +109,16 @@ TOOL_REGISTRY: dict[str, Any] = {
 TOOLS = [WEATHER_TOOL, CALCULATOR_TOOL]
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Demo Entry Point
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 def main():
     setup_observability(project_name="tool-registry-auto-demo")
-    client = get_client()
-
-    # Prompt designed to trigger at least one tool call
+    client = get_llm_client()
     prompt = (
         "What's the weather in Tokyo right now in celsius? Also, what is 28 * 3 + 15?"
     )
-
     logger.info("🚀 Starting auto-tool-execution demo")
     logger.info(f"   Prompt: {prompt}")
     logger.info(f"   Tools registered: {list(TOOL_REGISTRY.keys())}")
     logger.info("")
-
-    # The key difference from demo 04: pass tool_registry directly.
-    # run_chat_stream handles the full LLM → tool → LLM loop internally.
     result = run_chat_stream(
         prompt,
         client=client,
@@ -148,7 +130,6 @@ def main():
         temperature=0.0,
         max_tokens=4096,
     )
-
     logger.info("")
     logger.info("═══ Final Result ═══")
     logger.info(f"📋 Finish reason : {result.finish_reason}")
