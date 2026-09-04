@@ -5,13 +5,15 @@ import logging
 import time
 from typing import Any, Callable, Optional
 
+from jet.libs.llama_cpp.usage.chat_stream import (
+    encode_image_to_base64,
+    execute_tool,
+)
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
-    StreamCompletionResult,
-    encode_image_to_base64,
-    execute_tool_with_span,
     run_chat_stream,
 )
+from jet.libs.llama_cpp.usage.chat_stream_types import StreamCompletionResult
 from jet.libs.llama_cpp.usage.context_window import ContextWindow
 from jet.libs.llama_cpp.usage.human_in_the_loop import (
     AutoApproval,
@@ -48,15 +50,10 @@ class Agent:
         self._tools_schema: list[dict[str, Any]] = []
         self._tool_registry: dict[str, Callable[..., Any]] = {}
         self.tracer = trace.get_tracer(self.__class__.__name__)
-
-        # Human-in-the-loop: pluggable strategy
-        # Defaults to AutoApproval (always approve — no human intervention)
         self._approval: HumanInTheLoop = approval or AutoApproval()
-
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.max_context_tokens = max_context_tokens
-
         base_url = str(client.base_url) if hasattr(client, "base_url") else None
         self._context = ContextWindow(
             max_tokens=max_context_tokens,
@@ -65,7 +62,6 @@ class Agent:
         )
         if system_prompt:
             self._context.append({"role": "system", "content": system_prompt})
-
         logger.debug(
             f"🤖 Agent initialized | model={model} | max_turns={max_turns} | "
             f"approval={self._approval.__class__.__name__}"
@@ -91,35 +87,26 @@ class Agent:
 
     def on_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """Hook executed when the LLM requests a tool.
-
         The approval decision is delegated to the configured
         HumanInTheLoop strategy. Override this in subclasses to add
         custom logging, mock responses, or additional pre/post processing.
-
         Args:
             tool_name: Name of the tool requested by the LLM.
             arguments: Parsed arguments for the tool call.
-
         Returns:
             Tool execution result or error dict if rejected/failed.
         """
-        # --- Phase 1: Approval ---
         if not self._approval.approve(tool_name, arguments):
             logger.warning(f"❌ Tool call '{tool_name}' rejected by approval strategy.")
             return self._approval.on_rejected(tool_name, arguments)
-
-        # --- Phase 2: Execution with retries ---
         executor = self._tool_registry.get(tool_name)
         if executor is None:
             logger.error(f"❌ Tool '{tool_name}' not found in registry!")
             return {"error": f"Tool '{tool_name}' is not available."}
-
         last_exception: Optional[Exception] = None
         for attempt in range(self.max_retries):
             try:
-                result = execute_tool_with_span(
-                    tool_name, arguments, executor, strict=False
-                )
+                result = self._execute_tool_traced(tool_name, arguments, executor)
                 logger.info(
                     f"✅ Tool '{tool_name}' succeeded on attempt {attempt + 1}."
                 )
@@ -132,7 +119,6 @@ class Agent:
                     f"Retrying in {delay:.1f}s..."
                 )
                 time.sleep(delay)
-
         logger.error(f"❌ Tool '{tool_name}' failed after {self.max_retries} attempts.")
         return {
             "error": (
@@ -140,6 +126,31 @@ class Agent:
                 f"{last_exception}"
             )
         }
+
+    def _execute_tool_traced(
+        self, tool_name: str, arguments: dict[str, Any], executor: Callable[..., Any]
+    ) -> Any:
+        """Execute a tool with OpenTelemetry tracing.
+        Replaces the removed execute_tool_with_span from chat_stream_observability.
+        """
+        with self.tracer.start_as_current_span(f"tool_execution.{tool_name}") as span:
+            span.set_attribute("tool.name", tool_name)
+            span.set_attribute("tool.arguments", json.dumps(arguments, default=str))
+            try:
+                result = execute_tool(tool_name, arguments, executor, strict=False)
+                if isinstance(result, dict) and "error" in result:
+                    span.set_attribute("tool.error", result["error"])
+                    span.set_status(Status(StatusCode.ERROR))
+                else:
+                    span.set_attribute(
+                        "tool.result", json.dumps(result, default=str)[:3000]
+                    )
+                    span.set_status(Status(StatusCode.OK))
+                return result
+            except Exception as exc:
+                span.set_attribute("tool.error", str(exc))
+                span.set_status(Status(StatusCode.ERROR))
+                raise
 
     def clear_history(self) -> None:
         """Reset the conversation history, keeping the system prompt if it exists."""

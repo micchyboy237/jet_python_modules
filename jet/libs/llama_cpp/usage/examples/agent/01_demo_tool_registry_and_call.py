@@ -1,5 +1,4 @@
 """Demo: Stateful Agent Class with Tool Registry and Unified Tracing.
-
 Demonstrates:
   1. Instantiating a stateful Agent class
   2. Registering tools dynamically
@@ -13,10 +12,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.agent import Agent
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
-    get_client,
     setup_observability,
 )
 from rich.console import Console
@@ -31,7 +30,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).stem)
 
-# --- 1. Define Tool Schemas & Implementations ---
 WEATHER_TOOL = {
     "type": "function",
     "function": {
@@ -57,7 +55,6 @@ def get_weather(location: str, unit: str = "celsius") -> dict[str, Any]:
     }
 
 
-# --- 2. Create a Custom Agent Subclass (Optional but powerful) ---
 class VerboseAgent(Agent):
     """Custom agent that adds extra logging when tools are called."""
 
@@ -65,15 +62,12 @@ class VerboseAgent(Agent):
         console.print(
             f"[bold magenta]🛑 INTERCEPTED TOOL CALL:[/bold magenta] {tool_name}({arguments})"
         )
-        # Call parent implementation to actually execute the tool
         return super().on_tool_call(tool_name, arguments)
 
 
 def main():
     setup_observability(project_name="tool-registry-and-call-demo")
-    client = get_client()
-
-    # Instantiate the custom agent
+    client = get_llm_client()
     agent = VerboseAgent(
         client=client,
         model=MODEL,
@@ -81,22 +75,15 @@ def main():
         system_prompt="You are a helpful travel assistant. Always use tools to get weather data.",
         temperature=0.0,
     )
-
-    # Register tools
     agent.register_tool(WEATHER_TOOL, get_weather)
-
-    # --- Turn 1 ---
     logger.info("🚀 Starting Turn 1")
     res1 = agent.run(prompt="What's the weather like in Tokyo right now? Use celsius.")
     console.print(f"\n[bold cyan]Agent Turn 1 Response:[/bold cyan] {res1.content}")
-
-    # --- Turn 2 (Continuing the conversation using internal history) ---
     logger.info("🚀 Starting Turn 2 (Follow-up)")
     res2 = agent.run(
         prompt="Thanks! Based on that, what should I pack for my trip there tomorrow?"
     )
     console.print(f"\n[bold cyan]Agent Turn 2 Response:[/bold cyan] {res2.content}")
-
     logger.info(f"📊 Total messages in agent history: {len(agent.history)}")
 
 

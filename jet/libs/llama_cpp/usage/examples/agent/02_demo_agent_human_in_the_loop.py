@@ -1,5 +1,4 @@
 """Demo: Human-in-the-Loop Agent with Tool Approval.
-
 Demonstrates:
   1. InteractiveApproval for terminal-based approval.
   2. CallbackApproval for automated decisions via callback.
@@ -12,10 +11,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from jet.adapters.llama_cpp.factory import get_llm_client
 from jet.libs.llama_cpp.usage.agent import Agent
 from jet.libs.llama_cpp.usage.chat_stream_observability import (
     MODEL,
-    get_client,
     setup_observability,
 )
 from jet.libs.llama_cpp.usage.human_in_the_loop import (
@@ -92,9 +91,7 @@ def demo_interactive_approval():
     console.print("[bold blue]🎯 Demo 1: Interactive Approval[/bold blue]")
     console.print("=" * 60)
     setup_observability(project_name="human-in-the-loop-interactive")
-    client = get_client()
-
-    # Use InteractiveApproval strategy
+    client = get_llm_client()
     agent = Agent(
         client=client,
         model=MODEL,
@@ -117,9 +114,7 @@ def demo_custom_approval_callback():
     console.print("[bold blue]🎯 Demo 2: Custom Approval Callback[/bold blue]")
     console.print("=" * 60)
     setup_observability(project_name="human-in-the-loop-custom-callback")
-    client = get_client()
-
-    # Use CallbackApproval strategy with custom logic
+    client = get_llm_client()
     agent = Agent(
         client=client,
         model=MODEL,
@@ -143,9 +138,7 @@ def demo_no_approval():
     console.print("[bold blue]🎯 Demo 3: No Approval (Default)[/bold blue]")
     console.print("=" * 60)
     setup_observability(project_name="human-in-the-loop-no-approval")
-    client = get_client()
-
-    # Use AutoApproval strategy (explicit, or omit for default)
+    client = get_llm_client()
     agent = Agent(
         client=client,
         model=MODEL,
