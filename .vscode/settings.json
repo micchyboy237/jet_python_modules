@@ -1,0 +1,179 @@
+{
+  "window.zoomLevel": -1,
+
+  "explorer.confirmDragAndDrop": false,
+  "explorer.sortOrder": "filesFirst",
+
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+
+  "editor.insertSpaces": true,
+  "editor.tabSize": 2,
+  "editor.stickyScroll.enabled": true,
+  "editor.semanticHighlighting.enabled": true,
+
+  // === PYTHON - Optimized for speed ===
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.semanticHighlighting.enabled": true,
+
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit"
+    }
+
+    // Disable slow general Python code actions
+    // "editor.codeActionsOnSave": {
+    //   "source.fixAll": "never",
+    //   "source.organizeImports": "never",
+    // },
+  },
+
+  // Ruff native server = faster
+  "ruff.nativeServer": true,
+
+  // === Custom Ruff Config ===
+  "ruff.configuration": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.vscode/ruff.toml",
+
+  // === CursorPyright Performance Tweaks ===
+  // "cursorpyright.disableLanguageServices": false,
+  "python.languageServer": "Jedi",
+  "cursorpyright.disableLanguageServices": true,
+  "cursorpyright.disableTaggedHints": true,
+  "cursorpyright.disablePullDiagnostics": true,
+  "cursorpyright.disableOrganizeImports": true,
+  "cursorpyright.analysis.disableWorkspaceSymbol": true,
+  "cursorpyright.nodeMaxOldSpaceSize": 0,
+
+  // Key performance settings
+  "cursorpyright.analysis.diagnosticMode": "openFilesOnly", // ← Big win
+  "cursorpyright.analysis.autoSearchPaths": false,
+  "cursorpyright.analysis.typeCheckingMode": "off",
+
+  "cursorpyright.analysis.include": [
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/jet/shared_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/semhash",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/KeyBERT",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/BERTopic",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/smolagents/src",
+    "/Users/jethroestrada/Desktop/External_Projects/AI/repo-libs/openai-python/src"
+    // Remove heavy external repos (dspy, crawl4ai, etc.) if not strictly needed for IntelliSense
+  ],
+
+  // Extra paths - keep only what's necessary
+  "cursorpyright.analysis.extraPaths": [],
+
+  "cursorpyright.analysis.exclude": [
+    "**/.git",
+    "**/venv",
+    "**/.venv",
+    "**/env",
+    "**/__pycache__",
+    "**/build",
+    "**/dist",
+    "**/node_modules",
+    "**/site-packages",
+    "**/tests",
+    "large_folder/**",
+    // Cloned repos
+    "**/AI"
+  ],
+
+  // === General Editor Optimizations ===
+  "editor.quickSuggestions": {
+    "comments": false,
+    "other": true,
+    "strings": true
+  },
+  "editor.suggestOnTriggerCharacters": true,
+  "editor.suggest.filterGraceful": true,
+  "editor.suggest.localityBonus": true,
+  "editor.suggestSelection": "first",
+  "editor.snippetSuggestions": "top",
+  "editor.acceptSuggestionOnCommitCharacter": true,
+  "editor.acceptSuggestionOnEnter": "smart",
+  "editor.largeFileOptimizations": true,
+
+  // === File / Search Excludes (helps FS watching) ===
+  "files.exclude": {
+    "**/.git": true,
+    "**/__pycache__": true,
+    "**/.venv": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/public": true,
+    "**/site-packages": true
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/__pycache__": true,
+    "**/.venv": true,
+    "**/build": true,
+    "**/dist": true,
+    "**/node_modules": true,
+    "**/public": true,
+    "**/site-packages": true
+  },
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/__pycache__/**": true,
+    "**/.venv/**": true,
+    "**/site-packages/**": true,
+    "**/node_modules/**": true
+  },
+
+  // === Jinja ===
+  "[jinja-html]": {
+    "editor.defaultFormatter": "monosans.djlint"
+  },
+
+  // === YAML ===
+  "[yaml]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "[yml]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+
+  // === Cursor / Window ===
+  "python.venvPath": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv",
+  "python.defaultInterpreterPath": "/Users/jethroestrada/Desktop/External_Projects/Jet_Projects/jet_python_modules/.venv/bin/python",
+
+  "cursor.localParallelAgentsDisableRecommender": true,
+  "cursor.general.disableHttp2": true,
+  "cursor.general.disableHttp1SSE": true,
+
+  "window.autoDetectColorScheme": false,
+  "workbench.editor.enablePreview": false,
+  "workbench.preferredDarkColorTheme": "Default Dark Modern",
+  "workbench.colorTheme": "Default Dark Modern",
+
+  "files.associations": {
+    // "*.mdx": "mdx",
+    "*.mdx": "markdown"
+  },
+
+  // Global code actions safety
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "never",
+    "source.organizeImports": "never"
+  },
+
+  // Markdown Mermaid Support extension
+  "markdown-preview-enhanced.previewTheme": "github-dark.css",
+  "markdown-preview-enhanced.mermaidTheme": "dark",
+  "markdown-preview-enhanced.codeBlockTheme": "auto.css",
+
+  // SQL formatter
+  "[sql]": {
+    "editor.defaultFormatter": "sqlfluff.vscode-sqlfluff",
+    "editor.formatOnSave": true
+  },
+  "sqlfluff.format.enabled": true,
+  "sqlfluff.dialect": "postgres" // ← change to your dialect: mysql, tsql, snowflake, etc.
+}
