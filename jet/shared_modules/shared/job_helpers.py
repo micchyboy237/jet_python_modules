@@ -27,6 +27,7 @@ DEFAULT_EMBEDDING_DIM = _ctx_embd_size["embd_dims"]
 DEFAULT_JOBS_DB_NAME = "jobs_db3"
 DEFAULT_TABLE_DATA = "jobs"  # Only stores chunked embeddings data
 DEFAULT_TABLE_METADATA = "jobs_meta"  # Primary source for JobData items
+DEFAULT_TABLE_ENTITIES = "job_entities"
 DEFAULT_BUFFER = 32
 DEFAULT_CHUNK_SIZE = _ctx_embd_size["ctx"] - DEFAULT_BUFFER
 DEFAULT_CHUNK_OVERLAP = 100
@@ -151,14 +152,18 @@ def load_jobs(
 def _metadata_row_to_jobdata(row: dict) -> JobData:
     """
     Convert a metadata table row directly to JobData.
-    Since metadata table now contains all fields including title and details.
-
-    Args:
-        row: Row from DEFAULT_TABLE_METADATA
-
-    Returns:
-        JobData dictionary
+    Entities are no longer stored in jobs_meta; use load_job_entities() separately.
     """
+    # DEBUG: Trace what row actually contains
+    logger.debug(f"[DEBUG _metadata_row_to_jobdata] row type: {type(row)}")
+    logger.debug(
+        f"[DEBUG _metadata_row_to_jobdata] row keys: {list(row.keys()) if isinstance(row, dict) else 'NOT A DICT'}"
+    )
+    sample_keys = ["id", "title", "company", "entities"]
+    for k in sample_keys:
+        val = row.get(k, "<MISSING>") if isinstance(row, dict) else "<NOT DICT>"
+        logger.debug(f"[DEBUG _metadata_row_to_jobdata] row['{k}'] = {repr(val)}")
+
     job_data: JobData = {
         "id": row.get("id", ""),
         "link": row.get("link", ""),
@@ -167,7 +172,7 @@ def _metadata_row_to_jobdata(row: dict) -> JobData:
         "posted_date": row.get("posted_date"),
         "keywords": row.get("keywords", []),
         "details": row.get("details", ""),
-        "entities": row.get("entities"),
+        "entities": None,
         "domain": row.get("domain"),
         "salary": row.get("salary"),
         "job_type": row.get("job_type"),
@@ -182,35 +187,149 @@ def _metadata_row_to_jobdata(row: dict) -> JobData:
     return job_data
 
 
-def load_jobs_list(
+def save_job_entities(
+    job_id: str,
+    entities: dict,
+    *,
+    model_name: str = "qwen3.5-uncensored:2b",
+    temperature: float = 0.0,
     db_client: PgVectorClient | None = None,
-    table_name: str = DEFAULT_TABLE_METADATA,
-) -> list[JobData]:
+) -> None:
     """
-    Load all existing jobs from the metadata table.
-    DEFAULT_TABLE_METADATA is now the primary source for JobData items.
-
-    Returns:
-        List[JobData]: List of validated JobData objects
+    Save or update extracted entities for a job in the dedicated job_entities table.
+    Includes provenance metadata (model, temperature, extraction timestamp).
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+
+    row_data = {
+        "id": job_id,
+        "model_name": model_name,
+        "temperature": temperature,
+        "extracted_at": datetime.now().astimezone(),
+        "entities": _serialize_for_jsonb(entities),
+    }
+
+    with db_client:
+        db_client.create_or_update_row(DEFAULT_TABLE_ENTITIES, row_data)
+        db_client.commit()
+
+    logger.success(
+        f"Saved entities for job {job_id} (model={model_name}, temp={temperature})"
+    )
+
+
+def load_job_entities(
+    job_id: str,
+    *,
+    db_client: PgVectorClient | None = None,
+) -> dict | None:
+    """Load entities for a single job. Returns None if not found."""
+    if db_client is None:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+
+    try:
+        row = db_client.get_row(DEFAULT_TABLE_ENTITIES, job_id)
+        if row:
+            row.pop("id", None)
+            return row
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to load entities for job {job_id}: {e}")
+        return None
+
+
+def load_jobs_list(
+    db_client: PgVectorClient | None = None,
+    table_name: str = DEFAULT_TABLE_METADATA,
+    include_entities: bool = False,
+) -> list[JobData]:
+    """
+    Load all existing jobs from the metadata table.
+    """
+    if db_client is None:
+        db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
+
     try:
         with db_client:
-            rows = db_client.get_rows(
-                table_name=table_name,
-            )
+            if include_entities:
+                query = sql.SQL("""
+                    SELECT m.*, e.entities AS _joined_entities
+                    FROM {} m
+                    LEFT JOIN {} e ON m.id = e.id
+                """).format(
+                    sql.Identifier(table_name),
+                    sql.Identifier(DEFAULT_TABLE_ENTITIES),
+                )
+                with db_client.conn.cursor() as cur:
+                    cur.execute(query)
+                    raw_rows = cur.fetchall()
+
+                # DEBUG: Inspect raw DB results before any processing
+                logger.debug(f"[DEBUG load_jobs_list] raw_rows count: {len(raw_rows)}")
+                if raw_rows:
+                    first = raw_rows[0]
+                    logger.debug(
+                        f"[DEBUG load_jobs_list] first row type: {type(first)}"
+                    )
+                    if isinstance(first, dict):
+                        logger.debug(
+                            f"[DEBUG load_jobs_list] first row keys: {list(first.keys())}"
+                        )
+                        logger.debug(
+                            f"[DEBUG load_jobs_list] first row id={repr(first.get('id'))}, title={repr(first.get('title'))}, _joined_entities={repr(first.get('_joined_entities'))}"
+                        )
+                    else:
+                        cols = [d[0] for d in cur.description]
+                        logger.debug(f"[DEBUG load_jobs_list] columns: {cols}")
+                        logger.debug(
+                            f"[DEBUG load_jobs_list] first row (tuple): {first[:5]}..."
+                        )
+
+                processed_rows = []
+                for row in raw_rows:
+                    if isinstance(row, dict):
+                        d = dict(row)
+                        d["entities"] = d.pop("_joined_entities", None)
+                    else:
+                        columns = [desc[0] for desc in cur.description]
+                        d = dict(zip(columns, row))
+                        d["entities"] = d.pop("_joined_entities", None)
+                    processed_rows.append(d)
+
+                # DEBUG: Verify processed rows
+                if processed_rows:
+                    first_p = processed_rows[0]
+                    logger.debug(
+                        f"[DEBUG load_jobs_list] after processing: id={repr(first_p.get('id'))}, title={repr(first_p.get('title'))}, entities={repr(first_p.get('entities'))}"
+                    )
+            else:
+                processed_rows = db_client.get_rows(table_name=table_name)
+                # DEBUG: Non-join path
+                if processed_rows:
+                    first = processed_rows[0]
+                    logger.debug(
+                        f"[DEBUG load_jobs_list NO JOIN] first row type: {type(first)}, id={repr(first.get('id') if isinstance(first, dict) else 'N/A')}"
+                    )
+
         jobs: list[JobData] = []
-        for row in rows:
+        for row in processed_rows:
             try:
                 job = _metadata_row_to_jobdata(row)
+                if include_entities and row.get("entities") is not None:
+                    job["entities"] = row["entities"]
                 jobs.append(job)
             except (KeyError, TypeError, ValueError) as e:
                 logger.warning(
                     f"Skipping invalid metadata row (id={row.get('id', 'unknown')}): {e}"
                 )
-        logger.info(f"Loaded {len(jobs)} jobs from metadata table '{table_name}'")
+
+        logger.info(
+            f"Loaded {len(jobs)} jobs from '{table_name}'"
+            f"{' with entities' if include_entities else ''}"
+        )
         return jobs
+
     except Exception as e:
         logger.warning(f"Failed to load jobs from metadata table: {e}")
         return []
@@ -260,23 +379,13 @@ def table_row_to_jobdata(
     """
     Convert a chunk row from DEFAULT_TABLE_DATA back into a JobData object.
     Loads full metadata from DEFAULT_TABLE_METADATA since chunk rows only contain
-    chunk-specific data.
-
-    Args:
-        row: Chunk row from DEFAULT_TABLE_DATA
-        db_client: Optional PgVectorClient instance for loading metadata
-
-    Returns:
-        JobData dictionary with all fields populated from metadata table
+    chunk-specific data. Entities must be loaded separately via load_job_entities().
     """
     chunk_meta = row.get("chunk_meta") or {}
-
-    # Get the original job_id from chunk metadata
     job_id = chunk_meta.get("doc_id", row.get("id", ""))
 
     if not db_client:
         logger.warning(f"No db_client provided, returning minimal JobData for {job_id}")
-        # Fallback: return what we can from the chunk row
         return {
             "id": job_id,
             "link": "",
@@ -293,14 +402,12 @@ def table_row_to_jobdata(
             "tags": None,
         }
 
-    # Load full metadata from metadata table
     metadata = _load_metadata_from_table(db_client, job_id)
 
     if not metadata:
         logger.warning(
             f"No metadata found for job {job_id}, using chunk data as fallback"
         )
-        # Fallback to chunk data if metadata not found
         return {
             "id": job_id,
             "link": "",
@@ -317,7 +424,6 @@ def table_row_to_jobdata(
             "tags": None,
         }
 
-    # Build JobData from metadata (primary source)
     job_data: JobData = {
         "id": job_id,
         "link": metadata.get("link", ""),
@@ -326,7 +432,7 @@ def table_row_to_jobdata(
         "posted_date": metadata.get("posted_date") or row.get("posted_date"),
         "keywords": metadata.get("keywords", []),
         "details": metadata.get("details", row.get("content", "")),
-        "entities": metadata.get("entities"),
+        "entities": None,
         "domain": metadata.get("domain"),
         "salary": metadata.get("salary"),
         "job_type": metadata.get("job_type"),
@@ -360,28 +466,24 @@ def save_job_to_db(
 ) -> JobData:
     """
     Save a job's metadata to DEFAULT_TABLE_METADATA only.
-    This function no longer saves to DEFAULT_TABLE_DATA - that's handled by save_job_embeddings.
-
+    Entities are excluded — use save_job_entities() separately.
     If generate_embedding is True, creates a single chunk in DEFAULT_TABLE_DATA.
-
-    Args:
-        job: The JobData object to save.
-        db_client: (Optional) PgVectorClient for DB access.
-        embed_model: (Optional) The embedding model to use.
-        generate_embedding: (Optional, default False) If True, generate and store a single embedding chunk.
     """
     if db_client is None:
         db_client = PgVectorClient(dbname=DEFAULT_JOBS_DB_NAME)
 
     job_id = job["id"]
 
-    # Save all fields to metadata table (primary storage for JobData)
-    flat_metadata = {key: _serialize_for_jsonb(value) for key, value in job.items()}
+    # Exclude entities from metadata save — they live in job_entities table now
+    flat_metadata = {
+        key: _serialize_for_jsonb(value)
+        for key, value in job.items()
+        if key != "entities"
+    }
 
     with db_client:
         _save_metadata_to_table(db_client, job_id, flat_metadata)
 
-        # If embedding generation is requested, create a single chunk in DEFAULT_TABLE_DATA
         if generate_embedding:
             ctx_embd_size = get_model_ctx_embd_size(embed_model)
             embedding_dimension = ctx_embd_size["embd_dims"]
@@ -408,7 +510,7 @@ def save_job_to_db(
             }
 
             chunk_row = {
-                "id": job_id,  # Use job_id as chunk ID for single-chunk case
+                "id": job_id,
                 "header": job["title"],
                 "parent_header": company,
                 "content": job["details"],
@@ -526,7 +628,9 @@ def save_job_embeddings(
             job_id = job["id"]
             if job_id not in jobs_saved_metadata:
                 flat_metadata = {
-                    key: _serialize_for_jsonb(value) for key, value in job.items()
+                    key: _serialize_for_jsonb(value)
+                    for key, value in job.items()
+                    if key != "entities"
                 }
                 _save_metadata_to_table(db_client, job_id, flat_metadata)
                 jobs_saved_metadata.add(job_id)
@@ -839,10 +943,9 @@ def search_jobs(
             chunk_meta = result.get("chunk_meta", {})
             job_id = chunk_meta.get("doc_id", result.get("id", ""))
 
-            # Load full metadata for this job
             metadata = _load_metadata_from_table(db_client, job_id)
+            entity_row = load_job_entities(job_id, db_client=db_client)
 
-            # Merge metadata into result
             enriched = {**result}
             if metadata:
                 enriched.update(
@@ -853,7 +956,7 @@ def search_jobs(
                         ),
                         "link": metadata.get("link", ""),
                         "keywords": metadata.get("keywords", []),
-                        "entities": metadata.get("entities"),
+                        "entities": entity_row["entities"] if entity_row else None,
                         "domain": metadata.get("domain"),
                         "salary": metadata.get("salary"),
                         "job_type": metadata.get("job_type"),
@@ -928,17 +1031,14 @@ def hybrid_search_jobs(
     if enrich_with_metadata and db_client:
         enriched_results = []
         for result in filtered_results:
-            # FIX: Extract doc_id from nested metadata dict returned by BM25 reranker
-            # The reranker nests original chunk meta under "metadata" key
             chunk_meta = result.get("metadata", {})
             doc_id = chunk_meta.get("doc_id", "")
-
-            # Fallback: if metadata.doc_id is missing, try using the chunk id directly
-            # (some jobs may use job_id as chunk_id when not chunked)
             if not doc_id:
                 doc_id = result.get("id", "")
 
             metadata = _load_metadata_from_table(db_client, doc_id)
+            entity_row = load_job_entities(doc_id, db_client=db_client)
+
             enriched = {**result}
             if metadata:
                 enriched.update(
@@ -947,7 +1047,7 @@ def hybrid_search_jobs(
                         "company": metadata.get("company", ""),
                         "link": metadata.get("link", ""),
                         "keywords": metadata.get("keywords", []),
-                        "entities": metadata.get("entities"),
+                        "entities": entity_row["entities"] if entity_row else None,
                         "domain": metadata.get("domain"),
                         "salary": metadata.get("salary"),
                         "job_type": metadata.get("job_type"),
