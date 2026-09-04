@@ -4,7 +4,7 @@ from typing import Literal, TypedDict
 
 import spacy
 import torch
-from shared.data_types.job import JobEntity
+from shared.data_types.job import JobEntities
 
 from jet.logger import logger
 
@@ -104,7 +104,7 @@ def extract_entities(nlp, text: str, threshold: float = 0.0) -> list[Entity]:
         return entities
 
 
-def extract_entities_from_text(nlp, text: str, threshold: float = 0.0) -> JobEntity:
+def extract_entities_from_text(nlp, text: str, threshold: float = 0.0) -> JobEntities:
     results = extract_entities(nlp, text, threshold=threshold)
 
     entities_dict = {}

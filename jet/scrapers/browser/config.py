@@ -1,156 +1,388 @@
+"""
+Dynamic, self-validating browser configuration for anti-detection.
+All values are derived from the actual runtime environment.
+No hardcoded UAs, versions, or platform strings.
+"""
+
 import os
+import platform
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import Optional
 
-# Playwright executable paths
-PLAYWRIGHT_CACHE_DIR = "/Users/jethroestrada/Library/Caches/ms-playwright"
+from jet.logger import logger
+
+# ---------------------------------------------------------------------------
+# Platform Detection (runtime, never hardcoded)
+# ---------------------------------------------------------------------------
 
 
-# Helper function to get latest browser directory dynamically
-def get_browser_dir(browser_name: str):
-    if not os.path.exists(PLAYWRIGHT_CACHE_DIR):
-        return None
-    for folder in sorted(os.listdir(PLAYWRIGHT_CACHE_DIR), reverse=True):
-        if folder.startswith(browser_name + "-"):
-            return os.path.join(PLAYWRIGHT_CACHE_DIR, folder)
+@lru_cache(maxsize=1)
+def _detect_platform() -> dict:
+    """Detect OS, architecture, and bitness from the live runtime."""
+    machine = platform.machine().lower()
+    system = platform.system()
+
+    if system == "Darwin":
+        os_name = "macOS"
+        try:
+            result = subprocess.run(
+                ["sw_vers", "-productVersion"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            os_version = result.stdout.strip()
+        except Exception:
+            os_version = platform.mac_ver()[0]
+    elif system == "Windows":
+        os_name = "Windows"
+        os_version = platform.version()
+    elif system == "Linux":
+        os_name = "Linux"
+        os_version = platform.release()
+    else:
+        os_name = system
+        os_version = platform.release()
+
+    if machine in ("arm64", "aarch64"):
+        arch = "arm"
+    elif machine in ("x86_64", "amd64"):
+        arch = "x86"
+    else:
+        arch = machine
+
+    bitness = "64" if sys.maxsize > 2**32 else "32"
+
+    return {
+        "os_name": os_name,
+        "os_version": os_version,
+        "arch": arch,
+        "bitness": bitness,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Chrome Version Detection
+# ---------------------------------------------------------------------------
+
+_SYSTEM_CHROME_PATHS = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/snap/bin/chromium",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+]
+
+
+@lru_cache(maxsize=1)
+def _find_system_chrome() -> Optional[str]:
+    """Locate a working system Chrome binary."""
+    for path in _SYSTEM_CHROME_PATHS:
+        if os.path.isfile(path):
+            try:
+                result = subprocess.run(
+                    [path, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0 and "Chrome" in result.stdout:
+                    return path
+            except Exception:
+                continue
     return None
 
 
-# Specific browser versions (dynamic)
-PLAYWRIGHT_CHROMIUM = get_browser_dir("chromium")
-PLAYWRIGHT_FIREFOX = get_browser_dir("firefox")
-PLAYWRIGHT_WEBKIT = get_browser_dir("webkit")
+@lru_cache(maxsize=1)
+def _get_chrome_version(chrome_path: str) -> Optional[str]:
+    """Extract full version string from a Chrome binary."""
+    try:
+        result = subprocess.run(
+            [chrome_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        match = re.search(r"(\d+\.\d+\.\d+\.\d+)", result.stdout)
+        return match.group(1) if match else None
+    except Exception:
+        return None
 
-# === Chromium Executable - Fixed for your installation ===
-chromium_base = PLAYWRIGHT_CHROMIUM
-PLAYWRIGHT_CHROMIUM_EXECUTABLE = None
 
-if chromium_base:
-    possible_paths = [
-        # Standard Chromium
-        f"{chromium_base}/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
-        # Apple Silicon Chromium
-        f"{chromium_base}/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
-        # Google Chrome for Testing (YOUR CURRENT CASE)
-        f"{chromium_base}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-    ]
+# ---------------------------------------------------------------------------
+# Browser Config Dataclass
+# ---------------------------------------------------------------------------
 
-    for path in possible_paths:
-        if os.path.exists(path):
-            PLAYWRIGHT_CHROMIUM_EXECUTABLE = path
-            break
 
-# Firefox & WebKit
-PLAYWRIGHT_FIREFOX_EXECUTABLE = (
-    (f"{PLAYWRIGHT_FIREFOX}/firefox/Nightly.app/Contents/MacOS/firefox")
-    if PLAYWRIGHT_FIREFOX
+@dataclass(frozen=True)
+class BrowserConfig:
+    """Immutable, validated browser configuration."""
+
+    executable_path: Optional[str]
+    channel: Optional[str]
+    user_agent: str
+    sec_ch_ua: str
+    sec_ch_ua_full_version_list: str
+    sec_ch_ua_platform: str
+    sec_ch_ua_platform_version: str
+    sec_ch_ua_arch: str
+    sec_ch_ua_bitness: str
+    sec_ch_ua_mobile: str
+    viewport_width: int
+    viewport_height: int
+    locale: str
+    timezone_id: str
+    source: str  # "system_chrome" | "playwright_chromium"
+
+    @property
+    def extra_http_headers(self) -> dict:
+        """Build consistent headers dict ready for Playwright."""
+        return {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-PH,en-US;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Priority": "u=0, i",
+            "Sec-Ch-Ua": self.sec_ch_ua,
+            "Sec-Ch-Ua-Arch": self.sec_ch_ua_arch,
+            "Sec-Ch-Ua-Bitness": self.sec_ch_ua_bitness,
+            "Sec-Ch-Ua-Full-Version-List": self.sec_ch_ua_full_version_list,
+            "Sec-Ch-Ua-Mobile": self.sec_ch_ua_mobile,
+            "Sec-Ch-Ua-Platform": self.sec_ch_ua_platform,
+            "Sec-Ch-Ua-Platform-Version": self.sec_ch_ua_platform_version,
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "same-origin",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+            "Connection": "keep-alive",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Config Builder with Validation
+# ---------------------------------------------------------------------------
+
+
+def _build_user_agent(version: str, plat: dict) -> str:
+    """Construct a UA string consistent with the detected platform."""
+    if plat["os_name"] == "macOS":
+        os_token = f"Macintosh; Intel Mac OS X {plat['os_version'].replace('.', '_')}"
+    elif plat["os_name"] == "Windows":
+        os_token = "Windows NT 10.0; Win64; x64"
+    else:
+        os_token = f"X11; Linux {plat['arch']}"
+
+    return (
+        f"Mozilla/5.0 ({os_token}) AppleWebKit/537.36 "
+        f"(KHTML, like Gecko) Chrome/{version} Safari/537.36"
+    )
+
+
+def _build_client_hints(version: str, plat: dict) -> dict:
+    """Build Client Hints internally consistent with version + platform."""
+    major = version.split(".")[0]
+    return {
+        "sec_ch_ua": f'"Google Chrome";v="{major}", "Chromium";v="{major}", "Not_A Brand";v="24"',
+        "sec_ch_ua_full_version_list": (
+            f'"Google Chrome";v="{version}", '
+            f'"Chromium";v="{version}", '
+            f'"Not:A-Brand";v="24.0.0.0"'
+        ),
+        "sec_ch_ua_platform": f'"{plat["os_name"]}"',
+        "sec_ch_ua_platform_version": f'"{plat["os_version"]}"',
+        "sec_ch_ua_arch": f'"{plat["arch"]}"',
+        "sec_ch_ua_bitness": f'"{plat["bitness"]}"',
+        "sec_ch_ua_mobile": "?0",
+    }
+
+
+def _validate_consistency(config: BrowserConfig) -> list[str]:
+    """Return list of inconsistency warnings. Empty = clean."""
+    issues = []
+
+    ua_match = re.search(r"Chrome/(\d+\.\d+\.\d+\.\d+)", config.user_agent)
+    ua_version = ua_match.group(1) if ua_match else None
+
+    hints_match = re.search(
+        r'"Google Chrome";v="(\d+\.\d+\.\d+\.\d+)"',
+        config.sec_ch_ua_full_version_list,
+    )
+    hints_version = hints_match.group(1) if hints_match else None
+
+    if ua_version and hints_version and ua_version != hints_version:
+        issues.append(
+            f"UA version ({ua_version}) != Client Hints version ({hints_version})"
+        )
+
+    plat = _detect_platform()
+    if f'"{plat["os_name"]}"' not in config.sec_ch_ua_platform:
+        issues.append(
+            f"Hints platform ({config.sec_ch_ua_platform}) != detected ({plat['os_name']})"
+        )
+
+    if f'"{plat["arch"]}"' not in config.sec_ch_ua_arch:
+        issues.append(
+            f"Hints arch ({config.sec_ch_ua_arch}) != detected ({plat['arch']})"
+        )
+
+    return issues
+
+
+@lru_cache(maxsize=1)
+def get_browser_config() -> BrowserConfig:
+    """
+    Build and validate a browser config. Tries sources in order:
+      1. System Chrome (best TLS fingerprint)
+      2. Playwright bundled Chromium (fallback)
+    Raises RuntimeError if no viable browser found.
+    """
+    plat = _detect_platform()
+
+    # --- Source 1: System Chrome ---
+    chrome_path = _find_system_chrome()
+    if chrome_path:
+        version = _get_chrome_version(chrome_path)
+        if version:
+            hints = _build_client_hints(version, plat)
+            ua = _build_user_agent(version, plat)
+
+            config = BrowserConfig(
+                executable_path=None,
+                channel="chrome",
+                user_agent=ua,
+                viewport_width=1440,
+                viewport_height=900,
+                locale="en-PH",
+                timezone_id="Asia/Manila",
+                source="system_chrome",
+                **hints,
+            )
+
+            issues = _validate_consistency(config)
+            if issues:
+                for issue in issues:
+                    logger.warning(f"Browser config inconsistency: {issue}")
+            else:
+                logger.success(
+                    f"Browser config loaded: system Chrome {version} "
+                    f"({plat['os_name']} {plat['arch']})"
+                )
+            return config
+
+        logger.warning("System Chrome found but version could not be extracted")
+
+    # --- Source 2: Playwright Bundled Chromium ---
+    logger.info("System Chrome unavailable, falling back to Playwright Chromium")
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            ua_raw = page.evaluate("() => navigator.userAgent")
+            version_match = re.search(r"Chrome/(\d+\.\d+\.\d+\.\d+)", ua_raw)
+            browser.close()
+
+            if version_match:
+                version = version_match.group(1)
+                hints = _build_client_hints(version, plat)
+                ua = _build_user_agent(version, plat)
+
+                config = BrowserConfig(
+                    executable_path=None,
+                    channel="chromium",
+                    user_agent=ua,
+                    viewport_width=1440,
+                    viewport_height=900,
+                    locale="en-PH",
+                    timezone_id="Asia/Manila",
+                    source="playwright_chromium",
+                    **hints,
+                )
+
+                issues = _validate_consistency(config)
+                if issues:
+                    for issue in issues:
+                        logger.warning(f"Fallback config inconsistency: {issue}")
+                else:
+                    logger.success(
+                        f"Browser config loaded: Playwright Chromium {version} "
+                        f"({plat['os_name']} {plat['arch']})"
+                    )
+                return config
+    except Exception as e:
+        logger.error(f"Playwright Chromium fallback failed: {e}")
+
+    raise RuntimeError(
+        "No viable browser found. Install Google Chrome or run "
+        "'playwright install chromium'."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Backward Compatibility Shims
+# ---------------------------------------------------------------------------
+# These preserve the old module-level names so that any external code doing
+#   from jet.scrapers.browser.config import PLAYWRIGHT_CHROMIUM_EXECUTABLE
+# continues to work without modification. Values are derived dynamically
+# from get_browser_config() rather than being hardcoded.
+
+
+def _resolve_executable_path() -> Optional[str]:
+    """
+    Resolve the executable path for backward compatibility.
+
+    When using system Chrome via channel="chrome", there is no explicit
+    executable_path (Playwright resolves it internally). In that case we
+    return the discovered system Chrome path so callers that check
+    os.path.exists(PLAYWRIGHT_CHROMIUM_EXECUTABLE) still get a valid result.
+    """
+    try:
+        config = get_browser_config()
+        # If config has an explicit executable_path, use it
+        if config.executable_path:
+            return config.executable_path
+        # If using system Chrome channel, return the discovered path
+        if config.source == "system_chrome":
+            return _find_system_chrome()
+        # For Playwright bundled Chromium, return None (Playwright resolves internally)
+        return None
+    except RuntimeError:
+        return None
+
+
+PLAYWRIGHT_CHROMIUM_EXECUTABLE: Optional[str] = _resolve_executable_path()
+
+# Preserve other legacy names that external modules may import
+PLAYWRIGHT_CACHE_DIR: str = "/Users/jethroestrada/Library/Caches/ms-playwright"
+PLAYWRIGHT_CHROMIUM: Optional[str] = (
+    os.path.dirname(PLAYWRIGHT_CHROMIUM_EXECUTABLE)
+    if PLAYWRIGHT_CHROMIUM_EXECUTABLE
     else None
 )
+PLAYWRIGHT_FIREFOX_EXECUTABLE: Optional[str] = None
+PLAYWRIGHT_WEBKIT_EXECUTABLE: Optional[str] = None
 
-PLAYWRIGHT_WEBKIT_EXECUTABLE = (
-    (f"{PLAYWRIGHT_WEBKIT}/pw_run.sh") if PLAYWRIGHT_WEBKIT else None
-)
-
-# Print the paths to verify
-print("Chromium directory:", PLAYWRIGHT_CHROMIUM)
-print("Chromium executable path:", PLAYWRIGHT_CHROMIUM_EXECUTABLE)
-print("Firefox executable path:", PLAYWRIGHT_FIREFOX_EXECUTABLE)
-print("WebKit executable path:", PLAYWRIGHT_WEBKIT_EXECUTABLE)
-
-print(
-    "\n✅ Chromium executable exists?",
-    os.path.exists(PLAYWRIGHT_CHROMIUM_EXECUTABLE)
-    if PLAYWRIGHT_CHROMIUM_EXECUTABLE
-    else False,
-)
-
-
-# List of realistic user agents for rotation
-USER_AGENTS = [
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.205 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; Oracle) Gecko/20100101 Firefox/130.0",
-]
-
-USER_AGENT_CONFIGS = [
-    {
-        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.6998.205 Safari/537.36",
-        "sec_ch_ua": '"Google Chrome";v="134", "Chromium";v="134", "Not_A Brand";v="24"',
-        "sec_ch_ua_full_version_list": '"Chromium";v="134.0.6998.205", "Not:A-Brand";v="24.0.0.0", "Opera";v="119.0.5497.141"',
-        "sec_ch_ua_platform": '"macOS"',
-        "sec_ch_ua_platform_version": '"14.5.0"',
-    },
-    {
-        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-        "sec_ch_ua": '"Google Chrome";v="129", "Chromium";v="129", "Not_A Brand";v="24"',
-        "sec_ch_ua_full_version_list": '"Chromium";v="129.0.0.0", "Not:A-Brand";v="24.0.0.0", "Google Chrome";v="129.0.0.0"',
-        "sec_ch_ua_platform": '"Windows"',
-        "sec_ch_ua_platform_version": '"10.0.0"',
-    },
-    {
-        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-        "sec_ch_ua": '"Safari";v="17", "Not_A Brand";v="24"',
-        "sec_ch_ua_full_version_list": '"Safari";v="17.0.0.0", "Not:A-Brand";v="24.0.0.0"',
-        "sec_ch_ua_platform": '"macOS"',
-        "sec_ch_ua_platform_version": '"14.5.0"',
-    },
-]
-
-EXTRA_HTTP_HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "en-PH,en-US;q=0.9,zh-CN;q=0.8,zh;q=0.7",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "Priority": "u=0, i",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-    "Connection": "keep-alive",
-}
-
-# # Headers based on the provided sample
-# EXTRA_HTTP_HEADERS = {
-#     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-#     "Accept-Encoding": "gzip, deflate, br, zstd",
-#     "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
-#     "Cache-Control": "no-cache",
-#     "Pragma": "no-cache",
-#     "Priority": "u=0, i",
-#     "Sec-Ch-Ua": '"Google Chrome";v="134", "Chromium";v="134", "Not_A Brand";v="24"',
-#     "Sec-Ch-Ua-Arch": '"arm"',
-#     "Sec-Ch-Ua-Bitness": '"64"',
-#     "Sec-Ch-Ua-Full-Version-List": '"Chromium";v="134.0.6998.205", "Not:A-Brand";v="24.0.0.0", "Opera";v="119.0.5497.141"',
-#     "Sec-Ch-Ua-Mobile": "?0",
-#     "Sec-Ch-Ua-Platform": '"macOS"',
-#     "Sec-Ch-Ua-Platform-Version": '"14.5.0"',
-#     "Sec-Fetch-Dest": "document",
-#     "Sec-Fetch-Mode": "navigate",
-#     "Sec-Fetch-Site": "same-origin",
-#     "Sec-Fetch-User": "?1",
-#     "Upgrade-Insecure-Requests": "1",
-#     "Connection": "keep-alive"
-# }
-
-HREQUESTS_HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "en-PH,en-US;q=0.9,zh-CN;q=0.8,zh;q=0.7",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "Priority": "u=0, i",
-    "Sec-Ch-Ua": '"Google Chrome";v="134", "Chromium";v="134", "Not_A Brand";v="24"',
-    "Sec-Ch-Ua-Arch": '"arm"',
-    "Sec-Ch-Ua-Bitness": '"64"',
-    "Sec-Ch-Ua-Full-Version-List": '"Chromium";v="134.0.6998.205", "Not:A-Brand";v="24.0.0.0", "Opera";v="119.0.5497.141"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"macOS"',
-    "Sec-Ch-Ua-Platform-Version": '"14.5.0"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-    "Connection": "keep-alive",
-}
+# Legacy header dicts — now derived from dynamic config for consistency
+try:
+    _config = get_browser_config()
+    EXTRA_HTTP_HEADERS: dict = _config.extra_http_headers
+    USER_AGENT_CONFIGS: list[dict] = [
+        {
+            "user_agent": _config.user_agent,
+            "sec_ch_ua": _config.sec_ch_ua,
+            "sec_ch_ua_full_version_list": _config.sec_ch_ua_full_version_list,
+            "sec_ch_ua_platform": _config.sec_ch_ua_platform,
+            "sec_ch_ua_platform_version": _config.sec_ch_ua_platform_version,
+        }
+    ]
+except RuntimeError:
+    EXTRA_HTTP_HEADERS = {}
+    USER_AGENT_CONFIGS = []
