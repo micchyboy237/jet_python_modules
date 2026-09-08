@@ -1,15 +1,19 @@
 """
 Reusable HTML-aware chunkers for scraped web content.
-Bridges Unstructured element classification with Chonkie chunking strategies.
-Includes hierarchy reconstruction for complex nested header structures.
+Uses jet/scrapers for robust header hierarchy detection and Chonkie for smart chunking.
+Supports direct URL input via Playwright scraping utilities.
 """
 
+import asyncio
 import re
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from pathlib import Path
+from typing import List, Optional, Union
 
 from bs4 import BeautifulSoup
 from jet.adapters.chonkie.llamacpp_tokenizer import LlamaCppTokenizer
+from jet.scrapers.header_hierarchy import HtmlHeaderDoc, extract_header_hierarchy
+from jet.scrapers.playwright_utils import scrape_urls, scrape_urls_sync
 from rich.console import Console
 
 from chonkie.chunker.base import BaseChunker
@@ -22,6 +26,7 @@ from chonkie.types import Chunk, RecursiveLevel, RecursiveRules
 
 console = Console()
 
+# Regex patterns retained for fallback / Markdown-mode detection only
 _FENCED_CODE_RE = re.compile(r"```(\w+)?\n(.*?)```", re.DOTALL)
 _TABLE_SEPARATOR_RE = re.compile(r"^\|[\s\-:|]+\|$", re.MULTILINE)
 _HEADING_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
@@ -37,14 +42,16 @@ class HierarchicalSection:
     content_parts: list[str] = field(default_factory=list)
     page_number: Optional[int] = None
     source_url: Optional[str] = None
+    # Raw HTML fragment for this section (preserves tables/code formatting)
+    html_fragment: str = ""
+    # Global character offset in the original HTML source
+    global_start: int = 0
+    global_end: int = 0
 
     @property
     def full_content(self) -> str:
-        """Reconstruct as Markdown with breadcrumb context prepended."""
+        """Reconstruct as clean text. Breadcrumb is metadata-only, NOT embedded."""
         lines = []
-        if self.breadcrumb:
-            lines.append(f"[{' > '.join(self.breadcrumb)}]")
-            lines.append("")
         if self.heading_text:
             prefix = "#" * max(1, self.level)
             lines.append(f"{prefix} {self.heading_text}")
@@ -53,152 +60,130 @@ class HierarchicalSection:
         return "\n".join(lines).strip()
 
 
-_CATEGORY_TO_LEVEL = {
-    "Title": 1,
-    "Headline": 1,
-    "Subtitle": 2,
-    "Subheadline": 2,
-    "Section-header": 3,
-}
-
-_HEADING_CATEGORIES = frozenset(_CATEGORY_TO_LEVEL.keys())
-
-_SKIP_CATEGORIES = frozenset(
-    {
-        "Header",
-        "Footer",
-        "PageBreak",
-        "PageNumber",
-        "Image",
-        "FigureCaption",
-        "Page-header",
-        "Page-footer",
-    }
-)
-
-
-def _ensure_v2_compatible_html(html: str) -> str:
-    """Ensure HTML has the structure required by Unstructured's v2 ontology parser.
-
-    The v2 parser requires either ``<body class="Document">`` or
-    ``<div class="Page">`` as its entry point. This function safely adds the
-    required wrapper without creating nested ``<body>`` elements:
-
-    - If the HTML already contains ``class="Document"`` or ``class="Page"``,
-      it is returned unchanged.
-    - If a ``<body>`` tag exists, ``class="Document"`` is injected into it
-      (preserving any existing classes and attributes).
-    - If no ``<body>`` tag exists, the entire content is wrapped in
-      ``<body class="Document">``.
-
-    Uses BeautifulSoup for safe DOM manipulation instead of regex/string
-    concatenation to avoid issues with malformed HTML, attribute quoting,
-    or nested body elements.
-
-    Args:
-        html: Raw HTML string to normalize.
-
-    Returns:
-        HTML string guaranteed to satisfy v2 parser entry-point requirements.
-    """
-    # Fast-path: already ontology-compliant
-    if 'class="Document"' in html or "class='Document'" in html:
-        return html
-    if 'class="Page"' in html or "class='Page'" in html:
-        return html
-
-    soup = BeautifulSoup(html, "html.parser")
-    body = soup.find("body")
-
-    if body is not None:
-        # Inject class="Document" into existing <body>, preserving other classes
-        existing_classes = body.get("class", [])
-        if isinstance(existing_classes, str):
-            existing_classes = existing_classes.split()
-        if "Document" not in existing_classes:
-            body["class"] = ["Document"] + list(existing_classes)
-    else:
-        # No <body> at all — wrap entire content safely
-        new_body = soup.new_tag("body", **{"class": "Document"})
-        # Move all top-level contents into the new body
-        children = list(soup.children)
-        for child in children:
-            new_body.append(child.extract() if hasattr(child, "extract") else child)
-        soup.clear()
-        soup.append(new_body)
-
-    return str(soup)
-
-
-def build_hierarchy(
-    elements: list,
+def _map_header_docs_to_sections(
+    header_docs: list[HtmlHeaderDoc],
     source_url: Optional[str] = None,
+    raw_html: str = "",
 ) -> list[HierarchicalSection]:
     """
-    Reconstruct heading hierarchy from Unstructured's flat element list.
-    Uses Unstructured's actual element categories (Title, Subtitle, Section-header)
-    to determine nesting depth, then builds breadcrumbs for each section.
+    Adapts jet.scrapers HtmlHeaderDoc output to HierarchicalSection.
+    Fixes content leakage by filtering child headings from parent content.
+    Preserves raw HTML for accurate content-type detection.
     """
     sections: list[HierarchicalSection] = []
-    stack: dict[int, str] = {}
-    current_section: Optional[HierarchicalSection] = None
 
-    def _get_heading_level(el) -> int:
-        cat = getattr(el, "category", "")
-        if cat not in ("Title", "Subtitle", "Headline", "Section-header"):
-            return 0
-        meta = getattr(el, "metadata", None)
-        depth = getattr(meta, "category_depth", None) if meta else None
-        if depth is not None and isinstance(depth, int):
-            return depth + 1  # category_depth is 0-indexed (h1=0), we need 1-indexed
-        return 0
+    # Build a set of all heading texts to filter from parent content
+    all_headings = {
+        doc.get("header", "").strip() for doc in header_docs if doc.get("header")
+    }
 
-    def _build_breadcrumb(level: int) -> list[str]:
-        return [
-            stack[lvl] for lvl in sorted(stack.keys()) if lvl <= level and stack[lvl]
-        ]
+    for i, doc in enumerate(header_docs):
+        content = (doc.get("content") or "").strip()
+        header = (doc.get("header") or "").strip()
+        html_frag = (doc.get("html") or "").strip()
 
-    for el in elements:
-        cat = getattr(el, "category", "UncategorizedText")
-        text = str(el).strip()
-        page_num = getattr(getattr(el, "metadata", None), "page_number", None)
-
-        if not text or len(text) < 3:
-            continue
-        if cat in _SKIP_CATEGORIES:
+        # Skip completely empty sections
+        if not content and not header:
             continue
 
-        level = _get_heading_level(el)
+        # FIX: Filter out leaked child heading text from parent content
+        # Split content into lines and remove any line that matches a known heading
+        filtered_lines = []
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if stripped and stripped not in all_headings:
+                filtered_lines.append(line)
+            elif not stripped:
+                filtered_lines.append(line)  # preserve blank lines
+        filtered_content = "\n".join(filtered_lines).strip()
 
-        if level > 0:
-            for lvl in list(stack.keys()):
-                if lvl >= level:
-                    del stack[lvl]
-            stack[level] = text
-            breadcrumb = _build_breadcrumb(level)
-            current_section = HierarchicalSection(
-                level=level,
-                heading_text=text,
-                breadcrumb=breadcrumb,
-                page_number=page_num,
-                source_url=source_url,
-            )
-            sections.append(current_section)
-            console.log(f"  [cyan]H{level}:[/] {' > '.join(breadcrumb)}")
-        else:
-            if current_section is None:
-                current_section = HierarchicalSection(
-                    level=0,
-                    heading_text="",
-                    breadcrumb=[],
-                    page_number=page_num,
-                    source_url=source_url,
-                )
-                sections.append(current_section)
-            current_section.content_parts.append(text)
+        # Compute global offsets if raw_html is available
+        global_start = 0
+        global_end = 0
+        if raw_html and html_frag:
+            idx = raw_html.find(html_frag)
+            if idx != -1:
+                global_start = idx
+                global_end = idx + len(html_frag)
 
-    console.log(f"[bold green]✔ Built {len(sections)} hierarchical sections[/]")
+        section = HierarchicalSection(
+            level=doc.get("level", 0) or 0,
+            heading_text=header,
+            breadcrumb=doc.get("parent_headers") or [],
+            content_parts=[filtered_content] if filtered_content else [],
+            page_number=None,
+            source_url=source_url,
+            html_fragment=html_frag,
+            global_start=global_start,
+            global_end=global_end,
+        )
+        sections.append(section)
+
+    console.log(
+        f"[bold green]✔ Mapped {len(sections)} sections from header hierarchy[/]"
+    )
     return sections
+
+
+def _merge_short_sections(
+    sections: list[HierarchicalSection],
+    min_tokens: int = 50,
+    max_tokens: int = 512,
+    tokenizer=None,
+) -> list[HierarchicalSection]:
+    """
+    Merge adjacent short sections that share the same parent breadcrumb
+    to improve token utilization. Never merges across different parents.
+    """
+    if not sections or tokenizer is None:
+        return sections
+
+    merged: list[HierarchicalSection] = []
+    buffer: Optional[HierarchicalSection] = None
+
+    for section in sections:
+        text = section.full_content
+        tokens = tokenizer.count_tokens(text) if text else 0
+
+        if buffer is None:
+            if tokens < min_tokens:
+                buffer = section
+            else:
+                merged.append(section)
+            continue
+
+        # Check if merge is safe: same parent breadcrumb and combined size fits
+        buffer_parent = " > ".join(buffer.breadcrumb) if buffer.breadcrumb else ""
+        section_parent = " > ".join(section.breadcrumb) if section.breadcrumb else ""
+        combined_text = buffer.full_content + "\n\n" + text
+        combined_tokens = tokenizer.count_tokens(combined_text)
+
+        same_parent = buffer_parent == section_parent
+        fits = combined_tokens <= max_tokens
+
+        if same_parent and fits and tokens < min_tokens:
+            # Merge into buffer
+            buffer.content_parts.extend(section.content_parts)
+            buffer.html_fragment += "\n" + section.html_fragment
+            buffer.global_end = max(buffer.global_end, section.global_end)
+        else:
+            # Flush buffer and start new
+            merged.append(buffer)
+            if tokens < min_tokens:
+                buffer = section
+            else:
+                buffer = None
+                merged.append(section)
+
+    if buffer is not None:
+        merged.append(buffer)
+
+    if len(merged) < len(sections):
+        console.log(
+            f"[cyan]Merged {len(sections)} sections → {len(merged)} "
+            f"(min_tokens={min_tokens}, max_tokens={max_tokens})[/]"
+        )
+    return merged
 
 
 class HTMLAwareChunker(BaseChunker):
@@ -221,8 +206,10 @@ class HTMLAwareChunker(BaseChunker):
         if tokenizer is None:
             tokenizer = LlamaCppTokenizer()
         super().__init__(tokenizer=tokenizer)
+
         self.chunk_size = chunk_size
         self.min_chars_per_chunk = min_chars_per_chunk
+
         self._recursive_chunker = RecursiveChunker(
             tokenizer=tokenizer,
             chunk_size=chunk_size,
@@ -231,7 +218,7 @@ class HTMLAwareChunker(BaseChunker):
                     RecursiveLevel(
                         delimiters=["\n# ", "\n## ", "\n### "], include_delim="next"
                     ),
-                    RecursiveLevel(delimiters=["\n\n"], include_delim="next"),
+                    RecursiveLevel(delimiters=["\n"], include_delim="next"),
                     RecursiveLevel(delimiters=[". ", "! ", "? "], include_delim="prev"),
                     RecursiveLevel(whitespace=True),
                 ]
@@ -293,6 +280,7 @@ class HTMLAwareChunker(BaseChunker):
         current_lines: list[str] = []
         block_start = 0
         char_pos = 0
+
         for line in lines:
             stripped = line.strip()
             is_table_line = stripped.startswith("|") and stripped.endswith("|")
@@ -305,6 +293,7 @@ class HTMLAwareChunker(BaseChunker):
                     tables.append(("\n".join(current_lines), block_start, char_pos - 1))
                     current_lines = []
             char_pos += len(line) + 1
+
         if current_lines:
             tables.append(("\n".join(current_lines), block_start, char_pos - 1))
         return tables
@@ -395,7 +384,7 @@ class HTMLAwareChunker(BaseChunker):
 
 @dataclass
 class ChunkWithMetadata:
-    """Extended chunk with source element metadata from Unstructured."""
+    """Extended chunk with source element metadata."""
 
     chunk: Chunk
     element_category: str = ""
@@ -406,8 +395,8 @@ class ChunkWithMetadata:
 
 class ScrapedHTMLPipeline:
     """
-    End-to-end pipeline: Raw HTML → Unstructured parsing →
-    Hierarchy reconstruction → Smart chunking.
+    End-to-end pipeline: Raw HTML or URL(s) → jet/scrapers hierarchy extraction → Smart chunking.
+    Uses extract_header_hierarchy for accurate DOM-based header detection.
     """
 
     def __init__(
@@ -417,13 +406,22 @@ class ScrapedHTMLPipeline:
         min_chars_per_chunk: int = 50,
         semantic_model: str = "minishlab/potion-base-32M",
         table_rows_per_chunk: int = 5,
-        skip_headers_footers: bool = True,
+        headless: bool = True,
+        use_cache: bool = False,
+        scroll_strategy: str = "until_stable",
+        min_section_tokens: int = 50,
     ):
         if tokenizer is None:
             tokenizer = LlamaCppTokenizer()
+
         self.chunk_size = chunk_size
         self.min_chars_per_chunk = min_chars_per_chunk
-        self.skip_headers_footers = skip_headers_footers
+        self.min_section_tokens = min_section_tokens
+        self.headless = headless
+        self.use_cache = use_cache
+        self.scroll_strategy = scroll_strategy
+        self._tokenizer = tokenizer
+
         self._table_chunker = TableChunker(
             tokenizer="row", chunk_size=table_rows_per_chunk
         )
@@ -438,7 +436,7 @@ class ScrapedHTMLPipeline:
                     RecursiveLevel(
                         delimiters=["\n# ", "\n## ", "\n### "], include_delim="next"
                     ),
-                    RecursiveLevel(delimiters=["\n\n"], include_delim="next"),
+                    RecursiveLevel(delimiters=["\n"], include_delim="next"),
                     RecursiveLevel(delimiters=[". ", "! ", "? "], include_delim="prev"),
                     RecursiveLevel(whitespace=True),
                 ]
@@ -463,31 +461,149 @@ class ScrapedHTMLPipeline:
             )
         return self._semantic_chunker
 
-    def process(
-        self,
-        html: str,
-        source_url: Optional[str] = None,
+    @staticmethod
+    def _normalize_input(source: Union[str, List[str]]) -> tuple[List[str], bool]:
+        """
+        Normalize input to list of URLs or detect raw HTML.
+        Returns: (list_of_sources, is_url)
+        """
+        if isinstance(source, str):
+            if source.strip().startswith(("http://", "https://")):
+                return [source], True
+            return [source], False
+
+        if not source:
+            return [], False
+
+        first_valid = next((s for s in source if s and s.strip()), "")
+        is_url = first_valid.strip().startswith(("http://", "https://"))
+        return list(source), is_url
+
+    @staticmethod
+    def _has_html_table(html_fragment: str) -> bool:
+        """Detect tables via DOM inspection of raw HTML fragment."""
+        if not html_fragment:
+            return False
+        try:
+            soup = BeautifulSoup(html_fragment, "html.parser")
+            return bool(soup.find("table"))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _has_html_code(html_fragment: str) -> bool:
+        """Detect code blocks via DOM inspection of raw HTML fragment."""
+        if not html_fragment:
+            return False
+        try:
+            soup = BeautifulSoup(html_fragment, "html.parser")
+            return bool(soup.find("pre") or soup.find("code"))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _extract_html_table_as_markdown(html_fragment: str) -> Optional[str]:
+        """Convert HTML table to Markdown pipe format for TableChunker."""
+        if not html_fragment:
+            return None
+        try:
+            soup = BeautifulSoup(html_fragment, "html.parser")
+            table = soup.find("table")
+            if not table:
+                return None
+
+            rows = table.find_all("tr")
+            if not rows:
+                return None
+
+            md_lines = []
+            for i, row in enumerate(rows):
+                cells = row.find_all(["th", "td"])
+                cell_texts = [c.get_text(strip=True).replace("|", "\\|") for c in cells]
+                md_lines.append("| " + " | ".join(cell_texts) + " |")
+                if i == 0:
+                    md_lines.append("| " + " | ".join(["---"] * len(cell_texts)) + " |")
+
+            return "\n".join(md_lines)
+        except Exception as e:
+            console.log(f"[red]HTML→Markdown table conversion failed: {e}[/]")
+            return None
+
+    @staticmethod
+    def _extract_html_code_text(html_fragment: str) -> Optional[str]:
+        """Extract code text with fences from HTML pre/code elements."""
+        if not html_fragment:
+            return None
+        try:
+            soup = BeautifulSoup(html_fragment, "html.parser")
+            pre = soup.find("pre")
+            if pre:
+                code = pre.find("code")
+                lang = ""
+                if code:
+                    classes = code.get("class", [])
+                    for cls in classes:
+                        if cls.startswith("language-"):
+                            lang = cls.replace("language-", "")
+                            break
+                    text = code.get_text()
+                else:
+                    text = pre.get_text()
+                return f"```{lang}\n{text.strip()}\n```"
+
+            code = soup.find("code")
+            if code:
+                return f"```\n{code.get_text().strip()}\n```"
+
+            return None
+        except Exception as e:
+            console.log(f"[red]HTML code extraction failed: {e}[/]")
+            return None
+
+    def _process_html(
+        self, html: str, source_url: Optional[str]
     ) -> list[ChunkWithMetadata]:
-        """Parse raw HTML, reconstruct hierarchy, and chunk intelligently."""
-        from unstructured.partition.html import partition_html
+        """Core processing logic using jet/scrapers for hierarchy detection."""
+        console.log(f"[cyan]Extracting header hierarchy ({len(html):,} chars)…[/]")
 
-        console.log(f"[cyan]Parsing HTML ({len(html):,} chars)…[/]")
+        # Use jet/scrapers for robust header detection
+        try:
+            header_docs = extract_header_hierarchy(
+                source=html,
+                excludes=["nav", "footer", "script", "style"],
+                timeout_ms=10000,
+            )
+            sections = _map_header_docs_to_sections(
+                header_docs, source_url=source_url, raw_html=html
+            )
+        except Exception as e:
+            console.log(
+                f"[red]⚠ Header hierarchy extraction failed: {e}. Falling back to flat chunking.[/]"
+            )
+            sections = [
+                HierarchicalSection(
+                    level=0,
+                    heading_text="",
+                    breadcrumb=[],
+                    content_parts=[html],
+                    source_url=source_url,
+                    html_fragment=html,
+                    global_start=0,
+                    global_end=len(html),
+                )
+            ]
 
-        # Ensure HTML satisfies v2 ontology parser entry-point requirements
-        html = _ensure_v2_compatible_html(html)
-
-        elements = partition_html(
-            text=html,
-            html_parser_version="v2",
-            skip_headers_and_footers=self.skip_headers_footers,
-            skip_nav=True,
-        )
-
-        if not elements:
-            console.log("[red]⚠ No elements extracted from HTML[/]")
+        if not sections:
+            console.log("[red]⚠ No sections extracted from HTML[/]")
             return []
 
-        sections = build_hierarchy(elements, source_url=source_url)
+        # FIX: Merge short sections to improve token utilization
+        sections = _merge_short_sections(
+            sections,
+            min_tokens=self.min_section_tokens,
+            max_tokens=self.chunk_size,
+            tokenizer=self._tokenizer,
+        )
 
         results: list[ChunkWithMetadata] = []
         for section in sections:
@@ -499,22 +615,36 @@ class ScrapedHTMLPipeline:
                 " > ".join(section.breadcrumb) if section.breadcrumb else ""
             )
 
-            if self._has_markdown_table(section_text):
-                chunks = self._table_chunker.chunk(section_text)
+            # FIX: DOM-aware content type detection using raw HTML fragment
+            has_table = self._has_html_table(section.html_fragment)
+            has_code = self._has_html_code(section.html_fragment)
+
+            if has_table:
+                # Convert HTML table to Markdown for TableChunker
+                md_table = self._extract_html_table_as_markdown(section.html_fragment)
+                if md_table:
+                    chunks = self._table_chunker.chunk(md_table)
+                else:
+                    chunks = self._recursive_chunker.chunk(section_text)
                 cat_label = "Table"
-            elif self._has_fenced_code(section_text):
-                try:
-                    chunks = self._code_chunker.chunk(section_text)
-                except Exception as e:
-                    console.log(f"[red]Code chunking failed: {e}[/]")
-                    chunks = [
-                        Chunk(
-                            text=section_text,
-                            start_index=0,
-                            end_index=len(section_text),
-                            token_count=len(section_text),
-                        )
-                    ]
+            elif has_code:
+                # Extract fenced code from HTML for CodeChunker
+                fenced = self._extract_html_code_text(section.html_fragment)
+                if fenced:
+                    try:
+                        chunks = self._code_chunker.chunk(fenced)
+                    except Exception as e:
+                        console.log(f"[red]Code chunking failed: {e}[/]")
+                        chunks = [
+                            Chunk(
+                                text=section_text,
+                                start_index=0,
+                                end_index=len(section_text),
+                                token_count=len(section_text),
+                            )
+                        ]
+                else:
+                    chunks = self._recursive_chunker.chunk(section_text)
                 cat_label = "CodeSnippet"
             elif section.level > 0:
                 console.log(f"[green]Section '{breadcrumb_str}' → RecursiveChunker[/]")
@@ -525,7 +655,12 @@ class ScrapedHTMLPipeline:
                 chunks = self.semantic_chunker.chunk(section_text)
                 cat_label = "UnstructuredText"
 
+            # FIX: Adjust chunk indices to be global relative to original HTML
             for c in chunks:
+                if section.global_start > 0:
+                    c.start_index = section.global_start + c.start_index
+                    c.end_index = section.global_start + c.end_index
+
                 results.append(
                     ChunkWithMetadata(
                         chunk=c,
@@ -541,20 +676,200 @@ class ScrapedHTMLPipeline:
         )
         return results
 
-    @staticmethod
-    def _has_markdown_table(text: str) -> bool:
-        return bool(_TABLE_SEPARATOR_RE.search(text))
+    def process(
+        self,
+        source: Union[str, List[str]],
+        source_url: Optional[str] = None,
+    ) -> list[ChunkWithMetadata]:
+        """
+        Parse raw HTML or URL(s), reconstruct hierarchy via jet/scrapers, and chunk intelligently.
 
-    @staticmethod
-    def _has_fenced_code(text: str) -> bool:
-        return "```" in text
+        Args:
+            source: Raw HTML string, URL string, or list of URLs/HTML strings.
+            source_url: Optional override for source URL metadata (only used if source is raw HTML).
+        """
+        sources, is_url = self._normalize_input(source)
+        all_results: list[ChunkWithMetadata] = []
+
+        if is_url:
+            console.log(f"[cyan]Fetching {len(sources)} URL(s) via Playwright…[/]")
+            for result in scrape_urls_sync(
+                urls=sources,
+                headless=self.headless,
+                use_cache=self.use_cache,
+                scroll_strategy=self.scroll_strategy,
+                show_progress=True,
+            ):
+                if result["status"] == "completed" and result["html"]:
+                    chunks = self._process_html(result["html"], result["url"])
+                    all_results.extend(chunks)
+                else:
+                    console.log(
+                        f"[red]Failed to scrape {result['url']}: {result['status']}[/]"
+                    )
+        else:
+            for i, html in enumerate(sources):
+                url_meta = source_url if len(sources) == 1 else None
+                chunks = self._process_html(html, url_meta)
+                all_results.extend(chunks)
+
+        return all_results
 
     async def aprocess(
         self,
-        html: str,
+        source: Union[str, List[str]],
         source_url: Optional[str] = None,
     ) -> list[ChunkWithMetadata]:
-        """Async wrapper around process()."""
-        import asyncio
+        """Async wrapper supporting URLs and raw HTML."""
+        sources, is_url = self._normalize_input(source)
+        all_results: list[ChunkWithMetadata] = []
 
-        return await asyncio.to_thread(self.process, html, source_url)
+        if is_url:
+            console.log(f"[cyan]Async fetching {len(sources)} URL(s)…[/]")
+            async for result in scrape_urls(
+                urls=sources,
+                headless=self.headless,
+                use_cache=self.use_cache,
+                scroll_strategy=self.scroll_strategy,
+                show_progress=True,
+            ):
+                if result["status"] == "completed" and result["html"]:
+                    chunks = await asyncio.to_thread(
+                        self._process_html, result["html"], result["url"]
+                    )
+                    all_results.extend(chunks)
+                else:
+                    console.log(
+                        f"[red]Failed to scrape {result['url']}: {result['status']}[/]"
+                    )
+        else:
+            for html in sources:
+                chunks = await asyncio.to_thread(self._process_html, html, source_url)
+                all_results.extend(chunks)
+
+        return all_results
+
+
+def chunk(
+    source: Union[str, List[str]],
+    *,
+    chunk_size: int = 512,
+    tokenizer: Union[str, TokenizerProtocol] = None,
+    min_chars_per_chunk: int = 50,
+    semantic_model: str = "minishlab/potion-base-32M",
+    table_rows_per_chunk: int = 5,
+    headless: bool = True,
+    use_cache: bool = False,
+    scroll_strategy: str = "until_stable",
+    min_section_tokens: int = 50,
+) -> list[ChunkWithMetadata]:
+    """
+    Reusable standalone HTML-aware chunker.
+
+    Args:
+        source: HTML string, URL, local file path, or list of any combination.
+                File paths are validated for existence before reading.
+        chunk_size: Target token count per chunk.
+        tokenizer: Tokenizer instance or name. Defaults to LlamaCppTokenizer.
+        min_chars_per_chunk: Minimum character threshold for prose chunks.
+        semantic_model: Model name for semantic chunking fallback.
+        table_rows_per_chunk: Rows per chunk for table content.
+        headless: Run browser in headless mode for URL scraping.
+        use_cache: Enable Playwright response caching.
+        scroll_strategy: Page scroll strategy for dynamic content.
+        min_section_tokens: Threshold for merging short hierarchical sections.
+
+    Returns:
+        List of ChunkWithMetadata objects with source provenance.
+    """
+    # Normalize to list
+    sources = source if isinstance(source, list) else [source]
+    if not sources:
+        console.log("[yellow]⚠ Empty source provided to chunk()[/]")
+        return []
+
+    pipeline = ScrapedHTMLPipeline(
+        chunk_size=chunk_size,
+        tokenizer=tokenizer,
+        min_chars_per_chunk=min_chars_per_chunk,
+        semantic_model=semantic_model,
+        table_rows_per_chunk=table_rows_per_chunk,
+        headless=headless,
+        use_cache=use_cache,
+        scroll_strategy=scroll_strategy,
+        min_section_tokens=min_section_tokens,
+    )
+
+    all_results: list[ChunkWithMetadata] = []
+    urls_to_scrape: list[str] = []
+    html_inputs: list[tuple[str, Optional[str]]] = []  # (html_content, source_label)
+
+    # --- Classify each source ---
+    for item in sources:
+        if not item or not str(item).strip():
+            console.log("[yellow]⚠ Skipping empty source item[/]")
+            continue
+
+        item_str = str(item).strip()
+
+        # 1. Check if URL
+        if item_str.startswith(("http://", "https://")):
+            urls_to_scrape.append(item_str)
+            console.log(f"[cyan]🔗 Queued URL: {item_str}[/]")
+            continue
+
+        # 2. Check if local file path exists
+        path = Path(item_str)
+        if path.exists() and path.is_file():
+            try:
+                content = path.read_text(encoding="utf-8")
+                html_inputs.append((content, str(path.resolve())))
+                console.log(
+                    f"[green]📄 Read local file: {path} ({len(content):,} chars)[/]"
+                )
+            except Exception as e:
+                console.log(f"[red]✖ Failed to read file '{path}': {e}[/]")
+            continue
+
+        # 3. Fallback: treat as raw HTML string
+        html_inputs.append((item_str, None))
+        console.log(f"[dim]📝 Treating input as raw HTML ({len(item_str):,} chars)[/]")
+
+    # --- Process URLs via Playwright ---
+    if urls_to_scrape:
+        console.log(f"[cyan]Fetching {len(urls_to_scrape)} URL(s)…[/]")
+        for result in scrape_urls_sync(
+            urls=urls_to_scrape,
+            headless=headless,
+            use_cache=use_cache,
+            scroll_strategy=scroll_strategy,
+            show_progress=True,
+        ):
+            if result["status"] == "completed" and result["html"]:
+                chunks = pipeline._process_html(result["html"], result["url"])
+                all_results.extend(chunks)
+            else:
+                console.log(
+                    f"[red]✖ Failed to scrape {result['url']}: {result['status']}[/]"
+                )
+
+    # --- Process local files and raw HTML ---
+    for html_content, source_label in html_inputs:
+        chunks = pipeline._process_html(html_content, source_label)
+        all_results.extend(chunks)
+
+    console.log(
+        f"[bold green]✔ chunk() complete:[/] {len(all_results)} total chunks "
+        f"from {len(sources)} source(s)"
+    )
+    return all_results
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    from jet.adapters.chonkie.main._main_html_chunkers import main
+
+    main()

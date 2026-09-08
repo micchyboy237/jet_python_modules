@@ -1,7 +1,9 @@
-from typing import Optional, List, TypedDict
+from typing import List, Optional, TypedDict
+
 from jet.data.utils import generate_unique_id
 from jet.scrapers.text_nodes import extract_text_nodes
 from jet.scrapers.utils import ElementDetails
+from lxml.etree import tostring
 
 
 class HtmlHeaderDoc(TypedDict):
@@ -15,8 +17,73 @@ class HtmlHeaderDoc(TypedDict):
     parent_header: Optional[str]
     header: str
     content: str
+    html: str
     element: Optional[ElementDetails]
-    # html: str
+
+
+# Block-level tags whose outer HTML should be captured as structural fragments.
+_BLOCK_TAGS = frozenset(
+    {
+        "table",
+        "thead",
+        "tbody",
+        "tfoot",
+        "tr",
+        "td",
+        "th",
+        "pre",
+        "code",
+        "ul",
+        "ol",
+        "li",
+        "dl",
+        "dt",
+        "dd",
+        "blockquote",
+        "figure",
+        "figcaption",
+        "details",
+        "summary",
+        "div",
+        "section",
+        "article",
+        "aside",
+        "main",
+        "p",
+    }
+)
+
+
+def _get_block_ancestor_html(node) -> str:
+    """
+    Walk up from a leaf text node to find the nearest meaningful block ancestor
+    and return its outer HTML. Falls back to the leaf node's own HTML if no
+    block ancestor is found.
+    """
+    element = node.get_element()
+    if element is None:
+        return node.get_html() or ""
+
+    current = element
+    while current is not None:
+        tag = current.tag
+        if isinstance(tag, str):
+            tag_lower = tag.lower()
+        else:
+            tag_lower = str(tag).lower()
+
+        if tag_lower in _BLOCK_TAGS:
+            try:
+                return tostring(current, encoding="unicode", method="html")
+            except Exception:
+                pass
+
+        parent = current.getparent()
+        if parent is None:
+            break
+        current = parent
+
+    return node.get_html() or ""
 
 
 def extract_header_hierarchy(
@@ -28,56 +95,51 @@ def extract_header_hierarchy(
 ) -> List[HtmlHeaderDoc]:
     """
     Extracts a list of HtmlHeaderDoc objects from HTML content, organizing text by header hierarchy.
-
-    Ignores content before the first header.
-    :param source: The HTML string or URL to parse.
-    :param excludes: A list of tag names to exclude (e.g., ["nav", "footer", "script", "style"]).
-    :param timeout_ms: Timeout for rendering the page (in ms) for dynamic content.
-    :param ignore_links: If True, removes markdown link syntax from text content, keeping link labels.
-    :return: A list of HtmlHeaderDoc objects representing header-based sections.
+    Each section's ``html`` field contains the outer HTML of all block-level ancestors
+    for the leaf text nodes within that section.
     """
-    header_tags = {f'h{i}': i for i in range(1, 7)}
+    header_tags = {f"h{i}": i for i in range(1, 7)}
+
     nodes = extract_text_nodes(
         source,
-        excludes=excludes,  # FIXED: was missing `excludes=`
+        excludes=excludes,
         timeout_ms=timeout_ms,
-        # ignore_links=ignore_links,
     )
 
     if includes:
-        # Filter only nodes with tags in includes
-        nodes = [node for node in nodes if node.tag in includes + list(header_tags.keys())]
+        nodes = [
+            node for node in nodes if node.tag in includes + list(header_tags.keys())
+        ]
 
     sections: List[HtmlHeaderDoc] = []
     current_section: Optional[HtmlHeaderDoc] = None
     header_stack: List[tuple[str, int, int]] = []
     current_content: List[str] = []
     current_html_content: List[str] = []
+    seen_block_html: set = set()
     section_index = 0
-    
-    base_depth: Optional[int] = None  # Store the raw_depth of the first header
+    base_depth: Optional[int] = None
 
     for node in nodes:
-        # if node.tag == "label" and node.is_clickable:
-        #     continue
-
         tag = node.tag.lower()
         text = node.text.strip() if node.text else ""
+
         if tag in header_tags and text:
-            # Save current section if it has a header and content
+            # Finalize previous section
             if current_section and current_section["header"].strip():
                 current_section["content"] = "\n".join(current_content)
-                # current_section["html"] = "\n".join(current_html_content)
+                current_section["html"] = "\n".join(current_html_content)
                 sections.append(current_section)
                 section_index += 1
-            current_content = []
-            current_html_content = []
+                current_content = []
+                current_html_content = []
+                seen_block_html = set()
+
             level = header_tags[tag]
-            # Set base_depth to the first header's depth
             if base_depth is None:
                 base_depth = node.depth
-            # Calculate depth relative to the first header's depth
             depth = max(1, node.depth - base_depth + 1)
+
             parent_headers = []
             parent_header = None
             parent_level = None
@@ -87,6 +149,7 @@ def extract_header_hierarchy(
                 parent_header = header_stack[-1][0]
                 parent_level = header_stack[-1][1]
                 parent_headers = [h[0] for h in header_stack]
+
             current_section = {
                 "id": generate_unique_id(),
                 "doc_index": section_index,
@@ -98,27 +161,35 @@ def extract_header_hierarchy(
                 "parent_header": parent_header,
                 "header": text,
                 "content": "",
+                "html": "",
                 "element": node.get_element_details(),
-                # "html": node.get_html(),
             }
             header_stack.append((text, level, section_index))
-            current_html_content.append(node.get_html())
+
+            heading_html = node.get_html() or ""
+            if heading_html:
+                current_html_content.append(heading_html)
+                seen_block_html.add(heading_html)
         else:
             if text and current_section is not None:
                 current_content.append(text)
-                current_html_content.append(node.get_html())
+                block_html = _get_block_ancestor_html(node)
+                if block_html and block_html not in seen_block_html:
+                    current_html_content.append(block_html)
+                    seen_block_html.add(block_html)
 
-    # Append the final section if it has a header and content
+    # Finalize last section
     if current_section and current_section["header"].strip():
         current_section["content"] = "\n".join(current_content)
         current_section["html"] = "\n".join(current_html_content)
         sections.append(current_section)
 
-    # Filter out empty sections and reindex
     sections = [
-        section for section in sections
+        section
+        for section in sections
         if section["header"].strip() or section["content"].strip()
     ]
+
     for idx, section in enumerate(sections):
         section["doc_index"] = idx
 
