@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
+from bs4 import BeautifulSoup
 from jet.adapters.chonkie.llamacpp_tokenizer import LlamaCppTokenizer
 from rich.console import Console
 
@@ -19,30 +20,20 @@ from chonkie.chunker.table import TableChunker
 from chonkie.tokenizer import TokenizerProtocol
 from chonkie.types import Chunk, RecursiveLevel, RecursiveRules
 
-# Rich console for styled logging
 console = Console()
 
-
-# ---------------------------------------------------------------------------
-# Pre-compiled patterns (avoid recompilation on every call)
-# ---------------------------------------------------------------------------
 _FENCED_CODE_RE = re.compile(r"```(\w+)?\n(.*?)```", re.DOTALL)
 _TABLE_SEPARATOR_RE = re.compile(r"^\|[\s\-:|]+\|$", re.MULTILINE)
 _HEADING_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
-
-
-# ---------------------------------------------------------------------------
-# Hierarchy Reconstruction
-# ---------------------------------------------------------------------------
 
 
 @dataclass
 class HierarchicalSection:
     """A section with full breadcrumb path preserved."""
 
-    level: int  # 1-6 for h1-h6, 0 for non-heading content
-    heading_text: str  # The heading text itself
-    breadcrumb: list[str]  # Full path: ["Introduction", "Methods"]
+    level: int
+    heading_text: str
+    breadcrumb: list[str]
     content_parts: list[str] = field(default_factory=list)
     page_number: Optional[int] = None
     source_url: Optional[str] = None
@@ -62,8 +53,6 @@ class HierarchicalSection:
         return "\n".join(lines).strip()
 
 
-# Mapping from Unstructured element categories to heading levels
-# Based on unstructured/documents/mappings.py and ontology.py
 _CATEGORY_TO_LEVEL = {
     "Title": 1,
     "Headline": 1,
@@ -73,6 +62,7 @@ _CATEGORY_TO_LEVEL = {
 }
 
 _HEADING_CATEGORIES = frozenset(_CATEGORY_TO_LEVEL.keys())
+
 _SKIP_CATEGORIES = frozenset(
     {
         "Header",
@@ -87,18 +77,70 @@ _SKIP_CATEGORIES = frozenset(
 )
 
 
+def _ensure_v2_compatible_html(html: str) -> str:
+    """Ensure HTML has the structure required by Unstructured's v2 ontology parser.
+
+    The v2 parser requires either ``<body class="Document">`` or
+    ``<div class="Page">`` as its entry point. This function safely adds the
+    required wrapper without creating nested ``<body>`` elements:
+
+    - If the HTML already contains ``class="Document"`` or ``class="Page"``,
+      it is returned unchanged.
+    - If a ``<body>`` tag exists, ``class="Document"`` is injected into it
+      (preserving any existing classes and attributes).
+    - If no ``<body>`` tag exists, the entire content is wrapped in
+      ``<body class="Document">``.
+
+    Uses BeautifulSoup for safe DOM manipulation instead of regex/string
+    concatenation to avoid issues with malformed HTML, attribute quoting,
+    or nested body elements.
+
+    Args:
+        html: Raw HTML string to normalize.
+
+    Returns:
+        HTML string guaranteed to satisfy v2 parser entry-point requirements.
+    """
+    # Fast-path: already ontology-compliant
+    if 'class="Document"' in html or "class='Document'" in html:
+        return html
+    if 'class="Page"' in html or "class='Page'" in html:
+        return html
+
+    soup = BeautifulSoup(html, "html.parser")
+    body = soup.find("body")
+
+    if body is not None:
+        # Inject class="Document" into existing <body>, preserving other classes
+        existing_classes = body.get("class", [])
+        if isinstance(existing_classes, str):
+            existing_classes = existing_classes.split()
+        if "Document" not in existing_classes:
+            body["class"] = ["Document"] + list(existing_classes)
+    else:
+        # No <body> at all — wrap entire content safely
+        new_body = soup.new_tag("body", **{"class": "Document"})
+        # Move all top-level contents into the new body
+        children = list(soup.children)
+        for child in children:
+            new_body.append(child.extract() if hasattr(child, "extract") else child)
+        soup.clear()
+        soup.append(new_body)
+
+    return str(soup)
+
+
 def build_hierarchy(
     elements: list,
     source_url: Optional[str] = None,
 ) -> list[HierarchicalSection]:
     """
     Reconstruct heading hierarchy from Unstructured's flat element list.
-
     Uses Unstructured's actual element categories (Title, Subtitle, Section-header)
     to determine nesting depth, then builds breadcrumbs for each section.
     """
     sections: list[HierarchicalSection] = []
-    stack: dict[int, str] = {}  # level -> heading_text
+    stack: dict[int, str] = {}
     current_section: Optional[HierarchicalSection] = None
 
     def _get_heading_level(el) -> int:
@@ -108,9 +150,7 @@ def build_hierarchy(
         meta = getattr(el, "metadata", None)
         depth = getattr(meta, "category_depth", None) if meta else None
         if depth is not None and isinstance(depth, int):
-            return (
-                depth + 1
-            )  # category_depth is 0-indexed (h1=0), we need 1-indexed (h1=1)
+            return depth + 1  # category_depth is 0-indexed (h1=0), we need 1-indexed
         return 0
 
     def _build_breadcrumb(level: int) -> list[str]:
@@ -131,14 +171,11 @@ def build_hierarchy(
         level = _get_heading_level(el)
 
         if level > 0:
-            # Clear stack entries at same or deeper level
             for lvl in list(stack.keys()):
                 if lvl >= level:
                     del stack[lvl]
-
             stack[level] = text
             breadcrumb = _build_breadcrumb(level)
-
             current_section = HierarchicalSection(
                 level=level,
                 heading_text=text,
@@ -149,7 +186,6 @@ def build_hierarchy(
             sections.append(current_section)
             console.log(f"  [cyan]H{level}:[/] {' > '.join(breadcrumb)}")
         else:
-            # Non-heading content → append to current section
             if current_section is None:
                 current_section = HierarchicalSection(
                     level=0,
@@ -163,11 +199,6 @@ def build_hierarchy(
 
     console.log(f"[bold green]✔ Built {len(sections)} hierarchical sections[/]")
     return sections
-
-
-# ---------------------------------------------------------------------------
-# HTML-Aware Chunker (Custom Chonkie Chunker)
-# ---------------------------------------------------------------------------
 
 
 class HTMLAwareChunker(BaseChunker):
@@ -190,10 +221,8 @@ class HTMLAwareChunker(BaseChunker):
         if tokenizer is None:
             tokenizer = LlamaCppTokenizer()
         super().__init__(tokenizer=tokenizer)
-
         self.chunk_size = chunk_size
         self.min_chars_per_chunk = min_chars_per_chunk
-
         self._recursive_chunker = RecursiveChunker(
             tokenizer=tokenizer,
             chunk_size=chunk_size,
@@ -215,7 +244,6 @@ class HTMLAwareChunker(BaseChunker):
             chunk_size=chunk_size,
             language=code_language,
         )
-
         self._semantic_chunker: Optional[SemanticChunker] = None
         self._semantic_model = semantic_model
         self._semantic_threshold = semantic_threshold
@@ -236,8 +264,6 @@ class HTMLAwareChunker(BaseChunker):
                 min_characters_per_sentence=20,
             )
         return self._semantic_chunker
-
-    # --- Detection heuristics ---
 
     @staticmethod
     def _has_markdown_table(text: str) -> bool:
@@ -267,7 +293,6 @@ class HTMLAwareChunker(BaseChunker):
         current_lines: list[str] = []
         block_start = 0
         char_pos = 0
-
         for line in lines:
             stripped = line.strip()
             is_table_line = stripped.startswith("|") and stripped.endswith("|")
@@ -280,7 +305,6 @@ class HTMLAwareChunker(BaseChunker):
                     tables.append(("\n".join(current_lines), block_start, char_pos - 1))
                     current_lines = []
             char_pos += len(line) + 1
-
         if current_lines:
             tables.append(("\n".join(current_lines), block_start, char_pos - 1))
         return tables
@@ -297,8 +321,6 @@ class HTMLAwareChunker(BaseChunker):
         ]
         return "\n".join(prose_lines).strip()
 
-    # --- Core chunking ---
-
     def chunk(self, text: str) -> list[Chunk]:
         if not text or not text.strip():
             return []
@@ -306,7 +328,6 @@ class HTMLAwareChunker(BaseChunker):
         all_chunks: list[Chunk] = []
         code_count = table_count = prose_count = 0
 
-        # 1. Code blocks
         if self._has_fenced_code(text):
             for code_text, lang_hint, start, end in self._extract_code_blocks(text):
                 if not code_text.strip():
@@ -336,7 +357,6 @@ class HTMLAwareChunker(BaseChunker):
                     )
                     code_count += 1
 
-        # 2. Tables
         if self._has_markdown_table(text):
             for table_text, start, end in self._extract_tables(text):
                 table_chunks = self._table_chunker.chunk(table_text)
@@ -346,7 +366,6 @@ class HTMLAwareChunker(BaseChunker):
                 all_chunks.extend(table_chunks)
                 table_count += len(table_chunks)
 
-        # 3. Prose
         prose = self._strip_code_and_tables(text)
         if prose and len(prose.strip()) >= self.min_chars_per_chunk:
             if self._has_headings(prose):
@@ -372,11 +391,6 @@ class HTMLAwareChunker(BaseChunker):
             f"HTMLAwareChunker(chunk_size={self.chunk_size}, "
             f"min_chars={self.min_chars_per_chunk})"
         )
-
-
-# ---------------------------------------------------------------------------
-# Scraped HTML Pipeline (Unstructured → Hierarchy → Chonkie)
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -407,11 +421,9 @@ class ScrapedHTMLPipeline:
     ):
         if tokenizer is None:
             tokenizer = LlamaCppTokenizer()
-
         self.chunk_size = chunk_size
         self.min_chars_per_chunk = min_chars_per_chunk
         self.skip_headers_footers = skip_headers_footers
-
         self._table_chunker = TableChunker(
             tokenizer="row", chunk_size=table_rows_per_chunk
         )
@@ -461,15 +473,12 @@ class ScrapedHTMLPipeline:
 
         console.log(f"[cyan]Parsing HTML ({len(html):,} chars)…[/]")
 
-        # v2 requires <body class="Document"> or <div class="Page"> wrapper.
-        # Wrap standard HTML so the ontology parser can find its entry point.
-        parser_version = "v2"
-        if 'class="Document"' not in html and 'class="Page"' not in html:
-            html = f'<body class="Document">{html}</body>'
+        # Ensure HTML satisfies v2 ontology parser entry-point requirements
+        html = _ensure_v2_compatible_html(html)
 
         elements = partition_html(
             text=html,
-            html_parser_version=parser_version,
+            html_parser_version="v2",
             skip_headers_and_footers=self.skip_headers_footers,
             skip_nav=True,
         )
@@ -478,11 +487,9 @@ class ScrapedHTMLPipeline:
             console.log("[red]⚠ No elements extracted from HTML[/]")
             return []
 
-        # Reconstruct hierarchy from flat element list
         sections = build_hierarchy(elements, source_url=source_url)
 
         results: list[ChunkWithMetadata] = []
-
         for section in sections:
             section_text = section.full_content
             if not section_text.strip():
@@ -492,7 +499,6 @@ class ScrapedHTMLPipeline:
                 " > ".join(section.breadcrumb) if section.breadcrumb else ""
             )
 
-            # Route based on content type within this section
             if self._has_markdown_table(section_text):
                 chunks = self._table_chunker.chunk(section_text)
                 cat_label = "Table"
