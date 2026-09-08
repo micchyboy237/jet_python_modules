@@ -1,6 +1,5 @@
 """
 Hybrid Search Utilities
-
 Combines fast vector search (cosine similarity) with precise cross-encoder
 reranking for high-quality retrieval. The two-stage pipeline:
 1. Vector search retrieves top_k candidates (k > final_n)
@@ -12,7 +11,7 @@ Environment Variables:
 """
 
 import os
-from typing import Dict, List, TypedDict
+from typing import Dict, List, Literal, TypedDict
 
 import numpy as np
 from jet.adapters.llama_cpp.config import EMBED_MODEL, RERANK_MODEL
@@ -48,6 +47,7 @@ def hybrid_search(
     doc_embeddings: np.ndarray | list[list[float]] | None = None,
     embed_model: str = EMBED_MODEL,
     rerank_model: str = RERANK_MODEL,
+    rerank_method: Literal["auto", "model", "bm25"] = "model",
 ) -> list[HybridSearchResult]:
     """
     Two-stage hybrid search: vector retrieval → cross-encoder reranking.
@@ -58,9 +58,8 @@ def hybrid_search(
         documents proceed to reranking.
 
     Stage 2 (Reranking):
-        Passes all vector-stage candidates through a cross-encoder reranker
-        model for precise relevance scoring. Returns top_n final results
-        (or all if top_n is None).
+        Passes all vector-stage candidates through a reranker for precise
+        relevance scoring. Returns top_n final results (or all if top_n is None).
 
     Scores are normalized to 0–1 range using sigmoid by default for better
     interpretability.
@@ -90,6 +89,10 @@ def hybrid_search(
             across multiple queries.
         embed_model: Embedding model to use. Defaults to EMBED_MODEL from config.
         rerank_model: Rerank model to use. Defaults to RERANK_MODEL from config.
+        rerank_method: Reranking strategy passed to rerank().
+            - "model": Force cross-encoder model via llama.cpp server (default).
+            - "auto": Try model first, fall back to BM25 on failure.
+            - "bm25": Force lexical BM25 reranking (no GPU/server needed).
 
     Returns:
         List of HybridSearchResult dicts sorted by reranker score (descending).
@@ -109,7 +112,8 @@ def hybrid_search(
     logger.info(
         f"hybrid_search: query='{query[:80]}...', "
         f"n_docs={n_docs}, top_n={top_n}, "
-        f"vector_score_threshold={vector_score_threshold}"
+        f"vector_score_threshold={vector_score_threshold}, "
+        f"rerank_method={rerank_method}"
     )
 
     resolved_query_prefix = (
@@ -187,14 +191,14 @@ def hybrid_search(
         logger.warning("No candidates to rerank, returning empty results")
         return []
 
-    logger.info("Stage 2/2: Cross-encoder reranking")
-
+    logger.info(f"Stage 2/2: Reranking (method={rerank_method})")
     rerank_top_n = min(top_n, len(candidates)) if top_n is not None else len(candidates)
     rerank_results = rerank(
         query,
         candidates,
         top_n=rerank_top_n,
         model=rerank_model,
+        method=rerank_method,
     )
 
     raw_rerank_scores = [rr["score"] for rr in rerank_results]
@@ -264,7 +268,6 @@ def hybrid_search(
     return final_results
 
 
-# ✅ NEW: PDR-aware hybrid search wrapper
 def hybrid_search_pdr(
     query: str,
     pdr_result: Dict[str, List[Dict]],
@@ -288,7 +291,8 @@ def hybrid_search_pdr(
         vector_score_threshold: Optional minimum vector score for child candidates.
         embed_model: Embedding model to use. Defaults to EMBED_MODEL from config.
         rerank_model: Rerank model to use. Defaults to RERANK_MODEL from config.
-        **kwargs: Additional kwargs forwarded to hybrid_search().
+        **kwargs: Additional kwargs forwarded to hybrid_search()
+            (including rerank_method, normalize_scores, etc.).
 
     Returns:
         List of dicts with keys: rank, score, text (full parent),
@@ -301,19 +305,18 @@ def hybrid_search_pdr(
         logger.warning("hybrid_search_pdr: no children in pdr_result, returning []")
         return []
 
-    # Stage 1: Search over child chunks only
     child_texts = [c["content"] for c in children]
+
     child_results = hybrid_search(
         query,
         child_texts,
-        top_n=top_n * 2,  # Over-retrieve to account for parent deduplication
+        top_n=top_n * 2,
         vector_score_threshold=vector_score_threshold,
         embed_model=embed_model,
         rerank_model=rerank_model,
         **kwargs,
     )
 
-    # Stage 2: Resolve to unique parents, preserving rerank order
     seen_parents: set[str] = set()
     resolved: List[Dict] = []
 
@@ -328,8 +331,8 @@ def hybrid_search_pdr(
                 {
                     "rank": len(resolved) + 1,
                     "score": cr["score"],
-                    "text": parent["content"],  # ← FULL PARENT CONTEXT
-                    "child_text": cr["text"],  # ← ORIGINAL MATCHING CHILD
+                    "text": parent["content"],
+                    "child_text": cr["text"],
                     "parent_id": parent_id,
                     "num_tokens": parent.get("num_tokens", 0),
                 }
@@ -343,134 +346,19 @@ def hybrid_search_pdr(
         len(child_results),
         len(resolved),
     )
+
     return resolved
 
 
 if __name__ == "__main__":
-    query = "What is a giant panda?"
-    docs = [
-        "The giant panda is a bear species endemic to China.",
-        "Python is a high-level programming language.",
-        "Bears are carnivoran mammals of the family Ursidae.",
-        "Machine learning is a subset of artificial intelligence.",
-        "Pandas eat bamboo and live in mountainous regions.",
-    ]
-
-    print("=" * 60)
-    print("HYBRID SEARCH RESULTS (CLEAN)")
-    print("=" * 60)
-
-    results = hybrid_search(query, docs, normalize_scores=True)
-
-    print(f"\nQuery: {query}\n")
-    print("Final ranked results (after reranking):")
-    print("Format: #rank  idx  score(0-1)  vector  raw  text")
-    print("-" * 60)
-    for r in results:
-        print(
-            f"  #{r['rank']}  idx={r['index']}  "
-            f"score={r['score']:.4f}  vector={r['vector_score']:.4f}  raw={r['rerank_score_raw']:.4f}  "
-            f"{r['text']}"
-        )
-
-    # ─────────────────────────────────────────────
-    # PDR DEMO
-    # ─────────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print("HYBRID SEARCH PDR RESULTS")
-    print("=" * 60)
-
-    pdr_result = {
-        "parents": [
-            {
-                "id": "p1",
-                "content": (
-                    "The giant panda (Ailuropoda melanoleuca) is a bear species "
-                    "endemic to China. It is characterised by its bold black-and-white "
-                    "coat and rotund body. Pandas primarily eat bamboo and can consume "
-                    "up to 38 kg of it per day. They live in mountainous regions of "
-                    "central China."
-                ),
-                "num_tokens": 64,
-            },
-            {
-                "id": "p2",
-                "content": (
-                    "Python is a high-level, general-purpose programming language. "
-                    "Its design philosophy emphasises code readability. Python is "
-                    "dynamically typed and garbage-collected. It supports multiple "
-                    "programming paradigms including structured, object-oriented, "
-                    "and functional programming."
-                ),
-                "num_tokens": 52,
-            },
-            {
-                "id": "p3",
-                "content": (
-                    "Machine learning is a subset of artificial intelligence. "
-                    "It gives systems the ability to learn from data without being "
-                    "explicitly programmed. Common techniques include supervised "
-                    "learning, unsupervised learning, and reinforcement learning."
-                ),
-                "num_tokens": 45,
-            },
-        ],
-        "children": [
-            # p1 split into 3 smaller chunks
-            {
-                "id": "c1",
-                "parent_id": "p1",
-                "content": "The giant panda is a bear species endemic to China.",
-            },
-            {
-                "id": "c2",
-                "parent_id": "p1",
-                "content": "Pandas eat bamboo and can consume up to 38 kg per day.",
-            },
-            {
-                "id": "c3",
-                "parent_id": "p1",
-                "content": "Giant pandas live in mountainous regions of central China.",
-            },
-            # p2 split into 2 chunks
-            {
-                "id": "c4",
-                "parent_id": "p2",
-                "content": "Python is a high-level programming language.",
-            },
-            {
-                "id": "c5",
-                "parent_id": "p2",
-                "content": "Python supports object-oriented and functional programming.",
-            },
-            # p3 split into 2 chunks
-            {
-                "id": "c6",
-                "parent_id": "p3",
-                "content": "Machine learning is a subset of artificial intelligence.",
-            },
-            {
-                "id": "c7",
-                "parent_id": "p3",
-                "content": "ML systems learn from data without explicit programming.",
-            },
-        ],
-    }
-
-    pdr_query = "What do giant pandas eat and where do they live?"
-    pdr_results = hybrid_search_pdr(pdr_query, pdr_result, top_n=2)
-
-    print(f"\nQuery: {pdr_query}\n")
-    print(
-        "Format: #rank  score  parent_id  tokens  child_text → parent_text (truncated)"
+    from jet.adapters.llama_cpp.examples.hybrid_utils.demo_basic import (
+        demo_hybrid_search_auto,
+        demo_hybrid_search_bm25,
+        demo_hybrid_search_model,
+        demo_hybrid_search_pdr,
     )
-    print("-" * 60)
-    for r in pdr_results:
-        child_preview = r["child_text"][:60].rstrip()
-        parent_preview = r["text"][:80].rstrip()
-        print(
-            f"  #{r['rank']}  score={r['score']:.4f}  "
-            f"parent={r['parent_id']}  tokens={r['num_tokens']}\n"
-            f"       child  : {child_preview!r}\n"
-            f"       parent : {parent_preview!r}...\n"
-        )
+
+    demo_hybrid_search_model()
+    demo_hybrid_search_bm25()
+    demo_hybrid_search_auto()
+    demo_hybrid_search_pdr()
